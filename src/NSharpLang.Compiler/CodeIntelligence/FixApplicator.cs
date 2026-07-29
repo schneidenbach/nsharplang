@@ -21,10 +21,7 @@ public static class FixApplicator
     public static List<CodeAction> GetFixesForFile(string filePath, string source)
     {
         // Parse
-        var lexer = new Lexer(source, filePath);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, filePath, source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(source, filePath);
 
         var ast = parseResult.CompilationUnit ?? new CompilationUnit(
             null,

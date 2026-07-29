@@ -112,10 +112,7 @@ public class CodeIntelligenceService
     public OutlineResult GetOutlineSingleFile(string filePath)
     {
         var source = File.ReadAllText(filePath);
-        var lexer = new Lexer(source, filePath);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, filePath, source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(source, filePath);
 
         if (parseResult.CompilationUnit == null)
         {

@@ -85,10 +85,7 @@ public static class LintCommand
                 try
                 {
                     var source = File.ReadAllText(file);
-                    var lexer = new Lexer(source, file);
-                    var tokens = lexer.Tokenize();
-                    var parser = new Parser(tokens, file, source);
-                    var parseResult = parser.ParseCompilationUnit();
+                    var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(source, file);
                     var parseErrors = CompilerErrorSeverityFilter.Filter(parseResult.Errors, ErrorSeverity.Error);
 
                     if (parseErrors.Count > 0)

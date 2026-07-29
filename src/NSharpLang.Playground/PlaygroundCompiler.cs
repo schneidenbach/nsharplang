@@ -70,8 +70,8 @@ public sealed class PlaygroundCompiler
         try
         {
             var lexer = new Lexer(normalizedSource, normalizedFileName);
-            var parser = new Parser(lexer.Tokenize(), normalizedFileName, normalizedSource);
-            var parseResult = parser.ParseCompilationUnit();
+            lexer.Tokenize();   // populates lexer.Comments for the formatter below
+            var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(normalizedSource, normalizedFileName);
             if (parseResult.CompilationUnit == null)
             {
                 return new PlaygroundFormatResponse(

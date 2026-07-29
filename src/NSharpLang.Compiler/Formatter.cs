@@ -32,9 +32,8 @@ public class Formatter
 
             var formatted = Format(ast, comments);
             var lexer = new Lexer(formatted, fileName);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, fileName, formatted);
-            var reparseResult = parser.ParseCompilationUnit();
+            lexer.Tokenize();   // populates lexer.Comments for the idempotence re-format below
+            var reparseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(formatted, fileName);
 
             if (reparseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
             {

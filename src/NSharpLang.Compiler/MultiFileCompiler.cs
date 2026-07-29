@@ -181,17 +181,13 @@ public class MultiFileCompiler
                 var source = ReadSourceText(sourceFile);
                 _sourceTexts[Path.GetFullPath(sourceFile)] = source;
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Read file ({source.Length} bytes)");
-                var lexer = new Lexer(source, sourceFile);
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Lexer created");
-                var tokens = lexer.Tokenize();
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Tokenized ({tokens.Count} tokens)");
                 // Resolve conditional-compilation directives (#if/#elif/#else/#endif) so the
-                // parser and all downstream stages only see the live branch.
-                tokens = Preprocessor.Process(tokens, _preprocessorSymbols, sourceFile, _allErrors);
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Preprocessed ({tokens.Count} tokens)");
-                var parser = new Parser(tokens, sourceFile, source);  // Pass source code
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Parser created");
-                var parseResult = parser.ParseCompilationUnit();
+                // parser and all downstream stages only see the live branch. The SOURCE-level
+                // overload (the one the columnar emit path already uses) blanks dead branches in
+                // place, so every surviving line and column is unchanged.
+                var live = Preprocessor.ProcessSource(source, _preprocessorSymbols, sourceFile, _allErrors);
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Preprocessed ({live.Length} bytes)");
+                var parseResult = ColumnarParserRecovery.ParseFileAst(live, sourceFile);
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Parsed compilation unit");
 
                 // Add parse errors to our error list

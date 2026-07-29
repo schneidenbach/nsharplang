@@ -1,6 +1,24 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-29 (STAGE N+1c TRANCHE 11 LANDED — **ERROR-NODE MATERIALIZATION: the MALFORMED-FILE
+Last updated: 2026-07-29 (**STAGE N+2 LANDED — THE PRODUCTION CUTOVER. The N# owner
+`ColumnarParserRecovery` is now the SOLE production parse + ordered-diagnostic authority.** All 12
+external production consumers (MultiFileCompiler.ParseAllFiles, Analyzer ×4, Formatter, CLI
+FormatSource + LintCommand, FixApplicator, CodeIntelligenceService, DocumentManager, PlaygroundCompiler)
+route to `ColumnarParserRecovery.ParseFileAst`, which now returns a `FileParseAst { CompilationUnit,
+Errors }` whose field names mirror `ParseResult`'s so every downstream read is byte-unchanged. Errors are
+Parser.cs's RAW recording order. Parser.cs is UNREFERENCED by production but NOT deleted (N+3). No shadow
+parse, no comparison route, no fallback flag. The owner's per-class member ceiling is respected — ZERO
+member functions added. SIX owner parity defects were found and fixed en route by a cutover-grade probe
+(Assign/Arrow `TokenTypeToString` renderings, the parameter-list boundary anchor, two non-parity
+`SplitGreaterDepth` resets, four retained `<error>`-name declines, and the `on`-handler report anchor).
+PROOF: 514 tree files + 452 malformed-corpus sources + 26,728 fuzz mutants = **27,694 sources, 0
+mismatches** on BOTH the whole tree and the raw-ordered diagnostic stream; corpus IL sweep **88/88
+comparable assemblies byte-identical** (PRODUCT_IL_DIFFS=0). GATES: unit 3,193/3,193, contracts
+1,550/1,550, ownership 18/18, dev.sh Parser 384/384, and the **FULL VS Code-enabled
+`./scripts/test-all.sh --commit` EXIT 0** with 36 VS Code integration tests passing; extension rebuilt +
+reinstalled. Ratchet repinned across the 9 touched C# files, all net-negative-or-neutral. No wall)
+
+Last updated (prior): 2026-07-29 (STAGE N+1c TRANCHE 11 LANDED — **ERROR-NODE MATERIALIZATION: the MALFORMED-FILE
 surface. The owner no longer DECLINES anywhere.** Every synthetic recovery artifact Parser.cs substitutes on
 malformed input is now REPRODUCED byte-exact: the 9 `IdentifierExpression("<error>")` production sites, the
 `IdentifierPattern("<error>")` terminal, the 3 `SimpleTypeReference("<error>")` parameter/field/new
@@ -142,12 +160,18 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   typing-owner port, async-func lowering, planner operand unlocks) or MECHANICAL. Resume 015 only
   when one of those owners lands. Emitter at 21,433/20,375 vs epoch 21,723/20,646 (−290 lines this
   task across 8 landed slices + 2 proven refutations + 1 restored regression).
-- 016 note: Parser.cs is the LSP-fallback parser — the eventual PRODUCTION-WIRING/cutover slices are
-  IDE-AFFECTING (VS Code-enabled gate + extension reinstall). The kernel-capability arc stages (Stages 1-8
-  landed) are NOT IDE-affecting: they add self-contained N# owner files + native contracts with
-  NO production/LSP wiring, so the non-VS-Code path suffices until cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS. The diagnostic-CAPABILITY arc (Stages 0-17) is COMPLETE and the
-  parity ledger is CLOSED; the arc has moved into the AST/facts BRIDGE (STAGE N+1); N+1a (preamble-node construction), N+1b
+- 016 note: the PRODUCTION-WIRING/cutover slice (N+2) has LANDED and was run on the IDE bar (VS Code-enabled
+  gate + extension reinstall), as recorded. Parser.cs is no longer the LSP parser or any other production
+  consumer's parser; it survives only as the host for the C# parser UNIT TESTS until N+3 deletes it. The
+  kernel-capability arc stages (Stages 1-8) were NOT IDE-affecting: they added self-contained N# owner files
+  + native contracts with NO production/LSP wiring, so the non-VS-Code path sufficed until the cutover.
+- Task 016 status: UNCHECKED, ARC IN PROGRESS. **STAGE N+2 (THE PRODUCTION CUTOVER) HAS LANDED — the N#
+  owner is the sole production parse + ordered-diagnostic authority and `Parser.cs` is production-dead.
+  The next and LAST sub-slice is N+3: migrate the C# parser unit tests (ParserTests / ParserErrorTests and
+  the parse helpers in FormatterTests / LinterTests / AnalyzerTests / CodeFixTests /
+  CompletionEngineTests / ErrorRecoveryPipelineTests / …) to native N# contracts against `ParseFileAst`,
+  then DELETE `Parser.cs` and retire its `compiler-core` ratchet row.** The diagnostic-CAPABILITY arc
+  (Stages 0-17) is COMPLETE and the parity ledger is CLOSED; the arc has moved into the AST/facts BRIDGE (STAGE N+1); N+1a (preamble-node construction), N+1b
   (the full AST-hierarchy MIGRATION from C# records to N# classes — the C# `Ast/` directory DELETED, CompilationUnit now
   owner-constructable, the Except site made reference-based), N+1c TRANCHE 1 (the owner's `ParseFileAst` now returns a
   real `CompilationUnit` for the container + preamble + FileImports + empty-body struct/interface/enum/record top-level
@@ -208,7 +232,136 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): STAGE N+1c (FULL-TREE AST
+- Active sub-slice (016 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **STAGE N+2 — THE PRODUCTION
+  CUTOVER.** TARGET: route EVERY production consumer of `Parser.ParseCompilationUnit()` to the N# owner
+  `ColumnarParserRecovery`, so the owner becomes the sole production parse + ordered-diagnostic authority.
+  Parser.cs is left UNREFERENCED by production but NOT deleted (deletion + the C# parser-test migration is
+  N+3). No shadow parse, no comparison route, no fallback flag.
+  OWNER SHAPE: `ParseFileAst(source, fileName)` currently returns a bare `CompilationUnit`, but consumers need
+  the diagnostics too. It gains a result class (`FileParseAst { CompilationUnit, Errors }`) whose FIELD NAMES
+  match `ParseResult`'s, so each consumer's downstream reads are byte-identical and the routing edit is a
+  one-line replacement of the Lexer+Parser pair. Errors are the RAW recording-order list (Parser.cs returns
+  `_errors` unsorted; `SortErrorsByPosition` stays the ParseFilePreamble/CLI-oracle path only) — verified by
+  probe, see below. This adds NO member FUNCTION to the owner class (the per-class ceiling holds: a new
+  top-level class + a changed return type only).
+  CONSUMER INVENTORY (re-verified by grep of `new Parser(` / `ParseCompilationUnit` across src — 12 external
+  production sites + Parser.cs's own interpolation sub-parser, which is internal and stays):
+  MultiFileCompiler.ParseAllFiles :192; Analyzer :19133 (project unit cache), :21704 (file-import unit),
+  :22025 (project namespaces), :22059 (per-file namespace); Formatter.FormatSafe :36 (re-parse gate);
+  CLI Program.FormatSource :688; CLI LintCommand :90; CodeIntelligence FixApplicator :26 and
+  CodeIntelligenceService.GetOutlineSingleFile :117; LanguageServer DocumentManager :250; Playground
+  PlaygroundCompiler :73.
+  STAGING: (1) the NON-IDE consumers first (compiler front-end, CLI, CodeIntelligence, Playground), proven by
+  the non-VS-Code gate + a corpus IL byte-exact sweep (identical trees → identical analysis → identical IL,
+  fresh Release CLIs at baseline and after over every example/fixture/native target); (2) then the LSP
+  (DocumentManager) with `./scripts/reload-vscode-extension.sh` + the FULL VS Code-enabled gate.
+  KNOWN NON-MECHANICAL POINT (recorded before editing): MultiFileCompiler is the ONLY consumer that
+  preprocesses (`Preprocessor.Process(tokens…)` at :190) before parsing. The owner tokenizes internally, so
+  that site routes through the SOURCE-level `Preprocessor.ProcessSource(source…)` — the same overload
+  MultiFileCompiler ALREADY uses for the columnar emit path at :495, which blanks non-emitted lines in place
+  and so preserves every line/column. Exactly ONE file in the tree carries `#if`
+  (`examples/11-advanced-features/PreprocessorDirectives`), and it is in the IL sweep corpus.
+  Sites that ALSO need the Lexer for comments/tokens (Formatter, CLI FormatSource, Playground,
+  DocumentManager) keep their Lexer and lex twice; the owner's internal lex is the parse input.
+  **RESULT: LANDED IN FULL (no commit — mandate). THE N# OWNER IS NOW THE SOLE PRODUCTION PARSE AND
+  ORDERED-DIAGNOSTIC AUTHORITY.** `grep` of `new Parser(` / `ParseCompilationUnit` across `src/` +
+  `editors/` returns exactly TWO hits, both inside `Parser.cs` itself (its own entry :28 and its
+  interpolation-hole SUB-parser :5148). No production type reference to `Parser` survives anywhere else.
+  ROUTING TABLE (before → after, net tracked lines):
+  * `MultiFileCompiler.ParseAllFiles` :184-195 — Lexer+Tokenize+`Preprocessor.Process(tokens…)`+Parser
+    (11 lines) → `Preprocessor.ProcessSource(source…)` + `ColumnarParserRecovery.ParseFileAst(live, …)`
+    (7 lines). **−4.** The ONE non-mechanical point, recorded above: the token-level preprocessor is
+    replaced by the SOURCE-level overload already used at :495 for the columnar emit path.
+  * `Analyzer` ×4 — :19132 project-unit cache, :21701 file-import unit, :22023 project namespaces,
+    :22052 per-file namespace: each Lexer(+Tokenize)+Parser+ParseCompilationUnit collapses to ONE
+    `ColumnarParserRecovery.ParseFileAst(...)`; one `using NSharpLang.Compiler.Columnar;` added. **−8.**
+  * `Formatter.FormatSafe` :34 — the re-parse gate; the Lexer STAYS (its `Comments` feed the idempotence
+    re-format), `Tokenize()` is called for that side-effect only. **−1.**
+  * `CLI Program.FormatSource` :686 — same shape (Lexer kept for `lexer.Comments`). **−1.**
+  * `CLI LintCommand` :88. **−3.**  * `CodeIntelligence.FixApplicator` :24. **−3.**
+  * `CodeIntelligenceService.GetOutlineSingleFile` :115. **−3.**
+  * `PlaygroundCompiler` :72 — Lexer kept for `lexer.Comments`. **0.**
+  * `LanguageServer DocumentManager.UpdateDocument` :250 — Lexer kept (`state.Tokens` / `state.Comments`
+    feed completion + semantic tokens); only the Parser pair is replaced. **−1.**
+  Every downstream read (`parseResult.CompilationUnit`, `parseResult.Errors`) is BYTE-UNCHANGED at all
+  12 sites, because the owner's new result class names its fields exactly as `ParseResult` does.
+  OWNER CHANGE (N#): a new leaf class `FileParseAst { CompilationUnit: CompilationUnit?; Errors:
+  List<CompilerError> }` (the `PreambleAst` precedent) and `ParseFileAst` now returns it instead of a bare
+  `CompilationUnit`. Errors are the RAW RECORDING-ORDER list — Parser.cs returns `_errors` unsorted, so
+  `SortErrorsByPosition` stays the `ParseFilePreamble` / CLI-oracle path only. **The per-class member
+  ceiling is RESPECTED: zero member functions added** (a new top-level class + a changed return type).
+  SIX OWNER PARITY DEFECTS FOUND AND FIXED by the cutover-grade probe — all invisible to the tranche-11
+  probe, which compared fewer diagnostic fields and did not fuzz these shapes:
+  (1) the object-initializer INDEXER `Consume(Assign)` passed `"="` where Parser.cs's `TokenTypeToString`
+  has NO `Assign` case and renders `"assign"` (`TokenType.Equal` is the one mapped to `"="`);
+  (2) the multi-parameter LAMBDA `Consume(Arrow)` passed `"=>"` where `TokenTypeToString(Arrow)` renders
+  `"arrow"`. An exhaustive audit of all 21 `ConsumeToken(TokenType.X, msg, expected)` shapes confirms the
+  other 19 already match `TokenTypeToString`;
+  (3) `ParseParameterListRecovery` anchored `IsParameterListRecoveryBoundary` on the LIST'S OPENING token;
+  Parser.cs anchors on `Previous` at EACH iteration (:778) — the `(` on the first pass, the `,` on later
+  ones — so a same-line continuation after a comma is never a boundary. With the wrong anchor a
+  `record R(\n  B: int,func\n  C: int)` broke out of the parameter list and re-parsed `func …` as a MEMBER
+  where Parser.cs consumes the reserved keyword and keeps going into the base list;
+  (4) the owner reset `SplitGreaterDepth = 0` unconditionally at BOTH the top-level and the member
+  boundary; Parser.cs resets the split-`>>` debt ONLY inside SynchronizeToNextDeclaration/Statement
+  (:7044/:7088), so `class C { A: X<Y>>\n B: int }` must carry the owed `>` across the member boundary
+  and produce the field literally named `>`;
+  (5) FOUR retained `<error>`-name DECLINES — both tuple-deconstruction forms (parenthesized :2589 and
+  bare :3573), `foreach` (:2784), `await foreach` (:2814) and the `using` declaration (:3109). Parser.cs
+  adds every name it gets from `ConsumeIdentifier`, placeholders included, so these are reproduced now;
+  the surviving `IsVisibleName` uses are message-SHAPING only (parameter/field type anchors, the
+  object-initializer colon report), never gates;
+  (6) the `on`-subscription "Expected an event handler lambda" NL103 anchored on the pre-parse cursor;
+  Parser.cs anchors on the PARSED handler expression's own Line/Column (:2926-2929), which for a binary
+  expression is the OPERATOR column, not the first token.
+  PROOF (whole tree AND the RAW-ordered diagnostic stream — code / severity / line / column / length /
+  message / humanExplanation / contextualHint / suggestion / fileName / docsUrl / diagnosticId /
+  suggestions; trees through the identical `OutputFormatter.AstToJson`):
+  * **WHOLE-TREE 514 / 514** `.nl` files in the working tree.
+  * **MALFORMED-CORPUS 452 / 452** non-empty `RunPreamble(…)` / `RunPreambleAst(…)` sources extracted from
+    the arc's diagnostic parity corpus.
+  * **FUZZ 26,728 / 26,728** LSP-shaped mutants over 11 independently seeded rounds (truncation /
+    structural-character deletion / whole-line deletion / token-garbage injection). Rounds on seeds
+    11/23/47/101/303/707 caught the six defects above; after the fixes ALL eleven rounds are 100%.
+  * **TOTAL PROVEN: 27,694 sources, 0 mismatches, 0 exceptions.**
+  CORPUS IL BYTE-EXACT SWEEP (fresh Release CLIs at baseline `b0ad09fd9` and after, over EVERY
+  example/fixture/native target — 40 `project.yml` builds + 31 single-file examples + 18 `nlc test`
+  native assemblies = **89 emitted assemblies**): **88 / 88 comparable assemblies BYTE-IDENTICAL**
+  after normalizing ONLY the two provably run-varying PE fields (the COFF TimeDateStamp and the `#GUID`
+  heap that carries the module MVID — a same-CLI rebuild differs in exactly those 17 bytes). The 89th,
+  `tests/native/ownership-audit`, differs solely because its OWN N# source carries the new
+  `ReviewedHeadFingerprint` constant. **PRODUCT_IL_DIFFS = 0.**
+  EVIDENCE: full unit suite **3,193 / 3,193**; BootstrapServices contracts **1,550 / 1,550** via the
+  canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
+  (the 3 ExternalAssemblyScan Debug-layout tests did NOT trip); ownership audit **18 / 18**;
+  `./scripts/dev.sh Parser` **384 / 384**; **the FULL VS Code-ENABLED gate `./scripts/test-all.sh --commit`
+  (no `VSCODE_TESTS=skip`) EXIT 0** in 13m44s — VS Code integration smoke **36 passing** (extension,
+  diagnostics, hover, completion), Web API template listed/created/built, IL verification gate,
+  format-contract gate, all 24 native N# projects, all example + single-file builds, `nlc check` on
+  examples. `./scripts/reload-vscode-extension.sh` run: `nsharp-0.6.0.vsix` rebuilt and installed, VS Code
+  reopened on `examples/01-hello-world` for the coordinator's visual-verification record.
+  RATCHET: 9 tracked C# files touched, every one **net-negative or net-neutral**, so no comment
+  compression was needed — LintCommand.cs 205→202 (nonblank 186→183, epoch 205/186), Program.cs 787→786
+  (683→682, epoch 787/683), Analyzer.cs 23068→23060 (20254→20246, epoch 23451/20537),
+  CodeIntelligenceService.cs 1906→1903 (1667→1664, epoch 1906/1667), FixApplicator.cs 57→54 (50→47,
+  epoch 57/50), Formatter.cs 2303→2302 (2128→2127, epoch 2303/2128), MultiFileCompiler.cs 669→665
+  (593→589, epoch 670/595), DocumentManager.cs 1450→1449 (1247→1246, epoch 1450/1247),
+  PlaygroundCompiler.cs 614→614 (556→556, epoch 614/556). REPIN via `scratchpad/repin_015_s3.py` with
+  CHANGED covering exactly those 9: `current*` + per-file fingerprints only, plus
+  `reviewedHeadFingerprint head-v1:682bbdb2c76e50c8 → head-v1:18244d220963ad03` mirrored into
+  `OwnershipAudit.nl`. **Every `epoch*` value and both epoch fingerprints untouched and re-validated
+  after the write.** All net-new code is N#.
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change; the packaged SDK self-emits
+  every owner edit.
+  CONSUMERS LEFT UNROUTED: **NONE.** No divergence forced a stop; the six defects above were fixed in the
+  N# owner, never worked around in a consumer.
+  N+3 DELETION-ARC READINESS: `Parser.cs` (7,116 lines) is now dead to production — its only remaining
+  callers are `tests/` unit tests (ParserTests / ParserErrorTests / FormatterTests / LinterTests /
+  AnalyzerTests / CodeFixTests / CompletionEngineTests / ErrorRecoveryPipelineTests / … , which is why the
+  full unit suite still shows 3,193 green). N+3 is therefore exactly: migrate those C# parser assertions
+  to native N# contracts against `ParseFileAst`, then delete `Parser.cs` and retire its `compiler-core`
+  ratchet row. Nothing in the product path blocks that deletion any more.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST
   MATERIALIZATION), TRANCHE 11 = **ERROR-NODE MATERIALIZATION — the MALFORMED-FILE surface**. TARGET:
   (1) reproduce, byte-exact, EVERY synthetic recovery artifact Parser.cs produces on malformed input
   (`IdentifierExpression("<error>")` at each of its production sites, the `IdentifierPattern("<error>")`

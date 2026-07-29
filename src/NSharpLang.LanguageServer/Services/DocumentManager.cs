@@ -247,8 +247,7 @@ public class DocumentManager
             state.Tokens = lexer.Tokenize();
             state.Comments = lexer.Comments;
 
-            var parser = new Parser(state.Tokens, filePath, text);  // Pass source code for error snippets
-            var parseResult = parser.ParseCompilationUnit();
+            var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(text, filePath);
             state.CompilationUnit = parseResult.CompilationUnit;
 
             // Start with parse errors

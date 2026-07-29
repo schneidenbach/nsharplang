@@ -602,7 +602,7 @@ public class AstEq {
 // ---- corpus harness helpers ----
 
 func RunAst(source: string): CompilationUnit {
-    return ColumnarParserRecovery.ParseFileAst(source, "a.nl")
+    return ColumnarParserRecovery.ParseFileAst(source, "a.nl").CompilationUnit
 }
 
 func NoDecls(): List<Declaration> {

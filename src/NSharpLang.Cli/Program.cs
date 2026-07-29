@@ -684,9 +684,8 @@ partial class Program
     static string FormatSource(string source, string file, string projectRoot)
     {
         var lexer = new Lexer(source, file);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, file, source);
-        var parseResult = parser.ParseCompilationUnit();
+        lexer.Tokenize();   // populates lexer.Comments for the formatter below
+        var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(source, file);
 
         if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
         {

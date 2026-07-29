@@ -118,6 +118,22 @@ public class PreambleAst {
     }
 }
 
+// Stage N+2 (the PRODUCTION CUTOVER): the owner's whole-file parse output — exactly the pair every
+// consumer of Parser.cs reads off `ParseResult`. The field NAMES mirror ParseResult's (`CompilationUnit`
+// / `Errors`) so a routed consumer's downstream reads are unchanged; `Success` is deliberately absent
+// because no consumer reads it (verified consumer-by-consumer; see the STATUS N+1 design record).
+// Errors are in Parser.cs's RECORDING order — the raw `_errors` order ParseResult carries, NOT the
+// position-sorted order ParseFilePreamble returns for the CLI-shaped oracle comparison.
+public class FileParseAst {
+    CompilationUnit: CompilationUnit?
+    Errors: List<CompilerError>
+
+    constructor(unit: CompilationUnit?, errors: List<CompilerError>) {
+        CompilationUnit = unit
+        Errors = errors
+    }
+}
+
 // Stage 1 of the task-016 parser-front-end arc: a faithful N# reproduction of the
 // Parser.cs shared-panic recovery model, carrying the import / namespace / package
 // diagnostic family end-to-end.
@@ -332,26 +348,27 @@ public class ColumnarParserRecovery {
             recovery.SortErrorsByPosition(recovery.Errors))
     }
 
-    // Stage N+1c (full-tree AST materialization): parse a WHOLE file and return the production
-    // `CompilationUnit` the owner constructs — the same container Parser.cs's ParseCompilationUnit
-    // hangs on ParseResult.CompilationUnit (:111), assembled from the preamble nodes, the file-import
-    // statements, and the top-level declaration nodes materialized as a side-effect of the recovery
-    // grammar. Line/Column are the first-token position (Parser.cs :33-34). This is a TEST-ONLY entry
-    // (consumed only by the AST-bridge parity contracts); Parser.cs remains the sole production authority
-    // until the N+2 cutover. Tranche 1 materializes the container + FileImports + the empty-body top-level
-    // type declarations; the remaining families (functions/members/statements/expressions) are later
-    // tranches, so a whole-file CompilationUnit is byte-stable to Parser.cs only over the tranche corpus.
-    public static func ParseFileAst(source: string, fileName: string?): CompilationUnit {
+    // Stage N+1c (full-tree AST materialization) / Stage N+2 (the PRODUCTION CUTOVER): parse a WHOLE file
+    // and return the production `CompilationUnit` the owner constructs together with the owned diagnostics —
+    // the exact pair Parser.cs's ParseCompilationUnit hangs on ParseResult (:111/:115), assembled from the
+    // preamble nodes, the file-import statements, and the top-level declaration nodes materialized as a
+    // side-effect of the recovery grammar. Line/Column are the first-token position (Parser.cs :33-34);
+    // Errors are Parser.cs's RECORDING order, not the position-sorted CLI-oracle order. This is now the
+    // PRODUCTION parse entry: every consumer that read `ParseResult` reads this instead, and the tokenizing
+    // is internal (the consumer no longer builds a Lexer/Parser pair for parsing).
+    public static func ParseFileAst(source: string, fileName: string?): FileParseAst {
         recovery := new ColumnarParserRecovery(source, fileName)
         recovery.Run()
-        return new CompilationUnit(
-            recovery.NamespaceNode,
-            recovery.ImportNodes,
-            recovery.FileImportNodes,
-            recovery.PackageNode,
-            recovery.DeclarationNodes,
-            recovery.UnitLine,
-            recovery.UnitColumn)
+        return new FileParseAst(
+            new CompilationUnit(
+                recovery.NamespaceNode,
+                recovery.ImportNodes,
+                recovery.FileImportNodes,
+                recovery.PackageNode,
+                recovery.DeclarationNodes,
+                recovery.UnitLine,
+                recovery.UnitColumn),
+            recovery.Errors)
     }
 
     // Stable insertion sort by (Line, Column), mirroring the CLI's DiagnosticIndexComesAfter (the File
@@ -801,7 +818,9 @@ public class ColumnarParserRecovery {
         // recovery, the offending token) or the stray top-level token.
         while !IsAtEnd() {
             PanicMode = false
-            SplitGreaterDepth = 0        // reset with panic at the declaration boundary (Parser.cs :7042)
+            // NOTE: Parser.cs's top-level loop resets ONLY panic here (:83). The split-`>>` debt is
+            // reset exclusively inside SynchronizeToNextDeclaration/Statement (:7044/:7088), so an
+            // owed `>` survives a clean declaration boundary exactly as it does in Parser.cs.
             startPosition := Position
             // Stage N+1c tranche 11: Parser.cs's TOP-LEVEL loop also sets the recovery-boundary column to the
             // declaration's first token and restores it afterwards (:85-95) — the same save/set/restore the
@@ -1166,7 +1185,6 @@ public class ColumnarParserRecovery {
         // and then runs the whole do-loop regardless — an ABSENT `(` reports and still reaches the parameter
         // grammar (`func 5` builds an `<error>`-named parameter with an `<error>` type). The former early
         // return skipped both the report and the parameter, so it is retired.
-        openingToken := Current()
         ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
 
         if !Check(TokenType.RightParen) {
@@ -1184,7 +1202,10 @@ public class ColumnarParserRecovery {
                     // accumulated so far — a partial list, not a decline.
                     parsing = false
                 } else {
-                    if IsParameterListRecoveryBoundary(openingToken) {
+                    // Parser.cs anchors this on `Previous` (:778) — the token BEFORE the cursor at each
+                    // iteration (the `(` on the first pass, the `,` on every later one), NOT the list's
+                    // opening token, so a same-line continuation after a comma is never a boundary.
+                    if IsParameterListRecoveryBoundary(Previous()) {
                         parsing = false             // Parser.cs :778 break — the partial list is the result
                     } else {
                         // Per-parameter attributes (Parser.cs :781), before the modifier/name.
@@ -1483,7 +1504,8 @@ public class ColumnarParserRecovery {
     func ParseMemberList(ownerSpan: RecoverySpan?) {
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
             PanicMode = false                   // reset at each member boundary (Parser.cs :1365)
-            SplitGreaterDepth = 0
+            // Parser.cs resets ONLY panic here; the split-`>>` debt survives the member boundary and
+            // is cleared exclusively by SynchronizeToNextDeclaration/Statement (:7044/:7088).
             startPosition := Position
             // The member's start column is the recovery boundary for its own body/initializer
             // expression recovery (Parser.cs :1367-1376, saved/restored around ParseMemberDeclaration).
@@ -4419,20 +4441,16 @@ public class ColumnarParserRecovery {
     // Parser.cs ParseTupleDeconstruction (:2570): `(a, b, …) := expr` / `(a, b) = expr`. The name list,
     // the ':='/'=' requirement (NL102 when absent, then skip the offender), and the required initializer.
     // Stage N+1c tranche 10: RETURNS `new TupleDeconstructionStatement(names, initializer, kind, line,
-    // column)` (Parser.cs :2637); declines when any name is `<error>` or the initializer did not materialize.
+    // column)` (Parser.cs :2637); declines only when the initializer did not materialize. An `<error>`
+    // element name is a RECOVERY ARTIFACT Parser.cs keeps in the list verbatim (:2589 adds every name
+    // unconditionally), so it is reproduced rather than declined.
     func ParseTupleDeconstruction(kind: VariableKind, line: int, column: int): Statement? {
         ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
 
         names := new List<string>()
-        namesOk := true
         scanning := true
         while scanning {
-            elementName := ConsumeIdentifier("Expected identifier or '_'")
-            if IsVisibleName(elementName) {
-                names.Add(elementName)
-            } else {
-                namesOk = false
-            }
+            names.Add(ConsumeIdentifier("Expected identifier or '_'"))
             if Check(TokenType.Comma) {
                 Advance()
             } else {
@@ -4460,7 +4478,7 @@ public class ColumnarParserRecovery {
             initializer = ParseRequiredExpressionAfter(Current(), "an initializer expression", "This tuple deconstruction", null)
         }
 
-        if !namesOk || initializer == null {
+        if initializer == null {
             return null
         }
         return new TupleDeconstructionStatement(names, initializer, kind, line, column)
@@ -4657,7 +4675,9 @@ public class ColumnarParserRecovery {
             ConsumeToken(TokenType.RightParen, "Expected ')' to match opening '('", ")")
         }
         body := ParseStatement(SpanFromToken(foreachToken))
-        if !IsVisibleName(variableName) || collection == null || body == null {
+        // An `<error>` loop-variable name is a RECOVERY ARTIFACT Parser.cs threads through verbatim
+        // (:2784 constructs with whatever ConsumeIdentifier returned), so it is reproduced, not declined.
+        if collection == null || body == null {
             return null
         }
         return new ForeachStatement(variableName, collection, body, line, column)
@@ -4816,7 +4836,8 @@ public class ColumnarParserRecovery {
             ConsumeToken(TokenType.RightParen, "Expected ')' to match opening '('", ")")
         }
         body := ParseStatement(SpanFromToken(foreachToken))
-        if !IsVisibleName(variableName) || collection == null || body == null {
+        // As for foreach: Parser.cs :2814 keeps an `<error>` loop-variable name verbatim.
+        if collection == null || body == null {
             return null
         }
         return new AwaitForEachStatement(variableName, collection, body, line, column)
@@ -5036,7 +5057,8 @@ public class ColumnarParserRecovery {
                 initializerToken := ConsumeToken(TokenType.ColonAssign, "Expected ':='", "colonassign")
                 initializer := ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This using declaration", null)
                 // Parser.cs :3109 anchors this synthesized declaration on the USING keyword's line/column.
-                if !IsVisibleName(variableName) || initializer == null {
+                // Parser.cs :3109 keeps an `<error>` variable name verbatim.
+                if initializer == null {
                     declined = true
                 } else {
                     declaration = new VariableDeclarationStatement(variableName, null, initializer, VariableKind.Let, line, column)
@@ -5656,7 +5678,15 @@ public class ColumnarParserRecovery {
         handlerIsLambda := IsLambdaExpression() || (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow)
         handlerNode := ParseExprValue().Node    // the handler (ParseLambdaOrAssignmentExpression)
         if !handlerIsLambda {
-            ReportExpectedEventHandlerLambda(handlerLine, handlerColumn)
+            // Parser.cs anchors this report on the PARSED handler expression's OWN Line/Column
+            // (:2926-2929), which is not the handler's first token for every node shape — a binary
+            // expression, for instance, anchors on its OPERATOR. Fall back to the pre-parse token
+            // position only when nothing materialized.
+            if handlerNode != null {
+                ReportExpectedEventHandlerLambda(handlerNode.Line, handlerNode.Column)
+            } else {
+                ReportExpectedEventHandlerLambda(handlerLine, handlerColumn)
+            }
         }
         onResult := new ExprResult(new RecoverySpan(onLine, onColumn, 1), false)
         handlerLambda := handlerNode as LambdaExpression
@@ -5777,15 +5807,10 @@ public class ColumnarParserRecovery {
             }
             if isTuple {
                 names := new List<string>()
-                namesOk := true
                 namesScanning := true
                 while namesScanning {
-                    elementName := ConsumeIdentifier("Expected identifier or '_'")
-                    if IsVisibleName(elementName) {
-                        names.Add(elementName)
-                    } else {
-                        namesOk = false
-                    }
+                    // Parser.cs :3573 adds EVERY name, `<error>` placeholders included.
+                    names.Add(ConsumeIdentifier("Expected identifier or '_'"))
                     if Check(TokenType.Comma) {
                         Advance()
                     } else {
@@ -5798,7 +5823,7 @@ public class ColumnarParserRecovery {
                     "an initializer expression",
                     "This tuple deconstruction",
                     new RecoverySpan(line, column, MaxInt(1, initializerToken.Column - column)))
-                if !namesOk || tupleInitializer == null {
+                if tupleInitializer == null {
                     return null
                 }
                 return new TupleDeconstructionStatement(names, tupleInitializer, VariableKind.Let, line, column)
@@ -6080,7 +6105,7 @@ public class ColumnarParserRecovery {
         }
 
         ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-        arrowToken := ConsumeToken(TokenType.Arrow, "Expected '=>'", "=>")
+        arrowToken := ConsumeToken(TokenType.Arrow, "Expected '=>'", "arrow")
 
         multiLambdaBody: Expression? = null
         multiLambdaBlockBody: BlockStatement? = null
@@ -8135,7 +8160,7 @@ public class ColumnarParserRecovery {
                     Advance()
                     indexExpression := ParseExprValue().Node
                     ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
-                    ConsumeToken(TokenType.Assign, "Expected '='", "=")
+                    ConsumeToken(TokenType.Assign, "Expected '='", "assign")
                     indexValue := ParseExprValue().Node
                     if indexExpression == null || indexValue == null {
                         propertiesDeclined = true

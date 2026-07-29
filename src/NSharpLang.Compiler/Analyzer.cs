@@ -12,6 +12,7 @@ using System.Text.Json;
 using System.Threading;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Compiler;
 
@@ -19129,9 +19130,7 @@ public class Analyzer : IDisposable
 
         try
         {
-            var lexer = new Lexer(sourceText, fullPath);
-            var parser = new Parser(lexer.Tokenize(), fullPath, sourceText);
-            var parseResult = parser.ParseCompilationUnit();
+            var parseResult = ColumnarParserRecovery.ParseFileAst(sourceText, fullPath);
             _projectCompilationUnitCache[fullPath] = parseResult.CompilationUnit;
             return parseResult.CompilationUnit;
         }
@@ -21699,10 +21698,7 @@ public class Analyzer : IDisposable
         try
         {
             importedSource = TryGetProjectSourceText(resolvedPath) ?? System.IO.File.ReadAllText(resolvedPath);
-            var lexer = new Lexer(importedSource, resolvedPath);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, resolvedPath, importedSource);  // Pass source code
-            var parseResult = parser.ParseCompilationUnit();
+            var parseResult = ColumnarParserRecovery.ParseFileAst(importedSource, resolvedPath);
             importedUnit = parseResult.CompilationUnit;
 
             foreach (var error in parseResult.Errors)
@@ -22021,9 +22017,7 @@ public class Analyzer : IDisposable
         foreach (var filePath in ProjectConfig.EnumerateSourceFiles(projectRoot))
         {
                 var source = File.ReadAllText(filePath);
-                var lexer = new Lexer(source, filePath);
-                var parser = new Parser(lexer.Tokenize(), filePath, source);
-                var parseResult = parser.ParseCompilationUnit();
+                var parseResult = ColumnarParserRecovery.ParseFileAst(source, filePath);
                 var declaredNamespace = GetUnitNamespace(parseResult.CompilationUnit);
                 if (!string.IsNullOrWhiteSpace(declaredNamespace))
                 {
@@ -22055,9 +22049,7 @@ public class Analyzer : IDisposable
         }
 
             var source = File.ReadAllText(fullPath);
-            var lexer = new Lexer(source, fullPath);
-            var parser = new Parser(lexer.Tokenize(), fullPath, source);
-            var parseResult = parser.ParseCompilationUnit();
+            var parseResult = ColumnarParserRecovery.ParseFileAst(source, fullPath);
             var declaredNamespace = GetUnitNamespace(parseResult.CompilationUnit);
             _projectFileNamespaceCache[fullPath] = declaredNamespace;
             return declaredNamespace;
