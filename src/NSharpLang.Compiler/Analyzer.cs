@@ -6686,7 +6686,7 @@ public class Analyzer : IDisposable
 
         if (!_allowSyntheticSoaOperationReference
             && flowType is FunctionTypeInfo { SyntheticName: { Length: > 0 } } syntheticSoaOperation
-            && !HasSourceFunctionIdentity(syntheticSoaOperation))
+            && !AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(syntheticSoaOperation))
         {
             ReportSyntheticSoaOperationUsedAsValue(expr, syntheticSoaOperation);
             return BuiltInTypes.Unknown;
@@ -6773,20 +6773,8 @@ public class Analyzer : IDisposable
             return false;
 
         var resolvedType = ResolveTypeAlias(type);
-        return IsCallableReferenceType(resolvedType);
+        return AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType);
     }
-
-    private static bool IsCallableReferenceType(TypeInfo type)
-        => IsMethodGroupReferenceType(type)
-            || type is FunctionTypeInfo functionType && HasSourceFunctionIdentity(functionType);
-
-    private static bool IsMethodGroupReferenceType(TypeInfo type)
-        => type is ReflectionMethodInfo
-            or ReflectionMethodGroupInfo
-            or NSharpMethodGroupInfo;
-
-    private static bool HasSourceFunctionIdentity(FunctionTypeInfo functionType)
-        => !string.IsNullOrEmpty(functionType.SourceName);
 
     private void ReportSyntheticSoaOperationUsedAsValue(Expression expression, FunctionTypeInfo operation)
     {
@@ -6824,17 +6812,12 @@ public class Analyzer : IDisposable
         {
             FunctionTypeInfo => true,
             GenericTypeInfo { Name: "Func" or "Action" } => true,
-            ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || IsRuntimeDelegateType(reflection.Type),
+            ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflection.Type),
             ObliviousTypeInfo oblivious => CanBindCallableReferenceToExpectedType(oblivious.InnerType),
             NullableTypeInfo nullable => CanBindCallableReferenceToExpectedType(nullable.InnerType),
             _ => false
         };
     }
-
-    private static bool IsRuntimeDelegateType(Type type)
-        => typeof(Delegate).IsAssignableFrom(type)
-            && type != typeof(Delegate)
-            && type != typeof(MulticastDelegate);
 
     private void ReportMethodGroupUsedAsValue(Expression expression, TypeInfo type)
     {
@@ -6888,7 +6871,7 @@ public class Analyzer : IDisposable
     private string GetArgumentTypeDiagnosticName(Argument argument, TypeInfo type)
     {
         var resolvedType = ResolveTypeAlias(type);
-        if (IsCallableReferenceType(resolvedType))
+        if (AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType))
         {
             var name = GetCallableReferenceName(argument.Value, resolvedType);
             return $"method group '{name}'";
@@ -6901,7 +6884,7 @@ public class Analyzer : IDisposable
     {
         var resolvedType = ResolveTypeAlias(type);
         var name = GetArgumentTypeDiagnosticName(argument, type);
-        return IsCallableReferenceType(resolvedType) ? name : $"'{name}'";
+        return AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType) ? name : $"'{name}'";
     }
 
     private TypeInfo ApplyNullabilityFlowType(Expression expr, TypeInfo type, NullState nullState)
@@ -11630,7 +11613,7 @@ public class Analyzer : IDisposable
 
             var symbol = LookupSymbol(identifier.Name);
             if (symbol is NSharpMethodGroupInfo
-                || symbol is FunctionTypeInfo functionType && HasSourceFunctionIdentity(functionType))
+                || symbol is FunctionTypeInfo functionType && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType))
             {
                 name = identifier.Name;
                 return true;
@@ -13326,7 +13309,7 @@ public class Analyzer : IDisposable
         bool TryGetMatchScore(FunctionTypeInfo functionType, out int candidateScore)
         {
             candidateScore = 0;
-            return HasSourceFunctionIdentity(functionType)
+            return AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType)
                 && TryGetRuntimeDelegateMethodGroupMatchScore(functionType, expectedSignature, out candidateScore);
         }
 
@@ -14174,7 +14157,7 @@ public class Analyzer : IDisposable
         {
             FunctionTypeInfo => true,
             GenericTypeInfo { Name: "Func" or "Action" } => true,
-            ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || IsRuntimeDelegateType(reflection.Type),
+            ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflection.Type),
             ObliviousTypeInfo oblivious => IsDelegateLikeAssignmentType(oblivious.InnerType),
             NullableTypeInfo nullable => IsDelegateLikeAssignmentType(nullable.InnerType),
             _ => false
@@ -17005,7 +16988,7 @@ public class Analyzer : IDisposable
         }
 
         if (resolved is NSharpMethodGroupInfo or ReflectionMethodGroupInfo or ReflectionMethodInfo or ReflectionEventInfo
-            || resolved is FunctionTypeInfo functionType && HasSourceFunctionIdentity(functionType))
+            || resolved is FunctionTypeInfo functionType && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType))
         {
             return false;
         }
@@ -19638,23 +19621,23 @@ public class Analyzer : IDisposable
         if (resolvedSource is AnonymousUnionTypeInfo unionSource)
             return unionSource.Arms.All(sourceArm => IsAssignable(resolvedTarget, sourceArm));
 
-        if (resolvedSource is FunctionTypeInfo sourceFunction && HasSourceFunctionIdentity(sourceFunction))
+        if (resolvedSource is FunctionTypeInfo sourceFunction && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(sourceFunction))
         {
             if (!CanBindCallableReferenceToExpectedType(resolvedTarget))
                 return false;
 
-            if (resolvedTarget is ReflectionTypeInfo reflectionTarget && IsRuntimeDelegateType(reflectionTarget.Type))
+            if (resolvedTarget is ReflectionTypeInfo reflectionTarget && AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionTarget.Type))
             {
                 var delegateSignature = CreateFunctionTypeInfoFromDelegate(reflectionTarget.Type);
                 return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(sourceFunction, delegateSignature);
             }
         }
-        else if (IsMethodGroupReferenceType(resolvedSource))
+        else if (AnalyzerCallableReferenceFacts.IsMethodGroupReferenceType(resolvedSource))
         {
             return false;
         }
 
-        if (IsCallableReferenceType(resolvedTarget))
+        if (AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedTarget))
             return false;
 
         // Everything is assignable to object, except bare method references which are not values.
@@ -19926,7 +19909,7 @@ public class Analyzer : IDisposable
         if (targetGeneric.TypeArguments.Count != 1)
             return false;
 
-        if (!IsSpanTypeName(targetGeneric.Name)
+        if (!AnalyzerConversionFacts.IsSpanTypeName(targetGeneric.Name)
             || targetGeneric.GenericDefinition is not ReflectionTypeInfo spanDefinition
             || (!TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(spanDefinition.Type, typeof(Span<>))
                 && !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(spanDefinition.Type, typeof(ReadOnlySpan<>))))
@@ -19936,9 +19919,6 @@ public class Analyzer : IDisposable
             ResolveTypeAlias(targetGeneric.TypeArguments[0]),
             ResolveTypeAlias(array.ElementType));
     }
-
-    private static bool IsSpanTypeName(string name)
-        => name is "Span" or "ReadOnlySpan" or "System.Span" or "System.ReadOnlySpan";
 
     private bool IsReferenceLikeForVariance(TypeInfo type)
     {
@@ -20002,9 +19982,9 @@ public class Analyzer : IDisposable
             var tgtParam = target.ParameterTypes![i];
             if (BuiltInTypes.IsUnknown(srcParam)) continue;
 
-            var srcModifier = GetFunctionParameterModifier(source, i);
-            var tgtModifier = GetFunctionParameterModifier(target, i);
-            if (NormalizeDelegateParameterModifier(srcModifier) != NormalizeDelegateParameterModifier(tgtModifier))
+            var srcModifier = AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(source, i);
+            var tgtModifier = AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(target, i);
+            if (AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(srcModifier) != AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(tgtModifier))
                 return false;
 
             if (!TryGetDelegateSignatureConversionScore(srcParam, tgtParam, out var parameterScore))
@@ -20023,19 +20003,6 @@ public class Analyzer : IDisposable
         }
 
         return true;
-    }
-
-    private static Ast.ParameterModifier GetFunctionParameterModifier(FunctionTypeInfo functionType, int index)
-    {
-        if (functionType.ParameterModifiers == null || index >= functionType.ParameterModifiers.Count)
-            return Ast.ParameterModifier.None;
-
-        return functionType.ParameterModifiers[index];
-    }
-
-    private static Ast.ParameterModifier NormalizeDelegateParameterModifier(Ast.ParameterModifier modifier)
-    {
-        return modifier == Ast.ParameterModifier.Params ? Ast.ParameterModifier.None : modifier;
     }
 
     private bool TryGetDelegateSignatureConversionScore(TypeInfo target, TypeInfo source, out int score)
@@ -20143,8 +20110,9 @@ public class Analyzer : IDisposable
     /// </summary>
     private bool IsLambdaAssignableToDelegate(FunctionTypeInfo funcType, GenericTypeInfo delegateType)
     {
-        if (HasSourceFunctionIdentity(funcType)
-            && TryCreateFunctionTypeInfoFromGenericDelegate(delegateType, out var delegateSignature))
+        if (AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(funcType)
+            && AnalyzerCallableReferenceFacts.CreateFunctionTypeInfoFromGenericDelegate(delegateType)
+                is { } delegateSignature)
         {
             return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(funcType, delegateSignature);
         }
@@ -20191,39 +20159,6 @@ public class Analyzer : IDisposable
 
             return true;
         }
-    }
-
-    private static bool TryCreateFunctionTypeInfoFromGenericDelegate(
-        GenericTypeInfo delegateType,
-        out FunctionTypeInfo signature)
-    {
-        signature = new FunctionTypeInfo()
-        {
-            ParameterTypes = new List<TypeInfo>(),
-            ParameterModifiers = new List<Ast.ParameterModifier>(),
-            ReturnType = BuiltInTypes.Unknown
-        };
-
-        if (delegateType.Name == "Func")
-        {
-            if (delegateType.TypeArguments.Count == 0)
-                return false;
-
-            signature.ParameterTypes = delegateType.TypeArguments.Take(delegateType.TypeArguments.Count - 1).ToList();
-            signature.ParameterModifiers = Enumerable.Repeat(Ast.ParameterModifier.None, signature.ParameterTypes.Count).ToList();
-            signature.ReturnType = delegateType.TypeArguments[^1];
-            return true;
-        }
-
-        if (delegateType.Name == "Action")
-        {
-            signature.ParameterTypes = delegateType.TypeArguments.ToList();
-            signature.ParameterModifiers = Enumerable.Repeat(Ast.ParameterModifier.None, signature.ParameterTypes.Count).ToList();
-            signature.ReturnType = BuiltInTypes.Void;
-            return true;
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -22520,7 +22455,7 @@ public class Analyzer : IDisposable
         foreach (var scope in _scopes)
         {
             candidates.AddRange(scope.Symbols
-                .Where(symbol => IsCallableReferenceType(symbol.Value))
+                .Where(symbol => AnalyzerCallableReferenceFacts.IsCallableReferenceType(symbol.Value))
                 .Select(symbol => symbol.Key));
         }
 

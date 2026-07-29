@@ -3,7 +3,8 @@
 **Files:** `src/NSharpLang.Compiler/Analyzer.cs`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDeclarationContext.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerConversionFacts.nl`
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerConversionFacts.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerCallableReferenceFacts.nl`
 
 ## Responsibility
 
@@ -39,9 +40,41 @@ classification tables — the leaf policy the assignability decision consults:
   exact identity, then `Type.IsAssignableFrom`, then the source's interface list and base chain
   compared by exact metadata identity (types loaded from different assembly identities are not
   reference-equal inside the MLC, so `IsAssignableFrom` alone is not sufficient).
+- `IsSpanTypeName(string)` is the Span/ReadOnlySpan name gate for the implicit array-to-span
+  conversion. It matches exactly four spellings — `Span`, `ReadOnlySpan` and their `System.`-qualified
+  forms — and nothing else. (`LoopSequenceTypeFacts` has a same-named file-private helper that
+  deliberately matches only the unqualified pair; the two are not interchangeable.)
 
 Do not reintroduce any of these tables in C#, and do not grow this class with the rest of the
 assignability closure — later families land in sibling N# owners.
+
+`AnalyzerCallableReferenceFacts.nl` is the N# owner for the callable / delegate-reference
+classification family — what a value that names code IS:
+
+- `IsMethodGroupReferenceType(TypeInfo)` is true for the three method-group shapes
+  (`ReflectionMethodInfo`, `ReflectionMethodGroupInfo`, `NSharpMethodGroupInfo`). The shape decides;
+  an empty group is still a group.
+- `HasSourceFunctionIdentity(FunctionTypeInfo)` is the method-group-versus-lambda discriminator: a
+  non-empty `SourceName` means the function type came from a DECLARED function. The synthetic name
+  is never consulted.
+- `IsCallableReferenceType(TypeInfo)` unions the two — the predicate behind the
+  `MethodGroupUsedAsValue` diagnostic and behind `IsAssignable`'s rejection of a bare method
+  reference as a value.
+- `IsRuntimeDelegateType(Type)` classifies concrete CLR delegate types, excluding the two abstract
+  roots. The roots are read out of the core library with the `typeof(object).get_Assembly()` idiom
+  rather than written `typeof(Delegate)`, because the columnar front end's `typeof` surface does not
+  carry them; the resulting Type instances are the runtime ones, so a delegate loaded into a
+  MetadataLoadContext still answers false, exactly as before.
+- `GetFunctionParameterModifier(FunctionTypeInfo, int)` is the total modifier read (absent or short
+  modifier list ⇒ `None`), and `NormalizeDelegateParameterModifier` erases `params` to `None` for
+  delegate-signature matching while keeping `ref` and `out`.
+- `CreateFunctionTypeInfoFromGenericDelegate(GenericTypeInfo)` reifies `Func<…>` / `Action<…>` into a
+  `FunctionTypeInfo` signature — `Func` takes its last type argument as the return type and needs at
+  least one, `Action` takes them all as parameters and returns `void`. The match is on the simple
+  name and is case-sensitive; every other name returns null.
+
+Do not reintroduce any of these predicates in C#, and do not grow this class beyond the
+callable/delegate family.
 
 ## Core Functions
 

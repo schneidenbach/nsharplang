@@ -1,6 +1,36 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-29 (**TASK 017 SLICE 1 LANDED — THE SEMANTIC-ANALYZER ARC IS OPEN.** The
+Last updated: 2026-07-29 (**TASK 017 SLICE 2 LANDED — THE CALLABLE / DELEGATE-REFERENCE
+CLASSIFICATION FAMILY.** The eight remaining pure, `private static`, zero-instance-state predicates
+in the assignability neighbourhood are out of `Analyzer.cs`. **8 C# methods / 66 lines deleted, ZERO
+C# added**: `IsCallableReferenceType`, `IsMethodGroupReferenceType`, `HasSourceFunctionIdentity`,
+`IsRuntimeDelegateType`, `GetFunctionParameterModifier`, `NormalizeDelegateParameterModifier`,
+`TryCreateFunctionTypeInfoFromGenericDelegate` → the NEW sibling owner
+`AnalyzerCallableReferenceFacts` (7 members), and `IsSpanTypeName` → `AnalyzerConversionFacts`,
+where it belongs (its only consumer gates an implicit array-to-span CONVERSION; filing a conversion
+table under a callable/delegate class would have misfiled it — the one recorded deviation from the
+slice-1 plan). `Analyzer.cs` **22,938 → 22,873**; `git diff` +21 / −86. All **21** call sites —
+every one in-class, the predicates had no external caller — route straight to the owners; no
+callback, no fallback, no comparison route. PROOF: an exhaustive throwaway reflection differential
+against the C# originals, run before the deletion — **271 cells, 0 mismatches** across 6 facts
+(50 `TypeInfo` values × 2 predicates, 42 CLR types **including 9 loaded into a real
+MetadataLoadContext**, 24 source-identity, 19 span-name, 46 modifier and 40 signature-reification
+cells); `nlc check --json` **byte-identical on 40/40 project targets** plus 4 purpose-built fixtures
+that fire this family's own diagnostics (**4 × NL411 MethodGroupUsedAsValue** + 11 more, 15 total,
+byte-identical); and a corpus IL sweep of **64/64 comparable assemblies BYTE-IDENTICAL
+(PRODUCT_IL_DIFFS = 0)** with the 7 non-building native targets proven to fail identically. GATES:
+unit **3,193 / 3,193** (zero drift), BootstrapServices contracts **1,561 → 1,571**, ownership audit
+**18 / 18** after a one-row net-negative repin that **KEEPS THE MANIFEST'S COMPACT 391-LINE FORMAT**
+(the slice-1 pretty-print defect is fixed: the script edits lines in place and asserts the line
+count), `dev.sh --since` (full-suite fail-safe). New .nl gotcha: **`typeof(Delegate)` /
+`typeof(MulticastDelegate)` do not resolve** — the columnar `typeof` surface has a hardcoded
+well-known list and extending it is a kernel change, so the owner reads the roots out of the core
+library with the established `typeof(object).get_Assembly()` idiom. No wall. NEXT: the recorded
+architectural prerequisite — an **N# type-resolution owner** absorbing `ResolveTypeAlias` +
+`TryConvertTypeInfoToClrType`, which unblocks `IsAssignable` itself and also retires two 015
+emitter blockers)
+
+Last updated (prior): 2026-07-29 (**TASK 017 SLICE 1 LANDED — THE SEMANTIC-ANALYZER ARC IS OPEN.** The
 conversion/assignability CLASSIFICATION TABLES — the task file's first-listed family — are out of
 `Analyzer.cs` and owned by the new N# `AnalyzerConversionFacts`. **7 C# methods / 122 lines deleted,
 ZERO C# added**: both `IsImplicitNumericConversion` overloads (the CLR implicit-numeric-widening
@@ -207,7 +237,198 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **017 SLICE 1 — THE
+- Active sub-slice (017 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **017 SLICE 2 — THE
+  CALLABLE / DELEGATE-REFERENCE CLASSIFICATION FAMILY** (the sub-slice recorded at the end of
+  slice 1). TARGET: move the eight remaining PURE, `private static`, zero-instance-state predicates
+  in the assignability neighbourhood out of `Analyzer.cs` (22,938) into a NEW SIBLING N# owner
+  `AnalyzerCallableReferenceFacts`, route every in-class call site, and DELETE the exact C# methods.
+  Line numbers RE-VERIFIED against the working `Analyzer.cs` before editing (all eight matched the
+  numbers slice 1 recorded, and each was read in full to confirm the brace-scan did not over-run a
+  multi-line signature):
+  (A) `IsCallableReferenceType(TypeInfo)` :6779 — "is this value a bare method reference?", the
+      predicate behind `MethodGroupUsedAsValue` and the `IsAssignable` method-group rejection;
+  (B) `IsMethodGroupReferenceType(TypeInfo)` :6783 — the three method-group TypeInfo shapes;
+  (C) `HasSourceFunctionIdentity(FunctionTypeInfo)` :6788 — "is this a NAMED source function rather
+      than a lambda?", the discriminator that decides method-group-vs-lambda everywhere;
+  (D) `IsRuntimeDelegateType(Type)` :6834 — CLR delegate classification excluding the two abstract
+      roots (`Delegate`, `MulticastDelegate`);
+  (E) `IsSpanTypeName(string)` :19940 — the Span/ReadOnlySpan name gate gating array→span
+      assignability;
+  (F) `GetFunctionParameterModifier(FunctionTypeInfo, int)` :20028 — the safe modifier read;
+  (G) `NormalizeDelegateParameterModifier(ParameterModifier)` :20036 — `params` erases to `None`
+      for delegate-signature matching;
+  (H) `TryCreateFunctionTypeInfoFromGenericDelegate(GenericTypeInfo, out FunctionTypeInfo)` :20196 —
+      `Func<...>`/`Action<...>` reified into a `FunctionTypeInfo` signature.
+  WHY THIS ONE: every one is `private static` with ZERO analyzer instance state — verified by reading
+  each body, not by grep — and none touches `_declarationContext`, `ResolveType*`, `_errors`, or
+  `_semanticModel`. They operate only over models N# ALREADY OWNS (`TypeInfo` and its subclasses in
+  `TypeInfoModels.nl` / `ReflectionTypeInfoModels.nl`, `ParameterModifier` in `DeclarationEnums.nl`,
+  `BuiltInTypes`) plus `System.Type` reflection, which is already driven from `.nl`. This is the rest
+  of the leaf policy under `IsAssignable` :19604 that slice 1 did not take; after it, everything left
+  in that neighbourhood is instance-bound and blocked on the recorded type-resolution owner
+  (`ResolveTypeAlias` + `TryConvertTypeInfoToClrType`).
+  OWNER PLAN (class layout planned from the start): a NEW file
+  `src/NSharpLang.Compiler.BootstrapServices/AnalyzerCallableReferenceFacts.nl`, class
+  `AnalyzerCallableReferenceFacts` in namespace `NSharpLang.Compiler`, **7 members** — (A)-(D) and
+  (F)-(H). (E) `IsSpanTypeName` is NOT a callable/delegate fact: it is a CONVERSION gate (its only
+  consumer is `IsArrayToSpanAssignable`), so it is filed with slice 1's family in
+  `AnalyzerConversionFacts` (9 → 10 members, still far under the per-class ceiling) rather than
+  misfiled into the new class. Recorded as the one class-layout deviation from the slice-1 note, with
+  its reason.
+  SCOPE NOTE (recorded before editing so it is not mistaken for an oversight): a grep of the eight
+  names across `src/` + `tests/` + `editors/` finds exactly ONE other C# definition — a private
+  static `GetFunctionParameterModifier(FunctionTypeInfo, int)` in
+  `src/NSharpLang.Compiler/CodeIntelligence/CompletionEngine.cs` :751, a completion-LABEL helper with
+  an extra `index < 0` guard. It is a different subsystem with a different consumer, and folding it in
+  would move a SECOND ratchet row outside this slice's mandate, so it is NOT taken here and is named
+  as a follow-on below.
+  BAR: full unit suite, BootstrapServices contracts, corpus IL byte-exact sweep, `nlc check --json`
+  oracle goldens over method-group / delegate-conversion fixtures, ownership audit 18/18 after a
+  one-row ratchet repin, `dev.sh --since`, and — because `Analyzer.cs` ships in the assembly the
+  language server builds against — the full IDE bar.
+  **RESULT: LANDED IN FULL (no commit — mandate). All eight predicates are DELETED from
+  `Analyzer.cs`; `AnalyzerCallableReferenceFacts` (seven of them) and `AnalyzerConversionFacts`
+  (the span-name gate) are the sole authority, with no callback, fallback, shadow path or
+  comparison route.**
+  DELETIONS (exact, by pre-edit line range — 8 methods, 66 lines, **ZERO C# added**):
+  * `6779-6790` `IsCallableReferenceType` + `IsMethodGroupReferenceType` + `HasSourceFunctionIdentity`
+    (12 lines — three expression-bodied predicates and their separators);
+  * `6834-6838` `IsRuntimeDelegateType(Type)` (5);
+  * `19940-19942` `IsSpanTypeName(string)` (3);
+  * `20028-20040` `GetFunctionParameterModifier` + `NormalizeDelegateParameterModifier` (13);
+  * `20196-20228` `TryCreateFunctionTypeInfoFromGenericDelegate` (33).
+  ROUTING: **21 call sites**, every one inside `Analyzer.cs` — 5 `IsCallableReferenceType`
+  (:6776 unbound-reference gate, :6891/:6904 the argument-diagnostic phrasing pair, :19657
+  `IsAssignable`'s target rejection, :22523 the callable-symbol completion candidates), 1
+  `IsMethodGroupReferenceType` (:19652), 6 `HasSourceFunctionIdentity` (:6689 synthetic-SoA-operation
+  guard, :11633, :13329 the delegate match-score gate, :17008, :19641 `IsAssignable`'s source arm,
+  :20146), 3 `IsRuntimeDelegateType` (:6827, :14177 — the two delegate-like-expected-type switches —
+  and :19646), 1 `IsSpanTypeName` (:19929), 2 `GetFunctionParameterModifier` + 2
+  `NormalizeDelegateParameterModifier` (:20005-:20007), 1
+  `TryCreateFunctionTypeInfoFromGenericDelegate` (:20147). A grep over `src/` + `tests/` + `editors/`
+  confirms the eight predicates had NO external caller, so the reroute is total. `git diff` on
+  `Analyzer.cs` is **+21 / −86 = net −65**; the file is **22,938 → 22,873** (non-blank
+  20,139 → 20,087).
+  N# ADDED: `AnalyzerCallableReferenceFacts.nl` (148 lines, one class with **7 members**, no helpers
+  needed) + `AnalyzerCallableReferenceFacts.tests.nl` (338 lines, 9 contracts), plus **+9 lines** to
+  `AnalyzerConversionFacts.nl` (the span-name gate, class 9 → 10 members) and **+23 lines** to its
+  contracts (1 contract).
+  TWO NON-MECHANICAL DECISIONS, recorded because they are the only ones in the slice:
+  (1) **`IsSpanTypeName` is filed with the CONVERSION family, not the callable family.** Its only
+  consumer is `IsArrayToSpanAssignable` — it gates an implicit conversion — so putting it in a class
+  named for callable/delegate references would have misfiled it. This is the recorded deviation from
+  the slice-1 note's "do NOT grow `AnalyzerConversionFacts`", which was about not dumping the
+  CALLABLE family there; a 2-line conversion table is exactly what that class is for. (Note the
+  analyzer's spelling set is a STRICT SUPERSET of `LoopSequenceTypeFacts`'s same-named file-private
+  helper, which matches only the unqualified pair — they were NOT merged, and the difference is
+  pinned by contract.)
+  (2) **`TryCreateFunctionTypeInfoFromGenericDelegate`'s `out` parameter becomes a nullable return.**
+  The owner is `CreateFunctionTypeInfoFromGenericDelegate(GenericTypeInfo): FunctionTypeInfo?`, and
+  the single call site becomes `… is { } delegateSignature`, which preserves the `&&` short-circuit
+  exactly. The C# assigned a discarded placeholder signature on the false path; no caller read it.
+  ASSERTION MIGRATION: all eight were `private`, so no test named them — their behaviour was pinned
+  only INDIRECTLY by end-to-end analyzer diagnostics (`AnalyzerTests.cs`'s method-group and delegate
+  regions, `CompletionEngineTests`, the LSP diagnostics tests). Those are diagnostics tests whose
+  SUBJECT is the analyzer, not the predicate, so they STAY and now execute against the N# owner — the
+  slice-1 / 016 classification-(a) precedent. The DIRECT pinning is new and native: **10 contracts**
+  covering the three method-group shapes (incl. the empty-group case), the source-name/whitespace/
+  empty/absent identity grid, the callable union, the delegate-root exclusions against six concrete
+  delegates and six non-delegates, the total modifier read over absent/empty/short/past-the-end
+  indices, the params-erases-but-ref/out-do-not rule, `Func`/`Action` reification across arities 0-4
+  with type-argument IDENTITY carried through, and the case-sensitive simple-name match that rejects
+  `System.Func` / `func` / `Predicate`.
+  PROOF — EXHAUSTIVE DIFFERENTIAL (throwaway probe, built and run BEFORE the deletion, then deleted;
+  the slice-1 precedent): a temporary xunit harness reflected into the eight C# privates and compared
+  them against the N# owners cell by cell. **6/6 facts green, 271 cells, 0 mismatches**:
+  50 `TypeInfo` values × 2 predicates = 100 cells for the callable/method-group pair (every TypeInfo
+  subclass incl. all three method-group shapes, an EMPTY reflection group, function types across
+  null/empty/whitespace/qualified source names, `Alias`/`Oblivious`/`ByRef`/`Newtype`/`Tuple`/
+  `AnonymousUnion` and a bare `TypeInfo`); 8 source names × 3 synthetic names = 24 cells for source
+  identity; **42 CLR types** for the delegate-root classification — 33 runtime (both abstract roots,
+  6 concrete delegates incl. an open generic delegate definition, `ValueType`/`Enum`/`Array`, a
+  `Delegate[]`, `void`) **plus 9 loaded into a real `MetadataLoadContext`**, which pins the
+  load-context asymmetry the reimplementation depends on; 19 span-name strings; 46 modifier cells
+  (4 enum values × normalize, 7 modifier-list shapes × 6 indices); and 8 generic names × 5 arities =
+  40 signature-reification cells compared by parameter-type REFERENCE identity, modifier list and
+  return type.
+  PROOF — SEMANTIC-DIAGNOSTIC ORACLE: `nlc check --json`, fresh Release CLIs built at baseline
+  `dfec28f2a` in a throwaway `/tmp` worktree and at the working tree, **byte-identical on 40 / 40
+  `project.yml` targets (ORACLE_DIFFS = 0)** plus 4 purpose-built fixtures exercising exactly this
+  family — bare method references in four positions (4 × **NL411 MethodGroupUsedAsValue**, byte
+  identical including message, explanation, suggestion, hint, span and docs URL), good-vs-bad
+  method-group and lambda delegate conversions (6 × NL202), array-to-span vs array-to-memory
+  (3 × NL202), and a `params`/`ref`/`out` method-group-to-delegate set — **15 diagnostics,
+  FIXTURE_DIFFS = 0**.
+  PROOF — CORPUS IL BYTE-EXACT SWEEP (same two CLIs, slice 1's explicit PE/CLI normalizer touching
+  ONLY the COFF `TimeDateStamp`, the optional-header `CheckSum`, the Debug Directory entries and the
+  CodeView blobs they point at, and the `#GUID`/`#Pdb` heaps): **64 / 64 comparable assemblies
+  BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (26 from the `project.yml` targets,
+  38 single-file examples, SINGLE_LOG_DIFFS = 0). The same 7 `tests/native/*` targets that do not
+  build standalone fail at baseline AND after with identical return codes and identical scrubbed
+  output (`SKIPPED_TARGET_DIFFS = 0`).
+  .nl GOTCHA FOUND (new, add to the cumulative list): **`typeof(Delegate)` and
+  `typeof(MulticastDelegate)` do NOT resolve** — the columnar front end's `typeof` surface
+  (`ColumnarTypeOfPlanner`) carries a hardcoded well-known-name list that does not include them, so
+  `typeof(Delegate)` declines at `emit.local.initializer` (and, inlined into an `if`, at
+  `emit.if.condition`, which points at the CONDITION rather than the `typeof`). Extending that list
+  is a KERNEL-side capability change and would trip the two-stage bootstrap wall, so the owner uses
+  the established `typeof(object).get_Assembly().GetType("System.Delegate")` idiom
+  (`ColumnarRuntimeInstanceMemberResolver`'s `RequiredAssemblyType` pattern). It yields the identical
+  runtime `Type` instances, so the runtime-versus-MLC asymmetry is preserved exactly — proven by the
+  9 MetadataLoadContext cells in the differential.
+  EVIDENCE: full unit suite **3,193 / 3,193** (`dotnet test tests/Tests.csproj -c Release`, 3m16s —
+  exactly the slice-1 baseline, zero drift); BootstrapServices contracts **1,571 / 1,571** via the
+  canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false` (1,561 baseline + 10 new; the 3 ExternalAssemblyScan Debug-layout tests
+  did not trip); ownership audit **18 / 18** after the repin; `./scripts/dev.sh --since` PASS — it
+  correctly took the FULL unit-suite fail-safe (`Analyzer.cs` is a shared compiler file, the `.nl`
+  paths unmapped), **3,193 / 3,193 in Debug**; the oracle and IL sweeps above.
+  RATCHET REPIN via `scratchpad/repin_017_s2.py` — `current*` + fingerprints ONLY, ONE row:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 22,938 → **22,873**, currentNonBlankLines
+  20,139 → **20,087**, fingerprint `text-v1:d4234d5d68f1a2b4` → `text-v1:ba8c1dbd980168b8` (epoch
+  23,451 / 20,537 PRESERVED and comfortably clear); `reviewedHeadFingerprint
+  head-v1:3efdebb585fd02c4` → `head-v1:cff6e83081a53db1`, mirrored into `OwnershipAudit.nl`'s
+  `OwnershipPolicy.ReviewedHeadFingerprint`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` untouched and RE-VALIDATED by recomputation after the
+  write; the script reimplements `OwnershipFacts` exactly and self-checks by reproducing all three
+  composite fingerprints over the 381 rows before changing anything.
+  **FORMAT DISCIPLINE (the slice-1 defect, fixed): the repin script edits the affected LINES in place
+  and NEVER re-serializes the document**, so the manifest keeps its COMPACT shape — 2-space top-level
+  keys, one compact JSON row per line. It asserts `391` lines before AND after; the resulting
+  `git diff` on the manifest is exactly **2 changed lines** (the head fingerprint and the Analyzer.cs
+  row). `wc -l tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` = **391**.
+  DOCS: `memory/components/analyzer.md` gains `AnalyzerCallableReferenceFacts.nl` as a listed owner
+  with a precise statement of each moved rule (including why the delegate roots are read out of the
+  core library) and a "do not reintroduce in C#, do not grow this class" note; the
+  `AnalyzerConversionFacts` section gains `IsSpanTypeName` with the LoopSequenceTypeFacts distinction;
+  `memory/architecture.md`'s Analyzer entry names its four N# owners.
+  GATES (the FULL IDE bar — `Analyzer.cs` lives in the `NSharpLang.Compiler` assembly the language
+  server ships, and `NSharpLang.Compiler.BootstrapServices` gained a type, so the non-VS-Code path was
+  NOT taken even though the behavioural proof is airtight):
+  * **`./scripts/test-all.sh --commit` with NO `VSCODE_TESTS=skip`: `ALL TESTS PASSED`, 13m44s**, run
+    FRESH in the script's own isolated copy (`/private/tmp/nsharp-test-all.b3cd30a806d8.CgpS8t/repo`,
+    created at run time) — not a cached whole-gate or per-step result. ZERO `✗`/`FAILED` anywhere.
+    Step timings: compiler build 1m29s, format-contract gate, unit tests 4m34s, native N# tests
+    2m16s, **VS Code Integration Tests 2m16s**, SDK pack+install 2m47s, template pack/install/
+    creation, template-generated project via `nlc build`, all example projects, all single-file
+    examples, `nlc check` on examples, and the IL verification gate — **all 67 N# assemblies pass
+    ECMA-335 IL verification with no new errors vs baseline**.
+  * `./scripts/dev.sh --since`: PASS, full unit-suite fail-safe, 3,193 / 3,193 in Debug.
+  * `./scripts/reload-vscode-extension.sh`: EXIT 0 — language server republished, `nsharp-0.6.0.vsix`
+    repackaged, `Extension 'nsharp-0.6.0.vsix' was successfully installed`, VS Code reopened on
+    `examples/01-hello-world`. It WAS required: no LanguageServer source changed, but the
+    `NSharpLang.Compiler` assembly the server ships did.
+  * INTERACTIVE computer-use verification: **NOT PERFORMED — the permission system DENIED the VS Code
+    control grant again this session** (`request_access` → `user_denied`, the THIRD consecutive
+    session: 016 N+3, 017 slice 1, 017 slice 2). Recorded as a standing gap, not skipped by choice.
+    The automated IDE evidence above (the VS Code integration-test step over a freshly installed
+    VSIX) stands, as does the fact that this slice's diagnostics are proven byte-identical
+    corpus-wide; a human/coordinator eyes-on pass over `examples/01-hello-world`, now open in the
+    reloaded editor, is the outstanding item.
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change; the packaged SDK
+  self-emits both owners. The `typeof(Delegate)` decline above was resolved WITHOUT touching the
+  planner, precisely to avoid the wall.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `dfec28f2a`): **017 SLICE 1 — THE
   CONVERSION/ASSIGNABILITY CLASSIFICATION TABLES** (the task file's first-listed family,
   "conversions/assignability"). TARGET: move the four PURE, STATIC, policy-bearing conversion
   predicates out of `Analyzer.cs` into a new N# owner `AnalyzerConversionFacts`, route all 25
@@ -3428,20 +3649,28 @@ These are populated only when their task becomes current.
   expression grammar — the expressions/patterns and closing-delimiter stages OWN the expression/statement
   ERROR families (unexpected-token-in-expression, dangling operator, missing `)`/`]`/`}`); STAGE 3/4 corpus
   shapes deliberately keep those would-be errors panic-suppressed so their output is byte-exact without them.
-- Task 017 next semantic sub-slice: **SLICE 2 — the CALLABLE / DELEGATE-REFERENCE classification
-  family**, into a SIBLING owner (`AnalyzerCallableReferenceFacts`, a new file — do NOT grow
-  `AnalyzerConversionFacts`; the arc's class layout is planned, one bounded family per class).
-  Slice 1 (the conversion/assignability classification TABLES) is DONE — full record in the 017
-  Active sub-slice above; `Analyzer.cs` is 22,938 and the four predicates are gone.
-  SLICE-2 TARGET (line numbers at `Analyzer.cs` 22,938, re-verify before editing): the remaining
-  `private static`, zero-instance-state predicates in the assignability neighbourhood —
-  `IsCallableReferenceType` :6779, `IsMethodGroupReferenceType` :6783, `HasSourceFunctionIdentity`
-  :6788, `IsRuntimeDelegateType` :6834, `IsSpanTypeName` :19940, `GetFunctionParameterModifier`
-  :20028, `NormalizeDelegateParameterModifier` :20036, and `TryCreateFunctionTypeInfoFromGenericDelegate`
-  :20196. Confirm each is genuinely state-free before committing to the set (the brace-scan that
-  produced this list over-runs on multi-line signatures), and prove it the same way slice 1 did:
-  throwaway reflection differential over an exhaustive value grid, then the oracle + IL sweeps.
-  ARCHITECTURAL PREREQUISITE FOR THE ARC'S REAL TARGET, recorded now so it is not rediscovered:
+- Task 017 next semantic sub-slice: **SLICE 3 — THE N# TYPE-RESOLUTION OWNER** (the architectural
+  prerequisite recorded below, now the critical path). Slices 1 and 2 are DONE — full records in the
+  017 Active sub-slice blocks above; `Analyzer.cs` is **22,873** and the twelve pure classification
+  predicates it carried are gone. **THE PURE, STATE-FREE SURFACE IN THE ASSIGNABILITY NEIGHBOURHOOD
+  IS NOW EXHAUSTED**: every remaining arm of the closure reaches analyzer instance state, so there is
+  no third "just move the leaf predicates" slice to take. The next movable thing is the gateway
+  itself.
+  SLICE-3 TARGET: an N# owner that absorbs `ResolveTypeAlias` :~20330 (alias/oblivious normalization)
+  and `TryConvertTypeInfoToClrType` :~10190 (TypeInfo → CLR `Type`), built on the existing N#
+  `AnalyzerDeclarationContext` / `ColumnarSemanticTypeRegistry` facts, with the analyzer's
+  declaration/resolution state passed IN rather than reached OUT for. Do the state inventory first
+  (`_declarationContext`, `ResolveType`, `ResolveTypeForSourceOwner`, `_wellKnownTypes`,
+  `_semanticModel`, `_errors`) and recut to whichever half is separable if the pair proves entangled.
+  Prove it the way slices 1 and 2 did: throwaway reflection differential over an exhaustive value
+  grid, then the oracle + IL sweeps. It unblocks `IsAssignable` itself AND is the owner the 015
+  roadmap names as the retirement path for emitter blockers #2 and #5, so it pays twice.
+  SECONDARY, small and independent: the ONE surviving C# duplicate this arc has found —
+  `CompletionEngine.cs` :751's private static `GetFunctionParameterModifier` (a completion-LABEL
+  helper with an extra `index < 0` guard, deliberately left out of slice 2 because folding it in
+  would have moved a second ratchet row). Route it to `AnalyzerCallableReferenceFacts` after
+  reconciling the guard, and repin the `CompletionEngine.cs` row.
+  ARCHITECTURAL PREREQUISITE FOR THE ARC'S REAL TARGET, recorded in slice 1 and still exact:
   `IsAssignable` :19604 itself — and with it `IsSubtypeOf` :20265, `IsCollectionType` :20469,
   `HasImplicitConversion` :20343, `ImplementsDuckInterface` :20531, `IsKnownGenericTypeAssignable`,
   `IsArrayToSpanAssignable`, `IsAspNetActionResultGenericAssignable`, `IsFunctionTypeAssignable`,
@@ -3463,6 +3692,30 @@ These are populated only when their task becomes current.
 
 Completed slices:
 
+- Task 017 — SECOND slice: the CALLABLE / DELEGATE-REFERENCE CLASSIFICATION FAMILY moves to the new
+  N# owner `AnalyzerCallableReferenceFacts` (plus one span-name conversion gate to
+  `AnalyzerConversionFacts`). **8 C# methods / 66 lines deleted from `Analyzer.cs`
+  (22,938 → 22,873), 0 C# lines added**: `IsCallableReferenceType`, `IsMethodGroupReferenceType`,
+  `HasSourceFunctionIdentity`, `IsRuntimeDelegateType`, `GetFunctionParameterModifier`,
+  `NormalizeDelegateParameterModifier`, `TryCreateFunctionTypeInfoFromGenericDelegate` and
+  `IsSpanTypeName`. All 21 call sites — every one in-class; the predicates had no external caller —
+  route directly to the owners; nothing calls back. N# added: `AnalyzerCallableReferenceFacts.nl`
+  (148 lines, 7 members) + 9 contracts, and +9 lines / +1 contract on the conversion owner. Two
+  recorded non-mechanical decisions: the span-name gate is filed with the CONVERSION family because
+  its only consumer is an implicit conversion, and the `out`-parameter Try-pattern becomes a nullable
+  return read with `is { }`, preserving the `&&` short-circuit. PROOF: an exhaustive throwaway
+  reflection differential against the C# originals — **271 cells, 0 mismatches**, including **9 types
+  loaded into a real MetadataLoadContext** to pin the runtime-versus-load-context asymmetry the
+  reimplementation depends on — plus `nlc check --json` **byte-identical on 40/40 project targets**
+  and 4 purpose-built fixtures firing this family's own diagnostics (15 diagnostics incl. 4 NL411
+  MethodGroupUsedAsValue), and a corpus IL sweep of **64/64 comparable assemblies BYTE-IDENTICAL
+  (PRODUCT_IL_DIFFS = 0)** with the 7 non-building native targets proven to fail identically. Suite
+  3,193/3,193 (zero drift), contracts 1,561 → 1,571, ownership audit 18/18 after a one-row
+  net-negative repin that preserved the manifest's compact 391-line format. New .nl gotcha:
+  `typeof(Delegate)`/`typeof(MulticastDelegate)` do not resolve (the columnar `typeof` surface is a
+  hardcoded well-known list; extending it is a kernel change), resolved with the
+  `typeof(object).get_Assembly()` idiom rather than tripping the wall. No wall. Full detail in the
+  017 Active sub-slice.
 - Task 017 — FIRST slice (the semantic-analyzer arc opens): the CONVERSION/ASSIGNABILITY
   CLASSIFICATION TABLES move to the new N# owner `AnalyzerConversionFacts`. **7 C# methods /
   122 lines deleted from `Analyzer.cs` (23,060 → 22,938), 0 C# lines added**: both

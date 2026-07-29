@@ -341,3 +341,26 @@ test "reflection assignability accepts identity, base chains and interface lists
     // Reflection assignability is NOT the numeric table: widening is a separate decision.
     assert !AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(long), typeof(int))
 }
+
+test "the span name gate accepts both spellings of both span types and nothing else" {
+    // The four spellings the analyzer can see for the two span types.
+    assert AnalyzerConversionFacts.IsSpanTypeName("Span")
+    assert AnalyzerConversionFacts.IsSpanTypeName("ReadOnlySpan")
+    assert AnalyzerConversionFacts.IsSpanTypeName("System.Span")
+    assert AnalyzerConversionFacts.IsSpanTypeName("System.ReadOnlySpan")
+
+    // The match is exact and case-sensitive — no prefix, suffix or arity decoration.
+    assert !AnalyzerConversionFacts.IsSpanTypeName("span")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("SPAN")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("Span<int>")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("Spans")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("ReadOnlySpanX")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("System.ReadOnlySpans")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("")
+
+    // The memory family is a different shape and gets no array conversion here.
+    assert !AnalyzerConversionFacts.IsSpanTypeName("Memory")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("ReadOnlyMemory")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("System.Memory")
+    assert !AnalyzerConversionFacts.IsSpanTypeName("List")
+}

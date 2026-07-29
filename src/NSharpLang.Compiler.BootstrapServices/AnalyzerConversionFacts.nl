@@ -113,6 +113,15 @@ public class AnalyzerConversionFacts {
         return false
     }
 
+    // The Span family by name, in every spelling the analyzer sees. This gates the implicit
+    // array-to-span conversion, so it belongs with the conversion tables rather than with the
+    // callable/delegate facts. Note this is a STRICT SUPERSET of the loop-sequence owner's
+    // same-named file-private helper, which deliberately matches only the unqualified spellings.
+    public static func IsSpanTypeName(name: string): bool {
+        return name == "Span" || name == "ReadOnlySpan"
+            || name == "System.Span" || name == "System.ReadOnlySpan"
+    }
+
     // Assignability between two reflection types. `Type.IsAssignableFrom` alone is not sufficient
     // inside the analyzer's MetadataLoadContext: types loaded from different assembly identities are
     // not reference-equal, so the exact-identity comparison is applied to the source's interface list
