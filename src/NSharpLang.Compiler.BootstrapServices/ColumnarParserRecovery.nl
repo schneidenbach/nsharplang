@@ -5569,18 +5569,32 @@ public class ColumnarParserRecovery {
                 // variable; consuming it reports nothing. An IsExpression is anchored on the `is` token, so its
                 // DiagnosticSpanFromExpression falls to the (isLine, isColumn, 1) default (:5960).
                 isToken := Advance()
-                ParseTypeReferenceRecovery()
+                leftNode := result.Node
+                typeNode := ParseMaterializedTypeReference()
+                varName: string? = null
                 if Check(TokenType.Identifier) {
-                    Advance()
+                    varName = Advance().Value
                 }
                 result = new ExprResult(new RecoverySpan(isToken.Line, isToken.Column, 1), false)
+                // Stage N+1c tranche 9a: `new IsExpression(expr, type, varName, isToken.Line, isToken.Column)`
+                // (Parser.cs :4162) when the receiver + type both materialized (a deferred receiver or a
+                // structurally-unbuildable / multi-line type declines — no-stub).
+                if leftNode != null && typeNode != null {
+                    result.Node = new IsExpression(leftNode, typeNode, varName, isToken.Line, isToken.Column)
+                }
             } else {
                 if Check(TokenType.As) {
                     // `expr as Type` (Parser.cs :4153). A safe-cast CastExpression is anchored on the `as`
                     // token, so its DiagnosticSpanFromExpression falls to the (asLine, asColumn, 1) default.
                     asToken := Advance()
-                    ParseTypeReferenceRecovery()
+                    leftNode := result.Node
+                    typeNode := ParseMaterializedTypeReference()
                     result = new ExprResult(new RecoverySpan(asToken.Line, asToken.Column, 1), false)
+                    // Stage N+1c tranche 9a: `new CastExpression(expr, type, CastKind.Safe, asToken.Line,
+                    // asToken.Column)` (Parser.cs :4168) when the receiver + type both materialized.
+                    if leftNode != null && typeNode != null {
+                        result.Node = new CastExpression(leftNode, typeNode, CastKind.Safe, asToken.Line, asToken.Column)
+                    }
                 } else {
                     opToken := Advance()
                     // Parser.cs :4176-4185: Less/LessEqual/Greater/GreaterEqual → the matching comparison op.
@@ -5841,18 +5855,34 @@ public class ColumnarParserRecovery {
 
         if Check(TokenType.Await) {
             awaitToken := Advance()
-            ParseUnaryOperandOrMissing(awaitToken, "an expression to await", "This await expression")
-            return new ExprResult(new RecoverySpan(awaitToken.Line, awaitToken.Column, 5), false)
+            operandNode := ParseUnaryOperandOrMissing(awaitToken, "an expression to await", "This await expression")
+            awaitResult := new ExprResult(new RecoverySpan(awaitToken.Line, awaitToken.Column, 5), false)
+            // Stage N+1c tranche 9a: `new AwaitExpression(expr, awaitToken.Line, awaitToken.Column)` (Parser.cs
+            // :4390) when the operand materialized (a missing operand declines — no-stub).
+            if operandNode != null {
+                awaitResult.Node = new AwaitExpression(operandNode, awaitToken.Line, awaitToken.Column)
+            }
+            return awaitResult
         }
         if Check(TokenType.Must) {
             mustToken := Advance()
-            ParseUnaryOperandOrMissing(mustToken, "a nullable expression to unwrap", "This must expression")
-            return new ExprResult(new RecoverySpan(mustToken.Line, mustToken.Column, 4), false)
+            operandNode := ParseUnaryOperandOrMissing(mustToken, "a nullable expression to unwrap", "This must expression")
+            mustResult := new ExprResult(new RecoverySpan(mustToken.Line, mustToken.Column, 4), false)
+            // Stage N+1c tranche 9a: `new MustExpression(expr, mustToken.Line, mustToken.Column)` (Parser.cs :4400).
+            if operandNode != null {
+                mustResult.Node = new MustExpression(operandNode, mustToken.Line, mustToken.Column)
+            }
+            return mustResult
         }
         if Check(TokenType.Throw) {
             throwToken := Advance()
-            ParseUnaryOperandOrMissing(throwToken, "an exception expression to throw", "This throw expression")
-            return new ExprResult(new RecoverySpan(throwToken.Line, throwToken.Column, 5), false)
+            operandNode := ParseUnaryOperandOrMissing(throwToken, "an exception expression to throw", "This throw expression")
+            throwResult := new ExprResult(new RecoverySpan(throwToken.Line, throwToken.Column, 5), false)
+            // Stage N+1c tranche 9a: `new ThrowExpression(expr, throwToken.Line, throwToken.Column)` (Parser.cs :4410).
+            if operandNode != null {
+                throwResult.Node = new ThrowExpression(operandNode, throwToken.Line, throwToken.Column)
+            }
+            return throwResult
         }
 
         return ParsePostfix()
@@ -5888,10 +5918,12 @@ public class ColumnarParserRecovery {
 
     // Parser.cs ParseUnaryOperandOrMissing (:3789). Uses IsMissingRequiredExpressionBoundary and a unary
     // operand; the message / hint differ from the binary ParseRightOperandOrMissing.
-    func ParseUnaryOperandOrMissing(operatorToken: Token, expectedDescription: string, ownerDescription: string) {
+    // Stage N+1c tranche 9a: RETURNS the operand node — present: ParseUnary().Node; missing: null (Parser.cs
+    // :3824 returns a synthetic IdentifierExpression("<error>"), the owner declines no-stub). The await/must/
+    // throw callers materialize their node only when this returns non-null.
+    func ParseUnaryOperandOrMissing(operatorToken: Token, expectedDescription: string, ownerDescription: string): Expression? {
         if !IsMissingRequiredExpressionBoundary(operatorToken) {
-            ParseUnary()
-            return
+            return ParseUnary().Node
         }
         span := SpanFromToken(operatorToken)
         suggestions := new List<string>()
@@ -5906,6 +5938,7 @@ public class ColumnarParserRecovery {
             "Add " + expectedDescription + " after '" + operatorToken.Value + "', or remove '" + operatorToken.Value + "'.",
             suggestions,
             span.Length)
+        return null
     }
 
     // ---- postfix (Parser.cs ParsePostfixExpression :4405) ----
@@ -5926,13 +5959,23 @@ public class ColumnarParserRecovery {
                     result = ParseMemberAccess(result)
                 } else {
                     if Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket) {
-                        // Index access `a[i]` / `a?[i]` (Parser.cs :4444). The RightBracket close routes
+                        // Index access `a[i]` / `a?[i]` (Parser.cs :4455). The RightBracket close routes
                         // through the Stage-9 closing-delimiter recovery (NL108 when unclosed). An
                         // IndexAccessExpression's DiagnosticSpanFromExpression is the OBJECT's span (:5948).
-                        Advance()
-                        ParseExprValue()
+                        isNullConditional := Check(TokenType.QuestionBracket)
+                        objectNode := result.Node
+                        objectSpan := result.Span
+                        bracketToken := Advance()
+                        indexNode := ParseExprValue().Node
                         ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
-                        result = new ExprResult(result.Span, false)
+                        indexResult := new ExprResult(objectSpan, false)
+                        // Stage N+1c tranche 9a: `new IndexAccessExpression(expr, index, isNullConditional,
+                        // bracketToken.Line, bracketToken.Column)` (Parser.cs :4461) when the object + index
+                        // both materialized (a deferred object or index declines — no-stub).
+                        if objectNode != null && indexNode != null {
+                            indexResult.Node = new IndexAccessExpression(objectNode, indexNode, isNullConditional, bracketToken.Line, bracketToken.Column)
+                        }
+                        result = indexResult
                     } else {
                         if Check(TokenType.Less) && IsGenericMethodCall() {
                             // Generic method call `M<T>(…)` (Parser.cs :4452). A CallExpression's span is
@@ -6231,7 +6274,15 @@ public class ColumnarParserRecovery {
             if isNullConditional {
                 memberOffset = 2
             }
-            return new ExprResult(new RecoverySpan(dotToken.Line, dotToken.Column + memberOffset, MaxInt(1, memberToken.Value.Length)), false)
+            memberResult := new ExprResult(new RecoverySpan(dotToken.Line, dotToken.Column + memberOffset, MaxInt(1, memberToken.Value.Length)), false)
+            // Stage N+1c tranche 9a: `new MemberAccessExpression(expr, memberName, isNullConditional,
+            // dotToken.Line, dotToken.Column)` (Parser.cs :4453) when the receiver materialized. The
+            // reserved-keyword / missing-name error arms build a "<error>" member name in Parser.cs; the owner
+            // declines them (synthetic-error content — the established no-stub discipline).
+            if receiver.Node != null {
+                memberResult.Node = new MemberAccessExpression(receiver.Node, memberToken.Value, isNullConditional, dotToken.Line, dotToken.Column)
+            }
+            return memberResult
         }
 
         if Current().Line == dotToken.Line && Lexer.IsReservedKeyword(Current().Type) {
@@ -6373,39 +6424,66 @@ public class ColumnarParserRecovery {
         if Check(TokenType.Typeof) {
             Advance()
             ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
-            ParseTypeReferenceRecovery()
+            typeNode := ParseMaterializedTypeReference()
             ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            return new ExprResult(new RecoverySpan(line, column, 1), false)
+            typeofResult := new ExprResult(new RecoverySpan(line, column, 1), false)
+            // Stage N+1c tranche 9a: `new TypeOfExpression(type, line, column)` (Parser.cs :4717) when the
+            // wrapped type materialized (a structurally-unbuildable / multi-line type declines — no-stub).
+            if typeNode != null {
+                typeofResult.Node = new TypeOfExpression(typeNode, line, column)
+            }
+            return typeofResult
         }
         if Check(TokenType.Nameof) {
             Advance()
             ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
-            ParseExprValue()
+            targetNode := ParseExprValue().Node
             ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            return new ExprResult(new RecoverySpan(line, column, 1), false)
+            nameofResult := new ExprResult(new RecoverySpan(line, column, 1), false)
+            // Stage N+1c tranche 9a: `new NameofExpression(target, line, column)` (Parser.cs :4726) when the
+            // wrapped expression materialized.
+            if targetNode != null {
+                nameofResult.Node = new NameofExpression(targetNode, line, column)
+            }
+            return nameofResult
         }
         if Check(TokenType.Sizeof) {
             Advance()
             ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
-            ParseTypeReferenceRecovery()
+            typeNode := ParseMaterializedTypeReference()
             ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            return new ExprResult(new RecoverySpan(line, column, 1), false)
+            sizeofResult := new ExprResult(new RecoverySpan(line, column, 1), false)
+            // Stage N+1c tranche 9a: `new SizeOfExpression(type, line, column)` (Parser.cs :4735).
+            if typeNode != null {
+                sizeofResult.Node = new SizeOfExpression(typeNode, line, column)
+            }
+            return sizeofResult
         }
 
         // checked / unchecked (Parser.cs :4728/:4738): the same `( expr )` paren-wrapped shape.
         if Check(TokenType.Checked) {
             Advance()
             ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
-            ParseExprValue()
+            exprNode := ParseExprValue().Node
             ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            return new ExprResult(new RecoverySpan(line, column, 1), false)
+            checkedResult := new ExprResult(new RecoverySpan(line, column, 1), false)
+            // Stage N+1c tranche 9a: `new CheckedExpression(expr, line, column)` (Parser.cs :4745).
+            if exprNode != null {
+                checkedResult.Node = new CheckedExpression(exprNode, line, column)
+            }
+            return checkedResult
         }
         if Check(TokenType.Unchecked) {
             Advance()
             ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
-            ParseExprValue()
+            exprNode := ParseExprValue().Node
             ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            return new ExprResult(new RecoverySpan(line, column, 1), false)
+            uncheckedResult := new ExprResult(new RecoverySpan(line, column, 1), false)
+            // Stage N+1c tranche 9a: `new UncheckedExpression(expr, line, column)` (Parser.cs :4755).
+            if exprNode != null {
+                uncheckedResult.Node = new UncheckedExpression(exprNode, line, column)
+            }
+            return uncheckedResult
         }
 
         // alloc primary (Parser.cs ParseAllocExpression :5178, dispatched at :4747). The `alloc` keyword wraps
@@ -6472,10 +6550,17 @@ public class ColumnarParserRecovery {
         // default (:5960).
         if Check(TokenType.LeftParen) && IsCastExpression() {
             Advance()                                       // consume '('
-            ParseTypeReferenceRecovery()                    // the cast type
+            castTypeNode := ParseMaterializedTypeReference()  // the cast type
             ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            ParseUnary()                                    // the cast operand (Parser.cs ParseUnaryExpression :4788)
-            return new ExprResult(new RecoverySpan(line, column, 1), false)
+            castOperandNode := ParseUnary().Node            // the cast operand (Parser.cs ParseUnaryExpression :4799)
+            castResult := new ExprResult(new RecoverySpan(line, column, 1), false)
+            // Stage N+1c tranche 9a: `new CastExpression(castExpr, castType, CastKind.Hard, line, column)`
+            // (Parser.cs :4800) when the cast type + operand both materialized (a deferred operand or an
+            // unbuildable / multi-line type declines — no-stub).
+            if castTypeNode != null && castOperandNode != null {
+                castResult.Node = new CastExpression(castOperandNode, castTypeNode, CastKind.Hard, line, column)
+            }
+            return castResult
         }
 
         // Tuple or parenthesized expression `( … )` (Parser.cs :4793).
@@ -6486,8 +6571,14 @@ public class ColumnarParserRecovery {
         // Spread `...expr` (Parser.cs :4799). A SpreadExpression falls to the (line, column, 1) default.
         if Check(TokenType.DotDotDot) {
             Advance()
-            ParseExprValue()
-            return new ExprResult(new RecoverySpan(line, column, 1), false)
+            spreadNode := ParseExprValue().Node
+            spreadResult := new ExprResult(new RecoverySpan(line, column, 1), false)
+            // Stage N+1c tranche 9a: `new SpreadExpression(spreadExpr, line, column)` (Parser.cs :4814) when
+            // the spread operand materialized.
+            if spreadNode != null {
+                spreadResult.Node = new SpreadExpression(spreadNode, line, column)
+            }
+            return spreadResult
         }
 
         if Check(TokenType.Identifier) {

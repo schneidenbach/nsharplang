@@ -303,6 +303,51 @@ public class AstEq {
         if typeName == "RangeExpression" {
             return Names("Start End Line Column")
         }
+        // N+1c tranche 9a (SINGLE-OPERAND / TYPE-CARRYING postfix + keyword primaries): the postfix member /
+        // index-access nodes, is/as, await/must/throw, and the typeof/nameof/sizeof/checked/unchecked/cast/
+        // spread keyword primaries. Each recurses into its operand Expression / TypeReference fields (a
+        // TypeReference's Span compares by value — SourceSpan is unregistered). MemberName / IsNullConditional /
+        // VariableName / Kind are scalars (string / bool / string? / enum). CastExpression is the SHARED node
+        // for BOTH `as` (Kind=Safe) and `(T)expr` (Kind=Hard), distinguished by Kind.
+        if typeName == "MemberAccessExpression" {
+            return Names("Object MemberName IsNullConditional Line Column")
+        }
+        if typeName == "IndexAccessExpression" {
+            return Names("Object Index IsNullConditional Line Column")
+        }
+        if typeName == "IsExpression" {
+            return Names("Expression Type VariableName Line Column")
+        }
+        if typeName == "CastExpression" {
+            return Names("Expression TargetType Kind Line Column")
+        }
+        if typeName == "AwaitExpression" {
+            return Names("Expression Line Column")
+        }
+        if typeName == "MustExpression" {
+            return Names("Expression Line Column")
+        }
+        if typeName == "ThrowExpression" {
+            return Names("Expression Line Column")
+        }
+        if typeName == "TypeOfExpression" {
+            return Names("Type Line Column")
+        }
+        if typeName == "NameofExpression" {
+            return Names("Target Line Column")
+        }
+        if typeName == "SizeOfExpression" {
+            return Names("Type Line Column")
+        }
+        if typeName == "CheckedExpression" {
+            return Names("Expression Line Column")
+        }
+        if typeName == "UncheckedExpression" {
+            return Names("Expression Line Column")
+        }
+        if typeName == "SpreadExpression" {
+            return Names("Expression Line Column")
+        }
         return null
     }
 
@@ -720,6 +765,62 @@ public class Golden {
     // A `Name := value` type-inference field (Parser.cs :1686 — null Type + initializer).
     public static func AddFieldInfer(members: List<Declaration>, name: string, initializer: Expression, line: int, column: int) {
         members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, null, initializer, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
+    }
+
+    // ---- N+1c tranche 9a: single-operand / type-carrying postfix + keyword-primary builders ----
+    // Each mirrors a Parser.cs construction site (member/index on the dot/bracket token, is/as on the is/as
+    // token, await/must/throw and the typeof/nameof/sizeof/checked/unchecked/cast/spread primaries on their
+    // keyword / `(` / `...` token). Every position was transcribed from the LIVE Parser.cs AstToJson oracle.
+    public static func Member(obj: Expression, memberName: string, isNullConditional: bool, line: int, column: int): Expression {
+        return new MemberAccessExpression(obj, memberName, isNullConditional, line, column)
+    }
+
+    public static func Index(obj: Expression, index: Expression, isNullConditional: bool, line: int, column: int): Expression {
+        return new IndexAccessExpression(obj, index, isNullConditional, line, column)
+    }
+
+    public static func Is(expr: Expression, typeRef: TypeReference, variableName: string?, line: int, column: int): Expression {
+        return new IsExpression(expr, typeRef, variableName, line, column)
+    }
+
+    public static func Cast(expr: Expression, targetType: TypeReference, kind: CastKind, line: int, column: int): Expression {
+        return new CastExpression(expr, targetType, kind, line, column)
+    }
+
+    public static func Await(expr: Expression, line: int, column: int): Expression {
+        return new AwaitExpression(expr, line, column)
+    }
+
+    public static func Must(expr: Expression, line: int, column: int): Expression {
+        return new MustExpression(expr, line, column)
+    }
+
+    public static func Throw(expr: Expression, line: int, column: int): Expression {
+        return new ThrowExpression(expr, line, column)
+    }
+
+    public static func TypeOf(typeRef: TypeReference, line: int, column: int): Expression {
+        return new TypeOfExpression(typeRef, line, column)
+    }
+
+    public static func Nameof(target: Expression, line: int, column: int): Expression {
+        return new NameofExpression(target, line, column)
+    }
+
+    public static func SizeOf(typeRef: TypeReference, line: int, column: int): Expression {
+        return new SizeOfExpression(typeRef, line, column)
+    }
+
+    public static func Checked(expr: Expression, line: int, column: int): Expression {
+        return new CheckedExpression(expr, line, column)
+    }
+
+    public static func Unchecked(expr: Expression, line: int, column: int): Expression {
+        return new UncheckedExpression(expr, line, column)
+    }
+
+    public static func Spread(expr: Expression, line: int, column: int): Expression {
+        return new SpreadExpression(expr, line, column)
     }
 }
 
@@ -2202,32 +2303,311 @@ test "016 N+1c tranche 8: WHOLE-FILE equality on a field-only struct with litera
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-// ---- RETAINED-GATE DECLINES (tranche 8 leaves is/as, await/must/throw, non-leaf primaries + postfix
-//      call/index/member/with deferred to tranche 9) ----
+// ---- RETAINED-GATE DECLINES (tranche 9a leaves the ARGUMENT/ELEMENT-LIST forms — call/with/new/match/
+//      tuple/array/immutable-array/interpolated-string/lambda — deferred to the following sub-family) ----
 // A value that opens one of the STILL-deferred sub-grammars leaves ParseExprValue().Node null → decline, no-stub.
+// (The tranche-8 `a is int` / `a.b` declines are now POSITIVE materializations — see the tranche-9a block.)
 
-test "016 N+1c tranche 8: a call-composed enum value (F()) still DECLINES (postfix call deferred to tranche 9, no-stub)" {
+test "016 N+1c tranche 9a: a call-composed enum value (F()) still DECLINES (postfix call deferred to tranche 9b, no-stub)" {
     actual := RunAst("enum E {\n    A = F()\n}\n")
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 8: an is-type enum value (a is int) still DECLINES (is/as arm deferred to tranche 9, no-stub)" {
-    actual := RunAst("enum E {\n    A = a is int\n}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
-    assert AstEq.Diff(expected, actual, "unit") == ""
-}
-
-test "016 N+1c tranche 8: a new-object enum value (new T()) still DECLINES (non-leaf primary deferred to tranche 9, no-stub)" {
+test "016 N+1c tranche 9a: a new-object enum value (new T()) still DECLINES (new deferred to tranche 9b, no-stub)" {
     actual := RunAst("enum E {\n    A = new T()\n}\n")
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 8: a member-access enum value (a.b) still DECLINES (postfix member deferred to tranche 9, no-stub)" {
+// ---- N+1c tranche 9a: SINGLE-OPERAND / TYPE-CARRYING postfix + keyword-primary forms materialize ----
+// The postfix member/index access, is/as, await/must/throw, and the typeof/nameof/sizeof/checked/unchecked/
+// cast/spread primaries now RETURN their byte-exact Expression node. Consumer = the value-bearing enum member
+// (`A = <expr>`) except the field-init cases below. Every Line/Column + Span was transcribed from the LIVE
+// Parser.cs AstToJson oracle (a throwaway fresh-Compiler probe ran BOTH live Parser.cs and the owner's
+// ParseFileAst through the identical OutputFormatter.AstToJson serializer and diffed — 24/24 whole-tree MATCH).
+
+test "016 N+1c tranche 9a: a member-access enum value (a.b) materializes MemberAccessExpression on the '.' (Parser.cs :4453)" {
     actual := RunAst("enum E {\n    A = a.b\n}\n")
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, NoDecls(), 1, 1)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Member(Golden.Ident("a", 2, 9), "b", false, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a null-conditional member (a?.b) materializes IsNullConditional=true (Parser.cs :4431/:4453)" {
+    actual := RunAst("enum E {\n    A = a?.b\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Member(Golden.Ident("a", 2, 9), "b", true, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a member chain (a.b.c) nests left-to-right, each anchored on its own '.' (Parser.cs :4453)" {
+    actual := RunAst("enum E {\n    A = a.b.c\n}\n")
+    members := new List<EnumMember>()
+    inner := Golden.Member(Golden.Ident("a", 2, 9), "b", false, 2, 10)
+    Golden.AddEMemV(members, "A", Golden.Member(inner, "c", false, 2, 12), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: an index access (a[0]) materializes IndexAccessExpression on the '[' (Parser.cs :4461)" {
+    actual := RunAst("enum E {\n    A = a[0]\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Index(Golden.Ident("a", 2, 9), Golden.IntLit("0", 2, 11), false, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a null-conditional index (a?[0]) materializes IsNullConditional=true (Parser.cs :4457/:4461)" {
+    actual := RunAst("enum E {\n    A = a?[0]\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Index(Golden.Ident("a", 2, 9), Golden.IntLit("0", 2, 12), true, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: an index over a member (a.b[0]) composes IndexAccess(MemberAccess) (Parser.cs :4453/:4461)" {
+    actual := RunAst("enum E {\n    A = a.b[0]\n}\n")
+    members := new List<EnumMember>()
+    obj := Golden.Member(Golden.Ident("a", 2, 9), "b", false, 2, 10)
+    Golden.AddEMemV(members, "A", Golden.Index(obj, Golden.IntLit("0", 2, 13), false, 2, 12), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: an is-type value (a is int) materializes IsExpression anchored on 'is', VariableName null (Parser.cs :4162)" {
+    actual := RunAst("enum E {\n    A = a is int\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Is(Golden.Ident("a", 2, 9), Golden.SimpleT("int", 2, 14, 17), null, 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: an is-pattern value (a is int x) captures the pattern variable name (Parser.cs :4159/:4162)" {
+    actual := RunAst("enum E {\n    A = a is int x\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Is(Golden.Ident("a", 2, 9), Golden.SimpleT("int", 2, 14, 17), "x", 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: an is-generic value (a is List<int>) threads the full type grammar (Parser.cs :4154/:4162)" {
+    actual := RunAst("enum E {\n    A = a is List<int>\n}\n")
+    members := new List<EnumMember>()
+    args := new List<TypeReference>()
+    args.Add(Golden.SimpleT("int", 2, 19, 22))
+    Golden.AddEMemV(members, "A", Golden.Is(Golden.Ident("a", 2, 9), Golden.GenericT("List", args, 2, 14, 23), null, 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: an as-cast value (a as string) materializes CastExpression(Safe) anchored on 'as' (Parser.cs :4168)" {
+    actual := RunAst("enum E {\n    A = a as string\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Cast(Golden.Ident("a", 2, 9), Golden.SimpleT("string", 2, 14, 20), CastKind.Safe, 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: an await value (await x) materializes AwaitExpression anchored on 'await' (Parser.cs :4390)" {
+    actual := RunAst("enum E {\n    A = await x\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Await(Golden.Ident("x", 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a must value (must x) materializes MustExpression anchored on 'must' (Parser.cs :4400)" {
+    actual := RunAst("enum E {\n    A = must x\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Must(Golden.Ident("x", 2, 14), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a throw value (throw x) materializes ThrowExpression anchored on 'throw' (Parser.cs :4410)" {
+    actual := RunAst("enum E {\n    A = throw x\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Throw(Golden.Ident("x", 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a typeof value (typeof(int)) materializes TypeOfExpression wrapping the type (Parser.cs :4717)" {
+    actual := RunAst("enum E {\n    A = typeof(int)\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.TypeOf(Golden.SimpleT("int", 2, 16, 19), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a nameof value (nameof(x)) materializes NameofExpression wrapping the expression (Parser.cs :4726)" {
+    actual := RunAst("enum E {\n    A = nameof(x)\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Nameof(Golden.Ident("x", 2, 16), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a sizeof value (sizeof(int)) materializes SizeOfExpression wrapping the type (Parser.cs :4735)" {
+    actual := RunAst("enum E {\n    A = sizeof(int)\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.SizeOf(Golden.SimpleT("int", 2, 16, 19), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a checked value (checked(x)) materializes CheckedExpression wrapping the expression (Parser.cs :4745)" {
+    actual := RunAst("enum E {\n    A = checked(x)\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Checked(Golden.Ident("x", 2, 17), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: an unchecked value (unchecked(x)) materializes UncheckedExpression (Parser.cs :4755)" {
+    actual := RunAst("enum E {\n    A = unchecked(x)\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Unchecked(Golden.Ident("x", 2, 19), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a hard cast value ((int)x) materializes CastExpression(Hard) anchored on '(' (Parser.cs :4800)" {
+    actual := RunAst("enum E {\n    A = (int)x\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Cast(Golden.Ident("x", 2, 14), Golden.SimpleT("int", 2, 10, 13), CastKind.Hard, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a spread value (...x) materializes SpreadExpression anchored on '...' (Parser.cs :4814)" {
+    actual := RunAst("enum E {\n    A = ...x\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Spread(Golden.Ident("x", 2, 12), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// Field-init consumer (the OTHER Expression-capturing site): both the `X := <expr>` inference form and the
+// typed `X: T = <expr>` form materialize these nodes into FieldDeclaration.Initializer.
+
+test "016 N+1c tranche 9a: a `:=` field materializes a member-access initializer (Parser.cs :1686/:4453)" {
+    actual := RunAst("struct S {\n    X := a.b\n}\n")
+    members := new List<Declaration>()
+    Golden.AddFieldInfer(members, "X", Golden.Member(Golden.Ident("a", 2, 10), "b", false, 2, 11), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a typed field materializes an is-expression initializer (Parser.cs :1782/:4162)" {
+    actual := RunAst("struct S {\n    X: bool = a is int\n}\n")
+    members := new List<Declaration>()
+    Golden.AddFieldInit(members, "X", Golden.SimpleT("bool", 2, 8, 12), Golden.Is(Golden.Ident("a", 2, 15), Golden.SimpleT("int", 2, 20, 23), null, 2, 17), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "016 N+1c tranche 9a: a `:=` field materializes a typeof initializer (Parser.cs :1686/:4717)" {
+    actual := RunAst("struct S {\n    X := typeof(int)\n}\n")
+    members := new List<Declaration>()
+    Golden.AddFieldInfer(members, "X", Golden.TypeOf(Golden.SimpleT("int", 2, 17, 20), 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddStructM(decls, "S", members, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// A WHOLE-FILE multi-member enum mixing three tranche-9a forms (member / is / typeof), comma-separated, every
+// member materializing its distinct node type — the strongest single-file owner==golden==Parser.cs proof.
+test "016 N+1c tranche 9a: WHOLE-FILE enum mixing member-access, is-type, and typeof values across three members" {
+    actual := RunAst("enum E {\n    A = a.b,\n    B = a is int,\n    C = typeof(int)\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Member(Golden.Ident("a", 2, 9), "b", false, 2, 10), 2, 5)
+    Golden.AddEMemV(members, "B", Golden.Is(Golden.Ident("a", 3, 9), Golden.SimpleT("int", 3, 14, 17), null, 3, 11), 3, 5)
+    Golden.AddEMemV(members, "C", Golden.TypeOf(Golden.SimpleT("int", 4, 16, 19), 4, 9), 4, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// Negative self-checks — guard the new recursion paths against a vacuous pass (a wrong scalar / node-type in
+// the golden MUST surface as a non-empty Diff).
+test "016 N+1c tranche 9a: AstEq surfaces a wrong member name (guards vacuous member-access pass)" {
+    actual := RunAst("enum E {\n    A = a.b\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Member(Golden.Ident("a", 2, 9), "WRONG", false, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 9a: AstEq surfaces a wrong IsNullConditional flag (guards vacuous member-access pass)" {
+    actual := RunAst("enum E {\n    A = a.b\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Member(Golden.Ident("a", 2, 9), "b", true, 2, 10), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
+}
+
+test "016 N+1c tranche 9a: AstEq surfaces a wrong node TYPE (Is golden vs TypeOf actual) — guards vacuous keyword-primary pass" {
+    actual := RunAst("enum E {\n    A = typeof(int)\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Is(Golden.Ident("a", 2, 9), Golden.SimpleT("int", 2, 16, 19), null, 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") != ""
 }
 
 // ---- WHOLE-FILE REAL-CORPUS EQUALITY (the DIRECT tranche-7 unlock: value-bearing int-literal enums) ----

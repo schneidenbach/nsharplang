@@ -1,6 +1,24 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-24 (STAGE N+1c tranche 8 LANDED — the COMPOSED OPERATOR TIERS: the BINARY tiers [equality/
+Last updated: 2026-07-24 (STAGE N+1c tranche 9a LANDED — the SINGLE-OPERAND / TYPE-CARRYING postfix + keyword-
+primary expression forms: postfix MEMBER `.`/`?.` (MemberAccessExpression) + INDEX `[…]`/`?[…]`
+(IndexAccessExpression), is/as (IsExpression + optional pattern variable / CastExpression Safe), await/must/throw
+(AwaitExpression/MustExpression/ThrowExpression via ParseUnaryOperandOrMissing → Expression?), and the keyword
+primaries typeof/nameof/sizeof/checked/unchecked (TypeOfExpression/NameofExpression/SizeOfExpression/
+CheckedExpression/UncheckedExpression) + cast `(T)expr` (CastExpression Hard) + spread `...expr`
+(SpreadExpression) now all MATERIALIZE byte-exact via the ExprResult.Node gate [every present operand non-null →
+materialize; else decline no-stub]; type operands route through the shared ParseMaterializedTypeReference gate.
+The ARGUMENT/ELEMENT-LIST forms [call/with/new/match/tuple/array/immutable-array/interpolated-string/lambda]
+stay per-form no-stub gated for tranche 9b. VERIFIED owner==LIVE-Parser.cs whole-tree via a throwaway fresh-
+Compiler AstToJson probe on 24/24 synthetic + field-init + whole-file shapes [0 mismatches; the 2 tranche-9b
+declines F()/new T() correctly show live-materializes-vs-owner-declines]; +25 net contracts [20 postfix/keyword
+positives + 3 field-init + 1 whole-file 3-member enum + 3 negative self-checks − 2 tranche-8 is/member declines
+converted to positives] → 1,359 total / 1,359 PASS via the canonical `dotnet test -c Release` [the 3
+ExternalAssemblyScan Debug-layout tests trip on a clean rebuild — the documented Debug CLI rebuild fix restores
+full green, coordinator-confirmed]. Production untouched [ParseFileAst test-only], no LSP change, no repin.
+Tranche 9b [the list forms] deferred)
+
+Last updated (prior): 2026-07-24 (STAGE N+1c tranche 8 LANDED — the COMPOSED OPERATOR TIERS: the BINARY tiers [equality/
 relational-comparison/shift/additive/multiplicative/bitwise and-or-xor/logical and-or/null-coalesce], RANGE,
 UNARY prefix [- ! ~ ++ -- ^] + postfix ++/--, TERNARY, and ASSIGNMENT now MATERIALIZE their byte-exact node over
 tranche 7's leaf nodes via the `ExprResult.Node` gate [a tier materializes only when all operands carry nodes;
@@ -91,6 +109,81 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
 - Active sub-slice (016 arc, THIS TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
+  TRANCHE 9a = the SINGLE-OPERAND / TYPE-CARRYING postfix + keyword-primary expression forms (a RECUT of the
+  tranche-9 mandate: the argument/element-LIST forms — call/with/new/match/tuple/array/immutable-array/
+  interpolated-string/lambda — are deferred to tranche 9b, each keeping its per-form no-stub gate). Over tranche
+  8's composed operator tiers, these forms now RETURN their byte-exact Expression node as a PURE side-effect (the
+  Advance/Report/Consume diagnostic sequence is UNCHANGED — the ColumnarParserRecovery.tests.nl stream contracts
+  stay green). MECHANISM: each form captures its operand node(s) BEFORE reconstructing `new ExprResult(span)`
+  (Node null by default) and sets `.Node` ONLY when every present operand carried a node (else declines — the
+  established no-stub gate); type operands route through the shared `ParseMaterializedTypeReference` gate (the
+  SAME `ParseTypeReferenceRecovery` call, so the diagnostic stream is byte-identical; it returns null on a
+  structurally-unbuildable / panic / multi-line type). CONSTRUCTION-SITE INVENTORY (owner, each byte-exact to
+  Parser.cs, VERIFIED owner==LIVE-Parser.cs whole-tree via the AstToJson probe): (1) MEMBER ACCESS — `new
+  MemberAccessExpression(receiver, memberName, isNullConditional, dotToken.Line, dotToken.Column)` (Parser.cs
+  :4453) in ParseMemberAccess, materialized ONLY in the well-formed-identifier arm (receiver.Node non-null); the
+  reserved-keyword / missing-name arms build a "<error>" member in Parser.cs → the owner DECLINES them
+  (synthetic-error content, the ParseRequiredExpressionAfter discipline); (2) INDEX ACCESS — `new
+  IndexAccessExpression(object, index, isNullConditional, bracketToken.Line, bracketToken.Column)` (:4461) inline
+  in ParsePostfix (object.Node + `ParseExprValue().Node` both non-null); both `[` and `?[` (QuestionBracket)
+  forms; (3) is — `new IsExpression(expr, type, varName, isToken.Line, isToken.Column)` (:4162) in ParseRelational,
+  varName captured from the optional trailing identifier (`is int x`), type via ParseMaterializedTypeReference;
+  (4) as — `new CastExpression(expr, type, CastKind.Safe, asToken.Line, asToken.Column)` (:4168), the SAME
+  CastExpression node as the hard cast, distinguished by Kind; (5) await/must/throw — `ParseUnaryOperandOrMissing`
+  now RETURNS `Expression?` (present: `ParseUnary().Node`; missing: null — Parser.cs :3824 returns a synthetic
+  IdentifierExpression("<error>"), the owner declines), the three ParseUnary arms build `new AwaitExpression/
+  MustExpression/ThrowExpression(operand, kwToken.Line, kwToken.Column)` (:4390/:4400/:4410); (6) typeof/sizeof —
+  `new TypeOfExpression/SizeOfExpression(type, line, column)` (:4717/:4735), type via ParseMaterializedTypeReference,
+  line/column captured at ParsePrimaryExpression entry = the keyword token; (7) nameof — `new NameofExpression(
+  target, line, column)` (:4726), target = `ParseExprValue().Node`; (8) checked/unchecked — `new CheckedExpression/
+  UncheckedExpression(expr, line, column)` (:4745/:4755), expr = `ParseExprValue().Node`; (9) cast `(T)expr` — `new
+  CastExpression(castExpr, castType, CastKind.Hard, line, column)` (:4800), castType via ParseMaterializedTypeReference
+  + castExpr = `ParseUnary().Node`, anchored on the `(`; (10) spread `...expr` — `new SpreadExpression(spreadExpr,
+  line, column)` (:4814), anchored on the `...`. NO NEW GATE FIELDS (each form gates inline on its operand nodes).
+  CONSUMERS: the value-bearing ENUM MEMBER (`A = <expr>` → EnumMember.Value, tranche-7 mechanism, NO code change)
+  and the FIELD INITIALIZER (`X := <expr>` / `X: T = <expr>` → FieldDeclaration.Initializer, tranche-8 mechanism);
+  a form that materializes flows straight through, a still-deferred form (tranche 9b) leaves Node null → the
+  consumer declines. FORMS DECLINING (recorded, per-form no-stub, deferred to TRANCHE 9b): postfix CALL `f(…)` /
+  generic-call `M<T>(…)` (CallExpression — needs the owned argument-list node materialization), `with {…}`
+  (WithExpression — needs property-init nodes), and the non-leaf list primaries new / match / tuple / array /
+  immutable-array / interpolated-string / lambda / alloc / stackalloc. NO EMITTER GAP hit (the packaged SDK
+  self-emitted every new construct — the nullable Expression? locals, the ParseUnaryOperandOrMissing return-type
+  change, the 13 node constructors, the CastKind enum arg; clean build 0 warnings/0 errors). DELIVERABLES:
+  `ColumnarParserRecovery.nl` 7,946 → 8,037 (+155/−43): the is/as materialization in ParseRelational,
+  ParseUnaryOperandOrMissing → Expression? + the three await/must/throw arms, ParseMemberAccess materialization,
+  the ParsePostfix index arm, and the typeof/nameof/sizeof/checked/unchecked/cast/spread arms in ParsePrimaryExprValue;
+  `ColumnarParserAst.tests.nl` 2,293 → 2,673 (+402/−43): 13 new AstEq FieldNames registrations (MemberAccess/
+  IndexAccess/Is/Cast/Await/Must/Throw/TypeOf/Nameof/SizeOf/Checked/Unchecked/Spread) + 13 golden builders + 25
+  net contracts (2 tranche-8 is/member declines CONVERTED to positives). CONTRACTS (all AstEq owner==golden, every
+  golden position/Span TRIANGULATED against LIVE Parser.cs via the AstToJson oracle): 20 postfix/keyword positives
+  (member, null-conditional member, member chain, index, null-conditional index, index-over-member, is + is-pattern-
+  variable + is-generic-type, as, await, must, throw, typeof, nameof, sizeof, checked, unchecked, hard-cast, spread),
+  3 field-initializer (`:=` member-access, typed `= ` is-expression, `:=` typeof), 1 WHOLE-FILE 3-member enum
+  mixing member-access / is-type / typeof values (comma-separated, each member a distinct node type), 2 retained-gate
+  declines (call `F()`, new `T()` — tranche-9b forms), and 3 negative self-checks (wrong member name; wrong
+  IsNullConditional flag; wrong node TYPE Is-vs-TypeOf). TRIANGULATION: a THROWAWAY (scratchpad) fresh-Compiler
+  ProjectReference probe ran BOTH live Parser.cs (Lexer→Parser→ParseCompilationUnit) AND the owner's ParseFileAst
+  through the identical `OutputFormatter.AstToJson` serializer and diffed — 24/24 synthetic + field-init + whole-file
+  shapes MATCH owner==Parser.cs (0 mismatches); the 2 tranche-9b forms (F() / new T()) correctly show live-
+  materializes-vs-owner-declines (the intended no-stub deferral, the strongest owner==Parser.cs proof). EVIDENCE:
+  BootstrapServices contracts 1,359 total / 1,359 PASS via the canonical `dotnet test src/NSharpLang.Compiler.
+  BootstrapServices -c Release -p:NSharpExcludeTests=false` (baseline 1,334 + 25 net; all 25 net-new green). NOTE:
+  a clean `rm -rf obj bin` rebuild wipes obj/Debug → the 3 PRE-EXISTING ExternalAssemblyScan.tests.nl Debug-layout
+  tests trip; the documented Debug CLI rebuild (`dotnet build src/NSharpLang.Cli -c Debug`) restores full green
+  (coordinator-confirmed 1,359/1,359 — the known fix, not a regression). dev.sh Parser slice: NOT run by this
+  agent (coordinator to run; the C# Parser.cs path is untouched so 384/384 is expected). Ownership audit: only
+  `.nl`/`.tests.nl`/`.md` changed (2 .nl + 1 .md, zero .cs → OWN003 cannot trip, no C# growth → no repin).
+  Production compile path UNTOUCHED — `ParseFileAst` still has ZERO callers outside its `.tests.nl` (grep across
+  src+editors+tests); Parser.cs stays the sole production authority. No LSP/VS Code change → no reload. NO two-stage
+  bootstrap wall (the packaged SDK self-emitted every new construct — no planner/kernel/OpCode change). Next:
+  TRANCHE 9b — the ARGUMENT/ELEMENT-LIST expression forms: postfix CALL (CallExpression, via the owned
+  ParseArgumentList materializing `List<Argument>` incl. named/spread/ref-out forms) + generic-call type args,
+  `with` (WithExpression + property inits), and the non-leaf list primaries new (object/collection/sized-array
+  initializer), match (MatchExpression + arms + the owned Pattern grammar), tuple, array/immutable-array,
+  interpolated-string (parts from the owned hole grammar), and lambda; then expression-bodied members + statement
+  bodies (BlockStatement), until a whole valid-or-malformed file parses into (CompilationUnit, Errors) provably
+  equal to Parser.cs (the N+2 cutover prerequisite).
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): STAGE N+1c (FULL-TREE AST MATERIALIZATION),
   TRANCHE 8 = the COMPOSED OPERATOR TIERS. Over tranche 7's leaf/primary nodes, the operator-composing expression
   tiers now RETURN their byte-exact Expression node as a PURE side-effect (the Advance/Report/Consume diagnostic
   sequence is UNCHANGED, so the diagnostic stream is unperturbed — the ColumnarParserRecovery.tests.nl stream
