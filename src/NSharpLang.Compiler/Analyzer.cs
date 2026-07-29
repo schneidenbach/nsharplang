@@ -173,7 +173,7 @@ public class Analyzer : IDisposable
     // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
     private NSharpMetadataResolver? _metadataResolver;
     private MetadataLoadContext? _mlc;
-    private WellKnownTypes? _wellKnownTypes;
+    private AnalyzerWellKnownTypes? _wellKnownTypes;
     private readonly List<Assembly> _mlcAssemblies = new();
 
     // Reference assemblies that failed to load or be inspected, keyed by identity (file path
@@ -9671,33 +9671,14 @@ public class Analyzer : IDisposable
         // Generic types with N# type arguments - construct with surrogates
         if (resolvedType is GenericTypeInfo genericType)
         {
-            var wkt = _wellKnownTypes;
             var typeDefinition = genericType.GenericDefinition switch
             {
                 ReflectionTypeInfo reflectionDefinition => reflectionDefinition.Type,
                 not null => null,
-                _ => genericType.Name switch
-            {
-                "List" when genericType.TypeArguments.Count == 1 => wkt.ListOpen,
-                "IEnumerable" when genericType.TypeArguments.Count == 1 => wkt.IEnumerableOpen,
-                "IQueryable" when genericType.TypeArguments.Count == 1 => wkt.IQueryableOpen,
-                "ICollection" when genericType.TypeArguments.Count == 1 => wkt.ICollectionOpen,
-                "IList" when genericType.TypeArguments.Count == 1 => wkt.IListOpen,
-                "Dictionary" when genericType.TypeArguments.Count == 2 => wkt.DictionaryOpen,
-                "IDictionary" when genericType.TypeArguments.Count == 2 => wkt.IDictionaryOpen,
-                "Task" when genericType.TypeArguments.Count == 1 => wkt.TaskOpen,
-                "ValueTask" when genericType.TypeArguments.Count == 1 => wkt.ValueTaskOpen,
-                "Func" when genericType.TypeArguments.Count == 1 => wkt.Func1,
-                "Func" when genericType.TypeArguments.Count == 2 => wkt.Func2,
-                "Func" when genericType.TypeArguments.Count == 3 => wkt.Func3,
-                "Func" when genericType.TypeArguments.Count == 4 => wkt.Func4,
-                "Func" when genericType.TypeArguments.Count == 5 => wkt.Func5,
-                "Action" when genericType.TypeArguments.Count == 1 => wkt.Action1,
-                "Action" when genericType.TypeArguments.Count == 2 => wkt.Action2,
-                "Action" when genericType.TypeArguments.Count == 3 => wkt.Action3,
-                "Action" when genericType.TypeArguments.Count == 4 => wkt.Action4,
-                _ => null
-            }
+                _ => AnalyzerWellKnownTypeFacts.BindingSurrogateOpenGenericType(
+                    _wellKnownTypes,
+                    genericType.Name,
+                    genericType.TypeArguments.Count)
             };
 
             if (typeDefinition == null) return null;
@@ -10187,7 +10168,7 @@ public class Analyzer : IDisposable
             return reflectionType.Type;
 
         if (_wellKnownTypes == null)
-            return TryConvertBuiltInTypeInfoToRuntimeClrType(resolvedType);
+            return AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(resolvedType);
 
         return resolvedType switch
         {
@@ -10217,38 +10198,9 @@ public class Analyzer : IDisposable
         };
     }
 
-    private Type? TryConvertBuiltInTypeInfoToRuntimeClrType(TypeInfo typeInfo)
-    {
-        return typeInfo switch
-        {
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Int) => typeof(int),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Long) => typeof(long),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Float) => typeof(float),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Double) => typeof(double),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Decimal) => typeof(decimal),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Byte) => typeof(byte),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.SByte) => typeof(sbyte),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Short) => typeof(short),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.UShort) => typeof(ushort),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.UInt) => typeof(uint),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.ULong) => typeof(ulong),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Char) => typeof(char),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Bool) => typeof(bool),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.String) => typeof(string),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Void) => typeof(void),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Object) => typeof(object),
-            ArrayTypeInfo array => TryConvertBuiltInTypeInfoToRuntimeClrType(array.ElementType)?.MakeArrayType(),
-            NullableTypeInfo nullable => TryConvertBuiltInTypeInfoToRuntimeClrType(nullable.InnerType) is { IsValueType: true } innerType
-                ? typeof(Nullable<>).MakeGenericType(innerType)
-                : null,
-            ObliviousTypeInfo oblivious => TryConvertBuiltInTypeInfoToRuntimeClrType(oblivious.InnerType),
-            _ => null
-        };
-    }
-
     private Type? TryConstructRuntimeUnionType(AnonymousUnionTypeInfo unionType)
     {
-        if (_wellKnownTypes?.RuntimeUnionOpen == null || unionType.Arms.Count != 2)
+        if (_wellKnownTypes?.GetRuntimeUnionOpen() == null || unionType.Arms.Count != 2)
             return null;
 
         var firstArm = TryConvertTypeInfoToClrType(unionType.Arms[0]);
@@ -10256,7 +10208,7 @@ public class Analyzer : IDisposable
         if (firstArm == null || secondArm == null)
             return null;
 
-        return _wellKnownTypes.RuntimeUnionOpen.MakeGenericType(firstArm, secondArm);
+        return _wellKnownTypes.GetRuntimeUnionOpen()!.MakeGenericType(firstArm, secondArm);
     }
 
     private Type? TryConvertNullableType(TypeInfo innerType)
@@ -10274,7 +10226,10 @@ public class Analyzer : IDisposable
         {
             ReflectionTypeInfo reflectionDefinition => reflectionDefinition.Type,
             not null => null,
-            _ => TryGetKnownOpenGenericType(genericType.Name, genericType.TypeArguments.Count),
+            _ => AnalyzerWellKnownTypeFacts.KnownOpenGenericType(
+                _wellKnownTypes,
+                genericType.Name,
+                genericType.TypeArguments.Count),
         };
 
         if (typeDefinition?.IsGenericType == true && !typeDefinition.IsGenericTypeDefinition)
@@ -10299,44 +10254,6 @@ public class Analyzer : IDisposable
         }
 
         return typeDefinition.MakeGenericType(typeArguments.ToArray());
-    }
-
-    /// <summary>
-    /// Maps compiler-known generic type names (resolvable without imports) to their open
-    /// CLR type definitions for the given arity. Shared by generic construction and by
-    /// unresolved-type reporting, which must never flag these names.
-    /// </summary>
-    private Type? TryGetKnownOpenGenericType(string name, int arity)
-    {
-        if (_wellKnownTypes == null) return null;
-        var wkt = _wellKnownTypes;
-
-        return name switch
-        {
-            "List" when arity == 1 => wkt.ListOpen,
-            "IEnumerable" when arity == 1 => wkt.IEnumerableOpen,
-            "IQueryable" when arity == 1 => wkt.IQueryableOpen,
-            "ICollection" when arity == 1 => wkt.ICollectionOpen,
-            "IList" when arity == 1 => wkt.IListOpen,
-            "Dictionary" when arity == 2 => wkt.DictionaryOpen,
-            "IDictionary" when arity == 2 => wkt.IDictionaryOpen,
-            "Task" when arity == 1 => wkt.TaskOpen,
-            "ValueTask" when arity == 1 => wkt.ValueTaskOpen,
-            "Result" when arity == 2 => wkt.RuntimeResultOpen,
-            "NSharpLang.Runtime.Result" when arity == 2 => wkt.RuntimeResultOpen,
-            "JsonTypeInfo" when arity == 1 => wkt.JsonTypeInfoOpen,
-            "System.Text.Json.Serialization.Metadata.JsonTypeInfo" when arity == 1 => wkt.JsonTypeInfoOpen,
-            "Func" when arity == 1 => wkt.Func1,
-            "Func" when arity == 2 => wkt.Func2,
-            "Func" when arity == 3 => wkt.Func3,
-            "Func" when arity == 4 => wkt.Func4,
-            "Func" when arity == 5 => wkt.Func5,
-            "Action" when arity == 1 => wkt.Action1,
-            "Action" when arity == 2 => wkt.Action2,
-            "Action" when arity == 3 => wkt.Action3,
-            "Action" when arity == 4 => wkt.Action4,
-            _ => null
-        };
     }
 
     private Type? TryConstructDelegateType(FunctionTypeInfo functionType)
@@ -18453,7 +18370,10 @@ public class Analyzer : IDisposable
             List<int>? knownGenericHeadArities = null;
             if (resolvedName is ExternalTypeInfo or ReflectionTypeInfo)
             {
-                arityQualifiedExternalType = TryGetKnownOpenGenericType(generic.Name, generic.TypeArguments.Count);
+                arityQualifiedExternalType = AnalyzerWellKnownTypeFacts.KnownOpenGenericType(
+                    _wellKnownTypes,
+                    generic.Name,
+                    generic.TypeArguments.Count);
                 if (arityQualifiedExternalType == null
                     && TryResolveExternalType($"{generic.Name}`{generic.TypeArguments.Count}") is ReflectionTypeInfo arityQualifiedExternal)
                 {
@@ -18591,7 +18511,7 @@ public class Analyzer : IDisposable
 
         for (var arity = 1; arity <= MaxClrGenericArity; arity++)
         {
-            if (TryGetKnownOpenGenericType(name, arity) != null
+            if (AnalyzerWellKnownTypeFacts.KnownOpenGenericType(_wellKnownTypes, name, arity) != null
                 || TryResolveExternalType($"{name}`{arity}") is ReflectionTypeInfo { Type.IsGenericTypeDefinition: true })
             {
                 arities.Add(arity);
@@ -22149,7 +22069,9 @@ public class Analyzer : IDisposable
             LoadReferencedAssemblyByName(assemblyName);
         }
 
-        _wellKnownTypes = new WellKnownTypes(_mlc);
+        _wellKnownTypes = new AnalyzerWellKnownTypes(
+            _mlc,
+            _mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded"));
     }
 
     public void Dispose()
@@ -22695,179 +22617,6 @@ public class Analyzer : IDisposable
             }
 
             return 0;
-        }
-    }
-
-    /// <summary>
-    /// Caches well-known CLR types from the MetadataLoadContext for use in type comparisons
-    /// and generic type construction. Replaces all typeof() references.
-    /// </summary>
-    internal sealed class WellKnownTypes
-    {
-        public readonly Type Int32;
-        public readonly Type Int64;
-        public readonly Type Single;
-        public readonly Type Double;
-        public readonly Type Decimal;
-        public readonly Type Byte;
-        public readonly Type SByte;
-        public readonly Type Int16;
-        public readonly Type UInt16;
-        public readonly Type UInt32;
-        public readonly Type UInt64;
-        public readonly Type Char;
-        public readonly Type Boolean;
-        public readonly Type String;
-        public readonly Type Void;
-        public readonly Type Object;
-
-        public readonly Type SystemType;
-
-        public readonly Type Delegate;
-
-        public readonly Type? NullableOpen;
-
-        public readonly Type? ListOpen;
-        public readonly Type? IEnumerableOpen;
-        public readonly Type? IQueryableOpen;
-        public readonly Type? ICollectionOpen;
-        public readonly Type? IListOpen;
-        public readonly Type? DictionaryOpen;
-        public readonly Type? IDictionaryOpen;
-
-        public readonly Type? TaskOpen;
-        public readonly Type? ValueTaskOpen;
-
-        public Type? RuntimeUnionOpen
-        {
-            get
-            {
-                EnsureRuntimeTypes();
-                return _runtimeUnionOpen;
-            }
-        }
-
-        public Type? RuntimeResultOpen
-        {
-            get
-            {
-                EnsureRuntimeTypes();
-                return _runtimeResultOpen;
-            }
-        }
-
-        private readonly MetadataLoadContext _mlc;
-        private bool _runtimeTypesResolved;
-        private Type? _runtimeUnionOpen;
-        private Type? _runtimeResultOpen;
-
-        private void EnsureRuntimeTypes()
-        {
-            if (_runtimeTypesResolved) return;
-            _runtimeTypesResolved = true;
-
-            try
-            {
-                var runtime = _mlc.LoadFromAssemblyName("NSharpLang.Runtime");
-                _runtimeUnionOpen = runtime.GetType("NSharpLang.Runtime.Union`2");
-                _runtimeResultOpen = runtime.GetType("NSharpLang.Runtime.Result`2");
-            }
-            catch (FileNotFoundException)
-            {
-            }
-        }
-
-        public readonly Type? JsonTypeInfoOpen;
-
-        public readonly Type? Action;
-        public readonly Type? Action1;
-        public readonly Type? Action2;
-        public readonly Type? Action3;
-        public readonly Type? Action4;
-        public readonly Type? Func1;
-        public readonly Type? Func2;
-        public readonly Type? Func3;
-        public readonly Type? Func4;
-        public readonly Type? Func5;
-
-        public WellKnownTypes(MetadataLoadContext mlc)
-        {
-            _mlc = mlc;
-            var core = mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded");
-
-            Assembly? coreLib = null;
-            try { coreLib = mlc.LoadFromAssemblyName("System.Private.CoreLib"); } catch { }
-
-            Type? Resolve(string fullName) =>
-                core.GetType(fullName) ?? coreLib?.GetType(fullName);
-
-            Int32 = Resolve("System.Int32") ?? throw new InvalidOperationException("System.Int32 not found in MLC");
-            Int64 = Resolve("System.Int64") ?? throw new InvalidOperationException("System.Int64 not found in MLC");
-            Single = Resolve("System.Single") ?? throw new InvalidOperationException("System.Single not found in MLC");
-            Double = Resolve("System.Double") ?? throw new InvalidOperationException("System.Double not found in MLC");
-            Decimal = Resolve("System.Decimal") ?? throw new InvalidOperationException("System.Decimal not found in MLC");
-            Byte = Resolve("System.Byte") ?? throw new InvalidOperationException("System.Byte not found in MLC");
-            SByte = Resolve("System.SByte") ?? throw new InvalidOperationException("System.SByte not found in MLC");
-            Int16 = Resolve("System.Int16") ?? throw new InvalidOperationException("System.Int16 not found in MLC");
-            UInt16 = Resolve("System.UInt16") ?? throw new InvalidOperationException("System.UInt16 not found in MLC");
-            UInt32 = Resolve("System.UInt32") ?? throw new InvalidOperationException("System.UInt32 not found in MLC");
-            UInt64 = Resolve("System.UInt64") ?? throw new InvalidOperationException("System.UInt64 not found in MLC");
-            Char = Resolve("System.Char") ?? throw new InvalidOperationException("System.Char not found in MLC");
-            Boolean = Resolve("System.Boolean") ?? throw new InvalidOperationException("System.Boolean not found in MLC");
-            String = Resolve("System.String") ?? throw new InvalidOperationException("System.String not found in MLC");
-            Void = Resolve("System.Void") ?? throw new InvalidOperationException("System.Void not found in MLC");
-            Object = Resolve("System.Object") ?? throw new InvalidOperationException("System.Object not found in MLC");
-            Delegate = Resolve("System.Delegate") ?? throw new InvalidOperationException("System.Delegate not found in MLC");
-            SystemType = Resolve("System.Type") ?? throw new InvalidOperationException("System.Type not found in MLC");
-
-            NullableOpen = Resolve("System.Nullable`1");
-            Action = Resolve("System.Action");
-            Action1 = Resolve("System.Action`1");
-            Action2 = Resolve("System.Action`2");
-            Action3 = Resolve("System.Action`3");
-            Action4 = Resolve("System.Action`4");
-            Func1 = Resolve("System.Func`1");
-            Func2 = Resolve("System.Func`2");
-            Func3 = Resolve("System.Func`3");
-            Func4 = Resolve("System.Func`4");
-            Func5 = Resolve("System.Func`5");
-
-            {
-                var json = mlc.LoadFromAssemblyName("System.Text.Json");
-                JsonTypeInfoOpen = json.GetType("System.Text.Json.Serialization.Metadata.JsonTypeInfo`1");
-            }
-
-            {
-                var collections = mlc.LoadFromAssemblyName("System.Collections");
-                ListOpen = collections.GetType("System.Collections.Generic.List`1") ?? Resolve("System.Collections.Generic.List`1");
-                ICollectionOpen = collections.GetType("System.Collections.Generic.ICollection`1") ?? Resolve("System.Collections.Generic.ICollection`1");
-                IListOpen = collections.GetType("System.Collections.Generic.IList`1") ?? Resolve("System.Collections.Generic.IList`1");
-                DictionaryOpen = collections.GetType("System.Collections.Generic.Dictionary`2") ?? Resolve("System.Collections.Generic.Dictionary`2");
-                IDictionaryOpen = collections.GetType("System.Collections.Generic.IDictionary`2") ?? Resolve("System.Collections.Generic.IDictionary`2");
-            }
-            ListOpen ??= Resolve("System.Collections.Generic.List`1");
-            ICollectionOpen ??= Resolve("System.Collections.Generic.ICollection`1");
-            IListOpen ??= Resolve("System.Collections.Generic.IList`1");
-            DictionaryOpen ??= Resolve("System.Collections.Generic.Dictionary`2");
-            IDictionaryOpen ??= Resolve("System.Collections.Generic.IDictionary`2");
-
-            IEnumerableOpen = Resolve("System.Collections.Generic.IEnumerable`1");
-
-            {
-                var expressions = mlc.LoadFromAssemblyName("System.Linq.Expressions");
-                IQueryableOpen = expressions.GetType("System.Linq.IQueryable`1");
-            }
-
-            TaskOpen = Resolve("System.Threading.Tasks.Task`1");
-            ValueTaskOpen = Resolve("System.Threading.Tasks.ValueTask`1");
-            if (TaskOpen == null || ValueTaskOpen == null)
-            {
-                {
-                    var threading = mlc.LoadFromAssemblyName("System.Threading.Tasks");
-                    TaskOpen ??= threading.GetType("System.Threading.Tasks.Task`1");
-                    ValueTaskOpen ??= threading.GetType("System.Threading.Tasks.ValueTask`1");
-                }
-            }
         }
     }
 }

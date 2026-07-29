@@ -4,7 +4,9 @@
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDeclarationContext.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerConversionFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerCallableReferenceFacts.nl`
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerCallableReferenceFacts.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypes.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypeFacts.nl`
 
 ## Responsibility
 
@@ -75,6 +77,64 @@ classification family — what a value that names code IS:
 
 Do not reintroduce any of these predicates in C#, and do not grow this class beyond the
 callable/delegate family.
+
+`AnalyzerWellKnownTypes.nl` is the N# owner for the analyzer's well-known-type FACT BAG. One
+instance is built per analysis from the analyzer's `MetadataLoadContext` and caches every CLR type
+the semantic phase compares against or constructs generics over: the 16 required core types, plus
+`System.Type` and `System.Delegate`, plus the optional open generics (`Nullable`, the generic
+collection interfaces and implementations, `Task`/`ValueTask`, `IQueryable`, `JsonTypeInfo`, the
+`Action`/`Action`1-4` and `Func`1-5` delegate roots), plus a LAZY `GetRuntimeUnionOpen()` /
+`GetRuntimeResultOpen()` pair that resolves `NSharpLang.Runtime.Union<,>` and `Result<,>` on first
+read and absorbs a missing runtime assembly.
+
+- These are METADATA types, not the compiler's own `typeof(...)` types. That distinction is the
+  whole point of the class: it lets the analyzer reason about the project's reference set. Do not
+  replace a field here with a `typeof`.
+- Required types throw at construction when absent — an analyzer that cannot see `System.Int32`
+  cannot produce trustworthy diagnostics. Optional types stay null and every consumer tolerates it.
+- Each name is probed in the core assembly first and then in `System.Private.CoreLib`, because a
+  reference set can split the framework across facades and implementations.
+- The core assembly is PASSED IN rather than read off the context: `MetadataLoadContext.CoreAssembly`
+  is not on the columnar front end's external binding surface, and extending that surface is a
+  compiler-capability change requiring a two-stage bootstrap. The single C# construction site reads
+  it and hands it over.
+- The lazy accessors are METHODS, not properties, because the `.nl` surface has no block-bodied
+  property. The first read decides and the answer never changes for the rest of the analysis.
+
+`AnalyzerWellKnownTypeFacts.nl` is the N# owner for the policy that is a pure function of that bag.
+Three tables live there and are deliberately kept apart:
+
+- `KnownOpenGenericType(facts, name, arity)` maps the compiler-known generic names — the ones a
+  project may write WITHOUT an import — to their open CLR definitions. It is consulted both when
+  constructing a generic type AND by unresolved-type reporting, so a name added here silently stops
+  being reported as missing. The match is arity-exact, case-sensitive, and accepts only the
+  spellings listed (`Result` and `NSharpLang.Runtime.Result`; `JsonTypeInfo` and its full name).
+- `BindingSurrogateOpenGenericType(facts, name, arity)` is the SMALLER vocabulary used when a
+  generic is reconstructed with `object` surrogates for N#-defined type arguments, purely so CLR
+  method binding can proceed. It deliberately omits `Result`, `JsonTypeInfo` and every qualified
+  spelling — those are only meaningful with real type arguments. Merging the two tables would
+  silently widen the surrogate surface; they stay separate, the same discipline the two numeric
+  vocabularies in `AnalyzerConversionFacts` are held to.
+- `BuiltInRuntimeClrType(TypeInfo)` is the fallback used when no metadata facts exist at all. It
+  answers with RUNTIME types, covers the built-in simple types plus arrays, nullables and oblivious
+  wrappers, and — unlike the metadata-backed path — resolves NO aliases as it descends. That
+  difference is behaviour, not an oversight. `void` and `Nullable<>` are read out of the core library
+  with the `typeof(object).get_Assembly()` idiom because the columnar `typeof` surface does not carry
+  them.
+
+Do not reintroduce any of this in C#, and do not put policy in `AnalyzerWellKnownTypes` — that class
+only resolves and holds.
+
+`Analyzer.cs` still owns the two type-resolution funnels the rest of the assignability closure runs
+through: `ResolveTypeAlias(TypeInfo)` (alias/oblivious normalization) and
+`TryConvertTypeInfoToClrType(TypeInfo)` (TypeInfo → CLR `Type`). They are NOT movable while
+`ResolveType(TypeReference)` is C#: the alias arm's live path resolves through that engine, which
+reports `TypeNotFound`/`InvalidTypeArgument`, records into the semantic model, and probes the MLC.
+The alias arm has two branches — a declaration-context branch and a `ResolveType` branch — and
+measurement shows the FIRST is unreachable in practice, because `Analyzer.cs` constructs a fresh
+`AliasTypeInfo` per alias declaration while the declaration context keys its catalog by TypeInfo
+reference identity. Unifying that identity, or moving `ResolveType`, is the prerequisite for taking
+the funnels.
 
 ## Core Functions
 
