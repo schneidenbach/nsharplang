@@ -1,6 +1,7 @@
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -8,10 +9,7 @@ public class LocalFunctionTests
 {
     private static CompilationUnit Parse(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         return result.CompilationUnit!; // Tests expect valid syntax
     }
 

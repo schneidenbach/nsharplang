@@ -132,6 +132,28 @@ public class FileParseAst {
         CompilationUnit = unit
         Errors = errors
     }
+
+    // Stage N+3: the last member `ParseResult` exposed that this type did not, reproduced exactly
+    // (`CompilationUnit != null && !Errors.Any(e => e.Severity == ErrorSeverity.Error)`). With it the
+    // owner's result is a complete drop-in and the C# `ParseResult` record retires with `Parser.cs`.
+    Success: bool {
+        get {
+            if CompilationUnit == null {
+                return false
+            }
+
+            index := 0
+            while index < Errors.Count {
+                if Errors[index].Severity == ErrorSeverity.Error {
+                    return false
+                }
+
+                index = index + 1
+            }
+
+            return true
+        }
+    }
 }
 
 // Stage 1 of the task-016 parser-front-end arc: a faithful N# reproduction of the

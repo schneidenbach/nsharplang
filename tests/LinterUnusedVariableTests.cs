@@ -3,6 +3,7 @@ using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -14,10 +15,7 @@ public class LinterUnusedVariableTests
 {
     private List<Diagnostic> Lint(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, null);
         var linter = new Linter();
         return linter.Lint(parseResult.CompilationUnit!, "test.nl");
     }

@@ -7,6 +7,7 @@ using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -582,10 +583,7 @@ func main() {
 
     private static List<Diagnostic> Lint(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var linter = new Linter();
         return linter.Lint(result.CompilationUnit!, "test.nl");
     }
@@ -593,10 +591,7 @@ func main() {
     private static List<Diagnostic> LintFile(string filePath)
     {
         var source = File.ReadAllText(filePath);
-        var lexer = new Lexer(source, filePath);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, filePath, source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, filePath);
         var linter = new Linter();
         return linter.Lint(result.CompilationUnit!, filePath);
     }

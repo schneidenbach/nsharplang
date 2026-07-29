@@ -1,6 +1,7 @@
 using System;
 using Xunit;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Columnar;
 
 namespace Tests;
 
@@ -8,10 +9,7 @@ public class AnalyzerBindingMapTests
 {
     private static AnalysisResult Analyze(string source)
     {
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
 
         Assert.NotNull(parseResult.CompilationUnit);
 

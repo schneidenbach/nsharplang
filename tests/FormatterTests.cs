@@ -4,6 +4,7 @@ using System.Linq;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -11,10 +12,7 @@ public class FormatterTests
 {
     private static CompilationUnit Parse(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         return result.CompilationUnit!; // Tests expect valid syntax
     }
 
@@ -31,9 +29,8 @@ public class FormatterTests
     private static string FormatWithComments(string source)
     {
         var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        var result = parser.ParseCompilationUnit();
+        lexer.Tokenize();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         var formatter = new Formatter();
         return formatter.Format(result.CompilationUnit!, lexer.Comments);
     }
@@ -1524,10 +1521,7 @@ Error { message: string }
 }";
         var formatted = Format(input).Trim();
         // Re-parse the formatted output
-        var lexer = new Lexer(formatted, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(formatted, "test.nl");
         Assert.Empty(result.Errors.Where(e => e.Severity == Compiler.ErrorSeverity.Error));
     }
 
@@ -1584,10 +1578,7 @@ _ => ""other""
 }
 }";
         var formatted = Format(input).Trim();
-        var lexer = new Lexer(formatted, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(formatted, "test.nl");
         Assert.Empty(result.Errors.Where(e => e.Severity == Compiler.ErrorSeverity.Error));
     }
 
@@ -1641,10 +1632,7 @@ print i
 }
 }";
         var formatted = Format(input).Trim();
-        var lexer = new Lexer(formatted, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(formatted, "test.nl");
         Assert.Empty(result.Errors.Where(e => e.Severity == Compiler.ErrorSeverity.Error));
     }
 

@@ -6,6 +6,7 @@ using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -447,9 +448,7 @@ class Foo { name: string }",
 
         foreach (var source in sources)
         {
-            var tokens = new Lexer(source, "test.nl").Tokenize();
-            var parser = new Parser(tokens, "test.nl", source);
-            var result = parser.ParseCompilationUnit();
+            var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
 
             Assert.NotNull(result.CompilationUnit);
         }
@@ -461,10 +460,7 @@ class Foo { name: string }",
 
     private static AnalysisResult ParseAndAnalyze(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
 
         var analyzer = new Analyzer();
         analyzer.LoadSystemAssemblies();

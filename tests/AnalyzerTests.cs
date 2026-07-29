@@ -5,6 +5,7 @@ using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -21,10 +22,7 @@ public class AnalyzerTests
 
     private AnalysisResult Analyze(string source, ProjectConfig? config = null)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var analyzer = new Analyzer();
 
         // Load system assemblies
@@ -159,10 +157,7 @@ func main(): int {
 
     private void AssertHasParseError(string source, string expectedMessage)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         Assert.False(result.Success, "Expected parse error but got none");
         Assert.Contains(result.Errors, e => e.Message.Contains(expectedMessage));
     }
@@ -240,10 +235,7 @@ func main(): int {
     /// </summary>
     private AnalysisResult AnalyzeWithSource(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var analyzer = new Analyzer();
         analyzer.LoadSystemAssemblies();
         return analyzer.Analyze(result.CompilationUnit!, "test.nl", null, source);
@@ -590,9 +582,7 @@ func Main() {
 }
 """;
 
-        var lexer = new Lexer(source, "Program.nl");
-        var parser = new Parser(lexer.Tokenize(), "Program.nl", source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, "Program.nl");
         using var analyzer = new Analyzer();
 
         var result = analyzer.Analyze(parseResult.CompilationUnit!, "/tmp/Program.nl", projectRoot: null, source);
@@ -6514,10 +6504,7 @@ func World(): string {
 
             // Parse and analyze file A
             var sourceA = File.ReadAllText(fileA);
-            var lexer = new Lexer(sourceA, fileA);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, fileA, sourceA);
-            var parseResult = parser.ParseCompilationUnit();
+            var parseResult = ColumnarParserRecovery.ParseFileAst(sourceA, fileA);
             var analyzer = new Analyzer();
             analyzer.LoadSystemAssemblies();
 
@@ -6550,10 +6537,7 @@ func Hello(): string {
 ");
 
             var source = File.ReadAllText(file);
-            var lexer = new Lexer(source, file);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, file, source);
-            var parseResult = parser.ParseCompilationUnit();
+            var parseResult = ColumnarParserRecovery.ParseFileAst(source, file);
             var analyzer = new Analyzer();
             analyzer.LoadSystemAssemblies();
 
@@ -6592,10 +6576,7 @@ func Hello(): string {
 ");
 
             var sourceA = File.ReadAllText(fileA);
-            var lexer = new Lexer(sourceA, fileA);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, fileA, sourceA);
-            var parseResult = parser.ParseCompilationUnit();
+            var parseResult = ColumnarParserRecovery.ParseFileAst(sourceA, fileA);
             var analyzer = new Analyzer();
             analyzer.LoadSystemAssemblies();
 

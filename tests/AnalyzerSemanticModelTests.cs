@@ -3,6 +3,7 @@ using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.Columnar;
 
 namespace Tests;
 
@@ -10,10 +11,7 @@ public class AnalyzerSemanticModelTests
 {
     private AnalysisResult Analyze(string source)
     {
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
 
         Assert.NotNull(parseResult.CompilationUnit);
 

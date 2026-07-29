@@ -1,6 +1,27 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-29 (**STAGE N+2 LANDED — THE PRODUCTION CUTOVER. The N# owner
+Last updated: 2026-07-29 (**STAGE N+3 LANDED — `Parser.cs` IS DELETED. THE 016 PARSER-OWNERSHIP ARC IS
+COMPLETE.** `src/NSharpLang.Compiler/Parser.cs` (7,116 lines) and the `ParseResult` record it was the sole
+producer of (`ErrorReporting.cs`, 14 lines) are GONE — **7,130 lines of C# parser policy deleted, zero
+replacement C# added.** The real caller inventory was **21 files**, not the 3 the N+1 records named: 20 test
+files plus Parser.cs's own interpolation sub-parser. Every one of the 53 test parse sites now routes to
+`ColumnarParserRecovery.ParseFileAst`, the same entry the 12 production consumers took in N+2 — so the C#
+tests no longer exercise a parser that left the product. **NOT ONE ASSERTION WAS LOST OR REWRITTEN**: the
+2,021 parser assertions across ParserTests / ParserErrorTests / ErrorHandlingTests / EventSubscriptionTests /
+LocalFunctionTests (356 facts) are now executable proof obligations ON THE N# OWNER over a synthetic surface the native
+corpus does not otherwise reach, and the suite is **3,193 / 3,193 — the exact N+2 count, zero drift**. The
+owner's `FileParseAst` gained the one member `ParseResult` had that it lacked (`Success`, reproducing
+`CompilationUnit != null && !Errors.Any(Error)`), pinned by 4 new contracts → **1,554 / 1,554**. GATES:
+ownership audit 18/18 after the repin, corpus IL sweep **78 / 78 byte-identical** (PRODUCT_IL_DIFFS = 0,
+fresh Release CLIs baseline-vs-after over the whole example/fixture corpus), dev.sh `--since`, and the FULL
+VS Code-enabled `./scripts/test-all.sh --commit` **EXIT 0 in 13m48s** (105 gate steps green, VS Code
+integration smoke **36 passing**); `nsharp-0.6.0.vsix` rebuilt + reinstalled. RATCHET: `Parser.cs` and
+`ErrorReporting.cs` retired to `removed` (zero `current*`, `text-v1:removed`, epochs preserved) and 20 test
+rows repinned, every one net-negative. The only assertion-marker movement is −53 `it(` false positives — the
+JS-framework heuristic matching `ParseCompilationUnit()`; `[Fact]` / `[Theory]` / `Assert.` counts are
+UNCHANGED in every file, proven by a per-marker diff. No wall)
+
+Last updated (prior): 2026-07-29 (**STAGE N+2 LANDED — THE PRODUCTION CUTOVER. The N# owner
 `ColumnarParserRecovery` is now the SOLE production parse + ordered-diagnostic authority.** All 12
 external production consumers (MultiFileCompiler.ParseAllFiles, Analyzer ×4, Formatter, CLI
 FormatSource + LintCommand, FixApplicator, CodeIntelligenceService, DocumentManager, PlaygroundCompiler)
@@ -160,17 +181,19 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   typing-owner port, async-func lowering, planner operand unlocks) or MECHANICAL. Resume 015 only
   when one of those owners lands. Emitter at 21,433/20,375 vs epoch 21,723/20,646 (−290 lines this
   task across 8 landed slices + 2 proven refutations + 1 restored regression).
-- 016 note: the PRODUCTION-WIRING/cutover slice (N+2) has LANDED and was run on the IDE bar (VS Code-enabled
-  gate + extension reinstall), as recorded. Parser.cs is no longer the LSP parser or any other production
-  consumer's parser; it survives only as the host for the C# parser UNIT TESTS until N+3 deletes it. The
+- 016 note: BOTH production-touching slices (N+2 cutover, N+3 deletion) have LANDED and were run on the IDE
+  bar (VS Code-enabled gate + extension reinstall), as recorded. `Parser.cs` no longer exists: it is neither
+  the LSP parser, nor any production consumer's parser, nor any test's parser. The
   kernel-capability arc stages (Stages 1-8) were NOT IDE-affecting: they added self-contained N# owner files
   + native contracts with NO production/LSP wiring, so the non-VS-Code path sufficed until the cutover.
-- Task 016 status: UNCHECKED, ARC IN PROGRESS. **STAGE N+2 (THE PRODUCTION CUTOVER) HAS LANDED — the N#
-  owner is the sole production parse + ordered-diagnostic authority and `Parser.cs` is production-dead.
-  The next and LAST sub-slice is N+3: migrate the C# parser unit tests (ParserTests / ParserErrorTests and
-  the parse helpers in FormatterTests / LinterTests / AnalyzerTests / CodeFixTests /
-  CompletionEngineTests / ErrorRecoveryPipelineTests / …) to native N# contracts against `ParseFileAst`,
-  then DELETE `Parser.cs` and retire its `compiler-core` ratchet row.** The diagnostic-CAPABILITY arc
+- Task 016 status: **THE TASK'S COMPLETION CRITERION IS MET — `Parser.cs` IS DELETED** (not "a reviewed
+  zero-policy mechanical host"; the file is gone, along with the `ParseResult` record it solely produced).
+  STAGE N+3 (THE DELETION ARC) HAS LANDED on the full IDE bar; there is no remaining parser sub-slice and no
+  parser policy left in C#. The N# owner `ColumnarParserRecovery` is the sole parse + ordered-diagnostic
+  authority for production AND for every test in the repository. The one piece of residual BOOKKEEPING —
+  translating the 2,021 rerouted C# parser assertions into native `.tests.nl` contracts — is recorded as a
+  follow-on in "Iterative-task targets"; it moves no ownership and does not gate this task's checkbox.
+  The diagnostic-CAPABILITY arc
   (Stages 0-17) is COMPLETE and the parity ledger is CLOSED; the arc has moved into the AST/facts BRIDGE (STAGE N+1); N+1a (preamble-node construction), N+1b
   (the full AST-hierarchy MIGRATION from C# records to N# classes — the C# `Ast/` directory DELETED, CompilationUnit now
   owner-constructable, the Except site made reference-based), N+1c TRANCHE 1 (the owner's `ParseFileAst` now returns a
@@ -232,7 +255,138 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   match / statement-boundary-reset-between-matches / invalid-pattern-terminal shapes). Parser.cs REMAINS the sole
   production syntax authority; cutover is the arc's LAST stage. No wall tripped (self-contained shape, packaged SDK
   emits it — no repin).
-- Active sub-slice (016 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **STAGE N+2 — THE PRODUCTION
+- Active sub-slice (016 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **STAGE N+3 — THE `Parser.cs`
+  DELETION ARC.** TARGET: retire the LAST callers of `Parser.cs` (C# unit tests only — production was cut
+  over in N+2) and DELETE `src/NSharpLang.Compiler/Parser.cs` (7,116 lines) plus everything left provably
+  dead behind it, then retire its `compiler-core` ratchet row to `removed`.
+  INVENTORY (grep of `new Parser(` across the tree, re-verified before editing — the N+1 records named only
+  3 candidate files; the REAL set is **21 files**, 20 of them tests plus Parser.cs's own internal
+  interpolation sub-parser): `ParserTests.cs` (16 sites / 212 facts / 1,503 asserts), `ParserErrorTests.cs`
+  (1 / 91 / 419), `ErrorHandlingTests.cs` (1 / 39 / 54), `EventSubscriptionTests.cs` (2 / 10 / 28),
+  `LocalFunctionTests.cs` (1 / 4 / 17), `AnalyzerTests.cs` (7), `AnalyzerBindingMapTests.cs`, `AnalyzerSemanticModelTests.cs`, `AstNodeFinderTests.cs`,
+  `CliParityAuditTests.cs`, `CodeFixTests.cs` (2), `CodeIntelligenceTests.cs`, `CompletionEngineTests.cs`,
+  `ErrorRecoveryPipelineTests.cs` (2), `ExampleLintTests.cs` (2), `FormatterTests.cs` (5), `LinterTests.cs` (5),
+  `LinterUnusedVariableTests.cs`, `SoaRecordNullConditionalTests.cs`, `SystemsNSharpTests.cs`.
+  `LanguageServerDiagnosticsTests.cs` does NOT construct `Parser` — it drives the LSP end-to-end and simply
+  keeps passing over the routed pipeline, exactly as the mandate anticipated.
+  CLASSIFICATION + FATE (recorded before editing):
+  (a) **15 files whose SUBJECT is not the parser** (analyzer / linter / formatter / completion / code-fix /
+  code-intelligence / systems / CLI-parity) construct `Parser` only as an AST FACTORY. Their assertions are
+  live coverage of OTHER owners and are NOT parser assertions, so they are neither "covered by a contract" nor
+  "retired": they **ROUTE MECHANICALLY TO N#** (`ColumnarParserRecovery.ParseFileAst`), which is exactly what
+  the task contract permits ("Existing C# may only shrink, route mechanically to N#, or be deleted") and what
+  the 12 production consumers did in N+2. This is also a CORRECTNESS FIX: since N+2 these tests were
+  exercising a parser that is no longer in the product.
+  (b) **5 parser-subject files** (`ParserTests` / `ParserErrorTests` / `ErrorHandlingTests` /
+  `EventSubscriptionTests` / `LocalFunctionTests`, 356 facts / 2,021 assertions) route the SAME way. RATIONALE,
+  recorded as the deliberate fork decision: deleting 2,021 assertions on the strength of "the N+2 probe covered
+  it" is the SHORT path, not the complete one — the probe proves owner==Parser.cs on 27,694 corpus sources, not
+  on these synthetic snippets. Rerouted, every one of those assertions becomes an EXECUTABLE proof obligation on
+  the N# owner over a 2,021-assertion synthetic surface the native corpus does not otherwise reach, and it
+  passes or the suite goes red. No assertion is lost, no C# parser POLICY survives, and the task's completion
+  criterion (`Parser.cs` deleted) is met in full. The residual C#-to-N#-contract translation of those
+  assertions is bookkeeping, not ownership, and is recorded as a follow-on below — it does NOT gate 016.
+  (c) **retired with the owner**: `ParseResult` (`ErrorReporting.cs`) and any other type left reachable only
+  from `Parser.cs` — deleted iff provably dead after the reroute.
+  BAR: full unit suite, BootstrapServices contracts, corpus IL byte-exact sweep, ownership audit 18/18 after
+  the ratchet repin (`Parser.cs` → `removed`, zero `current*`, epochs preserved, `text-v1:removed`), and the
+  FULL VS Code-enabled gate — `Parser.cs` is in the assemblies the LSP builds against.
+  **RESULT: LANDED IN FULL (no commit — mandate). `Parser.cs` IS DELETED; TASK 016's COMPLETION CRITERION IS
+  MET.**
+  DELETIONS (line accounting): `src/NSharpLang.Compiler/Parser.cs` **−7,116** (the whole file) and
+  `src/NSharpLang.Compiler/ErrorReporting.cs` **−14** (the `ParseResult` record — the ONLY thing in the file,
+  and `Parser.cs` was its only producer; grep across `src/` + `tests/` + `editors/` confirms zero surviving
+  references). **TOTAL C# DELETED: 7,130 lines. TOTAL C# ADDED: 0.** The 20 rerouted test files are a further
+  **net −134 C# lines** (+75 / −209: each 4-line Lexer+Tokenize+Parser+ParseCompilationUnit idiom collapses to
+  one call, minus one `using` per file), so the slice is **−7,264 C# / +53 N#** (the owner's 22-line `Success`
+  property + 31 lines of contracts). Docs updated with the owner: `memory/components/parser.md` (File → Owner,
+  the testing layers, the usage example) and `memory/architecture.md`'s pipeline entry.
+  DEAD-CODE SWEEP behind the owner (step 3 of the mandate) — every helper `Parser.cs` referenced was checked
+  and is LIVE, owned by N#, and KEPT: `ParserTokenCompactor` (`CompilerBootstrapServices.nl`, called by the
+  owner's own compaction step), `DiagnosticSpan` (`ParserDiagnosticSpan.nl`), `DiagnosticSpanResolver`
+  (`DiagnosticSpanResolver.nl`; also read by `LspDiagnosticConverter.cs`, `Linter.cs`, `CompilerError.nl`),
+  `Preprocessor`, `Lexer` / `Token`. `ParseResult` was the ONLY provably-dead type and it is deleted.
+  ASSERTION-MIGRATION LEDGER (the mandate's (a)/(b)/(c) classification, applied to all 21 files):
+  * (a) ALREADY COVERED → 0 files deleted on this basis. The claim was tested rather than asserted: rerouting
+    runs every assertion against the owner, which is a STRICTLY STRONGER check than mapping it to a contract
+    by hand, and it came back 100% green. Deleting on a mapping argument would have traded executable
+    coverage for prose.
+  * (b) MIGRATED → all 53 parse sites in 20 files, mechanically, to `ColumnarParserRecovery.ParseFileAst`
+    (`Lexer`+`Tokenize`+`new Parser`+`ParseCompilationUnit` → one call). 15 of those files are
+    ANALYZER / LINTER / FORMATTER / COMPLETION / CODE-FIX / CODE-INTELLIGENCE / SYSTEMS / CLI-PARITY tests
+    that only used `Parser` as an AST factory; 5 are parser-subject files. Plus 4 NEW native contracts for
+    the owner's new `Success` member.
+  * (c) RETIRED WITH THE OWNER → the `ParseResult` record and Parser.cs's internal interpolation SUB-parser
+    (`:5148`, never reachable from outside the class). No test asserted Parser-class-internal mechanics, so
+    no test file was retired.
+  * `LanguageServerDiagnosticsTests.cs` never constructed `Parser`; it drives the LSP end-to-end and passes
+    unchanged over the routed pipeline, exactly as the mandate anticipated.
+  THREE SITES WERE NOT MECHANICAL and are recorded: (1) `FormatterTests.FormatWithComments` still needs
+  `lexer.Comments`, so its `Lexer` is KEPT and lexes alongside the owner's internal lex — the same shape
+  production's `Formatter.FormatSafe` / CLI `FormatSource` / `PlaygroundCompiler` / `DocumentManager` took in
+  N+2; (2) `ParserErrorTests`'s `Parse` returned the `ParseResult` TYPE by name (the only test that did) and
+  now returns `FileParseAst`, retiring its private `Tokenize` helper with it; (3) `CodeFixTests`'s
+  re-parse-the-fixed-source site was a one-line `new Parser(t).ParseCompilationUnit()` chain.
+  OWNER CHANGE (N#, the ONLY new code in this slice): `FileParseAst` gains `Success: bool { get { … } }`,
+  reproducing `ParseResult.Success` exactly (`CompilationUnit != null && !Errors.Any(e => e.Severity ==
+  ErrorSeverity.Error)`). Without it the retiring record still had a member the owner lacked, and every test
+  read of `.Success` would have had to be REWRITTEN rather than routed. It is a PROPERTY on the small leaf
+  result class, NOT on `ColumnarParserRecovery`, so the per-class member ceiling is untouched.
+  SUITE-COUNT ACCOUNTING: **3,193 → 3,193.** The total is UNCHANGED because zero test files and zero `[Fact]`s
+  were deleted — the migration moved what each test parses WITH, not what it asserts. (Had the 5 parser-subject
+  files been deleted instead, the total would have fallen by 356 facts / 2,021 assertions with nothing
+  executable put in their place.)
+  EVIDENCE: full unit suite **3,193 / 3,193** (`dotnet test tests/Tests.csproj -c Release`, 3m12s);
+  BootstrapServices contracts **1,554 / 1,554** via the canonical `dotnet test
+  src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false` (1,550 baseline + 4 new
+  `Success` contracts, incl. the below-error-severity and absent-CompilationUnit arms; the 3 ExternalAssemblyScan
+  Debug-layout tests did NOT trip); ownership audit **18 / 18**; corpus IL sweep **78 / 78 comparable
+  assemblies BYTE-IDENTICAL, PRODUCT_IL_DIFFS = 0** (fresh Release CLIs built at baseline `4d7a7cb79` in a
+  throwaway `/tmp` worktree and at the working tree, driven over every `project.yml` target under
+  `examples/` + `tests/` plus every single-file example, normalizing ONLY the COFF TimeDateStamp and the
+  `#GUID`/`#Pdb` heaps — the same two run-varying fields N+2 normalized); `./scripts/dev.sh --since` (it
+  correctly took the FULL unit suite fail-safe, naming `ErrorReporting.cs` as a shared compiler file and the
+  three `.nl` paths as unmapped).
+  RATCHET REPIN via `scratchpad/repin_016_n3.py` — `current*` + per-file fingerprints ONLY:
+  * **REMOVED rows** (the N+1b `Ast/*.cs` precedent): `src/NSharpLang.Compiler/Parser.cs`
+    `existing-debt` 7,116/6,180 → `state: "removed"`, 0/0/0/0, `text-v1:removed` (epoch 7,117/6,183 PRESERVED);
+    `src/NSharpLang.Compiler/ErrorReporting.cs` 14/12 → `removed`, 0/0/0/0, `text-v1:removed`
+    (epoch 14/12 PRESERVED).
+  * **20 test rows repinned**, every one net-negative and comfortably inside its ceilings — largest movers
+    `ParserTests.cs` 6,130→6,087 (nonblank 5,210→5,167), `AnalyzerTests.cs` 13,452→13,433 (11,746→11,727),
+    `LinterTests.cs` 1,380→1,366, `FormatterTests.cs` 2,146→2,134, `ParserErrorTests.cs` 1,923→1,914.
+    No compression or consolidation was needed anywhere.
+  * ASSERTION MARKERS: the only movement is **−53, and every one is a FALSE POSITIVE** — the marker heuristic
+    counts `it(` for JS frameworks, and `ParseCompilationUnit()` contains it. A per-marker diff over all 20
+    files proves `[Fact]` / `[Theory]` / `Assert.` / `Should(` / `test(` / `expect(` counts are IDENTICAL in
+    EVERY file, and that each file's `it(` delta equals exactly its `ParseCompilationUnit()` delta.
+  * `reviewedHeadFingerprint head-v1:18244d220963ad03 → head-v1:d889362e0ea7e2a4`, mirrored into
+    `OwnershipAudit.nl`'s `OwnershipPolicy.ReviewedHeadFingerprint`. **Every `epoch*` value, `epochPathFingerprint`,
+    `epochFactFingerprint` and `epochFileCount` untouched and RE-VALIDATED by recomputation after the write**
+    (the repin script reimplements `OwnershipFacts` exactly and was self-checked against the pre-edit manifest:
+    it reproduces the existing pathset, epochfacts and head fingerprints bit-for-bit before changing anything).
+  GATES (the FULL IDE bar — deleting `Parser.cs` changes the Compiler assembly the language server ships):
+  * **`./scripts/test-all.sh --commit` with NO `VSCODE_TESTS=skip`: EXIT 0 in 13m48s**, run FRESH in the
+    script's own isolated copy (`/private/tmp/nsharp-test-all.29934dd4912d.*/repo`) — not a cached whole-gate
+    or per-step result. **105 `✓ PASSED` steps, ZERO failures**: unit 3,193/3,193, BootstrapServices contracts
+    1,554/1,554, every native N# project (compiler-service contracts, the example test projects, all
+    `tests/native/*`), the format-contract gate, SDK/runtime/template pack + install, `dotnet new` template
+    creation, the console AND Web API template builds via `nlc build`, every example project, every
+    single-file example, `nlc check` on examples, and the ECMA-335 IL verification gate.
+  * **Step 3b VS Code Integration Tests: `36 passing` (41s), ✓ PASSED** — extension activation, diagnostics,
+    hover, completion, all driven over the routed pipeline with `Parser.cs` gone.
+  * `./scripts/reload-vscode-extension.sh`: EXIT 0 — language server republished, `nsharp-0.6.0.vsix`
+    (289 files, 3.98 MB) repackaged, `Extension 'nsharp-0.6.0.vsix' was successfully installed`, VS Code
+    reopened on `examples/01-hello-world`. It WAS needed: no LanguageServer source changed, but the
+    `NSharpLang.Compiler` assembly the server ships lost `Parser.cs`, so the shipped server had to be rebuilt.
+  * INTERACTIVE computer-use verification: **NOT PERFORMED — the permission system DENIED the VS Code
+    control grant for this session** (`request_access` → `user_denied`). Recorded as a gap, not skipped by
+    choice. The automated IDE evidence above (36 VS Code integration tests over a freshly installed VSIX)
+    stands; a human/coordinator screenshot pass over `examples/01-hello-world` — now open in the reloaded
+    editor — is the outstanding item if an eyes-on record is required.
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change; the packaged SDK self-emits the
+  owner edit.
+- Active sub-slice (016 arc, PRIOR TURN, LANDED — no commit): **STAGE N+2 — THE PRODUCTION
   CUTOVER.** TARGET: route EVERY production consumer of `Parser.ParseCompilationUnit()` to the N# owner
   `ColumnarParserRecovery`, so the owner becomes the sole production parse + ordered-diagnostic authority.
   Parser.cs is left UNREFERENCED by production but NOT deleted (deletion + the C# parser-test migration is
@@ -3015,7 +3169,18 @@ These are populated only when their task becomes current.
 - Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
   roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
   lowering, and incremental planner OPERAND unlocks.
-- Task 016 next parser sub-slice: STAGE N+1c (materialize the full node tree in the owner). N+1b (the AST-hierarchy
+- Task 016 next parser sub-slice: **NONE — `Parser.cs` IS DELETED and the task's completion criterion is met.**
+  The whole arc (Stages 0-17 capability → N+1a/b/c bridge → N+2 cutover → N+3 deletion) is done: the N# owner
+  `ColumnarParserRecovery` is the sole parse + ordered-diagnostic authority for production and for every test,
+  and 7,130 lines of C# parser policy (`Parser.cs` 7,116 + the `ParseResult` record 14) are gone with zero
+  replacement C#. ONE OPTIONAL FOLLOW-ON remains, and it is BOOKKEEPING, not ownership: the 2,021 parser
+  assertions (356 facts) in `ParserTests.cs` / `ParserErrorTests.cs` / `ErrorHandlingTests.cs` /
+  `EventSubscriptionTests.cs` / `LocalFunctionTests.cs` are still expressed in C# xunit even though every one
+  of them now executes against the N# owner. Translating them into native `.tests.nl` contracts would move the
+  last parser TEST text to N#; it deletes no C# policy, unlocks nothing, and must not be done as a bulk
+  DELETION (that would drop 356 facts of executable synthetic-surface coverage the native corpus does not
+  otherwise reach). Sequence it behind the remaining `final-compiler-tasks/` owners.
+  (HISTORICAL) STAGE N+1c (materialize the full node tree in the owner). N+1b (the AST-hierarchy
   migration — the whole AstNode hierarchy moved from C# records to N# classes in BootstrapServices, the C# `Ast/`
   directory DELETED, the Except site made reference-based) LANDED this turn with the full production-touching bar green
   (unit 3190/3190, contracts 1202/1202, ownership 18/18, an EMPTY byte-exact corpus IL diff over 159 assemblies). N+1c:
@@ -3098,6 +3263,18 @@ These are populated only when their task becomes current.
 
 Completed slices:
 
+- Task 016 — **TERMINAL slice (STAGE N+3): `Parser.cs` DELETED. The parser-ownership arc is COMPLETE and the
+  task's checkbox criterion ("Parser.cs is deleted or a reviewed zero-policy mechanical host") is MET by the
+  stronger arm — the file is gone, not reduced to a host.** `src/NSharpLang.Compiler/Parser.cs` (−7,116) and
+  `src/NSharpLang.Compiler/ErrorReporting.cs` (−14, the `ParseResult` record it solely produced) are deleted;
+  **7,130 C# lines out, 0 C# lines in.** All 53 parse sites across 20 C# test files route to
+  `ColumnarParserRecovery.ParseFileAst`; `FileParseAst` gained the one member `ParseResult` had that it did
+  not (`Success`), pinned by 4 native contracts. Suite 3,193/3,193 (unchanged — no test deleted, no assertion
+  rewritten), contracts 1,554/1,554, ownership audit 18/18, corpus IL sweep 78/78 byte-identical
+  (PRODUCT_IL_DIFFS=0), dev.sh `--since`, and the FULL VS Code-enabled `./scripts/test-all.sh --commit` with
+  the extension rebuilt + reinstalled. Ratchet: two `removed` rows (epochs preserved) + 20 net-negative test
+  repins + `reviewedHeadFingerprint` mirrored into `OwnershipAudit.nl`. No wall. Full detail in the
+  THIS-TURN Active sub-slice.
 - Task 016 — EIGHTH slice (parser-front-end arc STAGE 7): the EXPRESSIONS diagnostic family (recut A — the
   fuller precedence ladder over Stage-6's shallow assignment/additive/multiplicative subset, carrying the
   expression ERROR families Stages 3/6 kept panic-suppressed: unexpected-token-in-expression [NL101], prefix `+`

@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using NSharpLang.Compiler;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -75,10 +76,7 @@ public class SoaRecordNullConditionalTests
 
     private static AnalysisResult Analyze(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         Assert.True(parseResult.Success, string.Join(Environment.NewLine, parseResult.Errors.Select(error => error.Message)));
 
         var analyzer = new Analyzer();

@@ -30,7 +30,7 @@ compiler-core and tooling logic is deletion debt, not architecture.
 ## Main Components
 
 1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.BootstrapServices/Lexer.nl`)
-2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler/Parser.cs`)
+2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.BootstrapServices/ColumnarParserRecovery.nl`, N#)
 3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler/Analyzer.cs`)
 4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler/Columnar/`)
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)

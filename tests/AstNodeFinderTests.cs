@@ -2,6 +2,7 @@ using System;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -9,9 +10,7 @@ public class AstNodeFinderTests
 {
     private static CompilationUnit Parse(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var parser = new Parser(lexer.Tokenize(), "test.nl", source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         return result.CompilationUnit!;
     }
 

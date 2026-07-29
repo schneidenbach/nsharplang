@@ -5,6 +5,7 @@ using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -12,20 +13,14 @@ public class LinterTests
 {
     private List<Diagnostic> Lint(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var linter = new Linter();
         return linter.Lint(result.CompilationUnit!, "test.nl");
     }
 
     private List<Diagnostic> LintWithSource(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         var linter = new Linter();
         return linter.Lint(result.CompilationUnit!, "test.nl", source);
     }
@@ -33,10 +28,7 @@ public class LinterTests
     private List<Diagnostic> LintFile(string filePath)
     {
         var source = File.ReadAllText(filePath);
-        var lexer = new Lexer(source, filePath);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, filePath, source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, filePath);
         var linter = new Linter();
         return linter.Lint(result.CompilationUnit!, filePath, source);
     }
@@ -1216,10 +1208,7 @@ func GetString(): string {
     public void Linter_UsesSeverityFromConfig()
     {
         var source = "func main() { x := 5 }";
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
 
         var config = LinterConfig.Default();
         config.RuleSeverities["NL001"] = DiagnosticSeverity.Error;
@@ -1248,10 +1237,7 @@ func GetString(): string {
                 """);
 
             var source = "func main() { x := 5 }";
-            var lexer = new Lexer(source, Path.Combine(tempDir, "test.nl"));
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens);
-            var result = parser.ParseCompilationUnit();
+            var result = ColumnarParserRecovery.ParseFileAst(source, null);
 
             var config = LinterConfig.FromEditorConfig(tempDir);
             var linter = new Linter(config);

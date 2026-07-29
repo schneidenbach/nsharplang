@@ -5,6 +5,7 @@ using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -23,10 +24,7 @@ public class CompletionEngineTests
         var filePath = Path.Combine(tempDir, "test.nl");
         File.WriteAllText(filePath, source);
 
-        var lexer = new Lexer(source, filePath);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, filePath, source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, filePath);
 
         var analyzer = new Analyzer();
         analyzer.LoadSystemAssemblies();

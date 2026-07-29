@@ -2,6 +2,7 @@ using System.Linq;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -13,18 +14,12 @@ public class EventSubscriptionTests
 {
     private static CompilationUnit Parse(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        return parser.ParseCompilationUnit().CompilationUnit!;
+        return ColumnarParserRecovery.ParseFileAst(source, "test.nl").CompilationUnit!;
     }
 
     private static AnalysisResult Analyze(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var analyzer = new Analyzer();
         analyzer.LoadSystemAssemblies();
         return analyzer.Analyze(result.CompilationUnit!);

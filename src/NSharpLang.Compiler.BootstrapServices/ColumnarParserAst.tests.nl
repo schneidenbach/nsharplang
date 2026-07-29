@@ -5461,3 +5461,34 @@ test "016 N+1c tranche 11: an invalid property accessor still materializes the P
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
+
+// ── 016 N+3 (the Parser.cs DELETION arc) ─────────────────────────────────────
+// `FileParseAst.Success` is the last member the retiring C# `ParseResult` record exposed that the
+// owner's result did not. It reproduces `CompilationUnit != null && !Errors.Any(e => e.Severity ==
+// ErrorSeverity.Error)` exactly, so every consumer that read `ParseResult.Success` reads this
+// instead and the C# record retires with `Parser.cs`.
+test "016 N+3: FileParseAst.Success is true for a well-formed file" {
+    parsed := ColumnarParserRecovery.ParseFileAst("func f(): int {\n    return 1\n}\n", "test.nl")
+    assert parsed.Errors.Count == 0
+    assert parsed.Success
+}
+
+test "016 N+3: FileParseAst.Success is false when any error-severity diagnostic is recorded" {
+    parsed := ColumnarParserRecovery.ParseFileAst("func f(name:) {\n}\n", "test.nl")
+    assert parsed.Errors.Count > 0
+    assert parsed.Errors[0].Severity == ErrorSeverity.Error
+    assert !parsed.Success
+}
+
+test "016 N+3: FileParseAst.Success ignores diagnostics below error severity" {
+    errors := new List<CompilerError>()
+    errors.Add(CompilerError.Create(ErrorCode.InvalidSyntax, "warning-shaped", 1, 1, ErrorSeverity.Warning))
+    parsed := new FileParseAst(new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, new List<Declaration>(), 1, 1), errors)
+    assert parsed.Errors.Count == 1
+    assert parsed.Success
+}
+
+test "016 N+3: FileParseAst.Success is false when the CompilationUnit is absent" {
+    parsed := new FileParseAst(null, new List<CompilerError>())
+    assert !parsed.Success
+}

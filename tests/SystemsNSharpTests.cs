@@ -16,6 +16,7 @@ using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Performance;
 using NSharpLang.Tests.PerfEvidence;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -2324,9 +2325,7 @@ func Copy(): int {
 
     private static CompilationUnit Parse(string source, string file = "Program.nl")
     {
-        var lexer = new Lexer(source, file);
-        var parser = new Parser(lexer.Tokenize(), file, source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, file);
 
         Assert.NotNull(result.CompilationUnit);
         Assert.DoesNotContain(result.Errors, error => error.Severity == ErrorSeverity.Error);

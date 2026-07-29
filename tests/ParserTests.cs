@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -11,19 +12,13 @@ public class ParserTests
 {
     private static CompilationUnit Parse(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         return result.CompilationUnit!; // Tests expect valid syntax
     }
 
     private static void AssertHasParseError(string source, string expectedMessage)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
 
         Assert.False(result.Success, "Expected parse error but got none");
         Assert.Contains(result.Errors, error => error.Message.Contains(expectedMessage));
@@ -248,9 +243,7 @@ public class ParserTests
             }
         ";
 
-        var lexer = new Lexer(source, "test.nl");
-        var parser = new Parser(lexer.Tokenize(), "test.nl", source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         Assert.DoesNotContain(result.Errors, error => error.Severity == ErrorSeverity.Error);
 
         var funcDecl = Assert.IsType<FunctionDeclaration>(result.CompilationUnit!.Declarations[0]);
@@ -3565,10 +3558,7 @@ test ""should add two numbers"" {
     assert result == 5
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         Assert.Single(unit.Declarations);
@@ -3604,10 +3594,7 @@ func TestFunc() {
     assert value != null
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         var funcDecl = unit.Declarations[0] as FunctionDeclaration;
@@ -3645,10 +3632,7 @@ test ""should add"" {
     assert result == 5, ""addition should work""
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         var testDecl = unit.Declarations[0] as TestDeclaration;
@@ -3671,10 +3655,7 @@ test ""should throw on divide by zero"" {
     }
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         var testDecl = unit.Declarations[0] as TestDeclaration;
@@ -3700,10 +3681,7 @@ test ""should add correctly"" with (a: int, b: int, expected: int) [
     assert result == expected
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         var testDecl = unit.Declarations[0] as TestDeclaration;
@@ -3729,10 +3707,7 @@ test ""needs network"" skip ""CI has no network"" {
     assert true
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         var testDecl = unit.Declarations[0] as TestDeclaration;
@@ -3753,10 +3728,7 @@ test ""should add task"" {
     assert store != null
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         Assert.Equal(2, unit.Declarations.Count);
@@ -3779,10 +3751,7 @@ test ""should work"" {
     assert true
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         Assert.Equal(2, unit.Declarations.Count);
@@ -3807,10 +3776,7 @@ test ""should query"" {
     assert db != null
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         Assert.Equal(3, unit.Declarations.Count);
@@ -3829,10 +3795,7 @@ test ""should add"" with (a: int, b: int, expected: int) [
     assert Add(a, b) == expected
 }";
 
-        var lexer = new Lexer(source);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, null);
         var unit = result.CompilationUnit!;
 
         var testDecl = unit.Declarations[0] as TestDeclaration;
@@ -4539,9 +4502,7 @@ func Helper(): int {
     public void TestNullableArrayPostfixOrder()
     {
         var source = "func Use(names: string?[], maybeNames: string[]?) { }";
-        var lexer = new Lexer(source, "test.nl");
-        var parser = new Parser(lexer.Tokenize(), "test.nl", source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
 
         Assert.True(result.Success, string.Join(", ", result.Errors.Select(error => error.Message)));
         var func = Assert.IsType<FunctionDeclaration>(result.CompilationUnit!.Declarations[0]);
@@ -5735,9 +5696,7 @@ Hello, {person.Name}!
             }
         ";
 
-        var tokens = new Lexer(source, "test").Tokenize();
-        var parser = new Parser(tokens, "test");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test");
         var ast = result.CompilationUnit!;
 
         var cls = ast.Declarations.OfType<ClassDeclaration>().First();
@@ -5778,9 +5737,7 @@ Hello, {person.Name}!
             }
         ";
 
-        var tokens = new Lexer(source, "test").Tokenize();
-        var parser = new Parser(tokens, "test");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, "test");
         var ast = result.CompilationUnit!;
 
         var cls = ast.Declarations.OfType<ClassDeclaration>().First();

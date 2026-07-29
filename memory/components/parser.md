@@ -1,6 +1,10 @@
 # Parser Component
 
-**File:** `src/NSharpLang.Compiler/Parser.cs`
+**Owner:** `src/NSharpLang.Compiler.BootstrapServices/ColumnarParserRecovery.nl` (N#)
+
+The parser is written in N#. The former C# `Parser.cs` was deleted at the end of the task-016 ownership
+arc; `ColumnarParserRecovery` is the sole parse and ordered-diagnostic authority for the compiler, the
+CLI, the analyzer, the formatter, the linter, code intelligence, the playground, and the language server.
 
 ## Responsibility
 
@@ -151,23 +155,21 @@ Partial ASTs use placeholder nodes such as `<error>` only to keep downstream too
 
 ## Testing
 
-Parser has 86 unit tests covering:
-- All statement types
-- All expression types
-- All declaration types
-- Operator precedence
-- Error cases
-
-See `tests/ParserTests.cs`.
+Two layers:
+- **Native contracts** (canonical): `ColumnarParserRecovery.tests.nl` pins the ordered diagnostic stream
+  and `ColumnarParserAst.tests.nl` pins the materialized AST node-by-node. Run with
+  `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
+- **C# suite**: `tests/ParserTests.cs` and `tests/ParserErrorTests.cs` (plus the analyzer / linter /
+  formatter / completion suites) drive the same `ParseFileAst` entry, covering statement, expression and
+  declaration shapes, operator precedence, and error cases.
 
 ## Usage Example
 
 ```text
-var tokens = lexer.Tokenize();
-var parser = new Parser(tokens, "example.nl");
-var ast = parser.ParseCompilationUnit();
+var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(source, "example.nl");
 
-// ast is CompilationUnit with:
-// - Declarations: List<Declaration>
-// - Statements: List<Statement> (top-level)
+// parseResult is FileParseAst with:
+// - CompilationUnit: CompilationUnit? (Declarations, Statements, Imports, Package, Namespace)
+// - Errors: List<CompilerError> in recording order
+// - Success: no CompilationUnit-absent or error-severity diagnostic
 ```

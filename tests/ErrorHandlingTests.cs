@@ -2,6 +2,7 @@ using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using System.Linq;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -13,10 +14,7 @@ public class ErrorHandlingTests
 {
     private static CompilationUnit Parse(string code)
     {
-        var lexer = new Lexer(code, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl");
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(code, "test.nl");
         return result.CompilationUnit!; // We expect parsing to succeed even with errors
     }
 

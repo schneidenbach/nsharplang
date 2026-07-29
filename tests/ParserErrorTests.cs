@@ -5,6 +5,7 @@ using NSharpLang.LanguageServer.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -12,18 +13,8 @@ namespace NSharpLang.Tests;
 /// These tests verify that Parser correctly reports errors with proper codes and locations</summary>
 public class ParserErrorTests
 {
-    private static List<Token> Tokenize(string source)
-    {
-        var lexer = new Lexer(source, "test.nl");
-        return lexer.Tokenize();
-    }
-
-    private static ParseResult Parse(string source)
-    {
-        var tokens = Tokenize(source);
-        var parser = new Parser(tokens, "test.nl", source);
-        return parser.ParseCompilationUnit();
-    }
+    private static FileParseAst Parse(string source)
+        => ColumnarParserRecovery.ParseFileAst(source, "test.nl");
 
     #region Reserved Keyword As Name (NL109)
 

@@ -2,6 +2,7 @@ using System.Linq;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -212,8 +213,7 @@ func main() {
     }
 }", fixedSource);
 
-        var fixedTokens = new Lexer(fixedSource).Tokenize();
-        var fixedParse = new Parser(fixedTokens).ParseCompilationUnit();
+        var fixedParse = ColumnarParserRecovery.ParseFileAst(fixedSource, null);
         Assert.True(fixedParse.Success, string.Join("\n", fixedParse.Errors.Select(e => e.Message)));
     }
 
@@ -592,10 +592,7 @@ func main() {
 
     private CompilationUnit ParseCode(string code)
     {
-        var lexer = new Lexer(code);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(code, null);
         return result.CompilationUnit!; // Tests expect valid syntax
     }
 }

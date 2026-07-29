@@ -8,6 +8,7 @@ using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -388,10 +389,7 @@ func Main() {
 }
 """;
 
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
         var diagnostics = new Linter().Lint(parseResult.CompilationUnit!, "test.nl", source);
 
         Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Code == "NL001");

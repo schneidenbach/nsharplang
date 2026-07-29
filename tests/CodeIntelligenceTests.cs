@@ -9,6 +9,7 @@ using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Performance;
 using Xunit;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -1295,10 +1296,7 @@ public class CodeIntelligenceOutputTests
 
     private static CompilationUnit ParseCompilationUnit(string source, string filePath)
     {
-        var lexer = new Lexer(source, filePath);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, filePath, source);
-        var result = parser.ParseCompilationUnit();
+        var result = ColumnarParserRecovery.ParseFileAst(source, filePath);
 
         Assert.NotNull(result.CompilationUnit);
         return result.CompilationUnit!;
