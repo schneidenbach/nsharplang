@@ -177,6 +177,7 @@ public class Analyzer : IDisposable
     // Rebuilt, not mutated, whenever _wellKnownTypes changes: the owner's own fields never change
     // after construction.
     private AnalyzerClrTypeConversion _clrTypeConversion;
+    private AnalyzerAssignabilityFacts _assignabilityFacts;
     private readonly List<Assembly> _mlcAssemblies = new();
 
     // Reference assemblies that failed to load or be inspected, keyed by identity (file path
@@ -222,6 +223,7 @@ public class Analyzer : IDisposable
     public Analyzer()
     {
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
+        _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
     }
 
     private static string GetNuGetPackagesRoot()
@@ -6777,7 +6779,7 @@ public class Analyzer : IDisposable
         if (expression is LambdaExpression)
             return false;
 
-        if (_currentExpectedType != null && CanBindCallableReferenceToExpectedType(_currentExpectedType))
+        if (_currentExpectedType != null && _assignabilityFacts.CanBindCallableReferenceToExpectedType(_currentExpectedType))
             return false;
 
         var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
@@ -6810,20 +6812,6 @@ public class Analyzer : IDisposable
             CheckedExpression checkedExpression => RenderSyntheticSoaOperationTarget(checkedExpression.Expression, fallbackName),
             UncheckedExpression uncheckedExpression => RenderSyntheticSoaOperationTarget(uncheckedExpression.Expression, fallbackName),
             _ => fallbackName
-        };
-    }
-
-    private bool CanBindCallableReferenceToExpectedType(TypeInfo expectedType)
-    {
-        var resolvedExpected = _declarationContext.ResolveDeclaredAlias(expectedType);
-        return resolvedExpected switch
-        {
-            FunctionTypeInfo => true,
-            GenericTypeInfo { Name: "Func" or "Action" } => true,
-            ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflection.Type),
-            ObliviousTypeInfo oblivious => CanBindCallableReferenceToExpectedType(oblivious.InnerType),
-            NullableTypeInfo nullable => CanBindCallableReferenceToExpectedType(nullable.InnerType),
-            _ => false
         };
     }
 
@@ -9789,7 +9777,7 @@ public class Analyzer : IDisposable
             openDelegateType = GetDelegateParameterTypeForLambdaTarget(openDelegateType);
         }
 
-        if (!IsDelegateType(resolvedType))
+        if (!_assignabilityFacts.IsDelegateType(resolvedType))
             return null;
 
         if (resolvedType.IsGenericType)
@@ -9852,14 +9840,6 @@ public class Analyzer : IDisposable
         return TryGetExpressionTreeDelegateType(parameterType, out var expressionDelegateType)
             ? expressionDelegateType
             : parameterType;
-    }
-
-    private bool IsDelegateType(Type type)
-    {
-        if (_wellKnownTypes == null) return false;
-        return _wellKnownTypes.Delegate.IsAssignableFrom(type)
-            && type.FullName != "System.Delegate"
-            && type.FullName != "System.MulticastDelegate";
     }
 
     private bool IsBroadDelegateType(Type type)
@@ -13015,7 +12995,7 @@ public class Analyzer : IDisposable
         score = 0;
 
         var delegateType = ApplyReflectionBindings(parameterType, bindings);
-        if (!IsDelegateType(delegateType))
+        if (!_assignabilityFacts.IsDelegateType(delegateType))
             return false;
 
         var expectedSignature = CreateFunctionTypeInfoFromDelegate(delegateType);
@@ -13873,7 +13853,7 @@ public class Analyzer : IDisposable
         {
             FunctionTypeInfo => true,
             GenericTypeInfo { Name: "Func" or "Action" } => true,
-            ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflection.Type),
+            ReflectionTypeInfo reflection => _assignabilityFacts.IsDelegateType(reflection.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflection.Type),
             ObliviousTypeInfo oblivious => IsDelegateLikeAssignmentType(oblivious.InnerType),
             NullableTypeInfo nullable => IsDelegateLikeAssignmentType(nullable.InnerType),
             _ => false
@@ -15825,7 +15805,7 @@ public class Analyzer : IDisposable
             return functionType;
 
         if (resolvedExpectedType is ReflectionTypeInfo reflectionType
-            && (IsDelegateType(reflectionType.Type) || IsExpressionTreeLambdaTarget(reflectionType.Type)))
+            && (_assignabilityFacts.IsDelegateType(reflectionType.Type) || IsExpressionTreeLambdaTarget(reflectionType.Type)))
         {
             return CreateFunctionTypeInfoFromDelegate(reflectionType.Type);
         }
@@ -15834,7 +15814,7 @@ public class Analyzer : IDisposable
         if (resolvedExpectedType is GenericTypeInfo)
         {
             var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedExpectedType);
-            if (clrType != null && (IsDelegateType(clrType) || IsExpressionTreeLambdaTarget(clrType)))
+            if (clrType != null && (_assignabilityFacts.IsDelegateType(clrType) || IsExpressionTreeLambdaTarget(clrType)))
                 return CreateFunctionTypeInfoFromDelegate(clrType);
         }
 
@@ -15926,7 +15906,7 @@ public class Analyzer : IDisposable
         }
 
         var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
-        if (IsCollectionType(resolvedExpectedType, out var collectionElementType))
+        if (_assignabilityFacts.TryGetCollectionElementType(resolvedExpectedType, out var collectionElementType))
         {
             return (collectionElementType, "collection");
         }
@@ -19342,7 +19322,7 @@ public class Analyzer : IDisposable
 
         if (resolvedSource is FunctionTypeInfo sourceFunction && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(sourceFunction))
         {
-            if (!CanBindCallableReferenceToExpectedType(resolvedTarget))
+            if (!_assignabilityFacts.CanBindCallableReferenceToExpectedType(resolvedTarget))
                 return false;
 
             if (resolvedTarget is ReflectionTypeInfo reflectionTarget && AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionTarget.Type))
@@ -19362,7 +19342,7 @@ public class Analyzer : IDisposable
         // Everything is assignable to object, except bare method references which are not values.
         if (BuiltInTypes.Is(resolvedTarget, BuiltInTypes.Object)) return true;
 
-        if (IsArrayToSpanAssignable(resolvedTarget, resolvedSource)) return true;
+        if (_assignabilityFacts.IsArrayToSpanAssignable(resolvedTarget, resolvedSource)) return true;
         if (TypeInfoIdentityFacts.IsRuntimeSpanToReadOnlySpanConversion(
                 resolvedTarget,
                 resolvedSource)) return true;
@@ -19435,7 +19415,8 @@ public class Analyzer : IDisposable
 
         // Collection expressions (): Allow array literals to be assigned to collection types
         // e.g., List<int> numbers = [1, 2, 3];
-        if (resolvedSource is ArrayTypeInfo arrayType && IsCollectionType(resolvedTarget, out var collectionElementType))
+        if (resolvedSource is ArrayTypeInfo arrayType
+            && _assignabilityFacts.TryGetCollectionElementType(resolvedTarget, out var collectionElementType))
         {
             // Check that the array element type is compatible with the collection element type
             return IsAssignable(collectionElementType, arrayType.ElementType);
@@ -19561,45 +19542,14 @@ public class Analyzer : IDisposable
 
     private bool IsKnownGenericTypeAssignable(TypeInfo target, TypeInfo source)
     {
-        if (target is not GenericTypeInfo targetGeneric || source is not GenericTypeInfo sourceGeneric)
-            return false;
+        var decision = _assignabilityFacts.ClassifyKnownGenericAssignability(target, source);
+        if (decision.Decided)
+            return decision.Result;
 
-        if (targetGeneric.TypeArguments.Count != sourceGeneric.TypeArguments.Count)
-            return false;
-
-        if (!TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(targetGeneric)
-            || !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(sourceGeneric))
-            return false;
-
-        var isKnownConversion = (targetGeneric.Name, sourceGeneric.Name) switch
+        for (var i = 0; i < decision.PendingTargets.Count; i++)
         {
-            ("IEnumerable", "IEnumerable" or "List" or "ICollection" or "IList" or "HashSet" or "Queue") => true,
-            ("IQueryable", "IQueryable") => true,
-            ("ICollection", "List" or "IList" or "HashSet") => true,
-            ("IList", "List") => true,
-            ("IReadOnlyCollection", "List" or "IReadOnlyList" or "HashSet" or "Queue") => true,
-            ("IReadOnlyList", "List") => true,
-            _ => false
-        };
-
-        if (!isKnownConversion)
-            return false;
-
-        var isCovariantTarget = targetGeneric.Name is "IEnumerable" or "IQueryable" or "IReadOnlyCollection" or "IReadOnlyList";
-        for (var i = 0; i < targetGeneric.TypeArguments.Count; i++)
-        {
-            var targetArgument = targetGeneric.TypeArguments[i];
-            var sourceArgument = sourceGeneric.TypeArguments[i];
-            if (TypeInfoIdentityFacts.AreEqual(targetArgument, sourceArgument))
-                continue;
-
-            if (isCovariantTarget
-                && IsReferenceLikeForVariance(targetArgument)
-                && IsReferenceLikeForVariance(sourceArgument)
-                && IsAssignable(targetArgument, sourceArgument))
-                continue;
-
-            return false;
+            if (!IsAssignable(decision.PendingTargets[i], decision.PendingSources[i]))
+                return false;
         }
 
         return true;
@@ -19620,61 +19570,15 @@ public class Analyzer : IDisposable
             && AnalyzerConversionFacts.IsReflectionAssignableFrom(actionResult.Type, sourceReflection.Type);
     }
 
-    private bool IsArrayToSpanAssignable(TypeInfo target, TypeInfo source)
-    {
-        if (source is not ArrayTypeInfo array || target is not GenericTypeInfo targetGeneric)
-            return false;
-
-        if (targetGeneric.TypeArguments.Count != 1)
-            return false;
-
-        if (!AnalyzerConversionFacts.IsSpanTypeName(targetGeneric.Name)
-            || targetGeneric.GenericDefinition is not ReflectionTypeInfo spanDefinition
-            || (!TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(spanDefinition.Type, typeof(Span<>))
-                && !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(spanDefinition.Type, typeof(ReadOnlySpan<>))))
-            return false;
-
-        return TypeInfoIdentityFacts.AreEqual(
-            _declarationContext.ResolveDeclaredAlias(targetGeneric.TypeArguments[0]),
-            _declarationContext.ResolveDeclaredAlias(array.ElementType));
-    }
-
-    private bool IsReferenceLikeForVariance(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        return resolved switch
-        {
-            NullableTypeInfo nullable => IsReferenceLikeForVariance(nullable.InnerType),
-            ObliviousTypeInfo oblivious => IsReferenceLikeForVariance(oblivious.InnerType),
-            _ => MayUseDelegateReferenceConversion(resolved)
-        };
-    }
-
-    /// <summary>
-    /// Structurally validates that a source FunctionTypeInfo is assignable to a target FunctionTypeInfo.
-    /// Checks parameter count, parameter type compatibility, and return type compatibility.
-    /// </summary>
     private bool IsFunctionTypeAssignable(FunctionTypeInfo source, FunctionTypeInfo target)
     {
-        var srcParamCount = source.ParameterTypes?.Count ?? 0;
-        var tgtParamCount = target.ParameterTypes?.Count ?? 0;
+        var decision = _assignabilityFacts.ClassifyFunctionTypeAssignability(source, target);
+        if (decision.Decided)
+            return decision.Result;
 
-        if (srcParamCount != tgtParamCount)
-            return false;
-
-        for (int i = 0; i < tgtParamCount; i++)
+        for (var i = 0; i < decision.PendingTargets.Count; i++)
         {
-            var srcParam = source.ParameterTypes![i];
-            var tgtParam = target.ParameterTypes![i];
-            if (BuiltInTypes.IsUnknown(srcParam)) continue; // Inferred — don't reject
-            if (!IsAssignable(srcParam, tgtParam))
-                return false;
-        }
-
-        if (source.ReturnType != null && target.ReturnType != null
-            && !BuiltInTypes.IsUnknown(source.ReturnType))
-        {
-            if (!IsAssignable(target.ReturnType, source.ReturnType))
+            if (!IsAssignable(decision.PendingTargets[i], decision.PendingSources[i]))
                 return false;
         }
 
@@ -19751,8 +19655,8 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        if (!MayUseDelegateReferenceConversion(resolvedTarget)
-            || !MayUseDelegateReferenceConversion(resolvedSource))
+        if (!_assignabilityFacts.MayUseDelegateReferenceConversion(resolvedTarget)
+            || !_assignabilityFacts.MayUseDelegateReferenceConversion(resolvedSource))
         {
             return false;
         }
@@ -19810,16 +19714,6 @@ public class Analyzer : IDisposable
         }
 
         return false;
-    }
-
-    private bool MayUseDelegateReferenceConversion(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-
-        if (resolved is GenericTypeInfo genericType)
-            return genericType.Name != "Nullable";
-
-        return AnalyzerConversionFacts.IsReferenceType(resolved);
     }
 
     /// <summary>
@@ -20097,68 +19991,6 @@ public class Analyzer : IDisposable
         }
 
         return true;
-    }
-
-    private bool IsCollectionType(TypeInfo type, out TypeInfo elementType)
-    {
-        elementType = BuiltInTypes.Unknown;
-
-        if (type is GenericTypeInfo genericType)
-        {
-            var typeName = genericType.Name;
-
-            if (TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(genericType) &&
-                (typeName == "List" ||
-                typeName == "HashSet" ||
-                typeName == "IList" ||
-                typeName == "ICollection" ||
-                typeName == "IEnumerable" ||
-                typeName == "IQueryable" ||
-                typeName == "ISet" ||
-                typeName == "Queue" ||
-                typeName == "Stack" ||
-                typeName == "LinkedList" ||
-                typeName == "Collection" ||
-                typeName == "ObservableCollection" ||
-                typeName == "SortedSet" ||
-                typeName == "IReadOnlyList" ||
-                typeName == "IReadOnlyCollection"))
-            {
-                if (genericType.TypeArguments.Count > 0)
-                {
-                    elementType = genericType.TypeArguments[0];
-                    return true;
-                }
-            }
-        }
-
-        if (type is ReflectionTypeInfo reflectionType)
-        {
-            var typeName = reflectionType.Type.Name;
-
-            if (typeName.StartsWith("List`") ||
-                typeName.StartsWith("HashSet`") ||
-                typeName.StartsWith("IList`") ||
-                typeName.StartsWith("ICollection`") ||
-                typeName.StartsWith("IEnumerable`") ||
-                typeName.StartsWith("IQueryable`") ||
-                typeName.StartsWith("ISet`") ||
-                typeName.StartsWith("Queue`") ||
-                typeName.StartsWith("Stack`") ||
-                typeName.StartsWith("LinkedList`") ||
-                typeName.StartsWith("Collection`") ||
-                typeName.StartsWith("ObservableCollection`"))
-            {
-                if (reflectionType.Type.IsGenericType && reflectionType.Type.GenericTypeArguments.Length > 0)
-                {
-                    var elementReflectionType = reflectionType.Type.GenericTypeArguments[0];
-                    elementType = new ReflectionTypeInfo(elementReflectionType);
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     private bool ImplementsDuckInterface(TypeInfo source, InterfaceTypeInfo duckInterface)
@@ -21856,6 +21688,7 @@ public class Analyzer : IDisposable
             _mlc,
             _mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded"));
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
+        _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
     }
 
     public void Dispose()
@@ -21866,6 +21699,7 @@ public class Analyzer : IDisposable
             _mlc = null;
             _wellKnownTypes = null;
             _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, null);
+            _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, null);
             _mlcAssemblies.Clear();
             _disposed = true;
         }

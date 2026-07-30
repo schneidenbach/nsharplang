@@ -7,7 +7,8 @@
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerCallableReferenceFacts.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypes.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypeFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerClrTypeConversion.nl`
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerClrTypeConversion.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerAssignabilityFacts.nl`
 
 ## Responsibility
 
@@ -191,6 +192,53 @@ in C#.
 `ResolveType(TypeReference)` — the diagnostic-reporting, semantic-model-recording, MLC-probing
 type-REFERENCE engine — is a different thing and remains the analyzer shell's own. It is not a
 dependency of the funnel.
+
+### The assignability shape decisions
+
+`AnalyzerAssignabilityFacts.nl` is the N# owner for the ARMS of the analyzer's assignability
+question: which generic instantiations stand in a known assignable relation and which of those are
+covariant, structural function-type assignability, which types a collection expression may target
+and what element type it then demands, when an array widens to a span, which types a delegate
+reference conversion may cross, whether a type is reference-like for variance, whether a CLR type is
+a concrete delegate, and what expected type a bare callable reference can bind to at all. Like the
+conversion funnel it is built from the declaration context and the well-known-type bag, is REBUILT
+at the two points where that bag changes, and reports and records nothing.
+
+- The known-generic relation is a CLOSED table over the runtime collection interfaces and it does
+  not run backwards: `IEnumerable` accepts `IEnumerable`/`List`/`ICollection`/`IList`/`HashSet`/
+  `Queue`, `ICollection` accepts `List`/`IList`/`HashSet`, `IList` and `IReadOnlyList` accept `List`,
+  `IReadOnlyCollection` accepts `List`/`IReadOnlyList`/`HashSet`/`Queue`, `IQueryable` accepts only
+  itself. BOTH sides must carry the real runtime generic definition, so a program's own type that
+  merely shares the name never acquires the relation.
+- Only the four read-only/streaming targets (`IEnumerable`, `IQueryable`, `IReadOnlyCollection`,
+  `IReadOnlyList`) are COVARIANT in their argument, and only for reference-like arguments. The
+  mutable ones are invariant on purpose: `ICollection<Animal>` must not accept an
+  `ICollection<Dog>`, or a caller could add a cat.
+- Collection-expression targets are matched by TWO arms that are deliberately different: the generic
+  arm accepts fifteen spellings and requires the real runtime definition, while the reflection arm
+  matches twelve metadata names and refuses an OPEN definition — `List<>` names no element type, so
+  answering with its type parameter would hand a caller a `T` as if it were the element.
+- `T[]` → `Span<T>`/`ReadOnlySpan<T>` is nominal on the target and invariant on the element, with
+  aliases resolved on both halves.
+- A bare callable reference binds only to a source function type, the two delegate generics by NAME
+  (`Func`, `Action`), or a real runtime delegate; the nullable and oblivious shells are transparent.
+  A concrete delegate is one that derives from the load context's `System.Delegate` WITHOUT being
+  one of the two abstract roots, and without metadata facts nothing is a delegate at all.
+
+THE PENDING-PAIR PROTOCOL. The known-generic and function-type decisions cannot finish without
+re-entering assignability, and the owner does not call back. Instead they answer with an
+`AnalyzerAssignabilityDecision`: either a DECIDED verdict, or the ORDERED target/source pairs whose
+assignability the caller must answer, the relation holding exactly when every pair does. The two C#
+shells left in `Analyzer.cs` are that protocol's other half and contain no classification. Note the
+directions a function type hands back: a parameter pair is source ← target while the return pair is
+target ← source, and an inferred (unknown) source parameter is ACCEPTED without a pair rather than
+rejected, because a lambda still being inferred must not be pre-judged.
+
+`IsAssignable` itself, and the arms that reach it, remain in `Analyzer.cs` for a measured reason: the
+duck-interface arm compares member signatures through `MethodSignaturesMatch` → `ResolveType`, which
+records into the semantic model and reports diagnostics, and the `ActionResult` arm probes the
+MetadataLoadContext through `TryResolveExternalType` and the analyzer's using-namespace state.
+Neither can move without taking the type-REFERENCE engine with it.
 
 ## Core Functions
 
