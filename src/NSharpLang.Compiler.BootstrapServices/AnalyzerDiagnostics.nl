@@ -1,6 +1,42 @@
 namespace NSharpLang.Compiler
 
+import System
+import System.Collections.Generic
+
 public class AnalyzerDiagnostics {
+    // The suggestion attached to "type not found". Candidates are the type names the caller can see;
+    // the nearest one within an edit distance of 2 becomes a "did you mean", and anything further
+    // away is not worth guessing at. Names shorter than three characters are skipped because at that
+    // length almost everything is within distance 2 of everything else, and the name itself is
+    // skipped because it is not a suggestion. Ties keep the FIRST candidate in the caller's order.
+    public static func UnresolvedTypeSuggestion(name: string, candidates: List<string>): string {
+        bestCandidate: string? = null
+        bestDistance := 2147483647
+
+        index := 0
+        while index < candidates.Count {
+            candidate := candidates[index]
+            if candidate.Length >= 3 && candidate != name {
+                distance := ErrorSuggestions.LevenshteinDistance(
+                    name.ToLowerInvariant(),
+                    candidate.ToLowerInvariant())
+                if distance < bestDistance {
+                    bestDistance = distance
+                    bestCandidate = candidate
+                }
+            }
+            index = index + 1
+        }
+
+        if bestCandidate != null && bestDistance <= 2 {
+            return "Did you mean '" + bestCandidate
+                + "'? Otherwise add the 'import' or package reference that provides '" + name + "'."
+        }
+
+        return "Check the spelling, add the missing 'import', or add the package/project reference that provides '"
+            + name + "'."
+    }
+
     public static func Create(
         code: ErrorCode,
         message: string,

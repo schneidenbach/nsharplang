@@ -8,7 +8,10 @@
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypes.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypeFacts.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerClrTypeConversion.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerAssignabilityFacts.nl`
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerAssignabilityFacts.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerExternalTypeProbe.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeReferenceFacts.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnostics.nl`
 
 ## Responsibility
 
@@ -236,9 +239,65 @@ rejected, because a lambda still being inferred must not be pre-judged.
 
 `IsAssignable` itself, and the arms that reach it, remain in `Analyzer.cs` for a measured reason: the
 duck-interface arm compares member signatures through `MethodSignaturesMatch` → `ResolveType`, which
-records into the semantic model and reports diagnostics, and the `ActionResult` arm probes the
-MetadataLoadContext through `TryResolveExternalType` and the analyzer's using-namespace state.
-Neither can move without taking the type-REFERENCE engine with it.
+records into the semantic model and reports diagnostics. (The `ActionResult` arm's other blocker, the
+MetadataLoadContext probe, is now N#-owned — see below.)
+
+### The type-reference resolver: what is N#-owned and what is not
+
+`ResolveType(TypeReference)` in `Analyzer.cs` is a CHANNEL WALK. It reports `NL201`/`NL207`, records
+every resolved reference into the semantic model, and writes bindings — so the walk itself stays in
+the shell. The DECISIONS it makes along the way do not, and three N# owners hold them.
+
+`AnalyzerExternalTypeProbe.nl` is the N# owner for every question answered by looking at referenced
+assembly metadata. It is constructed ONCE per analyzer, holds the resolution cache, and is never
+rebuilt — the two other analyzer owners are rebuilt when the well-known-type bag changes, and this one
+must not be, because its cache is part of the answer.
+
+- `ResolveExternalType(name)` is the ordered probe: the bare spelling as previously cached, then for
+  each imported namespace IN IMPORT ORDER `"<namespace>.<name>"` — cached, then resolved against every
+  loaded assembly in load order — then, failing all of that, the first assembly that EXPORTS a type
+  whose simple name or full name equals the spelling.
+- **The cache participates in that order and is therefore behaviour, not an optimisation.** The
+  exported-name scan caches under the BARE spelling, so a later call short-circuits at step 1 and
+  never reconsiders the imports. Dropping or rebuilding this cache mid-analysis can change an answer.
+  Misses are NOT cached, so a name that fails before an assembly loads is genuinely retried.
+- `ResolveExactExternalType(fullName)` does no prefixing and no exported-name scan, which is what lets
+  import validation tell a namespace from a type. It shares the one cache in both directions.
+- `KnownGenericHeadArities(facts, name)` is the ascending arity sweep behind "available arities are
+  ...": the compiler-known table first, then the arity-qualified metadata probe (`Name`1`, `Name`2`,
+  ... up to the CLR's limit of 17), which must land on an open DEFINITION to count.
+- The assembly list and the using-namespace list are the analyzer's LIVE collections, held by
+  reference: both grow as imports are processed and the probe must see the additions. Do not snapshot.
+
+`AnalyzerTypeReferenceFacts.nl` is the N# owner for the walk's pure rules.
+
+- `BuiltInSimpleType(name)` is the sixteen spellings resolved before any other channel. `null`,
+  `never` and the inference/deferred holes are deliberately absent: those are types the analyzer
+  synthesises, not names a program can write at a type position.
+- `GenericHeadArity(TypeInfo)` distinguishes ZERO — "I know this head and it takes no type
+  parameters", which the caller reports as an error — from -1, "unresolved external text, arity cannot
+  be checked here", which is silent. A CLOSED reflected generic answers 0, not its argument count; only
+  an open DEFINITION answers its parameter count. Enums, aliases and newtypes answer 0, so `Color<int>`
+  is reportable and an alias is reported on the ALIAS rather than on its target.
+- `VisibleTypeNamespaces(current, imports)` is the candidate order for project-wide discovery: the
+  current namespace first — as `null` when the file declares none, because the global namespace is a
+  real candidate and not an absence — then each import in declaration order, first occurrence winning,
+  compared case-sensitively.
+
+`AnalyzerDiagnostics.UnresolvedTypeSuggestion(name, candidates)` holds the "did you mean" policy for
+`NL201`: the nearest candidate within a case-insensitive edit distance of 2, candidates under three
+characters skipped (at that length everything is near everything), the name itself skipped, ties
+keeping the caller's FIRST candidate so the suggestion is stable rather than hash-ordered.
+
+Two members of this family are NOT movable yet, for recorded reasons rather than by omission.
+`NamespaceExists` and `GetExternalSearchAssemblies` deduplicate the loaded assemblies by
+`Assembly.FullName`, and neither `Assembly.get_FullName` nor `AssemblyName.get_Name` is on the
+columnar external binding surface; extending it is a compiler-capability change requiring a two-stage
+bootstrap, so they stay. `IsTopLevelTypeDeclaration` needs a declaration TYPE-identity dispatch, and
+the N# `DeclarationFacts` idiom is name-based — a name match is not semantic resolution, so it stays
+too. The scope stack (`LookupType`, `GetAllTypesInScope`, `TryRecordTypeBinding`) is the next
+prerequisite: `Scope` is already N# (`AnalyzerStateModels.nl`), but the `Stack<Scope>` and its ~50
+mutation sites are not.
 
 ## Core Functions
 

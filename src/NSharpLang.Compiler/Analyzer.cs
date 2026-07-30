@@ -194,7 +194,9 @@ public class Analyzer : IDisposable
     private readonly HashSet<(string Name, int Line, int Column)> _reportedSoaRowTypeRefs = new();
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _restoredPackageVersionsByProject = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
+    // The analyzer's external (MetadataLoadContext) type probe. Constructed once and never
+    // rebuilt: it owns the resolution cache, and that cache participates in the probe ORDER.
+    private readonly AnalyzerExternalTypeProbe _externalTypeProbe;
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
     private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces/packages
     private readonly Dictionary<string, string?> _projectFileNamespaceCache = new(StringComparer.OrdinalIgnoreCase); // file path -> declared namespace/package
@@ -222,6 +224,7 @@ public class Analyzer : IDisposable
 
     public Analyzer()
     {
+        _externalTypeProbe = new AnalyzerExternalTypeProbe(_mlcAssemblies, _usingNamespaces);
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
         _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
     }
@@ -931,7 +934,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        if (TryResolveBuiltInTypeKeyword(containerName) is { } builtInType)
+        if (AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, containerName) is { } builtInType)
         {
             return TryValidateAttributeRuntimeStaticMemberAccess(
                 new ReflectionTypeInfo(builtInType),
@@ -940,7 +943,7 @@ public class Analyzer : IDisposable
                 out kind);
         }
 
-        if (TryResolveExternalType(containerName) is ReflectionTypeInfo reflectionType)
+        if (_externalTypeProbe.ResolveExternalType(containerName) is ReflectionTypeInfo reflectionType)
         {
             return TryValidateAttributeRuntimeStaticMemberAccess(
                 reflectionType,
@@ -1099,7 +1102,7 @@ public class Analyzer : IDisposable
     {
         foreach (var candidate in GetClrAttributeNameCandidates(attributeName))
         {
-            if (TryResolveExternalType(candidate) is ReflectionTypeInfo { Type: var resolvedType }
+            if (_externalTypeProbe.ResolveExternalType(candidate) is ReflectionTypeInfo { Type: var resolvedType }
                 && IsClrAttributeType(resolvedType))
             {
                 attributeType = resolvedType;
@@ -1115,7 +1118,7 @@ public class Analyzer : IDisposable
     {
         foreach (var candidate in GetClrAttributeNameCandidates(attributeName))
         {
-            if (TryResolveExternalType(candidate) is ReflectionTypeInfo { Type: var resolvedType })
+            if (_externalTypeProbe.ResolveExternalType(candidate) is ReflectionTypeInfo { Type: var resolvedType })
             {
                 type = resolvedType;
                 return true;
@@ -1499,12 +1502,12 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        if (TryResolveBuiltInTypeKeyword(containerName) is { } builtInType)
+        if (AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, containerName) is { } builtInType)
         {
             return TryGetRuntimeStaticAttributeMemberType(builtInType, memberAccess.MemberName, out clrType);
         }
 
-        if (TryResolveExternalType(containerName) is not ReflectionTypeInfo { Type: var reflectionType })
+        if (_externalTypeProbe.ResolveExternalType(containerName) is not ReflectionTypeInfo { Type: var reflectionType })
         {
             return false;
         }
@@ -7660,7 +7663,7 @@ public class Analyzer : IDisposable
         // Resolve the open generic definition (e.g. "Vector`1") from the MLC assemblies, then
         // close it over the converted type arguments.
         var openDefinitionName = $"{generic.Name}`{generic.TypeArguments.Count}";
-        if (TryResolveExternalType(openDefinitionName) is not ReflectionTypeInfo { Type: var openType })
+        if (_externalTypeProbe.ResolveExternalType(openDefinitionName) is not ReflectionTypeInfo { Type: var openType })
         {
             return null;
         }
@@ -8622,7 +8625,7 @@ public class Analyzer : IDisposable
                 type = _declarationContext.ResolveDeclaredAlias(LookupType(identifier.Name) ?? BuiltInTypes.Unknown);
                 if (!BuiltInTypes.IsUnknown(type))
                     return true;
-                type = TryResolveBuiltInTypeKeyword(identifier.Name) is { } builtInType ? new ReflectionTypeInfo(builtInType) : TryResolveExternalType(identifier.Name) ?? BuiltInTypes.Unknown;
+                type = AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, identifier.Name) is { } builtInType ? new ReflectionTypeInfo(builtInType) : _externalTypeProbe.ResolveExternalType(identifier.Name) ?? BuiltInTypes.Unknown;
                 return !BuiltInTypes.IsUnknown(type);
 
             case MemberAccessExpression memberAccess:
@@ -8643,7 +8646,7 @@ public class Analyzer : IDisposable
         var rootName = ExternalQualifiedTypeResolver.RootName(qualifiedName);
         var currentType = GetCurrentTypeScope();
         var separator = qualifiedName.LastIndexOf('.');
-        foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
+        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
             if (TryResolveProjectTypeInNamespace(rootName, visibleNamespace, out _, out _)) return false;
         if (LookupSymbol(rootName) != null || LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
             || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(ResolveMember(currentType, rootName)))
@@ -15719,7 +15722,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        if (TryResolveBuiltInTypeKeyword(name) != null)
+        if (AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, name) != null)
         {
             return true;
         }
@@ -15730,7 +15733,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        return TryResolveExternalType(name) is ReflectionTypeInfo;
+        return _externalTypeProbe.ResolveExternalType(name) is ReflectionTypeInfo;
     }
 
     private bool ExpressionTreeReceiverStartsWithValueIdentifier(Expression expression, ISet<string> parameterNames)
@@ -16220,9 +16223,9 @@ public class Analyzer : IDisposable
             // must be explicit.
             if (newExpr.Type is SimpleTypeReference bareTypeReference
                 && !bareTypeReference.Name.Contains('.')
-                && GetGenericHeadArity(type) > 0)
+                && AnalyzerTypeReferenceFacts.GenericHeadArity(type) > 0)
             {
-                var requiredCount = GetGenericHeadArity(type);
+                var requiredCount = AnalyzerTypeReferenceFacts.GenericHeadArity(type);
                 Error(
                     ErrorCode.InvalidTypeArgument,
                     $"Generic type '{bareTypeReference.Name}' requires {requiredCount} type argument(s)",
@@ -18144,7 +18147,7 @@ public class Analyzer : IDisposable
             if (resolvedName is not ExternalTypeInfo && !BuiltInTypes.IsUnknown(resolvedName))
                 genericDefinition = resolvedName;
 
-            var genericHeadArity = GetGenericHeadArity(resolvedName);
+            var genericHeadArity = AnalyzerTypeReferenceFacts.GenericHeadArity(resolvedName);
             Type? arityQualifiedExternalType = null;
             List<int>? knownGenericHeadArities = null;
             if (resolvedName is ExternalTypeInfo or ReflectionTypeInfo)
@@ -18154,7 +18157,7 @@ public class Analyzer : IDisposable
                     generic.Name,
                     generic.TypeArguments.Count);
                 if (arityQualifiedExternalType == null
-                    && TryResolveExternalType($"{generic.Name}`{generic.TypeArguments.Count}") is ReflectionTypeInfo arityQualifiedExternal)
+                    && _externalTypeProbe.ResolveExternalType($"{generic.Name}`{generic.TypeArguments.Count}") is ReflectionTypeInfo arityQualifiedExternal)
                 {
                     arityQualifiedExternalType = arityQualifiedExternal.Type;
                 }
@@ -18166,7 +18169,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    knownGenericHeadArities = GetKnownGenericHeadArities(generic.Name);
+                    knownGenericHeadArities = _externalTypeProbe.KnownGenericHeadArities(_wellKnownTypes, generic.Name);
                     if (knownGenericHeadArities.Count == 1)
                     {
                         genericHeadArity = knownGenericHeadArities[0];
@@ -18189,7 +18192,7 @@ public class Analyzer : IDisposable
                     $"Type '{generic.Name}' not found",
                     generic.Line,
                     generic.Column,
-                    BuildUnresolvedTypeSuggestion(generic.Name),
+                    AnalyzerDiagnostics.UnresolvedTypeSuggestion(generic.Name, GetAllTypesInScope()),
                     generic.Name.Length);
             }
 
@@ -18258,46 +18261,6 @@ public class Analyzer : IDisposable
         }
 
         return true;
-    }
-
-    /// <summary>
-    /// The generic-parameter count for a resolved type head, or -1 when the head is unresolved
-    /// external text and arity cannot be validated locally.
-    /// </summary>
-    private static int GetGenericHeadArity(TypeInfo resolvedName)
-        => resolvedName switch
-        {
-            SimpleTypeInfo => 0,
-            ClassTypeInfo classInfo => classInfo.TypeParameters.Length,
-            StructTypeInfo structInfo => structInfo.TypeParameters.Length,
-            RecordTypeInfo recordInfo => recordInfo.TypeParameters.Length,
-            SoaRecordTypeInfo => 0,
-            InterfaceTypeInfo interfaceInfo => interfaceInfo.TypeParameters.Length,
-            UnionTypeInfo unionInfo => unionInfo.Declaration.TypeParameters?.Count ?? 0,
-            EnumTypeInfo => 0,
-            AliasTypeInfo => 0,
-            NewtypeInfo => 0,
-            ReflectionTypeInfo reflectionInfo => reflectionInfo.Type.IsGenericTypeDefinition
-                ? reflectionInfo.Type.GetGenericArguments().Length
-                : 0,
-            _ => -1
-        };
-
-    private List<int> GetKnownGenericHeadArities(string name)
-    {
-        const int MaxClrGenericArity = 17;
-        var arities = new List<int>();
-
-        for (var arity = 1; arity <= MaxClrGenericArity; arity++)
-        {
-            if (AnalyzerWellKnownTypeFacts.KnownOpenGenericType(_wellKnownTypes, name, arity) != null
-                || TryResolveExternalType($"{name}`{arity}") is ReflectionTypeInfo { Type.IsGenericTypeDefinition: true })
-            {
-                arities.Add(arity);
-            }
-        }
-
-        return arities;
     }
 
     private TypeInfo ResolveAnonymousUnionType(UnionTypeReference union)
@@ -18394,27 +18357,7 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        TypeInfo? builtInType = name switch
-        {
-            "int" => BuiltInTypes.Int,
-            "long" => BuiltInTypes.Long,
-            "float" => BuiltInTypes.Float,
-            "double" => BuiltInTypes.Double,
-            "decimal" => BuiltInTypes.Decimal,
-            "byte" => BuiltInTypes.Byte,
-            "sbyte" => BuiltInTypes.SByte,
-            "short" => BuiltInTypes.Short,
-            "ushort" => BuiltInTypes.UShort,
-            "uint" => BuiltInTypes.UInt,
-            "ulong" => BuiltInTypes.ULong,
-            "char" => BuiltInTypes.Char,
-            "bool" => BuiltInTypes.Bool,
-            "string" => BuiltInTypes.String,
-            "void" => BuiltInTypes.Void,
-            "object" => BuiltInTypes.Object,
-            _ => null
-        };
-
+        var builtInType = AnalyzerTypeReferenceFacts.BuiltInSimpleType(name);
         if (builtInType != null)
             return builtInType;
 
@@ -18484,12 +18427,12 @@ public class Analyzer : IDisposable
 
         if (_usingAliases.TryGetValue(name, out var fullName))
         {
-            var aliasedType = TryResolveExternalType(fullName);
+            var aliasedType = _externalTypeProbe.ResolveExternalType(fullName);
             if (aliasedType != null)
                 return aliasedType;
         }
 
-        var externalType = TryResolveExternalType(name);
+        var externalType = _externalTypeProbe.ResolveExternalType(name);
         if (externalType != null)
             return externalType;
 
@@ -18506,7 +18449,7 @@ public class Analyzer : IDisposable
                 $"Type '{name}' not found",
                 line,
                 column,
-                BuildUnresolvedTypeSuggestion(name),
+                AnalyzerDiagnostics.UnresolvedTypeSuggestion(name, GetAllTypesInScope()),
                 name.Length);
         }
 
@@ -18520,7 +18463,7 @@ public class Analyzer : IDisposable
         out TypeInfo type,
         out SymbolDeclaration declaration)
     {
-        foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
+        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
         {
             if (TryResolveProjectTypeInNamespace(name, visibleNamespace, out type, out declaration))
             {
@@ -18566,7 +18509,7 @@ public class Analyzer : IDisposable
     // they intentionally fall through to the undefined/inaccessible diagnostics.
     private bool TryResolveVisibleProjectFunction(string name, out TypeInfo type, out SymbolDeclaration declaration)
     {
-        foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
+        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
         {
             foreach (var (filePath, sourceText) in EnumerateProjectSourceTexts())
             {
@@ -18607,7 +18550,7 @@ public class Analyzer : IDisposable
             return false;
 
         var currentNamespace = GetUnitNamespace(_compilationUnit);
-        foreach (var visibleNamespace in GetVisibleProjectTypeNamespaces())
+        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
         {
             if (string.Equals(visibleNamespace, currentNamespace, StringComparison.Ordinal))
                 continue;
@@ -18652,28 +18595,6 @@ public class Analyzer : IDisposable
             or EnumDeclaration
             or TypeAliasDeclaration
             or NewtypeDeclaration;
-
-    private IEnumerable<string?> GetVisibleProjectTypeNamespaces()
-    {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var currentNamespace = GetUnitNamespace(_compilationUnit);
-        if (currentNamespace == null)
-        {
-            yield return null;
-        }
-        else if (seen.Add(currentNamespace))
-        {
-            yield return currentNamespace;
-        }
-
-        foreach (var namespaceName in _usingNamespaces)
-        {
-            if (seen.Add(namespaceName))
-            {
-                yield return namespaceName;
-            }
-        }
-    }
 
     private bool TryResolveProjectTypeInNamespace(
         string name,
@@ -18820,29 +18741,6 @@ public class Analyzer : IDisposable
         return true;
     }
 
-    private string BuildUnresolvedTypeSuggestion(string name)
-    {
-        string? bestCandidate = null;
-        var bestDistance = int.MaxValue;
-        foreach (var candidate in GetAllTypesInScope())
-        {
-            if (candidate.Length < 3 || candidate == name)
-                continue;
-
-            var distance = ErrorSuggestions.LevenshteinDistance(
-                name.ToLowerInvariant(), candidate.ToLowerInvariant());
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                bestCandidate = candidate;
-            }
-        }
-
-        return bestCandidate != null && bestDistance <= 2
-            ? $"Did you mean '{bestCandidate}'? Otherwise add the 'import' or package reference that provides '{name}'."
-            : $"Check the spelling, add the missing 'import', or add the package/project reference that provides '{name}'.";
-    }
-
     /// <summary>
     /// Record a binding from a type reference position to the type's declaration.
     /// </summary>
@@ -18860,77 +18758,6 @@ public class Analyzer : IDisposable
                 return;
             }
         }
-    }
-
-    /// <summary>
-    /// Maps built-in type keywords (int, string, bool, etc.) to their CLR System.Type.
-    /// Enables static member access like int.Parse(), string.IsNullOrEmpty(), etc.
-    /// </summary>
-    private Type? TryResolveBuiltInTypeKeyword(string name)
-    {
-        if (_wellKnownTypes == null) return null;
-
-        return name switch
-        {
-            "int" => _wellKnownTypes.Int32,
-            "long" => _wellKnownTypes.Int64,
-            "float" => _wellKnownTypes.Single,
-            "double" => _wellKnownTypes.Double,
-            "decimal" => _wellKnownTypes.Decimal,
-            "byte" => _wellKnownTypes.Byte,
-            "sbyte" => _wellKnownTypes.SByte,
-            "short" => _wellKnownTypes.Int16,
-            "ushort" => _wellKnownTypes.UInt16,
-            "uint" => _wellKnownTypes.UInt32,
-            "ulong" => _wellKnownTypes.UInt64,
-            "char" => _wellKnownTypes.Char,
-            "bool" => _wellKnownTypes.Boolean,
-            "string" => _wellKnownTypes.String,
-            "object" => _wellKnownTypes.Object,
-            _ => null
-        };
-    }
-
-    private TypeInfo? TryResolveExternalType(string name)
-    {
-        // Check cache first
-        if (_externalTypeCache.TryGetValue(name, out var cachedType))
-            return new ReflectionTypeInfo(cachedType);
-
-        // Try with using namespaces
-        foreach (var ns in _usingNamespaces)
-        {
-            var fullName = $"{ns}.{name}";
-
-            // Check cache for full name
-            if (_externalTypeCache.TryGetValue(fullName, out cachedType))
-                return new ReflectionTypeInfo(cachedType);
-
-            // Search all MLC-loaded assemblies
-            foreach (var assembly in _mlcAssemblies)
-            {
-                    var type = assembly.GetType(fullName);
-                    if (type != null)
-                    {
-                        _externalTypeCache[fullName] = type;
-                        return new ReflectionTypeInfo(type);
-                    }
-            }
-        }
-
-        // Try without namespace (by simple name) in MLC assemblies
-        foreach (var assembly in _mlcAssemblies)
-        {
-                var matchingType = assembly.GetExportedTypes()
-                    .FirstOrDefault(t => t.Name == name || t.FullName == name);
-                if (matchingType != null)
-                {
-                    _externalTypeCache[name] = matchingType;
-                    return new ReflectionTypeInfo(matchingType);
-                }
-        }
-
-        return null;
     }
 
     private TypeInfo? LookupType(string name)
@@ -19141,7 +18968,7 @@ public class Analyzer : IDisposable
 
         // Resolve built-in type keywords (int, string, bool, etc.) for static member access
         // e.g., int.Parse(...), string.IsNullOrEmpty(...), int.TryParse(...)
-        var builtInClrType = TryResolveBuiltInTypeKeyword(name);
+        var builtInClrType = AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, name);
         if (builtInClrType != null)
         {
             type = new ReflectionTypeInfo(builtInClrType);
@@ -19166,7 +18993,7 @@ public class Analyzer : IDisposable
         // Try to resolve as external type (for static class access like Console).
         // This intentionally happens after current-type member lookup so instance
         // members win over imported type names in instance scope.
-        var externalType = TryResolveExternalType(name);
+        var externalType = _externalTypeProbe.ResolveExternalType(name);
         if (externalType != null)
         {
             type = externalType;
@@ -19566,7 +19393,7 @@ public class Analyzer : IDisposable
         if (source is not ReflectionTypeInfo sourceReflection)
             return false;
 
-        return TryResolveExternalType("Microsoft.AspNetCore.Mvc.ActionResult") is ReflectionTypeInfo actionResult
+        return _externalTypeProbe.ResolveExternalType("Microsoft.AspNetCore.Mvc.ActionResult") is ReflectionTypeInfo actionResult
             && AnalyzerConversionFacts.IsReflectionAssignableFrom(actionResult.Type, sourceReflection.Type);
     }
 
@@ -21223,7 +21050,7 @@ public class Analyzer : IDisposable
     {
         var diagnosticColumn = FindNamespaceImportColumn(namespaceName, line, column);
 
-        var importedType = TryResolveExactExternalType(namespaceName);
+        var importedType = _externalTypeProbe.ResolveExactExternalType(namespaceName);
         if (importedType != null)
         {
             var suggestion = !string.IsNullOrWhiteSpace(importedType.Namespace)
@@ -21279,26 +21106,6 @@ public class Analyzer : IDisposable
         var searchStart = importIndex >= 0 ? importIndex + "import".Length : 0;
         var namespaceIndex = sourceLine.IndexOf(namespaceName, searchStart, StringComparison.Ordinal);
         return namespaceIndex >= 0 ? namespaceIndex + 1 : fallbackColumn;
-    }
-
-    private Type? TryResolveExactExternalType(string fullName)
-    {
-        if (_externalTypeCache.TryGetValue(fullName, out var cachedType))
-        {
-            return cachedType;
-        }
-
-        foreach (var assembly in _mlcAssemblies)
-        {
-                var resolved = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
-                if (resolved != null)
-                {
-                    _externalTypeCache[fullName] = resolved;
-                    return resolved;
-                }
-        }
-
-        return null;
     }
 
     private bool NamespaceExists(string namespaceName)

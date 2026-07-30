@@ -389,3 +389,55 @@ test "the no-metadata fallback answers null for every other type family and reso
         scan.Dispose()
     }
 }
+
+test "the built-in KEYWORD table answers metadata types, omits void, and needs facts" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        facts := WellKnownProbeFacts(context)
+
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "int")) == "System.Int32"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "long")) == "System.Int64"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "float")) == "System.Single"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "double")) == "System.Double"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "decimal")) == "System.Decimal"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "byte")) == "System.Byte"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "sbyte")) == "System.SByte"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "short")) == "System.Int16"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "ushort")) == "System.UInt16"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "uint")) == "System.UInt32"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "ulong")) == "System.UInt64"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "char")) == "System.Char"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "bool")) == "System.Boolean"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "string")) == "System.String"
+        assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "object")) == "System.Object"
+
+        // `void` is DELIBERATELY absent, unlike the type resolver's sixteen-spelling table: this table
+        // exists so `int.Parse(...)` can bind a static member, and `void` has none.
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "void") == null
+
+        // These are METADATA types, not the compiler's own. Confusing the two is the bug the fact bag
+        // exists to prevent, so the distinction is pinned here too.
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "int") != typeof(int)
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "string") != typeof(string)
+
+        // Exact and case-sensitive, with no CLR spellings and no synthesised names.
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "Int") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "Int32") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "String") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "nint") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "var") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "null") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "never") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(facts, "") == null
+
+        // Without facts every spelling answers nothing — the live state before the analyzer has opened
+        // its MetadataLoadContext, and the reason static member access on a keyword is unavailable then.
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(null, "int") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(null, "string") == null
+        assert AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(null, "object") == null
+    } finally {
+        scan.Dispose()
+    }
+}

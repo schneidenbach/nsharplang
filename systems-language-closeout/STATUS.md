@@ -1,6 +1,48 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-30 (**TASK 017 SLICE 6 LANDED — THE ASSIGNABILITY SHAPE DECISIONS ARE N#-OWNED,
+Last updated: 2026-07-30 (**TASK 017 SLICE 7 LANDED — THE `ResolveType` ARC IS OPEN: ITS WHOLE CLOSURE
+IS MEASURED, THE STAGED PLAN IS RECORDED, AND STAGE 1 — THE PURE DECISION SURFACE — IS N#-OWNED.**
+The mandate was to open the type-REFERENCE engine. Measurement first: a throwaway instrumented build
+with 40 counters, run over all 40 corpus targets, the full 3,193-test suite (which passed **3,193 /
+3,193 WITH the probe armed**) and 11 purpose-built resolution-error fixtures, then reverted. It says
+`ResolveType` is a CHANNEL WALK with **exactly five report sites and one `_semanticModel.RecordTypeReference`
+per resolved reference** (9,606 / 29,565 / 268 calls), every report site living in
+`ResolveSimpleType`/`ResolveGenericType` and none in any helper — so the recording path is not
+separable and the slice cut AROUND it, taking everything that is a total function of separable state.
+THE CUT: **7 whole C# members + 1 inline table + 1 STATE FIELD deleted, 225 lines**
+(`TryResolveExternalType` 41, `TryResolveBuiltInTypeKeyword` 28, `BuildUnresolvedTypeSuggestion` 24,
+`GetGenericHeadArity` 23, `GetVisibleProjectTypeNamespaces` 23, `TryResolveExactExternalType` 20,
+`GetKnownGenericHeadArities` 17, the 20-line built-in name table → 1 line, and `_externalTypeCache`
+itself) into TWO new N# owners — `AnalyzerExternalTypeProbe` (152 lines; it now OWNS the resolution
+cache) and `AnalyzerTypeReferenceFacts` (147) — plus one new member each on `AnalyzerWellKnownTypeFacts`
+and `AnalyzerDiagnostics`. 29 routing sites, all in-class. `Analyzer.cs` **22,243 → 22,050**;
+`git diff` +32 / −225 = **net −193**, the only C# added being a field, one constructor line and 28
+rewritten call sites. THE NON-MECHANICAL FINDING: **the probe's cache is ORDER-BEARING, not an
+optimisation** — the bare exported-name scan (40 / 100 / 9 live hits) caches under the BARE spelling and
+short-circuits the import loop on the next call, so this owner is the one analyzer owner that must NEVER
+be rebuilt; the well-known-type bag is passed as an argument instead. PROOF: a throwaway reflection
+differential against the C# originals on a really-loaded analyzer AND on one with no
+MetadataLoadContext — **4,918 cells, 0 mismatches, 483 true positives** — run COLD per cell (cache
+cleared, fresh owner) and then WARM as a three-pass ordered replay with the two caches compared as MAPS,
+plus 232 using-namespace ORDERINGS; and a **4,918-row before/after transcript that is byte-identical
+(md5 `892e23a2603e1861102cf60d4d3b7cfd` both times)**, the "after" column taken from the analyzer's own
+routed path so it proves the wiring too. `nlc check --json` **byte-identical on 40 / 40 project targets
+(ORACLE_DIFFS = 0)** plus 11 purpose-built resolution-error fixtures firing 57 diagnostics
+(FIXTURE_DIFFS = 0); corpus IL **64 / 64 comparable assemblies BYTE-IDENTICAL** (PRODUCT_IL_DIFFS = 0,
+SINGLE_IL_DIFFS = 0, SKIPPED_TARGET_DIFFS = 0). GATES: unit **3,193 / 3,193** (zero drift), contracts
+**1,607 → 1,627**, ownership audit **18 / 18** after a one-row net-negative in-place repin that keeps
+the manifest at **391 lines**, `dev.sh --since` (full-suite fail-safe, 3,193/3,193 Debug), and the FULL
+VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 846s** in a fresh isolated copy
+(105 `✓ PASSED`, zero `✗`, VS Code integration **36 passing**, all 67 assemblies IL-verified); VSIX
+rebuilt + reinstalled. TWO GUARDS MEASURED DEAD and recorded rather than acted on (the assembly-identity dedupe 0 /
+15,218 yields, the using-namespace dedupe 0 / 77,953), as was a structurally dead using-alias channel.
+New .nl gotchas: **`partial` is RESERVED as a local name**; **`Object.ReferenceEquals` needs the capital
+`Object`**; **`Assembly.get_FullName` / `AssemblyName.get_Name` and the 3-argument `Assembly.GetType`
+are unbound**. No wall — both capability gaps were routed around. NEXT: **STAGE 2 — THE SCOPE STACK**
+(`Scope` is already N#; the slice is the `Stack<Scope>` and its 51 sites), then project discovery, then
+the reporting/recording walk, then the assignability SCC in one cut)
+
+Last updated (prior): 2026-07-30 (**TASK 017 SLICE 6 LANDED — THE ASSIGNABILITY SHAPE DECISIONS ARE N#-OWNED,
 AND THE ROOT'S ONE REMAINING BLOCKER IS MEASURED AND NAMED.** The mandate was `IsAssignable` itself.
 Measurement — a throwaway instrumented build run over all 40 corpus targets AND the full 3,193-test
 suite, then reverted — says the ROOT CANNOT MOVE YET, and says exactly why: `IsAssignable` is one
@@ -365,7 +407,306 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **017 SLICE 6 —
+- Active sub-slice (017 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **017 SLICE 7 — THE
+  OPENING OF THE `ResolveType` ARC: MEASURE THE WHOLE CLOSURE, RECORD THE STAGED PLAN, LAND STAGE 1.**
+  MANDATED TARGET: open `ResolveType(TypeReference)` — the sole blocker for the whole assignability
+  SCC per slice 6 — by measuring its complete closure, recording a staged arc plan, and landing the
+  largest terminal sub-family.
+  THE MEASUREMENT (done BEFORE any production edit; a throwaway instrumented Release build with 40
+  counters over the whole closure, run across all 40 `project.yml` corpus targets, the full
+  3,193-test unit suite AND 11 purpose-built resolution-error fixtures, then reverted — `Analyzer.cs`
+  is byte-identical to `72ffc3113` apart from this slice's cut, and the suite passed **3,193 / 3,193
+  WITH the probe armed**, so the instrumentation was behaviour-neutral):
+  * **THE CLOSURE MAP.** `ResolveType(TypeReference)` :18079 is a 9-arm dispatch that ends in ONE
+    `RecordResolvedTypeReference` :18353 → `_semanticModel.RecordTypeReference` for EVERY reference it
+    resolves, at the reference's start span. Its helpers: `ResolveDeclaredType` :18065 (the
+    `_reportUnresolvedTypes` opt-in trampoline), `ResolveSimpleType(SimpleTypeReference)` :18103,
+    `ResolveGenericType` :18113, `ResolveAnonymousUnionType` :18303, `ResolveSimpleType(string,int,int)`
+    :18389 — the 8-CHANNEL name walk — `ReportSoaRowTypeReferenceIfNeeded` :18235, `LookupType` :18936
+    (the `_scopes` stack), `TryRecordTypeBinding` :18849, `TryResolveDottedNestedType` :18796,
+    `TryResolveVisibleProjectType` :18516 → `GetVisibleProjectTypeNamespaces` :18656 /
+    `TryResolveProjectTypeInNamespace` / `TryResolveUniqueExportedProjectType` /
+    `TryMaterializeProjectTypeSelection` / `TryReportInaccessibleVisibleProjectDeclaration`,
+    `TryResolveExternalType` :18894, `GetGenericHeadArity` :18267, `GetKnownGenericHeadArities` :18286,
+    `BuildUnresolvedTypeSuggestion` :18823 → `GetAllTypesInScope` :22012, and
+    `TryResolveBuiltInTypeKeyword` :18869 in the adjacent identifier path.
+  * **THE STATE SURFACE.** `_scopes` (`Stack<Scope>`, **51 sites**), `_semanticModel`, `_errors`,
+    `_bindingMap`, `_reportUnresolvedTypes` + `_reportedUnresolvedTypeRefs` +
+    `_reportedSoaRowTypeRefs` (the three dedupe/opt-in flags), `_usingAliases`, `_usingNamespaces`,
+    `_mlcAssemblies`, `_externalTypeCache`, `_externalNamespaceCache`, `_currentFilePath`,
+    `_compilationUnit`, `_importedSymbolsByAlias` / `_importedDeclarationsByAlias`,
+    `_typeDeclarationFiles`, `_projectSourceTexts` / `_projectCompilationUnitCache` /
+    `_projectNamespaceCache` (file I/O + re-parsing), and `_declarationContext` (already N#).
+  * **THE DIAGNOSTICS.** Five report sites, ALL of them in `ResolveSimpleType(string,…)` and
+    `ResolveGenericType`, none in any helper: NL201 `TypeNotFound` for a claimed file-alias
+    (`R1`, 0 / 0 / **1**), NL201 for an undotted simple name (`R2`, 0 / **19** / 6), NL201 for a
+    generic name (`R3`, 0 / 0 / **1**), NL207 `InvalidTypeArgument` "available arities are …"
+    (`R4`, 0 / **1** / **2**), NL207 arity mismatch (`R5`, 0 / **14** / **16**), plus NL103 SoA-row
+    and the union arm's `DuplicateDeclaration`/`InvalidTypeArgument`. **Counts are corpus / unit
+    suite / fixtures.**
+  * **THE SEMANTIC-MODEL WRITES, inventoried with their readers.** `RecordTypeReference(line, column,
+    resolved)` fires on **EVERY** `ResolveType` (9,606 / 29,565 / 268 — one per call, exactly), plus
+    `_semanticModel.RecordType(name, type)` on the file-alias and visible-project channels and
+    `_bindingMap.RecordBinding` on the scope, file-alias and project channels. So the recording path
+    is NOT separable from the walk, and stage 1 had to be cut around it — which is what happened.
+  * **CHANNEL FREQUENCIES** (`ResolveSimpleType(string,…)` 9,358 / 28,793 / 268): built-in table
+    6,204 / 15,641 / 204; scope lookup 1,442 / 5,744 / 21; file-import alias 0 / **1** / 3;
+    dotted-nested 0 / **42** / 3; visible-project 520 / 3,854 / 3; using-alias-external
+    **0 / 0 / 0**; external 656 / 1,443 / 12; unresolved-`ExternalTypeInfo` 536 / 2,064 / 47.
+  * **`TryResolveExternalType` 2,844 / 6,789 / 288**, by branch: bare cache hit 218 / 292 / 19,
+    namespace-prefixed cache hit 1,796 / 2,525 / 46, namespace scan hit 172 / 675 / 21, **bare
+    exported-name scan hit 40 / 100 / 9**, miss 618 / 3,197 / 257. The bare-scan branch is what makes
+    the cache ORDER-BEARING: it caches under the BARE spelling, so a later call short-circuits before
+    the import loop is reconsidered. `TryResolveExactExternalType` 222 / 1,230 / 15 (scan hit 0 / 2 / 1).
+  * **`GetGenericHeadArity`** arms all live: Class 158 / 769 / 15, External (→ −1) 464 / 1,608 / 18,
+    Record 64 / 579 / 9, Reflection 268 / 657 / 12, Simple 12 / 6 / 0, Struct 24 / 110 / 9,
+    Interface 0 / 14 / 9, Union 0 / 45 / 3, **SoaRecord 0 / 1 / 0**, Enum 0 / 0 / 3, Alias 0 / 0 / 3,
+    Newtype 0 / 0 / 3. `GetKnownGenericHeadArities` 0 / 35 / 21 (count-0 0/19/6, count-1 0/13/9,
+    count-many 0/**3**/**6**). `TryResolveBuiltInTypeKeyword` 1,646 / 2,835 / 0 — with **6 live
+    no-facts calls** in the suite, so that null state is real. `BuildUnresolvedTypeSuggestion`
+    0 / 19 / 7 (did-you-mean 0/1/4, generic 0/18/3).
+  * **TWO GUARDS MEASURED DEAD and recorded rather than acted on:** the assembly-identity dedupe in
+    `GetExternalSearchAssemblies` fired **0** times out of 2,326 / 12,801 / 91 yields, and the
+    using-namespace dedupe inside `GetVisibleProjectTypeNamespaces` fired **0** times out of
+    29,362 / 48,300 / 291. Both are PRESERVED verbatim. So is the structurally dead
+    using-alias-as-a-type channel (`_usingAliases` → `TryResolveExternalType(fullName)`, 0 across all
+    three populations): `RegisterNamespaceImport` only records an alias AFTER
+    `ValidateNamespaceImport` proves the target is a namespace and not a type, so the aliased full
+    name can never resolve as a type. Recorded, not deleted.
+  THE STAGED ARC PLAN (recorded before editing; the 016 precedent — capability + proofs first where
+  the surface is separable, and the reporting/recording paths only once an N# owner can produce the
+  SAME diagnostics and the SAME `_semanticModel` records):
+  * **STAGE 1 (THIS SLICE) — the PURE DECISION SURFACE.** Every member of the closure that is a total
+    function of separable state and reports/records NOTHING: the MLC probe with its cache, the arity
+    tables, the built-in name tables, the namespace candidate ordering and the suggestion policy.
+    Terminal on its own, and it clears the `ActionResult` arm's blocker.
+  * **STAGE 2 — THE SCOPE STACK.** `LookupType` / `LookupSymbol` / `GetAllTypesInScope` /
+    `TryRecordTypeBinding` / `TryLookupNullState` and the `Stack<Scope>` itself. `Scope` is ALREADY N#
+    (`AnalyzerStateModels.nl`), so this is the stack and its **51** sites, not the element type. It is
+    a strict prerequisite for the name walk, because 5 of the 8 channels consult it.
+  * **STAGE 3 — THE PROJECT-DISCOVERY CHANNEL.** `TryResolveVisibleProjectType` and friends. Blocked
+    on file enumeration + re-parsing (`EnumerateProjectSourceTexts`, `GetProjectCompilationUnit`,
+    `ProjectConfig.EnumerateSourceFiles`), so it needs a source-text/unit provider on the N# side
+    first.
+  * **STAGE 4 — THE REPORTING AND RECORDING WALK.** `ResolveSimpleType` / `ResolveGenericType` /
+    `ResolveAnonymousUnionType` / `ResolveType` itself. This is the stage that must reproduce all five
+    diagnostics AND the per-reference `RecordTypeReference` write; it needs an N#-owned diagnostic sink
+    and semantic-model writer, and it is where the dedupe sets move.
+  * **STAGE 5 — the assignability SCC** follows in one cut, exactly as slice 6 measured.
+  **RESULT: STAGE 1 LANDED (no commit — mandate).**
+  `AnalyzerExternalTypeProbe` is the sole authority for the analyzer's referenced-assembly metadata
+  probe, `AnalyzerTypeReferenceFacts` for the resolver's pure rules, and the two existing owners grew
+  the remaining two tables — no callback, fallback, shadow path or comparison route anywhere.
+  DELETIONS (exact, 7 whole C# members + 1 inline table + 1 field, **225 deleted lines**):
+  * `TryResolveExternalType(string)` :18894 (41 lines) — the ordered probe;
+  * `TryResolveExactExternalType(string)` :21284 (20) — the exact probe;
+  * `GetKnownGenericHeadArities(string)` :18286 (17) — the arity sweep;
+  * `GetGenericHeadArity(TypeInfo)` :18267 (23 incl. its 4-line XML doc) — the head-arity table;
+  * `TryResolveBuiltInTypeKeyword(string)` :18869 (28 incl. its 4-line XML doc) — the WKT keyword table;
+  * `BuildUnresolvedTypeSuggestion(string)` :18823 (24) — the did-you-mean policy;
+  * `GetVisibleProjectTypeNamespaces()` :18656 (23) — the namespace candidate ordering, an ITERATOR
+    replaced by a materialized list (behaviour-neutral: the enumeration has no side effects and the
+    callers either enumerate fully or break early);
+  * the 20-line inline built-in name table inside `ResolveSimpleType(string,int,int)` :18397 → 1 line;
+  * the `_externalTypeCache` field :197 — the state itself, now OWNED by the N# probe.
+  ROUTING: **29 live sites**, every one inside `Analyzer.cs` (a grep over `src/` + `tests/` +
+  `editors/` finds no external consumer of any of the seven; the only same-named thing anywhere is
+  `ColumnarBindingScopeFacts.TryResolveExternalType`, which is a DIFFERENT resolver — it verifies a
+  candidate against an expected emitted type identity for the columnar back end — and is untouched):
+  12 `ResolveExternalType`, 1 `ResolveExactExternalType`, 1 `KnownGenericHeadArities`,
+  3 `GenericHeadArity`, 5 `BuiltInMetadataClrType`, 2 `UnresolvedTypeSuggestion`,
+  1 `BuiltInSimpleType`, 4 `VisibleTypeNamespaces`. (13 `TryResolveExternalType` call sites were
+  rewritten; one of them lived inside `GetKnownGenericHeadArities` and went away with it.)
+  C# ADDED: **32 lines, all mechanical** — a field declaration + its 2-line comment, ONE line in the
+  existing parameterless `Analyzer` constructor, and 28 rewritten call sites. **NO new method, helper,
+  bridge, callback or state**, and the probe is deliberately NOT rebuilt at the `_wellKnownTypes`
+  mutation points (unlike the slice-5/6 owners) because rebuilding would drop its order-bearing cache;
+  the fact bag is passed as an ARGUMENT to the one entry point that needs it.
+  `git diff` on `Analyzer.cs` is **+32 / −225 = net −193**; the file is **22,243 → 22,050**
+  (non-blank 19,538 → 19,366).
+  N# ADDED: `AnalyzerExternalTypeProbe.nl` (**152 lines, one class, 5 members** — 3 fields, the
+  constructor, 3 public entry points) + `AnalyzerExternalTypeProbe.tests.nl` (241 lines, **8
+  contracts**); `AnalyzerTypeReferenceFacts.nl` (**147 lines, one class, 3 public statics**) +
+  `AnalyzerTypeReferenceFacts.tests.nl` (294 lines, **7 contracts**); **+30 lines / 1 member** to
+  `AnalyzerWellKnownTypeFacts.nl` (`BuiltInMetadataClrType`) with **+1 contract**; **+36 lines /
+  1 member** to `AnalyzerDiagnostics.nl` (`UnresolvedTypeSuggestion`) with a new
+  `AnalyzerDiagnostics.tests.nl` (100 lines, **4 contracts**). **20 new contracts.**
+  FOUR NON-MECHANICAL DECISIONS: (1) **THE PROBE IS NEVER REBUILT.** Slices 5 and 6 rebuild their
+  owners at the two `_wellKnownTypes` mutation points; this one must not, because its cache is part of
+  the answer (the bare exported-name scan caches under the BARE spelling and short-circuits the import
+  loop on the next call — measured live at 40 / 100 / 9 hits). The fact bag is therefore an argument to
+  `KnownGenericHeadArities` rather than a field. (2) **`Assembly.GetType(name)` replaces
+  `GetType(name, throwOnError: false, ignoreCase: false)`** in the exact probe: the 3-argument overload
+  is not on the columnar binding surface and adding it would trip the bootstrap wall, while
+  `Assembly.GetType(String)` is defined as exactly that call — the differential pins the equivalence
+  over 236 cold cells per state, including every qualified, nested and arity-suffixed spelling.
+  (3) **`GetVisibleProjectTypeNamespaces` becomes a materialized `List<string?>`** rather than an
+  iterator, and the null entry is KEPT as null rather than encoded, because the global namespace is a
+  real candidate. (4) **`NamespaceExists` / `GetExternalSearchAssemblies` and
+  `IsTopLevelTypeDeclaration` were CUT FROM the slice with recorded reasons** rather than forced: the
+  first pair needs `Assembly.get_FullName` (bootstrap wall), and the second needs a declaration
+  TYPE-identity dispatch while the N# `DeclarationFacts` idiom is name-based — and a name match is not
+  semantic resolution.
+  PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS, BUILT AND RUN BEFORE THE DELETION, DELETED AFTER
+  (the tree has zero probe residue): a throwaway xunit probe reflected into the private C# members on a
+  REALLY-LOADED analyzer (`new Analyzer(); LoadSystemAssemblies(); Analyze(...)` over a 5-alias /
+  11-declared-family source) and on a SECOND analyzer with no `LoadSystemAssemblies` — the live
+  `_wellKnownTypes == null` state — and compared them against the N# owners cell by cell, by value OR
+  THROWN EXCEPTION TYPE. **4,918 CELLS, 0 MISMATCHES, 0 THROWN CELLS, 483 TRUE POSITIVES.** The grid:
+  118 spellings (bare CLR names, fully-qualified names, arity-qualified definitions from `` `1 `` to
+  `` `18 ``, nested `+` spellings, namespaces, the 11 declared families, all 16 keywords, near-misses,
+  empty/dot-only/backtick-only degenerates) probed COLD — the analyzer's cache cleared and a fresh N#
+  probe built for every single cell, so both implementations start from the same state — and then
+  WARM, as one long-lived probe replaying the whole sequence three times (forward, forward, reversed)
+  against the analyzer's own warming cache, which is what pins the cache's order-dependence; the two
+  caches are then compared as MAPS, key by key and value by assembly-qualified name, and are equal.
+  Plus 29 ambiguity-sensitive names × 8 import lists × BOTH directions (232 orderings) for the
+  using-namespace order; 236 arity-sweep cells; 328 keyword cells; 92 built-in-table cells driven
+  through a SEPARATE empty-source analyzer so that "answered with a `SimpleTypeInfo`" can only be the
+  table (driving them through the loaded analyzer reads the SCOPE channel instead — a type alias to a
+  built-in resolves to a `SimpleTypeInfo` there, which is a different decision and is not moving in
+  this slice; that distinction was found BY the probe and is why the cell definition is what it is);
+  88 head-arity cells over 44 TypeInfo shapes including every family, open/closed/non-generic/array/
+  type-parameter reflected types and both alias spellings; 296 suggestion cells; and 24
+  namespace-ordering cells.
+  PROOF — BEFORE/AFTER TRANSCRIPT: the same probe wrote a **4,918-row** transcript of every cell from
+  the C# ORIGINALS before the deletion; re-emitted AFTER the deletion with the ORIGIN column taken from
+  the analyzer's OWN routed path (its `_externalTypeProbe` field and the static owners) it is
+  **byte-identical — diff = 0, md5 `892e23a2603e1861102cf60d4d3b7cfd` both times**, which proves the
+  behaviour AND the wiring in one artefact.
+  PROOF — SEMANTIC-DIAGNOSTIC ORACLE: `nlc check --json`, fresh Release CLIs built at baseline
+  `72ffc3113` in a throwaway `/tmp/nsharp017s7` worktree and at the working tree (both trees' Debug
+  CLIs built too — the recorded environmental artefact), **byte-identical on 40 / 40 `project.yml`
+  targets (ORACLE_TARGETS=40, ORACLE_DIFFS = 0)**, plus **11 purpose-built resolution-error fixtures
+  firing 57 diagnostics, FIXTURE_DIFFS = 0**: near-miss and far-miss unresolved names with their
+  did-you-mean/generic suggestions and a sub-3-character name; local generics at too many/too few
+  arguments, a non-generic given arguments, an unknown generic name, and `Dictionary`/`Task` at the
+  wrong arity; the multi-arity "available arities are …" case via `Tuple`/`ValueTuple` at 9 and 10
+  arguments and `Nullable` at 2; aliased and bare namespace imports; a type imported as a namespace and
+  a missing namespace; duplicate and three-armed anonymous unions with a nested-flatten control; dotted
+  nested types, a missing nested type and `var`-as-a-type; bare/qualified/generic/arity-qualified
+  external CLR types and a missing one; cross-namespace exported vs non-exported project types; type
+  arguments on EVERY declared family (union, enum, alias, newtype, struct, interface, record) plus the
+  generic ones at the wrong arity; and file-import aliases with a missing alias-qualified type.
+  PROOF — CORPUS IL BYTE-EXACT SWEEP (same two CLIs, the established explicit PE/CLI normalizer
+  touching ONLY the COFF `TimeDateStamp`, the optional-header `CheckSum`, the Debug Directory entries
+  and the CodeView blobs they point at, and the `#GUID`/`#Pdb` heaps): **64 / 64 comparable assemblies
+  BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (26 from the `project.yml` targets,
+  38 single-file examples, SINGLE_LOG_DIFFS = 0), with the same 7 `tests/native/*` targets that do not
+  build standalone failing identically at baseline and after (**SKIPPED_TARGET_DIFFS = 0**).
+  ASSERTION MIGRATION: all seven members were `private` and the built-in table was inline, so no test
+  named them; their behaviour was pinned only INDIRECTLY by end-to-end analyzer diagnostics, which STAY
+  and now execute against the N# owners (the slice-1…6 and 016 classification-(a) precedent). The
+  DIRECT pinning is new and native: **20 contracts** covering the ordered probe's three channels and
+  the "every import is tried in order" rule (including an import that resolves nothing in either
+  position, and the single-dot composition that refuses a PREFIX import); the exported-name scan on
+  both simple and full name; **the cache being consulted BEFORE the imports** — demonstrated by
+  emptying the live assembly list AND adding an import and still getting the cached answer, while a
+  probe with the same inputs and no history answers nothing — and a MISS not being cached, so it is
+  genuinely retried; the live-list semantics in both directions (an assembly added after construction
+  is visible, and `Dispose`'s `Clear` takes uncached answers away while cached ones remain); the exact
+  probe refusing every unqualified spelling and sharing the one cache in both directions; a FRESH
+  `ReflectionTypeInfo` per call over an identical `Type`; the arity sweep's compiler-table half, its
+  arity-qualified metadata half, the open-DEFINITION requirement (a non-generic hit does not count),
+  ascending order, the 17 ceiling, `Tuple`/`ValueTuple` stopping at 8 and `Nullable` at 1, and every
+  reported arity re-verified to name a definition of exactly that arity; the built-in table's sixteen
+  spellings with the synthesised types, `var`, the CLR spellings, case variants and whitespace all
+  refused, and its fresh-instance/compare-by-value discipline; head arity's ZERO-versus-−1 distinction
+  across every family, a CLOSED reflected generic answering 0 rather than its argument count, the
+  union's optional type-parameter list with absent and empty both meaning zero, and enum/alias/newtype
+  pinned at zero; the metadata keyword table's fifteen names with `void` DELIBERATELY absent, its
+  not-reference-equal-to-`typeof` discipline and its no-facts state; the namespace ordering's
+  global-first rule, self-imported and duplicate dedupe from either position, case-sensitivity, and an
+  empty import name kept as a real candidate; and the suggestion policy's distance-1/2/3 boundary,
+  case-insensitive comparison with the candidate's own spelling preserved, the under-3 and self skips,
+  and ties keeping the caller's FIRST candidate.
+  EVIDENCE: full unit suite **3,193 / 3,193** (`dotnet test tests/Tests.csproj -c Release`, 3m24s —
+  exactly the slice-1…6 baseline, zero drift); BootstrapServices contracts **1,607 → 1,627** (+20) via
+  the canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false`, **1,627 / 1,627 PASS** (the 3 ExternalAssemblyScan Debug-layout tests
+  did not trip); ownership audit **18 / 18** (`nlc test --project tests/native/ownership-audit`,
+  1.2s) after the repin; `./scripts/dev.sh --since` PASS — it correctly took the FULL unit-suite
+  fail-safe (six unmapped `.nl` paths plus `OwnershipAudit.nl`), **3,193 / 3,193 in Debug, 3m17s**;
+  the oracle, differential, transcript and IL sweeps above.
+  RATCHET REPIN via `scratchpad/repin_017_s7.py` (slice 2…6's script, unchanged apart from its header)
+  — `current*` + fingerprints ONLY, ONE row: `src/NSharpLang.Compiler/Analyzer.cs` currentLines
+  22,243 → **22,050**, currentNonBlankLines 19,538 → **19,366**, fingerprint
+  `text-v1:3160b9b907f7abe8` → `text-v1:af0c13184e6f6907` (epoch ceilings 23,451 / 20,537 PRESERVED and
+  now clear by 1,401 / 1,171); `reviewedHeadFingerprint head-v1:8eee56698b0d2f9e` →
+  `head-v1:eb9d3505a2d49eaf`, mirrored into `OwnershipAudit.nl`'s
+  `OwnershipPolicy.ReviewedHeadFingerprint`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED by recomputation after
+  the write; the script self-checks by reproducing all three composite fingerprints over the 381 rows
+  before changing anything. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after,
+  and the `git diff` is exactly 2 changed lines.** The `.nl` additions need no row.
+  .nl GOTCHAS ADDED: **`partial` is RESERVED and cannot be a local name** — `prefixOnly := …` is fine
+  but `partial := …` makes the columnar front end decline the WHOLE test at `parse.test`, reported at
+  the test's own line, the same shape as slice 1's `type`, slice 4's `newtype` and slice 5's `record`;
+  **`object.ReferenceEquals(a, b)` declines at `emit.call.static-member-unmodeled` with lower-case
+  `object`** — the bound spelling is `Object.ReferenceEquals` (capital O, the
+  `AnalyzerDeclarationContext.tests.nl` idiom), and casting the operands `as object` first does not
+  help; **`Assembly.get_FullName` and `AssemblyName.get_Name` are NOT bound** (only `GetName`,
+  `get_Location`, `GetType(string)`, `GetExportedTypes` on `Assembly` and `get_FullName` on
+  `AssemblyName`), so an assembly-identity dedupe cannot be expressed in `.nl` today; and
+  **`Assembly.GetType(string, bool, bool)` is likewise unbound** — use the 1-argument overload, which
+  the BCL defines as exactly `GetType(name, throwOnError: false, ignoreCase: false)`.
+  .nl POSITIVES CONFIRMED (recorded because they were expected to be problems and are not):
+  **`List<string?>` works** — a nullable-element generic list round-trips through construction, `Add`,
+  indexing and a `foreach` on the C# side, so a genuinely-nullable sequence does not need a sentinel
+  encoding; and **an inline array literal is a legal argument** (`Helper(["a", "b"])` binds to a
+  `string[]` parameter), which is what makes the tabular contract style readable.
+  DOCS: `memory/components/analyzer.md` gains "The type-reference resolver: what is N#-owned and what
+  is not" — the channel walk staying in the shell and WHY (five report sites plus a per-reference
+  semantic-model write), the probe's exact order with the cache's participation in it stated as
+  behaviour, the never-rebuilt/live-list discipline, the exact-versus-ordered distinction, the arity
+  sweep, the ZERO-versus-−1 rule, the namespace candidate order, the suggestion policy, and the three
+  recorded non-movables (the `Assembly.FullName` bootstrap-wall pair, the name-versus-type-identity
+  dispatch, and the scope stack as the next prerequisite); the three new owners join the file list; and
+  the stale claim that the `ActionResult` arm is blocked by `TryResolveExternalType` is corrected.
+  `memory/architecture.md`'s Analyzer entry, which had drifted to slice 3's six owners, now lists all
+  eleven.
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change, no new capability needed.
+  The two capability gaps found (`Assembly.get_FullName` / `AssemblyName.get_Name`, and the 3-argument
+  `Assembly.GetType`) were both routed AROUND precisely to avoid tripping it: the first by cutting
+  `NamespaceExists` from the slice, the second by using the equivalent 1-argument overload. The
+  packaged SDK self-emits the new classes and their 20 contracts.
+  GATES: the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 846s
+  (14m06s)** in a fresh isolated copy — the log says "Fresh isolated test run required: pre-commit
+  verification" and it stored a NEW result (`c8a7c219c5b8dd31`), so this is not a cached whole-gate or
+  per-step verdict. **105 `✓ PASSED` steps and ZERO `✗`/`FAILED` anywhere**: the format contract gate,
+  unit **3,193 / 3,193** (3m19s inside the gate), every native `.tests.nl` project including
+  `tests/native/ownership-audit`, **VS Code integration smoke 36 passing (41s)**, SDK pack + install,
+  template pack/install/creation and the template-generated project via `nlc build`, all example
+  projects, all single-file examples, `nlc check` over the examples, and the ECMA-335 **IL verification
+  gate — all 67 N# assemblies pass with no new errors vs baseline**. `./scripts/reload-vscode-extension.sh`:
+  EXIT 0 — language server republished, `nsharp-0.6.0.vsix` repackaged (289 files, 3.98 MB) and
+  `Extension 'nsharp-0.6.0.vsix' was successfully installed`, VS Code reopened. It WAS required even
+  though no LanguageServer source changed: `Analyzer.cs` ships in the `NSharpLang.Compiler` assembly the language server builds
+  against, and `NSharpLang.Compiler.BootstrapServices` gained public types — which is also why the
+  VS Code-enabled profile rather than the `VSCODE_TESTS=skip` path is the right bar for this slice.
+  INTERACTIVE computer-use verification was NOT attempted, per the coordinator's standing instruction
+  that it owns that record (the grant was DENIED four consecutive sessions). This slice adds no LSP or
+  IDE behaviour of its own, and its diagnostics are proven byte-identical corpus-wide.
+  **NEXT SUB-SLICE — STAGE 2 OF THE `ResolveType` ARC: THE SCOPE STACK, AND IT IS NOW THE SOLE
+  PREREQUISITE FOR THE NAME WALK.** The measured remainder of the closure is exactly:
+  `ResolveType` :18082 itself with `RecordResolvedTypeReference`, `ResolveDeclaredType`,
+  `ResolveSimpleType` (both overloads), `ResolveGenericType`, `ResolveAnonymousUnionType`,
+  `ReportSoaRowTypeReferenceIfNeeded`, `TryResolveDottedNestedType`, the
+  `TryResolveVisibleProjectType` family, `NamespaceExists` + `GetExternalSearchAssemblies`, and the
+  scope readers. Take the SCOPE STACK next: `Scope` is already N# (`AnalyzerStateModels.nl`), so the
+  slice is the `Stack<Scope>` field and its **51** sites — `LookupType` (25 sites), `LookupSymbol`,
+  `GetAllTypesInScope`, `TryRecordTypeBinding`, `TryLookupNullState`, `SetNullStateInCurrentScope`,
+  `RegisterErrorTupleResult` and the `_scopes.Peek().Types[...] = ...` declaration writes — moved to an
+  N# `AnalyzerScopeStack` owner. It reports nothing and records nothing (measured), it is the last
+  non-N# dependency of 5 of the name walk's 8 channels, and `GetAllTypesInScope` is the only remaining
+  C# input to the now-N# suggestion policy. After it, stage 3 (project discovery, blocked on a source
+  provider) and stage 4 (the reporting/recording walk, which needs an N#-owned diagnostic sink and
+  semantic-model writer) are the two remaining pieces before the assignability SCC falls in one cut.
+  TWO SMALLER PREREQUISITES REMAIN RECORDED AND UNCHANGED: `CreateFunctionTypeInfoFromDelegate`
+  (32 live calls) still needs the reflection half of `NullabilityMetadata`, which lives ABOVE
+  BootstrapServices; and `Assembly.get_FullName` / `AssemblyName.get_Name` on the columnar external
+  binding surface would release `NamespaceExists` and `GetExternalSearchAssemblies` together.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `72ffc3113`): **017 SLICE 6 —
   `IsAssignable`, MEASURED FIRST, THEN RECUT TO THE TERMINAL SUB-CLOSURE.**
   MANDATED TARGET: `IsAssignable` (:19306) and its 12-arm closure, measure-first.
   THE MEASUREMENT (done BEFORE any production edit; a throwaway instrumented Debug/Release build
@@ -4672,8 +5013,11 @@ These are populated only when their task becomes current.
   expression grammar — the expressions/patterns and closing-delimiter stages OWN the expression/statement
   ERROR families (unexpected-token-in-expression, dangling operator, missing `)`/`]`/`}`); STAGE 3/4 corpus
   shapes deliberately keep those would-be errors panic-suppressed so their output is byte-exact without them.
-- Task 017 next semantic sub-slice: **SLICE 4 — UNIFY ALIAS-TYPEINFO IDENTITY, THEN TAKE
-  `ResolveTypeAlias`** (the funnel move slice 3 measured the prerequisite for). Slices 1, 2 and 3
+- Task 017 next semantic sub-slice: **SLICE 8 — STAGE 2 OF THE `ResolveType` ARC: THE SCOPE STACK**
+  (`Scope` is already N# in `AnalyzerStateModels.nl`; the slice is the `Stack<Scope>` field and its 51
+  sites). Slices 1-7 are DONE — `Analyzer.cs` is **22,050**. The historical note below is kept because
+  it records what slice 3 established; the live sequencing is in the THIS-TURN Active sub-slice.
+  (Historical, written at slice 4's start:) Slices 1, 2 and 3
   are DONE — full records in the 017 Active sub-slice blocks above; `Analyzer.cs` is **22,622**, the
   twelve pure classification predicates and the whole well-known-type surface it carried are gone,
   and the N# side now HOLDS the `_wellKnownTypes` state (`AnalyzerWellKnownTypes`).

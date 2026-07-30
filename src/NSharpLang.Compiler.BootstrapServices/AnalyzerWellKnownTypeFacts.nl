@@ -137,6 +137,36 @@ public class AnalyzerWellKnownTypeFacts {
         return null
     }
 
+    // The built-in type KEYWORDS mapped to their METADATA CLR types, which is what makes
+    // `int.Parse(...)` and `string.IsNullOrEmpty(...)` bind against the project's own core library.
+    // Answers null without facts, and — unlike `BuiltInSimpleType`, the sixteen spellings the type
+    // resolver recognises — deliberately omits `void`: there is no static member access on `void`,
+    // and admitting the keyword here would let one be attempted.
+    public static func BuiltInMetadataClrType(
+        wellKnownTypes: AnalyzerWellKnownTypes?,
+        name: string): Type? {
+        if wellKnownTypes == null {
+            return null
+        }
+
+        if name == "int" { return wellKnownTypes.Int32 }
+        if name == "long" { return wellKnownTypes.Int64 }
+        if name == "float" { return wellKnownTypes.Single }
+        if name == "double" { return wellKnownTypes.Double }
+        if name == "decimal" { return wellKnownTypes.Decimal }
+        if name == "byte" { return wellKnownTypes.Byte }
+        if name == "sbyte" { return wellKnownTypes.SByte }
+        if name == "short" { return wellKnownTypes.Int16 }
+        if name == "ushort" { return wellKnownTypes.UInt16 }
+        if name == "uint" { return wellKnownTypes.UInt32 }
+        if name == "ulong" { return wellKnownTypes.UInt64 }
+        if name == "char" { return wellKnownTypes.Char }
+        if name == "bool" { return wellKnownTypes.Boolean }
+        if name == "string" { return wellKnownTypes.String }
+        if name == "object" { return wellKnownTypes.Object }
+        return null
+    }
+
     // The no-metadata fallback: a built-in TypeInfo mapped to the compiler's own RUNTIME type.
     // Descends through arrays, nullables and oblivious wrappers WITHOUT resolving aliases, and
     // answers null for everything else — including a nullable whose inner type is a reference type.
