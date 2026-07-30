@@ -11,6 +11,8 @@
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerAssignabilityFacts.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerExternalTypeProbe.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeReferenceFacts.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerScopeStack.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerStateModels.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnostics.nl`
 
 ## Responsibility
@@ -295,9 +297,57 @@ Two members of this family are NOT movable yet, for recorded reasons rather than
 columnar external binding surface; extending it is a compiler-capability change requiring a two-stage
 bootstrap, so they stay. `IsTopLevelTypeDeclaration` needs a declaration TYPE-identity dispatch, and
 the N# `DeclarationFacts` idiom is name-based — a name match is not semantic resolution, so it stays
-too. The scope stack (`LookupType`, `GetAllTypesInScope`, `TryRecordTypeBinding`) is the next
-prerequisite: `Scope` is already N# (`AnalyzerStateModels.nl`), but the `Stack<Scope>` and its ~50
-mutation sites are not.
+too. The scope stack is no longer a blocker — it is N#-owned; see the next section.
+
+### The scope stack
+
+`AnalyzerScopeStack` (`AnalyzerScopeStack.nl`) owns the analyzer's open scopes and every question the
+semantic phase answers by walking them. `Scope` was already N#; what moved is the STACK — the
+container plus its walk semantics — so the shell holds one `AnalyzerScopeStack _scopes` field and no
+walk of its own.
+
+Three rules are behaviour rather than bookkeeping, and are why the stack has to be one owner:
+
+- **Every name walk runs innermost-first, and the first scope that HAS the name answers.** A scope
+  that binds the name under a different meaning still ends the walk. `IsCurrentTypeMemberReference`
+  answers from the kind of the scope it stopped at; `IsErrorTupleResultAvailable` answers differently
+  for an availability mark, a guard, and a plain symbol binding, whichever it meets first; the
+  error-tuple guard walk stops at a scope that rebinds the result name, because past that point the
+  name is not the guarded result. `LookupType` / `LookupSymbol` / `CurrentTypeScope` (the innermost
+  binding of `this`) are the simple cases of the same rule, and `CurrentScopeSymbol` is deliberately
+  the innermost scope ALONE — "is this name already mine?" rather than "is it visible?".
+- **Two walks skip the innermost scope**, because their question is about an ENCLOSING binding.
+  `FindEnclosingNullableSymbol` answers what an identifier was DECLARED as when the current scope
+  holds its narrowed type, and it does not stop at a scope that binds the name to something
+  non-nullable. `ShadowsEnclosingValueBinding` (the NL316 decision) starts one scope out and stops
+  dead at the first type-level or global scope: a member or a global of the same name is not
+  shadowing. Underscore-prefixed names, `this`, `value`, function declarations and names the scope
+  also binds as a type are all not value bindings, so they neither shadow nor are shadowed.
+- **The lexical scope stack and the semantic-scope-id stack move in lockstep.** `Push` opens a
+  semantic scope parented to the id currently on top (−1 when there is none); `Pop` closes it at the
+  analyzer's current line and column `int.MaxValue`. The id stack is popped only when non-empty while
+  the scope stack is popped unconditionally, so the two can legally sit at different depths.
+
+Two members that RECORD live here anyway, because what they record is reachable without a callback:
+`BindingMap` and `SemanticModel` are themselves N#, so `RecordTypeBinding` and `ResolveBindingTarget`
+take the map as an ARGUMENT and stay whole rather than being split into a decision plus a shell write.
+Both are replaced per `Analyze` call, which is why they are arguments and not fields.
+`ResolveBindingTarget` walks SYMBOLS before TYPES — an identifier in scope means the value first —
+and records the declaration binding of whichever scope answered.
+
+Null facts are flow-sensitive scope state: the innermost recorded fact for a path wins, an assignment
+invalidates the path and every member path under it in EVERY open scope (a name that merely shares a
+prefix survives), and presence is asked separately from value — a path with no fact is not the same as
+a path recorded as `NullState.Unknown`, and `NullState?` is off the columnar surface.
+
+Declaration POLICY stays in the shell because it reports: `DeclareSymbol`, `DeclareType`,
+`CheckShadowedDeclaration`'s diagnostic and the file-import walk. What they use of the stack is the
+DECISION (`ShadowsEnclosingValueBinding`) and the scope ACCESS (`Peek`, `GlobalScope`).
+
+`Peek` and `Pop` on an empty stack, and `GlobalScope` on an empty stack, throw exactly what
+`Stack<Scope>.Peek()`, `Stack<Scope>.Pop()` and `Enumerable.Last()` threw, message included. No
+production path reaches them, but a silent change from one exception to another is still a behaviour
+change.
 
 ## Core Functions
 
@@ -319,11 +369,12 @@ Global Scope
 ```
 
 ### Symbol Tables
-Scopes are managed via:
-- `EnterScope()`: Push new scope
-- `ExitScope()`: Pop scope
-- `DeclareSymbol(name, type)`: Add to current scope
-- `LookupSymbol(name)`: Search current + parent scopes
+The stack is `AnalyzerScopeStack` (N#, see "The scope stack" above); the shell's `PushScope` /
+`PopScope` / `DeclareSymbol` / `DeclareType` route into it:
+- `_scopes.Push(model, scope, line, column)`: open a lexical scope and its semantic scope
+- `_scopes.Pop(model, currentLine)`: close both
+- `DeclareSymbol(name, type)`: add to `_scopes.Peek()`, reporting duplicates and shadowing
+- `_scopes.LookupSymbol(name)` / `_scopes.LookupType(name)`: innermost-first walk, first hit wins
 
 ## Type System
 

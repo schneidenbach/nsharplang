@@ -407,7 +407,309 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **017 SLICE 7 — THE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 8 — THE `ResolveType` ARC, STAGE 2: THE SCOPE
+  STACK.**
+  MANDATED TARGET, recorded verbatim from the coordinator and unchanged: `Analyzer.cs`'s
+  `Stack<Scope> _scopes` field and its **51 sites** — the stack itself plus its walk semantics, NOT
+  the element type (`Scope` was already N# in `AnalyzerStateModels.nl`). The measurement below was
+  completed before any production edit.
+  THE MEASUREMENT (a brace-matched read of all 51 sites and of every member that hosts one, plus a
+  multiline-aware scan of each host body for `Error(ErrorCode.`, `_errors.`, `_semanticModel.` and
+  `_bindingMap.`):
+  * **51 sites, 35 HOST MEMBERS.** `_scopes` :138 (the field), `Analyze` :300 (`Clear`),
+    `AnalyzeFunctionDeclaration` :1887/:1928/:1929, `AnalyzeClassDeclaration` :2246/:2247,
+    `AnalyzeStructDeclaration` :2320/:2321, `AnalyzeRecordDeclaration` :2377/:2378,
+    `AnalyzeInterfaceDeclaration` :2607/:2608, `DeclareNestedTypesInCurrentScope` :2631,
+    `AnalyzeUnionDeclaration` :2646/:2647, `AnalyzeLocalFunction` :4484/:4485,
+    `ApplyNarrowingsToScope` :4923, `TryFindNullableOriginForIdentifier` :8584 (`Skip(1)`),
+    `IsCurrentTypeMemberReference` :14262, `TryRecordTypeBinding` :18749, `LookupType` :18765,
+    `LookupSymbol` :18778, `TryLookupNullState` :18788, `SetNullStateInCurrentScope` :18800/:18803,
+    `RegisterErrorTupleResult` :18808/:18811, `MarkErrorTupleResultsAvailableForError`
+    :18817/:18820/:18821, `MarkErrorTupleResultAvailableAfterAssignment` :18838/:18843,
+    `TryGetErrorTupleResultGuard` :18870, `IsErrorTupleResultAvailable` :18885,
+    `InvalidateNullFactsForAssignment` :18902, `TryResolveIdentifierBindingTarget` :18932/:18945,
+    `GetCurrentTypeScope` :19075, `PushScope` :20205, `PopScope` :20213, `DeclareSymbol` :20288,
+    `CheckShadowedDeclaration` :20362/:20368/:20376, `DeclareType` :20416, `ProcessFileImport` :20984
+    (`.Last()`), `FindSimilarVariableNames` :21787, `FindSimilarFunctionNames` :21803,
+    `GetAllTypesInScope` :21822.
+  * **THE "REPORTS NOTHING, RECORDS NOTHING" CLAIM IS TRUE OF THE STACK AND OF EVERY WALK, AND FALSE
+    OF 12 OF THE 35 HOSTS — VERIFIED, NOT ASSUMED.** 23 hosts / **32 of the 51 sites** are entirely
+    silent, including EVERY pure walk. The 12 non-silent hosts split three ways: (a) **four record ON
+    THE SCOPE PATH** — `TryRecordTypeBinding` :18756 and `TryResolveIdentifierBindingTarget`
+    :18939/:18952 write `_bindingMap.RecordBinding` inside the walk, and `PushScope`/`PopScope`
+    :20207/:20217 write `_semanticModel.OpenScope`/`CloseScope`; (b) **five report or record in
+    DECLARATION POLICY beside a bare `Peek()`/`.Last()`** — `DeclareSymbol`, `DeclareType`,
+    `CheckShadowedDeclaration` (NL316, a multiline `Error(` my first scan missed and the second
+    caught), `ProcessFileImport`, `Analyze` (whose non-silence is `_errors.Clear()` in the same reset
+    block as `_scopes.Clear()`); (c) **three are large hosts whose reports are nowhere near the scope
+    site** — `AnalyzeFunctionDeclaration`, `AnalyzeUnionDeclaration`, `AnalyzeLocalFunction`.
+  * **THE CONSEQUENCE THAT SHAPED THE CUT.** Group (a) did NOT have to be split into a decision plus a
+    shell write, because `BindingMap` and `SemanticModel` are THEMSELVES N# (`BindingMap.nl`,
+    `SemanticModel.nl`): the map or the model is handed in as an ARGUMENT and the member moves WHOLE.
+    That is not a callback — no N# code names `Analyzer`. Group (b) keeps its reporting members and
+    routes the accessor; only `CheckShadowedDeclaration`'s DECISION moved out.
+  * **`_semanticScopeIds` (`Stack<int>`, 9 sites) IS SCOPE-STACK STATE** and was pulled in: it is a
+    second stack maintained in exact lockstep with `_scopes` by the same two members, so leaving it
+    behind would have left the shell owning half the push/pop discipline.
+  * **EVERY MOVED MEMBER HAS EXACTLY ONE OR TWO CALLERS**, all inside `Analyzer.cs`; a grep over
+    `src/` + `tests/` + `editors/` finds no external consumer of any of them. The only same-named
+    things anywhere are `ColumnarRuntimeDirectCallResolver.LookupType` /
+    `ColumnarDirectCallPlanner.LookupType` / `ColumnarOrdinaryRuntimeDirectCallResolver.LookupType`
+    (different resolvers, untouched) and `Linter.cs`'s own `PushScope`/`PopScope` over its own
+    `Stack<Dictionary<…>>` (a different scope stack, task-019 territory, untouched).
+  **RESULT: LANDED (no commit — mandate).** `AnalyzerScopeStack` is the sole authority for the
+  analyzer's scope stack and every walk over it, with no callback, fallback, shadow path or comparison
+  route anywhere.
+  DELETIONS (exact, **17 whole C# members + 2 gutted bodies + 2 fields, 403 deleted lines**):
+  * `LookupType` :18763 (9), `LookupSymbol` :18776 (12 incl. its 3-line XML doc),
+    `CurrentScopeSymbol`'s inline `Peek().Symbols.GetValueOrDefault` :1887;
+  * `TryLookupNullState` :18786 (11), `SetNullStateInCurrentScope` :18798 (7),
+    `InvalidateNullFactsForAssignment` :18900 (14) — its LINQ `Where`/`ToList` key sweep included;
+  * `TryFindNullableOriginForIdentifier` :8582 (15) — the `Skip(1)` walk;
+  * `RegisterErrorTupleResult` :18806 (8), `MarkErrorTupleResultsAvailableForError` :18815 (20),
+    `MarkErrorTupleResultAvailableAfterAssignment` :18836 (10), `TryGetErrorTupleResultGuard` :18868
+    (14), `IsErrorTupleResultAvailable` :18883 (16);
+  * `GetCurrentTypeScope` :19073 (9), `IsCurrentTypeMemberReference` :14260 (17);
+  * `TryRecordTypeBinding` :18747 (18 incl. its 3-line XML doc) — walk AND record together;
+  * `FindSimilarVariableNames` :21783 (15), `FindSimilarFunctionNames` :21799 (19),
+    `GetAllTypesInScope` :21819 (12) — all three with their XML docs;
+  * `TryResolveIdentifierBindingTarget`'s TWO walks :18932/:18945 (24 lines → 5): the scope arm is one
+    call now, and the member's project/member/external arms are untouched (stage 3/4);
+  * `CheckShadowedDeclaration` 41 → 14 lines: the `Count`/`Peek`/`ReferenceEquals`-guarded walk is
+    gone and ONLY the `Error(ErrorCode.ShadowedDeclaration, …)` report remains;
+  * `PushScope(Scope,int,int)` 7 → 3 and `PopScope` 9 → 3: both bodies are one routed call;
+  * the `Stack<Scope> _scopes` field :138 becomes `AnalyzerScopeStack _scopes`, and the
+    `Stack<int> _semanticScopeIds` field :209 **plus its `Clear()` at :311 are DELETED** — the two
+    Clears were consecutive statements in the same reset block with nothing between them touching
+    either stack, so folding them into `_scopes.Clear()` is exactly equivalent.
+  ROUTING: **88 lines, every one mechanical, all inside `Analyzer.cs`** — 26 `LookupType`, 13
+  `LookupSymbol`, 7 `DeclareTypeParameter` (each collapsing a 3-line `new SimpleTypeInfo` +
+  two-dictionary write into one call), 5 `CurrentTypeScope`, 4 `SetNullStateInCurrentScope`, 2
+  `AllTypeNamesInScope`, 2 `HasSemanticScope`/`CurrentSemanticScopeId` pairs in
+  `RecordVariableInCurrentScope`/`RecordFunctionInCurrentScope`, and one each for
+  `CurrentScopeSymbol`, `DeclareNestedTypeIfAbsent`, `GlobalScope`, `RecordTypeBinding`,
+  `ResolveBindingTarget`, `RegisterErrorTupleResult`, `MarkErrorTupleResultsAvailableForError`,
+  `MarkErrorTupleResultAvailableAfterAssignment`, `FindErrorTupleResultGuard` +
+  `IsErrorTupleResultAvailable`, `InvalidateNullFactsForAssignment`, `IsCurrentTypeMemberReference`,
+  `FindEnclosingNullableSymbol`, `HasNullState` + `NullStateOrUnknown`,
+  `ShadowsEnclosingValueBinding`, `SuggestSimilarVariableNames`, `SuggestSimilarCallableNames`,
+  `Push`, `Pop` and the field declaration. **NO new C# method, helper, bridge, callback or state**;
+  the only non-call additions are the five relocated lines of the surviving NL316 `Error(` call, one
+  comment, and `_extensionMethods.Select(m => m.Name).ToList()` at the callable-suggestion site
+  (extension methods are not scope state, so they arrive as an argument).
+  `git diff` on `Analyzer.cs` is **+88 / −403 = net −315**; the file is **22,050 → 21,735**
+  (non-blank 19,366 → 19,094).
+  N# ADDED: `AnalyzerScopeStack.nl` (**620 lines, ONE class, 36 members** — 2 fields, the `Count`
+  property, the constructor, 30 public entry points and 2 helpers; far inside the per-class ceiling)
+  + `AnalyzerScopeStack.tests.nl` (682 lines, **24 contracts**). No other `.nl` file changed.
+  FIVE NON-MECHANICAL DECISIONS: (1) **THE STORE IS A `List<Scope>`, NOT A `Stack<Scope>`** (both are
+  on the columnar surface — `Lexer.nl` and `Preprocessor.nl` already use `Stack<T>`). A list gives
+  index-based innermost-first walks with no enumerator and no materialization, which matters because
+  `LookupType`/`LookupSymbol` are among the hottest members in the analyzer. The cost is that
+  `Stack<T>`'s exceptional behaviour has to be reproduced by hand, which is decision (2).
+  (2) **`Peek`, `Pop` and `GlobalScope` THROW EXPLICITLY**, with the CLR's own messages — `Peek`/`Pop`
+  `InvalidOperationException("Stack empty.")` and `GlobalScope`
+  `InvalidOperationException("Sequence contains no elements")` (the LINQ `Last()` message, which has
+  **no trailing period** — the differential caught the period I had written and it was the ONLY
+  mismatch in 12,700 cells). Indexing a list would have thrown `ArgumentOutOfRangeException` instead.
+  No production path reaches any of the three, but a silent change from one exception to another is
+  still a behaviour change. (3) **PRESENCE AND VALUE OF A NULL FACT ARE TWO MEMBERS**
+  (`HasNullState` + `NullStateOrUnknown`) because `NullState?` — a nullable ENUM return — is OFF the
+  columnar surface (new gotcha below), and collapsing them onto `NullState.Unknown` would have
+  conflated "no fact" with "recorded as unknown", which the caller distinguishes: the first falls back
+  to the declared nullability and the second must not. The one caller pays one extra walk on a hit.
+  (4) **THE TWO RECORDING WALKS MOVED WHOLE**, with `BindingMap` passed as an argument rather than
+  held as a field, because the map is REPLACED on every `Analyze` call — the same reasoning as the
+  slice-7 fact bag, and the reason `Push`/`Pop` take the `SemanticModel` too. (5)
+  **`ShadowsEnclosingValueBinding` starts at index `Count - 2` rather than reproducing the
+  `sawCurrent`/`ReferenceEquals(scope, currentScope)` guard**, which is provably identical because
+  `Peek()` IS by definition the first element a top-to-bottom walk visits; the differential pins it
+  over 1,681 decision cells and 1,680 report cells, INCLUDING a stack that pushes the SAME `Scope`
+  instance twice (where a naive `ReferenceEquals` reading would have differed and does not).
+  PROOF — THE LIFO PARITY PROOF, AND THE DIFFERENTIAL AGAINST THE C# ORIGINALS. One throwaway xunit
+  probe, written ONCE and run in BOTH trees — at baseline `dc65075bf` in a throwaway
+  `/tmp/nsharp017s8` worktree it reflects into `Analyzer.cs`'s ORIGINAL private members and its
+  `Stack<Scope>`/`Stack<int>` fields; in the working tree the same source drives the analyzer's OWN
+  `_scopes` field (so the wiring is proven, not just the behaviour) and falls through to the routed
+  shells where they survive. It emits a tab-separated transcript of every cell; both trees'
+  transcripts are **byte-identical, 12,700 CELLS, 0 MISMATCHES, md5
+  `27f0e299d81066ca6a9aa7de90b0e34b` in both trees**, with **5,502 non-default answers** and **108
+  THROW cells matched by exception TYPE AND MESSAGE**. The grid: **14 scope shapes** (empty;
+  global-only; global+class+function with a shadowed name, a `this` binding, declaration locations
+  and a narrowed local; three nested blocks carrying null facts including a recorded `Unknown`; an
+  error-tuple guard chain; the same chain with the result name REBOUND by an inner scope; a
+  locals-only chain holding `this`, `value` and an underscore name; function→class→block; a type
+  scope with NO `this`; interface/struct/record kinds; callable-versus-non-callable near-misses; and
+  outer-only declaration locations) × **35 probe names** (bound and unbound, dotted, empty,
+  whitespace-only, `_`, and every name any shape binds) × **53 distinct operations** — the 8 pure
+  reads, the 9 mutators each on a FRESH probe so every cell starts from the same shape, the two
+  binding-recording walks compared through `BindingMap.BindingCount` + `AllDeclarations`, the
+  shadowing DECISION and separately the shell's actual `Error(ErrorCode.ShadowedDeclaration)` firing
+  over 4 declared types, and callable suggestions with and without extension methods. Plus the
+  **LIFO REPLAY**: 24 snapshots driving the analyzer's own `PushScope`/`PopScope` through all seven
+  `ScopeKind`s and back out, each snapshot dumping the FULL stack, the semantic-scope-id stack and
+  every `SemanticModel` scope with its id, parent, start and end — so the parent chaining, the
+  `int.MaxValue` end column, the interleaved `RecordScopedVariable`/`RecordScopedFunction` reads, the
+  pop of an EMPTY stack, `Clear()` and a push after it are all pinned; and a shared-instance replay
+  that pushes one `Scope` object twice. The probe was DELETED from both trees after the run (`git
+  status` shows no probe residue).
+  PROOF — SEMANTIC-DIAGNOSTIC ORACLE: `nlc check --json`, fresh Release CLIs built at baseline
+  `dc65075bf` in the throwaway worktree and at the working tree (both trees' Debug CLIs built too —
+  the recorded environmental artefact, since several `tests/native/*` projects reference a Debug
+  `Compiler.dll` and their check FAILS identically without it), over **49 `project.yml` corpus targets
+  (ORACLE_TARGETS=49, a superset of slice 7's 40)**: **ZERO diagnostic differences and
+  ORACLE_STDERR_DIFFS=0**. The only textual deltas in the whole sweep are two `checkedFiles` counts
+  rising by exactly the number of new `.nl` files (root 438 → 440, BootstrapServices 282 → 283);
+  every diagnostic on every target, including the 281 pre-existing BootstrapServices errors, is
+  byte-identical. Plus **10 purpose-built scope fixtures firing 36 diagnostics, FIXTURE_DIFFS = 0**:
+  NL316 shadowing ×3 (a block shadowing a function local, a parameter, and a doubly-nested block) with
+  the underscore, reserved-`value` and member-name cases proven NEGATIVE; NL301 undefined
+  variable/function ×4 with did-you-mean suggestions from both the variable and the callable
+  candidate lists; NL201/NL202 unresolved types ×6 with the in-scope-type suggestion, including a
+  wrong type parameter inside a generic class and a missing nested type; NL306 duplicate type and
+  duplicate local; NL303 nullable member access through a narrowed origin; NL905 flow narrowing across
+  an invalidating assignment; NL314/NL202 error-tuple result use, checked, unchecked and reassigned;
+  and generic type parameters resolvable as types and identifiers across class, struct, record,
+  interface and free-function declarations.
+  PROOF — CORPUS IL BYTE-EXACT SWEEP (same two CLIs, an explicit PE/CLI normalizer touching ONLY the
+  COFF `TimeDateStamp`, the optional-header `CheckSum`, the Debug Directory entries AND the CodeView
+  blobs they point at, and the `#GUID`/`#Pdb` metadata heaps): **84 / 84 comparable assemblies
+  BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (46 assemblies from 47 `project.yml`
+  targets, 38 single-file examples with SINGLE_LOG_DIFFS = 0), and **SKIPPED_TARGET_DIFFS = 0** (10
+  targets fail to build standalone with the same exit code in both trees). Two toolchain assemblies are
+  EXCLUDED with recorded reasons rather than silently: `NSharpLang.Compiler.BootstrapServices.dll`
+  MUST differ (the working tree's copy contains the new owner), and `NSharpLang.Runtime.dll` differs by
+  **57 bytes** on source that is byte-identical to baseline (`git diff dc65075bf --
+  src/NSharpLang.Runtime` is empty) — proven to be ONE build-environment artefact rather than 37, since
+  all 37 copies in each tree normalize to a single hash (base `9f4e6100…`, work `9530edb4…`).
+  ASSERTION MIGRATION: all 17 moved members were `private` and both gutted bodies stay, so no test
+  named any of them; their behaviour was pinned only INDIRECTLY by end-to-end analyzer diagnostics,
+  which STAY and now execute against the N# owner (the slice-1…7 precedent). The DIRECT pinning is new
+  and native: **24 contracts** covering the LIFO discipline and the two ends of the stack; the three
+  empty-stack throws by type AND message; the semantic-scope parent chaining, the `int.MaxValue` end
+  column and the id stack's own lifetime; innermost-first lookup with shadowing and the
+  current-scope-only read; the type parameter being ONE instance in both namespaces and visible only
+  where declared; first-declaration-wins for nested types; the innermost null fact winning, an outer
+  fact coming BACK when the narrowing scope closes, a recorded `Unknown` being distinguishable from no
+  fact, and the empty-stack/blank-path refusals; invalidation reaching member paths in every scope
+  while a mere prefix survives; the nullable ORIGIN skipping the innermost scope and NOT stopping at a
+  non-nullable binding; guard registration refusing `_` and blanks and dying with its scope; the guard
+  walk stopping at a rebinding scope; availability landing in the CURRENT scope and dying with the
+  branch, and the mark/guard/symbol precedence including "a name nothing knows is available";
+  assignment over a guarded result; shadowing's type-boundary stop, underscore opt-out, the `this`/
+  `value`/function-declaration/also-a-type refusals and the non-local current scope; `this` as the
+  current type and the three exits of the member-reference decision; innermost-first type-name order;
+  and the two suggestion policies including the extension-method merge that keeps the FIRST spelling.
+  EVIDENCE: full unit suite **3,193 / 3,193** (`dotnet test tests/Tests.csproj -c Release`, 3m16s — exactly the slice-1…7 baseline, zero drift); BootstrapServices contracts **1,627 → 1,651** (+24) via
+  the canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false`, **1,651 / 1,651 PASS**; ownership audit **18 / 18**
+  (`nlc test --project tests/native/ownership-audit`, 1.2s) after the repin; `./scripts/dev.sh --since`
+  **PASS** — it correctly took the FULL unit-suite fail-safe (the two new `.nl` paths plus
+  `OwnershipAudit.nl` are unmapped), **3,193 / 3,193 in Debug, done in 3m21s**; the differential, oracle, fixture and IL sweeps above.
+  RATCHET REPIN via `scratchpad/repin_017_s8.py` (slice 2…7's script, rewritten against the manifest's
+  actual `files` key) — `current*` + fingerprints ONLY, ONE row:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 22,050 → **21,735**, currentNonBlankLines
+  19,366 → **19,094**, fingerprint `text-v1:af0c13184e6f6907` → `text-v1:528472e43a179fae` (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **1,716 / 1,443**);
+  `reviewedHeadFingerprint head-v1:eb9d3505a2d49eaf` → `head-v1:0db5fad465104e6e`, mirrored into
+  `OwnershipAudit.nl`'s `OwnershipPolicy.ReviewedHeadFingerprint`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and
+  RE-VALIDATED by recomputation after the write; the script self-checks by reproducing all three
+  composite fingerprints over the 381 rows before changing anything. **FORMAT DISCIPLINE HELD: `wc -l`
+  on the manifest is 391 before AND after, and the `git diff` is exactly 2 changed lines.** The `.nl`
+  additions need no row.
+  .nl GOTCHAS ADDED (five, all found by building):
+  * **A NULLABLE ENUM RETURN IS OFF THE SURFACE.** `NullState?` declines at
+    `emit.declaration.method-return` ("method return type 'NullState?' could not be resolved"), even
+    though `int?` and `bool?` return fine (`CompilerBootstrapServices.ParseInt`,
+    `BatchQueryOutputKernels.OptionalBool`). Split presence from value.
+  * **A TOP-LEVEL PascalCase FREE `func` COLLIDES WITH A SAME-NAMED `static func` IN ANOTHER FILE'S
+    CLASS.** A helper `func Names(values: List<string>): string` in a new `.tests.nl` made
+    `AstEq.FieldNames` in `ColumnarParserAst.tests.nl` decline at `emit.return.expression` — its own
+    unqualified `Names(spaceSeparated)` call bound to the free function instead of to `AstEq.Names`.
+    PascalCase is public, so every top-level test helper needs a distinctive prefix
+    (`ScopeNameList`, `ScopeTypeName`, …), which is exactly what the existing `Probe*`/`Clr*` helpers
+    already do.
+  * **`ex.GetType().Name` DECLINES INSIDE A `catch`** at `emit.statement.block-child` (the
+    already-recorded "GetType() on typed receiver" and "chained calls on call results" gotchas
+    combined). Assert on `ex as SpecificException != null` plus `ex.Message` instead — which is a
+    stronger assertion anyway.
+  * **`new X().Method(...)` DECLINES IN EXPRESSION-STATEMENT POSITION** at
+    `emit.expression-statement.call`, while the SAME expression inside an `assert` is fine. Bind the
+    instance to a local first.
+  * **`Dictionary<K, V>.Remove(key)` IS NOT ON THE ANALYZER'S OVERLOAD TABLE.** Columnar emission
+    accepts the one-argument form, but `nlc check` reports **NL402** "No overload of 'Remove' accepts
+    1 argument … Available overloads: Remove(TKey? key, out TValue? value)". The oracle caught it as
+    the ONLY new corpus diagnostic (BootstrapServices 281 → 282 errors) and it is fixed by using the
+    two-argument overload, which the BCL defines as the same operation plus the removed value. The
+    ANALYZER-side gap is recorded, not worked around elsewhere.
+  .nl POSITIVES CONFIRMED (recorded because they were expected to be problems and are not):
+  **`throw` WORKS IN PRODUCTION `.nl`** — this is its first production use outside `.tests.nl`
+  (`grep '^\s*throw ' src/**/*.nl` previously matched tests only), which is what makes the
+  exception-parity decision expressible at all; **`foreach entry in dictionary { entry.Key /
+  entry.Value }`** iterates a `Dictionary` directly, so the LINQ key sweep in
+  `InvalidateNullFactsForAssignment` ports without materializing `.Keys`; **`scopes[i].Types
+  .TryGetValue(name, out candidate)`** — an index, then a member access, then a call with an `out`
+  argument — binds fine, as does **`Peek().Types[name] = value`** (a call result, a member access and
+  an indexer assignment); and **`2147483647`** stands in for `int.MaxValue` exactly.
+  DOCS: `memory/components/analyzer.md` gains "The scope stack" — the three load-bearing rules (the
+  innermost-first walk and the scopes that END it, the two walks that SKIP the innermost scope, and
+  the lexical/semantic-id lockstep with its legal depth asymmetry), why the two recording walks live
+  in the owner and take their sink as an argument, the null-fact presence-versus-value rule, what
+  declaration policy the shell keeps and why, and the empty-stack exception parity; the stale claim
+  that the scope stack is the next prerequisite is corrected, the "Symbol Tables" section is rewritten
+  from the long-dead `EnterScope`/`ExitScope` names to the real routed surface, and
+  `AnalyzerScopeStack.nl` + `AnalyzerStateModels.nl` join the file list. `memory/architecture.md`'s
+  Analyzer entry now lists all thirteen owners.
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change, no new capability
+  needed, and no repin of the packaged toolset. All five gotchas were routed AROUND rather than
+  through: the nullable enum by splitting one member into two, the free-function collision by
+  renaming test helpers, the `GetType()` and `new X().M()` shapes by restructuring the contracts, and
+  the `Dictionary.Remove` analyzer gap by using the equivalent two-argument overload. The packaged
+  0.1.0 SDK self-emits the new class and its 24 contracts.
+  GATES: the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 846s
+  (14m06s)** in a fresh isolated copy (`/tmp/nsharp-test-all.bb8bfdd3db1f.w5cDp4`) — the log says
+  "Fresh isolated test run required: pre-commit verification" and "Existing cache entries will not
+  satisfy this invocation", and it stored a NEW result (`bb8bfdd3db1f207f`), so this is neither a
+  cached whole-gate nor a cached per-step verdict. **105 `✓ PASSED` steps and ZERO `✗`/`FAILED`
+  anywhere**: the format contract gate, unit **3,193 / 3,193** (4m39s inside the gate), every native
+  `.tests.nl` project including `tests/native/ownership-audit` and BootstrapServices'
+  **1,651 / 1,651** (2m22s), **VS Code integration smoke 36 passing (2m18s)**, SDK pack + install
+  (2m51s), template pack/install/creation and the template-generated project via `nlc build`, all
+  example projects, all single-file examples, `nlc check` over the examples, and the ECMA-335 **IL
+  verification gate — all 67 N# assemblies pass with no new errors vs baseline**.
+  `./scripts/reload-vscode-extension.sh`: EXIT 0 — language server republished, `nsharp-0.6.0.vsix`
+  repackaged (289 files, 3.98 MB) and `Extension 'nsharp-0.6.0.vsix' was successfully installed`, VS
+  Code reopened. It WAS required even though no LanguageServer source changed: `Analyzer.cs` ships in
+  the `NSharpLang.Compiler` assembly the language server builds against, and
+  `NSharpLang.Compiler.BootstrapServices` gained a public type — which is also why the VS Code-enabled
+  profile rather than the `VSCODE_TESTS=skip` path is the right bar for this slice. INTERACTIVE
+  computer-use verification was NOT attempted, per the coordinator's standing instruction that it owns
+  that record. This slice adds no LSP or IDE behaviour of its own; the semantic model's scope
+  open/close records — which the position-aware LSP lookups read — are pinned snapshot by snapshot by
+  the LIFO replay, and the diagnostics are proven byte-identical corpus-wide.
+  **NEXT SUB-SLICE — STAGE 3 OF THE `ResolveType` ARC: THE PROJECT-DISCOVERY CHANNEL, and it is now
+  the only structural blocker left before the reporting walk.** With the scope stack owned, the
+  measured remainder of the closure is exactly: `ResolveType` :18082 itself with
+  `RecordResolvedTypeReference`, `ResolveDeclaredType`, `ResolveSimpleType` (both overloads),
+  `ResolveGenericType`, `ResolveAnonymousUnionType`, `ReportSoaRowTypeReferenceIfNeeded`,
+  `TryResolveDottedNestedType`, the `TryResolveVisibleProjectType` family, and `NamespaceExists` +
+  `GetExternalSearchAssemblies`. **Five of the name walk's eight channels now consult an N# owner**,
+  and `GetAllTypesInScope` — the last C# input to the now-N# suggestion policy — is gone. Stage 3 is
+  `TryResolveVisibleProjectType` → `TryResolveProjectTypeInNamespace` /
+  `TryResolveUniqueExportedProjectType` / `TryMaterializeProjectTypeSelection` /
+  `TryReportInaccessibleVisibleProjectDeclaration`, and it is BLOCKED on a source-text/unit provider
+  on the N# side (`EnumerateProjectSourceTexts`, `GetProjectCompilationUnit`,
+  `ProjectConfig.EnumerateSourceFiles` — file enumeration plus re-parsing, with three caches:
+  `_projectSourceTexts`, `_projectCompilationUnitCache`, `_projectNamespaceCache`). Stage 4 (the
+  reporting and recording walk) needs an N#-owned diagnostic sink and the per-reference
+  `RecordTypeReference` write, and stage 5 is the assignability SCC in one cut. THREE SMALLER
+  PREREQUISITES REMAIN RECORDED AND UNCHANGED: `CreateFunctionTypeInfoFromDelegate` (32 live calls)
+  still needs the reflection half of `NullabilityMetadata`, which lives ABOVE BootstrapServices;
+  `Assembly.get_FullName` / `AssemblyName.get_Name` on the columnar external binding surface would
+  release `NamespaceExists` and `GetExternalSearchAssemblies` together; and the one-argument
+  `Dictionary.Remove` overload is missing from the ANALYZER's overload table.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `dc65075bf`): **017 SLICE 7 — THE
   OPENING OF THE `ResolveType` ARC: MEASURE THE WHOLE CLOSURE, RECORD THE STAGED PLAN, LAND STAGE 1.**
   MANDATED TARGET: open `ResolveType(TypeReference)` — the sole blocker for the whole assignability
   SCC per slice 6 — by measuring its complete closure, recording a staged arc plan, and landing the

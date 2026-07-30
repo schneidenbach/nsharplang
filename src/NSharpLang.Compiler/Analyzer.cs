@@ -135,7 +135,7 @@ public class Analyzer : IDisposable
         => NSharpMethodGroupInfoFactory.GetFunctions(methodGroup);
 
     private readonly List<CompilerError> _errors = new();
-    private readonly Stack<Scope> _scopes = new();
+    private readonly AnalyzerScopeStack _scopes = new();
     private readonly List<string> _usingNamespaces = new();
     private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
     private readonly Dictionary<string, List<ImportedSymbolReference>> _importedSymbols = new(); // symbol -> import references
@@ -206,7 +206,6 @@ public class Analyzer : IDisposable
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly HashSet<MemberAccessExpression> _soaColumnMemberAccesses = new(ReferenceEqualityComparer.Instance);
-    private readonly Stack<int> _semanticScopeIds = new(); // Parallel scope ID stack for SemanticModel
     private int _currentLine; // Tracks last analyzed line for scope end positions
     private bool _suppressNullabilityFlowType;
     private bool _suppressErrorTupleResultUse;
@@ -308,7 +307,6 @@ public class Analyzer : IDisposable
         _semanticModel = new SemanticModel();  // Reset semantic model for new analysis
         _bindingMap = new BindingMap(); // Reset binding map for new analysis
         _soaColumnMemberAccesses.Clear();
-        _semanticScopeIds.Clear();
         _currentLine = 0;
         _suppressNullabilityFlowType = false;
         _suppressErrorTupleResultUse = false;
@@ -920,7 +918,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(LookupType(containerName) ?? BuiltInTypes.Unknown);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(containerName) ?? BuiltInTypes.Unknown);
         if (resolvedType is EnumTypeInfo enumType)
         {
             if (!HasSourceEnumMember(enumType, memberAccess.MemberName))
@@ -1133,7 +1131,7 @@ public class Analyzer : IDisposable
     {
         foreach (var candidate in GetClrAttributeNameCandidates(attributeName))
         {
-            var candidateType = LookupType(candidate);
+            var candidateType = _scopes.LookupType(candidate);
             if (candidateType == null && TryResolveDottedNestedType(candidate, out var nestedType))
             {
                 candidateType = nestedType;
@@ -1884,7 +1882,7 @@ public class Analyzer : IDisposable
         // Declare function in current scope if not already registered (e.g., by a first pass).
         // DeclareSymbol handles overload merging into NSharpMethodGroupInfo.
         var funcType = CreateFunctionTypeInfo(func);
-        var existingSymbol = _scopes.Peek().Symbols.GetValueOrDefault(func.Name);
+        var existingSymbol = _scopes.CurrentScopeSymbol(func.Name);
         if (existingSymbol == null)
         {
             DeclareSymbol(func.Name, funcType, func.Line, func.Column);
@@ -1924,9 +1922,7 @@ public class Analyzer : IDisposable
         {
             foreach (var tp in func.TypeParameters)
             {
-                var typeParamInfo = new SimpleTypeInfo(tp.Name);
-                _scopes.Peek().Types[tp.Name] = typeParamInfo;
-                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+                _scopes.DeclareTypeParameter(tp.Name);
             }
         }
 
@@ -2234,7 +2230,7 @@ public class Analyzer : IDisposable
 
         CheckVisibilityConvention(classDecl.Name, classDecl.Modifiers, classDecl.Line, classDecl.Column);
 
-        var declaredClassType = LookupType(classDecl.Name);
+        var declaredClassType = _scopes.LookupType(classDecl.Name);
         PushScope(new Scope(ScopeKind.Class), classDecl.Line, classDecl.Column);
 
         // Add generic type parameters to both type and symbol namespaces
@@ -2242,9 +2238,7 @@ public class Analyzer : IDisposable
         {
             foreach (var tp in classDecl.TypeParameters)
             {
-                var typeParamInfo = new SimpleTypeInfo(tp.Name);
-                _scopes.Peek().Types[tp.Name] = typeParamInfo;
-                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+                _scopes.DeclareTypeParameter(tp.Name);
             }
         }
 
@@ -2308,7 +2302,7 @@ public class Analyzer : IDisposable
 
         CheckVisibilityConvention(structDecl.Name, structDecl.Modifiers, structDecl.Line, structDecl.Column);
 
-        var declaredStructType = LookupType(structDecl.Name);
+        var declaredStructType = _scopes.LookupType(structDecl.Name);
         PushScope(new Scope(ScopeKind.Struct), structDecl.Line, structDecl.Column);
 
         // Add generic type parameters to both type and symbol namespaces
@@ -2316,9 +2310,7 @@ public class Analyzer : IDisposable
         {
             foreach (var tp in structDecl.TypeParameters)
             {
-                var typeParamInfo = new SimpleTypeInfo(tp.Name);
-                _scopes.Peek().Types[tp.Name] = typeParamInfo;
-                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+                _scopes.DeclareTypeParameter(tp.Name);
             }
         }
 
@@ -2365,7 +2357,7 @@ public class Analyzer : IDisposable
 
         CheckVisibilityConvention(recordDecl.Name, recordDecl.Modifiers, recordDecl.Line, recordDecl.Column);
 
-        var declaredRecordType = LookupType(recordDecl.Name);
+        var declaredRecordType = _scopes.LookupType(recordDecl.Name);
         PushScope(new Scope(ScopeKind.Record), recordDecl.Line, recordDecl.Column);
 
         // Add generic type parameters to both type and symbol namespaces
@@ -2373,9 +2365,7 @@ public class Analyzer : IDisposable
         {
             foreach (var tp in recordDecl.TypeParameters)
             {
-                var typeParamInfo = new SimpleTypeInfo(tp.Name);
-                _scopes.Peek().Types[tp.Name] = typeParamInfo;
-                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+                _scopes.DeclareTypeParameter(tp.Name);
             }
         }
 
@@ -2595,7 +2585,7 @@ public class Analyzer : IDisposable
 
         CheckVisibilityConvention(interfaceDecl.Name, interfaceDecl.Modifiers, interfaceDecl.Line, interfaceDecl.Column);
 
-        var declaredInterfaceType = LookupType(interfaceDecl.Name);
+        var declaredInterfaceType = _scopes.LookupType(interfaceDecl.Name);
         PushScope(new Scope(ScopeKind.Interface), interfaceDecl.Line, interfaceDecl.Column);
 
         // Add generic type parameters to both type and symbol namespaces
@@ -2603,9 +2593,7 @@ public class Analyzer : IDisposable
         {
             foreach (var tp in interfaceDecl.TypeParameters)
             {
-                var typeParamInfo = new SimpleTypeInfo(tp.Name);
-                _scopes.Peek().Types[tp.Name] = typeParamInfo;
-                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+                _scopes.DeclareTypeParameter(tp.Name);
             }
         }
 
@@ -2628,7 +2616,7 @@ public class Analyzer : IDisposable
             return;
 
         foreach (var nested in shape.NestedTypes)
-            _scopes.Peek().Types.TryAdd(nested.Name, nested.Type);
+            _scopes.DeclareNestedTypeIfAbsent(nested.Name, nested.Type);
     }
 
     private void AnalyzeUnionDeclaration(UnionDeclaration unionDecl)
@@ -2642,9 +2630,7 @@ public class Analyzer : IDisposable
         {
             foreach (var tp in unionDecl.TypeParameters)
             {
-                var typeParamInfo = new SimpleTypeInfo(tp.Name);
-                _scopes.Peek().Types[tp.Name] = typeParamInfo;
-                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+                _scopes.DeclareTypeParameter(tp.Name);
             }
         }
 
@@ -4480,9 +4466,7 @@ public class Analyzer : IDisposable
         {
             foreach (var tp in func.TypeParameters)
             {
-                var typeParamInfo = new SimpleTypeInfo(tp.Name);
-                _scopes.Peek().Types[tp.Name] = typeParamInfo;
-                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+                _scopes.DeclareTypeParameter(tp.Name);
             }
         }
 
@@ -4676,7 +4660,7 @@ public class Analyzer : IDisposable
             : varDecl.Initializer != null
                 ? GetExpressionNullState(varDecl.Initializer, inferredType ?? finalType)
                 : GetDefaultNullState(finalType);
-        SetNullStateInCurrentScope(varDecl.Name, initialNullState);
+        _scopes.SetNullStateInCurrentScope(varDecl.Name, initialNullState);
     }
 
     private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
@@ -4703,7 +4687,7 @@ public class Analyzer : IDisposable
             {
                 DeclareSymbol(resultVar, initType, tupleDecl.Line, tupleDecl.Column);
                 RecordVariableInCurrentScope(resultVar, initType);
-                RegisterErrorTupleResult(resultVar, errVar, tupleDecl.Line, tupleDecl.Column);
+                _scopes.RegisterErrorTupleResult(resultVar, errVar, tupleDecl.Line, tupleDecl.Column);
             }
 
             // Declare err variable as nullable Exception
@@ -4712,7 +4696,7 @@ public class Analyzer : IDisposable
                 var exceptionType = new ExternalTypeInfo("Exception?");
                 DeclareSymbol(errVar, exceptionType, tupleDecl.Line, tupleDecl.Column);
                 RecordVariableInCurrentScope(errVar, exceptionType);
-                SetNullStateInCurrentScope(errVar, NullState.MaybeNull);
+                _scopes.SetNullStateInCurrentScope(errVar, NullState.MaybeNull);
             }
         }
         else
@@ -4784,7 +4768,7 @@ public class Analyzer : IDisposable
 
         DeclareSymbol(name, type, tupleDecl.Line, tupleDecl.Column);
         RecordVariableInCurrentScope(name, type);
-        SetNullStateInCurrentScope(name, GetDefaultNullState(type));
+        _scopes.SetNullStateInCurrentScope(name, GetDefaultNullState(type));
     }
 
     private bool TryGetTupleDeconstructionElements(TypeInfo initType, out List<TypeInfo> elements)
@@ -4927,7 +4911,7 @@ public class Analyzer : IDisposable
             currentScope.NullStates[narrowing.Path] = nullState;
             if (nullState == NullState.Null)
             {
-                MarkErrorTupleResultsAvailableForError(narrowing.Path);
+                _scopes.MarkErrorTupleResultsAvailableForError(narrowing.Path);
             }
 
             if (narrowing.NarrowedType is not { } narrowedType)
@@ -5010,7 +4994,7 @@ public class Analyzer : IDisposable
                 thenNarrowings.Add(new FlowNarrowing(isExpr.VariableName, narrowedType, NullState.NotNull));
                 if (TryGetStableNullPath(isExpr.Expression) is { } path
                     && !path.Contains('.', StringComparison.Ordinal)
-                    && LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
+                    && _scopes.LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
                     && TryRemoveAnonymousUnionArm(sourceUnion, narrowedType) is { } remainingType)
                 {
                     elseNarrowings.Add(new FlowNarrowing(path, remainingType, NullState.NotNull));
@@ -5021,7 +5005,7 @@ public class Analyzer : IDisposable
                 // `x is Dog` — narrow x to Dog in then-branch
                 thenNarrowings.Add(new FlowNarrowing(path, narrowedType, NullState.NotNull));
                 if (!path.Contains('.', StringComparison.Ordinal)
-                    && LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
+                    && _scopes.LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
                     && TryRemoveAnonymousUnionArm(sourceUnion, narrowedType) is { } remainingType)
                 {
                     elseNarrowings.Add(new FlowNarrowing(path, remainingType, NullState.NotNull));
@@ -5090,7 +5074,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var symbolType = LookupSymbol(ident.Name);
+        var symbolType = _scopes.LookupSymbol(ident.Name);
         if (symbolType is not NullableTypeInfo nullable)
         {
             return false;
@@ -5291,7 +5275,7 @@ public class Analyzer : IDisposable
                 case ByRefTypeInfo byRef:
                     resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRef.InnerType));
                     continue;
-                case SimpleTypeInfo simple when LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
+                case SimpleTypeInfo simple when _scopes.LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
                     resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(namedType));
                     continue;
                 default:
@@ -5809,7 +5793,7 @@ public class Analyzer : IDisposable
                 return true;
             }
 
-            if (LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved))
+            if (_scopes.LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved))
             {
                 return IsThrowableType(namedType);
             }
@@ -5843,7 +5827,7 @@ public class Analyzer : IDisposable
             var resourceErrorsBefore = _errors.Count;
             AnalyzeVariableDeclaration(usingStmt.Declaration);
             if (_errors.Count == resourceErrorsBefore
-                && LookupSymbol(usingStmt.Declaration.Name) is { } resourceType)
+                && _scopes.LookupSymbol(usingStmt.Declaration.Name) is { } resourceType)
             {
                 ReportNonDisposableUsingResourceIfNeeded(usingStmt.Declaration, resourceType);
             }
@@ -5916,7 +5900,7 @@ public class Analyzer : IDisposable
             case NullableTypeInfo nullable:
                 var innerType = _declarationContext.ResolveDeclaredAlias(nullable.InnerType);
                 return AnalyzerConversionFacts.IsReferenceType(innerType) && IsDisposableUsingResourceType(innerType);
-            case SimpleTypeInfo simple when LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
+            case SimpleTypeInfo simple when _scopes.LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
                 return IsDisposableUsingResourceType(namedType);
             case GenericTypeInfo generic when ResolveGenericDefinition(generic) is { } genericDefinition:
                 return IsDisposableUsingResourceType(genericDefinition);
@@ -6107,7 +6091,7 @@ public class Analyzer : IDisposable
                 }
                 // A bare name can reach here for a user struct/enum the expression analysis did not
                 // materialize into its declaration-backed TypeInfo — resolve it and re-classify.
-                var resolved = LookupType(simple.Name);
+                var resolved = _scopes.LookupType(simple.Name);
                 return resolved != null && resolved is not SimpleTypeInfo && IsKnownValueTypeLockee(resolved);
             case StructTypeInfo:
             case EnumTypeInfo:
@@ -6668,7 +6652,7 @@ public class Analyzer : IDisposable
             IsExpression isExpr => AnalyzeIsExpression(isExpr),
             AwaitExpression await => AnalyzeAwaitExpression(await),
             ThrowExpression throwExpr => AnalyzeThrowExpression(throwExpr),
-            ThisExpression => GetCurrentTypeScope() ?? BuiltInTypes.Unknown,
+            ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
             BaseExpression => AnalyzeBaseExpression(),
             MatchExpression match => AnalyzeMatchExpression(match),
             TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
@@ -6920,8 +6904,8 @@ public class Analyzer : IDisposable
         }
 
         var path = TryGetStableNullPath(expr);
-        if (path != null && TryLookupNullState(path, out var state))
-            return state;
+        if (path != null && _scopes.HasNullState(path))
+            return _scopes.NullStateOrUnknown(path);
 
         return GetDefaultNullState(type);
     }
@@ -8475,10 +8459,10 @@ public class Analyzer : IDisposable
     }
 
     private TypeInfo GetRangeType()
-        => LookupType("System.Range") ?? new ReflectionTypeInfo(typeof(Range));
+        => _scopes.LookupType("System.Range") ?? new ReflectionTypeInfo(typeof(Range));
 
     private TypeInfo GetIndexType()
-        => LookupType("System.Index") ?? new ReflectionTypeInfo(typeof(Index));
+        => _scopes.LookupType("System.Index") ?? new ReflectionTypeInfo(typeof(Index));
 
     private TypeInfo GetNonNullableType(TypeInfo type)
         => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
@@ -8542,7 +8526,7 @@ public class Analyzer : IDisposable
         if (nullableType == null
             && member.Object is IdentifierExpression identifier
             && IsPrimitiveLikeType(objectType)
-            && TryFindNullableOriginForIdentifier(identifier.Name, out var origin))
+            && _scopes.FindEnclosingNullableSymbol(identifier.Name) is { } origin)
         {
             nullableType = origin;
             isNarrowedNullableOrigin = true;
@@ -8579,22 +8563,6 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private bool TryFindNullableOriginForIdentifier(string name, out NullableTypeInfo nullableType)
-    {
-        foreach (var scope in _scopes.Skip(1))
-        {
-            if (scope.Symbols.TryGetValue(name, out var type)
-                && type is NullableTypeInfo nullable)
-            {
-                nullableType = nullable;
-                return true;
-            }
-        }
-
-        nullableType = null!;
-        return false;
-    }
-
     private static bool IsPrimitiveLikeType(TypeInfo type)
     {
         return type is SimpleTypeInfo or ReflectionTypeInfo;
@@ -8606,7 +8574,7 @@ public class Analyzer : IDisposable
             return IsStaticMemberAccessTarget(parenthesized.Inner);
 
         if (target is IdentifierExpression identifier)
-            return LookupSymbol(identifier.Name) == null;
+            return _scopes.LookupSymbol(identifier.Name) == null;
 
         return TryResolveTypeValuedMemberAccess(target, out _);
     }
@@ -8620,9 +8588,9 @@ public class Analyzer : IDisposable
                 return TryResolveTypeValuedMemberAccess(parenthesized.Inner, out type);
 
             case IdentifierExpression identifier:
-                if (LookupSymbol(identifier.Name) != null)
+                if (_scopes.LookupSymbol(identifier.Name) != null)
                     return false;
-                type = _declarationContext.ResolveDeclaredAlias(LookupType(identifier.Name) ?? BuiltInTypes.Unknown);
+                type = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(identifier.Name) ?? BuiltInTypes.Unknown);
                 if (!BuiltInTypes.IsUnknown(type))
                     return true;
                 type = AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, identifier.Name) is { } builtInType ? new ReflectionTypeInfo(builtInType) : _externalTypeProbe.ResolveExternalType(identifier.Name) ?? BuiltInTypes.Unknown;
@@ -8644,11 +8612,11 @@ public class Analyzer : IDisposable
         if (expression is not MemberAccessExpression || !TryGetQualifiedExpressionTreeName(expression, out var qualifiedName))
             return false;
         var rootName = ExternalQualifiedTypeResolver.RootName(qualifiedName);
-        var currentType = GetCurrentTypeScope();
+        var currentType = _scopes.CurrentTypeScope();
         var separator = qualifiedName.LastIndexOf('.');
         foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
             if (TryResolveProjectTypeInNamespace(rootName, visibleNamespace, out _, out _)) return false;
-        if (LookupSymbol(rootName) != null || LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
+        if (_scopes.LookupSymbol(rootName) != null || _scopes.LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
             || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(ResolveMember(currentType, rootName)))
             || TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], out _, out _))
             || !ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, qualifiedName, out var runtimeType))
@@ -11310,7 +11278,7 @@ public class Analyzer : IDisposable
             if (argument.Value is not IdentifierExpression identifier)
                 continue;
 
-            var symbol = LookupSymbol(identifier.Name);
+            var symbol = _scopes.LookupSymbol(identifier.Name);
             if (symbol is NSharpMethodGroupInfo
                 || symbol is FunctionTypeInfo functionType && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType))
             {
@@ -11380,7 +11348,7 @@ public class Analyzer : IDisposable
         // bound to a real in-scope symbol. If the user declared their own `Ok`/`Err` (function,
         // local, parameter, or import), defer to normal call resolution so we bind their symbol
         // instead of silently hijacking the call (C1: resolution must be semantic, not string
-        if (LookupSymbol(identifier.Name) != null)
+        if (_scopes.LookupSymbol(identifier.Name) != null)
         {
             call.IsResultFactory = false;
             return false;
@@ -13781,7 +13749,7 @@ public class Analyzer : IDisposable
         }
 
         UpdateNullStateAfterAssignment(assignment.Target, assignment.Value, targetType, valueType);
-        MarkErrorTupleResultAvailableAfterAssignment(assignment.Target);
+        _scopes.MarkErrorTupleResultAvailableAfterAssignment(assignment.Target);
 
         return targetType;
     }
@@ -14073,13 +14041,13 @@ public class Analyzer : IDisposable
         if (path == null)
             return;
 
-        InvalidateNullFactsForAssignment(path);
+        _scopes.InvalidateNullFactsForAssignment(path);
 
         var valueState = GetExpressionNullState(value, valueType);
         if (valueState == NullState.Unknown)
             valueState = GetDefaultNullState(targetType);
 
-        SetNullStateInCurrentScope(path, valueState);
+        _scopes.SetNullStateInCurrentScope(path, valueState);
     }
 
     private static bool IsMemberAccessWriteTarget(Expression expression) => expression switch
@@ -14212,10 +14180,10 @@ public class Analyzer : IDisposable
                 return TryFindReadOnlyPropertyWriteTarget(parenthesized.Inner, expressionTypes, out propertyName);
 
             case IdentifierExpression identifier:
-                if (!IsCurrentTypeMemberReference(identifier.Name))
+                if (!_scopes.IsCurrentTypeMemberReference(identifier.Name))
                     break;
 
-                var currentType = GetCurrentTypeScope();
+                var currentType = _scopes.CurrentTypeScope();
                 if (currentType != null
                     && TryIsReadOnlyPropertyMember(currentType, identifier.Name, includeStaticMembers: false))
                 {
@@ -14255,24 +14223,6 @@ public class Analyzer : IDisposable
 
         propertyName = string.Empty;
         return false;
-    }
-
-    private bool IsCurrentTypeMemberReference(string name)
-    {
-        foreach (var scope in _scopes)
-        {
-            if (scope.Symbols.ContainsKey(name))
-            {
-                return scope.Kind is not (ScopeKind.Function or ScopeKind.Block);
-            }
-
-            if (scope.Kind is not (ScopeKind.Function or ScopeKind.Block))
-            {
-                return GetCurrentTypeScope() != null;
-            }
-        }
-
-        return GetCurrentTypeScope() != null;
     }
 
     private bool TryIsReadOnlyPropertyMember(TypeInfo owner, string memberName, bool includeStaticMembers)
@@ -14682,9 +14632,9 @@ public class Analyzer : IDisposable
             case ParenthesizedExpression parenthesized:
                 return IsStaticArrayTarget(parenthesized.Inner);
             case IdentifierExpression identifier:
-                if (LookupSymbol(identifier.Name) != null)
+                if (_scopes.LookupSymbol(identifier.Name) != null)
                     return false;
-                if (LookupType(identifier.Name) is { } localType)
+                if (_scopes.LookupType(identifier.Name) is { } localType)
                     return IsSystemArrayTypeInfo(_declarationContext.ResolveDeclaredAlias(localType));
                 if (TryResolveTypeValuedMemberAccess(identifier, out var identifierType)
                     && IsSystemArrayTypeInfo(identifierType))
@@ -14697,9 +14647,9 @@ public class Analyzer : IDisposable
                 }
                 return false;
             case MemberAccessExpression { Object: IdentifierExpression { Name: "System" } system, MemberName: "Array" }:
-                if (LookupSymbol(system.Name) != null)
+                if (_scopes.LookupSymbol(system.Name) != null)
                     return false;
-                if (LookupType(system.Name) != null)
+                if (_scopes.LookupType(system.Name) != null)
                 {
                     return TryResolveTypeValuedMemberAccess(expression, out var systemArrayType)
                         && IsSystemArrayTypeInfo(systemArrayType);
@@ -14754,7 +14704,7 @@ public class Analyzer : IDisposable
         switch (expression)
         {
             case IdentifierExpression identifier:
-                var resolvedType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(LookupSymbol(identifier.Name) ?? BuiltInTypes.Unknown));
+                var resolvedType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(_scopes.LookupSymbol(identifier.Name) ?? BuiltInTypes.Unknown));
                 if (resolvedType is ByRefTypeInfo byRefReceiver)
                     resolvedType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
                 if (resolvedType is SoaRecordTypeInfo receiverSoaRecordType)
@@ -15172,7 +15122,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        var currentType = LookupType(_currentClass.Name);
+        var currentType = _scopes.LookupType(_currentClass.Name);
         if (currentType == null
             || !TryFindReadonlyInstanceField(currentType, fieldName, out var inheritedFieldName))
         {
@@ -15727,7 +15677,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(LookupType(name) ?? BuiltInTypes.Unknown);
+        var resolvedType = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(name) ?? BuiltInTypes.Unknown);
         if (!BuiltInTypes.IsUnknown(resolvedType))
         {
             return true;
@@ -15741,7 +15691,7 @@ public class Analyzer : IDisposable
         return expression switch
         {
             IdentifierExpression identifier => parameterNames.Contains(identifier.Name)
-                || LookupSymbol(identifier.Name) != null,
+                || _scopes.LookupSymbol(identifier.Name) != null,
             MemberAccessExpression { IsNullConditional: false } memberAccess =>
                 ExpressionTreeReceiverStartsWithValueIdentifier(memberAccess.Object, parameterNames),
             _ => false
@@ -16253,7 +16203,7 @@ public class Analyzer : IDisposable
                 var parts = qualifiedCaseName.Split('.');
                 // The union may live in another file/namespace with no import — project
                 // auto-discovery resolves it exactly like a bare type reference would.
-                var unionBaseLookup = parts.Length == 2 ? LookupType(parts[0]) as UnionTypeInfo : null;
+                var unionBaseLookup = parts.Length == 2 ? _scopes.LookupType(parts[0]) as UnionTypeInfo : null;
                 if (unionBaseLookup == null
                     && parts.Length == 2
                     && TryResolveVisibleProjectType(parts[0], newExpr.Line, newExpr.Column, out var projectUnionCandidate, out _)
@@ -16931,7 +16881,7 @@ public class Analyzer : IDisposable
         if (simple.Name is "int" or "short" or "sbyte")
             return true;
 
-        var resolved = _declarationContext.ResolveDeclaredAlias(LookupType(simple.Name) ?? BuiltInTypes.Unknown);
+        var resolved = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(simple.Name) ?? BuiltInTypes.Unknown);
         return BuiltInTypes.Is(resolved, BuiltInTypes.Int)
                || BuiltInTypes.Is(resolved, BuiltInTypes.Short)
                || BuiltInTypes.Is(resolved, BuiltInTypes.SByte);
@@ -18192,7 +18142,7 @@ public class Analyzer : IDisposable
                     $"Type '{generic.Name}' not found",
                     generic.Line,
                     generic.Column,
-                    AnalyzerDiagnostics.UnresolvedTypeSuggestion(generic.Name, GetAllTypesInScope()),
+                    AnalyzerDiagnostics.UnresolvedTypeSuggestion(generic.Name, _scopes.AllTypeNamesInScope()),
                     generic.Name.Length);
             }
 
@@ -18244,7 +18194,7 @@ public class Analyzer : IDisposable
         }
 
         var tableName = name[..^rowSuffix.Length];
-        if (tableName.Length == 0 || _declarationContext.ResolveDeclaredAlias(LookupType(tableName) ?? BuiltInTypes.Unknown) is not SoaRecordTypeInfo)
+        if (tableName.Length == 0 || _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(tableName) ?? BuiltInTypes.Unknown) is not SoaRecordTypeInfo)
         {
             return false;
         }
@@ -18361,12 +18311,12 @@ public class Analyzer : IDisposable
         if (builtInType != null)
             return builtInType;
 
-        var localType = LookupType(name);
+        var localType = _scopes.LookupType(name);
         if (localType != null)
         {
             if (line > 0)
             {
-                TryRecordTypeBinding(name, line, column);
+                _scopes.RecordTypeBinding(_bindingMap, _currentFilePath, name, line, column);
             }
             return localType;
         }
@@ -18449,7 +18399,7 @@ public class Analyzer : IDisposable
                 $"Type '{name}' not found",
                 line,
                 column,
-                AnalyzerDiagnostics.UnresolvedTypeSuggestion(name, GetAllTypesInScope()),
+                AnalyzerDiagnostics.UnresolvedTypeSuggestion(name, _scopes.AllTypeNamesInScope()),
                 name.Length);
         }
 
@@ -18723,7 +18673,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        type = _declarationContext.ResolveDeclaredAlias(LookupType(parts[0]) ?? BuiltInTypes.Unknown);
+        type = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(parts[0]) ?? BuiltInTypes.Unknown);
         if (BuiltInTypes.IsUnknown(type))
         {
             return false;
@@ -18741,115 +18691,12 @@ public class Analyzer : IDisposable
         return true;
     }
 
-    /// <summary>
-    /// Record a binding from a type reference position to the type's declaration.
-    /// </summary>
-    private void TryRecordTypeBinding(string name, int line, int column)
-    {
-        foreach (var scope in _scopes)
-        {
-            if (scope.Types.TryGetValue(name, out _))
-            {
-                var declLocation = scope.GetDeclarationLocation(name);
-                if (declLocation != null)
-                {
-                    _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, declLocation);
-                }
-                return;
-            }
-        }
-    }
-
-    private TypeInfo? LookupType(string name)
-    {
-        foreach (var scope in _scopes)
-        {
-            if (scope.Types.TryGetValue(name, out var type))
-                return type;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Looks up a symbol's type by walking the scope chain. Returns null if not found.
-    /// </summary>
-    private TypeInfo? LookupSymbol(string name)
-    {
-        foreach (var scope in _scopes)
-        {
-            if (scope.Symbols.TryGetValue(name, out var type))
-                return type;
-        }
-        return null;
-    }
-
-    private bool TryLookupNullState(string path, out NullState state)
-    {
-        foreach (var scope in _scopes)
-        {
-            if (scope.NullStates.TryGetValue(path, out state))
-                return true;
-        }
-
-        state = NullState.Unknown;
-        return false;
-    }
-
-    private void SetNullStateInCurrentScope(string path, NullState state)
-    {
-        if (_scopes.Count == 0 || string.IsNullOrWhiteSpace(path))
-            return;
-
-        _scopes.Peek().NullStates[path] = state;
-    }
-
-    private void RegisterErrorTupleResult(string resultName, string errorName, int line, int column)
-    {
-        if (_scopes.Count == 0 || string.IsNullOrWhiteSpace(resultName) || resultName == "_")
-            return;
-
-        _scopes.Peek().ErrorTupleResults[resultName] =
-            new ErrorTupleResultGuard(resultName, errorName, line, column);
-    }
-
-    private void MarkErrorTupleResultsAvailableForError(string errorName)
-    {
-        if (_scopes.Count == 0 || string.IsNullOrWhiteSpace(errorName) || errorName.Contains('.', StringComparison.Ordinal))
-            return;
-
-        var currentScope = _scopes.Peek();
-        foreach (var scope in _scopes)
-        {
-            foreach (var guard in scope.ErrorTupleResults.Values)
-            {
-                if (guard.ErrorName == errorName)
-                {
-                    currentScope.AvailableErrorTupleResults.Add(guard.ResultName);
-                }
-            }
-
-            if (scope.Symbols.ContainsKey(errorName))
-                break;
-        }
-    }
-
-    private void MarkErrorTupleResultAvailableAfterAssignment(Expression target)
-    {
-        if (_scopes.Count == 0 || target is not IdentifierExpression identifier)
-            return;
-
-        if (TryGetErrorTupleResultGuard(identifier.Name, out _))
-        {
-            _scopes.Peek().AvailableErrorTupleResults.Add(identifier.Name);
-        }
-    }
-
     private void ReportUnverifiedErrorTupleResultUseIfNeeded(string name, int line, int column)
     {
         if (_suppressErrorTupleResultUse)
             return;
 
-        if (!TryGetErrorTupleResultGuard(name, out var guard) || IsErrorTupleResultAvailable(name))
+        if (_scopes.FindErrorTupleResultGuard(name) is not { } guard || _scopes.IsErrorTupleResultAvailable(name))
             return;
 
         var key = (line, column, name);
@@ -18863,53 +18710,6 @@ public class Analyzer : IDisposable
             column,
             $"Use '{name}' only after `if {guard.ErrorName} == null`, or return/throw from an `if {guard.ErrorName} != null` error branch before the result is used.",
             Math.Max(1, name.Length));
-    }
-
-    private bool TryGetErrorTupleResultGuard(string resultName, out ErrorTupleResultGuard guard)
-    {
-        foreach (var scope in _scopes)
-        {
-            if (scope.ErrorTupleResults.TryGetValue(resultName, out guard!))
-                return true;
-
-            if (scope.Symbols.ContainsKey(resultName))
-                break;
-        }
-
-        guard = null!;
-        return false;
-    }
-
-    private bool IsErrorTupleResultAvailable(string resultName)
-    {
-        foreach (var scope in _scopes)
-        {
-            if (scope.AvailableErrorTupleResults.Contains(resultName))
-                return true;
-
-            if (scope.ErrorTupleResults.ContainsKey(resultName))
-                return false;
-
-            if (scope.Symbols.ContainsKey(resultName))
-                return true;
-        }
-
-        return true;
-    }
-
-    private void InvalidateNullFactsForAssignment(string path)
-    {
-        foreach (var scope in _scopes)
-        {
-            var keysToRemove = scope.NullStates.Keys
-                .Where(key => key == path || key.StartsWith(path + ".", StringComparison.Ordinal))
-                .ToList();
-
-            foreach (var key in keysToRemove)
-            {
-                scope.NullStates.Remove(key);
-            }
-        }
     }
 
     private static string? TryGetStableNullPath(Expression expression)
@@ -18928,34 +18728,14 @@ public class Analyzer : IDisposable
 
     private bool TryResolveIdentifierBindingTarget(string name, int line, int column, out TypeInfo type)
     {
-        // Check local symbols first
-        foreach (var scope in _scopes)
+        // Check local symbols first, then local types
+        if (_scopes.ResolveBindingTarget(_bindingMap, _currentFilePath, name, line, column) is { } scopeBinding)
         {
-            if (scope.Symbols.TryGetValue(name, out type!))
-            {
-                var declLocation = scope.GetDeclarationLocation(name);
-                if (declLocation != null)
-                {
-                    _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, declLocation);
-                }
-                return true;
-            }
+            type = scopeBinding;
+            return true;
         }
 
-        foreach (var scope in _scopes)
-        {
-            if (scope.Types.TryGetValue(name, out type!))
-            {
-                var declLocation = scope.GetDeclarationLocation(name);
-                if (declLocation != null)
-                {
-                    _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, declLocation);
-                }
-                return true;
-            }
-        }
-
-        var currentType = GetCurrentTypeScope();
+        var currentType = _scopes.CurrentTypeScope();
         if (currentType != null)
         {
             var memberType = ResolveMember(currentType, name);
@@ -19027,8 +18807,8 @@ public class Analyzer : IDisposable
 
         // Use ErrorMessageBuilder for better error message with suggestions
         var similarNames = reportMissingAsFunction
-            ? FindSimilarFunctionNames(name)
-            : FindSimilarVariableNames(name);
+            ? _scopes.SuggestSimilarCallableNames(name, _extensionMethods.Select(method => method.Name).ToList())
+            : _scopes.SuggestSimilarVariableNames(name);
         var sourceSnippet = GetSourceSnippet(line);
 
         if (sourceSnippet != null && _currentFilePath != null)
@@ -19070,19 +18850,9 @@ public class Analyzer : IDisposable
         return BuiltInTypes.Unknown;
     }
 
-    private TypeInfo? GetCurrentTypeScope()
-    {
-        foreach (var scope in _scopes)
-        {
-            if (scope.Symbols.TryGetValue("this", out var type))
-                return type;
-        }
-        return null;
-    }
-
     private TypeInfo AnalyzeBaseExpression()
     {
-        var currentType = GetCurrentTypeScope();
+        var currentType = _scopes.CurrentTypeScope();
         if (currentType != null
             && _declarationContext.TryGetSourceMemberShape(currentType, null, out var shape)
             && shape.BaseType != null)
@@ -19761,7 +19531,7 @@ public class Analyzer : IDisposable
     }
 
     private TypeInfo? ResolveGenericDefinition(GenericTypeInfo generic)
-        => generic.GenericDefinition ?? LookupType(generic.Name);
+        => generic.GenericDefinition ?? _scopes.LookupType(generic.Name);
 
     private bool IsPatternPossible(TypeInfo sourceType, TypeInfo targetType)
     {
@@ -20202,20 +19972,12 @@ public class Analyzer : IDisposable
 
     private void PushScope(Scope scope, int startLine, int startColumn)
     {
-        _scopes.Push(scope);
-        var parentId = _semanticScopeIds.Count > 0 ? _semanticScopeIds.Peek() : -1;
-        var scopeId = _semanticModel.OpenScope(parentId, startLine, startColumn);
-        _semanticScopeIds.Push(scopeId);
+        _scopes.Push(_semanticModel, scope, startLine, startColumn);
     }
 
     private void PopScope()
     {
-        _scopes.Pop();
-        if (_semanticScopeIds.Count > 0)
-        {
-            var scopeId = _semanticScopeIds.Pop();
-            _semanticModel.CloseScope(scopeId, _currentLine, int.MaxValue);
-        }
+        _scopes.Pop(_semanticModel, _currentLine);
     }
 
     /// <summary>
@@ -20223,9 +19985,9 @@ public class Analyzer : IDisposable
     /// </summary>
     private void RecordVariableInCurrentScope(string name, TypeInfo type)
     {
-        if (_semanticScopeIds.Count > 0)
+        if (_scopes.HasSemanticScope())
         {
-            _semanticModel.RecordScopedVariable(_semanticScopeIds.Peek(), name, type);
+            _semanticModel.RecordScopedVariable(_scopes.CurrentSemanticScopeId(), name, type);
         }
         else
         {
@@ -20238,9 +20000,9 @@ public class Analyzer : IDisposable
     /// </summary>
     private void RecordFunctionInCurrentScope(string name, TypeInfo type)
     {
-        if (_semanticScopeIds.Count > 0)
+        if (_scopes.HasSemanticScope())
         {
-            _semanticModel.RecordScopedFunction(_semanticScopeIds.Peek(), name, type);
+            _semanticModel.RecordScopedFunction(_scopes.CurrentSemanticScopeId(), name, type);
         }
         else
         {
@@ -20359,44 +20121,16 @@ public class Analyzer : IDisposable
     /// </summary>
     private void CheckShadowedDeclaration(string name, TypeInfo type, int line, int nameColumn)
     {
-        if (_scopes.Count == 0)
+        if (!_scopes.ShadowsEnclosingValueBinding(name, type))
             return;
 
-        if (name == "_" || name.StartsWith("_", StringComparison.Ordinal))
-            return;
-
-        var currentScope = _scopes.Peek();
-
-        if (currentScope.Kind is not (ScopeKind.Function or ScopeKind.Block))
-            return;
-        if (!AnalyzerBindingFacts.IsValueBinding(name, type, currentScope.Types.ContainsKey(name)))
-            return;
-
-        var sawCurrent = false;
-        foreach (var scope in _scopes)
-        {
-            if (!sawCurrent)
-            {
-                sawCurrent = ReferenceEquals(scope, currentScope);
-                continue;
-            }
-
-            if (scope.Kind is not (ScopeKind.Function or ScopeKind.Block))
-                return; // reached a type/global boundary — no shadowing of an outer local
-
-            if (scope.Symbols.TryGetValue(name, out var outerType) &&
-                AnalyzerBindingFacts.IsValueBinding(name, outerType, scope.Types.ContainsKey(name)))
-            {
-                Error(
-                    ErrorCode.ShadowedDeclaration,
-                    $"'{name}' shadows an existing '{name}' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs",
-                    line,
-                    nameColumn,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.ShadowedDeclaration, name),
-                    Math.Max(1, name.Length));
-                return;
-            }
-        }
+        Error(
+            ErrorCode.ShadowedDeclaration,
+            $"'{name}' shadows an existing '{name}' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs",
+            line,
+            nameColumn,
+            ErrorSuggestions.GetSuggestion(ErrorCode.ShadowedDeclaration, name),
+            Math.Max(1, name.Length));
     }
 
     private void DeclareType(string name, TypeInfo type, int line, int column)
@@ -20981,7 +20715,7 @@ public class Analyzer : IDisposable
                     import.DiagnosticColumn,
                     import.DiagnosticLength));
 
-                var globalScope = _scopes.Last(); // Global scope is at the bottom of stack
+                var globalScope = _scopes.GlobalScope();
                 if (symbol.Declaration.Kind == "function")
                 {
                     globalScope.Symbols[symbol.Name] = symbol.Type;
@@ -21776,55 +21510,6 @@ public class Analyzer : IDisposable
         }
     }
 
-
-    /// <summary>
-    /// Find similar variable names in current scope
-    /// </summary>
-    private List<string> FindSimilarVariableNames(string typo)
-    {
-        var candidates = new List<string>();
-
-        foreach (var scope in _scopes)
-        {
-            candidates.AddRange(scope.Symbols.Keys);
-        }
-
-        var suggester = new SmartSuggester(candidates);
-        return suggester.SuggestSimilarNames(typo);
-    }
-
-    /// <summary>
-    /// Find similar function, method, or callable value names in current resolution scope.
-    /// </summary>
-    private List<string> FindSimilarFunctionNames(string typo)
-    {
-        var candidates = new List<string>();
-
-        foreach (var scope in _scopes)
-        {
-            candidates.AddRange(scope.Symbols
-                .Where(symbol => AnalyzerCallableReferenceFacts.IsCallableReferenceType(symbol.Value))
-                .Select(symbol => symbol.Key));
-        }
-
-        candidates.AddRange(_extensionMethods.Select(method => method.Name));
-
-        var suggester = new SmartSuggester(candidates.Distinct(StringComparer.Ordinal).ToList());
-        return suggester.SuggestSimilarNames(typo);
-    }
-
-    /// <summary>
-    /// Get all type names currently in scope
-    /// </summary>
-    private List<string> GetAllTypesInScope()
-    {
-        var types = new List<string>();
-        foreach (var scope in _scopes)
-        {
-            types.AddRange(scope.Types.Keys);
-        }
-        return types;
-    }
 
     /// <summary>
     /// Custom MetadataAssemblyResolver that dynamically searches directories for assemblies.
