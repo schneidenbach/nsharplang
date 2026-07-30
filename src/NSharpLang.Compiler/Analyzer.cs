@@ -174,6 +174,9 @@ public class Analyzer : IDisposable
     private NSharpMetadataResolver? _metadataResolver;
     private MetadataLoadContext? _mlc;
     private AnalyzerWellKnownTypes? _wellKnownTypes;
+    // Rebuilt, not mutated, whenever _wellKnownTypes changes: the owner's own fields never change
+    // after construction.
+    private AnalyzerClrTypeConversion _clrTypeConversion;
     private readonly List<Assembly> _mlcAssemblies = new();
 
     // Reference assemblies that failed to load or be inspected, keyed by identity (file path
@@ -215,6 +218,11 @@ public class Analyzer : IDisposable
     private readonly HashSet<(int Line, int Column, string Name)> _reportedUnverifiedErrorResultDiagnostics = new();
     private readonly HashSet<(int Line, int Column, string Name)> _reportedCallableReferenceDiagnostics = new();
     private bool _disposed;
+
+    public Analyzer()
+    {
+        _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
+    }
 
     private static string GetNuGetPackagesRoot()
     {
@@ -1477,7 +1485,7 @@ public class Analyzer : IDisposable
 
     private bool TryConvertLiteralTypeInfoToClrType(TypeInfo typeInfo, out Type clrType)
     {
-        clrType = TryConvertTypeInfoToClrType(typeInfo) ?? typeof(object);
+        clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(typeInfo) ?? typeof(object);
         return clrType != typeof(object) || BuiltInTypes.Is(typeInfo, BuiltInTypes.Object);
     }
 
@@ -5801,7 +5809,7 @@ public class Analyzer : IDisposable
                 return IsThrowableType(namedType);
             }
 
-            if (TryConvertTypeInfoToClrType(resolved) is { } clrType)
+            if (_clrTypeConversion.TryConvertTypeInfoToClrType(resolved) is { } clrType)
             {
                 return AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(Exception), clrType);
             }
@@ -7643,13 +7651,14 @@ public class Analyzer : IDisposable
 
     /// <summary>
     /// Resolves the CLR type for an operator operand. Falls back to an MLC lookup of the open
-    /// generic definition for imported generics that <see cref="TryConvertTypeInfoToClrType"/>
+    /// generic definition for imported generics that
+    /// <see cref="AnalyzerClrTypeConversion.TryConvertTypeInfoToClrType"/>
     /// doesn't special-case (e.g. <c>System.Numerics.Vector&lt;T&gt;</c>), so operator-overload
     /// resolution works for arbitrary imported value types — not just the hardcoded BCL generics.
     /// </summary>
     private Type? TryResolveOperandClrType(TypeInfo operandType)
     {
-        var direct = TryConvertTypeInfoToClrType(operandType);
+        var direct = _clrTypeConversion.TryConvertTypeInfoToClrType(operandType);
         if (direct != null)
         {
             return direct;
@@ -8750,15 +8759,15 @@ public class Analyzer : IDisposable
         return receiverType switch
         {
             SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Object) => false,
-            SimpleTypeInfo simple => TryConvertTypeInfoToClrType(simple) != null
+            SimpleTypeInfo simple => _clrTypeConversion.TryConvertTypeInfoToClrType(simple) != null
                                      || (IsKnownBuiltInReceiverWithoutReflection(simple)
                                          && !IsKnownBuiltInMemberWithoutReflection(simple, memberName, includeStaticMembers)),
-            ArrayTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null
+            ArrayTypeInfo => _clrTypeConversion.TryConvertTypeInfoToClrType(receiverType) != null
                              || !IsKnownBuiltInMemberWithoutReflection(receiverType, memberName, includeStaticMembers),
             GenericTypeInfo generic =>
                 (ResolveGenericDefinition(generic) is { } genericDefinition
                  && genericDefinition is not ReflectionTypeInfo)
-                || TryConvertTypeInfoToClrType(receiverType) != null,
+                || _clrTypeConversion.TryConvertTypeInfoToClrType(receiverType) != null,
             ReflectionTypeInfo reflection when IsSystemObjectType(reflection.Type) => false,
             ReflectionTypeInfo reflection => HasReliableReflectionMemberSet(reflection.Type),
             ClassTypeInfo or StructTypeInfo or RecordTypeInfo or SoaRecordTypeInfo or SoaRowTypeInfo
@@ -8894,7 +8903,7 @@ public class Analyzer : IDisposable
 
         if (receiverType is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
         {
-            var clrType = TryConvertTypeInfoToClrType(receiverType);
+            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(receiverType);
             if (clrType != null)
                 return GetReflectionMemberNames(clrType, includeStaticMembers);
         }
@@ -9023,7 +9032,7 @@ public class Analyzer : IDisposable
         if (objectType is SimpleTypeInfo && !BuiltInTypes.IsUnknown(objectType)
             && BuiltInTypes.IsNot(objectType, BuiltInTypes.Null) && BuiltInTypes.IsNot(objectType, BuiltInTypes.Never) && BuiltInTypes.IsNot(objectType, BuiltInTypes.Void))
         {
-            var clrType = TryConvertTypeInfoToClrType(objectType);
+            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(objectType);
             if (clrType != null)
                 objectType = new ReflectionTypeInfo(clrType);
         }
@@ -9058,14 +9067,14 @@ public class Analyzer : IDisposable
 
             if (objectType is GenericTypeInfo or ArrayTypeInfo)
             {
-                var clrType = TryConvertTypeInfoToClrType(objectType);
+                var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(objectType);
                 if (clrType != null)
                 {
                     objectType = new ReflectionTypeInfo(clrType);
                 }
                 else
                 {
-                    var bindingClrType = TryConvertTypeInfoToClrTypeForBinding(objectType);
+                    var bindingClrType = _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(objectType);
                     if (bindingClrType != null &&
                         TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out var memberType))
                     {
@@ -9365,9 +9374,6 @@ public class Analyzer : IDisposable
            && member.ParameterTypes.Length == member.ParameterCount
            && member.ParameterModifiers.Length == member.ParameterCount;
 
-    private static bool IsJsonTypeInfoGenericName(string name)
-        => name is "JsonTypeInfo" or "System.Text.Json.Serialization.Metadata.JsonTypeInfo";
-
     private bool TryResolveSourceObjectMember(string memberName, out TypeInfo memberType)
     {
         var flags = BindingFlags.Public | BindingFlags.Instance;
@@ -9483,8 +9489,8 @@ public class Analyzer : IDisposable
 
     private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
     {
-        var targetClrType = TryConvertTypeInfoToClrType(targetType)
-            ?? TryConvertTypeInfoToClrTypeForBinding(targetType);
+        var targetClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(targetType)
+            ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(targetType);
         if (targetClrType == null)
             return new List<MethodInfo>();
 
@@ -9650,72 +9656,6 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Like TryConvertTypeInfoToClrType but uses typeof(object) as a surrogate for N# user-defined types.
-    /// This enables CLR-level method binding to proceed even when some types are N#-defined.
-    /// The real N# types are tracked separately via TypeInfo bindings.
-    /// </summary>
-    private Type? TryConvertTypeInfoToClrTypeForBinding(TypeInfo typeInfo)
-    {
-        var result = TryConvertTypeInfoToClrType(typeInfo);
-        if (result != null) return result;
-
-        if (_wellKnownTypes == null) return null;
-
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(typeInfo);
-
-        // N# user-defined types → object surrogate for CLR binding
-        if (resolvedType is ClassTypeInfo or RecordTypeInfo or StructTypeInfo
-            or InterfaceTypeInfo or UnionTypeInfo or EnumTypeInfo or NewtypeInfo)
-            return _wellKnownTypes.Object;
-
-        // Generic types with N# type arguments - construct with surrogates
-        if (resolvedType is GenericTypeInfo genericType)
-        {
-            var typeDefinition = genericType.GenericDefinition switch
-            {
-                ReflectionTypeInfo reflectionDefinition => reflectionDefinition.Type,
-                not null => null,
-                _ => AnalyzerWellKnownTypeFacts.BindingSurrogateOpenGenericType(
-                    _wellKnownTypes,
-                    genericType.Name,
-                    genericType.TypeArguments.Count)
-            };
-
-            if (typeDefinition == null) return null;
-            if (typeDefinition.IsGenericType && !typeDefinition.IsGenericTypeDefinition)
-                typeDefinition = typeDefinition.GetGenericTypeDefinition();
-            if (!typeDefinition.IsGenericTypeDefinition
-                || typeDefinition.GetGenericArguments().Length != genericType.TypeArguments.Count)
-                return null;
-
-            var typeArguments = new List<Type>();
-            foreach (var typeArgument in genericType.TypeArguments)
-            {
-                var clrTypeArgument = TryConvertTypeInfoToClrTypeForBinding(typeArgument);
-                if (clrTypeArgument == null) return null;
-                typeArguments.Add(clrTypeArgument);
-            }
-            return typeDefinition.MakeGenericType(typeArguments.ToArray());
-        }
-
-        // Nullable with N# inner type
-        if (resolvedType is NullableTypeInfo nullable)
-        {
-            var clrInnerType = TryConvertTypeInfoToClrTypeForBinding(nullable.InnerType);
-            if (clrInnerType == null || _wellKnownTypes.NullableOpen == null) return null;
-            return clrInnerType.IsValueType
-                ? _wellKnownTypes.NullableOpen.MakeGenericType(clrInnerType)
-                : clrInnerType;
-        }
-
-        // Array with N# element type
-        if (resolvedType is ArrayTypeInfo array)
-            return TryConvertTypeInfoToClrTypeForBinding(array.ElementType)?.MakeArrayType();
-
-        return null;
-    }
-
-    /// <summary>
     /// Walks a CLR parameter type and a TypeInfo argument in parallel to extract TypeInfo bindings
     /// for generic parameters. Handles interface compatibility (e.g., List&lt;T&gt; matching IEnumerable&lt;TSource&gt;).
     /// </summary>
@@ -9757,7 +9697,7 @@ public class Analyzer : IDisposable
         }
 
         // Interface/base class match: trace through the CLR type hierarchy to map type arguments
-        var argClrType = TryConvertTypeInfoToClrTypeForBinding(argumentTypeInfo);
+        var argClrType = _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(argumentTypeInfo);
         if (argClrType == null || !argClrType.IsGenericType) return;
 
         var argGenDef = argClrType.GetGenericTypeDefinition();
@@ -10159,147 +10099,6 @@ public class Analyzer : IDisposable
             return Ast.ParameterModifier.None;
 
         return parameter.IsOut ? Ast.ParameterModifier.Out : Ast.ParameterModifier.Ref;
-    }
-
-    private Type? TryConvertTypeInfoToClrType(TypeInfo typeInfo)
-    {
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(typeInfo);
-        if (resolvedType is ReflectionTypeInfo reflectionType)
-            return reflectionType.Type;
-
-        if (_wellKnownTypes == null)
-            return AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(resolvedType);
-
-        return resolvedType switch
-        {
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Int) => _wellKnownTypes.Int32,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Long) => _wellKnownTypes.Int64,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Float) => _wellKnownTypes.Single,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Double) => _wellKnownTypes.Double,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Decimal) => _wellKnownTypes.Decimal,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Byte) => _wellKnownTypes.Byte,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.SByte) => _wellKnownTypes.SByte,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Short) => _wellKnownTypes.Int16,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.UShort) => _wellKnownTypes.UInt16,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.UInt) => _wellKnownTypes.UInt32,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.ULong) => _wellKnownTypes.UInt64,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Char) => _wellKnownTypes.Char,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Bool) => _wellKnownTypes.Boolean,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.String) => _wellKnownTypes.String,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Void) => _wellKnownTypes.Void,
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Object) => _wellKnownTypes.Object,
-            ArrayTypeInfo array => TryConvertTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
-            NullableTypeInfo nullable => TryConvertNullableType(nullable.InnerType),
-            ObliviousTypeInfo oblivious => TryConvertTypeInfoToClrType(oblivious.InnerType),
-            GenericTypeInfo generic => TryConstructKnownGenericType(generic),
-            FunctionTypeInfo function => TryConstructDelegateType(function),
-            AnonymousUnionTypeInfo anonymousUnion => TryConstructRuntimeUnionType(anonymousUnion),
-            _ => null
-        };
-    }
-
-    private Type? TryConstructRuntimeUnionType(AnonymousUnionTypeInfo unionType)
-    {
-        if (_wellKnownTypes?.GetRuntimeUnionOpen() == null || unionType.Arms.Count != 2)
-            return null;
-
-        var firstArm = TryConvertTypeInfoToClrType(unionType.Arms[0]);
-        var secondArm = TryConvertTypeInfoToClrType(unionType.Arms[1]);
-        if (firstArm == null || secondArm == null)
-            return null;
-
-        return _wellKnownTypes.GetRuntimeUnionOpen()!.MakeGenericType(firstArm, secondArm);
-    }
-
-    private Type? TryConvertNullableType(TypeInfo innerType)
-    {
-        var clrInnerType = TryConvertTypeInfoToClrType(innerType);
-        if (clrInnerType == null || _wellKnownTypes?.NullableOpen == null)
-            return null;
-
-        return clrInnerType.IsValueType ? _wellKnownTypes.NullableOpen.MakeGenericType(clrInnerType) : clrInnerType;
-    }
-
-    private Type? TryConstructKnownGenericType(GenericTypeInfo genericType)
-    {
-        var typeDefinition = genericType.GenericDefinition switch
-        {
-            ReflectionTypeInfo reflectionDefinition => reflectionDefinition.Type,
-            not null => null,
-            _ => AnalyzerWellKnownTypeFacts.KnownOpenGenericType(
-                _wellKnownTypes,
-                genericType.Name,
-                genericType.TypeArguments.Count),
-        };
-
-        if (typeDefinition?.IsGenericType == true && !typeDefinition.IsGenericTypeDefinition)
-            typeDefinition = typeDefinition.GetGenericTypeDefinition();
-
-        if (typeDefinition == null
-            || !typeDefinition.IsGenericTypeDefinition
-            || typeDefinition.GetGenericArguments().Length != genericType.TypeArguments.Count)
-            return null;
-
-        var typeArguments = new List<Type>();
-        foreach (var typeArgument in genericType.TypeArguments)
-        {
-            var clrTypeArgument = TryConvertTypeInfoToClrType(typeArgument)
-                ?? (IsJsonTypeInfoGenericName(genericType.Name)
-                    ? TryConvertTypeInfoToClrTypeForBinding(typeArgument)
-                    : null);
-            if (clrTypeArgument == null)
-                return null;
-
-            typeArguments.Add(clrTypeArgument);
-        }
-
-        return typeDefinition.MakeGenericType(typeArguments.ToArray());
-    }
-
-    private Type? TryConstructDelegateType(FunctionTypeInfo functionType)
-    {
-        if (functionType.ParameterTypes == null || functionType.ReturnType == null || _wellKnownTypes == null)
-            return null;
-
-        var clrParameterTypes = new List<Type>();
-        foreach (var parameterType in functionType.ParameterTypes)
-        {
-            var clrParameterType = TryConvertTypeInfoToClrType(parameterType);
-            if (clrParameterType == null)
-                return null;
-
-            clrParameterTypes.Add(clrParameterType);
-        }
-
-        var clrReturnType = TryConvertTypeInfoToClrType(functionType.ReturnType);
-        if (clrReturnType == null)
-            return null;
-
-        var wkt = _wellKnownTypes;
-
-        if (clrReturnType.FullName == "System.Void")
-        {
-            return clrParameterTypes.Count switch
-            {
-                0 => wkt.Action,
-                1 => wkt.Action1?.MakeGenericType(clrParameterTypes.ToArray()),
-                2 => wkt.Action2?.MakeGenericType(clrParameterTypes.ToArray()),
-                3 => wkt.Action3?.MakeGenericType(clrParameterTypes.ToArray()),
-                4 => wkt.Action4?.MakeGenericType(clrParameterTypes.ToArray()),
-                _ => null
-            };
-        }
-
-        var funcTypes = clrParameterTypes.Concat(new[] { clrReturnType }).ToArray();
-        return clrParameterTypes.Count switch
-        {
-            0 => wkt.Func1?.MakeGenericType(funcTypes),
-            1 => wkt.Func2?.MakeGenericType(funcTypes),
-            2 => wkt.Func3?.MakeGenericType(funcTypes),
-            3 => wkt.Func4?.MakeGenericType(funcTypes),
-            4 => wkt.Func5?.MakeGenericType(funcTypes),
-            _ => null
-        };
     }
 
     private TypeInfo AnalyzeCall(CallExpression call)
@@ -11957,8 +11756,8 @@ public class Analyzer : IDisposable
             return 8;
 
         // Cross-representation exact match (SimpleTypeInfo vs ReflectionTypeInfo for the same CLR type)
-        var paramClr = TryConvertTypeInfoToClrType(resolvedParam);
-        var argClr = TryConvertTypeInfoToClrType(resolvedArg);
+        var paramClr = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedParam);
+        var argClr = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedArg);
         if (paramClr != null && argClr != null && paramClr == argClr)
             return 8;
 
@@ -12591,7 +12390,7 @@ public class Analyzer : IDisposable
         Dictionary<string, List<TypeInfo>> allBounds)
     {
         // Try to resolve the ExternalTypeInfo to a CLR type for deeper matching
-        var clrType = TryConvertTypeInfoToClrType(ext);
+        var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(ext);
         if (clrType != null && clrType.IsGenericType)
         {
             var typeArgs = clrType.GetGenericArguments();
@@ -12662,8 +12461,8 @@ public class Analyzer : IDisposable
         if (call.Callee is MemberAccessExpression memberAccess)
         {
             receiverTypeInfo = AnalyzeExpression(memberAccess.Object);
-            receiverClrType = TryConvertTypeInfoToClrType(receiverTypeInfo)
-                ?? TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo);
+            receiverClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(receiverTypeInfo)
+                ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo);
         }
 
         var analyzedNonLambdaArguments = new TypeInfo?[call.Arguments.Count];
@@ -12724,8 +12523,8 @@ public class Analyzer : IDisposable
         if (call.Callee is MemberAccessExpression memberAccess)
         {
             receiverTypeInfo = AnalyzeExpression(memberAccess.Object);
-            receiverClrType = TryConvertTypeInfoToClrType(receiverTypeInfo)
-                ?? TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo);
+            receiverClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(receiverTypeInfo)
+                ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo);
         }
 
         var analyzedNonLambdaArguments = new TypeInfo?[call.Arguments.Count];
@@ -12798,11 +12597,11 @@ public class Analyzer : IDisposable
             for (int i = 0; i < genericParameters.Length; i++)
             {
                 var resolvedTypeInfo = ResolveType(call.TypeArguments[i]);
-                var typeArgument = TryConvertTypeInfoToClrType(resolvedTypeInfo);
+                var typeArgument = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTypeInfo);
                 if (typeArgument == null)
                 {
                     // N# type - use object as CLR surrogate for binding
-                    typeArgument = TryConvertTypeInfoToClrTypeForBinding(resolvedTypeInfo);
+                    typeArgument = _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(resolvedTypeInfo);
                     if (typeArgument == null)
                         return null;
                 }
@@ -13122,8 +12921,8 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        var argumentClrType = TryConvertTypeInfoToClrType(argumentType)
-            ?? TryConvertTypeInfoToClrTypeForBinding(argumentType);
+        var argumentClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(argumentType)
+            ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(argumentType);
         if (argumentClrType != null)
         {
             if (!TryMatchReflectionParameter(openParameterType, argumentClrType, bindings))
@@ -13193,8 +12992,8 @@ public class Analyzer : IDisposable
         if (argumentType == null || BuiltInTypes.IsUnknown(argumentType))
             return false;
 
-        var argumentClrType = TryConvertTypeInfoToClrType(argumentType)
-            ?? TryConvertTypeInfoToClrTypeForBinding(argumentType);
+        var argumentClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(argumentType)
+            ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(argumentType);
         if (argumentClrType != null)
         {
             var trialBindings = new Dictionary<Type, Type>(bindings);
@@ -13325,8 +13124,8 @@ public class Analyzer : IDisposable
 
             if (!bindings.ContainsKey(openType))
             {
-                var clrType = TryConvertTypeInfoToClrType(sourceType)
-                    ?? TryConvertTypeInfoToClrTypeForBinding(sourceType);
+                var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(sourceType)
+                    ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(sourceType);
                 if (clrType != null)
                     bindings[openType] = clrType;
             }
@@ -13409,7 +13208,7 @@ public class Analyzer : IDisposable
                 lambda,
                 expectedSignature,
                 isExpressionTreeTarget: IsExpressionTreeLambdaTarget(boundArgument.OpenParameterType));
-            var lambdaDelegateType = TryConstructDelegateType(lambdaType);
+            var lambdaDelegateType = _clrTypeConversion.TryConstructDelegateType(lambdaType);
             if (lambdaDelegateType != null)
             {
                 var delegateParameterType = GetDelegateParameterTypeForLambdaTarget(boundArgument.OpenParameterType);
@@ -13417,8 +13216,8 @@ public class Analyzer : IDisposable
             }
 
             var lambdaReturnClrType = lambdaType.ReturnType != null
-                ? (TryConvertTypeInfoToClrType(lambdaType.ReturnType)
-                    ?? TryConvertTypeInfoToClrTypeForBinding(lambdaType.ReturnType))
+                ? (_clrTypeConversion.TryConvertTypeInfoToClrType(lambdaType.ReturnType)
+                    ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(lambdaType.ReturnType))
                 : null;
             if (lambdaReturnClrType != null && method.IsGenericMethodDefinition)
             {
@@ -14939,7 +14738,7 @@ public class Analyzer : IDisposable
     private bool IsSystemArrayTypeInfo(TypeInfo type)
     {
         var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        return TryConvertTypeInfoToClrType(resolved) == typeof(Array)
+        return _clrTypeConversion.TryConvertTypeInfoToClrType(resolved) == typeof(Array)
             || resolved is ExternalTypeInfo { Name: "Array" or "System.Array" };
     }
 
@@ -15576,7 +15375,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo NormalizeReflectionMemberOwnerType(TypeInfo owner)
     {
-        var runtimeType = owner is GenericTypeInfo ? TryConvertTypeInfoToClrType(owner) : null;
+        var runtimeType = owner is GenericTypeInfo ? _clrTypeConversion.TryConvertTypeInfoToClrType(owner) : null;
         return runtimeType != null ? new ReflectionTypeInfo(runtimeType) : NormalizeMemberOwnerType(owner);
     }
 
@@ -15587,7 +15386,7 @@ public class Analyzer : IDisposable
             owner = ResolveGenericDefinition(generic) ?? owner;
         if (owner is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
         {
-            var clrOwner = TryConvertTypeInfoToClrType(owner);
+            var clrOwner = _clrTypeConversion.TryConvertTypeInfoToClrType(owner);
             if (clrOwner != null)
                 owner = new ReflectionTypeInfo(clrOwner);
         }
@@ -15743,7 +15542,7 @@ public class Analyzer : IDisposable
         if (resolvedExpectedType is ReflectionTypeInfo reflectionType)
             return IsExpressionTreeLambdaTarget(reflectionType.Type);
 
-        var clrType = TryConvertTypeInfoToClrType(resolvedExpectedType);
+        var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedExpectedType);
         return clrType != null && IsExpressionTreeLambdaTarget(clrType);
     }
 
@@ -16034,7 +15833,7 @@ public class Analyzer : IDisposable
         // Handle generic delegate types (Func<int, int>, Action<string>) from N# declarations
         if (resolvedExpectedType is GenericTypeInfo)
         {
-            var clrType = TryConvertTypeInfoToClrType(resolvedExpectedType);
+            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedExpectedType);
             if (clrType != null && (IsDelegateType(clrType) || IsExpressionTreeLambdaTarget(clrType)))
                 return CreateFunctionTypeInfoFromDelegate(clrType);
         }
@@ -19584,13 +19383,13 @@ public class Analyzer : IDisposable
         // Mixed: reflection target + built-in source — convert to MLC type for comparison
         if (resolvedTarget is ReflectionTypeInfo tgtRefl2 && resolvedSource is SimpleTypeInfo)
         {
-            var clrType = TryConvertTypeInfoToClrType(resolvedSource);
+            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedSource);
             if (clrType != null) return tgtRefl2.Type.IsAssignableFrom(clrType);
         }
         // Mixed: built-in target + reflection source
         if (resolvedTarget is SimpleTypeInfo tgtSimple && resolvedSource is ReflectionTypeInfo srcRefl2)
         {
-            var clrType = TryConvertTypeInfoToClrType(resolvedTarget);
+            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget);
             if (clrType != null) return clrType.IsAssignableFrom(srcRefl2.Type);
         }
         // Function type structural comparison (both sides are FunctionTypeInfo) — must come before
@@ -19969,7 +19768,7 @@ public class Analyzer : IDisposable
 
         if (resolvedTarget is ReflectionTypeInfo tgtRefl2)
         {
-            var clrType = TryConvertTypeInfoToClrType(resolvedSource);
+            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedSource);
             if (clrType != null)
             {
                 if (!tgtRefl2.Type.IsAssignableFrom(clrType))
@@ -19990,7 +19789,7 @@ public class Analyzer : IDisposable
 
         if (resolvedSource is ReflectionTypeInfo srcRefl2)
         {
-            var clrType = TryConvertTypeInfoToClrType(resolvedTarget);
+            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget);
             if (clrType != null)
             {
                 if (!clrType.IsAssignableFrom(srcRefl2.Type))
@@ -22056,6 +21855,7 @@ public class Analyzer : IDisposable
         _wellKnownTypes = new AnalyzerWellKnownTypes(
             _mlc,
             _mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded"));
+        _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
     }
 
     public void Dispose()
@@ -22065,6 +21865,7 @@ public class Analyzer : IDisposable
             _mlc?.Dispose();
             _mlc = null;
             _wellKnownTypes = null;
+            _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, null);
             _mlcAssemblies.Clear();
             _disposed = true;
         }

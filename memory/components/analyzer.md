@@ -6,7 +6,8 @@
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerConversionFacts.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerCallableReferenceFacts.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypes.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypeFacts.nl`
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypeFacts.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerClrTypeConversion.nl`
 
 ## Responsibility
 
@@ -151,11 +152,45 @@ now resolves through, where the scope-stack path left the argument as a bare `Al
 produced a false `NL202` whose `expectedType` printed the internal class name
 `NSharpLang.Compiler.AliasTypeInfo`. That false positive is gone; nothing else in the corpus moves.
 
-`Analyzer.cs` still owns `TryConvertTypeInfoToClrType(TypeInfo)` (TypeInfo → CLR `Type`) and its
-binding surrogate. Those remain C# because their non-alias arms recurse into
-`ResolveType(TypeReference)` — the engine that reports `TypeNotFound`/`InvalidTypeArgument`, records
-into the semantic model, and probes the MLC. Moving `ResolveType` itself is the prerequisite for
-taking them.
+### The CLR-conversion funnel
+
+`AnalyzerClrTypeConversion.nl` is the N# owner for every TypeInfo → CLR `Type` construction the
+semantic phase performs. It is built from the declaration context and the well-known-type bag, and
+it reports nothing and records nothing: a conversion that cannot be made is a null answer and the
+caller decides what that means. Its two entry points are NOT interchangeable.
+
+- `TryConvertTypeInfoToClrType(TypeInfo)` is the EXACT conversion. It answers null the moment any
+  position names a type the CLR does not have — which is every N#-declared class, record, struct,
+  interface, union, enum and newtype — because a caller holding a `Type` must be able to trust that
+  it denotes the type the program actually wrote.
+- `TryConvertTypeInfoToClrTypeForBinding(TypeInfo)` is the SURROGATE conversion. Where the exact one
+  gives up on an N#-declared type it substitutes `object` so CLR-level method binding can proceed;
+  the real N# types stay tracked separately as TypeInfo bindings. Never use it where the answer is
+  treated as the program's type.
+- `TryConstructDelegateType(FunctionTypeInfo)` is public only because the lambda-to-delegate path
+  asks for a delegate directly rather than through a type-shaped entry point. A `void` return picks
+  the `Action` family (arities 0-4), anything else picks `Func` (parameter arities 0-4), and a wider
+  signature answers null.
+
+Both entry points resolve declared aliases at EVERY position they descend through, so
+`type Meters = int` converts identically as an array element, a nullable inner type, a type
+argument, a delegate parameter or a union arm. `JsonTypeInfo<T>` is the ONE generic whose type
+argument may come from the surrogate conversion — source-generated JSON metadata over N#-declared
+types is the reason the surrogate exists — and both spellings of the name carry that exception.
+An anonymous union reifies as `NSharpLang.Runtime.Union<,>` at arity two and at no other arity.
+
+The well-known-type bag is NULLABLE and that state is live: until the analyzer has loaded its
+`MetadataLoadContext` there are no metadata facts and the funnel falls back to
+`AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType`, which answers with the COMPILER's own runtime
+types and resolves no aliases as it descends (the top-level alias is still resolved — that happens
+before the facts are consulted). Because the bag is built and torn down over an analyzer's lifetime,
+`Analyzer.cs` REBUILDS the owner at those two points rather than mutating it; the owner's own fields
+never change after construction. Do not give the owner a setter, and do not reintroduce any of this
+in C#.
+
+`ResolveType(TypeReference)` — the diagnostic-reporting, semantic-model-recording, MLC-probing
+type-REFERENCE engine — is a different thing and remains the analyzer shell's own. It is not a
+dependency of the funnel.
 
 ## Core Functions
 

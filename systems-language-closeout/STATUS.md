@@ -314,7 +314,213 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **017 SLICE 4 — UNIFY
+- Active sub-slice (017 arc, THIS TURN, TARGET RECORDED BEFORE EDITING): **017 SLICE 5 — THE
+  CLR-CONVERSION FUNNEL.**
+  TARGET: move the analyzer's entire TypeInfo → CLR `Type` construction family out of `Analyzer.cs`
+  into ONE new N# owner, `AnalyzerClrTypeConversion`, and DELETE the C# methods.
+  THE STATE SURFACE, RE-VERIFIED BY READING EACH METHOD AT THIS TREE (not inherited from the
+  slice-4 re-derivation): `_declarationContext.ResolveDeclaredAlias` (N#), `_wellKnownTypes` — an
+  `AnalyzerWellKnownTypes` since slice 3 (N#), `AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType` /
+  `.KnownOpenGenericType` / `.BindingSurrogateOpenGenericType` (N#), `BuiltInTypes.Is` (N#), and
+  the reflection surface on `Type` itself. **CONFIRMED: no `ResolveType`, no `_errors`, no
+  `_semanticModel`, no scope stack, no `_mlc`, no `_currentFilePath` anywhere in the closure.**
+  THE UNIT (7 C# members, by pre-edit line):
+  * `TryConvertTypeInfoToClrType(TypeInfo)` :10164 — public on the owner;
+  * `TryConvertTypeInfoToClrTypeForBinding(TypeInfo)` :9657 — public on the owner;
+  * `TryConstructDelegateType(FunctionTypeInfo)` :10259 — public (it has ONE external caller,
+    :13412, the lambda-to-delegate path);
+  * `TryConstructRuntimeUnionType` :10201, `TryConvertNullableType` :10214,
+    `TryConstructKnownGenericType` :10223 — file-private on the owner (zero external callers);
+  * `IsJsonTypeInfoGenericName(string)` :9368 — the `private static` name predicate; its ONLY
+    caller is :10247 inside `TryConstructKnownGenericType`, so it moves cleanly with the family.
+  EXACT CALL-SITE MAP (measured, not estimated; a grep over `src/` + `tests/` + `editors/` finds NO
+  external consumer of any of the seven): `TryConvertTypeInfoToClrType(` 39 occurrences =
+  1 definition + 9 in-family + **29 sites**; `TryConvertTypeInfoToClrTypeForBinding(` 15 =
+  1 + 4 in-family + **10 sites**; `TryConstructDelegateType(` 3 = 1 + 1 in-family + **1 site**; the
+  other three and the predicate are 100% in-family. **40 sites route.**
+  ONE DIVERGENCE FROM THE RE-DERIVATION, RECORDED BECAUSE IT DRIVES THE DESIGN: `_wellKnownTypes`
+  is NOT readonly. It is null until `LoadSystemAssemblies` :22056 builds it and is set back to null
+  in `Dispose` :22067, and the null state is LIVE (it selects the `BuiltInRuntimeClrType`
+  no-metadata fallback). So the owner cannot be a single instance captured once at field-init;
+  it is rebuilt at exactly those two mutation points, keeping its own fields immutable.
+  OWNER DESIGN: a new sibling file `AnalyzerClrTypeConversion.nl` in the `Analyzer*` family, one
+  class, constructor `(context: AnalyzerDeclarationContext, wellKnown: AnalyzerWellKnownTypes?)` —
+  the slice-3/4 constructor-argument pattern — well inside the per-class member ceiling. C# side:
+  one field, one 3-line parameterless `Analyzer` constructor to hand the owner the declaration
+  context (a field initializer cannot reference another instance field), and one rebuild line at
+  each of the two `_wellKnownTypes` mutation points. NO other new C#.
+  BAR: a differential probe over the whole conversion surface taken BEFORE the deletion and deleted
+  after (nested aliases at every position, unions, nullables, known generics, delegates, binding
+  surrogates, MLC types, exception-type comparison); `nlc check --json` byte-identical on 40/40
+  targets + purpose-built fixtures; corpus IL 64/64 byte-identical; unit 3,193; contracts ≥1,585;
+  audit 18/18; manifest 391 lines; `dev.sh --since`; the FULL VS Code-enabled gate + VSIX reload.
+  **RESULT: LANDED (no commit — mandate). THE FUNNEL NO LONGER EXISTS IN `Analyzer.cs`.**
+  `AnalyzerClrTypeConversion` is the sole authority for TypeInfo → CLR `Type` construction, with no
+  callback, fallback, shadow path or comparison route.
+  THE STATE-READ MAP, VERIFIED BY READING ALL SEVEN MEMBERS AT THIS TREE: `TryConvertTypeInfoToClrType`
+  → `_declarationContext.ResolveDeclaredAlias`, `_wellKnownTypes` (null check + 16 field reads),
+  `AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType`, `BuiltInTypes.Is`, `ReflectionTypeInfo.Type`;
+  `TryConstructRuntimeUnionType` → `_wellKnownTypes.GetRuntimeUnionOpen()`, `Arms`;
+  `TryConvertNullableType` → `_wellKnownTypes.NullableOpen`; `TryConstructKnownGenericType` →
+  `AnalyzerWellKnownTypeFacts.KnownOpenGenericType`, `IsJsonTypeInfoGenericName`;
+  `TryConstructDelegateType` → `_wellKnownTypes.Action`/`Action1-4`/`Func1-5`;
+  `TryConvertTypeInfoToClrTypeForBinding` → `ResolveDeclaredAlias`, `_wellKnownTypes.Object`/
+  `.NullableOpen`, `AnalyzerWellKnownTypeFacts.BindingSurrogateOpenGenericType`;
+  `IsJsonTypeInfoGenericName` → nothing. **The slice-4 re-derivation HOLDS: no `ResolveType`, no
+  `_errors`, no `_semanticModel`, no scope stack, no `_mlc`, no `_currentFilePath`.**
+  ONE MEASURED DIVERGENCE (recorded because it drove the design): `_wellKnownTypes` is NOT readonly —
+  null until `LoadSystemAssemblies` :22056, null again in `Dispose` :22067 — and the null state is
+  LIVE (it selects the `BuiltInRuntimeClrType` runtime-type fallback). So the owner is REBUILT at
+  those two points instead of being captured once or given a setter; its fields are immutable after
+  construction.
+  DELETIONS (exact, by pre-edit line range — 7 C# members, **210 lines**):
+  * `10164-10304` (141) the five-method block: `TryConvertTypeInfoToClrType` (36),
+    `TryConstructRuntimeUnionType` (12), `TryConvertNullableType` (8),
+    `TryConstructKnownGenericType` (35), `TryConstructDelegateType` (45) + 4 blank separators;
+  * `9652-9717` (66) `TryConvertTypeInfoToClrTypeForBinding` with its 5-line XML doc + separator;
+  * `9368-9370` (3) `IsJsonTypeInfoGenericName` + separator.
+  ROUTING: **40 sites, exactly as pre-measured** — 29 `TryConvertTypeInfoToClrType`,
+  10 `TryConvertTypeInfoToClrTypeForBinding`, 1 `TryConstructDelegateType` (:13412, the
+  lambda-to-delegate path) — every one inside `Analyzer.cs`; a grep over `src/` + `tests/` +
+  `editors/` finds NO external consumer of any of the seven. `_clrTypeConversion` now occurs 44
+  times = 40 sites + 1 field + 3 assignments.
+  C# ADDED: **11 lines, all mechanical wiring** — the field declaration + its 2-line comment, a
+  3-line parameterless `Analyzer()` constructor (a field initializer cannot reference
+  `_declarationContext`, so the owner is handed its collaborator there), one rebuild line at each of
+  the two `_wellKnownTypes` mutation points, and one extra line from re-targeting a `<see cref>` that
+  named a now-deleted member. No new method, helper, bridge or state.
+  `git diff` on `Analyzer.cs` is **+52 / −251 = net −199**; the file is **22,608 → 22,409**
+  (non-blank 19,848 → 19,680).
+  N# ADDED: `AnalyzerClrTypeConversion.nl` (**439 lines, one class, 18 members** — 2 fields, the
+  constructor, 3 public entry points, 5 file-private instance helpers, 5 file-private statics; well
+  inside the per-class ceiling) + `AnalyzerClrTypeConversion.tests.nl` (612 lines, **11 contracts**).
+  THREE NON-MECHANICAL DECISIONS: (1) **the owner is an INSTANCE rebuilt at the two `_wellKnownTypes`
+  mutation points**, not a static class taking the context + bag as arguments at all 40 sites (which
+  would have added ~40 wrapped lines at call sites) and not a mutable-setter object (which would
+  duplicate live state). (2) **`TryConstructDelegateType` is PUBLIC** while the other three helpers
+  are file-private, because it has one genuine external caller; publishing only what is called keeps
+  the surrogate/exact distinction enforceable. (3) **`NormalizeOpenDefinition` is shared** by both
+  generic constructors — the C# stated the same three-case reduction twice (closed → definition,
+  already-open → itself, non-generic → not a definition) and it is proven equivalent case by case.
+  PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS, BUILT AND RUN BEFORE THE DELETION, DELETED AFTER
+  (the tree has zero probe residue): a throwaway xunit probe reflected into the private C# methods on
+  a REALLY-LOADED analyzer (`new Analyzer(); LoadSystemAssemblies(); Analyze(...)` over a 16-alias /
+  6-declared-family source) and compared them against the N# owner cell by cell, by VALUE OR THROWN
+  EXCEPTION TYPE. **800 TypeInfo shapes, 1,682 comparison cells, 0 MISMATCHES**, of which **5 cells
+  agree on a THROWN exception** rather than a value. Coverage: all 18 built-in simple names × 7
+  wrappers (bare/array/array-of-array/nullable/oblivious/nullable-of-oblivious/array-of-nullable);
+  unknown / inference-hole / deferred-external / stranger-simple / external / newtype / byref /
+  unregistered-alias; the 6 declared families (class, record, struct, interface, enum, union) bare,
+  arrayed, nullable and as a `List` argument; MLC `System.String` and the MLC open `List\`1` as a
+  carried definition at arity 1 and 2; runtime `int`, a closed-generic carried definition, a
+  non-generic carried definition and a non-Reflection carried definition; 16 generic NAMES × 5
+  arities (0,1,2,3,5) plus 2 user-argument variants each; nested generic / generic-of-nullable /
+  generic-of-array; 18 function types (void and value returns at arities 0-5, null return, null
+  parameter list, nested function, array parameter, user parameter, user return); unions at arity
+  0/1/2/3 plus nested and user arms; a tuple; and **all 16 REGISTERED aliases × 15 positions** —
+  bare, array, array-of-array, nullable, oblivious, `List` argument, `Dictionary` second argument,
+  nested-generic argument, `JsonTypeInfo` argument, delegate parameter, delegate return, both,
+  union arm, both arms, tuple element. The whole grid was ALSO run against a SECOND analyzer with no
+  `LoadSystemAssemblies` — the live `_wellKnownTypes == null` state that selects the runtime-type
+  fallback — which is where the 5 exception-typed cells come from.
+  PROOF — BEFORE/AFTER TRANSCRIPT: the same probe wrote a **1,170-row** transcript of both entry
+  points (and the delegate constructor) over the loaded grid from the C# ORIGINALS before the
+  deletion; re-emitted from the N# owner after the deletion it is **byte-identical (diff = 0)**.
+  PROOF — SEMANTIC-DIAGNOSTIC ORACLE: `nlc check --json`, fresh Release CLIs built at baseline
+  `ac389ecac` in a throwaway `/tmp/nsharp017s5` worktree and at the working tree (both trees' Debug
+  CLIs built too — the slice-4 environmental artefact), **byte-identical on 40 / 40 `project.yml`
+  targets (ORACLE_TARGETS=40, ORACLE_DIFFS = 0)**, plus **6 purpose-built fixtures firing 39
+  diagnostics, FIXTURE_DIFFS = 0**: compiler-known generics at right and wrong arity
+  (`List`/`Dictionary`/`IEnumerable`/`ICollection`/`IList`/`Task`/`ValueTask`, nested `List<List<…>>`,
+  `List<Widget>`), the `Func<…>` delegate surface across arities 0-5 in both void and value form with
+  deliberate shape mismatches, nullable/array/jagged/array-of-nullable shells, alias conversions
+  (alias-to-builtin/generic/nullable/array/class, chains, alias-as-generic-argument), binding
+  surrogates (LINQ `Count`/`FirstOrDefault`/`Select`/`ToList` over `List<Widget>`, a
+  `Dictionary<string,Widget>`, a `List<Color>`), and anonymous-union returns with a user arm.
+  PROOF — CORPUS IL BYTE-EXACT SWEEP (same two CLIs, the established explicit PE/CLI normalizer
+  touching ONLY the COFF `TimeDateStamp`, the optional-header `CheckSum`, the Debug Directory entries
+  and the CodeView blobs they point at, and the `#GUID`/`#Pdb` heaps): **64 / 64 comparable
+  assemblies BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (26 from the
+  `project.yml` targets, 38 single-file examples, SINGLE_LOG_DIFFS = 0), with the same 7
+  `tests/native/*` targets that do not build standalone failing identically at baseline and after
+  (**SKIPPED_TARGET_DIFFS = 0**).
+  ASSERTION MIGRATION: all seven members were `private`, so no test named them; their behaviour was
+  pinned only INDIRECTLY by end-to-end analyzer diagnostics, which STAY and now execute against the
+  N# owner (the slice-1/2/3/4 and 016 classification-(a) precedent). The DIRECT pinning is new and
+  native: **11 contracts** covering the 16 built-ins as METADATA types proven not reference-equal to
+  the compiler's `typeof`; `null`/`never`/unknown/stranger answering nothing; array, jagged, nullable
+  value-vs-reference and oblivious descent with poisoned positions; the compiler-known table at exact
+  arity, wrong arity, wrong case and unknown name; a carried definition overriding the table, being
+  normalized from CLOSED to open, rejected when non-generic, and NOT falling back to the table when
+  present-but-unusable; `JsonTypeInfo` as the ONE surrogate-accepting generic in both spellings, with
+  `List`/`Task` proven to decline the same argument and a stranger argument proven to decline even
+  there; `Action` 0-4 / `Func` 0-4 with arity-5 declines and the type-shaped entry point agreeing;
+  anonymous unions declining at every arity without the runtime assembly, including the arity that
+  WOULD construct; the surrogate substituting `object` for all 7 declared families and rebuilding
+  array/nullable/`List`/`Dictionary` shells while the exact conversion refuses them; the surrogate
+  vocabulary's deliberate omission of both `Result` spellings; a registered alias resolved at 9
+  nested positions with an unowned alias proven transparent; and the no-facts path answering RUNTIME
+  types, declining generics/functions/unions, and — the precise rule — resolving the TOP-LEVEL alias
+  but NOT a nested one.
+  EVIDENCE: full unit suite **3,193 / 3,193** (`dotnet test tests/Tests.csproj -c Release`, 3m14s —
+  exactly the slice-1/2/3/4 baseline, zero drift); BootstrapServices contracts **1,585 → 1,596**
+  (+11) via the canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false`, **1,596 / 1,596 PASS** (the 3 ExternalAssemblyScan Debug-layout tests
+  did not trip); ownership audit **18 / 18** after the repin; `./scripts/dev.sh --since` PASS — it
+  correctly took the FULL unit-suite fail-safe, **3,193 / 3,193**; the oracle, differential,
+  transcript and IL sweeps above.
+  RATCHET REPIN via `scratchpad/repin_017_s5.py` (slice 2/3/4's script, unchanged apart from its
+  header) — `current*` + fingerprints ONLY, ONE row: `src/NSharpLang.Compiler/Analyzer.cs`
+  currentLines 22,608 → **22,409**, currentNonBlankLines 19,848 → **19,680**, fingerprint
+  `text-v1:4cb7a19e315c5877` → `text-v1:59454bd5ce828173` (epoch ceilings 23,451 / 20,537 PRESERVED
+  and now clear by 1,042 / 857); `reviewedHeadFingerprint head-v1:191f5810e69ee49c` →
+  `head-v1:4a87a5ed8adc448d`, mirrored into `OwnershipAudit.nl`'s
+  `OwnershipPolicy.ReviewedHeadFingerprint`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED by recomputation after
+  the write; the script self-checks by reproducing all three composite fingerprints over the 381 rows
+  before changing anything. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND
+  after, and the `git diff` is exactly 2 changed lines.** The `.nl` additions need no row —
+  `OwnershipPolicy.Classify` ignores `.nl`.
+  .nl GOTCHAS CONFIRMED/ADDED: **`record` is RESERVED and cannot be a local name** (`record := …`
+  makes the columnar front end decline the WHOLE test at `parse.test`, reported at the test's own
+  line — the same shape as slice 1's `type` and slice 4's `newtype`); **a method call on an ARRAY
+  INDEX expression declines** (`arguments[index].get_FullName()` →
+  `emit.call.instance-member-unmodeled`; bind the element to a local first); **omitting a defaulted
+  CONSTRUCTOR parameter declines** at `emit.expression-statement.call`, the constructor analogue of
+  the recorded free-function rule (pass every defaulted argument explicitly).
+  DOCS: `memory/components/analyzer.md` gains a "The CLR-conversion funnel" section stating the two
+  entry points and why they are NOT interchangeable, the delegate rule, the alias-at-every-position
+  rule, the `JsonTypeInfo` exception, the arity-two union rule, and the rebuild-not-mutate discipline
+  for the nullable fact bag; the file list gains the new owner; and the stale paragraph claiming
+  `Analyzer.cs` still owns the funnel "because their non-alias arms recurse into `ResolveType`" — a
+  premise this slice measured to be FALSE — is replaced with the accurate statement that `ResolveType`
+  is a different thing and is not a dependency of the funnel.
+  GATES: **the FULL VS Code-enabled `./scripts/test-all.sh --commit` is RUN BY THE COORDINATOR —
+  VERDICT PENDING** (this session hit the no-progress watchdog just before it; the changeset is
+  intact in the tree). It IS the right bar: `Analyzer.cs` ships in the `NSharpLang.Compiler` assembly
+  the language server builds against, and `NSharpLang.Compiler.BootstrapServices` gained public
+  members, so the non-VS-Code path is NOT available. VSIX reload and INTERACTIVE computer-use
+  verification are likewise the coordinator's record for this slice, per its explicit instruction.
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change, no new capability
+  needed. The packaged SDK self-emits the new class and its 11 contracts.
+  **NEXT SUB-SLICE — `IsAssignable` IS NOW READY, AND HERE IS THE MEASURED REASON.** Slice 3
+  recorded `IsAssignable` :19604 and its 12-arm closure (`IsSubtypeOf`, `IsCollectionType`,
+  `HasImplicitConversion`, `ImplementsDuckInterface`, `IsKnownGenericTypeAssignable`,
+  `IsArrayToSpanAssignable`, `IsAspNetActionResultGenericAssignable`, `IsFunctionTypeAssignable`,
+  `IsLambdaAssignableToDelegate`, `TryGetDelegateSignatureConversionScore`,
+  `MayUseDelegateReferenceConversion`, `IsReferenceLikeForVariance`) as blocked because every arm
+  "either calls the funnels directly or recurses into `IsAssignable`, which does". **Both funnels are
+  now N#**, and so are the three classification tables the closure reads
+  (`AnalyzerConversionFacts` from slice 1, `AnalyzerCallableReferenceFacts` from slice 2,
+  `AnalyzerWellKnownTypeFacts` from slice 3) and the alias/declaration facts (slice 4). What the next
+  slice must MEASURE FIRST, exactly as slices 3-5 did rather than inherit: `IsAssignable`'s own
+  remaining reads — the `_activeImplicitConversions` re-entrancy set (analyzer state that would have
+  to move WITH it), `_declarationContext` (already N#), and whether any arm reports a diagnostic or
+  records into `_semanticModel` (the delegate-score and duck-interface arms are the ones to read in
+  full). If a diagnostic-reporting arm is found, cut to the pure sub-closure and record the
+  divergence. After `IsAssignable`, `ResolveType(TypeReference)` — the diagnostic-reporting,
+  semantic-model-recording, MLC-probing type-REFERENCE engine — is the arc's big remaining C# owner.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `ac389ecac`): **017 SLICE 4 — UNIFY
   ALIAS-TypeInfo IDENTITY, THEN TAKE `ResolveTypeAlias`.**
   TARGET, in order:
   (1) UNIFY THE IDENTITY. `Analyzer.cs` :369 declares a top-level type alias as
