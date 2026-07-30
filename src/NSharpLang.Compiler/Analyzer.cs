@@ -166,7 +166,6 @@ public class Analyzer : IDisposable
     private string? _currentTypeName;
     private string? _currentFilePath;
     private string? _declarationContextFilePath;
-    private string? _projectRoot;
     private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
     private string? _sourceText;
@@ -198,11 +197,12 @@ public class Analyzer : IDisposable
     // rebuilt: it owns the resolution cache, and that cache participates in the probe ORDER.
     private readonly AnalyzerExternalTypeProbe _externalTypeProbe;
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
-    private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces/packages
-    private readonly Dictionary<string, string?> _projectFileNamespaceCache = new(StringComparer.OrdinalIgnoreCase); // file path -> declared namespace/package
-    private readonly Dictionary<string, CompilationUnit?> _projectCompilationUnitCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _projectSourceTexts = new(StringComparer.OrdinalIgnoreCase);
+    // The project's sources, parsed units and declared namespaces, and the project-discovery walk
+    // over them. Both are constructed once and never rebuilt: the provider's parsed-unit cache and
+    // source snapshot outlive a single Analyze call.
+    private readonly AnalyzerProjectSourceProvider _projectSources = new();
+    private readonly AnalyzerProjectTypeDiscovery _projectDiscovery;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly HashSet<MemberAccessExpression> _soaColumnMemberAccesses = new(ReferenceEqualityComparer.Instance);
@@ -224,6 +224,8 @@ public class Analyzer : IDisposable
     public Analyzer()
     {
         _externalTypeProbe = new AnalyzerExternalTypeProbe(_mlcAssemblies, _usingNamespaces);
+        _projectDiscovery = new AnalyzerProjectTypeDiscovery(
+            _projectSources, _declarationContext, _usingNamespaces, _typeDeclarationFiles);
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
         _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
     }
@@ -249,11 +251,10 @@ public class Analyzer : IDisposable
     /// </summary>
     public void SetProjectSourceTexts(IReadOnlyDictionary<string, string> sourceTexts)
     {
-        _projectSourceTexts.Clear();
-        _projectCompilationUnitCache.Clear();
+        _projectSources.ResetSourceTexts();
         foreach (var (path, text) in sourceTexts)
         {
-            _projectSourceTexts[Path.GetFullPath(path)] = text;
+            _projectSources.AddSourceText(path, text);
         }
     }
 
@@ -285,12 +286,7 @@ public class Analyzer : IDisposable
         _declarationContext.Reset(effectiveRoot, _mlcAssemblies);
         _declarationContext.AddCompilationUnit(_declarationContextFilePath, unit);
 
-        foreach (var (filePath, sourceText) in EnumerateProjectSourceTexts())
-        {
-            var projectUnit = GetProjectCompilationUnit(filePath, sourceText);
-            if (projectUnit != null)
-                _declarationContext.AddCompilationUnit(filePath, projectUnit);
-        }
+        _projectSources.AddProjectUnitsTo(_declarationContext);
     }
 
     public AnalysisResult Analyze(CompilationUnit unit, string? currentFilePath, string? projectRoot, string? sourceCode = null)
@@ -325,12 +321,10 @@ public class Analyzer : IDisposable
         _continueTargetFinallyDepth = 0;
         _inConstructor = false;
         _currentFilePath = currentFilePath;
-        _projectRoot = projectRoot;
+        _projectSources.BeginAnalysis(projectRoot);
         _compilationUnit = unit;
         _sourceText = sourceCode;
         _externalNamespaceCache.Clear();
-        _projectNamespaceCache.Clear();
-        _projectFileNamespaceCache.Clear();
         _typeDeclarationFiles.Clear();
 
         InitializeDeclarationContext(unit, currentFilePath, projectRoot);
@@ -8614,11 +8608,12 @@ public class Analyzer : IDisposable
         var rootName = ExternalQualifiedTypeResolver.RootName(qualifiedName);
         var currentType = _scopes.CurrentTypeScope();
         var separator = qualifiedName.LastIndexOf('.');
-        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
-            if (TryResolveProjectTypeInNamespace(rootName, visibleNamespace, out _, out _)) return false;
+        var currentUnitNamespace = GetUnitNamespace(_compilationUnit);
+        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentUnitNamespace, _usingNamespaces))
+            if (_projectDiscovery.TryResolveProjectTypeInNamespace(rootName, visibleNamespace, currentUnitNamespace, out _, out _)) return false;
         if (_scopes.LookupSymbol(rootName) != null || _scopes.LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
             || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(ResolveMember(currentType, rootName)))
-            || TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], out _, out _))
+            || TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && _projectDiscovery.TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], currentUnitNamespace, out _, out _))
             || !ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, qualifiedName, out var runtimeType))
             return false;
         type = new ReflectionTypeInfo(runtimeType);
@@ -8670,7 +8665,7 @@ public class Analyzer : IDisposable
     private int GetMemberNameColumn(MemberAccessExpression member)
     {
         var fallbackColumn = member.Column + (member.IsNullConditional ? 2 : 1);
-        var sourceText = _sourceText ?? TryGetProjectSourceText(_currentFilePath);
+        var sourceText = _sourceText ?? _projectSources.TryGetProjectSourceText(_currentFilePath);
 
         return FindIdentifierNameColumn(sourceText, member.MemberName, member.Line, fallbackColumn);
     }
@@ -8893,7 +8888,7 @@ public class Analyzer : IDisposable
 
     private SymbolDeclaration CreateSymbolDeclaration(DeclaredMemberInfo member, string? filePath)
     {
-        var sourceText = TryGetProjectSourceText(filePath);
+        var sourceText = _projectSources.TryGetProjectSourceText(filePath);
         return new SymbolDeclaration(
             member.Name,
             filePath,
@@ -16204,12 +16199,26 @@ public class Analyzer : IDisposable
                 // The union may live in another file/namespace with no import — project
                 // auto-discovery resolves it exactly like a bare type reference would.
                 var unionBaseLookup = parts.Length == 2 ? _scopes.LookupType(parts[0]) as UnionTypeInfo : null;
-                if (unionBaseLookup == null
-                    && parts.Length == 2
-                    && TryResolveVisibleProjectType(parts[0], newExpr.Line, newExpr.Column, out var projectUnionCandidate, out _)
-                    && projectUnionCandidate is UnionTypeInfo projectUnionType)
+                if (unionBaseLookup == null && parts.Length == 2)
                 {
-                    unionBaseLookup = projectUnionType;
+                    if (_projectDiscovery.ResolveVisibleProjectType(
+                            parts[0],
+                            GetUnitNamespace(_compilationUnit),
+                            newExpr.Line > 0,
+                            out var projectUnionCandidate,
+                            out _,
+                            out var inaccessibleUnionFile))
+                    {
+                        if (projectUnionCandidate is UnionTypeInfo projectUnionType)
+                        {
+                            unionBaseLookup = projectUnionType;
+                        }
+                    }
+                    else if (inaccessibleUnionFile != null)
+                    {
+                        ReportInaccessibleMember(parts[0], inaccessibleUnionFile, newExpr.Line, newExpr.Column);
+                        _reportedUnresolvedTypeRefs.Add((parts[0], newExpr.Line, newExpr.Column));
+                    }
                 }
                 if (parts.Length == 2 && unionBaseLookup is UnionTypeInfo unionBaseType)
                 {
@@ -18364,7 +18373,13 @@ public class Analyzer : IDisposable
             return nestedType;
         }
 
-        if (TryResolveVisibleProjectType(name, line, column, out var projectType, out var projectDeclaration))
+        if (_projectDiscovery.ResolveVisibleProjectType(
+                name,
+                GetUnitNamespace(_compilationUnit),
+                line > 0,
+                out var projectType,
+                out var projectDeclaration,
+                out var inaccessibleProjectFile))
         {
             if (line > 0)
             {
@@ -18373,6 +18388,12 @@ public class Analyzer : IDisposable
 
             _semanticModel.RecordType(name, projectType);
             return projectType;
+        }
+
+        if (inaccessibleProjectFile != null)
+        {
+            ReportInaccessibleMember(name, inaccessibleProjectFile, line, column);
+            _reportedUnresolvedTypeRefs.Add((name, line, column));
         }
 
         if (_usingAliases.TryGetValue(name, out var fullName))
@@ -18406,262 +18427,27 @@ public class Analyzer : IDisposable
         return new ExternalTypeInfo(name);
     }
 
-    private bool TryResolveVisibleProjectType(
-        string name,
-        int line,
-        int column,
-        out TypeInfo type,
-        out SymbolDeclaration declaration)
+    // The function half of project auto-discovery: exported (PascalCase) top-level functions
+    // are visible project-wide within visible namespaces without a file import, mirroring the
+    // type half in AnalyzerProjectTypeDiscovery. Non-exported top-level functions stay
+    // file-private, so they intentionally fall through to the undefined/inaccessible diagnostics.
+    private bool TryResolveVisibleProjectFunction(string name, out TypeInfo type, out SymbolDeclaration declaration)
     {
-        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
-        {
-            if (TryResolveProjectTypeInNamespace(name, visibleNamespace, out type, out declaration))
-            {
-                if (!string.IsNullOrWhiteSpace(declaration.File))
-                {
-                    _typeDeclarationFiles[name] = declaration.File!;
-                }
-
-                return true;
-            }
-        }
-
-        if (TryReportInaccessibleVisibleProjectDeclaration(
+        if (_projectDiscovery.TryResolveVisibleProjectFunction(
                 name,
-                line,
-                column,
-                declaration => IsTopLevelTypeDeclaration(declaration)))
+                GetUnitNamespace(_compilationUnit),
+                out var declarationFile,
+                out var functionDeclaration,
+                out var functionSymbol))
         {
-            _reportedUnresolvedTypeRefs.Add((name, line, column));
-            type = BuiltInTypes.Unknown;
-            declaration = null!;
-            return false;
-        }
-
-        if (TryResolveUniqueExportedProjectType(name, out type, out declaration))
-        {
-            if (!string.IsNullOrWhiteSpace(declaration.File))
-            {
-                _typeDeclarationFiles[name] = declaration.File!;
-            }
-
+            type = CreateFunctionTypeInfoInDeclarationContext(functionDeclaration!, declarationFile!);
+            declaration = functionSymbol!;
             return true;
         }
 
         type = BuiltInTypes.Unknown;
         declaration = null!;
         return false;
-    }
-
-    // The function half of project auto-discovery: exported (PascalCase) top-level functions
-    // are visible project-wide within visible namespaces without a file import, mirroring
-    // TryResolveVisibleProjectType. Non-exported top-level functions stay file-private, so
-    // they intentionally fall through to the undefined/inaccessible diagnostics.
-    private bool TryResolveVisibleProjectFunction(string name, out TypeInfo type, out SymbolDeclaration declaration)
-    {
-        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
-        {
-            foreach (var (filePath, sourceText) in EnumerateProjectSourceTexts())
-            {
-                var unit = GetProjectCompilationUnit(filePath, sourceText);
-                if (unit == null)
-                    continue;
-
-                if (!string.Equals(GetUnitNamespace(unit), visibleNamespace, StringComparison.Ordinal))
-                    continue;
-
-                foreach (var topLevelDeclaration in unit.Declarations)
-                {
-                    if (topLevelDeclaration is not FunctionDeclaration func || !string.Equals(func.Name, name, StringComparison.Ordinal))
-                        continue;
-
-                    if (!DeclarationFacts.IsExportedDeclaration(func, name))
-                        continue;
-
-                    type = CreateFunctionTypeInfoInDeclarationContext(func, filePath);
-                    declaration = CreateTopLevelTypeSymbolDeclaration(name, filePath, sourceText, func);
-                    return true;
-                }
-            }
-        }
-
-        type = BuiltInTypes.Unknown;
-        declaration = null!;
-        return false;
-    }
-
-    private bool TryReportInaccessibleVisibleProjectDeclaration(
-        string name,
-        int line,
-        int column,
-        Func<Declaration, bool> matchesDeclarationKind)
-    {
-        if (line <= 0)
-            return false;
-
-        var currentNamespace = GetUnitNamespace(_compilationUnit);
-        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(GetUnitNamespace(_compilationUnit), _usingNamespaces))
-        {
-            if (string.Equals(visibleNamespace, currentNamespace, StringComparison.Ordinal))
-                continue;
-
-            foreach (var (filePath, sourceText) in EnumerateProjectSourceTexts())
-            {
-                var unit = GetProjectCompilationUnit(filePath, sourceText);
-                if (unit == null)
-                    continue;
-
-                if (!string.Equals(GetUnitNamespace(unit), visibleNamespace, StringComparison.Ordinal))
-                    continue;
-
-                foreach (var topLevelDeclaration in unit.Declarations)
-                {
-                    if (!matchesDeclarationKind(topLevelDeclaration))
-                        continue;
-
-                    var declarationName = DeclarationFacts.GetDeclarationName(topLevelDeclaration);
-                    if (!string.Equals(declarationName, name, StringComparison.Ordinal))
-                        continue;
-
-                    if (DeclarationFacts.IsExportedDeclaration(topLevelDeclaration, name))
-                        continue;
-
-                    ReportInaccessibleMember(name, filePath, line, column);
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsTopLevelTypeDeclaration(Declaration declaration)
-        => declaration is ClassDeclaration
-            or StructDeclaration
-            or RecordDeclaration
-            or SoaRecordDeclaration
-            or InterfaceDeclaration
-            or UnionDeclaration
-            or EnumDeclaration
-            or TypeAliasDeclaration
-            or NewtypeDeclaration;
-
-    private bool TryResolveProjectTypeInNamespace(
-        string name,
-        string? namespaceName,
-        out TypeInfo type,
-        out SymbolDeclaration declaration)
-    {
-        var requireExported = !string.Equals(
-            namespaceName,
-            GetUnitNamespace(_compilationUnit),
-            StringComparison.Ordinal);
-        return TryMaterializeProjectTypeSelection(
-            name,
-            _declarationContext.TryResolveProjectTypeInNamespace(
-                name, namespaceName, requireExported, out var selection),
-            selection,
-            out type,
-            out declaration);
-    }
-
-    private bool TryResolveUniqueExportedProjectType(
-        string name,
-        out TypeInfo type,
-        out SymbolDeclaration declaration)
-    {
-        return TryMaterializeProjectTypeSelection(
-            name,
-            _declarationContext.TryResolveUniqueExportedType(name, out var selection),
-            selection,
-            out type,
-            out declaration);
-    }
-
-    private bool TryMaterializeProjectTypeSelection(
-        string name,
-        bool resolved,
-        AnalyzerSourceTypeSelection selection,
-        out TypeInfo type,
-        out SymbolDeclaration declaration)
-    {
-        if (!resolved
-            || selection.Declaration is not Declaration sourceDeclaration
-            || string.IsNullOrWhiteSpace(selection.FilePath))
-        {
-            type = BuiltInTypes.Unknown;
-            declaration = null!;
-            return false;
-        }
-
-        type = selection.Type;
-        var sourceText = TryGetProjectSourceText(selection.FilePath)
-            ?? (File.Exists(selection.FilePath) ? File.ReadAllText(selection.FilePath) : string.Empty);
-        declaration = CreateTopLevelTypeSymbolDeclaration(
-            name, selection.FilePath, sourceText, sourceDeclaration);
-        return true;
-    }
-
-    private SymbolDeclaration CreateTopLevelTypeSymbolDeclaration(
-        string name,
-        string filePath,
-        string sourceText,
-        Declaration topLevelDeclaration)
-    {
-        return new SymbolDeclaration(
-            name,
-            filePath,
-            topLevelDeclaration.Line,
-            FindIdentifierNameColumn(sourceText, name, topLevelDeclaration.Line, topLevelDeclaration.Column),
-            DeclarationFacts.GetDeclarationKind(topLevelDeclaration));
-    }
-
-    private IEnumerable<(string FilePath, string SourceText)> EnumerateProjectSourceTexts()
-    {
-        if (_projectSourceTexts.Count > 0)
-        {
-            foreach (var (filePath, sourceText) in _projectSourceTexts)
-            {
-                yield return (filePath, sourceText);
-            }
-
-            yield break;
-        }
-
-        if (string.IsNullOrWhiteSpace(_projectRoot) || !Directory.Exists(_projectRoot))
-        {
-            yield break;
-        }
-
-        foreach (var filePath in ProjectConfig.EnumerateSourceFiles(_projectRoot))
-        {
-            var fullPath = Path.GetFullPath(filePath);
-            if (File.Exists(fullPath))
-            {
-                yield return (fullPath, File.ReadAllText(fullPath));
-            }
-        }
-    }
-
-    private CompilationUnit? GetProjectCompilationUnit(string filePath, string sourceText)
-    {
-        var fullPath = Path.GetFullPath(filePath);
-        if (_projectCompilationUnitCache.TryGetValue(fullPath, out var cachedUnit))
-        {
-            return cachedUnit;
-        }
-
-        try
-        {
-            var parseResult = ColumnarParserRecovery.ParseFileAst(sourceText, fullPath);
-            _projectCompilationUnitCache[fullPath] = parseResult.CompilationUnit;
-            return parseResult.CompilationUnit;
-        }
-        catch
-        {
-            _projectCompilationUnitCache[fullPath] = null;
-            return null;
-        }
     }
 
     private bool TryResolveDottedNestedType(string name, out TypeInfo type)
@@ -18755,12 +18541,24 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        if (TryResolveVisibleProjectType(name, line, column, out var projectType, out var projectDeclaration))
+        if (_projectDiscovery.ResolveVisibleProjectType(
+                name,
+                GetUnitNamespace(_compilationUnit),
+                line > 0,
+                out var projectType,
+                out var projectDeclaration,
+                out var inaccessibleProjectFile))
         {
             type = projectType;
             _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, projectDeclaration);
             _semanticModel.RecordType(name, projectType);
             return true;
+        }
+
+        if (inaccessibleProjectFile != null)
+        {
+            ReportInaccessibleMember(name, inaccessibleProjectFile, line, column);
+            _reportedUnresolvedTypeRefs.Add((name, line, column));
         }
 
         if (TryResolveVisibleProjectFunction(name, out var projectFunctionType, out var projectFunctionDeclaration))
@@ -18796,12 +18594,13 @@ public class Analyzer : IDisposable
         }
 
         if (reportMissingAsFunction
-            && TryReportInaccessibleVisibleProjectDeclaration(
+            && line > 0
+            && _projectDiscovery.TryFindInaccessibleVisibleFunction(
                 name,
-                line,
-                column,
-                declaration => declaration is FunctionDeclaration))
+                GetUnitNamespace(_compilationUnit),
+                out var inaccessibleFunctionFile))
         {
+            ReportInaccessibleMember(name, inaccessibleFunctionFile!, line, column);
             return BuiltInTypes.Unknown;
         }
 
@@ -20015,20 +19814,9 @@ public class Analyzer : IDisposable
         if (string.IsNullOrWhiteSpace(name))
             return fallbackColumn;
 
-        var sourceText = _sourceText ?? TryGetProjectSourceText(_currentFilePath);
+        var sourceText = _sourceText ?? _projectSources.TryGetProjectSourceText(_currentFilePath);
 
         return FindIdentifierNameColumn(sourceText, name, line, fallbackColumn);
-    }
-
-    private string? TryGetProjectSourceText(string? filePath)
-    {
-        if (filePath == null)
-            return null;
-
-        var fullPath = Path.GetFullPath(filePath);
-        return _projectSourceTexts.TryGetValue(fullPath, out var sourceText)
-            ? sourceText
-            : null;
     }
 
     private static int FindIdentifierNameColumn(string? sourceText, string name, int line, int fallbackColumn)
@@ -20365,7 +20153,7 @@ public class Analyzer : IDisposable
 
         if (_usingAliases.TryGetValue(root, out var namespaceName))
         {
-            if (TryResolveProjectTypeInNamespace(remainder, namespaceName, out var projectType, out _))
+            if (_projectDiscovery.TryResolveProjectTypeInNamespace(remainder, namespaceName, GetUnitNamespace(_compilationUnit), out var projectType, out _))
                 return projectType;
             var expandedName = namespaceName + "." + remainder;
             if (ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, expandedName, out var aliasedRuntimeType))
@@ -20486,7 +20274,7 @@ public class Analyzer : IDisposable
 
     private string? GetSourceSnippet(int line)
     {
-        var sourceText = _sourceText ?? TryGetProjectSourceText(_currentFilePath);
+        var sourceText = _sourceText ?? _projectSources.TryGetProjectSourceText(_currentFilePath);
         if (string.IsNullOrEmpty(sourceText) || line <= 0)
             return null;
 
@@ -20524,12 +20312,13 @@ public class Analyzer : IDisposable
 
     private void ProcessImports(List<Statement> imports)
     {
-        if (_currentFilePath == null || _projectRoot == null)
+        var projectRoot = _projectSources.ProjectRoot;
+        if (_currentFilePath == null || projectRoot == null)
         {
             return;
         }
 
-        var fileResolver = new FileResolver(_projectRoot, _currentFilePath);
+        var fileResolver = new FileResolver(projectRoot, _currentFilePath);
 
         foreach (var import in imports)
         {
@@ -20606,7 +20395,7 @@ public class Analyzer : IDisposable
         string? importedSource = null;
         try
         {
-            importedSource = TryGetProjectSourceText(resolvedPath) ?? System.IO.File.ReadAllText(resolvedPath);
+            importedSource = _projectSources.TryGetProjectSourceText(resolvedPath) ?? System.IO.File.ReadAllText(resolvedPath);
             var parseResult = ColumnarParserRecovery.ParseFileAst(importedSource, resolvedPath);
             importedUnit = parseResult.CompilationUnit;
 
@@ -20638,10 +20427,10 @@ public class Analyzer : IDisposable
 
         _declarationContext.AddCompilationUnit(resolvedPath, importedUnit);
 
-        if (importedUnit.FileImports.Count > 0 && _projectRoot != null && _currentFilePath != null)
+        if (importedUnit.FileImports.Count > 0 && _projectSources.ProjectRoot != null && _currentFilePath != null)
         {
             var currentNormalized = Path.GetFullPath(_currentFilePath);
-            var importedFileResolver = new FileResolver(_projectRoot, resolvedPath);
+            var importedFileResolver = new FileResolver(_projectSources.ProjectRoot, resolvedPath);
             foreach (var nestedImport in importedUnit.FileImports)
             {
                 if (nestedImport is FileImport nestedFileImport)
@@ -20744,7 +20533,7 @@ public class Analyzer : IDisposable
     private string? ResolveFileImportPath(FileResolver resolver, string importPath, out string? errorMessage)
     {
         var resolvedPath = Path.GetFullPath(resolver.ResolveFilePath(importPath));
-        if (_projectSourceTexts.ContainsKey(resolvedPath) || System.IO.File.Exists(resolvedPath))
+        if (_projectSources.ContainsSourceText(resolvedPath) || System.IO.File.Exists(resolvedPath))
         {
             errorMessage = null;
             return resolvedPath;
@@ -20844,7 +20633,7 @@ public class Analyzer : IDisposable
 
     private bool NamespaceExists(string namespaceName)
     {
-        if (ProjectNamespaceExists(namespaceName))
+        if (_projectSources.ProjectNamespaceExists(namespaceName))
         {
             _externalNamespaceCache[namespaceName] = true;
             return true;
@@ -20883,71 +20672,8 @@ public class Analyzer : IDisposable
             packageName.StartsWith(namespaceName + ".", StringComparison.Ordinal));
     }
 
-    private bool ProjectNamespaceExists(string namespaceName)
-    {
-        if (string.IsNullOrWhiteSpace(_projectRoot) || !Directory.Exists(_projectRoot))
-        {
-            return false;
-        }
-
-        var projectNamespaces = GetProjectNamespaces(_projectRoot);
-        return projectNamespaces.Contains(namespaceName);
-    }
-
-    private HashSet<string> GetProjectNamespaces(string projectRoot)
-    {
-        if (_projectNamespaceCache.TryGetValue(projectRoot, out var cachedNamespaces))
-        {
-            return cachedNamespaces;
-        }
-
-        var namespaces = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var filePath in ProjectConfig.EnumerateSourceFiles(projectRoot))
-        {
-                var source = File.ReadAllText(filePath);
-                var parseResult = ColumnarParserRecovery.ParseFileAst(source, filePath);
-                var declaredNamespace = GetUnitNamespace(parseResult.CompilationUnit);
-                if (!string.IsNullOrWhiteSpace(declaredNamespace))
-                {
-                    namespaces.Add(declaredNamespace);
-                }
-        }
-
-        _projectNamespaceCache[projectRoot] = namespaces;
-        return namespaces;
-    }
-
-    private string? GetNamespaceForFile(string? filePath)
-    {
-        if (string.IsNullOrWhiteSpace(filePath))
-        {
-            return null;
-        }
-
-        var fullPath = Path.GetFullPath(filePath);
-        if (_projectFileNamespaceCache.TryGetValue(fullPath, out var cachedNamespace))
-        {
-            return cachedNamespace;
-        }
-
-        if (!File.Exists(fullPath))
-        {
-            _projectFileNamespaceCache[fullPath] = null;
-            return null;
-        }
-
-            var source = File.ReadAllText(fullPath);
-            var parseResult = ColumnarParserRecovery.ParseFileAst(source, fullPath);
-            var declaredNamespace = GetUnitNamespace(parseResult.CompilationUnit);
-            _projectFileNamespaceCache[fullPath] = declaredNamespace;
-            return declaredNamespace;
-    }
-
     private static string? GetUnitNamespace(CompilationUnit? unit)
-    {
-        return unit?.Package?.Name ?? unit?.Namespace?.Name;
-    }
+        => AnalyzerProjectSourceProvider.UnitNamespace(unit);
 
     private bool IsCrossPackageFile(string? declarationFile)
     {
@@ -20963,14 +20689,14 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var currentNamespace = GetUnitNamespace(_compilationUnit) ?? GetNamespaceForFile(currentPath);
-        var declarationNamespace = GetNamespaceForFile(declarationPath);
+        var currentNamespace = GetUnitNamespace(_compilationUnit) ?? _projectSources.GetNamespaceForFile(currentPath);
+        var declarationNamespace = _projectSources.GetNamespaceForFile(declarationPath);
         return !string.Equals(currentNamespace, declarationNamespace, StringComparison.Ordinal);
     }
 
     private bool ReportInaccessibleMember(string memberName, string? declarationFile, int line, int column)
     {
-        var declaringNamespace = GetNamespaceForFile(declarationFile) ?? "<global>";
+        var declaringNamespace = _projectSources.GetNamespaceForFile(declarationFile) ?? "<global>";
         Error(
             ErrorCode.InaccessibleMember,
             $"'{memberName}' is not exported from package/namespace '{declaringNamespace}' — use PascalCase for cross-package visibility or keep camelCase members inside the declaring package",
@@ -21004,7 +20730,7 @@ public class Analyzer : IDisposable
 
             if (name != null && DeclarationFacts.IsExportedDeclaration(decl, name))
             {
-                var typeInfo = IsTopLevelTypeDeclaration(decl)
+                var typeInfo = AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration(decl)
                     ? _declarationContext.ResolveDeclarationType(decl, filePath)
                     : decl is FunctionDeclaration function
                         ? CreateFunctionTypeInfoInDeclarationContext(function, filePath)

@@ -407,8 +407,343 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 8 — THE `ResolveType` ARC, STAGE 2: THE SCOPE
-  STACK.**
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 9 — THE `ResolveType` ARC, STAGE 3: PROJECT
+  DISCOVERY.**
+  MANDATED TARGET, recorded verbatim from the coordinator and unchanged BEFORE any production edit:
+  `Analyzer.cs`'s `TryResolveVisibleProjectType` family — `TryResolveVisibleProjectType`,
+  `TryResolveProjectTypeInNamespace`, `TryResolveUniqueExportedProjectType`,
+  `TryMaterializeProjectTypeSelection`, `TryReportInaccessibleVisibleProjectDeclaration` — together
+  with the source-text/unit provider they are blocked on (`EnumerateProjectSourceTexts`,
+  `GetProjectCompilationUnit`, `TryGetProjectSourceText`, `ProjectConfig.EnumerateSourceFiles`) and
+  its caches (`_projectSourceTexts`, `_projectCompilationUnitCache`, `_projectNamespaceCache`, and
+  the fourth cache the slice-7/8 records did not name, `_projectFileNamespaceCache`).
+  THE MEASUREMENT (completed BEFORE any production edit; a throwaway instrumented Release build with
+  47 branch counters over the whole family, run across all **49 `project.yml` corpus targets** AND the
+  full unit suite, then reverted — `Analyzer.cs` was byte-identical to `bd11ad61d` again before the
+  cut began):
+  * **THE PREREQUISITE WAS ALREADY SATISFIED AND THE SLICE-7/8 RECORD WAS STALE.** Every piece the
+    provider needs is ALREADY N#: `ProjectConfig.EnumerateSourceFiles` (`ProjectConfigModels.nl`),
+    `ColumnarParserRecovery.ParseFileAst` (`ColumnarParserRecovery.nl`, the post-cutover N# parser —
+    VERIFIED, the shell was already calling it), `CompilationUnit` and every `*Declaration`
+    (`Declarations.nl`), `SymbolDeclaration` (`BindingMap.nl`), `DeclarationFacts`,
+    `CodeIntelligenceTextUtilities.FindIdentifierNameColumn`, `AnalyzerDeclarationContext` and
+    `AnalyzerTypeReferenceFacts.VisibleTypeNamespaces`. So the provider COMPOSES existing N# owners
+    and needed no new capability. `File.ReadAllText` / `File.Exists` / `Directory.Exists` /
+    `Directory.CreateDirectory` are all on the columnar surface already.
+  * **THERE ARE FOUR CACHES, NOT THREE.** `_projectFileNamespaceCache` (file → declared namespace,
+    `OrdinalIgnoreCase`) was never named by slices 7 or 8. It is the cache behind `GetNamespaceForFile`,
+    and it is what the `InaccessibleMember` diagnostic's namespace text comes from.
+  * **THE ENUMERATION ORDER IS LOAD-BEARING — MEASURED, NOT ASSUMED (the slice-7 lesson).** A
+    behaviour-neutral second pass over every project unit tallied duplicate
+    (namespace, declaration-name, is-function) triples once per `Analyze`. The root corpus target has
+    **47 distinct duplicate pairs**: types `Person` ×14, `Point` ×6, `Calculator` ×5, `Program` ×5,
+    `Address` ×3, `Logger` ×3 and 10 more, plus the whole `IssueTracker` namespace ×2; functions
+    `Main` ×42, `main` ×4, `ClassifyNumber` ×3, `Sum` ×3 and 9 more. The unit suite shows 420 type and
+    228 function duplicate counts. So "first file wins" is a DECISION.
+  * **BUT THE TWO CHANNELS DIFFER ON DUPLICATES, AND THAT IS THE FINDING THAT SHAPED THE CONTRACTS.**
+    `AnalyzerDeclarationContext.TryResolveDeclarationInNamespace` REFUSES a duplicate type name inside
+    one namespace (`if !resolved || matchedType != null { return false }` — an ambiguity, not a
+    pick), while `TryResolveVisibleProjectFunction` and the inaccessible probe take the FIRST match.
+    So the order is decisive for the function channel and the inaccessible probe (whose file name
+    reaches the user IN the diagnostic) and irrelevant for the type channel. My first draft contract
+    asserted first-wins for the TYPE channel and FAILED — the failure is what found this.
+  * **LIVE BRANCH COVERAGE** (corpus / unit suite). `EnumerateProjectSourceTexts` 195,391 / 22,282
+    calls: in-memory branch **195,391 / 18,705**, disk branch **0 / 259**, no-root **0 / 3,318** — the
+    corpus NEVER takes the disk branch and the unit suite is the only population that does. Yields
+    **65,033,078 / 133,391 + 36,360**, i.e. ~333 files per call on the root target;
+    `GetProjectCompilationUnit` is called once per yield (**65,033,078 / 169,751**) with
+    **65,032,200 / 161,568 cache hits** and only **878 / 8,183 parses** — so the walk is one of the
+    hottest paths in the analyzer and the unit cache carries it. `unit.parse-THREW`,
+    `unit.parsed-null` and `unit.cache-hit-null` are **0 / 0** — the negative unit cache never fires
+    in either population and is preserved verbatim. `TryResolveVisibleProjectType` 62,538 / 9,052:
+    namespace hit 28,294 / 4,424, unique-exported hit **476 / 30**, miss 33,768 / 4,593, line ≤ 0
+    **28 / —**. `TryReportInaccessibleVisibleProjectDeclaration` 34,259 / 4,642 calls but fires only
+    **0 / 7** times (5 type, 2 function) — vanishingly rare and fully live.
+    `TryMaterializeProjectTypeSelection` 301,002 / 49,422: resolved 28,828 / 4,666 with the source
+    text coming from the snapshot 28,828 / 4,623, **from DISK 0 / 35** and **EMPTY 0 / 8** — both
+    fallbacks are live in the suite; `mat.no-declaration` and `mat.blank-filepath` are **0 / 0** and
+    preserved anyway. `TryResolveProjectTypeInNamespace` 266,758 / 44,799 (require-exported
+    196,578 / 32,017, same-namespace 70,180 / 12,782). `GetNamespaceForFile` 22,498 / 2,975 with
+    **408 / 24 cached-NULL hits** and **0 / 2 missing-file** writes — the negative cache is real.
+    `GetProjectNamespaces` 1,585 / 1,004 (cache hit 977 / 499); `ProjectNamespaceExists` hit
+    206 / 124, miss 1,379 / 880, no-root **0 / 222**. `TryGetProjectSourceText` 64,143 / 13,728 with
+    **0 / 3,960 null-path** and **0 / 326 miss** answers.
+  **RESULT: LANDED (no commit — mandate).** `AnalyzerProjectSourceProvider` is the sole authority for
+  the analyzer's project sources, parsed units and file/root namespace questions, and
+  `AnalyzerProjectTypeDiscovery` for the project-discovery walk over them — with no callback, fallback,
+  shadow path or comparison route anywhere.
+  DELETIONS (exact, **13 whole C# members + 1 gutted body + 5 fields, 369 deleted lines**):
+  * `TryResolveVisibleProjectType` :18409 (46) — the whole three-outcome type channel;
+  * `TryReportInaccessibleVisibleProjectDeclaration` :18493 (44) — its `Func<Declaration, bool>`
+    predicate parameter goes with it;
+  * `IsTopLevelTypeDeclaration` :18538 (10) — the `is ClassDeclaration or …` pattern;
+  * `TryResolveProjectTypeInNamespace` :18549 (18), `TryResolveUniqueExportedProjectType` :18568 (12),
+    `TryMaterializeProjectTypeSelection` :18581 (23), `CreateTopLevelTypeSymbolDeclaration` :18605 (13);
+  * `EnumerateProjectSourceTexts` :18619 (26) — the ITERATOR, and `GetProjectCompilationUnit` :18646 (20);
+  * `TryGetProjectSourceText` :20023 (10);
+  * `ProjectNamespaceExists` :20886 (10), `GetProjectNamespaces` :20897 (23),
+    `GetNamespaceForFile` :20921 (25);
+  * `TryResolveVisibleProjectFunction` 32 → 18 lines: the walk is one routed call and only the
+    `CreateFunctionTypeInfoInDeclarationContext` materialisation stays (the recorded
+    `NullabilityMetadata` blocker, which lives ABOVE BootstrapServices);
+  * `GetUnitNamespace` 4 → 2, one routed expression body;
+  * the five fields `_projectRoot` :169, `_projectNamespaceCache` :201, `_projectFileNamespaceCache`
+    :202, `_projectCompilationUnitCache` :203 and `_projectSourceTexts` :205 — the STATE itself, now
+    owned by the N# provider — plus the two `Clear()` calls in `Analyze`'s reset block, folded into
+    `_projectSources.BeginAnalysis(projectRoot)` together with the `_projectRoot` assignment they sat
+    beside.
+  ROUTING: **95 lines, every one mechanical, all inside `Analyzer.cs`** — 2 field declarations + their
+  3-line comment, 2 lines in the constructor, and 26 rewritten call sites: 3 `ResolveVisibleProjectType`
+  (each expanding the old 2-way call into the 3-way answer plus the shell's own
+  `ReportInaccessibleMember` + `_reportedUnresolvedTypeRefs.Add`, which is exactly where the C# member
+  reported and recorded), 1 `TryFindInaccessibleVisibleFunction`, 3
+  `TryResolveProjectTypeInNamespace`, 5 `TryGetProjectSourceText`, 3 `GetNamespaceForFile`, 1
+  `ProjectNamespaceExists`, 1 `ContainsSourceText`, 1 `AddProjectUnitsTo` (replacing
+  `InitializeDeclarationContext`'s enumerate/parse/add loop), 1
+  `AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration` in `ExtractPublicSymbols`, 2
+  `SetProjectSourceTexts` body lines, and 4 `_projectSources.ProjectRoot` reads for the `FileResolver`
+  sites. **NO new C# method, helper, bridge, callback or state.**
+  `git diff` on `Analyzer.cs` is **+95 / −369 = net −274**; the file is **21,735 → 21,461**
+  (non-blank 19,094 → 18,861).
+  N# ADDED: `AnalyzerProjectDiscovery.nl` (**603 lines, TWO classes, 28 members** —
+  `AnalyzerProjectSourceProvider` 15 members / 5 fields and `AnalyzerProjectTypeDiscovery` 13 members /
+  4 fields; both far inside the per-class ceiling) + `AnalyzerProjectDiscovery.tests.nl` (650 lines,
+  **24 contracts**). No other `.nl` file changed.
+  SIX NON-MECHANICAL DECISIONS: (1) **THE THREE OUTCOMES ARE ONE MEMBER, NOT THREE.**
+  `ResolveVisibleProjectType(name, currentNamespace, probeInaccessible, out typeInfo, out declaration,
+  out inaccessibleFilePath)` returns resolved / inaccessible / absent from a single call, because the
+  inaccessible probe runs BETWEEN the namespace sweep and the unique-exported fallback AND SUPPRESSES
+  it. Splitting it would have let the shell interleave them wrongly; a nullable-enum result is off the
+  surface (the slice-8 gotcha), so the third outcome is an out-parameter. The shell keeps the REPORT and
+  the dedupe-set write, in that order, exactly as the C# member did — and crucially does NOT return
+  early afterwards, because the C# member returned `false` and its caller carried on through the
+  remaining channels with the later `NL201` suppressed by the dedupe set.
+  (2) **THE FILE LIST IS SEPARATED FROM THE FILE TEXT, so the walks stay lazy.** The C# iterator read
+  every file's text eagerly as it yielded, and callers broke out early; materialising `(path, text)`
+  pairs would have read ~333 files per call on a path measured at 195,391 calls / 65 M yields. So the
+  provider exposes `SourceFilePaths()` (paths only, cached for the snapshot branch, re-enumerated on
+  the disk branch exactly as the shell re-enumerated) and reads text only on a unit-cache MISS. Strictly
+  fewer reads, identical file set and identical order.
+  (3) **THE INSERTION ORDER IS HELD EXPLICITLY.** A `List<string>` mirrors the snapshot dictionary's
+  keys rather than relying on `Dictionary<K,V>` enumerating in insertion order. A repeated path keeps
+  its ORIGINAL position and takes the new text, which is what `dict[key] = value` did. Given a decision
+  that provably depends on the order, depending on it implicitly was not acceptable.
+  (4) **THE KIND TEST IS TYPE IDENTITY, NOT A SPELLING.** `IsTopLevelTypeDeclaration` was cut from
+  slice 7 because "a name match is not semantic resolution". It is now
+  `declaration as ClassDeclaration != null` once per family over the typed N# AST — the same decision
+  the shell's `is ClassDeclaration or …` pattern made. The recorded blocker is RETIRED, not worked
+  around. Same for the function test (`as FunctionDeclaration`), which also replaces the deleted
+  `Func<Declaration, bool>` predicate parameter with a `wantFunctions: bool` discriminator — there were
+  exactly two call kinds.
+  (5) **THE CACHE LIFETIMES ARE ASYMMETRIC AND ARE REPRODUCED, NOT TIDIED.** `BeginAnalysis` clears the
+  two NAMESPACE caches and nothing else; `ResetSourceTexts` also drops the parsed units, because they
+  were parsed from the old texts. The shell's `Analyze` cleared exactly the two namespace caches and its
+  `SetProjectSourceTexts` cleared exactly the snapshot plus the unit cache.
+  (6) **`_projectRoot` MOVED RATHER THAN BEING DUPLICATED.** The provider owns it and the four
+  surviving `FileResolver` sites read `_projectSources.ProjectRoot`, so there is one copy of the root
+  rather than two that could drift.
+  PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS. One throwaway xunit probe, written ONCE and run in
+  BOTH trees — the baseline `bd11ad61d` in a throwaway `/tmp/nsharp017s9` worktree and the working
+  tree. It is driven ONLY through members that exist with the SAME signature in both trees
+  (`ResolveSimpleType`, `ResolveIdentifier`, `TryResolveVisibleProjectFunction`, `GetUnitNamespace`,
+  `NamespaceExists`, `IsCrossPackageFile`, `ExtractPublicSymbols`, `ResolveFileImportPath`, plus the
+  public `SetProjectSourceTexts` / `Analyze` / `GetTypeDeclarationFiles`), so in the working tree the
+  very same calls execute the ROUTED N# owner — the wiring is proven, not only the behaviour. Both
+  transcripts are **byte-identical, 46,226 CELLS, 0 MISMATCHES, md5
+  `720cc579b867b61e52f567eb81a84b26` in both trees**, with **12,408 non-default answers**, **38
+  `InaccessibleMember` reports** and **20 function-channel hits**. The grid: **10 project shapes**
+  (empty; every declared family exported and non-exported side by side across 7 files of one namespace;
+  the GLOBAL namespace; duplicate exported names in one namespace; duplicate NON-exported names; two
+  namespaces both declaring the same names; a `package` declaration behind an UNPARSEABLE first file;
+  a type reachable only through the project-wide unique-exported fallback; the same exported name in
+  two un-imported namespaces so the fallback must refuse; and names that collide with CLR types) × **9
+  contexts** (6 fixed plus 3 derived per shape from the shape's own namespaces, so every shape is
+  probed from inside its own namespace, from an outsider importing all of them, and from the global
+  namespace) × **34 probe names** (every name any shape declares, bound and unbound, exported and not,
+  dotted, `_`, empty, a built-in keyword) × **7 operations** — `ResolveSimpleType` with its type, its
+  full diagnostic list and the whole binding map, the SAME call repeated to pin the dedupe set, the
+  same call at line 0 to pin the no-position path, `ResolveIdentifier` as a value and as a callable,
+  `TryResolveVisibleProjectFunction`, and the `GetTypeDeclarationFiles` snapshot — plus per-(shape,
+  context) cells for the declaration context's FILE ORDER, `GetUnitNamespace` over every unit and over
+  `null`, `NamespaceExists` over 9 candidates, `IsCrossPackageFile` over every file plus a missing one,
+  `ExtractPublicSymbols` per file, and `ResolveFileImportPath` over 5 spellings. Each shape is
+  MATERIALISED ON DISK under a stable root so the on-disk namespace caches and the import validation
+  are exercised for real, and every cell gets a FRESH analyzer so both trees' dedupe sets and caches
+  evolve identically. Diagnostics are compared by CODE, ID, LINE, COLUMN, LENGTH, SEVERITY and full
+  MESSAGE TEXT — which is what pins `GetNamespaceForFile`, since the `InaccessibleMember` message names
+  the declaring namespace. The probe was DELETED from both trees after the run (`git status` shows no
+  probe residue in either).
+  PROOF — SEMANTIC-DIAGNOSTIC ORACLE: `nlc check --json`, fresh Release CLIs built at baseline
+  `bd11ad61d` in the throwaway worktree and at the working tree (both trees' Debug CLIs built too — the
+  recorded environmental artefact, since several `tests/native/*` projects reference a Debug
+  `Compiler.dll`), over **49 `project.yml` corpus targets (ORACLE_TARGETS=49)**: **ORACLE_DIFFS=2 and
+  ORACLE_STDERR_DIFFS=0, with matching exit codes on all 49**. Both diffs are the `checkedFiles` count
+  rising by exactly the number of new `.nl` files (root 439 → 441, BootstrapServices 283 → 284); every
+  diagnostic on every target, including the pre-existing BootstrapServices errors, is byte-identical.
+  Plus **22 fixtures firing 51 diagnostics, FIXTURE_DIFFS = 0** — slice 8's 10 scope fixtures re-run as
+  regression coverage, and **12 new cross-file discovery fixtures**: NL308 `InaccessibleMember` for a
+  non-exported cross-namespace TYPE, for a non-exported cross-namespace FUNCTION and across a
+  `package` boundary; the unique-exported fallback resolving CLEAN from an un-imported namespace; the
+  same name in two un-imported namespaces refusing (NL201); a duplicate type name inside ONE namespace
+  refusing (NL201); a cross-file `union` case in a `new` expression resolving clean; every declared
+  family referenced across a namespace boundary; an import of a namespace no project file declares
+  (NL704); an UNPARSEABLE sibling file skipped rather than failing the walk; a dotted
+  `Namespace.Type` reference with a missing sibling; and an ALIASED namespace import resolving a
+  project type through the alias.
+  PROOF — CORPUS IL BYTE-EXACT SWEEP (same two CLIs, an explicit PE/CLI normaliser touching ONLY the
+  COFF `TimeDateStamp`, the optional-header `CheckSum`, the Debug Directory entries AND the CodeView
+  blobs they point at, and the `#GUID`/`#Pdb` metadata heaps): **75 / 75 comparable assemblies
+  BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (37 product assemblies from the 37
+  corpus targets that build standalone, 38 single-file examples), and **SKIPPED_TARGET_DIFFS = 0** (12
+  targets fail to build standalone with the SAME exit code in both trees). **102 build logs compared
+  after normalising the two tree roots: 1 diff, and it is a `[0.5s]`-vs-`[0.6s]` timing string.** The
+  toolchain assemblies are EXCLUDED with recorded reasons rather than silently:
+  `NSharpLang.Compiler.BootstrapServices.dll` and `Compiler.dll` MUST differ (they contain the new
+  owner and the edited `Analyzer.cs`), and `NSharpLang.Runtime.dll` differs by **exactly 57 bytes** on
+  source that is byte-identical to baseline (`git diff bd11ad61d -- src/NSharpLang.Runtime` is empty) —
+  the SAME 57 bytes slice 8 recorded, so this is the same single build-environment artefact and not a
+  new one.
+  ASSERTION MIGRATION: all 13 deleted members were `private` and both gutted bodies stay, so no test
+  named any of them; a grep over `src/` + `tests/` + `editors/` finds no external consumer of any of
+  them. Their behaviour was pinned only INDIRECTLY by end-to-end analyzer diagnostics, which STAY and
+  now execute against the N# owners (the slice-1…8 precedent). The DIRECT pinning is new and native:
+  **24 contracts** covering the snapshot's insertion order and a repeated path keeping its position;
+  case-insensitive full-path keying including a relative spelling; the snapshot-then-disk-then-empty
+  text chain and the null-means-ask-the-disk distinction; the cache lifetimes in BOTH directions (a new
+  analysis keeps the parsed units by reference identity, a new snapshot drops them); parse-once-per-path
+  and package-outranks-namespace with the global namespace as a real `null` candidate; the file-namespace
+  question reading DISK rather than the snapshot and caching its NEGATIVE answer until the next analysis;
+  the project-namespace set with no root, a blank root and a non-existent root all answering NO rather
+  than throwing, and its case-SENSITIVITY; the disk fallback firing only without a snapshot; same-namespace
+  resolution with and without export and cross-namespace resolution requiring it; the inaccessible case
+  naming the declaring FILE, being skipped without a source position, and SUPPRESSING the unique-exported
+  fallback; the fallback resolving a type no visible namespace offers while a name nothing declares is
+  absent rather than inaccessible; **the enumeration order deciding the function channel and the
+  inaccessible probe in BOTH directions over the same two files**, and the type channel REFUSING a
+  duplicate instead; the visible-namespace order putting the file's own namespace ahead of every import;
+  a declaration pointing at the NAME's column rather than the declaration's; all eight type families
+  answering YES to the kind test and a function answering NO; the exported/non-exported function split
+  with the type-versus-function probe crossover proven negative in both directions; an unparseable file
+  being skipped by every walk; the declaring file being recorded for the project index on BOTH the sweep
+  and the fallback and NOT on a miss; and the declaration context receiving the units in enumeration
+  order.
+  EVIDENCE: full unit suite **3,193 / 3,193** (`dotnet test tests/Tests.csproj -c Release`, 3m20s —
+  exactly the slice-1…8 baseline, zero drift); BootstrapServices contracts **1,651 → 1,675** (+24) via
+  the canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false`, **1,675 / 1,675 PASS** (the 3 ExternalAssemblyScan Debug-layout tests
+  did not trip); ownership audit **18 / 18** (`nlc test --project tests/native/ownership-audit`, 1.3s)
+  after the repin; `./scripts/dev.sh --since` **PASS** — it correctly took the FULL unit-suite fail-safe
+  (the two new `.nl` paths plus `OwnershipAudit.nl` are unmapped), **3,193 / 3,193 in Debug, done in
+  3m19s**; the differential, oracle, fixture and IL sweeps above.
+  RATCHET REPIN via `scratchpad/repin_017_s9.py` (slice 2…8's script, unchanged apart from its header)
+  — `current*` + fingerprints ONLY, ONE row: `src/NSharpLang.Compiler/Analyzer.cs` currentLines
+  21,735 → **21,461**, currentNonBlankLines 19,094 → **18,861**, fingerprint
+  `text-v1:528472e43a179fae` → `text-v1:5f42f09ea77d4c6a` (epoch ceilings 23,451 / 20,537 PRESERVED and
+  now clear by **1,990 / 1,676**); `reviewedHeadFingerprint head-v1:0db5fad465104e6e` →
+  `head-v1:459f3828f6f19ed3`, mirrored into `OwnershipAudit.nl`'s
+  `OwnershipPolicy.ReviewedHeadFingerprint`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED by recomputation after
+  the write; the script self-checks by reproducing all three composite fingerprints over the 381 rows
+  before changing anything. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after,
+  and the `git diff` is exactly 2 changed lines.** The `.nl` additions need no row.
+  .nl GOTCHAS ADDED (three, all found by building; all three are the same family as slice 1's `type`,
+  slice 4's `newtype`, slice 5's `record` and slice 7's `partial`, or the same family as the surface
+  gaps):
+  * **A BARE `null` THROUGH A DICTIONARY INDEXER IS OFF THE SURFACE.** `unitCache[fullPath] = null`
+    declines at `emit.expression.unhandled-kind` ("unsupported expression (node kind 5)"). A typed
+    local (`missingUnit: CompilationUnit? = null; unitCache[fullPath] = missingUnit`) is the same
+    write and binds. Both negative caches in this slice needed it.
+  * **AN `out` ARGUMENT IN THE RIGHT-HAND OPERAND OF `&&` DECLINES AT `parse.struct`.**
+    `if flag && Try…(name, out result) { … }` makes the columnar front end decline the WHOLE class,
+    reported at the class declaration rather than at the condition — which is why it took a
+    member-by-member bisection to find. A nested `if` is the equivalent shape and binds. Multi-line
+    `&&` chains are fine; it is specifically the `out` argument in a short-circuit position.
+  * **`file` IS RESERVED AND CANNOT BE A LOCAL NAME.** `file := declaration.File` declines the whole
+    class at `parse.struct`; `declarationFile := …` is fine. This one also cost a bisection, because
+    the report lands on the class rather than on the statement.
+  * **AND ONE RE-CONFIRMED THE HARD WAY:** `out type: TypeInfo` — `type` is reserved as a PARAMETER
+    name (slice 2's recorded gotcha), and an `out` parameter is no exception. Renamed to `typeInfo`.
+  .nl POSITIVES CONFIRMED (recorded because they were expected to be problems and are not): **the
+  typed N# AST is directly usable** — `unit.Package`, `unit.Namespace`, `unit.Declarations`,
+  `declaration.Line/.Column`, `functionDeclaration.Name` and `declaration as ClassDeclaration` all bind
+  without reflection, which is what made the TYPE-identity kind test possible instead of the name-based
+  one slice 7 had to refuse; **`Dictionary<string, CompilationUnit?>` and `Dictionary<string, string?>`
+  round-trip** through `TryGetValue` with a nullable `out` local declared as `cached: T? = null`;
+  **`foreach x in ProjectConfig.EnumerateSourceFiles(root)`** iterates an `IEnumerable<string>`
+  returned from another N# owner; **a `try`/`catch` around a parse with a cache write in BOTH arms**
+  works in production `.nl`; and **`File.ReadAllText` / `File.Exists` / `Directory.Exists` /
+  `Directory.CreateDirectory` / `File.WriteAllText` / `File.Delete` / `Directory.Delete(dir, true)` /
+  `Guid.NewGuid().ToString()` / `Path.GetTempPath()` are all bound**, which is what let the contracts
+  exercise the DISK branches for real rather than mocking them.
+  DOCS: `memory/components/analyzer.md` gains "Project discovery" — why the capability exists at all
+  (N# has no `using`-style TYPE import), the provider's four caches with their ASYMMETRIC lifetimes,
+  the enumeration order stated as behaviour with the measured duplicate counts, which two namespace
+  questions read DISK rather than the snapshot and why, the three-outcome ordering with the
+  suppression rule, the type-versus-function difference on duplicates, the one remaining C# piece
+  (`CreateFunctionTypeInfo`) with its recorded reason, and the name-column rule for
+  go-to-definition; the two stale non-movable claims in "The type-reference resolver" are corrected
+  (`IsTopLevelTypeDeclaration` is RETIRED as a blocker and is now type-identity based;
+  `NamespaceExists`'s project half is N#-owned and only its metadata half is blocked); and
+  `AnalyzerProjectDiscovery.nl` joins the file list. `memory/architecture.md`'s Analyzer entry now
+  lists all fourteen owners.
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change, no new capability needed,
+  and no repin of the packaged toolset. All three new gotchas were routed AROUND rather than through:
+  the bare-`null` indexer write by binding a typed local, the `out`-in-`&&` shape by nesting the `if`,
+  and the reserved `file`/`type` names by renaming. The packaged 0.1.0 SDK self-emits both new classes
+  and their 24 contracts.
+  GATES: the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 852s
+  (14m12s)** in a fresh isolated copy (`/private/tmp/nsharp-test-all.14d7ab40024d.I4Kh06/repo`) — the
+  log says "Fresh isolated test run required: pre-commit verification" and "Existing cache entries will
+  not satisfy this invocation", and it stored a NEW result (`14d7ab40024d479b`), so this is neither a
+  cached whole-gate nor a cached per-step verdict. **105 `✓ PASSED` steps and ZERO `✗`/`FAILED`
+  anywhere**: the format contract gate (which is what re-validates the ratchet manifest's compact
+  format), unit **3,193 / 3,193** (3m18s inside the gate), every native `.tests.nl` project including
+  `tests/native/ownership-audit` and BootstrapServices' **1,675 / 1,675** (2s), **VS Code integration
+  smoke 36 passing (2m18s)**, SDK pack + install, template pack/install/creation and the
+  template-generated project via `nlc build`, all example projects, all single-file examples,
+  `nlc check` over the examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass
+  with no new errors vs baseline**. `./scripts/reload-vscode-extension.sh`: **EXIT 0** — language
+  server republished, `nsharp-0.6.0.vsix` repackaged (289 files, 3.98 MB) and `Extension
+  'nsharp-0.6.0.vsix' was successfully installed`, VS Code reopened. It WAS required even though no
+  LanguageServer source changed: `Analyzer.cs` ships in the `NSharpLang.Compiler` assembly the language
+  server builds against, and `NSharpLang.Compiler.BootstrapServices` gained two public types — which is
+  also why the VS Code-enabled profile rather than the `VSCODE_TESTS=skip` path is the right bar for
+  this slice. INTERACTIVE computer-use verification was NOT attempted, per the coordinator's standing
+  instruction that it owns that record. This slice adds no LSP or IDE behaviour of its own, and the two
+  IDE-facing surfaces it DOES touch are pinned rather than assumed: the `SetProjectSourceTexts`
+  snapshot (the unsaved-editor-buffer path `MultiFileCompiler` feeds, whose case-insensitive full-path
+  keying and insertion order are contract-pinned) and the `SymbolDeclaration` spans go-to-definition
+  reads (name-column rule contract-pinned, and every declaration in the binding map compared cell by
+  cell in the differential).
+  **NEXT SUB-SLICE — STAGE 4 OF THE `ResolveType` ARC: THE REPORTING AND RECORDING WALK. Every
+  structural blocker in front of it is now gone.** With the scope stack (stage 2) and project discovery
+  (stage 3) owned, the measured remainder of the closure is exactly: `ResolveType` :18041 itself,
+  `RecordResolvedTypeReference`, `ResolveDeclaredType` (the `_reportUnresolvedTypes` opt-in
+  trampoline), `ResolveSimpleType` (BOTH overloads — the 8-channel name walk), `ResolveGenericType`,
+  `ResolveAnonymousUnionType`, `ReportSoaRowTypeReferenceIfNeeded` and `TryResolveDottedNestedType`.
+  **SEVEN of the name walk's eight channels now consult an N# owner** — built-in table, scope lookup,
+  file-import alias, dotted-nested (via the scope stack and the declaration context), visible-project,
+  using-alias-external and external — and only the terminal unresolved-`ExternalTypeInfo` arm is bare
+  shell code. What stage 4 needs is NOT another data owner: it needs an **N#-owned diagnostic sink**
+  able to emit the five recorded report sites (NL201 ×3 shapes, NL207 ×2) with byte-identical text,
+  spans and lengths, plus the per-reference `_semanticModel.RecordTypeReference` write that fires on
+  EVERY `ResolveType` call (measured 9,606 corpus / 29,565 suite / 268 fixtures — one per call,
+  exactly), and it is where the three dedupe sets (`_reportedUnresolvedTypeRefs`,
+  `_reportedSoaRowTypeRefs`, `_reportUnresolvedTypes`) move. `SemanticModel` is ALREADY N#
+  (`SemanticModel.nl`), so the recording half is an argument-passed sink exactly like slice 8's
+  `BindingMap`; the DIAGNOSTIC half is the genuinely new piece and is the whole of stage 4's risk.
+  Stage 5 is the assignability SCC in one cut, as slice 6 measured.
+  TWO SMALLER PREREQUISITES REMAIN RECORDED AND UNCHANGED (one of the three from slice 8 was RETIRED
+  by this slice): `CreateFunctionTypeInfoInDeclarationContext` / `CreateFunctionTypeInfo` (32 live
+  calls, and now also the last C# piece of the project-function channel) still needs the reflection
+  half of `NullabilityMetadata`, which lives ABOVE BootstrapServices; and `Assembly.get_FullName` /
+  `AssemblyName.get_Name` on the columnar external binding surface would release the metadata half of
+  `NamespaceExists` and `GetExternalSearchAssemblies` together. **RETIRED THIS SLICE:**
+  `IsTopLevelTypeDeclaration`'s "name match is not semantic resolution" objection — the typed N# AST
+  makes it a TYPE-identity dispatch. The one-argument `Dictionary.Remove` analyzer-overload-table gap
+  from slice 8 is still open and still unrelated to this arc.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `bd11ad61d`): **017 SLICE 8 — THE `ResolveType`
+  ARC, STAGE 2: THE SCOPE STACK.**
   MANDATED TARGET, recorded verbatim from the coordinator and unchanged: `Analyzer.cs`'s
   `Stack<Scope> _scopes` field and its **51 sites** — the stack itself plus its walk semantics, NOT
   the element type (`Scope` was already N# in `AnalyzerStateModels.nl`). The measurement below was

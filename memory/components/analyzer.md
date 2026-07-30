@@ -12,6 +12,7 @@
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerExternalTypeProbe.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeReferenceFacts.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerScopeStack.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerProjectDiscovery.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerStateModels.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnostics.nl`
 
@@ -291,13 +292,74 @@ must not be, because its cache is part of the answer.
 characters skipped (at that length everything is near everything), the name itself skipped, ties
 keeping the caller's FIRST candidate so the suggestion is stable rather than hash-ordered.
 
-Two members of this family are NOT movable yet, for recorded reasons rather than by omission.
+One member of this family is NOT movable yet, for a recorded reason rather than by omission.
 `NamespaceExists` and `GetExternalSearchAssemblies` deduplicate the loaded assemblies by
 `Assembly.FullName`, and neither `Assembly.get_FullName` nor `AssemblyName.get_Name` is on the
 columnar external binding surface; extending it is a compiler-capability change requiring a two-stage
-bootstrap, so they stay. `IsTopLevelTypeDeclaration` needs a declaration TYPE-identity dispatch, and
-the N# `DeclarationFacts` idiom is name-based — a name match is not semantic resolution, so it stays
-too. The scope stack is no longer a blocker — it is N#-owned; see the next section.
+bootstrap, so they stay. (`NamespaceExists`'s PROJECT half is N#-owned — see "Project discovery"
+below — and only its metadata half is blocked.) `IsTopLevelTypeDeclaration` is no longer blocked and
+is no longer name-based: `AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration` dispatches on the
+declaration's own TYPE (`declaration as ClassDeclaration != null`, once per family), which is the same
+decision the shell's `is ClassDeclaration or …` pattern made. The scope stack and the project channel
+are no longer blockers — both are N#-owned; see the next two sections.
+
+### Project discovery
+
+N# has no `using`-style TYPE import. A project's files see each other's exported top-level
+declarations directly, so the resolver has to be able to look at every source file in the project —
+enumerate it, read it, parse it, and read its declared namespace. `AnalyzerProjectDiscovery.nl` owns
+that capability and the walk built on it, in two classes.
+
+`AnalyzerProjectSourceProvider` is the SOURCE AND UNIT PROVIDER, constructed once per analyzer and
+never rebuilt. It holds the four caches the shell used to hold:
+
+- the in-memory SNAPSHOT of the project's source texts (`SetProjectSourceTexts` routes into
+  `ResetSourceTexts` + `AddSourceText`), keyed by full path, case-insensitively;
+- the parsed unit per file, including the NEGATIVE answer — a file that fails to parse caches a null
+  unit and is never re-parsed;
+- the set of namespaces the project ROOT declares, per root;
+- the namespace each FILE declares, including the negative answer for a file that does not exist.
+
+The lifetimes are deliberately asymmetric and are reproduced, not tidied: `Analyze` clears the two
+NAMESPACE caches (`BeginAnalysis`) and nothing else, while a new snapshot (`ResetSourceTexts`) also
+drops the parsed units, because they were parsed from the old texts.
+
+**THE ENUMERATION ORDER IS PART OF THE ANSWER.** `SourceFilePaths()` returns the snapshot's keys in
+INSERTION order when there is a snapshot, and `ProjectConfig.EnumerateSourceFiles` order otherwise.
+Every walk over it takes the FIRST file that matches, and duplicate names across files are ordinary
+rather than pathological — measured over this repository's own root project (440 files) there are 47
+distinct (namespace, name) pairs declared by more than one file, `Person` by 14 files and `Main` by
+42. So the order is behaviour. `AnalyzerDeclarationContext` depends on the same order, which is why
+`AddProjectUnitsTo` hands it the units in it.
+
+The two namespace questions read from DISK rather than from the snapshot, because they ask about the
+project as it exists on the filesystem: `ProjectNamespaceExists` (which `NamespaceExists` consults
+first) and `GetNamespaceForFile` (which `IsCrossPackageFile` and the `InaccessibleMember` message
+consult). `ProjectSourceText` is the one place the two sources meet: snapshot, then disk, then empty.
+
+`AnalyzerProjectTypeDiscovery` is the WALK. `ResolveVisibleProjectType` answers all THREE outcomes in
+one call, because their ORDER is the semantics:
+
+1. the visible-namespace sweep, in `VisibleTypeNamespaces` order, requiring export only for a
+   namespace that is not the file's own — a hit records the declaring file for the project index;
+2. otherwise, and ONLY when the caller has a real source position, the INACCESSIBLE decision: some
+   visible namespace OTHER than the file's own declares this name and does not export it. The
+   decision lives here and the REPORT stays in the shell, and this outcome SUPPRESSES step 3;
+3. otherwise the project-wide unique-exported fallback.
+
+The type channel and the function channel differ on duplicates, and deliberately: a duplicate type
+name inside one namespace REFUSES to resolve (`AnalyzerDeclarationContext` requires uniqueness),
+while the function channel and the inaccessible probe take the FIRST match. That is why the
+enumeration order is decisive for the latter two and irrelevant for the first.
+
+`TryResolveVisibleProjectFunction` returns the matched `FunctionDeclaration`, its file and its symbol
+declaration; the shell still builds the `FunctionTypeInfo` from them, because
+`CreateFunctionTypeInfo` needs the reflection half of `NullabilityMetadata`, which lives above
+BootstrapServices. That is the one remaining piece of this family in C#, and it is recorded as such.
+
+A resolved declaration's LINE is the declaration's own and its COLUMN is where the NAME starts on
+that line (`CodeIntelligenceTextUtilities.FindIdentifierNameColumn`), which is what a
+go-to-definition span has to point at.
 
 ### The scope stack
 
