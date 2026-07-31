@@ -966,6 +966,52 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
+    // An INSTANCE method hides a same-named extension method — that is the C# rule and N#'s.
+    //
+    // The analyzer needs this asked separately whenever only a SURROGATE receiver CLR type exists,
+    // which is what `Dictionary<string, SourceEnum>` becomes: no closed CLR type can be built for a
+    // source-declared type argument, so the instance surface is never searched and the receiver's
+    // methods stay unmodelled. Without this fact the extension surface answers instead, and a BCL
+    // extension that merely SHARES the name is then reported as the call's only overload —
+    // `Dictionary<K, V>.Remove(key)` losing to `CollectionExtensions.Remove(key, out value)`.
+    // Unmodelled is the honest answer there; a wrong signature is not.
+    //
+    // Interfaces need their inherited surface walked explicitly, for the same reason
+    // `TryResolveRuntimeInterfaceMethodMember` walks it: `Type.GetMethods` does not include it.
+    public func HasRuntimeInstanceMethod(receiverType: Type, name: string): bool {
+        if DeclaresRuntimeInstanceMethod(receiverType, name) {
+            return true
+        }
+        if !receiverType.get_IsInterface() {
+            return false
+        }
+
+        inheritedInterfaces := receiverType.GetInterfaces()
+        interfaceIndex := 0
+        while interfaceIndex < inheritedInterfaces.Length {
+            if DeclaresRuntimeInstanceMethod(inheritedInterfaces[interfaceIndex], name) {
+                return true
+            }
+            interfaceIndex = interfaceIndex + 1
+        }
+
+        return false
+    }
+
+    static func DeclaresRuntimeInstanceMethod(receiverType: Type, name: string): bool {
+        candidates := receiverType.GetMethods()
+        candidateIndex := 0
+        while candidateIndex < candidates.Length {
+            candidate := candidates[candidateIndex]
+            if candidate.get_Name() == name && !candidate.get_IsStatic() {
+                return true
+            }
+            candidateIndex = candidateIndex + 1
+        }
+
+        return false
+    }
+
     static func AddRuntimeInterfaceMethods(
         candidates: MethodInfo[],
         name: string,

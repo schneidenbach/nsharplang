@@ -1240,3 +1240,47 @@ test "017 slice 4: the oblivious wrapper is transparent and every other TypeInfo
     wrapped := new ArrayTypeInfo(alias) as TypeInfo
     assert context.ResolveDeclaredAlias(wrapped) == wrapped
 }
+
+test "an instance method hides a same-named extension method on surrogate receivers" {
+    context := new AnalyzerDeclarationContext()
+
+    // The witness: `Dictionary<K, V>` declares both `Remove` arities itself, so the BCL
+    // `CollectionExtensions.Remove(key, out value)` must never answer for a dictionary receiver
+    // whose exact CLR type could not be built.
+    assert context.HasRuntimeInstanceMethod(typeof(Dictionary<string, object>), "Remove")
+    assert context.HasRuntimeInstanceMethod(typeof(Dictionary<string, object>), "ContainsKey")
+    assert context.HasRuntimeInstanceMethod(typeof(List<object>), "Contains")
+
+    // A name the receiver does NOT declare stays open to extensions — `GetValueOrDefault` is
+    // exactly such an extension, and blocking it would be the opposite bug.
+    assert !context.HasRuntimeInstanceMethod(typeof(Dictionary<string, object>), "GetValueOrDefault")
+    assert !context.HasRuntimeInstanceMethod(typeof(List<object>), "Select")
+
+    // Statics never hide an extension: an extension call has a receiver, a static call does not.
+    assert !context.HasRuntimeInstanceMethod(typeof(string), "Join")
+    assert context.HasRuntimeInstanceMethod(typeof(string), "StartsWith")
+
+    // Interfaces need the INHERITED surface walked explicitly; `Type.GetMethods` omits it.
+    // `IReadOnlyCollection<T>` declares only `Count`, and inherits `GetEnumerator` from
+    // `IEnumerable<T>` — so the inherited name is only found when that walk happens.
+    readOnly := typeof(IReadOnlyCollection<int>)
+    assert context.HasRuntimeInstanceMethod(readOnly, "get_Count")
+    assert context.HasRuntimeInstanceMethod(readOnly, "GetEnumerator")
+    assert !context.HasRuntimeInstanceMethod(readOnly, "Remove")
+}
+
+test "a dictionary keyed on a source-declared enum removes by key alone" {
+    // The production shape this fix exists for: `Dictionary<string, NullState>` has no closed CLR
+    // type because `NullState` is source-declared, so this call is checked against an unmodelled
+    // receiver. It must compile, return the removal verdict, and drop the entry.
+    states := new Dictionary<string, NullState>(StringComparer.Ordinal)
+    states["x"] = NullState.NotNull
+    states["x.y"] = NullState.MaybeNull
+
+    assert states.Remove("x")
+    assert !states.ContainsKey("x")
+    assert states.Count == 1
+    assert !states.Remove("x")
+    assert states.Remove("x.y")
+    assert states.Count == 0
+}

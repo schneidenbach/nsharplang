@@ -9454,9 +9454,14 @@ public class Analyzer : IDisposable
 
     private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
     {
-        var targetClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(targetType)
-            ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(targetType);
+        var exactClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(targetType);
+        var targetClrType = exactClrType ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(targetType);
         if (targetClrType == null)
+            return new List<MethodInfo>();
+
+        // Only the SURROGATE receiver type exists here, so the instance surface was never searched and
+        // an instance method that hides this name must still win. See HasRuntimeInstanceMethod.
+        if (exactClrType == null && _declarationContext.HasRuntimeInstanceMethod(targetClrType, methodName))
             return new List<MethodInfo>();
 
         var methods = new List<MethodInfo>();
@@ -19199,15 +19204,10 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// N# binary numeric promotion rules.
-    /// These determine the result type of arithmetic binary operations.
-    /// NOTE: This is NOT the same as implicit numeric conversion (assignment context).
-    /// N# promotes small types (byte, sbyte, short, ushort) to int for arithmetic.
-    /// </summary>
-    /// <summary>
-    /// N# binary numeric promotion rules.
-    /// Returns null for combinations that are compile-time errors in
-    /// (decimal+float/double, ulong+signed).
+    /// N# binary numeric promotion rules. These determine the result type of arithmetic binary
+    /// operations. NOTE: This is NOT the same as implicit numeric conversion (assignment context).
+    /// N# promotes small types (byte, sbyte, short, ushort) to int for arithmetic. Returns null for
+    /// combinations that are compile-time errors in (decimal+float/double, ulong+signed).
     /// </summary>
     private TypeInfo? GetWiderType(TypeInfo left, TypeInfo right)
     {

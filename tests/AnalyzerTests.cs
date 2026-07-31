@@ -8037,6 +8037,24 @@ func Main() {
     }
 
     [Fact]
+    public void BCL_DictionaryRemove_WithSourceTypeArgument_NoNoMatchingOverload()
+    {
+        // A source-declared type argument leaves the receiver without a closed CLR type, so its
+        // instance methods are unmodelled. CollectionExtensions.Remove(key, out value) must not
+        // answer in their place: reported as the only overload it made Remove(key) a false NL402.
+        var result = AnalyzeWithSource(@"
+            import System.Collections.Generic
+            enum Flavor { Unknown, Known }
+            func Main() {
+                m := new Dictionary<string, Flavor>()
+                print m.Remove(""k"")
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+    }
+
+    [Fact]
     public void NSharpExtensionMethod_OnInstance_PrefersExtensionOverStaticClrMember()
     {
         var result = AnalyzeWithSource(@"

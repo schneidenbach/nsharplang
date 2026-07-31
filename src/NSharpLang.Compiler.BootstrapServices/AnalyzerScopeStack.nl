@@ -359,14 +359,9 @@ public class AnalyzerScopeStack {
                 }
             }
 
-            // The TWO-argument `Remove` deliberately: the analyzer's overload table for
-            // `Dictionary<K, V>` models only `Remove(key, out value)`, so the one-argument form is an
-            // NL402 in `nlc check` even though columnar emission accepts it. The removed value is not
-            // wanted; the overloads are otherwise identical.
             removalIndex := 0
-            removedState := NullState.Unknown
             while removalIndex < removals.Count {
-                scope.NullStates.Remove(removals[removalIndex], out removedState)
+                scope.NullStates.Remove(removals[removalIndex])
                 removalIndex = removalIndex + 1
             }
 
