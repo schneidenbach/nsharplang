@@ -2,7 +2,9 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections
+import System.Collections.Generic
 import System.Reflection
+import NSharpLang.Compiler.Ast
 
 // The emitter's `new` chain does not model this type. The established N# idiom for an external
 // instance it does not model is the reflected constructor — `ExternalAssemblyScan` builds its
@@ -226,4 +228,330 @@ test "attribute data is readable from properties, fields and methods too" {
     }
 
     assert seenParamArray
+}
+
+// ---------------------------------------------------------------------------------------------
+// The owner's own contracts. Everything above pins the CAPABILITY (that the reflection surface
+// binds and executes); everything below pins `NullabilityMetadataReflection`'s BEHAVIOUR, which is
+// the reader the analyzer, the code-intelligence service and the completion engine all consume.
+// ---------------------------------------------------------------------------------------------
+
+func NullabilityRenderTypeInfo(typeInfo: TypeInfo?): string {
+    if typeInfo == null {
+        return "<null>"
+    }
+
+    simple := typeInfo as SimpleTypeInfo
+    if simple != null {
+        return "Simple(" + simple.Name + ")"
+    }
+
+    nullable := typeInfo as NullableTypeInfo
+    if nullable != null {
+        return "Nullable(" + NullabilityRenderTypeInfo(nullable.InnerType) + ")"
+    }
+
+    oblivious := typeInfo as ObliviousTypeInfo
+    if oblivious != null {
+        return "Oblivious(" + NullabilityRenderTypeInfo(oblivious.InnerType) + ")"
+    }
+
+    array := typeInfo as ArrayTypeInfo
+    if array != null {
+        return "Array(" + NullabilityRenderTypeInfo(array.ElementType) + ")"
+    }
+
+    generic := typeInfo as GenericTypeInfo
+    if generic != null {
+        rendered := "Generic(" + generic.Name + ";def="
+            + NullabilityRenderTypeInfo(generic.GenericDefinition) + ";["
+        index := 0
+        while index < generic.TypeArguments.Count {
+            if index > 0 {
+                rendered = rendered + ","
+            }
+
+            rendered = rendered + NullabilityRenderTypeInfo(generic.TypeArguments[index])
+            index = index + 1
+        }
+
+        return rendered + "])"
+    }
+
+    reflection := typeInfo as ReflectionTypeInfo
+    if reflection != null {
+        return "Reflection(" + reflection.Type.Name + ")"
+    }
+
+    return "Other"
+}
+
+func NullabilityMethodByParameterType(owner: Type, methodName: string, parameterType: Type): MethodInfo {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = parameterType
+    method := owner.GetMethod(methodName, parameterTypes)
+    if method == null {
+        throw new InvalidOperationException(methodName + " was not found.")
+    }
+
+    return method
+}
+
+test "the reader maps the CLR built-ins onto the N# simple types" {
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int))) == "Simple(int)"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(long))) == "Simple(long)"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(bool))) == "Simple(bool)"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(double))) == "Simple(double)"
+
+    // A reference built-in has no annotation of its own when it is asked for as a bare Type, so it
+    // comes back OBLIVIOUS rather than not-null. That distinction is the whole point of the wrapper.
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(string))) == "Oblivious(Simple(string))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(object))) == "Oblivious(Simple(object))"
+
+    // A value type can never carry reference nullability, so it is never wrapped.
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(char))) == "Simple(char)"
+}
+
+test "a nullable value type becomes a nullable over its underlying type, not an oblivious one" {
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int?))) == "Nullable(Simple(int))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(long?))) == "Nullable(Simple(long))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(bool?))) == "Nullable(Simple(bool))"
+}
+
+test "an array converts element-first and every reference layer carries its own read state" {
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(string[])))
+        == "Oblivious(Array(Oblivious(Simple(string))))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int[])))
+        == "Oblivious(Array(Simple(int)))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int?[])))
+        == "Oblivious(Array(Nullable(Simple(int))))"
+}
+
+test "a closed generic keeps its stripped name, its converted arguments and its definition" {
+    dictionaryDefinition := Type.GetType(
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+    if dictionaryDefinition == null {
+        throw new InvalidOperationException("Dictionary`2 was not found.")
+    }
+
+    closedArguments := new Type[](2)
+    closedArguments[0] = typeof(string)
+    closedArguments[1] = typeof(int)
+    closed := dictionaryDefinition.MakeGenericType(closedArguments)
+
+    converted := NullabilityMetadataReflection.ConvertType(closed)
+    assert NullabilityRenderTypeInfo(converted)
+        == "Oblivious(Generic(Dictionary;def=Reflection(Dictionary`2);[Oblivious(Simple(string)),Simple(int)]))"
+}
+
+func NullabilityStringComparisonType(): Type {
+    // `typeof` over an external enum is off the columnar surface; the canonical identity is.
+    resolved := Type.GetType("System.StringComparison, System.Private.CoreLib")
+    if resolved == null {
+        throw new InvalidOperationException("System.StringComparison was not found.")
+    }
+
+    return resolved
+}
+
+test "an unmodelled CLR type stays a reflection type rather than becoming a simple name" {
+    comparisonType := NullabilityStringComparisonType()
+    converted := NullabilityMetadataReflection.ConvertType(comparisonType)
+    reflection := converted as ReflectionTypeInfo
+    assert reflection != null
+    assert reflection.Type == comparisonType
+}
+
+test "a generic parameter without an override becomes a simple type named after it" {
+    listDefinition := Type.GetType("System.Collections.Generic.List`1, System.Private.CoreLib")
+    if listDefinition == null {
+        throw new InvalidOperationException("List`1 was not found.")
+    }
+
+    parameter := listDefinition.GetGenericArguments()[0]
+    assert parameter.get_IsGenericParameter()
+    // An unconstrained parameter CAN carry reference nullability and has no annotation of its own,
+    // so it comes back oblivious — the same treatment `string` gets.
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(parameter))
+        == "Oblivious(Simple(T))"
+}
+
+test "a by-ref type is stripped before the walk sees it" {
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int).MakeByRefType()))
+        == "Simple(int)"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(string).MakeByRefType()))
+        == "Oblivious(Simple(string))"
+}
+
+test "the CLR display form renders aliases, arrays and generics" {
+    assert NullabilityMetadataReflection.FormatType(typeof(int)) == "int"
+    assert NullabilityMetadataReflection.FormatType(typeof(string)) == "string!"
+    assert NullabilityMetadataReflection.FormatType(NullabilityStringComparisonType()) == "StringComparison"
+
+    dictionaryDefinition := Type.GetType(
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+    if dictionaryDefinition == null {
+        throw new InvalidOperationException("Dictionary`2 was not found.")
+    }
+
+    closedArguments := new Type[](2)
+    closedArguments[0] = typeof(string)
+    closedArguments[1] = typeof(int)
+    closed := dictionaryDefinition.MakeGenericType(closedArguments)
+    reflectionTypeInfo: TypeInfo = new ReflectionTypeInfo(closed)
+    assert NullabilityMetadataReflection.FormatTypeInfo(reflectionTypeInfo) == "Dictionary<string, int>"
+
+    // A generic PARAMETER renders as its bare name and an array of it composes.
+    listDefinition := Type.GetType("System.Collections.Generic.List`1, System.Private.CoreLib")
+    if listDefinition == null {
+        throw new InvalidOperationException("List`1 was not found.")
+    }
+
+    parameterTypeInfo: TypeInfo = new ReflectionTypeInfo(listDefinition.GetGenericArguments()[0])
+    assert NullabilityMetadataReflection.FormatTypeInfo(parameterTypeInfo) == "T"
+}
+
+test "a nullable annotation on a real BCL parameter reaches the converted type" {
+    nullableParameter := NullabilityProbeStringParameter("IsNullOrEmpty")
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(nullableParameter))
+        == "Nullable(Simple(string))"
+
+    notNullParameter := NullabilityProbeStringParameter("Contains")
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(notNullParameter))
+        == "Simple(string)"
+}
+
+test "flow attributes are formatted ahead of the parameter modifier" {
+    nullableParameter := NullabilityProbeStringParameter("IsNullOrEmpty")
+    assert NullabilityMetadataReflection.FormatParameter(nullableParameter)
+        == "[NotNullWhen(false)] string? value"
+
+    dictionaryDefinition := Type.GetType(
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+    if dictionaryDefinition == null {
+        throw new InvalidOperationException("Dictionary`2 was not found.")
+    }
+
+    closedArguments := new Type[](2)
+    closedArguments[0] = typeof(string)
+    closedArguments[1] = typeof(string)
+    closedDictionary := dictionaryDefinition.MakeGenericType(closedArguments)
+    tryGetValue := closedDictionary.GetMethod("TryGetValue")
+    if tryGetValue == null {
+        throw new InvalidOperationException("Dictionary.TryGetValue was not found.")
+    }
+
+    // `out` renders its modifier, and the value is nullable on the way out. `MaybeNullWhen` is
+    // deliberately NOT one of the four recognised flow attributes, so it contributes no prefix.
+    outParameter := tryGetValue.GetParameters()[1]
+    assert NullabilityMetadataReflection.FormatParameter(outParameter) == "out string? value"
+    assert NullabilityMetadataReflection.FormatParameter(tryGetValue.GetParameters()[0]) == "string key"
+}
+
+test "a params parameter is recognised through its attribute, not its array shape" {
+    concat := NullabilityMethodByParameterType(typeof(string), "Concat", typeof(string[]))
+    paramsParameter := concat.GetParameters()[0]
+    assert NullabilityMetadataReflection.FormatParameter(paramsParameter) == "params string?[] values"
+
+    // An array parameter in a NON-params position keeps no modifier — the recognition is the
+    // attribute, not the array shape.
+    joinTypes := new Type[](4)
+    joinTypes[0] = typeof(char)
+    joinTypes[1] = typeof(string[])
+    joinTypes[2] = typeof(int)
+    joinTypes[3] = typeof(int)
+    plainArrayMethod := typeof(string).GetMethod("Join", joinTypes)
+    if plainArrayMethod == null {
+        throw new InvalidOperationException("String.Join(char, string[], int, int) was not found.")
+    }
+
+    plainArrayParameter := plainArrayMethod.GetParameters()[1]
+    assert !NullabilityMetadataReflection.FormatParameter(plainArrayParameter).StartsWith("params ")
+}
+
+test "properties, fields and returns all read through the same walk" {
+    lengthProperty := typeof(string).GetProperty("Length")
+    if lengthProperty == null {
+        throw new InvalidOperationException("String.Length was not found.")
+    }
+
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertProperty(lengthProperty))
+        == "Simple(int)"
+
+    emptyField := typeof(string).GetField("Empty")
+    if emptyField == null {
+        throw new InvalidOperationException("String.Empty was not found.")
+    }
+
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertField(emptyField))
+        == "Simple(string)"
+
+    trimTypes := new Type[](0)
+    trim := typeof(string).GetMethod("Trim", trimTypes)
+    if trim == null {
+        throw new InvalidOperationException("String.Trim() was not found.")
+    }
+
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertReturn(trim)) == "Simple(string)"
+    assert NullabilityMetadataReflection.FormatReturnType(trim) == "string"
+}
+
+test "the type override answers first for a generic parameter and again at the leaf" {
+    listDefinition := Type.GetType("System.Collections.Generic.List`1, System.Private.CoreLib")
+    if listDefinition == null {
+        throw new InvalidOperationException("List`1 was not found.")
+    }
+
+    genericParameter := listDefinition.GetGenericArguments()[0]
+    addTypes := new Type[](1)
+    addTypes[0] = genericParameter
+    add := listDefinition.GetMethod("Add", addTypes)
+    if add == null {
+        throw new InvalidOperationException("List<T>.Add was not found.")
+    }
+
+    parameter := add.GetParameters()[0]
+
+    // Answering: the override's TypeInfo replaces the conversion outright, wrapper and all.
+    answering: Func<Type, object> = (candidate) => new SimpleTypeInfo("OVR:" + candidate.Name)
+    assert NullabilityRenderTypeInfo(
+        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, answering))
+        == "Simple(OVR:T)"
+
+    // Declining: a null answer falls through to the ordinary walk, and lands exactly where no
+    // override at all lands. (A lambda BODY of bare `null` is off the columnar surface; closing
+    // over a nullable local is the working spelling.)
+    nullAnswer: object? = null
+    declining: Func<Type, object> = (candidate) => nullAnswer
+    decliningRender := NullabilityRenderTypeInfo(
+        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, declining))
+    plainRender := NullabilityRenderTypeInfo(
+        NullabilityMetadataReflection.ConvertParameter(parameter))
+    assert decliningRender == plainRender
+    assert decliningRender != "Simple(OVR:T)"
+
+    // The override is consulted at the LEAF too, not only for generic parameters.
+    notNullParameter := NullabilityProbeStringParameter("Contains")
+    assert NullabilityRenderTypeInfo(
+        NullabilityMetadataReflection.ConvertParameterWithOverride(notNullParameter, answering))
+        == "Simple(OVR:String)"
+}
+
+test "the display form and the metadata stripper agree with the N#-owned half" {
+    obliviousString: TypeInfo = new ObliviousTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))
+    stripped := NullabilityMetadataReflection.StripMetadata(obliviousString)
+    assert NullabilityRenderTypeInfo(stripped) == "Simple(string)"
+
+    // An N#-owned TypeInfo never goes through the CLR display form.
+    genericArguments := new List<TypeInfo>()
+    genericArguments.Add(BuiltInTypes.String)
+    listTypeInfo: TypeInfo = new GenericTypeInfo("List", genericArguments)
+    assert NullabilityMetadataReflection.FormatTypeInfo(listTypeInfo) == "List<string>"
+
+    // A shape the N# display half declines to render falls back to the reader's own formatting
+    // rather than producing nothing.
+    // (`newtype` is a reserved word, so the local cannot be spelled that way.)
+    userId: TypeInfo = new NewtypeInfo("UserId", new SimpleTypeReference("int"))
+    assert NullabilityTypeDisplay.TryFormatTypeInfo(userId) == null
+    assert NullabilityMetadataReflection.FormatTypeInfo(userId) == "UserId"
 }

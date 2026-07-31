@@ -6603,7 +6603,7 @@ public class Analyzer : IDisposable
                 var prop = reflectionType.Type.GetProperty(propPattern.Name);
                 if (prop != null)
                 {
-                    propType = NullabilityMetadata.ConvertProperty(prop);
+                    propType = NullabilityMetadataReflection.ConvertProperty(prop);
                 }
             }
 
@@ -8807,7 +8807,7 @@ public class Analyzer : IDisposable
         string? typeNameOverride = null)
     {
         var length = Math.Max(1, memberName.Length);
-        var typeName = typeNameOverride ?? NullabilityMetadata.FormatTypeInfo(receiverType);
+        var typeName = typeNameOverride ?? NullabilityMetadataReflection.FormatTypeInfo(receiverType);
         var similarMembers = FindSimilarMemberNames(receiverType, memberName, includeStaticMembers);
 
         var sourceSnippet = GetSourceSnippet(line);
@@ -9198,14 +9198,14 @@ public class Analyzer : IDisposable
         var property = type.GetProperty(memberName, memberFlags);
         if (property != null)
         {
-            memberType = NullabilityMetadata.ConvertProperty(property);
+            memberType = NullabilityMetadataReflection.ConvertProperty(property);
             return true;
         }
 
         var field = type.GetField(memberName, memberFlags);
         if (field != null)
         {
-            memberType = NullabilityMetadata.ConvertField(field);
+            memberType = NullabilityMetadataReflection.ConvertField(field);
             return true;
         }
 
@@ -9337,14 +9337,14 @@ public class Analyzer : IDisposable
         var property = typeof(object).GetProperty(memberName, flags);
         if (property != null)
         {
-            memberType = NullabilityMetadata.ConvertProperty(property);
+            memberType = NullabilityMetadataReflection.ConvertProperty(property);
             return true;
         }
 
         var field = typeof(object).GetField(memberName, flags);
         if (field != null)
         {
-            memberType = NullabilityMetadata.ConvertField(field);
+            memberType = NullabilityMetadataReflection.ConvertField(field);
             return true;
         }
 
@@ -9794,14 +9794,14 @@ public class Analyzer : IDisposable
         return new FunctionTypeInfo()
         {
             ParameterTypes = invokeMethod.GetParameters()
-                .Select(p => NullabilityMetadata.ConvertParameter(
+                .Select(p => NullabilityMetadataReflection.ConvertParameterWithOverride(
                     p,
                     type => ConvertReflectionTypeWithOverrides(type, typeInfoOverrides, clrBindings)))
                 .ToList(),
             ParameterModifiers = invokeMethod.GetParameters()
                 .Select(GetReflectionParameterModifier)
                 .ToList(),
-            ReturnType = NullabilityMetadata.ConvertReturn(
+            ReturnType = NullabilityMetadataReflection.ConvertReturnWithOverride(
                 invokeMethod,
                 type => ConvertReflectionTypeWithOverrides(type, typeInfoOverrides, clrBindings))
         };
@@ -9916,12 +9916,12 @@ public class Analyzer : IDisposable
         return new FunctionTypeInfo()
         {
             ParameterTypes = invokeParameters
-                .Select(parameter => NullabilityMetadata.ConvertParameter(parameter))
+                .Select(parameter => NullabilityMetadataReflection.ConvertParameter(parameter))
                 .ToList(),
             ParameterModifiers = invokeParameters
                 .Select(GetReflectionParameterModifier)
                 .ToList(),
-            ReturnType = NullabilityMetadata.ConvertReturn(invokeMethod)
+            ReturnType = NullabilityMetadataReflection.ConvertReturn(invokeMethod)
         };
     }
 
@@ -11262,14 +11262,14 @@ public class Analyzer : IDisposable
             parameters = parameters.Skip(1);
 
         var formattedParameters = parameters.Select(FormatReflectionParameter);
-        return $"{method.Name}({string.Join(", ", formattedParameters)}): {NullabilityMetadata.FormatReturnType(method)}";
+        return $"{method.Name}({string.Join(", ", formattedParameters)}): {NullabilityMetadataReflection.FormatReturnType(method)}";
     }
 
     private static string FormatReflectionParameter(ParameterInfo parameter)
-        => NullabilityMetadata.FormatParameter(parameter);
+        => NullabilityMetadataReflection.FormatParameter(parameter);
 
     private static string FormatReflectionTypeName(Type type)
-        => NullabilityMetadata.FormatType(type);
+        => NullabilityMetadataReflection.FormatType(type);
 
     private bool TryGetNSharpMethodGroupArgumentName(CallExpression call, out string name)
     {
@@ -13209,7 +13209,7 @@ public class Analyzer : IDisposable
             {
                 case DefaultReflectionBoundArgument defaultArgument:
                 {
-                    var defaultType = NullabilityMetadata.ConvertParameter(
+                    var defaultType = NullabilityMetadataReflection.ConvertParameterWithOverride(
                         defaultArgument.Parameter,
                         type => ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings));
                     parameterTypes.Add(defaultType);
@@ -13264,7 +13264,7 @@ public class Analyzer : IDisposable
         }
 
         // Compute return type using TypeInfo overrides for the open method's return type
-        var returnType = NullabilityMetadata.ConvertReturn(
+        var returnType = NullabilityMetadataReflection.ConvertReturnWithOverride(
             openMethod,
             type => hasTypeInfoOverrides || type.ContainsGenericParameters
                 ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
@@ -13379,7 +13379,7 @@ public class Analyzer : IDisposable
                 : ConvertReflectionType(ApplyReflectionBindings(supplied.OpenParameterType, workingBindings));
         }
 
-        return NullabilityMetadata.ConvertParameter(
+        return NullabilityMetadataReflection.ConvertParameterWithOverride(
             parameter,
             type => hasTypeInfoOverrides || type.ContainsGenericParameters
                 ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
@@ -16621,7 +16621,7 @@ public class Analyzer : IDisposable
                         nameLine,
                         nameColumn,
                         includeStaticMembers: false,
-                        typeNameOverride: NullabilityMetadata.FormatTypeInfo(generic));
+                        typeNameOverride: NullabilityMetadataReflection.FormatTypeInfo(generic));
                 }
 
                 return false;

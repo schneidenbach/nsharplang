@@ -344,7 +344,7 @@ public class CodeIntelligenceService
         var typeInfo = ResolveTypeInfoAtPosition(expr, candidateNames, semanticModel, snapshot, cu, out var resolvedName);
         if (typeInfo == null) return null;
 
-        var resolvedType = NullabilityMetadata.FormatTypeInfo(typeInfo);
+        var resolvedType = NullabilityMetadataReflection.FormatTypeInfo(typeInfo);
         var kind = TypeInfoToKind(typeInfo);
         var definition = resolvedName != null ? FindDefinitionLocation(snapshot, resolvedName) : null;
         var displayName = resolvedName ?? name ?? GetTypeDisplayName(typeInfo, resolvedType);
@@ -831,7 +831,7 @@ public class CodeIntelligenceService
             ? semanticModel?.LookupTypeReferenceAtPosition(line, span.Value.StartColumn)
             : null;
 
-        var resolvedType = typeInfo != null ? NullabilityMetadata.FormatTypeInfo(typeInfo) : declaration.Name;
+        var resolvedType = typeInfo != null ? NullabilityMetadataReflection.FormatTypeInfo(typeInfo) : declaration.Name;
         return new TypeResult(
             declaration.Name,
             resolvedType,
@@ -873,7 +873,7 @@ public class CodeIntelligenceService
             && string.Equals(declarationName, selectedName, StringComparison.Ordinal)
             && TryGetDeclaredNameTypeInfo(declaration, snapshot, out var typeInfo))
         {
-            var resolvedType = NullabilityMetadata.FormatTypeInfo(typeInfo);
+            var resolvedType = NullabilityMetadataReflection.FormatTypeInfo(typeInfo);
             return new TypeResult(
                 selectedName,
                 resolvedType,
@@ -1586,7 +1586,7 @@ public class CodeIntelligenceService
             SoaRecordTypeInfo soa => soa.Declaration.Name,
             InterfaceTypeInfo i => i.Name,
             EnumTypeInfo e => e.Declaration.Name,
-            AnonymousUnionTypeInfo u => string.Join(" | ", u.Arms.Select(NullabilityMetadata.FormatTypeInfo)),
+            AnonymousUnionTypeInfo u => string.Join(" | ", u.Arms.Select(NullabilityMetadataReflection.FormatTypeInfo)),
             UnionTypeInfo u => u.Declaration.Name,
             ReflectionTypeInfo r => r.Type.Name,
             _ => fallback

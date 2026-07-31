@@ -743,7 +743,7 @@ public class CompletionEngine
             return CodeIntelligenceService.FormatTypeReferencePublic(function.SourceParameterTypes[index]);
 
         if (function.ParameterTypes != null && index < function.ParameterTypes.Count)
-            return NullabilityMetadata.FormatTypeInfo(function.ParameterTypes[index]);
+            return NullabilityMetadataReflection.FormatTypeInfo(function.ParameterTypes[index]);
 
         return "unknown";
     }
@@ -768,8 +768,8 @@ public class CompletionEngine
         => typeInfo is FunctionTypeInfo { SourceReturnType: not null } functionType
             ? CodeIntelligenceService.FormatTypeReferencePublic(functionType.SourceReturnType)
             : typeInfo is FunctionTypeInfo { ReturnType: not null } resolvedFunctionType
-                ? NullabilityMetadata.FormatTypeInfo(resolvedFunctionType.ReturnType)
-            : NullabilityMetadata.FormatTypeInfo(typeInfo);
+                ? NullabilityMetadataReflection.FormatTypeInfo(resolvedFunctionType.ReturnType)
+            : NullabilityMetadataReflection.FormatTypeInfo(typeInfo);
 
     private (string filePath, CompilationUnit? cu) FindCompilationUnit(ProjectSnapshot snapshot, string file)
     {

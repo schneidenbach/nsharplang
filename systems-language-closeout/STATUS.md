@@ -1,6 +1,45 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-30 (**TASK 017 SLICE 12 STAGE A LANDED (no commit — mandate) — THE
+Last updated: 2026-07-31 (**TASK 017 SLICE 12 STAGE B, STEP 1 LANDED (no commit — mandate) — THE
+NULLABILITY METADATA READER IS N#-OWNED AND `NullabilityMetadata.cs` IS DELETED.** The whole 251-line
+C# file went, because the file WAS the reflection half; `NullabilityMetadataCore.nl` already owned
+every pure decision. Its replacement is `NullabilityMetadataReflection.nl` (**449 lines, ONE class,
+32 members**), and **ZERO production C# was added** — all **27 call sites** across four files are
+one-line renames, so `Analyzer.cs` stays byte-for-byte the same SIZE (**20,857 / 18,329**, `git diff`
+**17 / 17**). THE ONE NON-MECHANICAL DECISION: the type-override hook crosses the boundary as
+**`Func<Type, object>`, not `Func<Type, TypeInfo>`** — a closed `Func` over an EMITTED type is off the
+columnar parameter surface (`Func<int,int>?` and `Func<Type,int>?` bind, `Func<Type,TypeInfo>?` does
+not, so it is the type ARGUMENT that is refused), and the C# lambdas are unchanged because their
+conversion to `Func<Type, object>` is the compiler's own implicit reference conversion. It is a
+boundary encoding, not a protocol: no callback, no fallback. THE FINDING READING WOULD NOT HAVE
+CAUGHT: testing the `[NotNullWhen(...)]` argument with `ArgumentType == typeof(bool)` — the spelling
+stage A proved binds — is **WRONG UNDER A MetadataLoadContext**, which is how the analyzer sees every
+external assembly: `ArgumentType` is then a PROJECTED `System.Boolean`, while `Value` is a live boxed
+CLR bool. It silently dropped the flow prefix from every MLC-loaded signature (**18 mismatching
+cells, all `MlcFormatParameter`, zero in the live-reflection half**); the fix is the boxed-value test,
+exact in both worlds. PROOF: a throwaway differential running BOTH implementations in ONE process —
+**33,479 CELLS, 0 MISMATCHES, 8 THROWN, transcripts BYTE-IDENTICAL (md5
+`3965010fd33a5a99bc1f97bf630bcedb` on both columns)** over 58 CLR types, 17 member-source types
+including a purpose-built annotated generic subject, four type overrides, 17 synthetic `TypeInfo`
+shapes, 9 null-argument cells and a full MetadataLoadContext re-run (4,701 MLC cells); `nlc check
+--json` **byte-identical on 49 / 49 corpus targets with NO exclusion** (ORACLE_DIFFS=0,
+ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0); corpus IL **72 / 72 comparable assemblies
+BYTE-IDENTICAL** (PRODUCT_IL_DIFFS=0, SINGLE_IL_DIFFS=0, SINGLE_LOG_DIFFS=0,
+SKIPPED_TARGET_DIFFS=0). GATES: unit **3,192 / 3,192** (3,194 minus exactly the two C# test methods
+that MIGRATED to native contracts); contracts **1,733 → 1,747** (+14, 21 in the file); audit
+**18 / 18** after a five-row in-place repin that keeps the manifest at **391 lines** (the deleted
+path becomes `"state":"removed"`, so `epochFileCount` 381 is untouched); `dev.sh --since` full-suite
+fail-safe; and the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 859s**
+in a fresh isolated copy (105 `✓ PASSED`, zero `✗`, VS Code integration **36 passing in 41s**, all 67
+assemblies IL-verified); VSIX rebuilt + reinstalled. NO WALL: no catalog surface was added, so no
+repin was needed. Two new .nl gotchas: **`type` and `newtype` are RESERVED** (a class using one
+declines at `parse.struct`, naming the class line, not the identifier); **a lambda body of bare
+`null` declines** — close over a nullable local. **THE AUTHORISED SPLIT IS TAKEN AT ITS EXACT
+RECORDED POINT.** NEXT: steps 2 and 3 unchanged and now UNBLOCKED — `ConvertReflectionType*`, the
+four `CreateFunctionTypeInfo*` members, then the assignability SCC WHOLE: **645 C# lines, ~50 sites,
+no protocol**)
+
+Last updated (prior): 2026-07-30 (**TASK 017 SLICE 12 STAGE A LANDED (no commit — mandate) — THE
 NULLABILITY-REFLECTION CAPABILITY IS ON THE COLUMNAR SURFACE AND THE ARC'S FIRST TWO-STAGE BOOTSTRAP
 IS SET UP.** Fork (a) taken. `NullabilityInfoContext`, `NullabilityInfo`, `NullabilityState`,
 `CustomAttributeData` and `CustomAttributeTypedArgument` now resolve, and the whole stage-B member
@@ -435,7 +474,211 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 12 STAGE A — THE NULLABILITY-REFLECTION
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 12 STAGE B — THE `NullabilityMetadata`
+  REFLECTION PORT, THEN THE ASSIGNABILITY SCC LANDS WHOLE.** MANDATED TARGET, recorded verbatim
+  from the coordinator and unchanged BEFORE any production edit:
+  1. PORT `src/NSharpLang.Compiler/NullabilityMetadata.cs`'s reflection half (251 lines, 27 call
+     sites across 4 files — re-verified at this tree: `Analyzer.cs` 17, `CodeIntelligenceService.cs`
+     4, `CompletionEngine.cs` 3, `tests/NullabilityMetadataTests.cs` 3) to N# beside the already-N#
+     pure half (`NullabilityMetadataCore.nl`), using the stage-A shape idioms; DELETE the C# file,
+     route the 27 sites, ratchet-account every touched tracked file.
+  2. Then `CreateFunctionTypeInfoFromDelegate` / `CreateFunctionTypeInfo*` / `ConvertReflectionType`.
+  3. Then THE SCC LANDS WHOLE: `IsAssignable`, `IsSubtypeOf`, `HasImplicitConversion` +
+     `_activeImplicitConversions`, the delegate scorer, the lambda arm, and the two slice-6
+     pending-pair shells absorbed — the ~50 sites route, the C# members are DELETED, no callback,
+     no protocol.
+  If the tree surfaces an unrecorded dependency: measured-recut and record. Permitted split point is
+  after step 1 only (terminal on its own: C# deleted, sites routed).
+  **RESULT: STEP 1 LANDED WHOLE (no commit — mandate). THE AUTHORISED SPLIT IS TAKEN AT ITS EXACT
+  RECORDED POINT: steps 2-3 are the next slice, unchanged and now UNBLOCKED.** The reason for the
+  split is scope, not a wall: the port is terminal (`NullabilityMetadata.cs` is DELETED, all 27
+  sites route, the owner is contract-pinned) and steps 2-3 are a further **645 C# lines** measured
+  at this tree — `CreateFunctionTypeInfoFromDelegate` 51, `CreateFunctionTypeInfo` (`TypeReference`
+  overload) 49, `CreateFunctionTypeInfoInDeclarationContext` 14, `CreateFunctionTypeInfo`
+  (`FunctionDeclaration` overload) 55, `IsAssignable` 147, `IsSubtypeOf` 77,
+  `HasImplicitConversion` 44, `TryGetDelegateSignatureConversionScore` 87,
+  `IsLambdaAssignableToDelegate` 52, `TryGetRuntimeDelegateMethodGroupMatchScore` 37,
+  `IsKnownGenericTypeAssignable` 14, `IsFunctionTypeAssignable` 14,
+  `IsFunctionTypeAssignableToRuntimeDelegateMethodGroup` 4 — plus `ConvertReflectionType` /
+  `ConvertReflectionTypeWithOverrides`, which is a second slice's worth of measurement,
+  differential, oracle and IL evidence on top of what this turn already spent.
+  **THE PORT.** `src/NSharpLang.Compiler/NullabilityMetadata.cs` is **DELETED — all 251 lines / 207
+  non-blank, the whole file**, because the file WAS the reflection half: `NullabilityMetadataCore.nl`
+  already owned every pure decision and the C# owned nothing else. Its N# replacement is
+  `NullabilityMetadataReflection.nl` (**449 lines / 383 non-blank, ONE class, 32 members — 12 public
+  entry points and 20 file-private helpers**). `git diff` over the two production files is
+  **+449 / −251**; the ONLY C# ADDED anywhere in the slice is **ZERO lines** — every C# hunk is a
+  rename in place.
+  **THE CALLER MAP, RE-VERIFIED AT THIS TREE AND ALL 27 SITES ROUTED** (`Analyzer.cs` 17,
+  `CodeIntelligenceService.cs` 4, `CompletionEngine.cs` 3, `tests/NullabilityMetadataTests.cs` 3 —
+  exactly the coordinator's count, unchanged). `Analyzer.cs` `git diff` is **17 / 17**: seventeen
+  one-line renames and NOT ONE added line, so the file stays at **20,857 lines / 18,329 non-blank**.
+  `CodeIntelligenceService.cs` 4 / 4 and `CompletionEngine.cs` 3 / 3, likewise pure renames. The
+  four override-taking entry points became explicit arities
+  (`ConvertParameterWithOverride` / `ConvertReturnWithOverride`) rather than defaulted parameters,
+  which is the recorded columnar rule.
+  **THREE DEAD C# ARMS MEASURED AND DELIBERATELY NOT PORTED**, recorded rather than carried: the
+  public `ConvertType(Type, Func<Type, TypeInfo>?)` overload and the `typeOverride` arms of
+  `ConvertProperty` and `ConvertField` have **ZERO callers** anywhere in `src/`, `tests/` or
+  `editors/`. The N# owner therefore has no dead public surface; the walk they shared is exercised
+  in full through `ConvertParameterWithOverride` / `ConvertReturnWithOverride`.
+  **THE ONE NON-MECHANICAL DECISION — HOW THE OVERRIDE CROSSES THE BOUNDARY.** `Func<Type, TypeInfo>`
+  is **OFF the columnar surface**: a parameter of a closed `Func` over an EMITTED type declines at
+  `emit.declaration.method-param: … 'Func<Type,TypeInfo>?' could not be resolved`, and it is the
+  TYPE ARGUMENT that is refused, not the `?` — `Func<int,int>?` and `Func<Type,int>?` both bind, and
+  so does `Func<Type,object>?`. The owner therefore takes `Func<Type, object>?` and casts once, in a
+  single three-line helper (`InvokeTypeOverride`). This costs the C# side NOTHING: its four lambdas
+  are unchanged and their conversion to `Func<Type, object>` is the C# compiler's own implicit
+  reference conversion. It is a boundary encoding, not a protocol — there is no callback INTO C#
+  policy, no fallback, and no shadow path. (Admitting `Func<…>` over emitted types to the surface
+  would have been a mid-slice catalog change and therefore the repin wall; it is recorded below as a
+  future capability, not taken.)
+  **THE FINDING THE DIFFERENTIAL CAUGHT AND READING WOULD NOT HAVE.** A first port tested the
+  `[NotNullWhen(...)]` constructor argument with
+  `argument.get_ArgumentType() == typeof(bool)` — the spelling stage A proved binds. It is **WRONG
+  UNDER A MetadataLoadContext**, which is how the analyzer sees every external assembly: `ArgumentType`
+  is then a PROJECTED `System.Boolean` that is not `typeof(bool)`, while `Value` is still a live
+  boxed CLR bool. The bug silently DROPPED the `[NotNullWhen(true)]` / `[NotNullWhen(false)]` prefix
+  from every MLC-loaded signature — **18 mismatching cells**, all of them `MlcFormatParameter`
+  (`String.Equals`, `String.IsNullOrEmpty`, `String.IsNullOrWhiteSpace`, `Version.TryParse` ×4,
+  `IParsable.TryParse`, …), and **zero** mismatches in the live-reflection half of the same grid.
+  The fix is the value test the stage-A contracts already used — only a boxed bool equals a boxed
+  bool, so `value.Equals(true) || value.Equals(false)` IS `value is bool` — and it is exact in both
+  worlds. **The MLC dimension of the grid was added on purpose because the analyzer runs this reader
+  over MLC members; it earned its place on the first run.**
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINAL.** One throwaway xunit probe run with BOTH
+  implementations live in ONE process (the C# original was still present, so no baseline worktree is
+  needed and the comparison is exact rather than replayed): **33,479 CELLS, 0 MISMATCHES, 8 THROWN
+  CELLS**, and the two transcripts are **BYTE-IDENTICAL — md5 `3965010fd33a5a99bc1f97bf630bcedb` for
+  the C# column and `3965010fd33a5a99bc1f97bf630bcedb` for the N# column**, asserted equal in the
+  probe itself. Every cell is value-or-thrown-exception (`THROWN:<type>:<message>`), and the
+  `TypeInfo` answers are compared by a STRUCTURAL render (wrapper by wrapper, generic definition
+  included, `ReflectionTypeInfo` by assembly-qualified name), not by display string. The grid: **58
+  CLR types** (every built-in, nullable value types, jagged/rank-2/nullable-element arrays, open and
+  closed generics, interfaces, enums, delegates, tuples, by-ref, pointer and three generic
+  parameters) × `ConvertType` + `FormatType`; **17 member-source types** — including a
+  purpose-built generic subject with `[MaybeNull]`, `[NotNull]`, `[NotNullWhen(true)]`,
+  `[NotNullWhen(false)]`, `[return: NotNull]`, `params`, `ref`, `in`, `out`, nullable and non-nullable
+  generic fields and properties, a nested-generic property, a delegate property and an event — over
+  ALL public AND non-public instance AND static properties, fields, methods, method parameters,
+  return parameters and constructor parameters; **four type overrides** (generic-parameter-only,
+  concrete-type, always-null and always-answering) applied to every parameter and every return;
+  **17 synthetic `TypeInfo` shapes** × `FormatTypeInfo` + `StripMetadata`; **9 null-argument cells**
+  that pin the two implementations to the same exception type AND message (the 8 thrown cells); and
+  the entire member grid re-run against a **MetadataLoadContext** (`System.String`, `System.Uri`,
+  `System.Version`, plus the probe subject open and closed) — **4,701 of the 33,479 cells are MLC
+  cells**. 8,194 rows carry a nullability wrapper and 109 carry a flow-attribute prefix, so the
+  grid is not dominated by trivial answers. The probe was DELETED after the run; `git status` shows
+  no residue.
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `513ba36d0` in a throwaway `/private/tmp/nsharp017s12b` worktree and at the working tree, both run
+  over the SAME (working-tree) sources, across all **49 `project.yml` corpus targets
+  (ORACLE_TARGETS=49)**: **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0 — with no
+  exclusion at all**, `BootstrapServices` included. That also proves the analyzer's own verdict on
+  the new `.nl` file is clean.
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (the established explicit PE/CLI normaliser, unchanged —
+  it touches ONLY the COFF `TimeDateStamp`, the optional-header `CheckSum`, the Debug Directory
+  entries AND the CodeView blobs they point at, and the `#GUID`/`#Pdb` metadata heaps): **72 / 72
+  comparable assemblies BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (34 product
+  assemblies from the corpus targets that build standalone, 38 single-file examples),
+  **SINGLE_LOG_DIFFS = 0**, and **SKIPPED_TARGET_DIFFS = 0** — the 13 targets that do not build
+  standalone fail with byte-identical output and the same exit code in both trees.
+  `src/NSharpLang.Compiler.BootstrapServices` is among them and is the one target whose assembly
+  must differ anyway, by design (its source set changed).
+  **ASSERTION MIGRATION.** Two C# test methods MOVED rather than being kept: `tests/NullabilityMetadataTests.cs`
+  loses `NullabilityMetadata_PreservesFallbackFormatting` and
+  `NullabilityMetadata_StripsObliviousMetadataThroughNSharp` (**20 lines, 6 assertion markers**),
+  whose claims — the `ReflectionTypeInfo` display form, the `NewtypeInfo` fallback that the N#
+  display half declines to render, and the oblivious stripper — are now native contracts. The three
+  surviving methods pin `NullabilityTypeDisplay` and `NullabilityMetadataCore`, which this slice does
+  not touch. NEW NATIVE PINNING: **14 contracts** (7 → 21 in the file, +328 lines) covering the
+  built-in map; the nullable-value-type rule (never oblivious-wrapped); the per-layer read state of
+  an array; a closed generic's stripped name, converted arguments AND definition; the
+  unmodelled-type reflection fallback; the generic-parameter name; by-ref stripping; the CLR display
+  form for aliases, arrays, generics and a bare generic parameter; a real BCL nullable annotation
+  reaching the converted type and a not-null one NOT being wrapped; the flow prefix preceding the
+  modifier AND `MaybeNullWhen` deliberately contributing nothing; `params` recognised by attribute
+  rather than by array shape, with a non-params array of the same type as the control; property,
+  field and return all reading through one walk; the override answering for a generic parameter,
+  answering again AT THE LEAF, and a declining override landing exactly where no override lands; and
+  the stripper plus the two display halves.
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** (`dotnet test tests/Tests.csproj -c Release`,
+  3m35s) — the `513ba36d0` baseline was 3,194 and the delta is EXACTLY the two migrated test methods,
+  nothing else; BootstrapServices contracts **1,733 → 1,747 (+14)** via `dotnet test
+  src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`, **1,747 / 1,747
+  PASS** (the 3 ExternalAssemblyScan Debug-layout tests did not trip); ownership audit **18 / 18**
+  (`nlc test --project tests/native/ownership-audit`, 1.3s); `./scripts/dev.sh --since` took the FULL
+  unit-suite fail-safe (it names the two new `.nl` paths as unmapped, `NullabilityMetadata.cs` as a
+  shared compiler file, and `OwnershipAudit.nl` as unmapped) and passed in Debug.
+  **RATCHET REPIN** via `scratchpad/repin_017_s12b.py` (slice 2…11's script, adapted only for the
+  removal case) — `state` + `current*` + fingerprints ONLY, **FIVE rows**:
+  `src/NSharpLang.Compiler/NullabilityMetadata.cs` becomes **`"state":"removed"`** with zero current
+  metrics and `text-v1:removed` (the row STAYS, so `epochFileCount` 381 and `epochPathFingerprint`
+  are untouched — the audit's own rule for a deleted debt path, and `OWN006` would fire if the row
+  were dropped); `Analyzer.cs` keeps **20,857 / 18,329** with a new content fingerprint
+  (`text-v1:0e07cdbe4c6dcc17` → `text-v1:f38bfda42f385300`); `CodeIntelligenceService.cs` **1,903 /
+  1,664** and `CompletionEngine.cs` **805 / 703** likewise fingerprint-only; and
+  `tests/NullabilityMetadataTests.cs` **79 → 59 lines / 68 → 52 non-blank / 28 → 22 assertion
+  markers**. `reviewedHeadFingerprint head-v1:ebdbe9dca3b13810` → **`head-v1:600a82c55493596d`**,
+  mirrored into `OwnershipAudit.nl`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED by recomputation both
+  before and after the write; the script self-checks by reproducing all three composite fingerprints
+  over the 381 rows before changing anything, and REFUSES to mark a path removed while it is still on
+  disk. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after, and the manifest
+  `git diff` is exactly 6 changed lines.**
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 859s (14m19s)** in a fresh isolated copy (`/private/tmp/nsharp-test-all.40d4af227284.StfZNd`;
+  the log opens with "Fresh isolated test run required: pre-commit verification", so it is neither a
+  cached whole-gate nor a cached per-step verdict — `Stored validated isolated test cache result:
+  40d4af227284d706 (860s)`). **105 `✓ PASSED`, zero `✗`.** Every step green: clean, compiler build,
+  the format contract gate, unit tests **3,192 / 3,192** (3m20s inside the gate), the native
+  `.tests.nl` estate across all 24 projects including BootstrapServices' **1,747 / 1,747** and
+  `tests/native/ownership-audit` — the ratchet re-validated INSIDE the gate against the freshly
+  written manifest — **VS Code integration smoke 36 passing in 41s** (the healthy timing, not the
+  recorded ~19m load-flake signature, so no cool re-run was needed), SDK pack + install, template
+  pack/install/creation, the template-generated project, all example projects, all single-file
+  examples, `nlc check` over the examples, and the ECMA-335 **IL verification gate — all 67 N#
+  assemblies pass**. `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt and
+  reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE computer-use
+  verification was NOT attempted, per the coordinator's standing instruction; this slice adds no
+  LSP/IDE behaviour of its own, and the one IDE-facing surface it touches — the type display that
+  hover, completion and signature help print — is pinned entry by entry at 33,479 grid points, of
+  which 4,701 are MetadataLoadContext cells, which is exactly how the language server sees an
+  external assembly.
+  **TWO NEW .nl GOTCHAS, BOTH FOUND BY BUILDING:**
+  * **`type` IS A RESERVED KEYWORD** (`NL109`) and so is **`newtype`**. Neither can name a parameter
+    or a local; a class whose body uses one declines at `parse.struct` / `parse.test` — a
+    WHOLE-DECLARATION parse failure that names the class line, not the offending identifier. The
+    port spells it `clrType` throughout.
+  * **A LAMBDA WHOSE BODY IS BARE `null` DECLINES** (`emit.expression.unhandled-kind`, node kind 5),
+    in both `Func<T, object>` and `Func<T, object?>` positions. Closing over a nullable local
+    (`nullAnswer: object? = null` … `(candidate) => nullAnswer`) is the working spelling and is what
+    the declining-override contract uses.
+  **WALL STATUS: NO wall crossed and NONE reached.** No catalog surface was added, so no toolset
+  repin was needed: the packaged 0.1.0 SDK from stage A's repin self-emits the new owner and all 21
+  contracts. Two capability gaps were MEASURED and routed around rather than closed, and are recorded
+  as future slices, not blockers: (1) a closed `Func<…>` over an EMITTED type on the columnar
+  parameter surface — closing it would let the override cross as `Func<Type, TypeInfo>` and delete
+  the one cast; (2) a lambda body of bare `null`.
+  **NEXT SUB-SLICE — STEPS 2 AND 3, UNCHANGED AND NOW UNBLOCKED.** Every dependency the slice-11
+  fork record named is satisfied: `NullabilityMetadataReflection` is N# and lives IN
+  `BootstrapServices`, so `ConvertParameter`/`ConvertReturn` are callable from N#. The next slice is
+  exactly: (a) `ConvertReflectionType` (:9546) and `ConvertReflectionTypeWithOverrides` (:9582) —
+  note the second is the very lambda body the four override sites close over, so moving it turns the
+  `Func<Type, object>` boundary into an N#-internal call and the cast disappears; (b)
+  `CreateFunctionTypeInfoFromDelegate` (:9876, 51), `CreateFunctionTypeInfo(TypeReference…)` (:9928,
+  49), `CreateFunctionTypeInfoInDeclarationContext` (:9978, 14) and
+  `CreateFunctionTypeInfo(FunctionDeclaration…)` (:9993, 55), 32 live calls; then (c) THE SCC WHOLE —
+  `IsAssignable` (:18206, 147), `IsKnownGenericTypeAssignable` (:18463, 14) and
+  `IsFunctionTypeAssignable` (:18478, 14) with their slice-6 pending-pair shells ABSORBED,
+  `IsFunctionTypeAssignableToRuntimeDelegateMethodGroup` (:18493, 4),
+  `TryGetRuntimeDelegateMethodGroupMatchScore` (:18498, 37),
+  `TryGetDelegateSignatureConversionScore` (:18536, 87), `IsLambdaAssignableToDelegate` (:18629, 52),
+  `IsSubtypeOf` (:18718, 77) and `HasImplicitConversion` (:18796, 44) with the
+  `_activeImplicitConversions` re-entrancy set (declared :145, cleared :320) — **645 lines, ~50
+  `IsAssignable` sites**, no protocol, no callback, and the two arms slice 11 already moved
+  (`AnalyzerStructuralAssignability`) stay where they are and are simply called.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `513ba36d0`): **017 SLICE 12 STAGE A — THE NULLABILITY-REFLECTION
   CAPABILITY. FORK (a) IS TAKEN AND ITS FIRST STAGE IS LANDED: `NullabilityInfoContext` AND
   `CustomAttributeData` ARE ON THE COLUMNAR SURFACE, THE WHOLE STAGE-B MEMBER SURFACE IS PROVEN TO
   BIND AND EXECUTE, AND THE TURN STOPS AT THE REPIN WALL AS INSTRUCTED.** No commit (mandate). The

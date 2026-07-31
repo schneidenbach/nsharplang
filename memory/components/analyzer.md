@@ -268,26 +268,53 @@ two types alone, and they are kept out of `AnalyzerAssignabilityFacts` so that c
   in a project that does not reference ASP.NET Core.
 
 `IsAssignable` itself, and the arms that re-enter it, remain in `Analyzer.cs` for ONE measured
-reason, and it is no longer the duck arm or the metadata probe: `IsAssignable`'s callable-reference
-arm builds a runtime delegate's signature with `CreateFunctionTypeInfoFromDelegate`, whose general
-`Invoke` arm needs `NullabilityMetadata.ConvertParameter`/`ConvertReturn`. Those need
-`System.Reflection.NullabilityInfoContext` and `CustomAttributeData`. Both WERE off the columnar
-external-type surface; **slice 12 stage A put them on it**, as five type rows in
-`ColumnarExternalBindingPlans` (the two types plus `NullabilityInfo`, `NullabilityState` and
-`CustomAttributeTypedArgument`), the two computed closed-`IList<T>` identities their attribute
-sequences answer with, and one enum static-member row. **No call plan was needed and none was
-added**: once a type is on the surface, every ordinary public member on it binds through
-`ColumnarOrdinaryRuntimeDirectCallResolver`, and a call plan would instead PRE-EMPT that resolver —
-a supported plan whose materialization fails is terminal, which is precisely what a value receiver
-like `CustomAttributeTypedArgument` cannot survive (`ValidatePlanForm` demands `Call`, the legacy
-host demands `CallVirtual`). What remains between here and the port is only the TOOLSET REPIN: the
-packaged SDK that builds `BootstrapServices` carries its own snapshot of the catalog, so the rows
-are inert in that project until it is repacked. Every OTHER member of the closure (`IsSubtypeOf`,
-`HasImplicitConversion`, the delegate scorer, the lambda arm and the two protocol shells) re-enters
-`IsAssignable`, so no sub-cut of the closure's interior exists.
+reason, and it is no longer the duck arm, the metadata probe, or the columnar surface: the
+capability landed in slice 12 stage A (five type rows in `ColumnarExternalBindingPlans`, the two
+computed closed-`IList<T>` identities their attribute sequences answer with, and one enum
+static-member row — **no call plan, because a supported plan would PRE-EMPT
+`ColumnarOrdinaryRuntimeDirectCallResolver` terminally and a value receiver like
+`CustomAttributeTypedArgument` cannot survive that**), and stage B then N#-owned the reader itself.
+What is left is the last mechanical step: `IsAssignable`'s callable-reference arm builds a runtime
+delegate's signature with `CreateFunctionTypeInfoFromDelegate`, and that member — together with
+`CreateFunctionTypeInfo` / `CreateFunctionTypeInfoInDeclarationContext` and `ConvertReflectionType`
+— has NOT moved yet. Its dependency is satisfied: `NullabilityMetadataReflection` is N# and lives
+in `BootstrapServices`. Every OTHER member of the closure (`IsSubtypeOf`, `HasImplicitConversion`,
+the delegate scorer, the lambda arm and the two protocol shells) re-enters `IsAssignable`, so no
+sub-cut of the closure's interior exists and the whole SCC lands in one cut.
 
-Three shape rules the port must keep, each one found by a decline and pinned by the staged stage-B
-contracts in `systems-language-closeout/stage-b-nullability-contracts.md`:
+### The nullability metadata reader
+
+`NullabilityMetadataReflection.nl` is the N# owner of the reflection half; `NullabilityMetadataCore.nl`
+already owned every decision that is a pure function of facts, and the two compose. The reader
+answers a `TypeInfo` for a CLR `Type`, `PropertyInfo`, `FieldInfo`, `ParameterInfo` or a method's
+return, and the display forms (`FormatType`, `FormatParameter`, `FormatReturnType`, `FormatTypeInfo`)
+that hover, completion and every diagnostic that prints a CLR member signature read.
+
+- The walk strips by-ref, answers the type override, converts, and only then applies the read state.
+  A NULLABLE VALUE TYPE is never wrapped in an oblivious or nullable layer of its own — it already
+  IS one. Every reference layer carries its own state, so `string[]` answers
+  `Oblivious(Array(Oblivious(string)))`: the array and its element are annotated separately.
+- THE TYPE OVERRIDE is consulted TWICE — once before the walk for a generic parameter, and again at
+  the leaf for a type the walk did not decompose. A null answer means "decline", and falls through
+  to exactly what no override at all would produce.
+- THE OVERRIDE CROSSES THE BOUNDARY AS `Func<Type, object>`, not `Func<Type, TypeInfo>`. A closed
+  `Func` over an EMITTED type is off the columnar surface (`emit.declaration.method-param`), while
+  one over `object` is on it, so the N# owner takes `object` and casts once. The C# call sites keep
+  their own `TypeInfo`-returning lambdas verbatim; the conversion is the C# compiler's own implicit
+  reference conversion.
+- FOUR FLOW ATTRIBUTES are recognised and no others: `MaybeNull`, `NotNull`, `NotNullWhen` and
+  `ParamArray`. `MaybeNullWhen`, in particular, contributes nothing — an out parameter annotated
+  with it renders as a plain `out string? value`.
+- **THE ATTRIBUTE ARGUMENT MUST BE TESTED BY VALUE, NEVER BY `ArgumentType`.** Under a
+  MetadataLoadContext — which is how the analyzer sees every external assembly —
+  `CustomAttributeTypedArgument.ArgumentType` is a PROJECTED `System.Boolean` that is not
+  `typeof(bool)`, while `Value` is still a live boxed CLR bool. Comparing the boxed value against
+  boxed `true`/`false` is exact in both worlds; comparing the type silently drops every
+  `[NotNullWhen(...)]` prefix on MLC-loaded members. This was found by a differential, not by
+  reading.
+
+Three shape rules the port keeps, each one found by a decline and pinned by the owner's contracts in
+`NullabilityMetadataReflection.tests.nl`:
 
 - `new NullabilityInfoContext()` does NOT emit — the emitter's `new` chain is a name table that does
   not model the type. Construct through `typeof(T).GetConstructor(...)` + `ConstructorInfo.Invoke`,
@@ -457,8 +484,10 @@ is no longer name-based: `AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration
 declaration's own TYPE (`declaration as ClassDeclaration != null`, once per family), which is the same
 decision the shell's `is ClassDeclaration or …` pattern made. The scope stack and the project channel
 are no longer blockers — both are N#-owned; see the next two sections. The last remaining C# piece of
-the resolution surface is `CreateFunctionTypeInfoInDeclarationContext`, which needs the reflection half
-of `NullabilityMetadata` and therefore lives above BootstrapServices.
+the resolution surface is `CreateFunctionTypeInfoInDeclarationContext`. Its old reason — needing the
+reflection half of `NullabilityMetadata`, which lived above BootstrapServices — is GONE: that half is
+now `NullabilityMetadataReflection.nl` inside BootstrapServices. The member is simply not moved yet,
+and moves with the assignability SCC.
 
 ### Project discovery
 
@@ -511,8 +540,10 @@ enumeration order is decisive for the latter two and irrelevant for the first.
 
 `TryResolveVisibleProjectFunction` returns the matched `FunctionDeclaration`, its file and its symbol
 declaration; the shell still builds the `FunctionTypeInfo` from them, because
-`CreateFunctionTypeInfo` needs the reflection half of `NullabilityMetadata`, which lives above
-BootstrapServices. That is the one remaining piece of this family in C#, and it is recorded as such.
+`CreateFunctionTypeInfo` has not moved yet. Its old blocker — the reflection half of
+`NullabilityMetadata` living above BootstrapServices — is gone; that half is now
+`NullabilityMetadataReflection.nl` INSIDE BootstrapServices. This is the one remaining piece of this
+family in C#, and it moves with the assignability SCC.
 
 A resolved declaration's LINE is the declaration's own and its COLUMN is where the NAME starts on
 that line (`CodeIntelligenceTextUtilities.FindIdentifierNameColumn`), which is what a

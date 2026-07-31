@@ -25,26 +25,6 @@ public class NullabilityMetadataTests
     }
 
     [Fact]
-    public void NullabilityMetadata_PreservesFallbackFormatting()
-    {
-        var newtype = new NewtypeInfo("UserId", new SimpleTypeReference("int"));
-        var reflection = new ReflectionTypeInfo(typeof(Dictionary<string, int>));
-
-        Assert.Null(NullabilityTypeDisplay.TryFormatTypeInfo(newtype));
-        Assert.Equal("UserId", NullabilityMetadata.FormatTypeInfo(newtype));
-        Assert.Equal("Dictionary<string, int>", NullabilityMetadata.FormatTypeInfo(reflection));
-    }
-
-    [Fact]
-    public void NullabilityMetadata_StripsObliviousMetadataThroughNSharp()
-    {
-        var inner = BuiltInTypes.String;
-        var type = new ObliviousTypeInfo(new ObliviousTypeInfo(inner));
-
-        Assert.Same(inner, NullabilityMetadata.StripMetadata(type));
-    }
-
-    [Fact]
     public void NullabilityMetadataCore_MapsClrBuiltInsThroughNSharp()
     {
         Assert.Equal(BuiltInTypes.Int, NullabilityMetadataCore.ConvertBuiltInType(typeof(int).FullName));
