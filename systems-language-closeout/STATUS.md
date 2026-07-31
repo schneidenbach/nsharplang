@@ -474,7 +474,274 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 12C — THE ASSIGNABILITY SCC FINAL CUT.**
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 13 — THE OVERLOAD-RESOLUTION ARC OPENS; ITS
+  SCORING AND APPLICABILITY KERNEL IS THE FIRST CUT.** Target recorded BEFORE any production edit.
+
+  **THE FAMILY, MEASURED AT `c86ac6db4` (`Analyzer.cs` 19,993 lines).** Overload resolution and
+  reflection argument binding is ONE family with FOUR entry points and a shared periphery:
+  * `AnalyzeCall` (:9755, 166) is the fan-out. It analyses the argument list (twice over — once
+    against a bound synthetic signature, once for method groups where lambdas must wait for a
+    delegate context), then dispatches on the callee's `TypeInfo` to one of four binders.
+  * **THE SOURCE (N#) BINDER.** `BindSyntheticNSharpCall` (:11120, 78) scores every candidate with
+    `TryGetSyntheticCallMatchScore` (:11254, 79) and breaks ties on FOUR ordered rules — fewer direct
+    generic-parameter matches (`GetSyntheticGenericParameterCost` :11199), non-params beats params,
+    more explicit arguments beats more defaults, else AMBIGUOUS. Below it:
+    `TryBindSyntheticFunctionArguments` (:10356, 117, the named/positional/params/optional filler),
+    `TryInferSyntheticGenericBindings` (:11690, 87) with `CollectNSharpTypeParameterBounds` (:11885,
+    98) and `ComputeLeastUpperBound` (:11804, 28) / `TryComputeNumericLub` (:11836, 44),
+    `ValidateSyntheticFunctionCall` (:10204, 151) and `ValidateSyntheticGenericConstraints` (:11494,
+    73).
+  * **THE REFLECTION BINDER.** `BindReflectionCall` (:12074, 61) over a `ReflectionMethodGroupInfo`
+    and `BindSingleReflectionMethod` (:12136, 33) share `TryBindReflectionArguments` (:12292, 179) —
+    arity filter, generic inference, params expansion, optional filling, ref/out matching and
+    per-argument scoring via `TryScoreReflectionSuppliedArgument` (:12472, 89) — then
+    `FinalizeBoundReflectionCall` (:12793, 146) re-walks the winner to convert and REPORT.
+  * **THE EXTENSION-METHOD PROBE.** `TryResolveExtensionMethod` (:9345, 53) prefers source
+    extensions filtered by `IsExtensionReceiverApplicable` (:9399, 15) and otherwise sweeps the
+    MetadataLoadContext with `FindExternalExtensionMethods` (:9418, 41), which carries the
+    `b91e4ba02` instance-hides-extension guard.
+  * **THE MEMBER RESOLVER.** `ResolveMember` (:8873, 280) is the family's other half: it produces the
+    `FunctionTypeInfo` / `ReflectionMethodInfo` / `ReflectionMethodGroupInfo` / `NSharpMethodGroupInfo`
+    the binders consume.
+  **STATE THE FAMILY READS:** `_extensionMethods`, `_usingNamespaces`, `_mlcAssemblies`,
+  `_wellKnownTypes`, `_currentTypeName`, `_scopes`, `_semanticModel`, `_errors`, plus the eight N#
+  collaborators (`_declarationContext`, `_typeResolver`, `_typeSubstitution`, `_clrTypeConversion`,
+  `_assignability`, `_assignabilityFacts`, `_functionTypeFactory`, `_structuralAssignability`).
+  **REPORTING SITES:** five `ErrorCode.NoMatchingOverload` (NL402), five `TypeMismatch`, five
+  `GenericConstraintViolation`, two `WrongArgumentCount`, one `InvalidSyntax`, plus the bare-`Error`
+  ambiguity report in `BindSyntheticNSharpCall`.
+
+  **THE STAGED ARC PLAN** (the `ResolveType`-arc precedent: peripheral pure facts first, state
+  carriers next, the reporting core last):
+  1. **SLICE 13 — the scoring and applicability KERNEL** (this slice): every pure ranking table,
+     applicability predicate, arity/params table and signature FORMATTER the four binders consult,
+     plus the seven collaborator-backed scoring members whose collaborators are already N#.
+  2. **SLICE 14 — the reflection argument BINDER's pure interior**: `TryGetReflectionParamsElementType`'s
+     consumers, `EnumerateSuppliedReflectionArguments`, the bound-argument records and
+     `TryBindReflectionArguments`' non-reporting arms.
+  3. **SLICE 15 — the source binder's argument FILLER**: `TryBindSyntheticFunctionArguments` and its
+     two reporting arms, then `TryGetSyntheticCallMatchScore` + `BindSyntheticNSharpCall` whole.
+  4. **SLICE 16 — generic INFERENCE**: `TryInferSyntheticGenericBindings`, `CollectNSharpTypeParameterBounds`,
+     the LUB pair and `ApplyNSharpGenericBindings`.
+  5. **SLICE 17 — the extension-method PROBE** (a state carrier: `_extensionMethods`,
+     `_usingNamespaces`, `_mlcAssemblies`).
+  6. **SLICE 18 — the reporting CORE**: `ReportNoMatchingReflectionOverload`,
+     `ReportNoMatchingSyntheticNSharpOverload`, `ValidateSyntheticFunctionCall`,
+     `FinalizeBoundReflectionCall` and `ResolveMember`.
+
+  **SLICE 13's EXACT TARGET — 35 C# MEMBERS, 461 body lines, 88 call sites, no protocol.**
+  * Reflection applicability and ranking: `GetReflectionMatchScore` (:13107, 13),
+    `TryMatchReflectionParameter` (:13121, 53), `TryFindCompatibleGenericType` (:9479, 38),
+    `IsExtensionParameterCompatible` (:9471, 7), `HasExtensionAttribute` (:9465, 5),
+    `IsParamsParameter` (:13085, 5), `HasCompatibleReflectionArity` (:13070, 14),
+    `GetByRefElementType` (:12562, 4), `TryGetReflectionParamsElementType` (:12567, 24),
+    `GetReflectionMemberFlags` (:9153, 7), `GetDelegateParameterTypeForLambdaTarget` (:9707, 7),
+    `IsExtensionMethodCall` ×2 (:13091 + :13096, 14), `IsExpandedReflectionParamsArgument`
+    (:13045, 9) and `IsRuntimeOperatorParameterCompatible` (:7642, 15).
+  * Source-signature arity/params tables: `GetSyntheticParamsParameterIndex` (:10474, 15),
+    `GetSyntheticRequiredParameterCount` (:10490, 8), `GetSyntheticRequiredArgumentCount` (:10499, 8),
+    `GetSyntheticParameterStartIndex` (:10950, 5), `IsDirectFunctionTypeParameterReference`
+    (:11246, 7), `GetParamsInferenceTypeReference` (:11778, 9), `ApplySyntheticParameterModifier`
+    (:10169, 13) and `GenericNamesMatch` (:11988, 10).
+  * The NL402 signature FORMATTERS: `FormatReflectionMethodSignature` (:10956, 9),
+    `FormatReflectionParameter` (:10966, 2), `FormatReflectionTypeName` (:10969, 2),
+    `FormatSyntheticFunctionSignature` (:10547, 21) and `FormatSyntheticParameterSignature`
+    (:10569, 32).
+  * Collaborator-backed scoring (every collaborator already N#): `GetNSharpMatchScore` (:11401, 24),
+    `IsAssignableReflectionArgument` (:13055, 14), `GetNSharpParamsElementType` (:10183, 9),
+    `IsSingleDirectNSharpParamsArrayArgument` (:10193, 10), `GetParamsInferenceArgumentType`
+    (:11788, 11), `IsBroadDelegateType` (:9715, 8), `CanInferBroadDelegateLambda` (:9724, 12) and
+    `CreateBroadDelegateSignatureForLambda` (:9737, 17).
+  N# owns the scoring kernel; the C# members are DELETED; the 88 sites route mechanically;
+  `Analyzer.cs` net-negative; no callback, no protocol, no fallback. Measured recut only if
+  something unrecorded surfaces, and recorded here if so.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS THE OVERLOAD SCORING AND APPLICABILITY KERNEL.**
+  `AnalyzerOverloadFacts` is the sole authority for every pure ranking table, applicability
+  predicate, arity/params table and NL402 signature renderer the four binders consult;
+  `AnalyzerOverloadScoring` for the seven collaborator-backed scoring members. No callback, no
+  fallback, no shadow path, no protocol.
+  **THE CUT — 35 WHOLE C# MEMBERS DELETED, 454 body lines (497 with their doc comments and
+  separators).** All 36 recorded targets are there but ONE (below): `TryMatchReflectionParameter` 53,
+  `TryFindCompatibleGenericType` 38, `FormatSyntheticParameterSignature` 32,
+  `GetNSharpMatchScore` 24, `TryGetReflectionParamsElementType` 24,
+  `FormatSyntheticFunctionSignature` 21, `CreateBroadDelegateSignatureForLambda` 17,
+  `GetSyntheticParamsParameterIndex` 15, `IsRuntimeOperatorParameterCompatible` 15,
+  `HasCompatibleReflectionArity` 14, `IsAssignableReflectionArgument` 14,
+  `GetReflectionMatchScore` 13, `ApplySyntheticParameterModifier` 13,
+  `CanInferBroadDelegateLambda` 12, `GetParamsInferenceArgumentType` 11,
+  `IsSingleDirectNSharpParamsArrayArgument` 10, `IsExtensionMethodCall(…, Type?)` 10,
+  `GenericNamesMatch` 10, `FormatReflectionMethodSignature` 9, `GetParamsInferenceTypeReference` 9,
+  `GetNSharpParamsElementType` 9, `IsExpandedReflectionParamsArgument` 9,
+  `GetSyntheticRequiredParameterCount` 8, `GetSyntheticRequiredArgumentCount` 8,
+  `IsBroadDelegateType` 8, `IsExtensionParameterCompatible` 7,
+  `GetDelegateParameterTypeForLambdaTarget` 7, `IsDirectFunctionTypeParameterReference` 7,
+  `HasExtensionAttribute` 5, `GetSyntheticParameterStartIndex` 5, `IsParamsParameter` 5,
+  `GetByRefElementType` 4, `IsExtensionMethodCall(…)` 4, `FormatReflectionParameter` 2 and
+  `FormatReflectionTypeName` 2.
+  **THE ONE MEASURED RECUT — `GetReflectionMemberFlags` (7 lines, 2 sites) WAS NOT TAKEN**, and the
+  reason is a CAPABILITY GAP rather than a design choice: a bitwise OR over an EXTERNAL enum
+  (`BindingFlags.Public | BindingFlags.Instance`) declines at `emit.local.initializer`. Writing it
+  as an int and casting back would have landed it, but that trades a readable table for a magic
+  number, so the gap is recorded instead and the member stays C# for slice 14. **No catalog surface
+  was added and no toolset repin was needed** — `BindingFlags` itself was never the problem.
+  `Analyzer.cs` **19,993 → 19,510** (non-blank 17,584 → **17,182**); `git diff` **+83 / −566 = net
+  −483**, and the only C# ADDED anywhere is a three-line field declaration with its comment, one
+  constructor line, an 8-line `CreateOverloadScoring()` helper, two rebuild lines and the rewritten
+  call sites. **NO new C# method with policy, bridge, callback, shell or state.**
+  **ROUTING: 70 rewritten references across 69 lines, every one mechanical and all inside
+  `Analyzer.cs`** — **57 through `AnalyzerOverloadFacts.`**, **9 through `_overloadScoring.`** and
+  **4 through `NullabilityMetadataReflection.FormatType`** (the two deleted one-line shims are routed
+  to the reader they already delegated to, rather than re-created). Two mechanical shape changes at
+  the boundary, both recorded: the three-arity `IsExtensionMethodCall` becomes
+  `IsExtensionMethodCallOnReceiver` (C# overloaded on arity; N# names the question), and
+  `IsExpandedReflectionParamsArgument` takes the OPEN PARAMETER TYPE rather than the private
+  `SuppliedReflectionBoundArgument` record — the only field of it that member ever read, so the
+  record stays a purely C# binder detail for slice 14.
+  **N# ADDED:** `AnalyzerOverloadScoring.nl` (**986 lines, 2 classes, 35 members**) and
+  `AnalyzerOverloadScoring.tests.nl` (**908 lines, 40 contracts**). Nothing else changed.
+  **THE OWNER SPLIT IS THE 12C DISCIPLINE, EXTENDED.** `AnalyzerOverloadFacts` is pure statics.
+  `AnalyzerOverloadScoring` holds the five collaborators the other seven members need — the
+  declaration context, the conversion funnel, the assignability SCC, the type resolver and the
+  well-known-type bag — and is therefore **REBUILT at the same two points the SCC is** (the
+  well-known-type build and the `Dispose` tear-down), because two of its collaborators are. An
+  owner's fields never change after construction.
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `c86ac6db4` in a throwaway `/private/tmp/nsharp017s13` worktree, and the
+  working tree): **70,758 CELLS, 0 MISMATCHES, 34 THROWN CELLS, transcripts BYTE-IDENTICAL — md5
+  `0f0dbdb3ad513f2040a9182a9332501f` in both trees.** Each operation resolves to the C# private
+  member when the baseline still has it and to the ROUTED N# owner otherwise, and the N# owners are
+  consulted FIRST, so in the working tree a routed operation cannot silently fall back to a
+  surviving C# member of the same name. THE GRID: a real analyzed source (an alias, an interface, a
+  base/derived pair, a generic `Box<T>`, a record, a struct, an enum and an `Ops` class carrying
+  overloaded, params, optional, ref/out and generic signatures, plus two free-function overloads and
+  a receiver-style extension) × a **66-entry CLR type grid** — scalars, arrays, by-refs, nullables,
+  the collection and span families, five delegate shapes, an expression tree and its by-ref shell,
+  four OPEN generic definitions, and the OPEN type parameters read off real `Enumerable` methods —
+  squared for `GetReflectionMatchScore`, `TryMatchReflectionParameter` (with the resulting BINDINGS
+  rendered), `TryFindCompatibleGenericType`, `IsExtensionParameterCompatible` and
+  `IsRuntimeOperatorParameterCompatible` (**8,720 cells each**, 8,852 for the operator table with its
+  null-operand column); a **second seeded pass** of 8,720 cells that pre-binds the type parameter, so
+  the AGREEMENT arm is exercised as well as the BINDING arm; a **39-entry `TypeInfo` grid** squared
+  for `GetNSharpMatchScore` and `IsAssignableReflectionArgument` (3,042 each); 2,040
+  `ApplySyntheticParameterModifier`; 3,744 direct-params-array cells over three argument shapes;
+  1,056 params-expansion cells; 850 required-argument cells; 750 extension-receiver cells; 660 each
+  of `CanInferBroadDelegateLambda` and `CreateBroadDelegateSignatureForLambda` over five lambda
+  shapes; 450 arity cells; and the formatters over an **18-signature grid** deliberately including
+  the malformed shapes — a null parameter-type list, a short modifier list, a misplaced params
+  modifier, an out-of-range required count and a negative one. **Every cell is run TWICE — on an
+  analyzer WITH `LoadSystemAssemblies` and on one WITHOUT it — so 36,993 of the 70,758 cells are
+  MetadataLoadContext cells**, which is how the analyzer sees every external assembly, and the CLR
+  grid grows four MLC-read types in that pass precisely so the reflection IDENTITY rule is
+  exercised across contexts. **422 DISTINCT ANSWERS** in all, so the grid is not dominated by
+  trivial ones. THE WIRING IS PROVEN SEPARATELY by **65 `HOST.*` rows kept OUT of the byte
+  comparison**: all 30 operations say `Analyzer` in the baseline and **`AnalyzerOverloadFacts`
+  (46 rows) / `AnalyzerOverloadScoring` (18 rows)** in the working tree, and both owner types are
+  `<missing>` in the baseline. The probe was DELETED from both trees after the run.
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `c86ac6db4` in the throwaway worktree and at the working tree, **both run over the SAME
+  (working-tree) sources**, across all **49 `project.yml` corpus targets (ORACLE_TARGETS=49)**:
+  **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0 — with no exclusion at all**,
+  `BootstrapServices` included, which also proves the analyzer's own verdict on the two new `.nl`
+  files is clean under BOTH compilers. Plus **30 purpose-built overload-resolution fixtures** —
+  no-matching-overload (source and reflected), the AMBIGUITY arm, arity over and under, optional
+  filling and its missing-required arm, named arguments and an unknown name, params expansion with a
+  spread and a wrong element type, params-versus-fixed specificity, ref/out matching and a missing
+  modifier, generic inference and generic-versus-concrete specificity, too many type arguments, free
+  functions, the receiver-style extension and its no-match arm, external `string.Format` params,
+  LINQ extension binding, a method group as a delegate argument, a lambda ARITY mismatch, numeric
+  widening, an `out` argument, and three shapes that must stay CLEAN — firing **105 diagnostics with
+  FIXTURE_DIFFS=0**.
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (the established explicit PE/CLI normaliser, unchanged —
+  COFF `TimeDateStamp`, optional-header `CheckSum`, the Debug Directory entries AND the CodeView
+  blobs they point at, and the `#GUID`/`#Pdb` heaps only): **95 / 95 comparable assemblies
+  BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (57 product assemblies from the 70
+  corpus targets that build standalone, 38 single-file examples), **SINGLE_LOG_DIFFS = 0**, and
+  **SKIPPED_TARGET_DIFFS = 0** in BOTH sweeps — the 11 targets that do not build standalone fail with
+  byte-identical output and the same exit code in both trees. `BootstrapServices` is excluded by
+  design: its source set changed.
+  **ASSERTION MIGRATION.** All 35 members were `private` and none is named anywhere in `src/`,
+  `tests/` or `editors/`, so no C# test moved and the unit suite is unchanged at **3,192**. The DIRECT
+  pinning is new and native: **40 contracts** covering both score LADDERS and the cross-representation
+  identity rule that separates them, the binding-then-agreement structure of
+  `TryMatchReflectionParameter` (including the interface re-expression that lets `List<int>` match
+  `IEnumerable<T>`), the self/interfaces/base-chain search order, the three separate params questions,
+  the arity filter's treatment of optional and params parameters and of the receiver offset, the
+  full-name attribute discipline, the delegate-target unwrap through an expression tree and a by-ref
+  shell, the broad-delegate rule and its `var` refusal, the operator table's deliberate refusal of a
+  NULL operand, the params-index guard against a modifier list that disagrees with the signature, the
+  receiver offset's TWO conditions, the clamping in every arity computation, and the three renderers
+  including the ` = ...` marker's params exception.
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** (`dotnet test tests/Tests.csproj -c Release`,
+  3m24s — exactly the `c86ac6db4` baseline, ZERO drift); BootstrapServices contracts
+  **1,787 → 1,827 (+40)**, **1,827 / 1,827 PASS**; ownership audit **18 / 18**; `./scripts/dev.sh
+  --since` took the FULL unit-suite fail-safe (three unmapped `.nl` paths) and ran **3,192 in Debug
+  in 7m31s with ONE failure — `DaemonCommandTests.DaemonServer_ReturnsMethodNotFoundBeforeProjectLoad`,
+  a KNOWN load flake**: it passes **31 / 31 on a cool re-run** of its class, it is a daemon
+  handshake-timing test that touches nothing this slice changed, the Release suite is clean at
+  3,192 / 3,192, and the isolated gate below is clean at 3,192 / 3,192.
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 1,828s (30m27s)** in a fresh isolated copy (`/private/tmp/nsharp-test-all.f8655f3c0452.tBfNlH`;
+  the log opens with "Fresh isolated test run required: pre-commit verification" and closes with
+  `Stored validated isolated test cache result: f8655f3c04523f37 (1828s)`, so it is neither a cached
+  whole-gate nor a cached per-step verdict). **105 `✓ PASSED`, ZERO `✗`.** Every step green: clean,
+  compiler build, the format contract gate, unit tests **3,192 / 3,192** (6m43s inside the gate), the
+  native `.tests.nl` estate across every project including BootstrapServices' **1,827 / 1,827** and
+  `tests/native/ownership-audit` — the ratchet re-validated INSIDE the gate against the freshly
+  written manifest — **VS Code integration smoke 36 passing in 41s** (the healthy timing, not the
+  recorded ~19m load-flake signature, so NO cool re-run was needed), SDK pack + install, template
+  pack/install/creation, the template-generated project, all example projects, all single-file
+  examples, `nlc check` over the examples, and the ECMA-335 **IL verification gate — all 67 N#
+  assemblies pass, no new errors vs baseline**. `./scripts/reload-vscode-extension.sh` was RUN:
+  `nsharp-0.6.0.vsix` rebuilt (289 files, 3.98 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix'
+  was successfully installed."). INTERACTIVE computer-use verification was NOT attempted, per the
+  coordinator's standing instruction; this slice adds no LSP/IDE behaviour of its own, and the
+  IDE-facing surface it does touch — the overload verdict behind every NL402 squiggle and the
+  signature strings the hover/completion/signature-help printer reads — is pinned at 70,758
+  differential grid points, over half of them MetadataLoadContext cells, which is exactly how the
+  language server sees an external assembly.
+  **RATCHET REPIN** via `scratchpad/s13/repin_017_s13.py` (slice 2…12C's script, TOUCHED reduced to
+  one row) — `current*` + fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs`
+  currentLines 19,993 → **19,510**, currentNonBlankLines 17,584 → **17,182**, fingerprint
+  `text-v1:deef9398213c28de` → `text-v1:e5a14b360a81ddde` (epoch ceilings 23,451 / 20,537 PRESERVED
+  and now clear by **3,941 / 3,355**); `reviewedHeadFingerprint head-v1:37d984d41f8d4190` →
+  **`head-v1:901772e48e0e3ac8`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and
+  RE-VALIDATED by recomputation both before and after the write. **FORMAT DISCIPLINE HELD: `wc -l` on
+  the manifest is 391 before AND after, and the manifest `git diff` is exactly 2 changed lines.** The
+  two `.nl` additions need no row.
+  **FOUR NEW .nl GOTCHAS, ALL FOUND BY BUILDING:**
+  * **A BITWISE OR OVER AN EXTERNAL ENUM DECLINES.** `BindingFlags.Public | BindingFlags.Instance`
+    declines at `emit.local.initializer`. The enum TYPE is fine; it is the `|` over its members that
+    is unmodeled. This is the whole reason `GetReflectionMemberFlags` was left behind.
+  * **A GENERIC `IList<T>` DOES NOT CAST TO THE NON-GENERIC `IList`, BUT AN `object` DOES.**
+    `(IList)attributes` on an `IList<CustomAttributeData>` local declines at
+    `emit.local.initializer`; routing the same value through a helper whose parameter is typed
+    `object` and casting THERE compiles. This is why `NullabilityMetadataReflection` has its
+    `SequenceCount(sequence: object)` shim, and the overload kernel now has the same one.
+  * **INDEXING AND `.Count` ON AN `IList<T>` PARAMETER ARE NOT MODELED** — the attribute scan reads
+    `list.Count` through the `object` shim above and elements through `attributes.get_Item(index)`.
+  * **`.ToString()` ON A `TypeInfo`-TYPED RECEIVER DECLINES** (`emit.expression-statement.call`),
+    exactly as the instance `.Equals` does. Bind `x as object` first — the same virtual dispatch,
+    and the established idiom in `AnalyzerOverloadSignatureFacts`.
+  * PROCESS NOTE: `typeof(T)` IN A STATIC-CALL ARGUMENT IS NOT UNIVERSAL. `typeof(Guid)`,
+    `typeof(DateTime)` and `typeof(Delegate)` decline at `emit.call.static-user-argument` where
+    `typeof(int)` and `typeof(string)` bind; resolve those by canonical name instead. And the
+    12C note still holds — **NL103 reports only the FIRST columnar decline in an assembly**, so a
+    probe file must be iterated to full green before any conclusion is drawn from it.
+  **WALL STATUS: NO wall crossed and NONE reached.** No catalog surface was added — every type the
+  two owners name was already admitted — so no toolset repin was needed and the packaged 0.1.0 SDK
+  self-emits both new files and all 40 contracts. Three capability gaps recorded, none taken: the
+  external-enum bitwise OR, the generic-to-non-generic `IList` cast, and `typeof` over the wider
+  BCL struct/delegate surface.
+  **THE NEXT SLICE IS 14 — the reflection argument BINDER's pure interior**, per the staged plan
+  above: `TryBindReflectionArguments`' non-reporting arms, `EnumerateSuppliedReflectionArguments`,
+  the four bound-argument records (which is what finally lets `IsExpandedReflectionParamsArgument`
+  take its natural shape), `ShouldPassReflectionParamsArgumentDirectly`,
+  `TryScoreReflectionSuppliedArgument`, `TryBindMethodGroupToReflectionDelegate` and
+  `GetReflectionMemberFlags` once the enum-OR gap is closed or worked around.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `c86ac6db4`): **017 SLICE 12C — THE ASSIGNABILITY
+  SCC FINAL CUT.**
   MANDATED TARGET, recorded verbatim from the coordinator and unchanged BEFORE any production edit.
   Per 12B's measurement at this tree (`cff81c09b`), **645 C# lines, ~50 sites, no protocol, no
   unknowns**:
