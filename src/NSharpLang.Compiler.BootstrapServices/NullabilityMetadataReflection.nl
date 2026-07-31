@@ -18,6 +18,12 @@ import System.Reflection
 //     `SequenceCount` routes through an `object` local and the non-generic `IList` instead.
 //   * A boxed value cannot be unboxed, so the `[NotNullWhen(...)]` argument is compared against a
 //     boxed constant.
+//
+// THE TYPE OVERRIDE IS DATA, NOT A FUNCTION. A caller that needs some positions answered with the N#
+// types a call site supplied hands in an `AnalyzerReflectionTypeOverride` — the bindings themselves —
+// so nothing crosses a boundary and the override always ANSWERS rather than declining. (Slice 12B
+// carried it as `Func<Type, object>` because the conversion it composed with was still C#; with that
+// conversion N#-owned there is no boundary left to encode.)
 public class NullabilityMetadataReflection {
     public static func ConvertType(clrType: Type): TypeInfo {
         return ConvertReflectedType(clrType, null, null)
@@ -47,7 +53,7 @@ public class NullabilityMetadataReflection {
 
     public static func ConvertParameterWithOverride(
         parameter: ParameterInfo,
-        typeOverride: Func<Type, object>?): TypeInfo {
+        typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         converted := ConvertReflectedType(
             parameter.get_ParameterType(),
             CreateNullabilityInfoForParameter(parameter),
@@ -61,7 +67,7 @@ public class NullabilityMetadataReflection {
 
     public static func ConvertReturnWithOverride(
         method: MethodInfo,
-        typeOverride: Func<Type, object>?): TypeInfo {
+        typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         returnParameter := method.get_ReturnParameter()
         converted := ConvertReflectedType(
             method.get_ReturnType(),
@@ -107,7 +113,7 @@ public class NullabilityMetadataReflection {
     static func ConvertReflectedType(
         clrType: Type,
         nullabilityInfo: NullabilityInfo?,
-        typeOverride: Func<Type, object>?): TypeInfo {
+        typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         effectiveType := clrType
         if clrType.get_IsByRef() {
             element := clrType.GetElementType()
@@ -117,10 +123,7 @@ public class NullabilityMetadataReflection {
         }
 
         if effectiveType.get_IsGenericParameter() && typeOverride != null {
-            overriddenGenericType := InvokeTypeOverride(typeOverride, effectiveType)
-            if overriddenGenericType != null {
-                return overriddenGenericType
-            }
+            return typeOverride.Answer(effectiveType)
         }
 
         converted := ConvertReflectedTypeCore(effectiveType, nullabilityInfo, typeOverride)
@@ -136,7 +139,7 @@ public class NullabilityMetadataReflection {
     static func ConvertReflectedTypeCore(
         clrType: Type,
         nullabilityInfo: NullabilityInfo?,
-        typeOverride: Func<Type, object>?): TypeInfo {
+        typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         if clrType.get_IsByRef() {
             byRefElement := clrType.GetElementType()
             if byRefElement != null {
@@ -167,10 +170,7 @@ public class NullabilityMetadataReflection {
 
         if clrType.get_IsGenericParameter() {
             if typeOverride != null {
-                overriddenParameter := InvokeTypeOverride(typeOverride, clrType)
-                if overriddenParameter != null {
-                    return overriddenParameter
-                }
+                return typeOverride.Answer(clrType)
             }
 
             genericParameter: TypeInfo = new SimpleTypeInfo(clrType.Name)
@@ -202,10 +202,7 @@ public class NullabilityMetadataReflection {
         }
 
         if typeOverride != null {
-            overridden := InvokeTypeOverride(typeOverride, clrType)
-            if overridden != null {
-                return overridden
-            }
+            return typeOverride.Answer(clrType)
         }
 
         builtIn := NullabilityMetadataCore.ConvertBuiltInType(clrType.FullName)
@@ -215,24 +212,6 @@ public class NullabilityMetadataReflection {
 
         reflected: TypeInfo = new ReflectionTypeInfo(clrType)
         return reflected
-    }
-
-    // The override hook crosses the C#/N# boundary. `Func<Type, TypeInfo>` — a closed `Func` over an
-    // EMITTED type — is off the columnar surface (`emit.declaration.method-param`), while
-    // `Func<Type, object>` is on it, so the boundary carries the answer as `object` and this one
-    // place casts it back. The C# side keeps its own `TypeInfo`-returning lambdas unchanged: the
-    // conversion to `Func<Type, object>` is the compiler's own implicit reference conversion.
-    static func InvokeTypeOverride(typeOverride: Func<Type, object>?, clrType: Type): TypeInfo? {
-        if typeOverride == null {
-            return null
-        }
-
-        answer := typeOverride(clrType)
-        if answer == null {
-            return null
-        }
-
-        return answer as TypeInfo
     }
 
     static func ApplyFlowAttributes(typeInfo: TypeInfo, attributes: IList<CustomAttributeData>): TypeInfo {

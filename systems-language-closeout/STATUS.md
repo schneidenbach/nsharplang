@@ -474,7 +474,230 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 12 STAGE B — THE `NullabilityMetadata`
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 12C — THE ASSIGNABILITY SCC FINAL CUT.**
+  MANDATED TARGET, recorded verbatim from the coordinator and unchanged BEFORE any production edit.
+  Per 12B's measurement at this tree (`cff81c09b`), **645 C# lines, ~50 sites, no protocol, no
+  unknowns**:
+  1. THE CONVERSION FUNCTIONS: `ConvertReflectionType` (:9546) and `ConvertReflectionTypeWithOverrides`
+     (:9582) — whose move erases the `Func<Type, object>` boundary cast 12B introduced (VERIFY it
+     disappears) — and the four `CreateFunctionTypeInfo*` members:
+     `CreateFunctionTypeInfoFromDelegate` (:9876, 51), `CreateFunctionTypeInfo(TypeReference…)`
+     (:9928, 49), `CreateFunctionTypeInfoInDeclarationContext` (:9978, 14) and
+     `CreateFunctionTypeInfo(FunctionDeclaration…)` (:9993, 55) — **32 live calls**.
+  2. THE SCC WHOLE: `IsAssignable` (:18206, 147), `IsSubtypeOf` (:18718, 77), `HasImplicitConversion`
+     (:18796, 44) **+ the `_activeImplicitConversions` re-entrancy set** (declared :145, cleared
+     :320), `TryGetDelegateSignatureConversionScore` (:18536, 87), `IsLambdaAssignableToDelegate`
+     (:18629, 52), `TryGetRuntimeDelegateMethodGroupMatchScore` (:18498, 37),
+     `IsFunctionTypeAssignableToRuntimeDelegateMethodGroup` (:18493, 4), **and the two slice-6
+     pending-pair shells ABSORBED** (`IsKnownGenericTypeAssignable` :18463, 14 and
+     `IsFunctionTypeAssignable` :18478, 14).
+  N# owns assignability end-to-end; the C# members are **DELETED**; the ~50 sites route
+  mechanically; `Analyzer.cs` net-negative; **no callback, no protocol, no fallback**. State reads
+  re-verified at this tree before cutting (the established rule); measured-recut only if something
+  unrecorded surfaces, and recorded here if so.
+  **RESULT: LANDED WHOLE (no commit — mandate). N# OWNS ASSIGNABILITY END TO END; THE `ResolveType`
+  ARC IS CLOSED.** `AnalyzerAssignability` is the sole authority for the assignability question,
+  `AnalyzerFunctionTypeFactory` for every `FunctionTypeInfo` the analyzer builds, and
+  `AnalyzerReflectionTypeConversion` for CLR `Type` → `TypeInfo` — with no callback, no fallback, no
+  shadow path and NO PROTOCOL: slice 6's two pending-pair shells are ABSORBED and the recursion they
+  encoded is now simply a call.
+  **THE CUT — 24 WHOLE C# MEMBERS DELETED, 842 body lines (880 with their doc comments and
+  separators), plus the `_activeImplicitConversions` STATE FIELD.** The recorded 13 (645 lines) are
+  all there: `IsAssignable` 147, `TryGetDelegateSignatureConversionScore` 87, `IsSubtypeOf` 77,
+  `CreateFunctionTypeInfo(DeclaredMemberInfo…)` 55, `IsLambdaAssignableToDelegate` 52,
+  `CreateFunctionTypeInfoFromDelegate` 51, `CreateFunctionTypeInfo(FunctionDeclaration…)` 49,
+  `HasImplicitConversion` 44, `TryGetRuntimeDelegateMethodGroupMatchScore` 37,
+  `CreateFunctionTypeInfoInDeclarationContext` 14, `IsKnownGenericTypeAssignable` 14,
+  `IsFunctionTypeAssignable` 14, `IsFunctionTypeAssignableToRuntimeDelegateMethodGroup` 4 — plus the
+  two named conversion functions, `ConvertReflectionType` 30 and `ConvertReflectionTypeWithOverrides`
+  36. **THE MEASURED RECUT — 9 MORE MEMBERS, 131 lines, all forced by the named targets' own
+  closure and all net-negative**: `ApplyReflectionBindings` 27 (without it the `Func` boundary
+  CANNOT be erased — see below), `ResolveFunctionCallReturnType` ×2 (29 + 8),
+  `TryGetTaskLikeResultType` 21, `TryGetExpressionTreeDelegateType` 17, `IsMustUseAttributeName` 11,
+  `IsUnitTaskLikeType` 9, `GetReflectionParameterModifier` 7 and
+  `HasMustUseAttribute(IEnumerable<AttributeNode>)` 2. 645 + 66 + 131 = **842, exactly**.
+  `Analyzer.cs` **20,857 → 19,993** (non-blank 18,329 → **17,584**); `git diff` **+139 / −1003 = net
+  −864**, and the only C# ADDED anywhere is three field declarations with their comment, two
+  constructor lines, a 8-line `CreateAssignability()` helper, two rebuild lines and the rewritten
+  call sites. **NO new C# method, bridge, callback, shell or state.**
+  **THE `Func<Type, object>` BOUNDARY CAST FROM 12B IS GONE — VERIFIED.** `grep` finds no `Func<` in
+  `NullabilityMetadataReflection.nl` outside one historical comment; `InvokeTypeOverride` is DELETED.
+  The override now crosses as DATA — `AnalyzerReflectionTypeOverride`, carrying the TypeInfo
+  overrides, the CLR bindings and which of two composition rules applies — so the reader consults it
+  at every leaf with no function crossing anything. **This is exactly why `ApplyReflectionBindings`
+  had to come too:** three of the four override sites did NOT close over a plain
+  `ConvertReflectionTypeWithOverrides` call, as the plan assumed, but over a CONDITIONAL —
+  `hasTypeInfoOverrides || type.ContainsGenericParameters ? WithOverrides(…) :
+  ConvertReflectionType(ApplyReflectionBindings(…))`. That second arm is the `Bound` rule, and it is
+  unrepresentable without the binding walk. The two rules are NOT interchangeable: the override walk
+  builds a `GenericTypeInfo` over converted arguments, while applying bindings first yields a closed
+  CLR type that converts as ONE reflected instantiation.
+  **ROUTING: 105 rewritten call sites, every one mechanical and all inside `Analyzer.cs`** — counted
+  at the final tree: **51 through `_assignability.`** (45 `IsAssignable`, 4 `IsSubtypeOf`, 1
+  `TryGetRuntimeDelegateMethodGroupMatchScore`, 1
+  `IsFunctionTypeAssignableToRuntimeDelegateMethodGroup`), **9 through `_functionTypeFactory.`**,
+  **29 through `AnalyzerReflectionTypeConversion.`** (the two conversions, `ApplyReflectionBindings`
+  and the four member-facing override entry points), **14 through `AnalyzerFunctionTypeFactory.`**
+  statics (the runtime-delegate factory, the async call-return rule, the two task-like facts, the
+  expression-tree unwrap and the parameter modifier) and **2 through
+  `NominalTypeInfoFactory.IsMustUseAttributeName`. `_currentTypeName` is no longer read inside the factory: the five sites that relied
+  on `useCurrentContainingType` now pass it EXPLICITLY, which is what let the `Func<TypeReference,
+  TypeInfo>? typeResolver` CALLBACK PARAMETER disappear rather than cross the boundary — the two
+  resolver shapes became two explicit arities (`CreateFromDeclaration` / `CreateFromDeclarationInFile`).
+  **N# ADDED:** `AnalyzerAssignability.nl` (**857 lines, 2 classes, 25 members**),
+  `AnalyzerFunctionTypeFactory.nl` (**663 lines, 1 class, 27 members**),
+  `AnalyzerReflectionTypeConversion.nl` (**358 lines, 2 classes, 14 members**), their three
+  `.tests.nl` (278 + 457 + 424 lines, **10 + 14 + 16 = 40 contracts**), plus
+  `NullabilityMetadataReflection.nl` **+13 / −34** (the Func hook out, the data hook in), its tests
+  **+38 / −17** (the declining-override contract rewritten to the production shape) and
+  `TypeInfoFactories.nl` **+4 / −1** (`IsMustUseAttributeName` made public — its rule is EXACTLY the
+  C# last-dot rule, so the C# copy was deleted rather than duplicated).
+  **THE RE-ENTRANCY GUARD IS THE ONE NON-MECHANICAL STATE DECISION.** `_activeImplicitConversions`
+  was a `HashSet<(TypeInfo, TypeInfo)>`, and an EMITTED type cannot key a dictionary on the columnar
+  surface (measured, both as a field and as a parameter). It became
+  `AnalyzerImplicitConversionGuard` — two parallel `List<TypeInfo>` scanned with the static
+  `Object.Equals`, which IS the virtual equality a set of pairs uses, so the behaviour is exact
+  (`SimpleTypeInfo` and `ExternalTypeInfo` override `Equals`; everything else is reference identity,
+  and the hash/equals pairing is consistent, so a linear scan and a hash set cannot disagree). It is
+  held OUTSIDE `AnalyzerAssignability` and passed in, because that owner is REBUILT at the two
+  well-known-type points and the guard must survive the rebuild — the slice-5/6 rebuild-not-mutate
+  discipline, extended to state that outlives an owner.
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `cff81c09b` in a throwaway `/private/tmp/nsharp017s12c` worktree, and the
+  working tree): **43,616 CELLS, 0 MISMATCHES, 121 THROWN CELLS, transcripts BYTE-IDENTICAL — md5
+  `dd715d402b13900fd229715a997ff8d9` in both trees.** Each operation resolves to the C# private
+  member when the baseline still has it and to the analyzer's own ROUTED owner otherwise, so the
+  after column proves the wiring as well as the answer. THE GRID: a real analyzed source (3 interfaces
+  incl. an empty one, a base/derived/unrelated trio, a **mutual implicit-conversion cycle**
+  `Money ⇄ Cents` plus a third `Dollars` with two operators, a struct, a record, two enums — int- and
+  string-backed —, a generic `Box<T>`, its closed subclass `IntBox`, an alias and an `Ops` class) ×
+  **62 TypeInfo shapes** squared for `IsAssignable`, `IsSubtypeOf`, `HasImplicitConversion` and
+  `SignatureScore` (**9,800 cells each**); 804 `DelegateScore` and 804 `MethodGroupMatch` cells over
+  every non-open delegate in a **75-type CLR grid**; 144 `LambdaToDelegate`; 150 each of
+  `ConvertReflectionType`, `CreateFromDelegate`, `ExpressionTree`, `UnitTaskLike` and `TaskResult`;
+  **210 `ConvertWithOverrides` and 180 `ApplyBindings`** over 7 override/binding sets × 15 open and
+  closed types; 1,296 `CallReturnType`; 114 factory cells over the source's own declarations and
+  declared members; and the analyzer's FINAL diagnostic list before and after. **Every cell is run
+  TWICE — on an analyzer WITH `LoadSystemAssemblies` and on one WITHOUT it — so 21,808 of the 43,616
+  cells are MetadataLoadContext cells**, which is how the analyzer sees every external assembly.
+  1,624 `IsAssignable` cells answer TRUE, 86 `IsSubtypeOf`, 58 `HasImplicitConversion`, 1,479
+  `SignatureScore` and 230 `DelegateScore` score non-false, 78 `LambdaToDelegate` — 316 distinct
+  answers in all, so the grid is not dominated by trivial ones. THE WIRING IS PROVEN SEPARATELY by
+  17 `HOST.*` rows kept OUT of the byte comparison: all 13 operations say `Analyzer` in the baseline
+  and **`AnalyzerAssignability` / `AnalyzerFunctionTypeFactory`** in the working tree, the three owner
+  types are `<missing>` in the baseline, and the guard field goes **`HashSet\`1` →
+  `AnalyzerImplicitConversionGuard`**. The probe was DELETED from both trees after the run.
+  **A PRE-EXISTING UNBOUNDED RECURSION MEASURED AND RECORDED RATHER THAN FIXED.** The first grid
+  STACK-OVERFLOWED at `IsAssignable(Shape ← Money)` — **and it overflowed IDENTICALLY in the baseline
+  tree**, at the same cell. The shape is a duck interface as target over a class carrying BOTH an
+  `int`-arm and a mutual-cycle implicit conversion: the guard bounds `HasImplicitConversion`, but
+  nothing bounds the ROOT's re-entry through the conversion's return type. It is reachable only from
+  synthetic combinations the analyzer does not currently construct (the 49-target corpus and the
+  3,192-test suite never reach it), it is NOT a regression, and it is NOT this slice's to fix —
+  recorded here as the next candidate for a bounded-depth guard. The grid keeps the mutual cycle in a
+  form that exercises the guard without exploding.
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `cff81c09b` in the throwaway worktree and at the working tree, **both run over the SAME
+  (working-tree) sources**, across all **49 `project.yml` corpus targets (ORACLE_TARGETS=49)**:
+  **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0 — with no exclusion at all**,
+  `BootstrapServices` included, which also proves the analyzer's own verdict on the six new `.nl`
+  files is clean under BOTH compilers. Plus **8 purpose-built delegate/lambda-assignability fixtures**
+  (method-group conversions, lambda arity/variance, nullable widening, collection expressions and
+  spans, a two-step implicit-conversion chain, nominal + duck subtyping, generic invariance and the
+  async return family) firing **80 diagnostics with FIXTURE_DIFFS=0**.
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (the established explicit PE/CLI normaliser, unchanged —
+  COFF `TimeDateStamp`, optional-header `CheckSum`, the Debug Directory entries AND the CodeView
+  blobs they point at, and the `#GUID`/`#Pdb` heaps only): **73 / 73 comparable assemblies
+  BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (35 product assemblies from the
+  corpus targets that build standalone, 38 single-file examples), **SINGLE_LOG_DIFFS = 0**, and
+  **SKIPPED_TARGET_DIFFS = 0** — the 11 targets that do not build standalone fail with byte-identical
+  output and the same exit code in both trees. `BootstrapServices` is excluded by design: its source
+  set changed.
+  **ASSERTION MIGRATION.** All 24 members were `private` and none is named anywhere in `src/`,
+  `tests/` or `editors/`, so no C# test moved and the unit suite is unchanged at **3,192**. The DIRECT
+  pinning is new and native: **40 contracts** covering the dispatch ORDER (identity/null/never/unknown
+  first; by-ref symmetric and total; a target union needing ONE arm and a source union ALL; the
+  method-group refusal of `object` and its COMPOSITION through a union arm; function-type structure
+  before the identity fallback; user-defined conversions last), the score ladder 8/4/2/1 and the
+  params-erases-ref-does-not rule, the covariant-vs-invariant known-generic split, span invariance,
+  collection-expression element assignability, the guard's exact re-entry semantics including a
+  STRUCTURALLY equal pair, the `Func`/`Action` arity tables, the expression-tree unwrap through a
+  by-ref shell, the async wrap rule with `main`'s case-insensitive `Task` family and the already-
+  task-like passthrough, type-parameter shadowing, the built-in table's priority and by-ref erasure,
+  the difference between "no override" and "an empty override", and the identity
+  `ApplyReflectionBindings` preserves when nothing changed.
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** (`dotnet test tests/Tests.csproj -c Release`,
+  3m20s — exactly the `cff81c09b` baseline, ZERO drift); BootstrapServices contracts
+  **1,747 → 1,787 (+40)**, **1,787 / 1,787 PASS**; ownership audit **18 / 18**; `./scripts/dev.sh
+  --since` took the FULL unit-suite fail-safe and passed **3,192 / 3,192 in Debug** (6m54s).
+  **RATCHET REPIN** via `scratchpad/repin_017_s12c.py` (slice 2…12B's script, TOUCHED reduced to one
+  row) — `current*` + fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs`
+  currentLines 20,857 → **19,993**, currentNonBlankLines 18,329 → **17,584**, fingerprint
+  `text-v1:f38bfda42f385300` → `text-v1:deef9398213c28de` (epoch ceilings 23,451 / 20,537 PRESERVED
+  and now clear by **3,458 / 2,953**); `reviewedHeadFingerprint head-v1:600a82c55493596d` →
+  **`head-v1:37d984d41f8d4190`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and
+  RE-VALIDATED by recomputation both before and after the write. **FORMAT DISCIPLINE HELD: `wc -l` on
+  the manifest is 391 before AND after, and the manifest `git diff` is exactly 2 changed lines.** The
+  six `.nl` additions need no row.
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 908s (15m08s)** in a fresh isolated copy (`/private/tmp/nsharp-test-all.26d4da2bb365.oUiJ4d`;
+  the log opens with "Fresh isolated test run required: pre-commit verification" and closes with
+  `Stored validated isolated test cache result: 26d4da2bb365453a (908s)`, so it is neither a cached
+  whole-gate nor a cached per-step verdict). **105 `✓ PASSED`, ZERO `✗`.** Every step green: clean,
+  compiler build, the format contract gate, unit tests **3,192 / 3,192** (3m37s inside the gate), the
+  native `.tests.nl` estate across all 24 projects including BootstrapServices' **1,787 / 1,787** and
+  `tests/native/ownership-audit` — the ratchet re-validated INSIDE the gate against the freshly
+  written manifest — **VS Code integration smoke 36 passing in 41s** (the healthy timing, not the
+  recorded ~19m load-flake signature, so NO cool re-run was needed), SDK pack + install, template
+  pack/install/creation, the template-generated project, all example projects, all single-file
+  examples, `nlc check` over the examples, and the ECMA-335 **IL verification gate — all 67 N#
+  assemblies pass, no new errors vs baseline**. `./scripts/reload-vscode-extension.sh` was RUN:
+  `nsharp-0.6.0.vsix` rebuilt (289 files, 3.98 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix'
+  was successfully installed."). INTERACTIVE computer-use verification was NOT attempted, per the
+  coordinator's standing instruction; this slice adds no LSP/IDE behaviour of its own, and the
+  IDE-facing surfaces it does touch — the assignability verdict behind every squiggle, and the
+  signature the hover/completion/signature-help printer reads — are pinned at 43,616 differential
+  grid points, half of them MetadataLoadContext cells, which is exactly how the language server sees
+  an external assembly.
+  **FOUR NEW .nl GOTCHAS, ALL FOUND BY BUILDING:**
+  * **AN EMITTED TYPE CANNOT KEY A DICTIONARY.** `Dictionary<TypeInfo, …>` declines as a FIELD
+    (`emit.declaration.field-type`) and as a PARAMETER (`emit.declaration.method-param`).
+    `Dictionary<Type, TypeInfo>` is fine — it is the KEY position that is refused, not the emitted
+    type argument as such.
+  * **AN INSTANCE `.Equals(x)` ON A `TypeInfo`-TYPED RECEIVER DECLINES** (`emit.local.initializer`).
+    The capital-O static **`Object.Equals(a, b)` binds** and is exactly the same semantics
+    (ReferenceEquals short-circuit, null handling, then the virtual `Equals`). The instance form
+    works on a DERIVED receiver (`SimpleTypeInfo.Equals`), which is why `BuiltInTypes.Is` compiles.
+  * **A LIST INDEXER IN A STATIC-CALL ARGUMENT IS NOT MODELED** —
+    `Object.Equals(list[index], x)` declines at `emit.call.static-member-unmodeled`; bind the element
+    to a typed local first.
+  * **ASSIGNING AN `int` INTO AN `int?` FIELD DECLINES** (`emit.statement.block-child`, node kind 23);
+    bind through a `nullable: int? = value` local. Comparing an `int?` against a literal declines too
+    — read it through its boxed rendering.
+  * PROCESS NOTE worth as much as the gotchas: **NL103 reports only the FIRST columnar decline in an
+    assembly**, so an early decline MASKS every later one and a probe file must be iterated to full
+    green before any conclusion is drawn from it. A first pass here wrongly concluded three shapes
+    were supported because an earlier decline hid them.
+  **WALL STATUS: NO wall crossed and NONE reached.** No catalog surface was added — every type the
+  three owners name was already admitted (stage A's rows plus the pre-existing `Type`/`MethodInfo`/
+  `ParameterInfo` surface) — so no toolset repin was needed and the packaged 0.1.0 SDK self-emits all
+  six new files and all 40 contracts. Two capability gaps recorded, neither taken: an emitted type as
+  a dictionary KEY, and an instance `Equals` on a base-typed receiver.
+  **THE `ResolveType` ARC IS CLOSED.** It opened at slice 7 with the pure decision surface and ran
+  through the scope stack, project discovery, the resolution walk, the assignability periphery, the
+  nullability capability and its reader; this slice takes the last member of the closure. Nothing in
+  the type-reference or assignability surface is C# any more.
+  **WHAT ANALYZER.cs POLICY REMAINS**, measured at this tree rather than estimated: the file is
+  **19,993 lines** and is still the analyzer's WALK — expression and statement analysis, definite
+  assignment and null-state flow, pattern binding and exhaustiveness, overload resolution and
+  reflection argument binding, member/field/property resolution, the iterator and async checks, and
+  the diagnostic REPORTING sites those arms own. That is the remaining 017 surface, and the next
+  sub-slices in dependency order are: (a) **overload resolution and reflection argument binding**
+  (the largest single family, and its two conversion collaborators are now N#), (b) **pattern binding
+  and match exhaustiveness**, (c) **definite assignment / null-state flow join**, then (d) the
+  expression and statement families.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `cff81c09b`): **017 SLICE 12 STAGE B — THE `NullabilityMetadata`
   REFLECTION PORT, THEN THE ASSIGNABILITY SCC LANDS WHOLE.** MANDATED TARGET, recorded verbatim
   from the coordinator and unchanged BEFORE any production edit:
   1. PORT `src/NSharpLang.Compiler/NullabilityMetadata.cs`'s reflection half (251 lines, 27 call

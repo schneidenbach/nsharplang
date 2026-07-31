@@ -496,7 +496,7 @@ test "properties, fields and returns all read through the same walk" {
     assert NullabilityMetadataReflection.FormatReturnType(trim) == "string"
 }
 
-test "the type override answers first for a generic parameter and again at the leaf" {
+test "a reflection type override answers for a generic parameter, by TypeInfo and by CLR binding" {
     listDefinition := Type.GetType("System.Collections.Generic.List`1, System.Private.CoreLib")
     if listDefinition == null {
         throw new InvalidOperationException("List`1 was not found.")
@@ -512,29 +512,50 @@ test "the type override answers first for a generic parameter and again at the l
 
     parameter := add.GetParameters()[0]
 
-    // Answering: the override's TypeInfo replaces the conversion outright, wrapper and all.
-    answering: Func<Type, object> = (candidate) => new SimpleTypeInfo("OVR:" + candidate.Name)
+    // With no override at all the walk names the parameter itself, under the read state its
+    // metadata carries.
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(parameter))
+        == "Nullable(Simple(T))"
+
+    // A TypeInfo binding replaces the conversion outright — INCLUDING the wrapper, because the
+    // generic-parameter override answers ahead of the read state rather than under it.
+    typeInfoOverrides := new Dictionary<Type, TypeInfo>()
+    replacement: TypeInfo = new SimpleTypeInfo("OVR:T")
+    typeInfoOverrides[genericParameter] = replacement
+    answering := AnalyzerReflectionTypeOverride.Direct(typeInfoOverrides, null)
     assert NullabilityRenderTypeInfo(
         NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, answering))
         == "Simple(OVR:T)"
 
-    // Declining: a null answer falls through to the ordinary walk, and lands exactly where no
-    // override at all lands. (A lambda BODY of bare `null` is off the columnar surface; closing
-    // over a nullable local is the working spelling.)
-    nullAnswer: object? = null
-    declining: Func<Type, object> = (candidate) => nullAnswer
-    decliningRender := NullabilityRenderTypeInfo(
-        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, declining))
-    plainRender := NullabilityRenderTypeInfo(
-        NullabilityMetadataReflection.ConvertParameter(parameter))
-    assert decliningRender == plainRender
-    assert decliningRender != "Simple(OVR:T)"
+    // A CLR binding answers too, and it answers with the CONVERTED runtime type rather than with a
+    // reflected one — `int` comes back as the built-in.
+    clrBindings := new Dictionary<Type, Type>()
+    clrBindings[genericParameter] = typeof(int)
+    emptyTypeInfoOverrides := new Dictionary<Type, TypeInfo>()
+    bound := AnalyzerReflectionTypeOverride.Direct(emptyTypeInfoOverrides, clrBindings)
+    assert NullabilityRenderTypeInfo(
+        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, bound))
+        == "Simple(int)"
 
-    // The override is consulted at the LEAF too, not only for generic parameters.
+    // AN EMPTY OVERRIDE IS NOT "NO OVERRIDE". It still ANSWERS — with the plain conversion, which
+    // reads an unbound generic parameter as a REFLECTED type rather than as the walk's named one.
+    // This is the C# lambda's behaviour exactly, and pinning it is what keeps "the override never
+    // declines" honest.
+    noBindings := new Dictionary<Type, Type>()
+    emptyOverride := AnalyzerReflectionTypeOverride.Direct(emptyTypeInfoOverrides, noBindings)
+    emptyRender := NullabilityRenderTypeInfo(
+        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, emptyOverride))
+    assert emptyRender == "Reflection(T)"
+
+    // The override is consulted at the LEAF too — a non-generic position routes through it and
+    // comes back with the plain conversion, so a bound override changes nothing there.
     notNullParameter := NullabilityProbeStringParameter("Contains")
     assert NullabilityRenderTypeInfo(
         NullabilityMetadataReflection.ConvertParameterWithOverride(notNullParameter, answering))
-        == "Simple(OVR:String)"
+        == "Simple(string)"
+    assert NullabilityRenderTypeInfo(
+        NullabilityMetadataReflection.ConvertParameter(notNullParameter))
+        == "Simple(string)"
 }
 
 test "the display form and the metadata stripper agree with the N#-owned half" {

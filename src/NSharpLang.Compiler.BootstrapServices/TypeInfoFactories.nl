@@ -541,7 +541,10 @@ public class NominalTypeInfoFactory {
         return false
     }
 
-    static func IsMustUseAttributeName(name: string): bool {
+    // Public because the analyzer's function-type factory answers the same question for a
+    // DECLARED attribute list and the analyzer's reflection arm for a CLR attribute name; the rule
+    // is stated once, here.
+    public static func IsMustUseAttributeName(name: string): bool {
         return AttributeNameEquals(name, "MustUse")
             || AttributeNameEquals(name, "MustUseAttribute")
             || AttributeNameEndsWith(name, ".MustUse")

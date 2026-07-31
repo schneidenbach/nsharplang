@@ -238,11 +238,89 @@ at the two points where that bag changes, and reports and records nothing.
 THE PENDING-PAIR PROTOCOL. The known-generic and function-type decisions cannot finish without
 re-entering assignability, and the owner does not call back. Instead they answer with an
 `AnalyzerAssignabilityDecision`: either a DECIDED verdict, or the ORDERED target/source pairs whose
-assignability the caller must answer, the relation holding exactly when every pair does. The two C#
-shells left in `Analyzer.cs` are that protocol's other half and contain no classification. Note the
+assignability the caller must answer, the relation holding exactly when every pair does. Note the
 directions a function type hands back: a parameter pair is source ← target while the return pair is
 target ← source, and an inferred (unknown) source parameter is ACCEPTED without a pair rather than
-rejected, because a lambda still being inferred must not be pre-judged.
+rejected, because a lambda still being inferred must not be pre-judged. The protocol's other half is
+now `AnalyzerAssignability` (below) rather than a C# shell: the two shells in `Analyzer.cs` are
+DELETED and the recursion they expressed is simply a call.
+
+### The assignability decision itself
+
+`AnalyzerAssignability.nl` owns the whole strongly-connected component — `IsAssignable`, `IsSubtypeOf`,
+`HasImplicitConversion`, the delegate scorers, the lambda arm and the two absorbed pending-pair
+shells. There is no sub-cut of its interior: every member re-enters `IsAssignable`, which is why it
+is one owner and not several.
+
+THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the language:
+
+- Identity, `null`, `never` and the three unknown KINDS answer first, so error recovery never
+  produces a second diagnostic and the bottom type is universally assignable.
+- BY-REF is symmetric and TOTAL: if EITHER side is by-ref the answer is "both are, over equal inner
+  types", and no later arm is consulted — not even the `object` arm.
+- The UNION arms come before everything structural. A target union needs ONE arm to accept; a source
+  union needs EVERY arm to be assignable.
+- The CALLABLE-REFERENCE arms come before `object`. A bare method group is not a value, so it is NOT
+  assignable to `object` — that single exception is what forces the whole ordering, and it composes:
+  a union with a method-group arm is not assignable to `object` either.
+- FUNCTION-TYPE structural comparison comes before the identity fallback, because every
+  `FunctionTypeInfo` renders identically.
+- The USER-DEFINED conversion is LAST, so a conversion operator can never shadow a built-in relation.
+
+THE RE-ENTRANCY GUARD IS CORRECTNESS, NOT AN OPTIMISATION. A user-defined implicit conversion can
+name types whose own conversions name it back; without the active-pair guard `HasImplicitConversion`
+recurses forever. `AnalyzerImplicitConversionGuard` holds it as two parallel `List<TypeInfo>` — an
+EMITTED type cannot key a dictionary on the columnar surface — scanned with the static
+`Object.Equals`, which is the same virtual equality a set of pairs would use. It lives OUTSIDE
+`AnalyzerAssignability` because that owner is REBUILT whenever the well-known-type bag is built or
+torn down, and the guard must survive that rebuild.
+
+THE DELEGATE SCORE LADDER. `TryGetDelegateSignatureConversionScore` answers a SCORE rather than a
+verdict — 8 exact, 4 a reference conversion, 2 an open type parameter, 1 an unknown — and that ladder
+is what makes an EXACT overload beat a merely convertible one. A method-group match needs equal arity
+and equal ref-ness (`params` erases to `None`, `ref`/`out` do not), an unknown source parameter
+contributes nothing rather than failing, and the RETURN is scored in the reverse direction, which is
+covariance.
+
+### The FunctionTypeInfo factory
+
+`AnalyzerFunctionTypeFactory.nl` builds every `FunctionTypeInfo` the analyzer has, from four sources
+that are not interchangeable: a CLR delegate type, a source function declaration resolved against the
+file being analysed, the same declaration resolved against ANOTHER file's declaration context, and a
+declared member read off a type's member table (optionally as seen from a declaring owner).
+
+- The `Func`/`Action` ARITY TABLES answer WITHOUT consulting nullability metadata; every other
+  delegate goes through `Invoke`, where the annotations do apply. `Func` takes its last type argument
+  as the return type, `Action` takes them all as parameters.
+- An `Expression<TDelegate>` unwraps to its delegate first, including through a by-ref shell. The
+  test there is the delegate ROOT (`System.Delegate` is assignable from the argument) — NOT the
+  concrete-delegate test, which excludes the two abstract roots.
+- A function's OWN type parameters shadow: each is bound to a `SimpleTypeInfo` of its own name before
+  any reference resolves, so `func F<T>(x: T)` names `T` rather than resolving it in scope.
+- THE ASYNC CALL-RETURN RULE: only an async non-generator is wrapped; `main` gets the `Task` family
+  (case-insensitively) and everything else `ValueTask`; a declared type that is already task-like is
+  left exactly as written, which is what lets a function declare `Task<int>` explicitly.
+
+### CLR type → TypeInfo conversion
+
+`AnalyzerReflectionTypeConversion.nl` is the opposite direction from the conversion funnel above:
+that owner asks what CLR type an N# type denotes, this one what N# type a reflected type denotes. It
+is TOTAL — every `Type` converts, with `ReflectionTypeInfo` as the catch-all.
+
+- The built-in table is keyed on `FullName`, NOT on `typeof`, and that is load-bearing: under a
+  MetadataLoadContext the projected `System.Int32` is not `typeof(int)`. It is consulted FIRST, ahead
+  of the by-ref/array/generic arms — a by-ref `int&` has `FullName` "System.Int32&" and falls past it
+  on its own.
+- THE OVERRIDE IS DATA, NOT A CALLBACK. `AnalyzerReflectionTypeOverride` carries the TypeInfo
+  overrides, the CLR bindings and which of two composition rules applies, so the nullability reader
+  can consult it at every leaf without a function crossing a boundary. The DIRECT rule always composes
+  through the override walk; the BOUND rule applies the CLR bindings to the type itself and converts
+  the RESULT whenever there is nothing left to substitute. The two are not interchangeable: the
+  override walk builds a `GenericTypeInfo` over converted arguments, while applying bindings first
+  yields a closed CLR type that converts as one reflected instantiation.
+- An override never DECLINES, and an EMPTY override is therefore not the same as NO override: with no
+  override an unbound generic parameter reads as the walk's named `SimpleTypeInfo`, while an empty one
+  answers the plain conversion, which reads it as a reflected type.
 
 ### The two arms that look something up
 
@@ -274,13 +352,12 @@ computed closed-`IList<T>` identities their attribute sequences answer with, and
 static-member row — **no call plan, because a supported plan would PRE-EMPT
 `ColumnarOrdinaryRuntimeDirectCallResolver` terminally and a value receiver like
 `CustomAttributeTypedArgument` cannot survive that**), and stage B then N#-owned the reader itself.
-What is left is the last mechanical step: `IsAssignable`'s callable-reference arm builds a runtime
-delegate's signature with `CreateFunctionTypeInfoFromDelegate`, and that member — together with
-`CreateFunctionTypeInfo` / `CreateFunctionTypeInfoInDeclarationContext` and `ConvertReflectionType`
-— has NOT moved yet. Its dependency is satisfied: `NullabilityMetadataReflection` is N# and lives
-in `BootstrapServices`. Every OTHER member of the closure (`IsSubtypeOf`, `HasImplicitConversion`,
-the delegate scorer, the lambda arm and the two protocol shells) re-enters `IsAssignable`, so no
-sub-cut of the closure's interior exists and the whole SCC lands in one cut.
+That was the last blocker, and the SCC has since landed WHOLE. `IsAssignable`'s callable-reference
+arm builds a runtime delegate's signature through `AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate`,
+and every other member of the closure (`IsSubtypeOf`, `HasImplicitConversion`, the delegate scorers,
+the lambda arm and the two former protocol shells) lives beside it in `AnalyzerAssignability` — no
+sub-cut of the interior exists, so the whole component moved in one cut, with no callback, no
+fallback and no protocol left.
 
 ### The nullability metadata reader
 
@@ -483,11 +560,11 @@ below — and only its metadata half is blocked.) `IsTopLevelTypeDeclaration` is
 is no longer name-based: `AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration` dispatches on the
 declaration's own TYPE (`declaration as ClassDeclaration != null`, once per family), which is the same
 decision the shell's `is ClassDeclaration or …` pattern made. The scope stack and the project channel
-are no longer blockers — both are N#-owned; see the next two sections. The last remaining C# piece of
-the resolution surface is `CreateFunctionTypeInfoInDeclarationContext`. Its old reason — needing the
-reflection half of `NullabilityMetadata`, which lived above BootstrapServices — is GONE: that half is
-now `NullabilityMetadataReflection.nl` inside BootstrapServices. The member is simply not moved yet,
-and moves with the assignability SCC.
+are no longer blockers — both are N#-owned; see the next two sections. The resolution surface has no C# piece left:
+`CreateFunctionTypeInfoInDeclarationContext` is now
+`AnalyzerFunctionTypeFactory.CreateFromDeclarationInFile`, which resolves each reference through the
+DECLARING file's context rather than the reader's, and deliberately does not carry a containing type
+across.
 
 ### Project discovery
 
@@ -539,11 +616,8 @@ while the function channel and the inaccessible probe take the FIRST match. That
 enumeration order is decisive for the latter two and irrelevant for the first.
 
 `TryResolveVisibleProjectFunction` returns the matched `FunctionDeclaration`, its file and its symbol
-declaration; the shell still builds the `FunctionTypeInfo` from them, because
-`CreateFunctionTypeInfo` has not moved yet. Its old blocker — the reflection half of
-`NullabilityMetadata` living above BootstrapServices — is gone; that half is now
-`NullabilityMetadataReflection.nl` INSIDE BootstrapServices. This is the one remaining piece of this
-family in C#, and it moves with the assignability SCC.
+declaration; the shell then asks `AnalyzerFunctionTypeFactory.CreateFromDeclarationInFile` for the
+`FunctionTypeInfo`. Nothing in this family is C# any more.
 
 A resolved declaration's LINE is the declaration's own and its COLUMN is where the NAME starts on
 that line (`CodeIntelligenceTextUtilities.FindIdentifierNameColumn`), which is what a
