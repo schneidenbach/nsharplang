@@ -131,6 +131,21 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Runtime.CompilerServices.RuntimeHelpers"
         } else if canonical == "Array" || canonical == "System.Array" {
             runtimeTypeName = "System.Array"
+        } else if canonical == "NullabilityInfoContext"
+            || canonical == "System.Reflection.NullabilityInfoContext" {
+            runtimeTypeName = "System.Reflection.NullabilityInfoContext"
+        } else if canonical == "NullabilityInfo"
+            || canonical == "System.Reflection.NullabilityInfo" {
+            runtimeTypeName = "System.Reflection.NullabilityInfo"
+        } else if canonical == "NullabilityState"
+            || canonical == "System.Reflection.NullabilityState" {
+            runtimeTypeName = "System.Reflection.NullabilityState"
+        } else if canonical == "CustomAttributeData"
+            || canonical == "System.Reflection.CustomAttributeData" {
+            runtimeTypeName = "System.Reflection.CustomAttributeData"
+        } else if canonical == "CustomAttributeTypedArgument"
+            || canonical == "System.Reflection.CustomAttributeTypedArgument" {
+            runtimeTypeName = "System.Reflection.CustomAttributeTypedArgument"
         } else {
             return false
         }
@@ -166,6 +181,60 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Index"
             || name == "System.Range"
             || name == "System.RuntimeTypeHandle"
+            // The reflected-nullability surface. NullabilityInfoContext.Create answers the read
+            // state a `?` annotation compiles to, and CustomAttributeData carries the flow
+            // attributes (MaybeNull/NotNull/NotNullWhen/ParamArray) that annotation cannot express;
+            // together they are what an external member's N# type must be built from.
+            || name == "System.Reflection.NullabilityInfoContext"
+            || name == "System.Reflection.NullabilityInfo"
+            || name == "System.Reflection.NullabilityState"
+            || name == "System.Reflection.CustomAttributeData"
+            || name == "System.Reflection.CustomAttributeTypedArgument"
+            || IsCustomAttributeSequenceName(name)
+    }
+
+    // The attribute-data sequences the reflected members answer with. Their identity is COMPUTED,
+    // never spelled: a closed BCL generic's FullName carries its argument's version and public key,
+    // so a literal row would pin one runtime version. The prefix test comes first so that this
+    // admission path — which every emitted local type reaches — stays off reflection for every
+    // name that is not a closed IList.
+    static func IsCustomAttributeSequenceName(name: string): bool {
+        if !name.StartsWith("System.Collections.Generic.IList`1[[", StringComparison.Ordinal) {
+            return false
+        }
+
+        return name == CustomAttributeDataListFullName()
+            || name == CustomAttributeTypedArgumentListFullName()
+    }
+
+    // `System.Collections.Generic.IList`1[[System.Reflection.CustomAttributeData, ...]]` as this
+    // runtime spells it. GetCustomAttributesData answers exactly this type, so it must be a
+    // declarable local type for the attribute walk to bind at all.
+    static func CustomAttributeDataListFullName(): string {
+        return ClosedListFullName("System.Reflection.CustomAttributeData")
+    }
+
+    // The same for `CustomAttributeData.ConstructorArguments`.
+    static func CustomAttributeTypedArgumentListFullName(): string {
+        return ClosedListFullName("System.Reflection.CustomAttributeTypedArgument")
+    }
+
+    static func ClosedListFullName(elementFullName: string): string {
+        definition := Type.GetType("System.Collections.Generic.IList`1, System.Private.CoreLib")
+        if definition == null {
+            throw new InvalidOperationException(
+                "Required runtime generic type 'System.Collections.Generic.IList`1' was not found.")
+        }
+        elementType := Type.GetType(elementFullName + ", System.Private.CoreLib")
+        if elementType == null {
+            throw new InvalidOperationException(
+                "Required runtime type '" + elementFullName + "' was not found.")
+        }
+        arguments := new Type[](1)
+        arguments[0] = elementType
+        listType := definition.MakeGenericType(arguments)
+        fullName := listType.FullName ?? ""
+        return fullName
     }
 
     public static func GetStaticMemberPlan(typeName: string, memberName: string): ColumnarExternalStaticMemberPlan {
@@ -199,6 +268,16 @@ public class ColumnarExternalBindingPlans {
                 "System.StringComparison",
                 memberName,
                 "System.StringComparison")
+        }
+
+        // The nullability read state a reflected member answers with. It is an ordinary CLR enum,
+        // so every member is a literal field on its own type.
+        if MatchesOwner(typeName, "NullabilityState", "System.Reflection.NullabilityState") {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.Reflection.NullabilityState",
+                memberName,
+                "System.Reflection.NullabilityState")
         }
 
         if MatchesOwner(typeName, "JsonValueKind", "System.Text.Json.JsonValueKind") {
@@ -1056,6 +1135,12 @@ public class ColumnarExternalBindingPlans {
                     memberName,
                     Two("System.Type", "System.Boolean"),
                     "System.Boolean")
+            }
+            if (memberName == "get_IsOut" || memberName == "get_IsIn") && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
+            if memberName == "get_Name" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.String")
             }
         }
 

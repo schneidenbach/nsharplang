@@ -271,13 +271,34 @@ two types alone, and they are kept out of `AnalyzerAssignabilityFacts` so that c
 reason, and it is no longer the duck arm or the metadata probe: `IsAssignable`'s callable-reference
 arm builds a runtime delegate's signature with `CreateFunctionTypeInfoFromDelegate`, whose general
 `Invoke` arm needs `NullabilityMetadata.ConvertParameter`/`ConvertReturn`. Those need
-`System.Reflection.NullabilityInfoContext` and `CustomAttributeData`, and BOTH are off the columnar
-external-type surface — a `.nl` probe declines with `emit.typed-local.unsupported-type` and
-`emit.declaration.method-param: … could not be resolved` while `ParameterInfo`, `MethodInfo` and
-`Assembly` build clean in the same file. So the blocker is a compiler-capability gap whose repair is
-a two-stage bootstrap, not merely the assembly direction. Every OTHER member of the closure
-(`IsSubtypeOf`, `HasImplicitConversion`, the delegate scorer, the lambda arm and the two protocol
-shells) re-enters `IsAssignable`, so no sub-cut of the closure's interior exists.
+`System.Reflection.NullabilityInfoContext` and `CustomAttributeData`. Both WERE off the columnar
+external-type surface; **slice 12 stage A put them on it**, as five type rows in
+`ColumnarExternalBindingPlans` (the two types plus `NullabilityInfo`, `NullabilityState` and
+`CustomAttributeTypedArgument`), the two computed closed-`IList<T>` identities their attribute
+sequences answer with, and one enum static-member row. **No call plan was needed and none was
+added**: once a type is on the surface, every ordinary public member on it binds through
+`ColumnarOrdinaryRuntimeDirectCallResolver`, and a call plan would instead PRE-EMPT that resolver —
+a supported plan whose materialization fails is terminal, which is precisely what a value receiver
+like `CustomAttributeTypedArgument` cannot survive (`ValidatePlanForm` demands `Call`, the legacy
+host demands `CallVirtual`). What remains between here and the port is only the TOOLSET REPIN: the
+packaged SDK that builds `BootstrapServices` carries its own snapshot of the catalog, so the rows
+are inert in that project until it is repacked. Every OTHER member of the closure (`IsSubtypeOf`,
+`HasImplicitConversion`, the delegate scorer, the lambda arm and the two protocol shells) re-enters
+`IsAssignable`, so no sub-cut of the closure's interior exists.
+
+Three shape rules the port must keep, each one found by a decline and pinned by the staged stage-B
+contracts in `systems-language-closeout/stage-b-nullability-contracts.md`:
+
+- `new NullabilityInfoContext()` does NOT emit — the emitter's `new` chain is a name table that does
+  not model the type. Construct through `typeof(T).GetConstructor(...)` + `ConstructorInfo.Invoke`,
+  the idiom `ExternalAssemblyScan.CreateMetadataLoadContext` already uses; the argument array must be
+  declared `object?[]` or the analyzer refuses the `Invoke` overload.
+- `GetCustomAttributesData()` and `ConstructorArguments` answer a closed `IList<T>`. `get_Item(int)`
+  binds directly, but `Count` is declared on `ICollection<T>` and an interface receiver's own member
+  lookup reaches neither it nor `foreach`. Bind the sequence through an `object` local and read the
+  non-generic `IList.Count`.
+- A boxed `CustomAttributeTypedArgument.Value` cannot be unboxed by a cast, an `as`, or an `is` test;
+  compare it against a boxed constant with `Equals`.
 
 ### Substitution-aware resolution
 

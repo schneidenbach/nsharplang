@@ -1,6 +1,34 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-30 (**TASK 017 SLICE 7 LANDED — THE `ResolveType` ARC IS OPEN: ITS WHOLE CLOSURE
+Last updated: 2026-07-30 (**TASK 017 SLICE 12 STAGE A LANDED (no commit — mandate) — THE
+NULLABILITY-REFLECTION CAPABILITY IS ON THE COLUMNAR SURFACE AND THE ARC'S FIRST TWO-STAGE BOOTSTRAP
+IS SET UP.** Fork (a) taken. `NullabilityInfoContext`, `NullabilityInfo`, `NullabilityState`,
+`CustomAttributeData` and `CustomAttributeTypedArgument` now resolve, and the whole stage-B member
+surface both BINDS and EXECUTES against a freshly built compiler. The admission mechanism turned out
+to be **catalog DATA, not a kernel wall**: `ColumnarExternalBindingPlans.nl` alone, **+75 lines, zero
+C#, zero OpCodes/kernel change, zero ratchet movement**. The non-obvious finding is that **no call
+plan was needed and adding one would have been a bug** — a supported instance plan PRE-EMPTS
+`ColumnarOrdinaryRuntimeDirectCallResolver` terminally, and no plan can describe a value receiver
+(`ValidatePlanForm` demands `Call`, the legacy host demands `CallVirtual`); a 153-line plan block was
+written, measured, and DELETED, after which `CustomAttributeTypedArgument.get_Value` bound. Every
+surviving row is proven load-bearing by deletion. EVIDENCE: unit **3,194 / 3,194** (zero drift, and
+this suite links the fresh catalog), contracts **1,722 → 1,726** passing under the CURRENT packaged
+SDK, ownership audit **18 / 18** with no repin (manifest still 391 lines), plus a 14-function probe
+that builds and RUNS (`[NotNullWhen(false)]`'s boolean read back as false from real BCL metadata) and
+**7 / 7 staged stage-B contracts**. THE WALL: the packaged SDK carries the frozen catalog, so the
+rows are inert inside `BootstrapServices` until `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`
+repacks it; the stage-B contracts are staged in
+`systems-language-closeout/stage-b-nullability-contracts.md` (a `.md` because a staged `.nl` trips
+the audit's OWN009 — measured at 17 / 18). Three new .nl gotchas: **a type on the TYPE surface is
+not automatically constructible** (`new` is a separate C# name table — use the reflected constructor,
+with an `object?[]` argument array); **an interface receiver sees only its OWN members** (`IList<T>`
+has `get_Item` but not `Count`, `foreach` declines, `.Count` is analyzer-rejected — route through an
+`object` local and the non-generic `IList`); **a boxed value cannot be unboxed** by cast, `as` or
+`is` — compare with `Equals` against a boxed constant. NEXT: the repin, then **STAGE B** — port
+`NullabilityMetadata.cs`'s reflection half, then `CreateFunctionTypeInfo*`, then the assignability
+SCC lands whole)
+
+Last updated (prior): 2026-07-30 (**TASK 017 SLICE 7 LANDED — THE `ResolveType` ARC IS OPEN: ITS WHOLE CLOSURE
 IS MEASURED, THE STAGED PLAN IS RECORDED, AND STAGE 1 — THE PURE DECISION SURFACE — IS N#-OWNED.**
 The mandate was to open the type-REFERENCE engine. Measurement first: a throwaway instrumented build
 with 40 counters, run over all 40 corpus targets, the full 3,193-test suite (which passed **3,193 /
@@ -407,7 +435,158 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 11 — THE `ResolveType` ARC, STAGE 5: THE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 12 STAGE A — THE NULLABILITY-REFLECTION
+  CAPABILITY. FORK (a) IS TAKEN AND ITS FIRST STAGE IS LANDED: `NullabilityInfoContext` AND
+  `CustomAttributeData` ARE ON THE COLUMNAR SURFACE, THE WHOLE STAGE-B MEMBER SURFACE IS PROVEN TO
+  BIND AND EXECUTE, AND THE TURN STOPS AT THE REPIN WALL AS INSTRUCTED.** No commit (mandate). The
+  port itself is stage B and was NOT started.
+  **THE STAGE-B MEMBER-SURFACE INVENTORY** (read off `src/NSharpLang.Compiler/NullabilityMetadata.cs`,
+  251 lines — the file is exactly the 251 the coordinator measured, and its 27 call sites are
+  unchanged). Five external types, and the count of DISTINCT members each contributes:
+  * `NullabilityInfoContext` — the parameterless constructor (3 sites) and `Create` in its
+    `PropertyInfo` / `FieldInfo` / `ParameterInfo` overloads (`TryCreateNullabilityInfo` ×3).
+  * `NullabilityInfo` — `ReadState` (`GetReadState`), `ElementType` (the array arm),
+    `GenericTypeArguments` (the generic arm AND `GetFirstGenericArgument`). **`WriteState` is NOT
+    used** — the coordinator's inventory prompt named it, the file does not, and it was deliberately
+    left off the surface rather than admitted "for symmetry".
+  * `NullabilityState` — the members `Nullable` and `Unknown` (`ConvertType`'s two comparisons and
+    `GetReadState`'s default). `NotNull` is never named.
+  * `CustomAttributeData` — `AttributeType` (then `.FullName`) in `HasAttributeKind` and
+    `FormatFlowAttributes`; `ConstructorArguments` with `.Count` and `[0]` in `FormatFlowAttributes`.
+    It is enumerated as `IEnumerable<CustomAttributeData>` from four `GetCustomAttributesData()`
+    sites (property, field, parameter, `method.ReturnParameter`).
+  * `CustomAttributeTypedArgument` — `Value` (boxed, tested `is bool`). `ArgumentType` is not used by
+    the C# but IS the exact way to test the boxed value in N#, so it is on the surface too.
+  Plus the support members the port composes with, all of which already bound:
+  `PropertyInfo.PropertyType`/`GetCustomAttributesData`, `FieldInfo.FieldType`/`GetCustomAttributesData`,
+  `ParameterInfo.ParameterType`/`IsOut`/`Name`/`GetCustomAttributesData`,
+  `MethodInfo.ReturnType`/**`ReturnParameter`**, `Nullable.GetUnderlyingType`, and the `Type` facts
+  (`IsByRef`, `GetElementType`, `IsGenericParameter`, `IsValueType`, `IsArray`, `IsGenericType`,
+  `Name`, `FullName`, `GetGenericArguments`).
+  **THE ADMISSION-MECHANISM FINDING — IT IS CATALOG DATA, NOT A KERNEL WALL, AND IT IS SMALLER THAN
+  EXPECTED.** The gate is `ColumnarIlEmitter.IsSupportedType` (`ColumnarIlEmitter.cs` :397), whose
+  FIRST external clause is `ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(t.FullName)` —
+  an N# function in `BootstrapServices`. Name→`Type` resolution is its sibling
+  `TryGetRuntimeTypeName` (consulted at :3514), and external enum members are
+  `GetStaticMemberPlan`. All three are plain N# data in ONE file. **No C# was added, no kernel or
+  OpCodes allowlist changed, no ratchet row moved.** The non-obvious half: **NO CALL PLAN WAS NEEDED
+  AND ADDING ONE WOULD HAVE BEEN A BUG.** Measured by removing the 153-line instance-plan block that
+  a first pass had written and rebuilding: every member above still bound, through
+  `ColumnarOrdinaryRuntimeDirectCallResolver` — and `CustomAttributeTypedArgument.get_Value` bound
+  ONLY after the plan was removed, because `ColumnarDirectCallPlanner` :883 consults
+  `GetInstanceCallPlan` FIRST and a supported plan whose materialization fails is TERMINAL
+  (`plan.Rollback` + `return false`, never falling through), while `ValidatePlanForm` requires
+  `Kind == Call` for a value receiver and the legacy C# host requires `CallVirtual` for an instance
+  call — a plan cannot satisfy both. A second contract, `ValidatePlanForm`'s
+  `HasExactTypeIdentity(lookupType, plan.DeclaringTypeName)`, means a plan can never name a
+  declaring type other than the receiver, which is why the `ICollection<T>`-owned `get_Count` a first
+  pass tried is impossible by construction.
+  **THE CAPABILITY CHANGE (one file, `ColumnarExternalBindingPlans.nl`, +75 / −0):** five
+  canonical→runtime rows in `TryGetRuntimeTypeName`; five literal rows plus ONE computed clause in
+  `IsSupportedRuntimeTypeName`; one `MatchesOwner` enum row in `GetStaticMemberPlan`. The computed
+  clause is the only non-mechanical piece: `GetCustomAttributesData()` and `ConstructorArguments`
+  answer a CLOSED `IList<T>`, whose `FullName` embeds the element's assembly VERSION and public key,
+  so a literal row would pin one runtime. `IsCustomAttributeSequenceName` therefore builds the two
+  identities by reflection (`Type.GetType` + `MakeGenericType`) — behind an exact-prefix test, so the
+  emitter's hot admission path stays off reflection for every other name.
+  **EVERY ROW IS PROVEN LOAD-BEARING BY DELETION**, not asserted: removing the enum row declines at
+  `NullabilityState.Unknown`; removing the computed clause declines at
+  `emit.local.unsupported-type … System.Collections.Generic.IList\`1[[System.Reflection.CustomAttributeData, …]]`;
+  removing the 153-line instance-plan block changes nothing except FIXING the value receiver.
+  **PROOF THAT THE CAPABILITY IS REAL, RUN AT THIS TREE.** The freshly built CLI is behaviourally
+  the post-repin toolset — `NSharpLang.Compiler` has a `ProjectReference` to `BootstrapServices`, so
+  `dotnet build src/NSharpLang.Cli -c Release` links a FRESH `BootstrapServices.dll` carrying the new
+  rows. Against it: (1) a 14-function probe covering the entire inventory **BUILDS**, where the same
+  file against the packaged toolset declines at `emit.declaration.method-return: … 'NullabilityInfoContext'`;
+  (2) the probe **EXECUTES** — `NullabilityInfoContext.Create(ParameterInfo).ReadState` answers
+  `Nullable` for `String.IsNullOrEmpty(string?)` and for `Dictionary<string,string>.TryGetValue`'s
+  `out` parameter, `Nullable.GetUnderlyingType(int?)` answers `System.Int32`,
+  `ParameterInfo.Name` answers `first`, and the attribute walk finds
+  `NotNullWhenAttribute` on `IsNullOrEmpty`'s parameter and reads its single boolean constructor
+  argument as **false**, which is the exact `[NotNullWhen(false)]` in the BCL; (3) **7 / 7 staged
+  stage-B contracts PASS** (`nlc test`, 0.4s) covering read state for parameters/properties/fields,
+  the element and generic-argument positions, the return parameter, the nullable underlying type,
+  the flow-attribute constructor argument, and `ParamArrayAttribute` recognition.
+  **THREE .nl GOTCHAS, ALL FOUND BY BUILDING, ALL NEW:**
+  * **`new NullabilityInfoContext()` DOES NOT EMIT** (`emit.return.expression`). The emitter's `new`
+    chain is a hard-coded C# name table (`ColumnarIlEmitter.cs` :11380-11460); a type on the TYPE
+    surface is not automatically constructible. The established N# answer is the reflected
+    constructor — `typeof(T).GetConstructor(types)` + `ConstructorInfo.Invoke(args)` + a cast,
+    exactly `ExternalAssemblyScan.CreateMetadataLoadContext`. **The argument array must be declared
+    `object?[]`, not `object[]`** — with `object[]` the ANALYZER refuses every `Invoke` overload
+    (NL402), because the parameter reads as `object?[]?`.
+  * **AN INTERFACE RECEIVER SEES ONLY ITS OWN MEMBERS.** `IList<T>.get_Item(int)` binds, but
+    `get_Count` does NOT (it is declared on `ICollection<T>`, and `Type.GetMethods()` on an interface
+    does not return base-interface members), `foreach` over an `IList<T>` declines at
+    `emit.statement.block-child`, and `.Count` is rejected by the ANALYZER before emit. The working
+    idiom is `boxed: object = list` then `(IList)boxed` and `.Count` — the non-generic interface IS
+    on the surface and the member resolver maps its `Count` to `System.Collections.ICollection`.
+    **A direct interface-to-interface cast declines**; routing through an `object` local is what
+    makes it emit.
+  * **A BOXED VALUE CANNOT BE UNBOXED.** `(bool)value`, `value as bool?` and `if value is bool` all
+    decline on an `object`-typed local. Comparing against a boxed constant
+    (`falseValue: object = false` … `value.Equals(falseValue)`) is exact and emits. Related:
+    **`argument.get_ArgumentType() == typeof(bool)` binds**, so the type test itself is available.
+  **WHAT COMPILES AND PASSES NOW vs POST-REPIN.** NOW: the full unit suite **3,194 / 3,194**
+  (`dotnet test tests/Tests.csproj -c Release`, 3m34s — exactly the `6fe719a9f` baseline, zero
+  drift, and note this suite links the FRESH `BootstrapServices`, so it is also the evidence that
+  the additive rows change nothing for existing shapes); BootstrapServices contracts
+  **1,722 → 1,726** (+4) via `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false`, **1,726 / 1,726 PASS under the CURRENT packaged SDK** — the four new
+  contracts are pure catalog DATA assertions, so they compile and run pre-repin; ownership audit
+  **18 / 18** (`nlc test --project tests/native/ownership-audit`, 1.2s) with **NO repin of the
+  ratchet** — only `.nl` files changed and the manifest stays at **391 lines**, untouched.
+  POST-REPIN: the 7 staged contracts, and then the port.
+  **NO CORPUS IL SWEEP WAS RUN, AND THE REASON IS STRUCTURAL, NOT AN OMISSION.** Every corpus target,
+  example and `tests/native` project is compiled by the PACKAGED 0.1.0 SDK, which this slice does not
+  touch — their emission is bit-identical by construction. For the one assembly that does change
+  (`BootstrapServices` itself) the change is by design, exactly as slice 11 recorded. And the three
+  edits cannot alter an existing answer even post-repin: new `else if` arms APPENDED after every
+  existing arm in a chain whose `else` returns false; new `||` terms behind an exact-prefix guard;
+  and a `MatchesOwner` arm that matches only two new spellings. The 3,194-test suite running against
+  the fresh catalog at zero drift is the empirical half of that claim.
+  **THE STAGED STAGE-B CONTRACTS AND WHY THEY ARE WHERE THEY ARE.** They live in
+  `systems-language-closeout/stage-b-nullability-contracts.md` (278 lines; the N# in one fenced
+  block, plus activation steps). A `.tests.nl` in `BootstrapServices` would break the contracts gate
+  pre-repin, and a staged `.nl`-suffixed file in that directory trips the ownership audit's
+  **OWN009** ("unknown product-adjacent file type") — measured, not guessed: with the file present as
+  `NullabilityMetadataReflection.tests.nl.stage-b` the audit was 17 / 18. A closeout `.md` is
+  ignored by `OwnershipPolicy.Classify` and perturbs neither gate.
+  **EXACT REPIN INSTRUCTIONS FOR THE COORDINATOR** (this is the whole wall — there is nothing else
+  between here and the port):
+  1. `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a clean tree containing this slice. That
+     one command IS the repin: it rebuilds the compiler, packs `NSharpLang.Sdk` / `NSharpLang.Cli` /
+     `NSharpLang.Runtime` and installs them into `~/.nuget/local-feed`, so the packaged
+     `tools/NSharpLang.Compiler.BootstrapServices.dll` — which is the frozen catalog snapshot that
+     compiles this project — is replaced by one carrying the new rows. Do NOT hand-pack mid-slice:
+     packing into `~/.nuget/local-feed` from a red tree poisons the real feed.
+  2. Verify the repin took by copying the fenced block from
+     `systems-language-closeout/stage-b-nullability-contracts.md` to
+     `src/NSharpLang.Compiler.BootstrapServices/NullabilityMetadataReflection.tests.nl` and running
+     `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
+     Expect **1,733 / 1,733** (1,726 + 7). If it instead fails at
+     `emit.declaration.method-return: … 'NullabilityInfoContext' could not be resolved`, the pack did
+     not reach the feed — the rows are proven, the toolset is stale.
+  3. Delete the staged `.md` once the contracts are in the project.
+  **STAGE-B READINESS.** Ready with no unknowns: every member the port needs is proven to bind AND
+  to execute, the three shape rules above are recorded with their working idioms, and the pure half
+  is already N# in `NullabilityMetadataCore.nl`. Stage B is then: port
+  `NullabilityMetadata.cs`'s reflection half (251 lines, 27 call sites across 4 files) to N#, delete
+  the C#, and with `ConvertParameter`/`ConvertReturn` in `BootstrapServices`, move
+  `CreateFunctionTypeInfoFromDelegate`, `CreateFunctionTypeInfoInDeclarationContext` /
+  `CreateFunctionTypeInfo` (32 live calls) and `ConvertReflectionType` — after which the
+  assignability SCC (`IsAssignable`, `IsSubtypeOf`, `HasImplicitConversion` + `_activeImplicitConversions`,
+  `TryGetDelegateSignatureConversionScore`, `TryGetRuntimeDelegateMethodGroupMatchScore`,
+  `IsFunctionTypeAssignableToRuntimeDelegateMethodGroup`, `IsLambdaAssignableToDelegate` and the two
+  slice-6 protocol shells) lands WHOLE, with no protocol at all. Fork (b) stays withdrawn.
+  **ONE ADJACENT GAP MEASURED AND NOT ACTED ON**, recorded so it is not rediscovered: an interface
+  receiver's member lookup (both the analyzer's property lookup and
+  `ColumnarOrdinaryRuntimeDirectCallResolver`'s `GetMethods()`) ignores BASE INTERFACES. Closing it
+  properly needs signature dedupe with most-derived preference — a naive union makes
+  `IEnumerable<T>.GetEnumerator()` ambiguous where it currently binds — so it is its own slice, not
+  a rider. The `object`+`IList` idiom above is the sound workaround and costs nothing at runtime.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `6fe719a9f`): **017 SLICE 11 — THE `ResolveType`
+  ARC, STAGE 5: THE
   ASSIGNABILITY SCC — RECORDED AS MANDATED, THEN MEASURED-RECUT TO ITS TERMINAL PERIPHERY.**
   MANDATED TARGET, recorded verbatim from the coordinator and unchanged BEFORE any production edit:
   the whole assignability strongly-connected component in one cut — `IsAssignable` (~50 sites),

@@ -1072,3 +1072,120 @@ test "TypeBuilder member rebinding plans decline every near miss" {
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "TypeBuilder", "GetConstructor", wrongMethodArguments).IsSupported
 }
+
+// The reflected-nullability capability (task 017 slice 12 stage A). These contracts pin the
+// catalog DATA, which is all the capability is: once the toolset carries these rows, every member
+// the NullabilityMetadata port needs binds through the ordinary runtime resolver, so no instance
+// or static CALL plan is added and none should appear here.
+test "the reflected nullability types are on the runtime type surface" {
+    AssertRuntimeType("NullabilityInfoContext", "System.Reflection.NullabilityInfoContext")
+    AssertRuntimeType("NullabilityInfo", "System.Reflection.NullabilityInfo")
+    AssertRuntimeType("NullabilityState", "System.Reflection.NullabilityState")
+    AssertRuntimeType("CustomAttributeData", "System.Reflection.CustomAttributeData")
+    AssertRuntimeType(
+        "CustomAttributeTypedArgument",
+        "System.Reflection.CustomAttributeTypedArgument")
+
+    AssertRuntimeType(
+        "System.Reflection.NullabilityInfoContext",
+        "System.Reflection.NullabilityInfoContext")
+    AssertRuntimeType("System.Reflection.NullabilityInfo", "System.Reflection.NullabilityInfo")
+    AssertRuntimeType("System.Reflection.NullabilityState", "System.Reflection.NullabilityState")
+    AssertRuntimeType(
+        "System.Reflection.CustomAttributeData",
+        "System.Reflection.CustomAttributeData")
+    AssertRuntimeType(
+        "System.Reflection.CustomAttributeTypedArgument",
+        "System.Reflection.CustomAttributeTypedArgument")
+
+    // Spelling is exact in both directions: neither a near-miss canonical nor a near-miss runtime
+    // name is admitted.
+    unknownTypeName := ""
+    assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
+        "NullabilityInfoContexts", out unknownTypeName)
+    assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
+        "nullabilityInfoContext", out unknownTypeName)
+    assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
+        "System.NullabilityInfoContext", out unknownTypeName)
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
+        "System.Reflection.NullabilityInfoContexts")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
+        "System.Reflection.CustomAttributeNamedArgument")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(null)
+}
+
+test "the attribute-data sequence identities are computed, not spelled" {
+    // GetCustomAttributesData and ConstructorArguments answer closed IList<T>. A local of that
+    // type is what the attribute walk binds, so the closed identity must be on the surface — and
+    // it must be READ from the running framework, because the closed FullName carries the
+    // element's assembly version and public key.
+    dataList := ColumnarExternalBindingPlans.CustomAttributeDataListFullName()
+    argumentList := ColumnarExternalBindingPlans.CustomAttributeTypedArgumentListFullName()
+
+    assert dataList.StartsWith("System.Collections.Generic.IList`1[[", StringComparison.Ordinal)
+    assert dataList.EndsWith("]]", StringComparison.Ordinal)
+    assert dataList.Contains("System.Reflection.CustomAttributeData,")
+    assert argumentList.StartsWith(
+        "System.Collections.Generic.IList`1[[",
+        StringComparison.Ordinal)
+    assert argumentList.Contains("System.Reflection.CustomAttributeTypedArgument,")
+    assert dataList != argumentList
+
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(dataList)
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(argumentList)
+
+    // The OPEN definition and the element type alone are not sequences and stay off the surface.
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
+        "System.Collections.Generic.IList`1")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
+        "System.Collections.Generic.IList`1[[System.Reflection.CustomAttributeData]]")
+
+    // A different element closes to a different identity that is NOT admitted.
+    otherList := ColumnarExternalBindingPlans.ClosedListFullName("System.String")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(otherList)
+}
+
+test "the nullability read state is an ordinary enum static member plan" {
+    nullable := ColumnarExternalBindingPlans.GetStaticMemberPlan("NullabilityState", "Nullable")
+    assert nullable.IsSupported
+    assert nullable.Kind == ColumnarExternalStaticMemberKind.Field
+    assert nullable.DeclaringTypeName
+        == "System.Reflection.NullabilityState, System.Private.CoreLib"
+    assert nullable.MemberName == "Nullable"
+    assert nullable.ValueTypeName == "System.Reflection.NullabilityState, System.Private.CoreLib"
+
+    qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.Reflection.NullabilityState",
+        "Unknown")
+    assert qualified.IsSupported
+    assert qualified.DeclaringTypeName == nullable.DeclaringTypeName
+    assert qualified.ValueTypeName == nullable.ValueTypeName
+    assert qualified.MemberName == "Unknown"
+
+    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "NullabilityState", "NotNull").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "nullabilityState", "Nullable").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "NullabilityStates", "Nullable").IsSupported
+}
+
+test "the reflected nullability capability adds no call plan of its own" {
+    // Every member the port needs is an ordinary public method on an admitted receiver, so it
+    // binds through the ordinary runtime direct-call resolver. A call plan here would instead
+    // PRE-EMPT that resolver (a supported plan whose materialization fails is terminal), which is
+    // exactly what a value receiver like CustomAttributeTypedArgument cannot survive.
+    noArguments := new string[](0)
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.NullabilityInfoContext", "Create", noArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.NullabilityInfo", "get_ReadState", noArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.CustomAttributeData", "get_AttributeType", noArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.CustomAttributeTypedArgument", "get_Value", noArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.ParameterInfo", "GetCustomAttributesData", noArguments).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.MethodInfo", "get_ReturnParameter", noArguments).IsSupported
+}
