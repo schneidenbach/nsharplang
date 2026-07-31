@@ -13,6 +13,8 @@
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeReferenceFacts.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerScopeStack.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerProjectDiscovery.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeResolver.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnosticSink.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerStateModels.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnostics.nl`
 
@@ -245,11 +247,13 @@ duck-interface arm compares member signatures through `MethodSignaturesMatch` �
 records into the semantic model and reports diagnostics. (The `ActionResult` arm's other blocker, the
 MetadataLoadContext probe, is now N#-owned — see below.)
 
-### The type-reference resolver: what is N#-owned and what is not
+### The type-reference resolver
 
-`ResolveType(TypeReference)` in `Analyzer.cs` is a CHANNEL WALK. It reports `NL201`/`NL207`, records
-every resolved reference into the semantic model, and writes bindings — so the walk itself stays in
-the shell. The DECISIONS it makes along the way do not, and three N# owners hold them.
+`AnalyzerTypeResolver` (`AnalyzerTypeResolver.nl`) is the SOLE authority for turning a `TypeReference`
+into a `TypeInfo`, for every diagnostic that walk reports, and for every semantic-model and
+binding-map record it writes. `Analyzer.cs` holds no resolution policy: it constructs the resolver
+once, tells it which file an analysis is about, and calls it. The owners below are the decision tables
+the walk consults; they are handed to it by argument, so nothing in the walk names the shell.
 
 `AnalyzerExternalTypeProbe.nl` is the N# owner for every question answered by looking at referenced
 assembly metadata. It is constructed ONCE per analyzer, holds the resolution cache, and is never
@@ -292,6 +296,81 @@ must not be, because its cache is part of the answer.
 characters skipped (at that length everything is near everything), the name itself skipped, ties
 keeping the caller's FIRST candidate so the suggestion is stable rather than hash-ordered.
 
+#### The eight channels
+
+`ResolveSimpleType(name, line, column)` tries, IN ORDER: the built-in name table; the scope stack; the
+current file's import aliases; a dotted nested type; project-wide discovery; a namespace alias
+resolved as a type; the referenced-assembly probe; and finally an unresolved `ExternalTypeInfo`
+placeholder. The order is behaviour — a local declaration shadows a project type, and a project type
+outranks a CLR type of the same name — and so is the fact that the last channel is a PLACEHOLDER
+rather than an error type: analysis carries on with a named stand-in.
+
+The using-alias channel is measured DEAD in every population (corpus, unit suite and fixtures) and is
+preserved verbatim rather than deleted: `RegisterNamespaceImport` only records an alias after
+`ValidateNamespaceImport` has proved the target is a namespace and not a type, so the aliased full
+name can never resolve as a type. It is structurally unreachable, not merely unexercised.
+
+`line <= 0` means "no source position". The walk still resolves through every channel, but it records
+no binding, reports nothing, and — for a generic reference — skips the whole head probe, so the
+resolved `GenericTypeInfo` carries no definition. One asymmetry follows from the ordering and is
+deliberate: `var` at a real position is refused with `NL103`, while `var` at line 0 falls through
+every channel to the placeholder, because the `var` check is the only thing that recognises it.
+
+#### The ten report sites
+
+All of them live in the resolver, and all of them go through `AnalyzerDiagnosticSink`:
+
+- `NL201` for a claimed file alias, for an undotted simple name, and for a generic name;
+- `NL207` for a spelling available at several arities ("available arities are ...") and for an arity
+  mismatch against a known head;
+- `NL103` for `var` used as a type and for a SoA `.Row` reference;
+- `NL306` for a repeated anonymous-union arm and `NL207` for more than two distinct arms;
+- `NL308` for an inaccessible project declaration.
+
+`NL201` and the two `NL207` shapes are gated on the REPORT OPT-IN, which is off by default and turned
+on only by `ResolveDeclaredType` — parameter, return, field, property, variable annotation, type alias
+and `new` positions. Pass-1 signature collection and lazy cross-file member resolution run without
+generic type parameters in scope and must stay lenient, which is why the opt-in exists at all. Dotted
+names are lenient even at a declared-type position: a namespace-qualified external or a
+`new Union.Case` reference legitimately resolves through another channel.
+
+The open-generic head probe forces the opt-in OFF for its own name resolution and then consults the
+CALLER's opt-in for all three of its reports. CLR open generics carry an arity suffix (`List` resolves
+as ``List`1``), so the plain simple-name probe legitimately misses external generic types; reporting
+the head probe's own miss would be a false positive on every `List<int>`.
+
+#### The dedupe sets
+
+Two sets, both keyed by `(name, line, column)` and both cleared once per analysis. The
+unresolved-reference set is shared by all five `NL201`/`NL207` sites AND by the two inaccessible-member
+reports the shell still owns outside the walk (the `new Union.Case` probe and the identifier-binding
+probe), which route through `MarkUnresolvedTypeReported`. That sharing is the point: the first report
+at a position suppresses every later one there, so an inaccessible member is not also reported as an
+unresolved type. The SoA-row set is separate, because its report is not an unresolved-type report —
+and note that a repeat `.Row` reference still ANSWERS true (the reference is still refused); only the
+diagnostic is suppressed.
+
+#### The records
+
+`RecordTypeReference` fires on EVERY `ResolveType` call, at the reference's own start span, and is
+what hover and the semantic-token pass read; a reference with no valid span is skipped. `RecordType`
+fires on the file-alias and project channels, and `RecordBinding` on the scope, file-alias and project
+channels — the last of these is what makes go-to-definition work across files. The semantic model and
+the binding map are REPLACED per analysis rather than cleared, so they arrive through `BeginAnalysis`
+rather than being held from construction.
+
+#### The diagnostic sink
+
+`AnalyzerDiagnosticSink` (`AnalyzerDiagnosticSink.nl`) is the single authority for turning a semantic
+finding into a `CompilerError`. It is given the analyzer's OWN `_errors` list rather than owning one,
+which is what keeps report ORDER meaningful: the shell's remaining reports and the resolver's reports
+append to one list, so a diagnostic's position among its neighbours does not depend on which side of
+the boundary produced it. The snippet is the analysed file's own text when there is one and the
+project snapshot's copy otherwise (the unsaved-editor-buffer path); no text and line 0 both mean no
+snippet, which is what makes `AnalyzerDiagnostics.Create` fall back to the detail-only shape. `NL308`
+lives here too, because its message names the DECLARING file's namespace, read from disk through the
+project source provider.
+
 One member of this family is NOT movable yet, for a recorded reason rather than by omission.
 `NamespaceExists` and `GetExternalSearchAssemblies` deduplicate the loaded assemblies by
 `Assembly.FullName`, and neither `Assembly.get_FullName` nor `AssemblyName.get_Name` is on the
@@ -301,7 +380,9 @@ below — and only its metadata half is blocked.) `IsTopLevelTypeDeclaration` is
 is no longer name-based: `AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration` dispatches on the
 declaration's own TYPE (`declaration as ClassDeclaration != null`, once per family), which is the same
 decision the shell's `is ClassDeclaration or …` pattern made. The scope stack and the project channel
-are no longer blockers — both are N#-owned; see the next two sections.
+are no longer blockers — both are N#-owned; see the next two sections. The last remaining C# piece of
+the resolution surface is `CreateFunctionTypeInfoInDeclarationContext`, which needs the reflection half
+of `NullabilityMetadata` and therefore lives above BootstrapServices.
 
 ### Project discovery
 

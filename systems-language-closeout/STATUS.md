@@ -407,8 +407,379 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 9 — THE `ResolveType` ARC, STAGE 3: PROJECT
-  DISCOVERY.**
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 10 — THE `ResolveType` ARC, STAGE 4: THE
+  REPORTING AND RECORDING WALK.**
+  MANDATED TARGET, recorded verbatim from the coordinator and unchanged BEFORE any production edit:
+  the `ResolveType` walk orchestration itself — `ResolveType`'s 9-arm dispatch, `ResolveDeclaredType`
+  (the `_reportUnresolvedTypes` opt-in trampoline), BOTH `ResolveSimpleType` overloads (the 8-channel
+  name walk), `ResolveGenericType`, `ResolveAnonymousUnionType`, `ReportSoaRowTypeReferenceIfNeeded`,
+  `RecordResolvedTypeReference`, `TryResolveDottedNestedType` and the remaining helpers
+  (`ResolveTypeReferenceIfPresent`, `ResolveTypeReferences`, `ResolveGenericConstraintTypes`) —
+  together with the diagnostic sink they need (the report sites' exact `CompilerError` construction,
+  ordering and `_errors` interaction) and the three dedupe/opt-in state pieces
+  (`_reportUnresolvedTypes`, `_reportedUnresolvedTypeRefs`, `_reportedSoaRowTypeRefs`).
+  THE MEASUREMENT (completed BEFORE any production edit; a throwaway instrumented Release build with
+  **58 branch counters** over the whole walk — the 9 dispatch arms, the 8 channels, all TEN report
+  sites, both dedupe sets with their suppression outcomes, every semantic-model and binding-map write,
+  the snippet source and the span-validity gate — run across all **49 `project.yml` corpus targets**,
+  the full 3,193-test unit suite AND **53 purpose-built fixture runs** (50 plus 3 re-run with
+  `NSHARP_EXPERIMENTAL_SOA=1`), then reverted — `Analyzer.cs` was byte-identical to `31290556c` again
+  before the cut began, `md5 d2fb4067e0d6caf2ea562f1f8ebc9e48`, 21,461 lines / 18,861 non-blank):
+  * **THE FIVE-REPORT-SITE CLAIM IS TRUE OF THE NL201/NL207 FAMILY AND FALSE OF THE WALK. THERE ARE
+    TEN.** The slice-7/9 records named five (NL201 ×3 shapes, NL207 ×2) and those five are exactly
+    right, all in `ResolveSimpleType(string,…)` and `ResolveGenericType`. But the walk ALSO reports:
+    **NL103 for `var` used as a type** (`ResolveSimpleType` :18315, the one-argument `Error` overload,
+    4 / 4 live in suite / fixtures); **NL103 for a SoA `.Row` reference**
+    (`ReportSoaRowTypeReferenceIfNeeded` :18213); **NL306 for a repeated anonymous-union arm** and
+    **NL207 for more than two distinct arms** (`ResolveAnonymousUnionType` :18247 / :18263, 3 / 3 and
+    4 / 6); and **NL308 via `ReportInaccessibleMember`** (`ResolveSimpleType` :18395, 5 / 1). So the
+    diagnostic sink had to reproduce ten sites, not five, and `ReportInaccessibleMember` had to move
+    with them — it is a report, its message text is built from the project source provider, and
+    leaving it behind would have split one diagnostic across the boundary.
+  * **THE RECORDING SINKS ARE ALREADY N# AND ARE ARGUMENT-PASSED — CONFIRMED, and so is a THIRD one
+    the earlier records did not name.** `SemanticModel` and `BindingMap` are N# (the slice-8
+    precedent), and `_errors` is a `List<CompilerError>` whose element type is N# too
+    (`CompilerError.nl`). The list is therefore handed in BY REFERENCE rather than owned, which is
+    what preserves report ORDER: the shell's ~218 surviving `Error(` sites and the owner's ten append
+    to the same instance, so a diagnostic's position among its neighbours does not depend on which
+    side of the boundary produced it. That is a structural guarantee, not a measured one.
+  * **THE WHOLE CLOSURE IS ALREADY CLOSED OVER N# OWNERS — THE FINDING THAT MADE THIS A ONE-CUT
+    SLICE.** A call-by-call read of all eleven walk members found NOT ONE call back into the shell:
+    `_scopes` (N#), `_declarationContext` (N#), `_projectDiscovery` (N#), `_externalTypeProbe` (N#),
+    `_bindingMap` / `_semanticModel` (N#), `AnalyzerTypeReferenceFacts` / `AnalyzerWellKnownTypeFacts`
+    / `AnalyzerDiagnostics` / `TypeInfoIdentityFacts` / `TypeReferenceFacts` / `SoaFeature` /
+    `BuiltInTypes` (N# statics), and `GetUnitNamespace`, which slice 9 had already routed to
+    `AnalyzerProjectSourceProvider.UnitNamespace`. The only non-N# thing left was the walk itself.
+  * **THE STATE IS THREE PIECES AND TWO OF THEM LEAK OUTSIDE THE WALK.** `_reportUnresolvedTypes` and
+    `_reportedSoaRowTypeRefs` are used ONLY inside the walk (plus their reset). But
+    `_reportedUnresolvedTypeRefs` has **two `Add` sites outside it** — `AnalyzeNewExpression` :16220
+    (the `new Union.Case` inaccessible probe) and `TryResolveIdentifierBindingTarget` :18561 (the
+    identifier-binding inaccessible probe) — both immediately after a `ReportInaccessibleMember`, both
+    claiming the position so the later NL201 stays silent. Both are live in the fixtures (1 / 1) and
+    both now route through the owner's `MarkUnresolvedTypeReported`.
+  * **`_currentFilePath`, `_sourceText` AND `_compilationUnit` ARE EACH ASSIGNED IN EXACTLY ONE PLACE**
+    (`Analyze` :323/:325/:326), which is what makes a single per-analysis `BeginAnalysis` call exact
+    rather than a guess. `_semanticModel` and `_bindingMap` are REPLACED there too (:303/:304), so they
+    are passed per analysis rather than held from construction.
+  * **LIVE COVERAGE (corpus / unit suite / fixtures).** `ResolveType` **159,195 / 29,565 / 333**, one
+    `RecordTypeReference` attempt per call exactly, of which **13 / 34 / 0 have no valid span** and are
+    skipped; `rec.model-refused` (a valid span with a non-positive line or column) is **0 / 0 / 0**.
+    Dispatch arms: simple 135,472 / 26,873 / 270, generic 10,470 / 1,920 / 26, array 8,009 / 468 / 4,
+    nullable 4,918 / 175 / 2, tuple 162 / 18 / 9, byref 78 / 27 / 0, function 77 / 50 / 1, union
+    9 / 34 / 21; the unmodelled arm is 0 / 0 / 0 and is preserved. `ResolveSimpleType(string,…)`
+    **145,988 / 28,793 / 296** with **59 / 33 / 0 at line 0**. Channels: built-in
+    88,854 / 15,641 / 159, scope 13,596 / 5,744 / 35, file-alias **0 / 1 / 1** (plus **0 / 0 / 2**
+    claimed-but-missing), dotted-nested **2 / 42 / 14**, project 19,457 / 3,854 / 10,
+    **using-alias 0 / 0 / 0**, external 14,237 / 1,443 / 12, unresolved 9,842 / 2,064 / 47.
+    `ResolveDeclaredType` **55,067 / 12,909 / 149**, and `rd.nested` — the trampoline re-entered while
+    already reporting — is **0 / 0 / 0**, so the save/restore is a real but never-exercised guard.
+    Writes: `RecordBinding` scope 13,578 / 5,744 / 35, project 19,429 / 3,854 / 10, file-alias
+    0 / 1 / 1; `RecordType` project 19,457 / 3,854 / 10, file-alias 0 / 1 / 1. Generic head:
+    line-positive 10,470 / 1,920 / 26 (line 0 is **0 / 0 / 0** in the corpus and suite and only reached
+    through the differential), arity-qualified hit 10,323 / 1,785 / 6, definition-from-name
+    1,108 / 320 / 17, known-arities 0/1/many **4,0,0 / 19,13,3 / 3,2,1**, caller-opt-in on
+    5,247 / 874 / 24 versus off 5,223 / 1,046 / 2. `TryResolveDottedNestedType` 43,538 / 7,405 / 95,
+    of which **43,298 / 6,946 / 76 are not dotted at all**, root known 56 / 240 / 14, root unknown
+    184 / 219 / 5. The SoA gate is entered 145,942 / 28,793 / 250 times and refuses at the feature flag
+    every time in the corpus and the suite; with the flag ON the three SoA fixtures reach **8
+    is-row decisions, 2 reports and 6 dedupe suppressions**. Snippets come from the analysed text
+    2,425 / 1,742 / 178 times, **from the project snapshot 0 / 0 / 0**, and from nothing 0 / 598 / 0.
+  * **EVERY REPORT SITE IS LIVE SOMEWHERE, AND THE ONE DEAD CHANNEL IS THE ONE SLICE 7 ALREADY
+    RECORDED.** R1 0 / 0 / 2, R2 115 / 19 / 25, R3 0 / 0 / 2, R4 0 / 1 / 1, R5 6 / 14 / 15, `var`
+    0 / 4 / 4, SoA-row 0 / 0 / 2 (flag on), union-duplicate 0 / 3 / 3, union-too-wide 0 / 4 / 6,
+    NL308-in-walk 0 / 5 / 1, plus the two outside sites 0 / 0 / 1 each. Dedupe SUPPRESSIONS fire
+    0 / 7 / 8. The using-alias-as-a-type channel is **0 / 0 / 0** and is preserved verbatim with slice
+    7's recorded reason: `RegisterNamespaceImport` only records an alias after `ValidateNamespaceImport`
+    proves the target is a namespace and not a type, so it is structurally unreachable, not untested.
+  **RESULT: LANDED (no commit — mandate).** `AnalyzerTypeResolver` is the sole authority for the
+  analyzer's type-reference resolution — decisions, reports AND records — and `AnalyzerDiagnosticSink`
+  for the construction of every semantic diagnostic, with no callback, fallback, shadow path or
+  comparison route anywhere.
+  DELETIONS (exact, **13 whole C# members + 3 gutted bodies + 3 fields, 565 deleted lines**):
+  * `ResolveDeclaredType` :18019 (21 incl. the `// Type resolution` section comment and its 7-line
+    XML doc) — the `_reportUnresolvedTypes` opt-in trampoline;
+  * `ResolveType` :18041 (23) — the 9-arm dispatch;
+  * `ResolveSimpleType(SimpleTypeReference)` :18065 (9) and `ResolveGenericType` :18075 (121) — the
+    whole generic head with its three reports;
+  * `ReportSoaRowTypeReferenceIfNeeded` :18197 (27), `ResolveAnonymousUnionType` :18225 (49),
+    `RecordResolvedTypeReference` :18275 (8);
+  * `ResolveTypeReferenceIfPresent` :18284 (7), `ResolveTypeReferences` :18292 (7),
+    `ResolveGenericConstraintTypes` :18300 (10);
+  * `ResolveSimpleType(string,int,int)` :18311 (118) — the 8-channel name walk;
+  * `TryResolveDottedNestedType` :18453 (26);
+  * `ReportInaccessibleMember` :20697 (11) — NL308 moves with the other nine reports;
+  * `Error(ErrorCode,…)` 14 → 2, `Warning(ErrorCode,…)` 14 → 2 and `GetSourceSnippet` 8 → 1: three
+    zero-policy expression-bodied routes, kept rather than deleted because they have **206, 2 and 38**
+    call sites respectively and rewriting those would be churn, not ownership. The two-argument
+    `Error(string,…)` and `Warning(string,…)` overloads are untouched and still forward to the
+    code-carrying ones;
+  * the three fields `_reportUnresolvedTypes` :191, `_reportedUnresolvedTypeRefs` :192 and
+    `_reportedSoaRowTypeRefs` :193 with their 3-line comment — the STATE itself, now owned by the N#
+    resolver — plus the three `Clear()`/reset lines in `Analyze`'s reset block, folded into
+    `_typeResolver.BeginAnalysis(...)`.
+  ROUTING: **97 lines, every one mechanical, all inside `Analyzer.cs`** — 2 field declarations + their
+  4-line comment, 13 lines in the constructor, 2 lines in `Analyze`'s reset block, 2
+  `SetWellKnownTypes` lines at the two `_wellKnownTypes` mutation points (`LoadSystemAssemblies` and
+  `Dispose`, exactly where slices 5/6 rebuild their owners — the resolver is TOLD about the new bag
+  rather than rebuilt, because rebuilding would drop the dedupe sets mid-analysis), the three routed
+  bodies above, and **66 rewritten call sites**: 22 `ResolveDeclaredType`, 32 `ResolveType` (two of
+  them `.Select(_typeResolver.ResolveType)` method groups), 4 `ResolveTypeReferences`, 3
+  `ResolveSimpleType(name, 0, 0)`, 2 `ReportSoaRowTypeReferenceIfNeeded`, 2
+  `MarkUnresolvedTypeReported`, 1 `TryResolveDottedNestedType`, 1 `ResolveTypeIfPresent` and 1
+  `ResolveGenericConstraintTypes` — **71 `_typeResolver.` references** in all once `BeginAnalysis` and
+  the two `SetWellKnownTypes` calls are counted — plus **8 `_diagnostics.` references** (4 surviving
+  `ReportInaccessibleMember` call sites, the 3 routed bodies and `BeginAnalysis`; the walk's own fifth
+  `ReportInaccessibleMember` site went with the walk). **NO new C# method, helper, bridge, callback or
+  state.**
+  `git diff` on `Analyzer.cs` is **+97 / −565 = net −468**; the file is **21,461 → 20,993**
+  (non-blank 18,861 → 18,441).
+  N# ADDED: `AnalyzerTypeResolver.nl` (**714 lines, ONE class, 23 members** — 16 fields, the
+  constructor and 22 methods, of which 10 are public entry points; well inside the per-class ceiling)
+  + `AnalyzerDiagnosticSink.nl` (**119 lines, ONE class, 10 members** — 4 fields, the `CurrentFilePath`
+  property, the constructor and 5 methods) + `AnalyzerTypeResolver.tests.nl` (831 lines, **22
+  contracts**, covering BOTH classes). No other `.nl` file changed.
+  SIX NON-MECHANICAL DECISIONS: (1) **THE ERROR LIST IS AN ARGUMENT, NOT OWNED STATE.** The sink is
+  constructed with the analyzer's own `List<CompilerError>`. Owning a second list and merging would
+  have made report ORDER depend on the merge, and order is what a user sees; passing the list makes
+  interleaving with the shell's 218 surviving report sites exact by construction rather than by
+  argument. This is the slice-8 `BindingMap` precedent applied to diagnostics.
+  (2) **`Error`, `Warning` AND `GetSourceSnippet` WERE ROUTED RATHER THAN LEFT ALONE.** They could
+  have stayed, with the sink duplicating the snippet-plus-`Create` policy. Two copies of that policy
+  is exactly the drift this task exists to remove, so the three bodies became one-line routes and the
+  sink is the single place a `CompilerError` is built. Their 262 call sites are untouched.
+  (3) **`ReportInaccessibleMember` MOVED WITH THE REPORTS, NOT WITH THE WALK.** It was called from five
+  places, only one of which is in this walk (that one went with the walk; four remain). Splitting it — walk-report in N#, shell-report in C# —
+  would have left one diagnostic with two producers and two message-building paths. It is a pure
+  function of the name, the declaring file and the project source provider, so it moved whole and all
+  five sites route to it.
+  (4) **THE GENERIC HEAD BECAME ITS OWN MEMBER, AND THE OPT-IN DISCIPLINE IS THE REASON.**
+  `ResolveGenericType` was 121 lines with a save/force-off/restore around one call and three reports
+  that consult the SAVED value rather than the live one. Splitting the head into
+  `ResolveGenericHead(generic): TypeInfo?` makes that separation structural: the probe's suppression
+  cannot leak past the member boundary, and each report's guard names `previousReport` explicitly.
+  (5) **THE DEDUPE SETS ARE `Dictionary<(Name,Line,Column), bool>`, NOT `HashSet<…>`.** A tuple-keyed
+  `HashSet` is not on the columnar surface while a tuple-keyed `Dictionary` is (`SemanticModel.nl` and
+  `PerformanceFactStore.nl` both use one, the latter with a nullable string element). `HashSet.Add`'s
+  add-and-tell-me semantics are reproduced by `ContainsKey`-then-assign, and the key's equality is the
+  same `EqualityComparer<ValueTuple<…>>.Default` in both, so string components compare ordinally
+  exactly as before.
+  (6) **THE PROJECT DECLARATION'S NULL GUARD IS PROVED, NOT ADDED.** `RecordBinding` takes a
+  non-nullable `SymbolDeclaration` while `ResolveVisibleProjectType`'s `out` parameter is nullable, so
+  N#'s own analyzer refuses the call (NL202). Rather than widen `BindingMap`'s public API or invent an
+  exception, the call site narrows — and the comment records WHY it can: `TryMaterializeProjectTypeSelection`
+  assigns a materialised declaration on its ONLY success path before answering true, so the narrowing
+  is unreachable. The same NL202 pressure produced three more shape changes, all behaviour-preserving:
+  the snippet's `?? ""` chain became explicit branches, and the two `LookupType(x) ?? Unknown` sites
+  became two-armed calls into `ResolveDeclaredAlias`.
+  PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS. One throwaway xunit probe, written ONCE and run in
+  BOTH trees — the baseline `31290556c` in a throwaway `/tmp/nsharp017s10` worktree and the working
+  tree. Both transcripts are **byte-identical, 79,911 COMPARED CELLS, 0 MISMATCHES, md5
+  `38a9feeebfb89dc97354a3738e88e223` in both trees**, with **69,433 non-default answers, 9,289
+  diagnostic rows, 19,906 semantic-model type-reference rows, 838 binding rows and 0 thrown cells**.
+  The reported diagnostics inside the transcript cover **NL201 ×497, NL207 ×882, NL103 ×488, NL306
+  ×3,406, NL903 ×4,008, NL308 ×3, NL301 ×3 and NL704 ×2**. THE WIRING IS PROVEN SEPARATELY AND
+  EXPLICITLY: four `HOST.*` rows — excluded from the byte comparison and reported on their own — say
+  `Analyzer` in the baseline and **`AnalyzerTypeResolver` in the working tree**, and every walk cell
+  is driven through whichever side hosts the member; on TOP of that, five SURVIVING shell members with
+  identical signatures in both trees (`ResolveDefaultEnumTypeName`, `ResolveTypeWithSubstitution`,
+  `TryResolveIdentifierBindingTarget`, `ReportSoaRowTypeReferencesInAttributeTypeof`,
+  `TryResolveSourceAttributeCandidate`) plus `GetSourceSnippet` are probed at every grid point, so in
+  the working tree those very calls execute the ROUTED owner. The grid: **5 single-file shapes** (empty;
+  every declared family including nested, generic and non-generic classes; an alias that shadows a
+  built-in and a class named `List`; the GLOBAL namespace) × **53 probe names** (every built-in
+  keyword, `var`, declared and undeclared names, near-misses, dotted, doubly-dotted, degenerate `.`
+  and `..`, empty, `_`, CLR spellings both bare and qualified, and `.Row` spellings) × 4 operations
+  each, plus **129 TypeReference SHAPES** (every family, composed two deep, at a position and at line
+  0, arities 0–3 over 18 generic and non-generic heads, a span-carrying union and a span-less array)
+  × 6 operations; plus **4 multi-file PROJECTS materialised on disk** (cross-namespace exported and
+  non-exported, a file-import alias with an exported, a non-exported and a missing member, the
+  unique-exported fallback, and the same name in two namespaces so the fallback must refuse) and a
+  **SoA project probed with `NSHARP_EXPERIMENTAL_SOA=1`** over 6 row spellings. Every shape is run
+  five ways: on a FRESH analyzer per cell; on ONE long-lived analyzer replaying the whole sequence
+  three times (forward, forward, reversed) so the dedupe sets and the probe cache are pinned WARM;
+  with NO `LoadSystemAssemblies` (the live `_wellKnownTypes == null` state); across a SECOND `Analyze`
+  on the same analyzer (so `BeginAnalysis`'s clearing of both dedupe sets is pinned); and AFTER
+  `Dispose`. Diagnostics are compared by CODE, LINE, COLUMN, LENGTH, SEVERITY, FILE, full MESSAGE,
+  SUGGESTION, SNIPPET, human explanation, contextual hint and docs URL — the full `CompilerError`
+  surface — and the semantic model and binding map are compared entry by entry. The probe was DELETED
+  from both trees after the run (`git status` shows no probe residue in either).
+  PROOF — SEMANTIC-DIAGNOSTIC ORACLE: `nlc check --json`, fresh Release CLIs built at baseline
+  `31290556c` in the throwaway worktree and at the working tree (both trees' Debug CLIs built too —
+  the recorded environmental artefact), over **49 `project.yml` corpus targets (ORACLE_TARGETS=49)**:
+  **ORACLE_DIFFS=1, ORACLE_STDERR_DIFFS=0 and ORACLE_EXIT_DIFFS=0**. The single diff is the
+  `checkedFiles` count on BootstrapServices rising by exactly the number of new `.nl` files
+  (284 → 286); every diagnostic on every target, including that project's 281 pre-existing errors, is
+  byte-identical. **An earlier revision of this slice made that number 285 rather than 281** — four new
+  NL202 nullability reports on the new `.nl` files — and that is what forced decision (6): the four
+  shapes were rewritten until the analyzer's own verdict on the new sources was clean. Plus **53
+  fixture runs firing 238 diagnostics, FIXTURE_DIFFS = 0**: 50 fixtures covering every report site and
+  every channel (near/far/short unresolved names with their did-you-mean and generic suggestions; a
+  dotted name staying lenient; the same name twice at one position; fields, properties and returns;
+  file-alias hits, misses and a non-exported member; unknown and dotted generic names; multi-arity
+  `Tuple` and `Nullable`; local generics at too many and too few arguments; a non-generic given
+  arguments; an external at the wrong arity; type arguments on all eight declared families and on four
+  GENERIC ones; `var` as a local type and as a parameter type; duplicate, three-armed, nested-flatten,
+  clean and unresolved-arm anonymous unions; dotted nested types present and missing; cross-namespace
+  exported and non-exported discovery; the unique-exported fallback resolving and refusing; a
+  duplicate inside one namespace; an unparseable sibling; a missing namespace import; every declared
+  family referenced across a namespace boundary; CLR spellings bare, qualified and missing; composed
+  array/nullable/tuple/function shapes both resolvable and not; **both inaccessible-member sites
+  OUTSIDE the walk**; and the lenient `typeof`/`is`/`as` positions) — plus the same 3 SoA fixtures
+  re-run with **`NSHARP_EXPERIMENTAL_SOA=1`**, which is the only population in which the `.Row` report
+  is reachable at all.
+  PROOF — CORPUS IL BYTE-EXACT SWEEP (same two CLIs, the established explicit PE/CLI normaliser
+  touching ONLY the COFF `TimeDateStamp`, the optional-header `CheckSum`, the Debug Directory entries
+  AND the CodeView blobs they point at, and the `#GUID`/`#Pdb` metadata heaps): **72 / 72 comparable
+  assemblies BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (34 product assemblies
+  from the 36 corpus targets that build standalone, 38 single-file examples), **SINGLE_LOG_DIFFS = 0**,
+  and **SKIPPED_TARGET_DIFFS = 0** — the 13 targets that do not build standalone fail with byte-identical
+  output and the same exit code in both trees.
+  ASSERTION MIGRATION: all 13 deleted members were `private` and the three gutted bodies stay, so no
+  test named any of them; a grep over `src/` + `tests/` + `editors/` finds no external consumer of any
+  of them. Their behaviour was pinned only INDIRECTLY by end-to-end analyzer diagnostics, which STAY
+  and now execute against the N# owner (the slice-1…9 precedent). The DIRECT pinning is new and
+  native: **22 contracts** covering the sink's shared-list ordering with a shell report on either side
+  of an owner report; the file/severity/length/suggestion stamp and the snippet coming from the
+  diagnostic's OWN line; no-text, empty-text, line 0 and past-the-end all meaning no snippet, and a
+  code with no catalogue entry keeping a null suggestion rather than being given invented advice;
+  NL308 naming the declaring namespace read from DISK, `<global>` for a file that declares none and for
+  an absent file, and a minimum length of one; the channel ORDER in both directions (a declared `int`
+  cannot shadow the keyword, a scope type answers before the fallback, and the fallback is a
+  placeholder rather than an error type); line 0 resolving while recording nothing, and a positioned
+  scope hit recording a binding that points at the DECLARING file and column — with the
+  no-declaration-location case proven to resolve and record NOTHING; the NL201 opt-in being off by
+  default, on inside a declared-type position, off again afterwards, silent at line 0 and silent for a
+  dotted name, and reporting exactly once per position but again at a different one; the dedupe set
+  being shared with the shell's own `MarkUnresolvedTypeReported` in both directions and cleared by a
+  new analysis; the did-you-mean suggestion built from the names actually in scope with the far-miss
+  fallback; `var` refused WITHOUT consulting the opt-in and WITHOUT being deduped, and — measured, not
+  assumed — falling through to the placeholder at line 0; all nine dispatch arms including the
+  unmodelled one, composed two deep, with an unnamed tuple element keeping its null name; the
+  per-reference record landing at the reference's own start span and being skipped for a span-less
+  reference; both NL207 wordings with their suggestions, underlining the NAME and not the reference,
+  the correct arity staying silent and carrying the declaration as its definition; the head probe
+  suppressing its own report while the caller's opt-in still decides, and a dotted generic staying
+  lenient; a line-0 generic resolving its arguments with no definition and no diagnostic; the nested
+  union FLATTENING; the duplicate arm being reported AND dropped so the union is not also over-wide;
+  the over-wide report; a span-carrying union underlining its whole width while a span-less one falls
+  back to one column, and an empty union being silent; the dotted walk requiring a root IN SCOPE,
+  dropping empty segments, and refusing a single segment, a separator-only name, an absent root and an
+  absent member — all as misses rather than reports; and the SoA gate in all four of its refusals plus
+  the report, its own dedupe, its short-circuit through the reference walk, and its set being cleared
+  by a new analysis.
+  EVIDENCE: full unit suite **3,193 / 3,193** (`dotnet test tests/Tests.csproj -c Release`, 4m36s —
+  exactly the slice-1…9 baseline, zero drift); BootstrapServices contracts **1,675 → 1,697** (+22) via
+  the canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false`, **1,697 / 1,697 PASS** (the 3 ExternalAssemblyScan Debug-layout tests
+  DID trip once, immediately after the IL sweep deleted the Debug output layout, and passed again as
+  soon as the Debug CLI and test assembly were rebuilt — the recorded environmental artefact, not a
+  regression); ownership audit **18 / 18** (`nlc test --project tests/native/ownership-audit`, 1.3s)
+  after the repin; `./scripts/dev.sh --since` **PASS** — it correctly took the FULL unit-suite
+  fail-safe (the three new `.nl` paths plus `OwnershipAudit.nl` are unmapped), **3,193 / 3,193 in
+  Debug, done in 3m38s**; the differential, oracle, fixture and IL sweeps above.
+  RATCHET REPIN via `scratchpad/repin_017_s10.py` (slice 2…9's script, unchanged apart from its
+  header) — `current*` + fingerprints ONLY, ONE row: `src/NSharpLang.Compiler/Analyzer.cs`
+  currentLines 21,461 → **20,993**, currentNonBlankLines 18,861 → **18,441**, fingerprint
+  `text-v1:5f42f09ea77d4c6a` → `text-v1:bf70afa68307e4ba` (epoch ceilings 23,451 / 20,537 PRESERVED and
+  now clear by **2,458 / 2,096**); `reviewedHeadFingerprint head-v1:459f3828f6f19ed3` →
+  `head-v1:4c3ea64acc280913`, mirrored into `OwnershipAudit.nl`'s
+  `OwnershipPolicy.ReviewedHeadFingerprint`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED by recomputation after
+  the write; the script self-checks by reproducing all three composite fingerprints over the 381 rows
+  before changing anything. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after,
+  and the `git diff` is exactly 2 changed lines.** The `.nl` additions need no row.
+  .nl GOTCHAS ADDED (two, both found by building, both bisected):
+  * **A `return` INSIDE A `try` WITH A `finally` IS NOT A RETURNING PATH.** `try { return X } finally
+    { … }` in a value-returning member reports **NL305** ("not all code paths return a value") at the
+    member's own signature line. Assigning to a local inside the `try` and returning AFTER the
+    `finally` is the equivalent shape and binds — and it is exactly equivalent, because the `finally`
+    still runs on exception propagation. This is a TYPE-CHECK report, not a columnar decline, so it is
+    the first of this family that a plain `nlc build` catches by itself.
+  * **`union` IS RESERVED AND CANNOT BE A PARAMETER OR LOCAL NAME.** `func F(union: UnionTypeReference)`
+    declines the WHOLE class at `parse.struct`, reported at the class declaration rather than at the
+    parameter — the same shape as slice 1's `type`, slice 4's `newtype`, slice 5's `record`, slice 7's
+    `partial` and slice 9's `file`. `unionReference` is fine. This one cost a two-stage bisection
+    because the first suspect was the property access on the call result in the same expression.
+  .nl POSITIVES CONFIRMED (recorded because they were expected to be problems and are not, each
+  proven by an isolated columnar-emit probe inside BootstrapServices rather than assumed): **a tuple
+  LOCAL literal binds** (`key := (Name: n, Line: l, Column: c)`), and so does a **tuple-keyed
+  `Dictionary` field with a string element** through `ContainsKey` and the indexer; **`.ToString()` on
+  a member-access chain and on an indexer result bind** (`h.Items.Count.ToString()`,
+  `items[0].ToString()`) — the recorded "chained call on a member-access or call result" gotcha does
+  NOT extend to these; **`continue` inside a `while`**; **`value as string == null` as a whole
+  expression**; **`name.Split('.')` with `raw.Length` and `raw[i].Length`**; **a `SourceSpan` struct
+  local returned from a static call, then read**; and **a nullable argument passed to a non-nullable
+  parameter EMITS** (it is the analyzer's NL202, not the columnar backend, that refuses it).
+  DOCS: `memory/components/analyzer.md`'s "The type-reference resolver" section is rewritten — the
+  stale "the walk itself stays in the shell" claim is replaced by the ownership statement, and five new
+  subsections record the eight channels with the dead-but-preserved using-alias arm and the `line <= 0`
+  rule (including the deliberate `var` asymmetry), all TEN report sites with the opt-in and the head
+  probe's suppression, the two dedupe sets and the sharing with the shell's two outside sites, the
+  three record kinds with their readers, and the sink's shared-list ordering guarantee; the
+  "not movable yet" note now names `CreateFunctionTypeInfoInDeclarationContext` as the last remaining
+  C# piece of the resolution surface; and the two new owners join the file list.
+  `memory/architecture.md`'s Analyzer entry now lists all sixteen owners.
+  WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change, no new capability
+  needed, and no repin of the packaged toolset. Both new gotchas were routed AROUND rather than
+  through: the `try`/`return` shape by assigning to a local, and the reserved `union` name by renaming.
+  The packaged 0.1.0 SDK self-emits both new classes and their 22 contracts.
+  GATES: **INCOMPLETE — the full VS Code-enabled `./scripts/test-all.sh --commit` did NOT finish and
+  is NOT green. This is recorded as an OPEN item, not as a pass.** The run went into a fresh isolated
+  copy (`/private/tmp/nsharp-test-all.55ed0f93ea78.2mOSe3/repo`); the log says "Fresh isolated test run
+  required: pre-commit verification" and "Existing cache entries will not satisfy this invocation", so
+  it was neither a cached whole-gate nor a cached per-step verdict. What it DID reach:
+  * **Step 1 clean, Step 2 compiler build, Step 2b format contract gate — PASSED.**
+  * **Step 3 unit tests — PASSED, 3,193 / 3,193** (3m34s inside the gate).
+  * **Step 3a native N# tests — PASSED, all 22 projects**, including BootstrapServices'
+    **1,697 / 1,697** and `tests/native/ownership-audit`, which is the ratchet re-validated inside the
+    gate against the freshly written manifest.
+  * **Step 3b VS Code integration smoke — FAILED: 35 passing, 1 failing.** The one failure is
+    `Diagnostics > diagnostics clear after fixing syntax error`, and it is a **mocha TIMEOUT** ("Timeout
+    of 45000ms exceeded"), not an assertion. Every other diagnostics test passed, including
+    `diagnostics update after introducing syntax error` — the same file, the same server, the
+    diagnostic direction that this slice's resolver actually produces. The step took **19m 15s**
+    against the 41s / 2m18s recorded for slices 7 and 9, a 10–25x slowdown of the same suite on the
+    same machine, which is the recorded load/thermal-flake signature rather than a behavioural one.
+    **It is NOT dismissed on that basis: it must be re-run cool and serially before this slice is
+    accepted, and if it reproduces it is a real regression in diagnostic CLEARING.**
+  * **Step 4 pack/install SDK — TERMINATED (signal 15) 17m41s in**, when the session's own watchdog
+    killed the run. Everything after it — SDK install, template pack/install/creation, the
+    template-generated project, all example projects, single-file examples, `nlc check` over the
+    examples and the ECMA-335 IL verification gate — **did not run at all**.
+  `./scripts/reload-vscode-extension.sh` was **NOT run**. It IS required for this slice on the slice-7/9
+  precedent — no LanguageServer source changed, but `Analyzer.cs` ships in the `NSharpLang.Compiler`
+  assembly the language server builds against and `NSharpLang.Compiler.BootstrapServices` gained two
+  public types — so it is part of the outstanding work, not something this slice can claim.
+  INTERACTIVE computer-use verification was NOT attempted, per the coordinator's standing instruction
+  that it owns that record.
+  WHAT IS PROVEN INDEPENDENTLY OF THE GATE, and what makes the outstanding item bounded rather than
+  open-ended: the unit suite (3,193 / 3,193 in Release standalone AND inside the gate), the contracts
+  (1,697 / 1,697 both ways), the audit (18 / 18), `dev.sh --since`, the 79,911-cell differential, the
+  49-target oracle, the 53 fixture runs and the 72 / 72 IL sweep were all run and are all green. The
+  two IDE-facing surfaces this slice touches are pinned rather than assumed — the `SetProjectSourceTexts`
+  snapshot (unchanged by this slice) and the semantic model / binding map that hover and
+  go-to-definition read, compared entry by entry at every one of the differential's grid points.
+  **OUTSTANDING BEFORE ACCEPTANCE: re-run the full VS Code-enabled gate cool and serially, and run
+  `./scripts/reload-vscode-extension.sh`.**
+  **NEXT SUB-SLICE — STAGE 5 OF THE `ResolveType` ARC: THE ASSIGNABILITY SCC, IN ONE CUT, EXACTLY AS
+  SLICE 6 MEASURED. Its sole blocker is gone.** Slice 6 recorded that the assignability closure could
+  not be cut because it bottoms out in `ResolveType`; `ResolveType` is now N#-owned end to end, and so
+  are the seven owners the SCC also consults (`AnalyzerConversionFacts`, `AnalyzerClrTypeConversion`,
+  `AnalyzerAssignabilityFacts`, `AnalyzerWellKnownTypeFacts`, `AnalyzerDeclarationContext`,
+  `TypeInfoIdentityFacts` and now `AnalyzerTypeResolver` itself). Stage 5 also inherits the two pieces
+  this slice built and which every later analyzer slice needs: an N#-owned DIAGNOSTIC SINK that can
+  emit any `CompilerError` in the analyzer's own report order, and the `BeginAnalysis` per-file
+  handshake for the semantic model and binding map. Nothing in the assignability closure needs a
+  capability the compiler does not already have.
+  TWO SMALLER PREREQUISITES REMAIN RECORDED AND UNCHANGED: `CreateFunctionTypeInfoInDeclarationContext`
+  / `CreateFunctionTypeInfo` (32 live calls, and the last C# piece of the resolution surface) still
+  needs the reflection half of `NullabilityMetadata`, which lives ABOVE BootstrapServices; and
+  `Assembly.get_FullName` / `AssemblyName.get_Name` on the columnar external binding surface would
+  release the metadata half of `NamespaceExists` and `GetExternalSearchAssemblies` together. The
+  one-argument `Dictionary.Remove` analyzer-overload-table gap from slice 8 is still open and still
+  unrelated to this arc.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `31290556c`): **017 SLICE 9 — THE `ResolveType`
+  ARC, STAGE 3: PROJECT DISCOVERY.**
   MANDATED TARGET, recorded verbatim from the coordinator and unchanged BEFORE any production edit:
   `Analyzer.cs`'s `TryResolveVisibleProjectType` family — `TryResolveVisibleProjectType`,
   `TryResolveProjectTypeInNamespace`, `TryResolveUniqueExportedProjectType`,

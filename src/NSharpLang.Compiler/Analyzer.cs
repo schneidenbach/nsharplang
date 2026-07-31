@@ -185,12 +185,6 @@ public class Analyzer : IDisposable
     // as a plain "type not found".
     private readonly Dictionary<string, string> _referenceLoadFailures = new(StringComparer.Ordinal);
 
-    // Opt-in flag: report unresolved simple type names (NL201) at declared-type positions.
-    // Set only by ResolveDeclaredType — pass-1 signature collection and lazy cross-file
-    // member resolution run without generic type parameters in scope and must stay lenient.
-    private bool _reportUnresolvedTypes;
-    private readonly HashSet<(string Name, int Line, int Column)> _reportedUnresolvedTypeRefs = new();
-    private readonly HashSet<(string Name, int Line, int Column)> _reportedSoaRowTypeRefs = new();
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _restoredPackageVersionsByProject = new(StringComparer.Ordinal);
     // The analyzer's external (MetadataLoadContext) type probe. Constructed once and never
@@ -203,6 +197,12 @@ public class Analyzer : IDisposable
     // source snapshot outlive a single Analyze call.
     private readonly AnalyzerProjectSourceProvider _projectSources = new();
     private readonly AnalyzerProjectTypeDiscovery _projectDiscovery;
+    // Every semantic diagnostic is constructed here, and every type reference is resolved here. The
+    // sink appends to the SAME _errors list the remaining shell reports use, so report order does not
+    // depend on which side of the boundary produced a diagnostic. Both are constructed once: the
+    // resolver owns the per-analysis dedupe sets and the report opt-in.
+    private readonly AnalyzerDiagnosticSink _diagnostics;
+    private readonly AnalyzerTypeResolver _typeResolver;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly HashSet<MemberAccessExpression> _soaColumnMemberAccesses = new(ReferenceEqualityComparer.Instance);
@@ -228,6 +228,18 @@ public class Analyzer : IDisposable
             _projectSources, _declarationContext, _usingNamespaces, _typeDeclarationFiles);
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
         _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
+        _diagnostics = new AnalyzerDiagnosticSink(_errors, _projectSources);
+        _typeResolver = new AnalyzerTypeResolver(
+            _scopes,
+            _declarationContext,
+            _projectDiscovery,
+            _externalTypeProbe,
+            _diagnostics,
+            _usingAliases,
+            _importedSymbolsByAlias,
+            _importedDeclarationsByAlias,
+            _semanticModel,
+            _bindingMap);
     }
 
     private static string GetNuGetPackagesRoot()
@@ -308,9 +320,6 @@ public class Analyzer : IDisposable
         _suppressErrorTupleResultUse = false;
         _reportedNullabilityDiagnostics.Clear();
         _reportedUnverifiedErrorResultDiagnostics.Clear();
-        _reportedUnresolvedTypeRefs.Clear();
-        _reportedSoaRowTypeRefs.Clear();
-        _reportUnresolvedTypes = false;
         _currentReturnType = null;
         _currentFunction = null;
         _currentFunctionReturnTypeWasOmitted = false;
@@ -324,6 +333,8 @@ public class Analyzer : IDisposable
         _projectSources.BeginAnalysis(projectRoot);
         _compilationUnit = unit;
         _sourceText = sourceCode;
+        _diagnostics.BeginAnalysis(currentFilePath, sourceCode);
+        _typeResolver.BeginAnalysis(currentFilePath, unit, _semanticModel, _bindingMap);
         _externalNamespaceCache.Clear();
         _typeDeclarationFiles.Clear();
 
@@ -512,10 +523,10 @@ public class Analyzer : IDisposable
                 AnalyzeEnumDeclaration(enumDecl);
                 break;
             case TypeAliasDeclaration aliasDecl:
-                ResolveDeclaredType(aliasDecl.Type);
+                _typeResolver.ResolveDeclaredType(aliasDecl.Type);
                 break;
             case NewtypeDeclaration newtypeDecl:
-                ResolveDeclaredType(newtypeDecl.UnderlyingType);
+                _typeResolver.ResolveDeclaredType(newtypeDecl.UnderlyingType);
                 break;
             case FieldDeclaration field:
                 AnalyzeFieldDeclaration(field);
@@ -760,10 +771,10 @@ public class Analyzer : IDisposable
         switch (typeReference)
         {
             case SimpleTypeReference simple:
-                ReportSoaRowTypeReferenceIfNeeded(simple.Name, simple.Line, simple.Column);
+                _typeResolver.ReportSoaRowTypeReferenceIfNeeded(simple.Name, simple.Line, simple.Column);
                 break;
             case GenericTypeReference generic:
-                ReportSoaRowTypeReferenceIfNeeded(generic.Name, generic.Line, generic.Column);
+                _typeResolver.ReportSoaRowTypeReferenceIfNeeded(generic.Name, generic.Line, generic.Column);
                 foreach (var argument in generic.TypeArguments)
                 {
                     ReportSoaRowTypeReferencesInAttributeTypeof(argument);
@@ -1126,7 +1137,7 @@ public class Analyzer : IDisposable
         foreach (var candidate in GetClrAttributeNameCandidates(attributeName))
         {
             var candidateType = _scopes.LookupType(candidate);
-            if (candidateType == null && TryResolveDottedNestedType(candidate, out var nestedType))
+            if (candidateType == null && _typeResolver.TryResolveDottedNestedType(candidate, out var nestedType))
             {
                 candidateType = nestedType;
             }
@@ -1635,7 +1646,7 @@ public class Analyzer : IDisposable
             var tableParameterTypes = new List<(string Name, TypeInfo Type)>(test.TableParameters.Count);
             foreach (var param in test.TableParameters)
             {
-                var paramType = ResolveDeclaredType(param.Type);
+                var paramType = _typeResolver.ResolveDeclaredType(param.Type);
                 tableParameterTypes.Add((param.Name, paramType));
                 var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
                     param.Line,
@@ -1812,7 +1823,7 @@ public class Analyzer : IDisposable
     {
         if (varDecl.Type != null)
         {
-            return ResolveType(varDecl.Type);
+            return _typeResolver.ResolveType(varDecl.Type);
         }
 
         if (varDecl.Initializer != null
@@ -1847,7 +1858,7 @@ public class Analyzer : IDisposable
                 type = BuiltInTypes.Null;
                 return true;
             case NewExpression { Type: { } newType }:
-                type = ResolveType(newType);
+                type = _typeResolver.ResolveType(newType);
                 return !BuiltInTypes.IsUnknown(type);
             case ArrayLiteralExpression { Elements.Count: > 0 } array
                 when TryInferSetupInitializerType(array.Elements[0], out var elementType):
@@ -1920,7 +1931,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        ResolveGenericConstraintTypes(func.Constraints);
+        _typeResolver.ResolveGenericConstraintTypes(func.Constraints);
         CheckCircularGenericConstraints(func.TypeParameters, func.Constraints, func.Name, func.Line, func.Column);
 
         ValidateParameterDeclarations(func.Parameters, func.Line, func.Column);
@@ -1928,7 +1939,7 @@ public class Analyzer : IDisposable
         // Add parameters to scope
         foreach (var param in func.Parameters)
         {
-            var paramType = ResolveDeclaredType(param.Type);
+            var paramType = _typeResolver.ResolveDeclaredType(param.Type);
             var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
                 param.Line,
                 param.Column,
@@ -1944,7 +1955,7 @@ public class Analyzer : IDisposable
         var previousFunction = _currentFunction;
         var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
         var previousFunctionIsAsync = _currentFunctionIsAsync;
-        var functionReturnType = func.ReturnType != null ? ResolveDeclaredType(func.ReturnType) : BuiltInTypes.Void;
+        var functionReturnType = func.ReturnType != null ? _typeResolver.ResolveDeclaredType(func.ReturnType) : BuiltInTypes.Void;
         _currentReturnType = functionReturnType;
         _currentFunction = func;
         _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
@@ -2238,8 +2249,8 @@ public class Analyzer : IDisposable
 
         ValidateNoStaticMembersOnGenericType(classDecl.Name, classDecl.TypeParameters, classDecl.Members);
 
-        ResolveTypeReferenceIfPresent(classDecl.BaseClass);
-        ResolveTypeReferences(classDecl.Interfaces);
+        _typeResolver.ResolveTypeIfPresent(classDecl.BaseClass);
+        _typeResolver.ResolveTypeReferences(classDecl.Interfaces);
 
         // Add 'this' to scope
         var classType = declaredClassType
@@ -2254,7 +2265,7 @@ public class Analyzer : IDisposable
 
             foreach (var param in classDecl.PrimaryConstructorParameters)
             {
-                var paramType = ResolveDeclaredType(param.Type);
+                var paramType = _typeResolver.ResolveDeclaredType(param.Type);
                 var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
                     param.Line,
                     param.Column,
@@ -2310,7 +2321,7 @@ public class Analyzer : IDisposable
 
         ValidateNoStaticMembersOnGenericType(structDecl.Name, structDecl.TypeParameters, structDecl.Members);
 
-        ResolveTypeReferences(structDecl.Interfaces);
+        _typeResolver.ResolveTypeReferences(structDecl.Interfaces);
 
         var structType = declaredStructType
             ?? NominalTypeInfoFactory.FromStructDeclaration(structDecl);
@@ -2324,7 +2335,7 @@ public class Analyzer : IDisposable
 
             foreach (var param in structDecl.PrimaryConstructorParameters)
             {
-                var paramType = ResolveDeclaredType(param.Type);
+                var paramType = _typeResolver.ResolveDeclaredType(param.Type);
                 var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
                     param.Line,
                     param.Column,
@@ -2365,7 +2376,7 @@ public class Analyzer : IDisposable
 
         ValidateNoStaticMembersOnGenericType(recordDecl.Name, recordDecl.TypeParameters, recordDecl.Members);
 
-        ResolveTypeReferences(recordDecl.Interfaces);
+        _typeResolver.ResolveTypeReferences(recordDecl.Interfaces);
 
         var recordType = declaredRecordType
             ?? NominalTypeInfoFactory.FromRecordDeclaration(recordDecl);
@@ -2379,7 +2390,7 @@ public class Analyzer : IDisposable
 
             foreach (var param in recordDecl.PrimaryConstructorParameters)
             {
-                var paramType = ResolveDeclaredType(param.Type);
+                var paramType = _typeResolver.ResolveDeclaredType(param.Type);
                 var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
                     param.Line,
                     param.Column,
@@ -2473,7 +2484,7 @@ public class Analyzer : IDisposable
         var columnTypes = new List<(SoaColumnDeclaration Column, TypeInfo Type)>(soaRecordDecl.Columns.Count);
         foreach (var column in soaRecordDecl.Columns)
         {
-            columnTypes.Add((column, ResolveDeclaredType(column.Type)));
+            columnTypes.Add((column, _typeResolver.ResolveDeclaredType(column.Type)));
         }
 
         ValidateSoaColumnNames(soaRecordDecl);
@@ -2591,7 +2602,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        ResolveTypeReferences(interfaceDecl.BaseInterfaces);
+        _typeResolver.ResolveTypeReferences(interfaceDecl.BaseInterfaces);
         DeclareNestedTypesInCurrentScope(
             declaredInterfaceType ?? NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl));
 
@@ -2661,7 +2672,7 @@ public class Analyzer : IDisposable
             {
                 foreach (var property in unionCase.Properties)
                 {
-                    ResolveDeclaredType(property.Type);
+                    _typeResolver.ResolveDeclaredType(property.Type);
                 }
             }
         }
@@ -2767,7 +2778,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            fieldType = ResolveDeclaredType(field.Type);
+            fieldType = _typeResolver.ResolveDeclaredType(field.Type);
 
             if (field.Initializer != null)
             {
@@ -2820,7 +2831,7 @@ public class Analyzer : IDisposable
     {
         CheckVisibilityConvention(prop.Name, prop.Modifiers, prop.Line, prop.Column);
 
-        var propType = ResolveDeclaredType(prop.Type!);
+        var propType = _typeResolver.ResolveDeclaredType(prop.Type!);
         DeclareSymbol(prop.Name, propType, prop.Line, prop.Column);
 
         // Record property type into SemanticModel for completion support
@@ -2892,7 +2903,7 @@ public class Analyzer : IDisposable
 
     private void AnalyzeIndexerDeclaration(IndexerDeclaration indexer)
     {
-        var indexerType = ResolveDeclaredType(indexer.Type);
+        var indexerType = _typeResolver.ResolveDeclaredType(indexer.Type);
         ValidateParameterDeclarations(indexer.Parameters, indexer.Line, indexer.Column);
 
         if (indexer.GetBody != null)
@@ -2928,7 +2939,7 @@ public class Analyzer : IDisposable
     {
         foreach (var parameter in indexer.Parameters)
         {
-            var parameterType = ResolveDeclaredType(parameter.Type);
+            var parameterType = _typeResolver.ResolveDeclaredType(parameter.Type);
             var (parameterLine, parameterColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
                 parameter.Line,
                 parameter.Column,
@@ -2949,7 +2960,7 @@ public class Analyzer : IDisposable
         // Add parameters to scope
         foreach (var param in ctor.Parameters)
         {
-            var paramType = ResolveDeclaredType(param.Type);
+            var paramType = _typeResolver.ResolveDeclaredType(param.Type);
             var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
                 param.Line,
                 param.Column,
@@ -2994,7 +3005,7 @@ public class Analyzer : IDisposable
                 }
 
                 // Skip fields with type inference (they always have initializers)
-                if (field.Type != null && field.Initializer == null && !IsNullableType(ResolveType(field.Type)))
+                if (field.Type != null && field.Initializer == null && !IsNullableType(_typeResolver.ResolveType(field.Type)))
                 {
                     uninitializedFields.Add(field.Name);
                 }
@@ -4433,7 +4444,7 @@ public class Analyzer : IDisposable
 
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
     {
-        var exceptionType = ResolveDeclaredType(assertThrows.ExceptionType);
+        var exceptionType = _typeResolver.ResolveDeclaredType(assertThrows.ExceptionType);
         ReportNonThrowableAssertThrowsTypeIfNeeded(assertThrows.ExceptionType, exceptionType);
 
         // Analyze the body block
@@ -4469,7 +4480,7 @@ public class Analyzer : IDisposable
         // Add parameters to scope
         foreach (var param in func.Parameters)
         {
-            var paramType = ResolveDeclaredType(param.Type);
+            var paramType = _typeResolver.ResolveDeclaredType(param.Type);
             var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
                 param.Line,
                 param.Column,
@@ -4488,7 +4499,7 @@ public class Analyzer : IDisposable
         var previousFinallyDepth = _finallyDepth;
         var previousBreakTargetFinallyDepth = _breakTargetFinallyDepth;
         var previousContinueTargetFinallyDepth = _continueTargetFinallyDepth;
-        TypeInfo? returnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
+        TypeInfo? returnType = func.ReturnType != null ? _typeResolver.ResolveType(func.ReturnType) : BuiltInTypes.Void;
         _currentReturnType = returnType;
         _currentFunction = func;
         _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
@@ -4542,7 +4553,7 @@ public class Analyzer : IDisposable
 
     private void AnalyzeVariableDeclaration(VariableDeclarationStatement varDecl)
     {
-        TypeInfo? declaredType = varDecl.Type != null ? ResolveDeclaredType(varDecl.Type) : null;
+        TypeInfo? declaredType = varDecl.Type != null ? _typeResolver.ResolveDeclaredType(varDecl.Type) : null;
         TypeInfo? inferredType = null;
 
         if (varDecl.Initializer != null)
@@ -4981,7 +4992,7 @@ public class Analyzer : IDisposable
         // x is Type varName → narrow/declare in then-branch
         else if (condition is IsExpression isExpr)
         {
-            var narrowedType = ResolveType(isExpr.Type);
+            var narrowedType = _typeResolver.ResolveType(isExpr.Type);
             if (isExpr.VariableName != null)
             {
                 // `x is Dog d` — declare d: Dog in then-branch
@@ -5321,7 +5332,7 @@ public class Analyzer : IDisposable
     {
         foreach (var interfaceReference in interfaceReferences)
         {
-            var interfaceType = ResolveType(interfaceReference);
+            var interfaceType = _typeResolver.ResolveType(interfaceReference);
             if (TryGetLoopSequenceElementType(interfaceType, requireAsync, out elementType))
             {
                 return true;
@@ -5653,7 +5664,7 @@ public class Analyzer : IDisposable
             PushScope(new Scope(ScopeKind.Block), tryStmt.Line, tryStmt.Column);
 
             var exceptionType = catchClause.ExceptionType != null
-                ? ResolveDeclaredType(catchClause.ExceptionType)
+                ? _typeResolver.ResolveDeclaredType(catchClause.ExceptionType)
                 : new SimpleTypeInfo("Exception");
             if (catchClause.ExceptionType != null)
             {
@@ -5929,7 +5940,7 @@ public class Analyzer : IDisposable
                 continue;
             }
 
-            if (member.ReturnType == null || BuiltInTypes.Is(ResolveType(member.ReturnType), BuiltInTypes.Void))
+            if (member.ReturnType == null || BuiltInTypes.Is(_typeResolver.ResolveType(member.ReturnType), BuiltInTypes.Void))
             {
                 return true;
             }
@@ -6046,7 +6057,7 @@ public class Analyzer : IDisposable
 
             foreach (var constraintTypeRef in constraint.Constraints)
             {
-                var constraintType = _declarationContext.ResolveDeclaredAlias(ResolveType(constraintTypeRef));
+                var constraintType = _declarationContext.ResolveDeclaredAlias(_typeResolver.ResolveType(constraintTypeRef));
                 var isClassConstraint = constraintType switch
                 {
                     ClassTypeInfo => true,
@@ -6345,7 +6356,7 @@ public class Analyzer : IDisposable
 
             case TypePattern typePattern:
                 // Type pattern checks if value is of a specific type and binds it
-                var targetType = ResolveType(typePattern.Type);
+                var targetType = _typeResolver.ResolveType(typePattern.Type);
 
                 // Check if pattern is provably impossible
                 if (!IsPatternPossible(valueType, targetType))
@@ -8634,7 +8645,7 @@ public class Analyzer : IDisposable
             && IsCrossPackageFile(filePath)
             && !isExported)
         {
-            ReportInaccessibleMember(member.MemberName, filePath, member.Line, GetMemberNameColumn(member));
+            _diagnostics.ReportInaccessibleMember(member.MemberName, filePath, member.Line, GetMemberNameColumn(member));
         }
     }
 
@@ -8932,7 +8943,7 @@ public class Analyzer : IDisposable
                         rowColumn.Type,
                         soaOwner,
                         substitution: null)
-                    : ResolveType(rowColumn.Type);
+                    : _typeResolver.ResolveType(rowColumn.Type);
             }
 
             return BuiltInTypes.Unknown;
@@ -9434,7 +9445,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        var receiverType = ResolveType(receiverTypeReference);
+        var receiverType = _typeResolver.ResolveType(receiverTypeReference);
         return TypeInfoIdentityFacts.AreEqual(receiverType, targetType) || IsAssignable(receiverType, targetType);
     }
 
@@ -9841,7 +9852,7 @@ public class Analyzer : IDisposable
         return new FunctionTypeInfo()
         {
             ParameterTypes = lambda.Parameters
-                .Select(parameter => ResolveType(parameter.Type!))
+                .Select(parameter => _typeResolver.ResolveType(parameter.Type!))
                 .ToList(),
             ParameterModifiers = Enumerable.Repeat(Ast.ParameterModifier.None, lambda.Parameters.Count).ToList(),
             ReturnType = null
@@ -11843,7 +11854,7 @@ public class Analyzer : IDisposable
                     constraint.TypeParameter,
                     out var declaredConstraintTypes)
                         ? declaredConstraintTypes
-                        : constraint.Constraints.Select(ResolveType).ToList();
+                        : constraint.Constraints.Select(_typeResolver.ResolveType).ToList();
             foreach (var constraintType in resolvedConstraintTypes)
             {
                 var closedConstraintType = ApplyNSharpGenericBindings(constraintType, bindings);
@@ -11958,7 +11969,7 @@ public class Analyzer : IDisposable
     private TypeInfo ResolveDeclaredFunctionCallReturnType(FunctionDeclaration decl)
     {
         var sourceReturnType = decl.ReturnType != null
-            ? ResolveType(decl.ReturnType)
+            ? _typeResolver.ResolveType(decl.ReturnType)
             : BuiltInTypes.Void;
 
         return ResolveFunctionCallReturnType(decl, sourceReturnType);
@@ -11967,7 +11978,7 @@ public class Analyzer : IDisposable
     private TypeInfo ResolveDeclaredFunctionCallReturnType(DeclaredMemberInfo member)
     {
         var sourceReturnType = member.ReturnType != null
-            ? ResolveType(member.ReturnType)
+            ? _typeResolver.ResolveType(member.ReturnType)
             : BuiltInTypes.Void;
 
         return ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType);
@@ -12037,7 +12048,7 @@ public class Analyzer : IDisposable
 
             for (var i = 0; i < call.TypeArguments.Count; i++)
             {
-                bindings[typeParameters[i].Name] = ResolveType(call.TypeArguments[i]);
+                bindings[typeParameters[i].Name] = _typeResolver.ResolveType(call.TypeArguments[i]);
             }
 
             if (call.TypeArguments.Count == typeParameters.Count)
@@ -12542,7 +12553,7 @@ public class Analyzer : IDisposable
 
             for (int i = 0; i < genericParameters.Length; i++)
             {
-                var resolvedTypeInfo = ResolveType(call.TypeArguments[i]);
+                var resolvedTypeInfo = _typeResolver.ResolveType(call.TypeArguments[i]);
                 var typeArgument = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTypeInfo);
                 if (typeArgument == null)
                 {
@@ -15356,7 +15367,7 @@ public class Analyzer : IDisposable
                 && paramIndex < expectedSignature.ParameterTypes.Count;
 
             var paramType = hasExplicitType
-                ? ResolveType(param.Type!)
+                ? _typeResolver.ResolveType(param.Type!)
                 : hasInferenceSource
                     ? expectedSignature!.ParameterTypes![paramIndex]
                     : BuiltInTypes.Unknown;
@@ -16160,7 +16171,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            type = ResolveDeclaredType(newExpr.Type);
+            type = _typeResolver.ResolveDeclaredType(newExpr.Type);
 
             // A locally-declared GENERIC type constructed without type arguments previously
             // emitted an open-type token (BadImageFormatException at runtime). N# does not
@@ -16216,8 +16227,8 @@ public class Analyzer : IDisposable
                     }
                     else if (inaccessibleUnionFile != null)
                     {
-                        ReportInaccessibleMember(parts[0], inaccessibleUnionFile, newExpr.Line, newExpr.Column);
-                        _reportedUnresolvedTypeRefs.Add((parts[0], newExpr.Line, newExpr.Column));
+                        _diagnostics.ReportInaccessibleMember(parts[0], inaccessibleUnionFile, newExpr.Line, newExpr.Column);
+                        _typeResolver.MarkUnresolvedTypeReported(parts[0], newExpr.Line, newExpr.Column);
                     }
                 }
                 if (parts.Length == 2 && unionBaseLookup is UnionTypeInfo unionBaseType)
@@ -16815,7 +16826,7 @@ public class Analyzer : IDisposable
 
         return new GenericTypeInfo(
             "Span",
-            new List<TypeInfo> { ResolveType(stackAlloc.ElementType) },
+            new List<TypeInfo> { _typeResolver.ResolveType(stackAlloc.ElementType) },
             new ReflectionTypeInfo(typeof(Span<>)));
     }
 
@@ -16916,7 +16927,7 @@ public class Analyzer : IDisposable
 
         if (typeArguments is { Count: > 0 })
         {
-            var resolvedArguments = typeArguments.Select(ResolveType).ToList();
+            var resolvedArguments = typeArguments.Select(_typeResolver.ResolveType).ToList();
             if (resolvedArguments.Count != arity)
             {
                 var message = arity == 0
@@ -17025,7 +17036,7 @@ public class Analyzer : IDisposable
     {
         if (substitution == null)
         {
-            return ResolveType(type);
+            return _typeResolver.ResolveType(type);
         }
 
         return type switch
@@ -17034,7 +17045,7 @@ public class Analyzer : IDisposable
             GenericTypeReference generic => ResolveGenericTypeWithSubstitution(generic, substitution),
             ArrayTypeReference array => new ArrayTypeInfo(ResolveTypeWithSubstitution(array.ElementType, substitution)),
             NullableTypeReference nullable => new NullableTypeInfo(ResolveTypeWithSubstitution(nullable.InnerType, substitution)),
-            _ => ResolveType(type)
+            _ => _typeResolver.ResolveType(type)
         };
     }
 
@@ -17042,7 +17053,7 @@ public class Analyzer : IDisposable
         GenericTypeReference generic,
         Dictionary<string, TypeInfo> substitution)
     {
-        var resolved = ResolveType(generic) as GenericTypeInfo;
+        var resolved = _typeResolver.ResolveType(generic) as GenericTypeInfo;
         return new GenericTypeInfo(
             generic.Name,
             generic.TypeArguments
@@ -17054,7 +17065,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeIsExpression(IsExpression isExpr)
     {
         var sourceType = AnalyzeExpression(isExpr.Expression);
-        var targetType = ResolveType(isExpr.Type);
+        var targetType = _typeResolver.ResolveType(isExpr.Type);
         if (ReportSoaRowEscapeIfNeeded(isExpr.Expression, sourceType, "tested with 'is'"))
         {
             return BuiltInTypes.Bool;
@@ -17078,7 +17089,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeCastExpression(CastExpression cast)
     {
-        var targetType = ResolveType(cast.TargetType);
+        var targetType = _typeResolver.ResolveType(cast.TargetType);
         var sourceType = ShouldUseCastTargetExpectedType(cast)
             ? AnalyzeExpressionWithExpectedType(cast.Expression, targetType)
             : AnalyzeExpression(cast.Expression);
@@ -17216,7 +17227,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeTypeofExpression(TypeOfExpression typeofExpr)
     {
         // Validate the type exists
-        ResolveType(typeofExpr.Type);
+        _typeResolver.ResolveType(typeofExpr.Type);
         // typeof always returns System.Type
         return _wellKnownTypes != null
             ? new ReflectionTypeInfo(_wellKnownTypes.SystemType)
@@ -17252,7 +17263,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeSizeofExpression(SizeOfExpression sizeofExpr)
     {
-        ResolveType(sizeofExpr.Type);
+        _typeResolver.ResolveType(sizeofExpr.Type);
         return BuiltInTypes.Int;
     }
 
@@ -17529,7 +17540,7 @@ public class Analyzer : IDisposable
                     return;
 
                 case TypePattern typePattern:
-                    var patternType = ResolveType(typePattern.Type);
+                    var patternType = _typeResolver.ResolveType(typePattern.Type);
                     for (var i = 0; i < unionType.Arms.Count; i++)
                     {
                         if (IsAssignable(patternType, unionType.Arms[i]))
@@ -18016,417 +18027,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    // Type resolution
-    /// <summary>
-    /// Resolves a type reference at a declared-type position (parameter, return, field,
-    /// property, variable annotation, type alias, or `new` expression) and reports NL201
-    /// when a simple name resolves through no channel. Only these positions opt in:
-    /// pass-1 signature collection and lazy cross-file member resolution run without
-    /// generic type parameters in scope and must stay lenient to avoid false positives.
-    /// </summary>
-    private TypeInfo ResolveDeclaredType(TypeReference typeRef)
-    {
-        var previous = _reportUnresolvedTypes;
-        _reportUnresolvedTypes = true;
-        try
-        {
-            return ResolveType(typeRef);
-        }
-        finally
-        {
-            _reportUnresolvedTypes = previous;
-        }
-    }
-
-    private TypeInfo ResolveType(TypeReference typeRef)
-    {
-        var resolved = typeRef switch
-        {
-            SimpleTypeReference simple => ResolveSimpleType(simple),
-            GenericTypeReference generic => ResolveGenericType(generic),
-            ArrayTypeReference array => new ArrayTypeInfo(ResolveType(array.ElementType)),
-            NullableTypeReference nullable => new NullableTypeInfo(ResolveType(nullable.InnerType)),
-            UnionTypeReference union => ResolveAnonymousUnionType(union),
-            TupleTypeReference tuple => new TupleTypeInfo(
-                tuple.Elements.Select(e => new TupleTypeElementInfo(e.Name, ResolveType(e.Type))).ToList()),
-            FunctionTypeReference function => new FunctionTypeInfo()
-            {
-                ParameterTypes = function.ParameterTypes.Select(ResolveType).ToList(),
-                ReturnType = ResolveType(function.ReturnType)
-            },
-            ByRefTypeReference byRef => new ByRefTypeInfo(ResolveType(byRef.InnerType)),
-            _ => BuiltInTypes.Unknown
-        };
-
-        RecordResolvedTypeReference(typeRef, resolved);
-        return resolved;
-    }
-
-    private TypeInfo ResolveSimpleType(SimpleTypeReference simple)
-    {
-        if (ReportSoaRowTypeReferenceIfNeeded(simple.Name, simple.Line, simple.Column))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        return ResolveSimpleType(simple.Name, simple.Line, simple.Column);
-    }
-
-    private TypeInfo ResolveGenericType(GenericTypeReference generic)
-    {
-        if (generic.Line > 0)
-        {
-            if (ReportSoaRowTypeReferenceIfNeeded(generic.Name, generic.Line, generic.Column))
-            {
-                return BuiltInTypes.Unknown;
-            }
-        }
-
-        var typeArguments = generic.TypeArguments.Select(ResolveType).ToList();
-        TypeInfo? genericDefinition = null;
-
-        if (generic.Line > 0)
-        {
-            // Resolve the open-generic name for binding/semantic-model side effects, but
-            // suppress unresolved reporting here: CLR open generics carry an arity suffix
-            // (List resolves as List`1), so the plain simple-name probe legitimately misses
-            // external generic types.
-            var previousReport = _reportUnresolvedTypes;
-            _reportUnresolvedTypes = false;
-            TypeInfo resolvedName;
-            try
-            {
-                resolvedName = ResolveSimpleType(generic.Name, generic.Line, generic.Column);
-            }
-            finally
-            {
-                _reportUnresolvedTypes = previousReport;
-            }
-
-            if (resolvedName is not ExternalTypeInfo && !BuiltInTypes.IsUnknown(resolvedName))
-                genericDefinition = resolvedName;
-
-            var genericHeadArity = AnalyzerTypeReferenceFacts.GenericHeadArity(resolvedName);
-            Type? arityQualifiedExternalType = null;
-            List<int>? knownGenericHeadArities = null;
-            if (resolvedName is ExternalTypeInfo or ReflectionTypeInfo)
-            {
-                arityQualifiedExternalType = AnalyzerWellKnownTypeFacts.KnownOpenGenericType(
-                    _wellKnownTypes,
-                    generic.Name,
-                    generic.TypeArguments.Count);
-                if (arityQualifiedExternalType == null
-                    && _externalTypeProbe.ResolveExternalType($"{generic.Name}`{generic.TypeArguments.Count}") is ReflectionTypeInfo arityQualifiedExternal)
-                {
-                    arityQualifiedExternalType = arityQualifiedExternal.Type;
-                }
-
-                if (arityQualifiedExternalType != null)
-                {
-                    genericHeadArity = generic.TypeArguments.Count;
-                    genericDefinition = new ReflectionTypeInfo(arityQualifiedExternalType);
-                }
-                else
-                {
-                    knownGenericHeadArities = _externalTypeProbe.KnownGenericHeadArities(_wellKnownTypes, generic.Name);
-                    if (knownGenericHeadArities.Count == 1)
-                    {
-                        genericHeadArity = knownGenericHeadArities[0];
-                    }
-                }
-            }
-
-            // Report the generic name as unresolved only when it is not compiler-known
-            // (Result, Task, Func, ...) and the arity-qualified external probe also misses
-            // (e.g. `Lst<int>` instead of `List<int>`).
-            if (previousReport &&
-                resolvedName is ExternalTypeInfo &&
-                !generic.Name.Contains('.') &&
-                arityQualifiedExternalType == null &&
-                (knownGenericHeadArities == null || knownGenericHeadArities.Count == 0) &&
-                _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
-            {
-                Error(
-                    ErrorCode.TypeNotFound,
-                    $"Type '{generic.Name}' not found",
-                    generic.Line,
-                    generic.Column,
-                    AnalyzerDiagnostics.UnresolvedTypeSuggestion(generic.Name, _scopes.AllTypeNamesInScope()),
-                    generic.Name.Length);
-            }
-
-            if (previousReport && knownGenericHeadArities is { Count: > 1 }
-                && _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
-            {
-                var arityList = string.Join(", ", knownGenericHeadArities);
-                Error(
-                    ErrorCode.InvalidTypeArgument,
-                    $"Generic type '{generic.Name}' does not take {generic.TypeArguments.Count} type argument(s); available arities are {arityList}",
-                    generic.Line,
-                    generic.Column,
-                    $"Use one of the supported type-argument counts for '{generic.Name}'.",
-                    generic.Name.Length);
-            }
-
-            // Arity validation for locally-declared generic types: a wrong count previously
-            // sailed through analysis and the emitter produced an unloadable assembly
-            // (TypeLoadException at runtime). Reported at declared-type positions only, with
-            // the same dedupe as NL201 (this resolver runs in both analysis passes).
-            if (previousReport && genericHeadArity >= 0
-                && genericHeadArity != generic.TypeArguments.Count
-                && _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
-            {
-                var message = genericHeadArity == 0
-                    ? $"'{generic.Name}' is not generic, but {generic.TypeArguments.Count} type argument(s) were provided"
-                    : $"Generic type '{generic.Name}' takes {genericHeadArity} type argument(s), but {generic.TypeArguments.Count} were provided";
-                Error(
-                    ErrorCode.InvalidTypeArgument,
-                    message,
-                    generic.Line,
-                    generic.Column,
-                    genericHeadArity == 0
-                        ? $"Remove the type arguments: '{generic.Name}'"
-                        : $"Match the declaration's type parameter count for '{generic.Name}'",
-                    generic.Name.Length);
-            }
-        }
-
-        return new GenericTypeInfo(generic.Name, typeArguments, genericDefinition);
-    }
-
-    private bool ReportSoaRowTypeReferenceIfNeeded(string name, int line, int column)
-    {
-        const string rowSuffix = ".Row";
-        if (!SoaFeature.IsEnabled || line <= 0 || !name.EndsWith(rowSuffix, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var tableName = name[..^rowSuffix.Length];
-        if (tableName.Length == 0 || _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(tableName) ?? BuiltInTypes.Unknown) is not SoaRecordTypeInfo)
-        {
-            return false;
-        }
-
-        if (_reportedSoaRowTypeRefs.Add((name, line, column)))
-        {
-            Error(
-                ErrorCode.InvalidSyntax,
-                $"SoA row type '{name}' is not part of this lowering",
-                line,
-                column,
-                $"Pass the '{tableName}' table and an int row index instead; row views exist only as table[index].column projection syntax.",
-                name.Length);
-        }
-
-        return true;
-    }
-
-    private TypeInfo ResolveAnonymousUnionType(UnionTypeReference union)
-    {
-        var resolvedArms = new List<TypeInfo>();
-        foreach (var armRef in union.Arms)
-        {
-            var arm = ResolveType(armRef);
-            if (arm is AnonymousUnionTypeInfo nested)
-            {
-                resolvedArms.AddRange(nested.Arms);
-            }
-            else
-            {
-                resolvedArms.Add(arm);
-            }
-        }
-
-        var uniqueArms = new List<TypeInfo>();
-        foreach (var arm in resolvedArms)
-        {
-            if (uniqueArms.Any(existing => TypeInfoIdentityFacts.AreEqual(existing, arm)))
-            {
-                var span = TypeReferenceFacts.GetStartSpan(union);
-                Error(
-                    ErrorCode.DuplicateDeclaration,
-                    $"Anonymous union type repeats arm '{arm}'. Each arm must be unique.",
-                    span.StartLine,
-                    span.StartColumn,
-                    "Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.",
-                    Math.Max(1, union.Span.IsValid ? union.Span.EndColumn - union.Span.StartColumn : 1));
-                continue;
-            }
-
-            uniqueArms.Add(arm);
-        }
-
-        if (uniqueArms.Count > 2)
-        {
-            var span = TypeReferenceFacts.GetStartSpan(union);
-            Error(
-                ErrorCode.InvalidTypeArgument,
-                $"Anonymous union types support exactly two arms in v1; this union has {uniqueArms.Count} arms.",
-                span.StartLine,
-                span.StartColumn,
-                "Declare a named `union` for larger variants.",
-                Math.Max(1, union.Span.IsValid ? union.Span.EndColumn - union.Span.StartColumn : 1));
-        }
-
-        return new AnonymousUnionTypeInfo(uniqueArms);
-    }
-
-    private void RecordResolvedTypeReference(TypeReference typeRef, TypeInfo resolved)
-    {
-        var span = TypeReferenceFacts.GetStartSpan(typeRef);
-        if (!span.IsValid)
-            return;
-
-        _semanticModel.RecordTypeReference(span.StartLine, span.StartColumn, resolved);
-    }
-
-    private void ResolveTypeReferenceIfPresent(TypeReference? typeReference)
-    {
-        if (typeReference != null)
-        {
-            ResolveType(typeReference);
-        }
-    }
-
-    private void ResolveTypeReferences(IEnumerable<TypeReference> typeReferences)
-    {
-        foreach (var typeReference in typeReferences)
-        {
-            ResolveType(typeReference);
-        }
-    }
-
-    private void ResolveGenericConstraintTypes(IEnumerable<GenericConstraint>? constraints)
-    {
-        if (constraints == null)
-            return;
-
-        foreach (var constraint in constraints)
-        {
-            ResolveTypeReferences(constraint.Constraints);
-        }
-    }
-
-    private TypeInfo ResolveSimpleType(string name, int line = 0, int column = 0)
-    {
-        if (name == "var" && line > 0)
-        {
-            Error("'var' is not a type; use ':=' for type inference", line, column);
-            return BuiltInTypes.Unknown;
-        }
-
-        var builtInType = AnalyzerTypeReferenceFacts.BuiltInSimpleType(name);
-        if (builtInType != null)
-            return builtInType;
-
-        var localType = _scopes.LookupType(name);
-        if (localType != null)
-        {
-            if (line > 0)
-            {
-                _scopes.RecordTypeBinding(_bindingMap, _currentFilePath, name, line, column);
-            }
-            return localType;
-        }
-
-        if (_declarationContext.TryResolveFileImportAliasType(
-                name,
-                _currentFilePath,
-                _importedSymbolsByAlias,
-                _importedDeclarationsByAlias,
-                out var fileAliasType,
-                out var fileAliasDeclaration,
-                out var fileAliasClaimed))
-        {
-            if (line > 0 && fileAliasDeclaration != null)
-            {
-                _bindingMap.RecordBinding(
-                    _currentFilePath,
-                    line,
-                    column,
-                    name.Length,
-                    fileAliasDeclaration);
-            }
-            _semanticModel.RecordType(name, fileAliasType);
-            return fileAliasType;
-        }
-        if (fileAliasClaimed)
-        {
-            if (_reportUnresolvedTypes
-                && line > 0
-                && _reportedUnresolvedTypeRefs.Add((name, line, column)))
-            {
-                Error(
-                    ErrorCode.TypeNotFound,
-                    $"Type '{name}' not found in the imported file alias",
-                    line,
-                    column,
-                    "Use a public type exported by that file, or correct the alias-qualified type name.",
-                    name.Length);
-            }
-            return BuiltInTypes.Unknown;
-        }
-
-        if (TryResolveDottedNestedType(name, out var nestedType))
-        {
-            return nestedType;
-        }
-
-        if (_projectDiscovery.ResolveVisibleProjectType(
-                name,
-                GetUnitNamespace(_compilationUnit),
-                line > 0,
-                out var projectType,
-                out var projectDeclaration,
-                out var inaccessibleProjectFile))
-        {
-            if (line > 0)
-            {
-                _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, projectDeclaration);
-            }
-
-            _semanticModel.RecordType(name, projectType);
-            return projectType;
-        }
-
-        if (inaccessibleProjectFile != null)
-        {
-            ReportInaccessibleMember(name, inaccessibleProjectFile, line, column);
-            _reportedUnresolvedTypeRefs.Add((name, line, column));
-        }
-
-        if (_usingAliases.TryGetValue(name, out var fullName))
-        {
-            var aliasedType = _externalTypeProbe.ResolveExternalType(fullName);
-            if (aliasedType != null)
-                return aliasedType;
-        }
-
-        var externalType = _externalTypeProbe.ResolveExternalType(name);
-        if (externalType != null)
-            return externalType;
-
-        // No resolution channel recognized this name. Historically this always fell through
-        // silently ("might be from an external library"), letting typos and missing references reach
-        // IL emission. At declared-type positions (ResolveDeclaredType) report undotted names
-        // as NL201; dotted names stay lenient for now because namespace-qualified externals
-        // and `new Union.Case` references legitimately resolve through other channels.
-        if (_reportUnresolvedTypes && line > 0 && !name.Contains('.') &&
-            _reportedUnresolvedTypeRefs.Add((name, line, column)))
-        {
-            Error(
-                ErrorCode.TypeNotFound,
-                $"Type '{name}' not found",
-                line,
-                column,
-                AnalyzerDiagnostics.UnresolvedTypeSuggestion(name, _scopes.AllTypeNamesInScope()),
-                name.Length);
-        }
-
-        return new ExternalTypeInfo(name);
-    }
-
     // The function half of project auto-discovery: exported (PascalCase) top-level functions
     // are visible project-wide within visible namespaces without a file import, mirroring the
     // type half in AnalyzerProjectTypeDiscovery. Non-exported top-level functions stay
@@ -18448,33 +18048,6 @@ public class Analyzer : IDisposable
         type = BuiltInTypes.Unknown;
         declaration = null!;
         return false;
-    }
-
-    private bool TryResolveDottedNestedType(string name, out TypeInfo type)
-    {
-        var parts = name.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2)
-        {
-            type = BuiltInTypes.Unknown;
-            return false;
-        }
-
-        type = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(parts[0]) ?? BuiltInTypes.Unknown);
-        if (BuiltInTypes.IsUnknown(type))
-        {
-            return false;
-        }
-
-        for (var i = 1; i < parts.Length; i++)
-        {
-            if (!_declarationContext.TryResolveNestedType(type, parts[i], requireExported: false, out type))
-            {
-                type = BuiltInTypes.Unknown;
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private void ReportUnverifiedErrorTupleResultUseIfNeeded(string name, int line, int column)
@@ -18557,8 +18130,8 @@ public class Analyzer : IDisposable
 
         if (inaccessibleProjectFile != null)
         {
-            ReportInaccessibleMember(name, inaccessibleProjectFile, line, column);
-            _reportedUnresolvedTypeRefs.Add((name, line, column));
+            _diagnostics.ReportInaccessibleMember(name, inaccessibleProjectFile, line, column);
+            _typeResolver.MarkUnresolvedTypeReported(name, line, column);
         }
 
         if (TryResolveVisibleProjectFunction(name, out var projectFunctionType, out var projectFunctionDeclaration))
@@ -18600,7 +18173,7 @@ public class Analyzer : IDisposable
                 GetUnitNamespace(_compilationUnit),
                 out var inaccessibleFunctionFile))
         {
-            ReportInaccessibleMember(name, inaccessibleFunctionFile!, line, column);
+            _diagnostics.ReportInaccessibleMember(name, inaccessibleFunctionFile!, line, column);
             return BuiltInTypes.Unknown;
         }
 
@@ -19437,15 +19010,15 @@ public class Analyzer : IDisposable
 
         for (int i = 0; i < method1.ParameterCount; i++)
         {
-            var type1 = ResolveType(method1.ParameterTypes[i]);
-            var type2 = ResolveType(method2.ParameterTypes[i]);
+            var type1 = _typeResolver.ResolveType(method1.ParameterTypes[i]);
+            var type2 = _typeResolver.ResolveType(method2.ParameterTypes[i]);
 
             if (type1.ToString() != type2.ToString())
                 return false;
         }
 
-        var returnType1 = method1.ReturnType != null ? ResolveType(method1.ReturnType) : BuiltInTypes.Void;
-        var returnType2 = method2.ReturnType != null ? ResolveType(method2.ReturnType) : BuiltInTypes.Void;
+        var returnType1 = method1.ReturnType != null ? _typeResolver.ResolveType(method1.ReturnType) : BuiltInTypes.Void;
+        var returnType2 = method2.ReturnType != null ? _typeResolver.ResolveType(method2.ReturnType) : BuiltInTypes.Void;
 
         if (returnType1.ToString() != returnType2.ToString())
             return false;
@@ -20052,7 +19625,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var parameterType = ResolveDeclaredType(parameter.Type);
+        var parameterType = _typeResolver.ResolveDeclaredType(parameter.Type);
         if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(parameterType)) is not SoaRecordTypeInfo soaRecordType)
         {
             return false;
@@ -20120,7 +19693,7 @@ public class Analyzer : IDisposable
         var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(
             expectedType is SimpleTypeReference simple
                 ? ResolveDefaultEnumTypeName(simple.Name)
-                : ResolveDeclaredType(expectedType));
+                : _typeResolver.ResolveDeclaredType(expectedType));
         if (!TypeInfoIdentityFacts.AreEqual(ownerType, resolvedExpectedType))
         {
             return false;
@@ -20140,7 +19713,7 @@ public class Analyzer : IDisposable
     {
         var separator = name.IndexOf('.');
         if (separator <= 0 || separator >= name.Length - 1)
-            return ResolveSimpleType(name);
+            return _typeResolver.ResolveSimpleType(name, 0, 0);
 
         var root = name[..separator];
         var remainder = name[(separator + 1)..];
@@ -20158,12 +19731,12 @@ public class Analyzer : IDisposable
             var expandedName = namespaceName + "." + remainder;
             if (ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, expandedName, out var aliasedRuntimeType))
                 return new ReflectionTypeInfo(aliasedRuntimeType);
-            return ResolveSimpleType(expandedName);
+            return _typeResolver.ResolveSimpleType(expandedName, 0, 0);
         }
 
         if (ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, name, out var runtimeType))
             return new ReflectionTypeInfo(runtimeType);
-        return ResolveSimpleType(name);
+        return _typeResolver.ResolveSimpleType(name, 0, 0);
     }
 
     private void ValidateOperatorOverload(FunctionDeclaration func)
@@ -20238,19 +19811,7 @@ public class Analyzer : IDisposable
     }
 
     private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
-    {
-        var sourceSnippet = GetSourceSnippet(line);
-        _errors.Add(AnalyzerDiagnostics.Create(
-            code,
-            message,
-            _currentFilePath,
-            line,
-            column,
-            sourceSnippet,
-            suggestion,
-            length,
-            ErrorSeverity.Error));
-    }
+        => _diagnostics.Report(code, message, line, column, suggestion, length);
 
     private void Warning(string message, int line, int column)
     {
@@ -20258,28 +19819,9 @@ public class Analyzer : IDisposable
     }
 
     private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
-    {
-        var sourceSnippet = GetSourceSnippet(line);
-        _errors.Add(AnalyzerDiagnostics.Create(
-            code,
-            message,
-            _currentFilePath,
-            line,
-            column,
-            sourceSnippet,
-            suggestion,
-            length,
-            ErrorSeverity.Warning));
-    }
+        => _diagnostics.Warn(code, message, line, column, suggestion, length);
 
-    private string? GetSourceSnippet(int line)
-    {
-        var sourceText = _sourceText ?? _projectSources.TryGetProjectSourceText(_currentFilePath);
-        if (string.IsNullOrEmpty(sourceText) || line <= 0)
-            return null;
-
-        return CodeIntelligenceTextUtilities.GetSourceLine(sourceText, line);
-    }
+    private string? GetSourceSnippet(int line) => _diagnostics.SourceSnippet(line);
 
     private void ValidatePackageName(PackageDeclaration package)
     {
@@ -20694,18 +20236,6 @@ public class Analyzer : IDisposable
         return !string.Equals(currentNamespace, declarationNamespace, StringComparison.Ordinal);
     }
 
-    private bool ReportInaccessibleMember(string memberName, string? declarationFile, int line, int column)
-    {
-        var declaringNamespace = _projectSources.GetNamespaceForFile(declarationFile) ?? "<global>";
-        Error(
-            ErrorCode.InaccessibleMember,
-            $"'{memberName}' is not exported from package/namespace '{declaringNamespace}' — use PascalCase for cross-package visibility or keep camelCase members inside the declaring package",
-            line,
-            column,
-            length: Math.Max(1, memberName.Length));
-        return true;
-    }
-
     private IEnumerable<Assembly> GetExternalSearchAssemblies()
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -20956,6 +20486,7 @@ public class Analyzer : IDisposable
             _mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded"));
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
         _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
+        _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
     public void Dispose()
@@ -20967,6 +20498,7 @@ public class Analyzer : IDisposable
             _wellKnownTypes = null;
             _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, null);
             _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, null);
+            _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;
         }
