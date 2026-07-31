@@ -14,6 +14,8 @@
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerScopeStack.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerProjectDiscovery.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeResolver.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeSubstitution.nl`,
+`src/NSharpLang.Compiler.BootstrapServices/AnalyzerStructuralAssignability.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnosticSink.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerStateModels.nl`,
 `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnostics.nl`
@@ -242,10 +244,63 @@ directions a function type hands back: a parameter pair is source ← target whi
 target ← source, and an inferred (unknown) source parameter is ACCEPTED without a pair rather than
 rejected, because a lambda still being inferred must not be pre-judged.
 
-`IsAssignable` itself, and the arms that reach it, remain in `Analyzer.cs` for a measured reason: the
-duck-interface arm compares member signatures through `MethodSignaturesMatch` → `ResolveType`, which
-records into the semantic model and reports diagnostics. (The `ActionResult` arm's other blocker, the
-MetadataLoadContext probe, is now N#-owned — see below.)
+### The two arms that look something up
+
+`AnalyzerStructuralAssignability.nl` owns the two assignability arms that are NOT decidable from the
+two types alone, and they are kept out of `AnalyzerAssignabilityFacts` so that class can stay silent.
+
+- THE DUCK-INTERFACE ARM (`ImplementsDuckInterface` + `MethodSignaturesMatch`) is the only EFFECTFUL
+  member of the whole assignability closure: comparing two members means RESOLVING the references
+  they were declared with, and that walk records into the semantic model and can report. A source
+  satisfies a duck interface when it declares a matching function for every FUNCTION the interface
+  declares. Only function members are demanded and only function members can satisfy them, in both
+  directions. A source with no declared-member list at all — a CLR type, a built-in, an array, an
+  interface — satisfies NOTHING, including the empty duck interface, because the member list is
+  consulted before the interface's demands are; a class, struct or record with an EMPTY member list
+  does satisfy it. Signature equality is by the RESOLVED type's display form, an absent return type
+  means `void`, and the resolution ORDER is behaviour: parameters are resolved in pairs, left to
+  right, and the first mismatch stops the walk, so a rejected candidate's later references are never
+  resolved and never recorded.
+- THE ACTIONRESULT ARM answers that ASP.NET Core's `ActionResult<T>` accepts whatever the
+  non-generic `ActionResult` accepts. It refuses unless the target is a one-argument generic named
+  `ActionResult` or `Microsoft.AspNetCore.Mvc.ActionResult`, the source is a CLR type, and the
+  referenced-assembly probe actually finds `Microsoft.AspNetCore.Mvc.ActionResult` — so it is inert
+  in a project that does not reference ASP.NET Core.
+
+`IsAssignable` itself, and the arms that re-enter it, remain in `Analyzer.cs` for ONE measured
+reason, and it is no longer the duck arm or the metadata probe: `IsAssignable`'s callable-reference
+arm builds a runtime delegate's signature with `CreateFunctionTypeInfoFromDelegate`, whose general
+`Invoke` arm needs `NullabilityMetadata.ConvertParameter`/`ConvertReturn`. Those need
+`System.Reflection.NullabilityInfoContext` and `CustomAttributeData`, and BOTH are off the columnar
+external-type surface — a `.nl` probe declines with `emit.typed-local.unsupported-type` and
+`emit.declaration.method-param: … could not be resolved` while `ParameterInfo`, `MethodInfo` and
+`Assembly` build clean in the same file. So the blocker is a compiler-capability gap whose repair is
+a two-stage bootstrap, not merely the assembly direction. Every OTHER member of the closure
+(`IsSubtypeOf`, `HasImplicitConversion`, the delegate scorer, the lambda arm and the two protocol
+shells) re-enters `IsAssignable`, so no sub-cut of the closure's interior exists.
+
+### Substitution-aware resolution
+
+`AnalyzerTypeSubstitution.nl` owns type-reference resolution AS SEEN FROM A DECLARING TYPE — the
+question a member read off a declared type asks, as opposed to the plain walk's "what does this name
+mean in the file being analysed".
+
+- `ResolveGenericDefinition` answers the open definition an instantiation CARRIES, falling back to
+  the bare name in scope. The carried definition answered every one of the corpus's 6,172 lookups.
+- `GetSourceDeclarationOwner` answers which declaration a type is declared by, plus the substitution
+  its arguments induce. An alias answers for the type it names. A generic over an N#-declared
+  definition answers the DEFINITION with the binding; a generic whose definition is a CLR type is NOT
+  substituted, because reflection already carries its own arguments and re-substituting would
+  double-apply them.
+- `ResolveTypeForSourceOwner` asks the declaration context first — which answered all 22,245 corpus
+  and 4,112 suite calls, zero fallbacks — and only then walks the substitution itself.
+- The substitution walk's ORDER is behaviour. A simple name the binding BINDS answers with the bound
+  type and never reaches the resolver, so it writes no semantic-model record; a simple name it does
+  not bind falls all the way through to the plain walk rather than into the composed arms. Generic,
+  array and nullable references are rewritten; a tuple, function, union or by-ref reference is handed
+  to the plain walk untouched even under a live binding. A generic head is resolved by the PLAIN walk
+  — that is what records it and finds the open definition — and only its arguments are rewritten, so
+  the instantiation keeps its nominal identity.
 
 ### The type-reference resolver
 

@@ -407,8 +407,265 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 10 — THE `ResolveType` ARC, STAGE 4: THE
-  REPORTING AND RECORDING WALK.**
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 11 — THE `ResolveType` ARC, STAGE 5: THE
+  ASSIGNABILITY SCC — RECORDED AS MANDATED, THEN MEASURED-RECUT TO ITS TERMINAL PERIPHERY.**
+  MANDATED TARGET, recorded verbatim from the coordinator and unchanged BEFORE any production edit:
+  the whole assignability strongly-connected component in one cut — `IsAssignable` (~50 sites),
+  `IsSubtypeOf`, `HasImplicitConversion` (+ the `_activeImplicitConversions` re-entrancy set that
+  moves with it), the duck-interface arm (`ImplementsDuckInterface` + `MethodSignaturesMatch`),
+  `TryGetDelegateSignatureConversionScore`, the lambda arm, the ActionResult arm and the two
+  pending-pair protocol shells from slice 6 (`IsKnownGenericTypeAssignable`,
+  `IsFunctionTypeAssignable`), on the coordinator's premise that "every dependency is now N#-owned".
+  **THAT PREMISE IS FALSE AT THIS TREE, AND THE RE-READ PROVED IT BY BUILD RATHER THAN BY
+  INFERENCE.** `IsAssignable`'s own callable-reference arm (`Analyzer.cs` :18304) calls
+  `CreateFunctionTypeInfoFromDelegate` (:9885), whose general `Invoke` arm calls
+  `NullabilityMetadata.ConvertParameter` / `ConvertReturn` — and those need
+  `System.Reflection.NullabilityInfoContext` and `CustomAttributeData`, **both of which are OFF the
+  columnar external-type surface**: a throwaway `.nl` probe in BootstrapServices declines with
+  `emit.typed-local.unsupported-type` for `NullabilityInfoContext` and
+  `emit.declaration.method-param: … 'CustomAttributeData' could not be resolved`, while the
+  `ParameterInfo` / `MethodInfo` / `Assembly` controls in the same probe build clean. So the blocker
+  is NOT only slice 6's recorded assembly direction; it is a compiler-capability gap whose repair is
+  a two-stage bootstrap wall (the packaged 0.1.0 SDK builds BootstrapServices), which this turn is
+  instructed not to cross. Every other member of the SCC re-enters `IsAssignable`, so no sub-cut of
+  the SCC's INTERIOR exists.
+  THE RECUT (largest terminal periphery — every dependency N#-owned, no re-entry into `IsAssignable`,
+  no protocol shell, no callback): **eight whole C# members in three groups.**
+  * the DUCK ARM — `ImplementsDuckInterface` :18970 and `MethodSignaturesMatch` :19008, the SCC's
+    ONLY members that do not re-enter `IsAssignable` and its ONLY EFFECTFUL members (their 128
+    `ResolveType` calls record into the semantic model and can report);
+  * the ACTIONRESULT ARM — `IsAspNetActionResultGenericAssignable` :18532, whose
+    `TryResolveExternalType` dependency slice 7 already moved to `AnalyzerExternalTypeProbe`;
+  * the SUBSTITUTION/OWNER RESOLUTION CLOSURE the SCC bottoms out in — `ResolveGenericDefinition`
+    :18910, `GetSourceDeclarationOwner` :7564, `ResolveTypeForSourceOwner` :17025,
+    `ResolveTypeWithSubstitution` :17040 and `ResolveGenericTypeWithSubstitution` :17057 — five
+    members that are now pure composition over `AnalyzerDeclarationContext`, `AnalyzerScopeStack`
+    and `AnalyzerTypeResolver`, and the last non-N# support dependency of the SCC other than the
+    delegate-signature blocker.
+  THE MEASUREMENT (completed BEFORE any production edit; a throwaway instrumented Release build with
+  **43 branch counters** over all eight members PLUS the blocked delegate-signature arm, run across
+  all **49 `project.yml` corpus targets** AND the full 3,194-test unit suite, then reverted —
+  `Analyzer.cs` was byte-identical to `b91e4ba02` again before the cut began, `md5
+  fb5ae06e4c0220428882e554184c93f8`, 20,993 lines / 18,440 non-blank). Counts are corpus / suite:
+  * **THE BLOCKED ARM IS NEVER REACHED IN EITHER POPULATION: `blocked.delegate-signature-request`
+    is 0 / 0.** So the recut is not a behaviour risk anyone is currently paying for — but it is also
+    why no differential can prove the arm, and why it must not be reimplemented on a guess.
+  * DUCK ARM: `ImplementsDuckInterface` **7 / 19** (sources: class 7 / 17, record 0 / 1, struct
+    0 / 1), true 7 / 15, false 0 / 4 — the corpus reaches it at all now, where slice 6 measured 0.
+    `MethodSignaturesMatch` **12 / 32**: name-mismatch 3 / 8, arity-mismatch 0 / 1, parameter
+    mismatch 0 / 1, return mismatch 0 / 1, match 9 / 21; parameter PAIRS resolved 3 / 7, and the
+    absent-return-type arm fires 3 / 6 on each side — i.e. **18 / 50 live `ResolveType` calls** with
+    their records and possible reports.
+  * ACTIONRESULT ARM: **1,445 / 504** calls, refused at the arity-1 generic gate 1,113 / 448 and at
+    the NAME 332 / 55; the probe is consulted **0 / 1** times, hits 0 / 1 and answers true 0 / 1 —
+    exactly slice 6's single live ASP.NET cell, and the arm is inert in the corpus.
+  * `ResolveGenericDefinition` **6,172 / 1,437**, and the carried definition answers **every one of
+    them**; the scope fallback and the miss are 0 / 0 in both populations.
+  * `GetSourceDeclarationOwner` **71,363 / 4,176**: the generic arm is entered 208 / 12 times and
+    refuses at the REFLECTION definition 208 / 11, so a substitution is actually built **0 / 1**
+    times and every other call is the plain arm.
+  * `ResolveTypeForSourceOwner` **22,245 / 4,112** — the declaration context answers ALL of them and
+    the substitution fallback is **0 / 0**, which re-confirms slice 6's dead-fallback measurement at
+    this tree and in a second population.
+  * `ResolveTypeWithSubstitution` **74,232 / 12,265**, and the null-substitution arm is **0 / 0**:
+    every live call carries a binding. Arms: bound simple name 62 / 320, generic 4,113 / 921, array
+    3,982 / 571, nullable 3,139 / 211, plain-walk fallthrough 62,936 / 10,242.
+    `ResolveGenericTypeWithSubstitution` **4,113 / 921**, of which the head resolves to a generic
+    WITH a definition 4,113 / 915 and without one 0 / 6; it never fails to read as generic.
+  **RESULT: LANDED (no commit — mandate).** `AnalyzerTypeSubstitution` is the sole authority for
+  owner-relative and substitution-aware type resolution, and `AnalyzerStructuralAssignability` for
+  the duck-interface and ActionResult arms, with no callback, fallback, shadow path or comparison
+  route anywhere.
+  DELETIONS (exact, **8 whole C# members, 143 deleted lines**, every one `private` and with no
+  consumer anywhere in `src/` + `tests/` + `editors/`): `GetSourceDeclarationOwner` :7564 (15),
+  `ResolveTypeForSourceOwner` :17025 (14), `ResolveTypeWithSubstitution` :17040 (16),
+  `ResolveGenericTypeWithSubstitution` :17057 (13), `IsAspNetActionResultGenericAssignable` :18532
+  (14), `ResolveGenericDefinition` :18910 (2, expression-bodied), `ImplementsDuckInterface` :18970
+  (37) and `MethodSignaturesMatch` :19008 (25).
+  ROUTING: **45 rewritten call sites, every one mechanical and all inside `Analyzer.cs`** — 25
+  `ResolveTypeForSourceOwner`, 8 `ResolveGenericDefinition`, 6 `GetSourceDeclarationOwner`, 4
+  `ResolveTypeWithSubstitution`, 1 `ImplementsDuckInterface` and 1
+  `IsAspNetActionResultGenericAssignable` — plus **7 added lines**: two field declarations with their
+  3-line comment and two constructor lines. **NO new C# method, helper, bridge, callback, shell or
+  state**, and no protocol shell: every member moved WHOLE because none of them re-enters
+  `IsAssignable`. `git diff` on `Analyzer.cs` is **+52 / −188 = net −136**; the file is
+  **20,993 → 20,857** (non-blank 18,440 → 18,329).
+  N# ADDED: `AnalyzerTypeSubstitution.nl` (**163 lines, ONE class, 9 members** — 3 fields, the
+  constructor and 5 methods, 4 of them public) + `AnalyzerStructuralAssignability.nl` (**186 lines,
+  ONE class, 9 members** — 2 fields, the constructor, 3 public entry points and 3 file-private
+  helpers) + their two `.tests.nl` files (379 + 332 lines, **14 + 9 = 23 contracts**). No other `.nl`
+  file changed.
+  THREE NON-MECHANICAL DECISIONS: (1) **THE TWO ARMS DID NOT GO INTO `AnalyzerAssignabilityFacts`.**
+  That class's header states it reports nothing, records nothing and consults nothing outside itself,
+  and the duck arm is the assignability closure's ONLY effectful member. Folding it in would have
+  cost that property and forced the class's two rebuild points to take two more collaborators; a
+  second, explicitly non-silent owner keeps the distinction stateable. (2) **THE OWNERS ARE BUILT
+  ONCE, NOT REBUILT AT THE `_wellKnownTypes` MUTATION POINTS.** Slices 5/6 rebuild their owners there
+  because they read the well-known bag; neither of these does, so they are `readonly` fields built in
+  the constructor after `_typeResolver` — which is the only constructor ORDER change in the slice.
+  (3) **THE DISPLAY FORM IS READ THROUGH AN `object`-TYPED LOCAL.** `MethodSignaturesMatch` compares
+  `ResolveType(...).ToString()`, and `ToString` on a `TypeInfo`-typed receiver is off the columnar
+  surface; binding the value to an `object` local first is exact (it is the same virtual call) and is
+  the only shape change the port needed.
+  PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS. One throwaway xunit probe, written ONCE and run in
+  BOTH trees — the baseline `b91e4ba02` in a throwaway `/private/tmp/nsharp017s11` worktree and the
+  working tree. Both transcripts are **byte-identical, 12,026 CELLS, 0 MISMATCHES, 0 THROWN CELLS,
+  md5 `926389ecabba4b0cdb8c8831ea82f092` in both trees**, with **7,770 non-default answers, 230 cells
+  that EMIT A DIAGNOSTIC and 42 that write a NEW semantic-model record** — so the effectful arm is
+  compared on its effects, not only its verdict. THE WIRING IS PROVEN SEPARATELY: twelve `HOST.*`
+  rows, excluded from the byte comparison, say `Analyzer` for all six operations in the baseline and
+  **`AnalyzerTypeSubstitution` / `AnalyzerStructuralAssignability` in the working tree**. The grid is
+  built on a REAL analyzed source (6 duck interfaces incl. an empty one, a valued one, a wrong-return
+  one, a wrong-arity one and a composed one; a non-duck interface; matching and partial classes, a
+  member-less class, a struct, a record, a generic class, an enum and an alias) and runs every
+  operation over it: **7,410 `ResolveTypeForSourceOwner` cells** (19 reference shapes × 39 owners ×
+  5 substitutions × the two analyzer modes), **3,200 `IsAspNetActionResultGenericAssignable` cells** (the full 40 × 40 square, both modes,
+  including both accepted spellings, the two-argument refusal and the non-CLR source), **1,120
+  `ImplementsDuckInterface` cells** (40 sources × 7 interfaces × both modes, run TWICE so the second pass is
+  against a WARM resolver with its dedupe sets already populated), **190
+  `ResolveTypeWithSubstitution` cells**, **80 `GetSourceDeclarationOwner` cells** (answer AND the
+  substitution, rendered key by key), **18 `ResolveGenericDefinition` cells**, the analyzer's FINAL
+  diagnostic list and type-reference map, and two AFTER-`Dispose` cells. Every cell is run twice
+  over: on an analyzer WITH `LoadSystemAssemblies` and on one WITHOUT it (the live
+  `_wellKnownTypes == null` state). The probe was DELETED from both trees after the run and the
+  worktree removed; `git status` shows no residue.
+  PROOF — SEMANTIC-DIAGNOSTIC ORACLE: `nlc check --json`, fresh Release CLIs built at baseline
+  `b91e4ba02` in the throwaway worktree and at the working tree, over **49 `project.yml` corpus
+  targets (ORACLE_TARGETS=49)**: **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0 and ORACLE_EXIT_DIFFS=0** —
+  every diagnostic on every target byte-identical, with no exclusion at all this time. Both CLIs were
+  run over the SAME (working-tree) sources, so the run also proves the analyzer's own verdict on the
+  four new `.nl` files is clean in both trees: BootstrapServices' 281 pre-existing errors are
+  unchanged and no new NL202 appears.
+  PROOF — CORPUS IL BYTE-EXACT SWEEP (the established explicit PE/CLI normaliser, unchanged, touching
+  ONLY the COFF `TimeDateStamp`, the optional-header `CheckSum`, the Debug Directory entries AND the
+  CodeView blobs they point at, and the `#GUID`/`#Pdb` metadata heaps): **73 / 73 comparable
+  assemblies BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (35 product assemblies
+  from the corpus targets that build standalone, 38 single-file examples), **SINGLE_LOG_DIFFS = 0**,
+  and **SKIPPED_TARGET_DIFFS = 0** — the 10 targets that do not build standalone fail with
+  byte-identical output and the same exit code in both trees. `src/NSharpLang.Compiler.BootstrapServices`
+  is the one target excluded from the sweep and the reason is stated rather than inferred: its SOURCE
+  set changed by design (four new `.nl` files), so its assembly must differ.
+  ASSERTION MIGRATION: all eight members were `private` and none is named anywhere in `src/`,
+  `tests/` or `editors/`, so no test moved. Their behaviour was pinned only INDIRECTLY by end-to-end
+  analyzer diagnostics, which STAY and now execute against the N# owners (the slice-1…10 precedent).
+  The DIRECT pinning is new and native: **23 contracts** covering the carried definition beating the
+  scope and the scope answering when none is carried; the plain owner, the declared-definition owner
+  WITH its argument binding, and the CLR-definition refusal; the null-binding walk being exactly the
+  plain walk AND still recording; a bound name answering without resolving and therefore recording
+  NOTHING, versus an unbound name falling through to the plain walk and recording; array and nullable
+  composing through the binding; a generic head keeping the plain walk's definition while its
+  arguments are rewritten, and keeping a null definition when the head does not read as generic;
+  tuple and by-ref references being handed to the plain walk untouched under a live binding; the
+  owner-unknown fallback in both its arms; a member-less source satisfying NOTHING including the
+  empty duck interface while all three declaring families with an EMPTY member list DO satisfy it;
+  all three families satisfying a matching interface; the missing-function, wrong-return and
+  wrong-arity refusals; non-function members imposing nothing and satisfying nothing in BOTH
+  directions; signature equality across name, arity, parameter and return; the absent return type
+  being `void` rather than unknown; the resolution ORDER — a name mismatch resolving nothing while a
+  match resolves both returns; and the ActionResult arm's five refusals with both accepted spellings.
+  EVIDENCE: full unit suite **3,194 / 3,194** (`dotnet test tests/Tests.csproj -c Release`, 3m17s —
+  exactly the `b91e4ba02` baseline, zero drift); BootstrapServices contracts **1,699 → 1,722** (+23)
+  via the canonical `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release
+  -p:NSharpExcludeTests=false`, **1,722 / 1,722 PASS** (the 3 ExternalAssemblyScan Debug-layout tests
+  did NOT trip); ownership audit **18 / 18** (`nlc test --project tests/native/ownership-audit`, 1.2s)
+  after the repin; `./scripts/dev.sh --since` **PASS** — it correctly took the FULL unit-suite
+  fail-safe (the four new `.nl` paths plus `OwnershipAudit.nl` are unmapped), **3,194 / 3,194 in
+  Debug, done in 3m16s**; the differential, oracle and IL sweeps above.
+  RATCHET REPIN via `scratchpad/repin_017_s11.py` (slice 2…10's script, unchanged apart from its
+  header) — `current*` + fingerprints ONLY, ONE row: `src/NSharpLang.Compiler/Analyzer.cs`
+  currentLines 20,993 → **20,857**, currentNonBlankLines 18,440 → **18,329**, fingerprint
+  `text-v1:56fb58ceaa3e2a35` → `text-v1:0e07cdbe4c6dcc17` (epoch ceilings 23,451 / 20,537 PRESERVED
+  and now clear by **2,594 / 2,208**); `reviewedHeadFingerprint head-v1:f53c81ba76776d43` →
+  `head-v1:ebdbe9dca3b13810`, mirrored into `OwnershipAudit.nl`'s
+  `OwnershipPolicy.ReviewedHeadFingerprint`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED by recomputation after
+  the write; the script self-checks by reproducing all three composite fingerprints over the 381 rows
+  before changing anything. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND
+  after, and the `git diff` is exactly 2 changed lines.** The `.nl` additions need no row.
+  .nl GOTCHAS ADDED (four, all found by building, all bisected):
+  * **`NullabilityInfoContext` AND `CustomAttributeData` ARE OFF THE COLUMNAR EXTERNAL-TYPE SURFACE.**
+    A typed local of the first declines at `emit.typed-local.unsupported-type` and a parameter of the
+    second at `emit.declaration.method-param: … could not be resolved`, while `ParameterInfo`,
+    `MethodInfo` and `Assembly` controls in the SAME probe file build clean. This is the finding that
+    forced the recut, and it upgrades slice 6's "blocked by assembly direction" to "blocked by a
+    compiler-capability gap as well".
+  * **`ToString()` ON A `TypeInfo`-TYPED RECEIVER DECLINES** at `emit.local.initializer`, because the
+    override lives on the derived classes and the base's is the BCL virtual. Binding the value to an
+    `object`-typed local first and calling `ToString()` on THAT binds. (The recorded positive —
+    `.ToString()` on a member-access or indexer result — is about `int.ToString()`, and does not
+    extend to a user hierarchy.)
+  * **`object.ReferenceEquals` IS NOT MODELED** (`emit.call.static-member-unmodeled`), and neither is
+    `==` between two `object`-typed locals (`emit.return.expression`). `==` between two
+    `TypeInfo?`-typed operands DOES bind and is reference comparison — that is the identity idiom.
+  * **ASSIGNING A DERIVED INSTANCE INTO A BASE-TYPED ARRAY ELEMENT DECLINES**
+    (`result[0] = new SimpleTypeReference(...)` into a `TypeReference[]`, at
+    `emit.statement.block-child`); bind it to a base-typed local first. Related and worth stating
+    because it cost a test rewrite: **`BuiltInTypes.Int` and every sibling are expression-bodied
+    properties that MINT A FRESH INSTANCE on each access**, so they are never the right-hand side of
+    a reference-identity assertion.
+  DOCS: `memory/components/analyzer.md` gains two new sections — "The two arms that look something
+  up" (the duck arm's structural rule, its member-list-first refusal, the display-form comparison,
+  the absent-return-type rule and the load-bearing resolution ORDER; the ActionResult arm's four
+  refusals) and "Substitution-aware resolution" (the owner lookup with its reflection refusal, the
+  measured fallback counts, and the substitution walk's order) — and the stale claim that
+  `IsAssignable` stays "because the duck arm records and reports" is REPLACED by the measured one:
+  the only remaining blocker is `CreateFunctionTypeInfoFromDelegate`'s nullability dependency, and
+  the columnar surface gap behind it is now stated with the exact decline reasons. The resolver
+  section's "last remaining C# piece" note now names both `CreateFunctionTypeInfo*` members.
+  `memory/architecture.md`'s Analyzer entry lists all eighteen owners.
+  GATES: the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED, exit 0, in
+  857s (14m17s)** in a fresh isolated copy (`/private/tmp/nsharp-test-all.108d74be041e.1l9lx6/repo`;
+  the log says "Fresh isolated test run required: pre-commit verification", so it is neither a cached
+  whole-gate nor a cached per-step verdict — `Stored validated isolated test cache result:
+  108d74be041e372c (857s)`). Every step green: clean, compiler build, the format contract gate, unit
+  tests **3,194 / 3,194** (3m20s inside the gate), the native `.tests.nl` estate across all 24
+  projects including BootstrapServices' **1,722 / 1,722** and `tests/native/ownership-audit` — the
+  ratchet re-validated inside the gate against the freshly written manifest — **VS Code integration
+  smoke 36 passing in 41s** (the healthy timing, not the recorded 19m load-flake signature, so no
+  cool re-run was needed), SDK pack + install, template pack/install/creation, the template-generated
+  project, all example projects, all single-file examples, `nlc check` over the examples, and the
+  ECMA-335 **IL verification gate — all 67 N# assemblies pass**. `./scripts/reload-vscode-extension.sh`
+  was RUN: `nsharp-0.6.0.vsix` rebuilt and reinstalled (exit 0). INTERACTIVE computer-use verification
+  was NOT attempted, per the coordinator's standing instruction that it owns that record; this slice
+  adds no LSP/IDE behaviour of its own, and the two IDE-facing surfaces it touches — the semantic
+  model and the binding map that hover and go-to-definition read — are pinned entry by entry at every
+  one of the differential's 12,026 grid points.
+  WALL STATUS: **NO two-stage bootstrap wall crossed** — no kernel or OpCodes change, no new
+  capability added, no repin of the packaged toolset; the packaged 0.1.0 SDK self-emits both new
+  classes and their 23 contracts. But a wall is now IDENTIFIED and measured for stage 5b: closing the
+  assignability SCC needs `NullabilityInfoContext`/`CustomAttributeData` on the columnar
+  external-type surface, and since the packaged SDK is what builds BootstrapServices, adding them is
+  a two-stage bootstrap with a toolset repin. That is the coordinator's fork to call, not this
+  turn's.
+  **NEXT SUB-SLICE — STAGE 5b: THE ASSIGNABILITY SCC'S INTERIOR, WHICH NEEDS ONE OF TWO FORKS CALLED
+  FIRST.** What remains is exactly `IsAssignable` (:18206 after this cut, 147 lines), `IsSubtypeOf`,
+  `HasImplicitConversion` (+ `_activeImplicitConversions`), `TryGetDelegateSignatureConversionScore`,
+  `TryGetRuntimeDelegateMethodGroupMatchScore`, `IsFunctionTypeAssignableToRuntimeDelegateMethodGroup`,
+  `IsLambdaAssignableToDelegate` and the two slice-6 protocol shells. Every one of them re-enters
+  `IsAssignable`, and `IsAssignable` reaches `CreateFunctionTypeInfoFromDelegate`. THE TWO FORKS:
+  (a) **CAPABILITY** — put `NullabilityInfoContext` and `CustomAttributeData` on the columnar
+  external-type surface, N#-own the reflection half of `NullabilityMetadata` (251 C# lines, only 27
+  call sites across 4 files, and its pure half is ALREADY N# in `NullabilityMetadataCore.nl`), then
+  `CreateFunctionTypeInfoFromDelegate` and `ConvertReflectionType` move and the SCC lands whole with
+  no protocol at all. This is the complete direction and it costs a two-stage bootstrap.
+  (b) **PROTOCOL** — leave the blocker where it is and give the N# owner a delegate-signature CACHE
+  plus a pending-request protocol: on a cache miss it aborts with the `Type` it needs, the shell
+  computes the signature, and the classification RE-RUNS. It is bounded (one entry per iteration) and
+  the shells are zero-policy, but it is NOT unconditionally sound at this tree, and the reason is
+  worth recording rather than rediscovering: the duck arm is EFFECTFUL, so a re-run can re-emit a
+  diagnostic that a first pass already emitted. Within one `IsAssignable` FRAME the request site
+  (:18304) precedes the duck arm (:18385), but across frames — the pending pairs of
+  `IsFunctionTypeAssignable`, for instance — a duck evaluation can precede a request. Making (b)
+  sound therefore needs deterministic replay of the duck arm's answers across iterations, which is
+  more machinery than (a). **RECOMMENDATION: take (a).**
+  TWO SMALLER PREREQUISITES REMAIN RECORDED AND UNCHANGED: `CreateFunctionTypeInfoInDeclarationContext`
+  / `CreateFunctionTypeInfo` (32 live calls) is blocked by the SAME nullability dependency, so fork
+  (a) clears it too; and `Assembly.get_FullName` / `AssemblyName.get_Name` on the columnar external
+  binding surface would release the metadata half of `NamespaceExists` and
+  `GetExternalSearchAssemblies` together. The one-argument `Dictionary.Remove` analyzer-overload-table
+  gap from slice 8 is still open and still unrelated to this arc.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `b91e4ba02`): **017 SLICE 10 — THE `ResolveType`
+  ARC, STAGE 4: THE REPORTING AND RECORDING WALK.**
   MANDATED TARGET, recorded verbatim from the coordinator and unchanged BEFORE any production edit:
   the `ResolveType` walk orchestration itself — `ResolveType`'s 9-arm dispatch, `ResolveDeclaredType`
   (the `_reportUnresolvedTypes` opt-in trampoline), BOTH `ResolveSimpleType` overloads (the 8-channel

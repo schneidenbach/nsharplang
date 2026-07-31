@@ -203,6 +203,11 @@ public class Analyzer : IDisposable
     // resolver owns the per-analysis dedupe sets and the report opt-in.
     private readonly AnalyzerDiagnosticSink _diagnostics;
     private readonly AnalyzerTypeResolver _typeResolver;
+    // The substitution-aware half of the resolution surface, and the two assignability arms that
+    // consult it and the metadata probe. Both are constructed once: neither reads the well-known-type
+    // bag, so neither is rebuilt when that bag is built or torn down.
+    private readonly AnalyzerTypeSubstitution _typeSubstitution;
+    private readonly AnalyzerStructuralAssignability _structuralAssignability;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly HashSet<MemberAccessExpression> _soaColumnMemberAccesses = new(ReferenceEqualityComparer.Instance);
@@ -240,6 +245,8 @@ public class Analyzer : IDisposable
             _importedDeclarationsByAlias,
             _semanticModel,
             _bindingMap);
+        _typeSubstitution = new AnalyzerTypeSubstitution(_scopes, _declarationContext, _typeResolver);
+        _structuralAssignability = new AnalyzerStructuralAssignability(_typeResolver, _externalTypeProbe);
     }
 
     private static string GetNuGetPackagesRoot()
@@ -5814,7 +5821,7 @@ public class Analyzer : IDisposable
         if (resolved is ClassTypeInfo classType)
         {
             return classType.BaseClass != null
-                && IsThrowableType(ResolveTypeForSourceOwner(
+                && IsThrowableType(_typeSubstitution.ResolveTypeForSourceOwner(
                     classType.BaseClass,
                     classType,
                     substitution: null));
@@ -5907,7 +5914,7 @@ public class Analyzer : IDisposable
                 return AnalyzerConversionFacts.IsReferenceType(innerType) && IsDisposableUsingResourceType(innerType);
             case SimpleTypeInfo simple when _scopes.LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
                 return IsDisposableUsingResourceType(namedType);
-            case GenericTypeInfo generic when ResolveGenericDefinition(generic) is { } genericDefinition:
+            case GenericTypeInfo generic when _typeSubstitution.ResolveGenericDefinition(generic) is { } genericDefinition:
                 return IsDisposableUsingResourceType(genericDefinition);
         }
 
@@ -6238,7 +6245,7 @@ public class Analyzer : IDisposable
 
                                 if (caseProperty != null)
                                 {
-                                    var propType = ResolveTypeForSourceOwner(
+                                    var propType = _typeSubstitution.ResolveTypeForSourceOwner(
                                         caseProperty.Type,
                                         unionType,
                                         unionSubstitution);
@@ -6565,7 +6572,7 @@ public class Analyzer : IDisposable
         var declarationOwner = valueType;
         Dictionary<string, TypeInfo>? substitution = null;
         if (valueType is GenericTypeInfo genericValue
-            && ResolveGenericDefinition(genericValue) is { } genericDefinition)
+            && _typeSubstitution.ResolveGenericDefinition(genericValue) is { } genericDefinition)
         {
             declarationOwner = genericDefinition;
             substitution = _declarationContext.CreateGenericSubstitution(
@@ -7517,7 +7524,7 @@ public class Analyzer : IDisposable
         out TypeInfo result)
     {
         result = BuiltInTypes.Unknown;
-        var declarationOwner = GetSourceDeclarationOwner(operandType, out var substitution);
+        var declarationOwner = _typeSubstitution.GetSourceDeclarationOwner(operandType, out var substitution);
 
         var members = declarationOwner switch
         {
@@ -7545,36 +7552,20 @@ public class Analyzer : IDisposable
                 || member.ParameterTypes.Length != 2
                 || member.ReturnType == null
                 || !IsAssignable(
-                    ResolveTypeForSourceOwner(member.ParameterTypes[0], declarationOwner, substitution),
+                    _typeSubstitution.ResolveTypeForSourceOwner(member.ParameterTypes[0], declarationOwner, substitution),
                     left)
                 || !IsAssignable(
-                    ResolveTypeForSourceOwner(member.ParameterTypes[1], declarationOwner, substitution),
+                    _typeSubstitution.ResolveTypeForSourceOwner(member.ParameterTypes[1], declarationOwner, substitution),
                     right))
             {
                 continue;
             }
 
-            result = ResolveTypeForSourceOwner(member.ReturnType, declarationOwner, substitution);
+            result = _typeSubstitution.ResolveTypeForSourceOwner(member.ReturnType, declarationOwner, substitution);
             return true;
         }
 
         return false;
-    }
-
-    private TypeInfo GetSourceDeclarationOwner(
-        TypeInfo type,
-        out Dictionary<string, TypeInfo>? substitution)
-    {
-        substitution = null;
-        type = _declarationContext.ResolveDeclaredAlias(type);
-        if (type is GenericTypeInfo generic
-            && ResolveGenericDefinition(generic) is { } definition
-            && definition is not ReflectionTypeInfo)
-        {
-            substitution = _declarationContext.CreateGenericSubstitution(definition, generic.TypeArguments);
-            return definition;
-        }
-        return type;
     }
 
     private bool TryResolveRuntimeBinaryOperator(
@@ -7714,7 +7705,7 @@ public class Analyzer : IDisposable
         out TypeInfo result)
     {
         result = BuiltInTypes.Unknown;
-        var declarationOwner = GetSourceDeclarationOwner(operandType, out var substitution);
+        var declarationOwner = _typeSubstitution.GetSourceDeclarationOwner(operandType, out var substitution);
 
         var members = declarationOwner switch
         {
@@ -7738,13 +7729,13 @@ public class Analyzer : IDisposable
                 || member.ParameterTypes.Length != 1
                 || member.ReturnType == null
                 || !IsAssignable(
-                    ResolveTypeForSourceOwner(member.ParameterTypes[0], declarationOwner, substitution),
+                    _typeSubstitution.ResolveTypeForSourceOwner(member.ParameterTypes[0], declarationOwner, substitution),
                     operandType))
             {
                 continue;
             }
 
-            result = ResolveTypeForSourceOwner(member.ReturnType, declarationOwner, substitution);
+            result = _typeSubstitution.ResolveTypeForSourceOwner(member.ReturnType, declarationOwner, substitution);
             return true;
         }
 
@@ -8730,7 +8721,7 @@ public class Analyzer : IDisposable
             ArrayTypeInfo => _clrTypeConversion.TryConvertTypeInfoToClrType(receiverType) != null
                              || !IsKnownBuiltInMemberWithoutReflection(receiverType, memberName, includeStaticMembers),
             GenericTypeInfo generic =>
-                (ResolveGenericDefinition(generic) is { } genericDefinition
+                (_typeSubstitution.ResolveGenericDefinition(generic) is { } genericDefinition
                  && genericDefinition is not ReflectionTypeInfo)
                 || _clrTypeConversion.TryConvertTypeInfoToClrType(receiverType) != null,
             ReflectionTypeInfo reflection when IsSystemObjectType(reflection.Type) => false,
@@ -8939,7 +8930,7 @@ public class Analyzer : IDisposable
                 return _declarationContext.TryGetSoaType(
                     soaRowType.Declaration,
                     out var soaOwner)
-                    ? ResolveTypeForSourceOwner(
+                    ? _typeSubstitution.ResolveTypeForSourceOwner(
                         rowColumn.Type,
                         soaOwner,
                         substitution: null)
@@ -8954,7 +8945,7 @@ public class Analyzer : IDisposable
             if (!includeStaticMembers)
             {
                 if (TryGetSoaColumn(soaRecordType.Declaration, memberName) is { } column)
-                    return new ArrayTypeInfo(ResolveTypeForSourceOwner(
+                    return new ArrayTypeInfo(_typeSubstitution.ResolveTypeForSourceOwner(
                         column.Type,
                         soaRecordType,
                         substitution: null));
@@ -8974,7 +8965,7 @@ public class Analyzer : IDisposable
             {
                 var parameters = soaRecordType.Declaration.Columns
                     .Select(column => (Name: column.Name, Type: new ArrayTypeInfo(
-                        ResolveTypeForSourceOwner(
+                        _typeSubstitution.ResolveTypeForSourceOwner(
                             column.Type,
                             soaRecordType,
                             substitution: null)) as TypeInfo))
@@ -9003,7 +8994,7 @@ public class Analyzer : IDisposable
         }
 
         if (objectType is GenericTypeInfo sourceGeneric
-            && ResolveGenericDefinition(sourceGeneric) is { } sourceGenericDefinition
+            && _typeSubstitution.ResolveGenericDefinition(sourceGeneric) is { } sourceGenericDefinition
             && sourceGenericDefinition is not ReflectionTypeInfo)
         {
             sourceGenericSubstitution = _declarationContext.CreateGenericSubstitution(
@@ -9169,7 +9160,7 @@ public class Analyzer : IDisposable
         if (objectType is NewtypeInfo newtypeInfo)
         {
             if (memberName == "Value")
-                return ResolveTypeForSourceOwner(
+                return _typeSubstitution.ResolveTypeForSourceOwner(
                     newtypeInfo.UnderlyingType,
                     newtypeInfo,
                     substitution: null);
@@ -9946,7 +9937,7 @@ public class Analyzer : IDisposable
                 parameter => (TypeInfo)new SimpleTypeInfo(parameter.Name),
                 StringComparer.Ordinal);
         var resolve = typeResolver
-            ?? (type => ResolveTypeWithSubstitution(type, methodSubstitution));
+            ?? (type => _typeSubstitution.ResolveTypeWithSubstitution(type, methodSubstitution));
         var sourceContainingType = containingType
             ?? (useCurrentContainingType ? _currentTypeName : null);
         return new FunctionTypeInfo()
@@ -10011,8 +10002,8 @@ public class Analyzer : IDisposable
             effectiveSubstitution[typeParameter.Name] = new SimpleTypeInfo(typeParameter.Name);
         var sourceReturnType = member.ReturnType != null
             ? declarationOwner != null
-                ? ResolveTypeForSourceOwner(member.ReturnType, declarationOwner, effectiveSubstitution)
-                : ResolveTypeWithSubstitution(member.ReturnType, effectiveSubstitution)
+                ? _typeSubstitution.ResolveTypeForSourceOwner(member.ReturnType, declarationOwner, effectiveSubstitution)
+                : _typeSubstitution.ResolveTypeWithSubstitution(member.ReturnType, effectiveSubstitution)
             : BuiltInTypes.Void;
         return new FunctionTypeInfo()
         {
@@ -10026,8 +10017,8 @@ public class Analyzer : IDisposable
             ParameterNames = member.ParameterNames.ToList(),
             ParameterTypes = member.ParameterTypes
                 .Select(type => declarationOwner != null
-                    ? ResolveTypeForSourceOwner(type, declarationOwner, effectiveSubstitution)
-                    : ResolveTypeWithSubstitution(type, effectiveSubstitution))
+                    ? _typeSubstitution.ResolveTypeForSourceOwner(type, declarationOwner, effectiveSubstitution)
+                    : _typeSubstitution.ResolveTypeWithSubstitution(type, effectiveSubstitution))
                 .ToList(),
             SourceParameterTypes = member.ParameterTypes.ToList(),
             SourceReturnType = member.ReturnType,
@@ -10042,8 +10033,8 @@ public class Analyzer : IDisposable
                 group => group.Key,
                 group => group.SelectMany(constraint => constraint.Constraints)
                     .Select(type => declarationOwner != null
-                        ? ResolveTypeForSourceOwner(type, declarationOwner, effectiveSubstitution)
-                        : ResolveTypeWithSubstitution(type, effectiveSubstitution))
+                        ? _typeSubstitution.ResolveTypeForSourceOwner(type, declarationOwner, effectiveSubstitution)
+                        : _typeSubstitution.ResolveTypeWithSubstitution(type, effectiveSubstitution))
                     .ToList(),
                 StringComparer.Ordinal),
             HasMustUseAttribute = member.HasMustUseAttribute,
@@ -10194,7 +10185,7 @@ public class Analyzer : IDisposable
             }
             else
             {
-                var underlyingType = ResolveTypeForSourceOwner(
+                var underlyingType = _typeSubstitution.ResolveTypeForSourceOwner(
                     newtypeInfo.UnderlyingType,
                     newtypeInfo,
                     substitution: null);
@@ -10410,7 +10401,7 @@ public class Analyzer : IDisposable
                 && member.IsStatic;
         }
 
-        var sourceOwner = GetSourceDeclarationOwner(owner, out _);
+        var sourceOwner = _typeSubstitution.GetSourceDeclarationOwner(owner, out _);
         if (_declarationContext.TryGetSourceMemberShape(sourceOwner, null, out _))
             return false;
 
@@ -14261,7 +14252,7 @@ public class Analyzer : IDisposable
                 && (!member.HasSetter || member.IsReadonly);
         }
 
-        var sourceOwner = GetSourceDeclarationOwner(owner, out _);
+        var sourceOwner = _typeSubstitution.GetSourceDeclarationOwner(owner, out _);
         if (_declarationContext.TryGetSourceMemberShape(sourceOwner, null, out _))
             return false;
 
@@ -14923,7 +14914,7 @@ public class Analyzer : IDisposable
                 && !member.IsStatic;
         }
 
-        var sourceOwner = GetSourceDeclarationOwner(owner, out _);
+        var sourceOwner = _typeSubstitution.GetSourceDeclarationOwner(owner, out _);
         if (_declarationContext.TryGetSourceMemberShape(sourceOwner, null, out _))
             return false;
 
@@ -15327,7 +15318,7 @@ public class Analyzer : IDisposable
     {
         owner = _declarationContext.ResolveDeclaredAlias(owner);
         if (owner is GenericTypeInfo generic)
-            owner = ResolveGenericDefinition(generic) ?? owner;
+            owner = _typeSubstitution.ResolveGenericDefinition(generic) ?? owner;
         if (owner is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
         {
             var clrOwner = _clrTypeConversion.TryConvertTypeInfoToClrType(owner);
@@ -16580,7 +16571,7 @@ public class Analyzer : IDisposable
                 return false;
             }
 
-            memberType = ResolveTypeForSourceOwner(
+            memberType = _typeSubstitution.ResolveTypeForSourceOwner(
                 caseProperty.Type,
                 unionType,
                 unionSubstitution);
@@ -16592,7 +16583,7 @@ public class Analyzer : IDisposable
         // substitution (Item: T on Box<Pt> expects Pt).
         if (constructedType is GenericTypeInfo generic)
         {
-            if (ResolveGenericDefinition(generic) is not { } openType
+            if (_typeSubstitution.ResolveGenericDefinition(generic) is not { } openType
                 || !TryGetDeclaredTypeShape(openType, out var typeParameters, out var members, out var primaryParameters))
             {
                 return false;
@@ -16636,7 +16627,7 @@ public class Analyzer : IDisposable
                 return false;
             }
 
-            memberType = ResolveTypeForSourceOwner(
+            memberType = _typeSubstitution.ResolveTypeForSourceOwner(
                 memberTypeReference,
                 openType,
                 substitution);
@@ -16998,7 +16989,7 @@ public class Analyzer : IDisposable
         }
 
         if (valueType is GenericTypeInfo generic
-            && ResolveGenericDefinition(generic) is UnionTypeInfo declared
+            && _typeSubstitution.ResolveGenericDefinition(generic) is UnionTypeInfo declared
             && declared.Declaration.TypeParameters is { Count: > 0 } typeParameters
             && typeParameters.Count == generic.TypeArguments.Count)
         {
@@ -17022,51 +17013,6 @@ public class Analyzer : IDisposable
     /// argument). Used for union case property bindings and object-initializer member
     /// type checks on closed generic instantiations.
     /// </summary>
-    private TypeInfo ResolveTypeForSourceOwner(
-        TypeReference type,
-        TypeInfo declarationOwner,
-        Dictionary<string, TypeInfo>? substitution)
-    {
-        if (_declarationContext.TryResolveTypeForOwner(
-                type,
-                declarationOwner,
-                substitution,
-                out var resolved))
-            return resolved;
-
-        return ResolveTypeWithSubstitution(type, substitution);
-    }
-
-    private TypeInfo ResolveTypeWithSubstitution(TypeReference type, Dictionary<string, TypeInfo>? substitution)
-    {
-        if (substitution == null)
-        {
-            return _typeResolver.ResolveType(type);
-        }
-
-        return type switch
-        {
-            SimpleTypeReference simple when substitution.TryGetValue(simple.Name, out var bound) => bound,
-            GenericTypeReference generic => ResolveGenericTypeWithSubstitution(generic, substitution),
-            ArrayTypeReference array => new ArrayTypeInfo(ResolveTypeWithSubstitution(array.ElementType, substitution)),
-            NullableTypeReference nullable => new NullableTypeInfo(ResolveTypeWithSubstitution(nullable.InnerType, substitution)),
-            _ => _typeResolver.ResolveType(type)
-        };
-    }
-
-    private TypeInfo ResolveGenericTypeWithSubstitution(
-        GenericTypeReference generic,
-        Dictionary<string, TypeInfo> substitution)
-    {
-        var resolved = _typeResolver.ResolveType(generic) as GenericTypeInfo;
-        return new GenericTypeInfo(
-            generic.Name,
-            generic.TypeArguments
-                .Select(argument => ResolveTypeWithSubstitution(argument, substitution))
-                .ToList(),
-            resolved?.GenericDefinition);
-    }
-
     private TypeInfo AnalyzeIsExpression(IsExpression isExpr)
     {
         var sourceType = AnalyzeExpression(isExpr.Expression);
@@ -17803,7 +17749,7 @@ public class Analyzer : IDisposable
 
             // Apply the scrutinee's generic substitution so a `value: T` property on a
             // Result<Option<int>> scrutinee resolves to the nested union for coverage.
-            var propertyType = ResolveTypeForSourceOwner(
+            var propertyType = _typeSubstitution.ResolveTypeForSourceOwner(
                 caseProperty.Type,
                 unionType,
                 substitution);
@@ -18356,7 +18302,7 @@ public class Analyzer : IDisposable
         if (TypeInfoIdentityFacts.AreEqual(resolvedTarget, resolvedSource))
             return true;
 
-        if (IsAspNetActionResultGenericAssignable(resolvedTarget, resolvedSource)) return true;
+        if (_structuralAssignability.IsAspNetActionResultGenericAssignable(resolvedTarget, resolvedSource)) return true;
 
         if (IsKnownGenericTypeAssignable(resolvedTarget, resolvedSource)) return true;
 
@@ -18384,7 +18330,7 @@ public class Analyzer : IDisposable
         // Duck interface structural typing
         if (resolvedTarget is InterfaceTypeInfo iface && iface.IsDuckInterface)
         {
-            return ImplementsDuckInterface(resolvedSource, iface);
+            return _structuralAssignability.ImplementsDuckInterface(resolvedSource, iface);
         }
 
         // Collection expressions (): Allow array literals to be assigned to collection types
@@ -18527,21 +18473,6 @@ public class Analyzer : IDisposable
         }
 
         return true;
-    }
-
-    private bool IsAspNetActionResultGenericAssignable(TypeInfo target, TypeInfo source)
-    {
-        if (target is not GenericTypeInfo { TypeArguments.Count: 1 } targetGeneric)
-            return false;
-
-        if (targetGeneric.Name is not ("ActionResult" or "Microsoft.AspNetCore.Mvc.ActionResult"))
-            return false;
-
-        if (source is not ReflectionTypeInfo sourceReflection)
-            return false;
-
-        return _externalTypeProbe.ResolveExternalType("Microsoft.AspNetCore.Mvc.ActionResult") is ReflectionTypeInfo actionResult
-            && AnalyzerConversionFacts.IsReflectionAssignableFrom(actionResult.Type, sourceReflection.Type);
     }
 
     private bool IsFunctionTypeAssignable(FunctionTypeInfo source, FunctionTypeInfo target)
@@ -18788,7 +18719,7 @@ public class Analyzer : IDisposable
     {
         Dictionary<string, TypeInfo>? substitution = null;
         if (source is GenericTypeInfo genericSource
-            && ResolveGenericDefinition(genericSource) is { } genericDefinition
+            && _typeSubstitution.ResolveGenericDefinition(genericSource) is { } genericDefinition
             && genericDefinition is not ReflectionTypeInfo)
         {
             substitution = _declarationContext.CreateGenericSubstitution(
@@ -18801,7 +18732,7 @@ public class Analyzer : IDisposable
         {
             if (classSource.BaseClass != null)
             {
-                var baseType = ResolveTypeForSourceOwner(
+                var baseType = _typeSubstitution.ResolveTypeForSourceOwner(
                     classSource.BaseClass,
                     classSource,
                     substitution);
@@ -18809,7 +18740,7 @@ public class Analyzer : IDisposable
             }
             foreach (var iface in classSource.Interfaces)
             {
-                var ifaceType = ResolveTypeForSourceOwner(
+                var ifaceType = _typeSubstitution.ResolveTypeForSourceOwner(
                     iface,
                     classSource,
                     substitution);
@@ -18821,7 +18752,7 @@ public class Analyzer : IDisposable
         {
             foreach (var iface in structSource.Interfaces)
             {
-                var ifaceType = ResolveTypeForSourceOwner(
+                var ifaceType = _typeSubstitution.ResolveTypeForSourceOwner(
                     iface,
                     structSource,
                     substitution);
@@ -18833,7 +18764,7 @@ public class Analyzer : IDisposable
         {
             foreach (var iface in recordSource.Interfaces)
             {
-                var ifaceType = ResolveTypeForSourceOwner(
+                var ifaceType = _typeSubstitution.ResolveTypeForSourceOwner(
                     iface,
                     recordSource,
                     substitution);
@@ -18845,7 +18776,7 @@ public class Analyzer : IDisposable
         {
             foreach (var baseIface in ifaceSource.BaseInterfaces)
             {
-                var baseType = ResolveTypeForSourceOwner(
+                var baseType = _typeSubstitution.ResolveTypeForSourceOwner(
                     baseIface,
                     ifaceSource,
                     substitution);
@@ -18869,7 +18800,7 @@ public class Analyzer : IDisposable
             return false;
         try
         {
-            var declarationOwner = GetSourceDeclarationOwner(source, out var substitution);
+            var declarationOwner = _typeSubstitution.GetSourceDeclarationOwner(source, out var substitution);
             var sourceMembers = declarationOwner switch
             {
                 ClassTypeInfo classType => classType.DeclaredMembers,
@@ -18889,10 +18820,10 @@ public class Analyzer : IDisposable
                     || member.ReturnType == null
                     || member.ParameterTypes.Length != 1
                     || !IsAssignable(
-                        ResolveTypeForSourceOwner(member.ParameterTypes[0], declarationOwner, substitution),
+                        _typeSubstitution.ResolveTypeForSourceOwner(member.ParameterTypes[0], declarationOwner, substitution),
                         source))
                     continue;
-                var returnType = ResolveTypeForSourceOwner(
+                var returnType = _typeSubstitution.ResolveTypeForSourceOwner(
                     member.ReturnType,
                     declarationOwner,
                     substitution);
@@ -18906,9 +18837,6 @@ public class Analyzer : IDisposable
             _activeImplicitConversions.Remove(key);
         }
     }
-
-    private TypeInfo? ResolveGenericDefinition(GenericTypeInfo generic)
-        => generic.GenericDefinition ?? _scopes.LookupType(generic.Name);
 
     private bool IsPatternPossible(TypeInfo sourceType, TypeInfo targetType)
     {
@@ -18963,70 +18891,6 @@ public class Analyzer : IDisposable
         {
             if (resolvedSource is ClassTypeInfo) return false;
         }
-
-        return true;
-    }
-
-    private bool ImplementsDuckInterface(TypeInfo source, InterfaceTypeInfo duckInterface)
-    {
-        var sourceMembers = source switch
-        {
-            ClassTypeInfo classType => classType.DeclaredMembers,
-            StructTypeInfo structType => structType.DeclaredMembers,
-            RecordTypeInfo recordType => recordType.DeclaredMembers,
-            _ => null
-        };
-
-        if (sourceMembers == null)
-            return false;
-
-        foreach (var interfaceMember in duckInterface.DeclaredMembers)
-        {
-            if (interfaceMember.Kind != DeclaredMemberKind.Function)
-                continue; // Skip non-method members
-
-            var found = false;
-            foreach (var sourceMember in sourceMembers)
-            {
-                if (sourceMember.Kind != DeclaredMemberKind.Function)
-                    continue;
-
-                if (MethodSignaturesMatch(sourceMember, interfaceMember))
-                {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found)
-                return false; // Source doesn't implement this interface method
-        }
-
-        return true; // Source implements all interface methods
-    }
-
-    private bool MethodSignaturesMatch(DeclaredMemberInfo method1, DeclaredMemberInfo method2)
-    {
-        if (method1.Name != method2.Name)
-            return false;
-
-        if (method1.ParameterCount != method2.ParameterCount)
-            return false;
-
-        for (int i = 0; i < method1.ParameterCount; i++)
-        {
-            var type1 = _typeResolver.ResolveType(method1.ParameterTypes[i]);
-            var type2 = _typeResolver.ResolveType(method2.ParameterTypes[i]);
-
-            if (type1.ToString() != type2.ToString())
-                return false;
-        }
-
-        var returnType1 = method1.ReturnType != null ? _typeResolver.ResolveType(method1.ReturnType) : BuiltInTypes.Void;
-        var returnType2 = method2.ReturnType != null ? _typeResolver.ResolveType(method2.ReturnType) : BuiltInTypes.Void;
-
-        if (returnType1.ToString() != returnType2.ToString())
-            return false;
 
         return true;
     }
