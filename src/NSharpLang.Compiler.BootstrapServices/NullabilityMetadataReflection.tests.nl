@@ -1,50 +1,3 @@
-# Stage-B contracts — the reflected-nullability member surface
-
-Task 017 slice 12 **stage A** landed the capability (the catalog rows in
-`src/NSharpLang.Compiler.BootstrapServices/ColumnarExternalBindingPlans.nl`). This file holds the
-contracts that EXERCISE it, staged here rather than in the project because of the bootstrap wall:
-the packaged 0.1.0 toolset that builds `NSharpLang.Compiler.BootstrapServices` carries its own
-snapshot of that catalog, so until it is repacked these contracts fail to compile at
-`emit.declaration.method-return: 'NullabilityInfoContext' could not be resolved` — the exact decline
-slice 11 recorded. A `.tests.nl` in the project would therefore break the contracts gate; a staged
-`.nl`-suffixed file trips the ownership audit's `OWN009` (unknown product-adjacent file type). A
-closeout `.md` is the one home that perturbs neither.
-
-**Every contract below was verified in stage A to COMPILE AND PASS (7 / 7) against a freshly built
-compiler**, which links a freshly built `BootstrapServices` and is therefore behaviourally the
-post-repin toolset. An activation failure means the repin did not take, not that the shapes are
-wrong.
-
-## To activate (stage B, after the toolset repin)
-
-1. Pack and install the SDK so the packaged toolset carries the new catalog rows.
-2. Copy the block below to
-   `src/NSharpLang.Compiler.BootstrapServices/NullabilityMetadataReflection.tests.nl`.
-3. `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
-   (expect 1,726 + 7 = 1,733).
-4. Delete this file once the contracts live in the project.
-
-## What it pins
-
-The whole external member surface `NullabilityMetadata.cs`'s reflection half needs. Nothing here is
-a plan lookup: every member binds through the ordinary runtime direct-call resolver once its owning
-type is on the columnar surface, which is the finding that kept the capability change to type rows
-alone.
-
-Three shape rules the port must keep (each one cost a decline before it was found):
-
-- `new NullabilityInfoContext()` does not emit — the emitter's `new` chain is a name table that does
-  not model this type. Construct it through `typeof(T).GetConstructor(...)` + `ConstructorInfo.Invoke`,
-  the idiom `ExternalAssemblyScan.CreateMetadataLoadContext` already uses. The `object[]` argument
-  array must be declared `object?[]`, or the analyzer refuses the `Invoke` overload.
-- `GetCustomAttributesData()` / `ConstructorArguments` answer a closed `IList<T>`. Its `get_Item(int)`
-  binds directly, but `Count` lives on `ICollection<T>` and an interface receiver's own member lookup
-  reaches neither it nor `foreach`. Bind the sequence through an `object` local and read the
-  non-generic `IList.Count`.
-- A boxed `CustomAttributeTypedArgument.Value` cannot be unboxed with a cast, an `as`, or an
-  `is` test. Compare it against a boxed constant with `Equals`.
-
-```nsharp
 namespace NSharpLang.Compiler
 
 import System
@@ -274,4 +227,3 @@ test "attribute data is readable from properties, fields and methods too" {
 
     assert seenParamArray
 }
-```
