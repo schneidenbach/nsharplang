@@ -711,7 +711,272 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 18 — THE SYNTHETIC CALL VALIDATOR AND ITS
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 19 — THE REFLECTION CALL'S REPORTERS AND THE
+  CALLABLE-REFERENCE REPORT.** Target recorded BEFORE any production edit, at `74cda4405`
+  (`Analyzer.cs` 16,995 lines, non-blank 14,981).
+
+  **THE CLOSURE, RE-VERIFIED AT THIS TREE.** Every field reference and every bare call inside every
+  candidate body was re-extracted at `74cda4405`. The mandate's five:
+  `HandleUnboundReflectionCall` (:9540, **11**, 2 refs) → `TryGetNSharpMethodGroupArgumentName`,
+  `ReportNoMatchingReflectionMethodGroupOverload`, `ReportNoMatchingReflectionOverload` (all moving)
+  + `BuiltInTypes` (**N#**); `ReportNoMatchingReflectionOverload` (:9552, **38**, 1 ref) →
+  `AnalyzerSyntheticCallFacts.GetCallTargetName`, `_spans.GetCallDiagnosticSpan`,
+  `AnalyzerOverloadFacts.FormatReflectionMethodSignature`, `ErrorMessageBuilder.NoMatchingOverload`,
+  `_errors`, `GetSourceSnippet`/`_currentFilePath`, `Error` (**all N# or the sink**);
+  `ReportNoMatchingReflectionMethodGroupOverload` (:9591, **15**, 1 ref) → the same span/name/sink
+  owners; `TryGetNSharpMethodGroupArgumentName` (:9607, **20**, 1 ref) → `_scopes.LookupSymbol`
+  (**`AnalyzerScopeStack`, N#**) + `AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity`
+  (**N#**); `ReportMethodGroupUsedAsValue` (:6513, **28**, 1 ref) →
+  `_spans.GetExpressionDiagnosticSpan`, `AnalyzerCallableReferenceFacts.GetCallableReferenceName`
+  (**N# as of slice 18 — the unlock**), `ErrorMessageBuilder.MethodGroupUsedAsValue`, `_errors`,
+  `GetSourceSnippet`/`_currentFilePath`, `Error`, plus `_reportedCallableReferenceDiagnostics`
+  (:262) — a `HashSet<(int,int,string)>` with **exactly two references in the whole repo**, its
+  declaration and the one `Add` inside the moving reporter, so it is the owner's OWN state and moves
+  with it.
+
+  **ABSORBED — ITS CLOSURE IS NOW EMPTY.** `IsUnboundCallableReference` (:6472, **11**, 1 ref) is the
+  sole guard on the reporter above it. Its closure: `_assignabilityFacts`, `_declarationContext`,
+  `AnalyzerCallableReferenceFacts` (**all three N#**) + `_currentExpectedType`, which crosses as an
+  ordinary `TypeInfo?` VALUE exactly as slice 17's receiver type does. Taking it makes the whole
+  question — *is this an unbound callable reference, and what do we say about it* — N#.
+
+  **THE THREE STAGE-6 MEMBERS, MEASURED AS INSTRUCTED.**
+  `FinalizeBoundReflectionCall` (:10058, **141**) → `AnalyzeLambda` +
+  `IsExpressionTreeLambdaTarget` + `ValidateFinalReflectionSuppliedArgument`: **DOES NOT CLOSE**, and
+  is not hoistable the way slice 17's receiver was — the analysed node is chosen INSIDE the loop,
+  against an expected signature the loop itself computes from bindings it is still accumulating, so
+  there is no count-exact pre-analysis. `ValidateFinalReflectionSuppliedArgument` (:10200, **62**) →
+  `AnalyzeLambda` and `AnalyzeExpressionWithExpectedType`: **DOES NOT CLOSE**, for the same reason,
+  twice. `PreBindReflectionMethod` (:9959, **84**, 2 refs) → `AnalyzerOverloadFacts` (×4),
+  `AnalyzerReflectionTypeConversion`, `_reflectionArgumentBinder` (×3), `_typeResolver`,
+  `_clrTypeConversion` (**every one N#**) + `GetOpenReflectionSignatureMethod` (:10044, **13**,
+  1 ref), which is `private static` and pure over `MethodInfo`/`Type` with **zero** analyzer state:
+  **IT CLOSES, SO IT IS TAKEN**, and its natural home is the binder that already owns
+  `TryBindReflectionArguments` and the `ReflectionBoundArgument` model.
+
+  **SO THE SLICE IS 8 WHOLE MEMBERS + 1 FIELD**, and every one is `private` with **ZERO references
+  outside `Analyzer.cs`** across `src/`, `tests/` and `editors/` — measured name by name — so no C#
+  assertion migrates.
+
+  **THE OWNER.** A new `AnalyzerReflectionCallReporter` (the unbound-reflection driver, its two
+  reporting arms, the method-group-argument probe, the callable-reference guard and its report, and
+  the dedupe set as the owner's own state), constructed over the owners it reads; plus
+  `PreBindReflectionMethod` + `GetOpenReflectionSignatureMethod` appended to the existing
+  `AnalyzerReflectionArgumentBinder`, returning a new `ReflectionPreBoundCandidate` in place of the
+  9-field C# value tuple. N# is the direct production authority; the 8 C# members and the field are
+  DELETED; `Analyzer.cs` net-negative; no callback, no fallback, no protocol.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS EVERYTHING THE ANALYZER SAYS ABOUT A CALL INTO
+  REFLECTED .NET CODE THAT DOES NOT BIND, AND ABOUT A METHOD NAMED WHERE A VALUE IS REQUIRED.** With
+  the binder already silent by construction, `Analyzer.cs` now keeps NO part of the verdict on a
+  failed reflected call: not which arm fires, not the candidate-signature list, not the argument-type
+  rendering, not the method-group probe, and not the NL411 guard or its dedupe. No callback, no
+  fallback, no shadow path, no protocol.
+
+  **THE WALL, HIT AND STOPPED AT — `PreBindReflectionMethod` IS NOT IN THIS SLICE.** It was written
+  in N#, and the columnar backend refused it at ONE leaf: `GetOpenReflectionSignatureMethod` re-finds
+  a method on a generic type DEFINITION by metadata token, which needs
+  `Type.GetMethods(BindingFlags)`, and the external-call catalog models `GetMethods` at **arity 0
+  only** (`ColumnarExternalBindingPlans.GetInstanceCallPlan`, the `System.Type` arm). Three spellings
+  were tried and the declines are recorded as capability facts, not guesses: a four-term
+  `Convert.ToInt32(...) | ...` chain declines at `emit.local.initializer`; the accumulate form
+  `flagBits = flagBits | System.Convert.ToInt32(BindingFlags.X)` declines at
+  `emit.statement.block-child`; and even a bare `flags := BindingFlags.Public` declines at
+  `emit.local.initializer` — an EXTERNAL enum's member does not survive a local initializer, though
+  it survives fine as an ARGUMENT (`GetMethods(A | B | C | D)` got all the way through to
+  `emit.call.instance-member-unmodeled`). So the whole gap is **one catalog row**:
+  `GetMethods` with `count == 1` and `argumentTypeNames[0] == "System.Reflection.BindingFlags"`
+  returning `System.Reflection.MethodInfo[]`. That row is self-consumed catalog surface and needs a
+  TOOLSET REPIN to reach `BootstrapServices`, which the mandate says to stop at, so the member and
+  its leaf were RESTORED byte-for-byte from `74cda4405` and the slice is the six reporters. No
+  unused parallel model was left behind: `ReflectionPreBoundCandidate` and the binder's fifth
+  constructor argument were reverted with `git checkout`, and the binder file's `git diff` is EMPTY.
+  `FinalizeBoundReflectionCall` and `ValidateFinalReflectionSuppliedArgument` do not close at all
+  (`AnalyzeLambda` per lambda argument, against a signature the loop computes from bindings it is
+  still accumulating — there is no count-exact hoist), so the wall is the only thing standing between
+  this arc and the whole reflection binder.
+
+  **THE CUT — 6 WHOLE C# MEMBERS AND 1 FIELD DELETED, 123 BODY LINES (134 removed lines with their
+  separators and the four rewritten references).** `ReportNoMatchingReflectionOverload` 38,
+  `ReportMethodGroupUsedAsValue` 28, `TryGetNSharpMethodGroupArgumentName` 20,
+  `ReportNoMatchingReflectionMethodGroupOverload` 15, `HandleUnboundReflectionCall` 11,
+  `IsUnboundCallableReference` 11, plus `_reportedCallableReferenceDiagnostics`. `Analyzer.cs`
+  **16,995 → 16,885** (non-blank 14,981 → **14,888**); `git diff` **+24 / −134 = net −110**, and the
+  only C# ADDED anywhere is **two field declarations with their comments, one construction line, an
+  8-line factory, two rebuild lines, and four rewritten references** — two to
+  `_reflectionCallReporter.ReportUnboundCall`, one to `.ReportMethodGroupUsedAsValue`, one to
+  `.IsUnboundCallableReference`. **NO new C# method with policy, bridge, callback, shell or state —
+  not one.**
+
+  **THE DEDUPE'S LIFETIME IS AN ARCHITECTURE DECISION, NOT A DETAIL — AND IT IS WHY THERE ARE TWO
+  CLASSES.** `_reportedCallableReferenceDiagnostics` was `readonly ... = new()` and **never cleared**:
+  it lived as long as the `Analyzer`. But the reporter that reads it holds `_assignabilityFacts`,
+  which IS replaced on every toolset rebuild (`LoadReferencedAssemblies` and `Dispose` both rebuild
+  the SCC), so an owner that also owned the log would forget what it had already said and report the
+  same method group twice. The log is therefore its own tiny owner,
+  `AnalyzerCallableReferenceReportLog`, constructed ONCE and handed in — the exact shape
+  `AnalyzerImplicitConversionGuard` already has, and the file comment says so. Its key is
+  `line:column:name`, injective because `int.ToString()` cannot emit a `:`; a contract pins that
+  `(1,23,"x")`, `(12,3,"x")` and `(1,2,"3:x")` are three different reports.
+
+  **PROOF — DIAGNOSTIC ORDER AND MULTIPLICITY, UNSORTED AND UNDEDUPLICATED (the slice-17/18 method).**
+  `nlc build` renders `_errors` in LIST order with NO dedup and NO sort — it is the only surface on
+  which multiplicity is visible at all (`nlc check` collapses by `code|file|line|column|message` and
+  then SORTS). **22 targets, 951 lines, FULLBUILD_IDENTICAL = 22, FULLBUILD_DIFFS = 0,
+  FULLBUILD_EXIT_DIFFS = 0** after normalising only the two elapsed-time spellings. **Six of those
+  targets are hand-written ORDER/MULTIPLICITY probes and they are the point:** one body with five
+  different bad reflected calls prints **5 NL402 at lines 5, 6, 7, 8, 9 — SOURCE order**; twelve
+  identical bad calls print **12 full rich NL402 blocks, 266 lines, twelve times in both trees**; a
+  body that ALTERNATES a method-group value and a bad reflected call prints
+  **NL411, NL402, NL411, NL402, NL411 at lines 9, 10, 11, 12, 13** — the two reporters interleaving
+  in source order, which is the direct evidence that they reach the SAME list in the SAME positions;
+  five method-group values print **5 NL411 at lines 8–12**; six across three names print **6 NL411 at
+  lines 16–21**; and a body with two method-group ARGUMENTS to reflected calls prints **exactly 2
+  NL402 — `No overload of 'Add' matches method group 'Handler'` at 11:11 and
+  `No overload of 'Insert' matches method group 'Handler'` at 12:11** — one report per call, the
+  method-group arm, never both arms. (An early revision of two probes proved the harness rather than
+  the code: `nlc build` fails at the FIRST diagnostic pass, so the NL001 unused-variable lint hid the
+  analyzer's verdict entirely. The locals were renamed `_x` and the probes now reach the reporters —
+  a swallowing harness would have reported "identical" on two files that never ran this code.)
+
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `74cda4405` in a throwaway `/private/tmp/nsharp017s19` worktree, and the
+  working tree): **11,286 CELLS, 18,750 transcript lines, 0 MISMATCHES, 0 THROWS, transcripts
+  BYTE-IDENTICAL — md5 `f8d864d334c8cd83ee9209a1f83766b1` in both**, with **7,464 diagnostics
+  reported through the sink in each** across **NL402 (7,200) and NL411 (264)**. Every operation
+  resolves to the C# private member when the baseline still has it and to the ROUTED N# owner
+  otherwise; six `HOST` rows kept OUT of the comparison prove the wiring (baseline `Analyzer` ×6,
+  working `AnalyzerReflectionCallReporter` ×6). THE GRID, run in **THREE SINK MODES** (file path +
+  text → the rich shape; no path and no text; path but no text — the last two force the detail-only
+  shape): **16 call shapes** (identifier callees at arity 0–3, member-access, null-conditional
+  member-access, a nested `g()(x)` callee with no written name, a parenthesised callee, a NAMED
+  argument, three method-group-argument placements, a call in argument position, a literal argument
+  and an out-of-range LINE) × **7 candidate-list shapes** (empty, one, two, `string.IndexOf`'s
+  ten-plus group, a generic `Enumerable.Select` group, a TRIPLICATED candidate and a mixed group) ×
+  **8 argument-type shapes** — each asked for `ReportNoMatchingOverload` with a FULL fourteen-field
+  transcript of every report (code, line, column, LENGTH, severity, file, message, suggestion,
+  snippet, human explanation, contextual hint, actual type, expected type, docs URL); then the
+  method-group arm over the same 16 × 7; then the DRIVER over 16 × 7 × 8 × declared/undeclared,
+  recording which arm fired, how many reports and the returned type; then the method-group ARGUMENT
+  probe over 16 calls × **5 scope shapes** (all symbols, none, a lambda-typed `handler`, an
+  int-typed `handler`, a source-function `handler`) — **Y in 18 cells, N in 222**; then the NL411
+  guard over **10 expression shapes × 8 type shapes × 7 EXPECTED-type shapes** — **Y in 162, N in
+  1,518**, with the baseline reading the analyzer's own `_currentExpectedType` and the working tree
+  taking it as a VALUE, which is what makes the hoist count-exact; then the NL411 report over 10 × 8.
+  **THE DEDUPE SEMANTICS ARE PINNED, NOT ASSUMED:** one analyzer, the whole 80-shape sequence run
+  **three times** — **added=1 in 24 cells and added=0 in 696**, identical in both trees; and a
+  LIFETIME row proves a SECOND analyzer instance starts with a clean log (`first=1|second=1` in all
+  three sink modes). Deleted from both trees.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `74cda4405` in the throwaway worktree and at the working tree, **both run over the SAME
+  (working-tree) sources**, across **ALL 70 `project.yml` corpus targets with no exclusion
+  (ORACLE_TARGETS=70)**: **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0**, **326
+  diagnostics**. Plus **16 purpose-built REFLECTION-REPORTER fixtures** — a wrong-typed argument, too
+  many arguments, a ten-plus overload group, a static group, four IDENTICAL calls in one body, four
+  DIFFERENT bad calls in one body, a method group used as a value, the same group twice, two groups
+  under two names, a method group that BINDS to a `Func<int, int>` (the negative control — NL411 does
+  NOT fire), a method-group argument to a reflected call, a clean control, a generic group, a
+  member-access method group, a method group into a large reflected group, and a method group in
+  ordinary argument position — firing **29 diagnostics with REPORTER_FIXTURE_DIFFS = 0 and
+  REPORTER_FIXTURE_EXIT_DIFFS = 0**; the **41 slice-18 VALIDATOR fixtures** re-run at **105
+  diagnostics, VALIDATOR_FIXTURE_DIFFS = 0**; and the **112 ACCUMULATED fixtures** from every prior
+  slice at **311 diagnostics, ACC_FIXTURE_DIFFS = 0 and ACC_FIXTURE_EXIT_DIFFS = 0**. The
+  accumulated set for slice 20 is therefore **169 fixtures / 445 diagnostics**.
+
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (the slice-16 PE/CLI normaliser and the slice-17 sweep
+  script, both UNCHANGED but for the baseline path): **68 project targets + 54 single-file examples =
+  122 builds per tree. 112 COMPARABLE ASSEMBLIES BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 (74) and
+  SINGLE_IL_DIFFS = 0 (38)**, **EXIT_DIFFS = 0 across all 122**, **ONLY_IN_BASE = 0 and ONLY_IN_WORK
+  = 0**, **SKIPPED_TARGET_DIFFS = 0**, **NORMALISER_FAILURES = 0**.
+
+  **ONE ANALYZER FINDING IN THE NEW `.nl` WAS CAUGHT BY THE ORACLE'S OWN BootstrapServices ROW AND
+  FIXED** — an NL010 unused `import System`. BootstrapServices returns to **293** findings and **the
+  two new files contribute ZERO**. (The `.nl` gotcha list gained nothing new about the LANGUAGE this
+  slice; what it gained is the three columnar DECLINES above, which are capability facts about
+  external enums and the external-call catalog.)
+
+  **ASSERTION MIGRATION.** All 6 members were `private` and none is named anywhere in `src/`,
+  `tests/` or `editors/` — measured name by name — and `_reportedCallableReferenceDiagnostics` had
+  **exactly two references in the whole repo**, both inside the moving set. No C# test moved. The
+  DIRECT pinning is new and native: **23 contracts**, and they pin BOTH report shapes, the arm
+  selection, the DISTINCT-then-cap rule (8 bullets from a ten-plus group, 1 bullet from a triplicated
+  candidate), the dedupe key's injectivity, the log's lifetime across a rebuilt reporter, and the
+  list ORDER across all three reporters (`NL411,NL402,NL402`).
+
+  **N# ADDED:** `AnalyzerReflectionCallReporter.nl` (**302 lines, 2 classes, 11 members**) and
+  `AnalyzerReflectionCallReporter.tests.nl` (**631 lines, 23 contracts**).
+
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** — exactly the `74cda4405` baseline COUNT, ZERO
+  drift; BootstrapServices contracts **1,968 → 1,991 (+23)**, **1,991 / 1,991 PASS**; ownership audit
+  **18 / 18**; `dev.sh --since` full-suite fail-safe **3,192 / 3,192** (it selected the full suite and
+  said why: `Analyzer.cs` is central). **RATCHET REPIN** via `scratchpad/s19/repin.py` (the slice-17
+  script, unchanged but for its docstring) — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 16,995 → **16,885**, currentNonBlankLines
+  14,981 → **14,888**, fingerprint `text-v1:9537c17f39ae9bad` → `text-v1:4454a37df5577069` (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **6,566 / 5,649**); `reviewedHeadFingerprint
+  head-v1:7f5a2538c7536637` → **`head-v1:26919e7e0a6a87e9`**, mirrored into `OwnershipAudit.nl`.
+  Every `epoch*` value, `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381)
+  untouched and RE-VALIDATED by recomputation both before and after the write. **FORMAT DISCIPLINE
+  HELD: `wc -l` on the manifest is 391 before AND after, and the manifest `git diff` is exactly 2
+  changed lines.** The two `.nl` additions need no row.
+
+  **WALL STATUS: THE WALL WAS REACHED, MEASURED AND NOT CROSSED — no toolset repin was performed.**
+  The six members that landed need no catalog surface at all: the reporter's boundary is
+  `IReadOnlyList<MethodInfo>`, `IReadOnlyList<TypeInfo>`, a `TypeInfo?` expected type and a
+  `CompilerError` the N# `ErrorMessageBuilder` already builds. The seventh and eighth
+  (`PreBindReflectionMethod`, `GetOpenReflectionSignatureMethod`) need exactly one row and are
+  slice 20's opening move.
+
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 1,928s (32m08s) ON THE FIRST RUN** in a fresh isolated copy
+  (`/private/tmp/nsharp-test-all.c182cd5d5f13.DDaJcH`, closing with
+  `Stored validated isolated test cache result: c182cd5d5f1349d9 (1928s)`, so it is neither a cached
+  whole-gate nor a cached per-step verdict; the cool-rerun rule was not needed because nothing
+  flaked). **ZERO `✗`, 105 `✓ PASSED`.** Every step green with its own timing: clean, compiler build
+  (3m41s), the format contract gate, unit tests (10m52s — **3,192 / 3,192**), the native `.tests.nl`
+  estate including BootstrapServices' **1,991** and `tests/native/ownership-audit` — the ratchet
+  re-validated INSIDE the gate against the freshly written manifest — (5m36s), **VS Code integration
+  tests (4m24s, 36 passing in 41s)**, SDK pack + install (6m45s), template pack/install/creation, the
+  template-generated project, all example projects, all single-file examples, `nlc check` over the
+  examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new errors vs
+  baseline**. `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt (289 files,
+  3.98 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE
+  computer-use verification was NOT attempted, per the coordinator's standing instruction. This slice
+  adds no LSP/IDE behaviour of its own; the IDE-facing surface it OWNS is what the squiggle SAYS when
+  a developer calls a .NET method wrongly or writes a method's name where a value belongs — the
+  NL402 and NL411 they see while typing, including the rule that one occurrence gets ONE squiggle —
+  and that is pinned at 11,286 differential grid points with 7,464 byte-identical sink reports, 326
+  byte-identical corpus diagnostics, 29 + 105 + 311 fixture diagnostics, 951 byte-identical unsorted
+  build-transcript lines, and the gate's own VS Code integration run.
+
+  **THE NEXT SLICE IS 20 — THE REFLECTION PRE-BINDER, AND THE ONE CATALOG ROW THAT UNBLOCKS IT**,
+  measured at this tree. It is the first slice in this arc whose first step is a TOOLSET REPIN, and
+  the repin's whole content is one row: `System.Type`'s `GetMethods` at **count == 1** with
+  `argumentTypeNames[0] == "System.Reflection.BindingFlags"` returning
+  `"System.Reflection.MethodInfo[]"`, added beside the existing `count == 0` arm in
+  `ColumnarExternalBindingPlans.GetInstanceCallPlan`. The row itself compiles under the CURRENT pinned
+  toolset (it uses no new surface), so the bootstrap is the ordinary two-stage one: build the
+  compiler with the row, repin, then `BootstrapServices` can call it. With that row in place the
+  members are:
+  `PreBindReflectionMethod` (:9845, **86**, 2 refs) → `AnalyzerOverloadFacts` ×4,
+  `AnalyzerReflectionTypeConversion`, `_reflectionArgumentBinder` ×3, `_typeResolver`,
+  `_clrTypeConversion` (**every one N#**) + `GetOpenReflectionSignatureMethod` (:9932, **13**,
+  1 ref, `private static` and pure over `MethodInfo`/`Type`) — the pair whose N# was WRITTEN and
+  REVERTED this slice, so slice 20 starts from a known-good body and a known decline site;
+  `ConvertReflectionSuppliedArgumentType` (:10152, **16**, 1 ref) →
+  `AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument`,
+  `AnalyzerReflectionTypeConversion.ConvertBoundType`/`ConvertBoundParameter` (**all N#**) — it
+  closes TODAY and needs no repin; and `IsExpressionTreeLambdaTarget` (:12082, **12**, and its
+  `Type` overload :12095, **2**) → `_declarationContext`, `_clrTypeConversion`,
+  `AnalyzerFunctionTypeFactory` (**all N#**), five call sites, also closed today. **~129 body lines,
+  of which 99 are behind the one row.** The two members that do NOT close stay and are the arc's
+  remaining wall of a different kind: `FinalizeBoundReflectionCall` (**141**) and
+  `ValidateFinalReflectionSuppliedArgument` (**63**) each re-enter `AnalyzeLambda` per lambda
+  argument, against an expected signature the loop computes from bindings it is still accumulating —
+  there is no count-exact hoist of the slice-17 shape, and finding one is its own measurement.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 18 — THE SYNTHETIC CALL VALIDATOR AND ITS
   REPORTERS.** Target recorded BEFORE any production edit, at `80087951f` (`Analyzer.cs` 17,617 lines,
   non-blank 15,532).
 

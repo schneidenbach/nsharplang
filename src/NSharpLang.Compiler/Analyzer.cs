@@ -259,7 +259,13 @@ public class Analyzer : IDisposable
     private bool _allowEventReference;
     private readonly HashSet<(int Line, int Column, string Path, string Operation)> _reportedNullabilityDiagnostics = new();
     private readonly HashSet<(int Line, int Column, string Name)> _reportedUnverifiedErrorResultDiagnostics = new();
-    private readonly HashSet<(int Line, int Column, string Name)> _reportedCallableReferenceDiagnostics = new();
+    // The NL411 report log. Like the implicit-conversion guard above it, this is deliberately NOT
+    // part of the toolset rebuild: a log rebuilt with its reader would forget what it had already
+    // said and report the same method group twice.
+    private readonly AnalyzerCallableReferenceReportLog _callableReferenceReportLog = new();
+    // What the analyzer says about a reflected call that bound to nothing, and about a method named
+    // where a value is required. Rebuilt with the SCC — it holds the assignability facts.
+    private AnalyzerReflectionCallReporter _reflectionCallReporter;
     private bool _disposed;
 
     public Analyzer()
@@ -293,7 +299,17 @@ public class Analyzer : IDisposable
         _syntheticCallWalk = CreateSyntheticCallWalk();
         _constantExpressionFacts = new AnalyzerConstantExpressionFacts(_scopes, _declarationContext);
         _syntheticCallValidator = CreateSyntheticCallValidator();
+        _reflectionCallReporter = CreateReflectionCallReporter();
     }
+
+    private AnalyzerReflectionCallReporter CreateReflectionCallReporter()
+        => new(
+            _scopes,
+            _declarationContext,
+            _assignabilityFacts,
+            _spans,
+            _diagnostics,
+            _callableReferenceReportLog);
 
     private AnalyzerSyntheticCallValidator CreateSyntheticCallValidator()
         => new(
@@ -6403,9 +6419,10 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        if (!_allowUnboundCallableReference && IsUnboundCallableReference(expr, flowType))
+        if (!_allowUnboundCallableReference
+            && _reflectionCallReporter.IsUnboundCallableReference(expr, flowType, _currentExpectedType))
         {
-            ReportMethodGroupUsedAsValue(expr, flowType);
+            _reflectionCallReporter.ReportMethodGroupUsedAsValue(expr, flowType);
             return BuiltInTypes.Unknown;
         }
 
@@ -6469,18 +6486,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    private bool IsUnboundCallableReference(Expression expression, TypeInfo type)
-    {
-        if (expression is LambdaExpression)
-            return false;
-
-        if (_currentExpectedType != null && _assignabilityFacts.CanBindCallableReferenceToExpectedType(_currentExpectedType))
-            return false;
-
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
-        return AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType);
-    }
-
     private void ReportSyntheticSoaOperationUsedAsValue(Expression expression, FunctionTypeInfo operation)
     {
         var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
@@ -6508,35 +6513,6 @@ public class Analyzer : IDisposable
             UncheckedExpression uncheckedExpression => RenderSyntheticSoaOperationTarget(uncheckedExpression.Expression, fallbackName),
             _ => fallbackName
         };
-    }
-
-    private void ReportMethodGroupUsedAsValue(Expression expression, TypeInfo type)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        var name = AnalyzerCallableReferenceFacts.GetCallableReferenceName(expression, type);
-        if (!_reportedCallableReferenceDiagnostics.Add((line, column, name)))
-            return;
-
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.MethodGroupUsedAsValue(
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                name));
-            return;
-        }
-
-        Error(
-            ErrorCode.MethodGroupUsedAsValue,
-            $"Method '{name}' must be called or passed to a delegate",
-            line,
-            column,
-            $"Call `{name}(...)`, or pass `{name}` to a parameter with a delegate type.",
-            length);
     }
 
     private TypeInfo ApplyNullabilityFlowType(Expression expr, TypeInfo type, NullState nullState)
@@ -9239,7 +9215,7 @@ public class Analyzer : IDisposable
             if (boundCall?.ReturnType != null)
                 return boundCall.ReturnType;
 
-            return HandleUnboundReflectionCall(call, new[] { methodInfo.Method }, argTypes);
+            return _reflectionCallReporter.ReportUnboundCall(call, new[] { methodInfo.Method }, argTypes);
         }
 
         // Handle method group (overloaded methods)
@@ -9249,7 +9225,7 @@ public class Analyzer : IDisposable
             if (boundCall?.ReturnType != null)
                 return boundCall.ReturnType;
 
-            return HandleUnboundReflectionCall(call, methodGroup.Methods, argTypes);
+            return _reflectionCallReporter.ReportUnboundCall(call, methodGroup.Methods, argTypes);
         }
 
         // Handle newtype construction: UserId(42)
@@ -9535,94 +9511,6 @@ public class Analyzer : IDisposable
         _semanticModel.RecordExpressionNullState(identifier.Line, identifier.Column, nullState);
 
         return flowType;
-    }
-
-    private TypeInfo HandleUnboundReflectionCall(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
-    {
-        if (TryGetNSharpMethodGroupArgumentName(call, out var methodGroupArgumentName))
-        {
-            ReportNoMatchingReflectionMethodGroupOverload(call, candidateMethods, methodGroupArgumentName);
-            return BuiltInTypes.Unknown;
-        }
-
-        ReportNoMatchingReflectionOverload(call, candidateMethods, argTypes);
-        return BuiltInTypes.Unknown;
-    }
-
-    private void ReportNoMatchingReflectionOverload(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
-    {
-        if (candidateMethods.Count == 0)
-            return;
-
-        var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidateMethods[0].Name;
-        var (line, column, length) = _spans.GetCallDiagnosticSpan(call, functionName);
-        var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
-        var candidateSignatures = candidateMethods
-            .Select(method => AnalyzerOverloadFacts.FormatReflectionMethodSignature(method, call))
-            .Distinct(StringComparer.Ordinal)
-            .Take(8)
-            .ToList();
-
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                functionName,
-                call.Arguments.Count,
-                argumentTypes,
-                candidateSignatures));
-            return;
-        }
-
-        Error(
-            ErrorCode.NoMatchingOverload,
-            $"No overload of '{functionName}' accepts {call.Arguments.Count} argument(s) with these types",
-            line,
-            column,
-            "Check the argument count and types against the available overloads.",
-            length);
-    }
-
-    private void ReportNoMatchingReflectionMethodGroupOverload(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, string methodGroupArgumentName)
-    {
-        if (candidateMethods.Count == 0)
-            return;
-
-        var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidateMethods[0].Name;
-        var (line, column, length) = _spans.GetCallDiagnosticSpan(call, functionName);
-        Error(
-            ErrorCode.NoMatchingOverload,
-            $"No overload of '{functionName}' matches method group '{methodGroupArgumentName}'",
-            line,
-            column,
-            "Check that the method group's parameters and return type match one of the delegate parameter types.",
-            length);
-    }
-
-    private bool TryGetNSharpMethodGroupArgumentName(CallExpression call, out string name)
-    {
-        name = string.Empty;
-
-        foreach (var argument in call.Arguments)
-        {
-            if (argument.Value is not IdentifierExpression identifier)
-                continue;
-
-            var symbol = _scopes.LookupSymbol(identifier.Name);
-            if (symbol is NSharpMethodGroupInfo
-                || symbol is FunctionTypeInfo functionType && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType))
-            {
-                name = identifier.Name;
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private TypeInfo AnalyzeExpressionWithExpectedType(
@@ -16482,6 +16370,7 @@ public class Analyzer : IDisposable
         _syntheticCallBinder = CreateSyntheticCallBinder();
         _syntheticCallWalk = CreateSyntheticCallWalk();
         _syntheticCallValidator = CreateSyntheticCallValidator();
+        _reflectionCallReporter = CreateReflectionCallReporter();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -16500,6 +16389,7 @@ public class Analyzer : IDisposable
             _syntheticCallBinder = CreateSyntheticCallBinder();
             _syntheticCallWalk = CreateSyntheticCallWalk();
             _syntheticCallValidator = CreateSyntheticCallValidator();
+            _reflectionCallReporter = CreateReflectionCallReporter();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;
