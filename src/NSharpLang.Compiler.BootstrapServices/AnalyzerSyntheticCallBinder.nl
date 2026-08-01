@@ -883,3 +883,101 @@ public class AnalyzerSyntheticCallBinder {
         }
     }
 }
+
+// THE SOURCE BINDER'S REPORTING ARM, WHOLE.
+//
+// Slice 15 took the placement WALK and everything it decides — the failure kinds, their order, the
+// `argN` fallback name and all four messages — but had to leave the arm that RENDERS them in C#,
+// because the only thing the arm added was the diagnostic SPAN and the span resolver was still C#.
+// It is not, any more. So the arm moves here whole: the walk produces an ordered failure list, this
+// replays it in walk order through the sink, and the span each report anchors on comes from the
+// span resolver. Nothing in the round trip is C# now.
+//
+// `reportErrors: false` is not a mode, it is a QUESTION — several passes (scoring, the generic
+// constraint span, the SoA validator) ask "would this bind?" without wanting the answer written
+// down. The map comes back either way, because a partially placed call still has diagnostics to
+// give about the arguments that DID land.
+public class AnalyzerSyntheticCallReporter {
+
+    diagnosticsValue: AnalyzerDiagnosticSink
+    spansValue: AnalyzerDiagnosticSpans
+
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans) {
+        diagnosticsValue = diagnostics
+        spansValue = spans
+    }
+
+    public func TryBindAndReport(
+        functionType: FunctionTypeInfo,
+        functionName: string,
+        call: CallExpression,
+        out parameterIndexByArgument: int[],
+        parameterStartIndex: int,
+        reportErrors: bool): bool {
+        binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
+            functionType, functionName, call, parameterStartIndex)
+        parameterIndexByArgument = binding.ParameterIndexByArgument
+        if !reportErrors {
+            return binding.Success
+        }
+
+        index := 0
+        while index < binding.Failures.Count {
+            failure := binding.Failures[index]
+            if failure.ArgumentIndex >= 0 {
+                ReportArgumentBindingError(
+                    functionType,
+                    functionName,
+                    call.Arguments[failure.ArgumentIndex],
+                    failure.Message,
+                    parameterStartIndex)
+            } else {
+                ReportMissingArgumentBindingError(
+                    functionType, functionName, call, failure.Message, parameterStartIndex)
+            }
+
+            index = index + 1
+        }
+
+        return binding.Success
+    }
+
+    // A parameter that never received an argument anchors on the CALL, because there is no written
+    // argument to point at.
+    func ReportMissingArgumentBindingError(
+        functionType: FunctionTypeInfo,
+        functionName: string,
+        call: CallExpression,
+        message: string,
+        parameterStartIndex: int) {
+        span := spansValue.GetCallDiagnosticSpan(call, functionName)
+        signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(
+            functionType, functionName, parameterStartIndex)
+        diagnosticsValue.Report(
+            ErrorCode.NoMatchingOverload,
+            message,
+            span.Line,
+            span.Column,
+            "Use " + signature + ".",
+            span.Length)
+    }
+
+    // A written argument that reached no parameter anchors on that ARGUMENT.
+    func ReportArgumentBindingError(
+        functionType: FunctionTypeInfo,
+        functionName: string,
+        argument: Argument,
+        message: string,
+        parameterStartIndex: int) {
+        span := spansValue.GetExpressionDiagnosticSpan(argument.Value)
+        signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(
+            functionType, functionName, parameterStartIndex)
+        diagnosticsValue.Report(
+            ErrorCode.NoMatchingOverload,
+            message,
+            span.Line,
+            span.Column,
+            "Use " + signature + ", or remove the argument name.",
+            span.Length)
+    }
+}

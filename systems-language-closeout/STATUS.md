@@ -1,6 +1,49 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-01 (**TASK 017 SLICE 15 LANDED (no commit — mandate) — THE SOURCE BINDER'S
+Last updated: 2026-08-01 (**TASK 017 SLICE 16 LANDED (no commit — mandate) — N# OWNS WHERE EVERY
+SEMANTIC DIAGNOSTIC POINTS, AND THE ARC'S BLOCKED REPORTING ARMS ARE UNBLOCKED.**
+`AnalyzerDiagnosticSpans.nl` (**892 lines, 3 classes, 38 members**) is the sole authority for the
+line, the column and the LENGTH of every semantic report the analyzer makes. **35 whole C# members
+DELETED — 501 body lines** (32 span members = 426, plus the source binder's whole reporting family =
+75), and **7 lines of DEAD N# with them**. `Analyzer.cs` **18,371 → 17,879** (non-blank
+16,181 → **15,757**), `git diff` **+174 / −666 = net −492**, the only C# added being two fields with
+their comments, two construction lines, three tuple literals that become `new DiagnosticSpan(...)`,
+one explicit `reportErrors: true` and one return-type change. **THE DECISION THAT IS THE WHOLE SLICE:
+slice 15 recorded that all 113 sites "change shape because an N# owner returns a class" — THEY DO
+NOT.** C# positional deconstruction binds to an N#-emitted `void Deconstruct(out …, out …, out …)`,
+proven by a throwaway probe BEFORE the owner was written, so every one of the **159 routed
+references** kept its `var (line, column, length) = …` verbatim: a callee RENAME, not a shape change.
+**THE UNLOCK WAS TAKEN, NOT JUST CLAIMED**: with the span N#-owned the source binder's reporting
+family had no C# dependency left, so the 33-line driver slice 15 was forced to keep AND both of its
+arms moved into `AnalyzerSyntheticCallReporter` (85 lines, 4 members) — `Analyzer.cs` keeps nothing
+of it. THE COSTLIEST GOTCHA, NEW AND GENERAL: **a new N# type name must be unique across the whole
+assembly, and a collision surfaces as a decline that names something else** — `class DiagnosticSpan`
+collided with a DEAD `struct DiagnosticSpan` in `ParserDiagnosticSpan.nl` (a 016-era leftover with
+zero references) and the backend declined at `emit.declaration.method-return` naming an unrelated
+member; the same shape built clean in a standalone project, so only a scan of every type declaration
+in the estate found it. The dead file is now deleted. PROOF: a throwaway differential run in BOTH
+trees — **23,580 CELLS, 0 MISMATCHES, 0 THROWN, transcripts BYTE-IDENTICAL (md5
+`3965df575304bf27e21fe45e6348d291`)**, 286 distinct answers, over 6 source texts × 2 path modes × 32
+expression / 7 statement / 8 pattern shapes plus a token-length sweep over every line × column band —
+run TWICE in the working tree, before and after a mid-slice fix, with the SAME md5 both times;
+`nlc check --json` **byte-identical on ALL 70 corpus targets with NO exclusion** (ORACLE_DIFFS=0,
+STDERR=0, EXIT=0, **857 diagnostics**, 187 of them NL402s through the new reporting arm) plus **30
+purpose-built SPAN fixtures firing 45 diagnostics across 13 distinct widths with FIXTURE_DIFFS = 0**;
+corpus IL **112 / 112 comparable assemblies BYTE-IDENTICAL** over 122 builds per tree
+(PRODUCT_IL_DIFFS=0, SINGLE_IL_DIFFS=0, EXIT_DIFFS=0, ONLY_IN_BASE/WORK=0, NORMALISER_FAILURES=0).
+**TWO ANALYZER FINDINGS IN THE NEW `.nl` WERE CAUGHT BY THE ORACLE'S OWN BootstrapServices ROW AND
+FIXED** (an unused import, and a real NL202 because `x := f(); if x == null` does not narrow where
+C#'s `?? "call"` did) — BootstrapServices 295 → **293**, the new files contributing ZERO. GATES: unit
+**3,192 / 3,192** (zero drift); contracts **1,883 → 1,913 (+30)**; audit **18 / 18** after a one-row
+in-place repin that keeps the manifest at **391 lines**; `dev.sh --since` full-suite fail-safe
+**3,192 / 3,192 in 7m11s**; and the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS
+PASSED in 1,827s ON THE FIRST RUN** in a fresh isolated copy (zero `✗`, VS Code integration green,
+all 67 assemblies IL-verified); VSIX rebuilt + reinstalled. NO toolset repin needed — no catalog
+surface was added. NEXT: **SLICE 17 — THE WALK**: `TryInferSyntheticGenericBindings`,
+`TryGetSyntheticCallMatchScore` and `BindSyntheticNSharpCall` move TOGETHER, because the single
+`AnalyzeExpression` re-entry is the only thing binding any of them to C#)
+
+Last updated (prior): 2026-08-01 (**TASK 017 SLICE 15 LANDED (no commit — mandate) — THE SOURCE BINDER'S
 ARGUMENT FILLER IS N#-OWNED, AND SO IS THE PURE INFERENCE INTERIOR BENEATH IT.**
 `AnalyzerSyntheticCallBinder.nl` (**885 lines, 5 classes, 18 members**) is the sole authority for
 which argument fills which SOURCE parameter position, what a placement failure SAYS, the specificity
@@ -557,7 +600,264 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 15 — OVERLOAD ARC STAGE 3: THE SOURCE BINDER'S
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 16 — THE DIAGNOSTIC SPAN RESOLVER.** Target
+  recorded BEFORE any production edit, at `454505582` (`Analyzer.cs` 18,371 lines, non-blank 16,181).
+
+  **THE SPAN SUB-TREE, RE-VERIFIED AT THIS TREE.** Slice 15 named seven members / 118 lines / 113
+  references. Re-grepping at `454505582` confirms the reference counts EXACTLY —
+  `GetExpressionDiagnosticSpan` **86**, `GetMemberNameColumn` **15**, `GetCallDiagnosticSpan` **12**
+  = **113** — and shows the sub-tree is BIGGER than the seven: the transitive closure of members
+  that compute a `(Line, Column, Length)` from AST node positions plus the analysed file's source
+  text is **32 members / 384 body lines**, almost all of them contiguous at `Analyzer.cs`
+  :4095–:4441. The full list, with body lines and in-file references:
+  `GetExpressionDiagnosticSpan` (:4140, 24, 86), `GetMemberNameColumn` (:8659, 7, 15),
+  `GetCallDiagnosticSpan` (:10459, 9, 12), `GetTokenLength` (:4372, 21, 14),
+  `TryGetStableNullPath` (:16025, 13, 10), `GetExpressionStartPosition` (:4357, 14, 8),
+  `GetAssignmentTargetNameDiagnosticSpan` (:13332, 10, 7),
+  `GetExpressionStatementDiagnosticSpan` (:4095, 12, 7), `GetBinaryOperatorDiagnosticSpan` (:4293,
+  2, 7), `GetPatternNameDiagnosticSpan` (:4165, 20, 6), `GetBinaryOperandDiagnosticSpan` (:4305, 13,
+  6), `FindIdentifierNameColumn` (:16765, 7, 6), `GetVariableDeclarationNameDiagnosticSpan` (:4122,
+  6, 5), `GetSourceSpanDiagnosticSpan` (:4296, 8, 5), `GetPropertyPatternNameDiagnosticSpan` (:4196,
+  13, 5), `ScanQuotedTokenLength` (:4400, 13, 4), `GetFunctionNameDiagnosticSpan` (:4129, 10, 4),
+  `GetDeclarationNameColumn` (:16755, 9, 4), `GetAttributeTypeDiagnosticSpan` (:1321, 2, 4),
+  `GetStablePathDiagnosticSpan` (:4331, 25, 3), `GetListPatternDiagnosticSpan` (:4210, 2, 3),
+  `GetParameterDiagnosticSpan` (:17023, 9, 3), `GetAttributeArgumentDiagnosticSpan` (:1502, 13, 3),
+  `GetTypePatternNameLength` (:4186, 9, 2), `GetStatementDiagnosticSpan` (:4108, 13, 2),
+  `GetNullReceiverDiagnosticSpan` (:4319, 11, 2), `GetIsExpressionDiagnosticSpan` (:4218, 32, 2),
+  `GetExpressionLength` (:4430, 11, 2), `GetDelimitedPatternLength` (:4251, 27, 2),
+  `GetAttributeFallbackDiagnosticSpan` (:1516, 2, 2), `GetSoaColumnTypeDiagnosticSpan` (:2597, 9,
+  2), `GetSoaColumnNameDiagnosticSpan` (:2607, 8, 2).
+
+  **THE STATE THEY READ — MEASURED, AND IT IS ALREADY N#.** Every one of the 32 is pure over (a) AST
+  node positions and (b) at most the analysed file's source text. The text reaches them through
+  exactly two doors: `GetSourceSnippet(line)`, which is already nothing but
+  `_diagnostics.SourceSnippet(line)` on the N# `AnalyzerDiagnosticSink`; and
+  `_sourceText ?? _projectSources.TryGetProjectSourceText(_currentFilePath)`, which is the SAME
+  resolution the sink already performs internally over the same two fields, set from the same reset
+  block (`_diagnostics.BeginAnalysis(currentFilePath, sourceCode)` at :398, beside
+  `_currentFilePath` at :394 and `_sourceText` at :397). No member touches `_errors`,
+  `_semanticModel`, `_scopes` or `AnalyzeExpression`. **EXCLUDED, and why:**
+  `GetSyntheticGenericConstraintDiagnosticSpan` (:10917, 2 refs) calls the C# reporting DRIVER
+  `TryBindSyntheticFunctionArguments` and so belongs to the walk slice, not this one;
+  `FindNamespaceImportColumn` (:17525, 2 refs) does its OWN `File.ReadLines` fallback and is import
+  resolution, not span resolution; `DescribeExpressionForDiagnostic` (:4414, 8 refs) is a NAME
+  describer, not a span.
+
+  **THE BOUNDARY-SHAPE DECISION, TAKEN ON MEASUREMENT AND NOT ON THE PLAN.** Slice 15 recorded that
+  "an N# owner returns a class, so all 113 sites change shape." **That is FALSE, and it was tested
+  before a line of the owner was written.** C# positional deconstruction binds to any accessible
+  instance `void Deconstruct(out …, out …, out …)`, and N# both COMPILES a void func with three
+  `out` parameters and emits it in exactly that shape: a throwaway `ZzSpanProbe` class was built into
+  `BootstrapServices` and `var (line, column, length) = new ZzSpanProbe(7, 13, 4);` inside
+  `Analyzer.cs` COMPILED CLEAN against it (Compiler.csproj, 0 errors), then both were deleted. So the
+  owner returns a `DiagnosticSpan` reference type carrying `Line` / `Column` / `Length` PLUS a
+  `Deconstruct`, and **every one of the 113 + N sites keeps its `var (line, column, length) = …`
+  destructuring verbatim — the routing is a callee RENAME, not a shape change.** This is what turns
+  the slice from a 113-site rewrite into a mechanical one, and it is what makes converting the
+  blocked reporting arms cheap rather than expensive.
+
+  **THE OWNER — the 12C split, beside the sink whose state it reads.**
+  `AnalyzerDiagnosticSpanFacts` (pure statics, no source text): the position-only members and
+  `TryGetStableNullPath` / `GetExpressionStartPosition` / `ScanQuotedTokenLength`.
+  `AnalyzerDiagnosticSpans` (constructed with the `AnalyzerDiagnosticSink`, which grows one
+  `ResolvedSourceText()` accessor so the identifier-column members read the text through the SAME
+  owner the snippet does): everything text-backed. `DiagnosticSpan` is the value; the 016-era
+  `RecoverySpan` in `ColumnarParserRecovery` is the shape precedent, reused as a pattern, not as
+  code. Member names are CARRIED OVER unchanged, so every routed site is verifiably a prefix
+  insertion.
+  N# is the direct production authority; the 32 C# members are DELETED; `Analyzer.cs` net-negative;
+  no callback, no fallback, no protocol. Then, if the closure allows, 1–2 of the reporting arms slice
+  15 cut around are converted to full N# ownership as proof of the unlock. Measured recuts as the
+  pattern allows, recorded here.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHERE EVERY SEMANTIC DIAGNOSTIC POINTS, AND THE
+  ARC'S BLOCKED REPORTING ARMS ARE UNBLOCKED — THE FIRST ONE IS ALREADY THROUGH.**
+  `AnalyzerDiagnosticSpans` / `AnalyzerDiagnosticSpanFacts` are the sole authority for the line, the
+  column and the LENGTH of every semantic report the analyzer makes. No callback, no fallback, no
+  shadow path, no protocol.
+
+  **THE BOUNDARY DECISION, AND WHY IT IS THE WHOLE SLICE.** Slice 15 recorded that all 113 sites
+  "change shape, because an N# owner returns a class". **They do not.** C#'s positional
+  deconstruction binds to any accessible instance `void Deconstruct(out …, out …, out …)`, and N#
+  compiles and emits exactly that shape — proven BEFORE a line of the owner was written, by building
+  a throwaway `ZzSpanProbe` into `BootstrapServices` and compiling
+  `var (line, column, length) = new ZzSpanProbe(7, 13, 4);` inside `Analyzer.cs` against it (0
+  errors), then deleting both. So `DiagnosticSpan` carries `Line` / `Column` / `Length` PLUS a
+  `Deconstruct`, and **every routed site kept its `var (line, column, length) = …` verbatim: the
+  routing is a callee RENAME, not a shape change.** That is what turned a 113-site rewrite into a
+  mechanical one, and it is what made converting a blocked reporting arm cheap enough to do in the
+  same slice. The one place the boundary DID change shape is recorded below.
+
+  **THE CUT — 35 WHOLE C# MEMBERS DELETED, 501 BODY LINES (with their doc comments and separators),
+  PLUS 7 LINES OF DEAD N#.** The 32 span members are 426 of those lines; the other 75 are the source
+  binder's whole reporting family — `TryBindSyntheticFunctionArguments` (the 33-line DRIVER slice 15
+  was forced to keep), `ReportSyntheticMissingArgumentBindingError` and
+  `ReportSyntheticArgumentBindingError`. `Analyzer.cs` **18,371 → 17,879** (non-blank
+  16,181 → **15,757**); `git diff` **+174 / −666 = net −492**, and the only C# ADDED anywhere is TWO
+  field declarations with their comments, TWO construction lines, THREE conditional arms whose tuple
+  literal becomes `new DiagnosticSpan(...)`, one explicit `reportErrors: true`, and one return-type
+  change on the member that stays. **NO new C# method with policy, bridge, callback, shell or state —
+  not one.**
+
+  **ROUTING: 159 rewritten references, every one mechanical and all inside `Analyzer.cs`** — **127**
+  through `_spans.`, **27** through `AnalyzerDiagnosticSpanFacts.`, and **5** through
+  `_syntheticCallReporter.`. The 113 the mandate named are inside the 127 + 27.
+
+  **THE UNLOCK, PROVEN BY TAKING IT.** With the span resolver N#-owned, the source binder's reporting
+  family had NO C# dependency left — the walk was already N# (slice 15), the messages were already N#
+  (slice 15), the sink was already N# (slice 6), the signature formatter was already N# (slice 13),
+  and the SPAN was the last one. So the whole family moved: `AnalyzerSyntheticCallReporter`
+  (**85 lines, 1 class, 4 members**) now owns the driver AND both arms, and `Analyzer.cs` keeps
+  nothing of it. This is exactly the arm slice 15 measured as "cannot move"; landing the span
+  resolver converted it to "mechanical", and the conversion is the proof.
+
+  **ONE SHAPE DECISION AT THE BOUNDARY, RECORDED.** `GetAttributeArgumentDiagnosticSpan` took
+  `AttributeArgumentValidationInfo` — a C# `private sealed record` that belongs to the
+  attribute-VALIDATION family, not the span family. The N# owner takes the two fields it actually
+  read (`Argument` and `Expression`) instead of dragging the record across, so the record stays with
+  the family that owns it and the two call sites pass `argumentInfo.Argument, argumentInfo.Value`.
+
+  **N# ADDED:** `AnalyzerDiagnosticSpans.nl` (**892 lines, 3 classes, 38 members**),
+  `AnalyzerDiagnosticSpans.tests.nl` (**416 lines, 30 contracts**), the 85-line reporter appended to
+  `AnalyzerSyntheticCallBinder.nl`, and one `ResolvedSourceText()` accessor on
+  `AnalyzerDiagnosticSink` — which is not a convenience but a correctness rule: a span computed
+  against a DIFFERENT snapshot from the one the snippet is rendered from would underline the wrong
+  characters, and the two would drift silently. One owner, one text. **`ParserDiagnosticSpan.nl` was
+  DELETED** (see the gotcha below).
+
+  **THE GOTCHA THAT COST THE MOST, AND IT IS NEW AND GENERAL.** **A NEW N# TYPE NAME MUST BE UNIQUE
+  ACROSS THE WHOLE ASSEMBLY, AND A COLLISION SURFACES AS A DECLINE THAT NAMES SOMETHING ELSE.**
+  `public class DiagnosticSpan` collided with a DEAD `public struct DiagnosticSpan` in
+  `ParserDiagnosticSpan.nl` — a leftover of the 016 arc's `Parser.cs` deletion, with zero references
+  anywhere in `src/` or `tests/`. The columnar backend then declined at
+  `emit.declaration.method-return: static method return type 'DiagnosticSpan' could not be resolved
+  for 'AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan'` — a message about a
+  member that has nothing to do with the duplicate, because the resolver CLAIMS the ambiguous name
+  and then cannot resolve it. The same shape in a standalone project built clean, which is what made
+  it look structural rather than a name clash; bisecting it needed a scan of every type declaration
+  in the estate, not a smaller repro. **Grep for the type name before declaring one.** Two more:
+  **`record` is RESERVED as a local name** (re-confirmed — `record := new SoaRecordDeclaration(…)`
+  declines at `parse.test`), and a property read chained onto a call result
+  (`sourceLine.TrimEnd().Length`, `OperatorFacts.GetBinaryText(op).Length`) is bound to a local first.
+
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `454505582` in a throwaway `/private/tmp/nsharp017s16` worktree, and the
+  working tree): **23,580 CELLS, 0 MISMATCHES, 0 THROWN, transcripts BYTE-IDENTICAL — md5
+  `3965df575304bf27e21fe45e6348d291` in both**, with **286 DISTINCT ANSWERS**. Every operation
+  resolves to the C# private member when the baseline still has it and to the ROUTED N# owner
+  otherwise, and two `HOST.*` rows kept OUT of the comparison prove the wiring: the baseline says
+  `Analyzer` / `Analyzer`, the working tree says `AnalyzerDiagnosticSpans` /
+  `AnalyzerDiagnosticSpanFacts`. THE GRID: **6 SOURCE TEXTS** (a multi-line function with a dotted
+  path, an escaped string, a char, an interpolation, a bracketed list, a call and a null-conditional;
+  a line that writes `a.b` THREE times; a line packed with `,` `)` `]` `}`; an UNTERMINATED quote and
+  a lone `$`; an `is` expression with a qualified nullable type and nested list patterns; and the
+  EMPTY source) × with/without a current file path × **32 EXPRESSION shapes** (every literal form,
+  three member-access depths, a null-conditional hop, member-over-call, member-over-index, an error
+  placeholder, four wrapper forms, three call forms, binary/index/assignment, and zero, far
+  out-of-range and NEGATIVE positions) — each asked for its expression span, its STATEMENT-position
+  span, its stable path, its start position, its assignment-target span, two null-receiver spans and
+  a stable-path span — plus **7 STATEMENT shapes**, **8 PATTERN shapes**, 27 property-pattern
+  position combinations, a 14-column `is` sweep, **a token/expression-length/three-delimiter sweep
+  over every line 0–11 × every column −1…45** (the single densest block), 40 declaration-column
+  probes, 48 quoted-token scans, 48 identifier-column probes, 15 `SourceSpan` anchors, 4
+  function-name shapes, 6 attribute spans, 8 parameter spans, 16 SoA column spans and the 4
+  attribute-argument shapes that cross the reshaped boundary. **The probe was run TWICE in the
+  working tree** — once before and once after the two analyzer findings below were fixed — and
+  produced the SAME md5 both times, which proves the fix is semantics-neutral as well as proving the
+  reconstruction faithful. Deleted from both trees.
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `454505582` in the throwaway worktree and at the working tree, **both run over the SAME
+  (working-tree) sources**, across **ALL 70 `project.yml` corpus targets with no exclusion at all
+  (ORACLE_TARGETS=70)**: **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0**, **857
+  diagnostics**, `BootstrapServices` included — which also proves the analyzer's own verdict on the
+  new `.nl` files is identical under BOTH compilers. Spans are diagnostic-VISIBLE, so this is the
+  real bar and it is byte-exact. Plus **30 purpose-built SPAN fixtures** — a stable null path, an
+  undefined member, an ESCAPED string, an interpolation, a boolean condition, all three
+  binary-operand shapes, five call-arity/naming shapes, a member call, an assignment target, a
+  no-effect statement, a void assign, two return-mismatch shapes, an `is`, a match pattern, a
+  parameter default, a MULTI-LINE call, a three-deep chain, an index, a null-conditional, a generic
+  constraint, a char literal, a lock, an await, a tuple declaration, a unary operand, an object
+  initializer, an array literal, a yield and a local function, plus a CLEAN negative control —
+  firing **45 diagnostics with FIXTURE_DIFFS = 0**, every one of them carrying a LENGTH, across **13
+  DISTINCT span widths** (1, 3, 4, 5, 6, 7, 10, 11, 12, 14, 17, **19** — the escaped string measured
+  from source rather than from its 15-character value — and **21**, the interpolation). Six of those
+  rows are NL402s produced by the newly N#-owned reporting arm, so the unlock is exercised end to end
+  and is byte-identical too.
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (an explicit PE/CLI normaliser: COFF `TimeDateStamp`,
+  optional-header `CheckSum`, the Debug Directory entries AND the CodeView blobs they point at, and
+  the `#GUID`/`#Pdb` heaps only — nothing else, and it RAISES rather than swallowing, which is the
+  slice-15 normaliser bug pre-empted by construction): **68 project targets + 54 single-file examples
+  = 122 builds per tree. 112 COMPARABLE ASSEMBLIES BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 (74) and
+  SINGLE_IL_DIFFS = 0 (38)**, **EXIT_DIFFS = 0 across all 122**, **ONLY_IN_BASE = 0 and ONLY_IN_WORK
+  = 0** (neither tree emitted an assembly the other did not), **SKIPPED_TARGET_DIFFS = 0** and
+  **NORMALISER_FAILURES = 0 over all 416 hashes**. The 96 excluded rows are all the same file,
+  `NSharpLang.Runtime.dll`: a Roslyn-built artifact each tree's own toolset COPIES beside the output.
+  **TWO ANALYZER FINDINGS IN THE NEW `.nl` WERE FOUND AND FIXED BEFORE THE VERDICT WAS TAKEN.** The
+  corpus oracle's own `BootstrapServices` row named them: an unused `System.Collections.Generic`
+  import (NL010) and a real NL202 — `callName := GetCallTargetName(call); if callName == null { … }`
+  does not narrow, so the local stayed `string?` where a `string` was wanted. The C# original wrote
+  `?? "call"`; the N# rewrite declares the fallback FIRST and overwrites it. `BootstrapServices` goes
+  295 → **293** findings and **the two new files now contribute ZERO**. The columnar backend had
+  accepted both, so only reading the analyzer's own verdict caught them.
+  **ASSERTION MIGRATION.** All 35 members were `private` and none is named anywhere in `src/`,
+  `tests/` or `editors/`, so no C# test moved and the unit suite is unchanged at **3,192**. The
+  DIRECT pinning is new and native: **30 contracts**.
+
+  **ONE BEHAVIOUR THE CONTRACTS PIN THAT A READER WOULD HAVE GUESSED WRONG.** The SAME expression
+  spans DIFFERENTLY in value position and in statement position: as a value an unnamed form measures
+  ONE token, but as a statement the finding is "this has no effect", so it runs to the end of the
+  written line. A second: an assignment TARGET never widens to a stable path, while the general
+  expression span does — `a.b` is `7|5|3` as an expression and `7|7|1` as an assignment target, from
+  the identical node.
+
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** (`dotnet test tests/Tests.csproj -c Release`, 9m33s
+  — exactly the `454505582` baseline, ZERO drift); BootstrapServices contracts
+  **1,883 → 1,913 (+30)**, **1,913 / 1,913 PASS**; ownership audit **18 / 18**; `dev.sh --since`
+  full-suite fail-safe **3,192 / 3,192 in 7m11s** (13m35s including the build).
+  **RATCHET REPIN** via `scratchpad/s16/repin.py` — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 18,371 → **17,879**, currentNonBlankLines
+  16,181 → **15,757**, fingerprint `text-v1:a119793869dc1338` → `text-v1:387d7904b7344def` (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **5,572 / 4,780**);
+  `reviewedHeadFingerprint head-v1:b4a6cdc71e996b5e` → **`head-v1:0fe594d7a123595d`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value, `epochPathFingerprint`, `epochFactFingerprint` and
+  `epochFileCount` (381) untouched and RE-VALIDATED by recomputation both before and after the write.
+  **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after, and the manifest
+  `git diff` is exactly 2 changed lines.** The `.nl` additions and the one `.nl` deletion need no row.
+  **WALL STATUS: NO wall crossed, and NO toolset repin was needed** — this slice adds no catalog
+  surface, so the packaged-SDK bootstrap wall was never approached. The `Deconstruct` capability it
+  leans on was already in the packaged compiler (`BindingMap.nl` and `ColumnarDefinitions.nl` both
+  emit one today); what was new was only using it ACROSS the C# boundary.
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 1,827s (30m26s) ON THE FIRST RUN** in a fresh isolated copy (`/private/tmp/nsharp-test-all.…`,
+  closing with `Stored validated isolated test cache result: e781dd865c8b5ddd (1827s)`, so it is
+  neither a cached whole-gate nor a cached per-step verdict; the cool-rerun rule was not needed
+  because nothing flaked). **ZERO `✗`.** Every step green, with its own timing: clean, compiler build
+  (3m24s), the format contract gate, unit tests (10m15s), the native `.tests.nl` estate including
+  BootstrapServices' 1,913 and `tests/native/ownership-audit` — the ratchet re-validated INSIDE the
+  gate against the freshly written manifest — (5m17s), **VS Code integration tests (4m17s)**, SDK
+  pack + install (6m27s), template pack/install/creation, the template-generated project, all example
+  projects, all single-file examples, `nlc check` over the examples, and the ECMA-335 **IL
+  verification gate — all 67 N# assemblies pass, no new errors vs baseline**.
+  `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt (289 files, 3.98 MB)
+  and reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE
+  computer-use verification was NOT attempted, per the coordinator's standing instruction. This slice
+  adds no LSP/IDE behaviour of its own, but the IDE-facing surface it OWNS is the squiggle itself —
+  where every semantic diagnostic starts and how far it underlines — and that is pinned at 23,580
+  differential grid points, 857 byte-identical corpus diagnostics (**187 of them NL402s through the
+  newly N#-owned reporting arm** and 192 NL202s through the general expression span), 45 fixture
+  diagnostics across 13 distinct widths, and the gate's own VS Code integration run.
+
+  **THE NEXT SLICE IS 17 — THE WALK.** `TryInferSyntheticGenericBindings` (87, the family's ONLY
+  impure member), `TryGetSyntheticCallMatchScore` (78) and `BindSyntheticNSharpCall` (78) move
+  TOGETHER, because the single `AnalyzeExpression(memberAccess.Object)` re-entry is the only thing
+  binding any of them to C# — slice 15 measured that and this slice did not change it. AFTER that the
+  overload arc is closed, and the analyzer's remaining reporting arms are all in the same position
+  the source binder's were before this slice: their span is N#, their sink is N#, and what is left in
+  C# is a walk. `GetSyntheticGenericConstraintDiagnosticSpan` (:10917) is the one span-shaped member
+  deliberately NOT taken here — it calls the binder's walk, so it belongs to slice 17, and its return
+  type is already `DiagnosticSpan`.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 15 — OVERLOAD ARC STAGE 3: THE SOURCE BINDER'S
   ARGUMENT FILLER.** Target recorded BEFORE any production edit, at `2389b6aeb`
   (`Analyzer.cs` 18,807 lines).
 

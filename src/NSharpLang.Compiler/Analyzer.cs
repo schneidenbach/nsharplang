@@ -201,6 +201,13 @@ public class Analyzer : IDisposable
     // depend on which side of the boundary produced a diagnostic. Both are constructed once: the
     // resolver owns the per-analysis dedupe sets and the report opt-in.
     private readonly AnalyzerDiagnosticSink _diagnostics;
+
+    // WHERE A SEMANTIC DIAGNOSTIC POINTS. Constructed over the sink so the span and the rendered
+    // snippet are computed against one resolution of the analysed file's text.
+    private readonly AnalyzerDiagnosticSpans _spans;
+
+    // The source binder's placement walk plus its reporting arm, both N#-owned.
+    private readonly AnalyzerSyntheticCallReporter _syntheticCallReporter;
     private readonly AnalyzerTypeResolver _typeResolver;
     // The substitution-aware half of the resolution surface, and the two assignability arms that
     // consult it and the metadata probe. Both are constructed once: neither reads the well-known-type
@@ -253,6 +260,8 @@ public class Analyzer : IDisposable
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
         _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
         _diagnostics = new AnalyzerDiagnosticSink(_errors, _projectSources);
+        _spans = new AnalyzerDiagnosticSpans(_diagnostics);
+        _syntheticCallReporter = new AnalyzerSyntheticCallReporter(_diagnostics, _spans);
         _typeResolver = new AnalyzerTypeResolver(
             _scopes,
             _declarationContext,
@@ -1069,7 +1078,7 @@ public class Analyzer : IDisposable
             receiverType,
             memberAccess.MemberName,
             memberAccess.Line,
-            GetMemberNameColumn(memberAccess),
+            _spans.GetMemberNameColumn(memberAccess),
             includeStaticMembers: true);
 
     private static AttributeArgumentConstantKind ClassifyAttributeRuntimeType(Type type)
@@ -1127,7 +1136,7 @@ public class Analyzer : IDisposable
 
     private void ReportUnsupportedAttributeArgument(Expression expression, string description)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.ConstantRequired,
             $"Attribute arguments must be compile-time constants; {description} is not supported here",
@@ -1152,8 +1161,8 @@ public class Analyzer : IDisposable
     private void ReportUnsupportedAttributeOperator(Expression expression, string operatorText)
     {
         var (line, column, length) = expression is BinaryExpression binary
-            ? GetBinaryOperatorDiagnosticSpan(binary)
-            : GetExpressionDiagnosticSpan(expression);
+            ? AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(binary)
+            : _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.ConstantRequired,
             $"Attribute arguments must be compile-time constants; operator '{operatorText}' is not supported here",
@@ -1281,7 +1290,7 @@ public class Analyzer : IDisposable
 
     private void ReportAttributeTypeNotFound(AttributeNode attribute)
     {
-        var (line, column, length) = GetAttributeTypeDiagnosticSpan(attribute);
+        var (line, column, length) = AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute);
         var suggestedAttributeName = attribute.Name.EndsWith("Attribute", StringComparison.Ordinal)
             ? attribute.Name
             : attribute.Name + "Attribute";
@@ -1296,7 +1305,7 @@ public class Analyzer : IDisposable
 
     private void ReportAttributeTypeMustDeriveFromAttribute(AttributeNode attribute, string typeName)
     {
-        var (line, column, length) = GetAttributeTypeDiagnosticSpan(attribute);
+        var (line, column, length) = AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute);
         Error(
             ErrorCode.TypeMismatch,
             $"Attribute type '{typeName}' must derive from System.Attribute",
@@ -1308,7 +1317,7 @@ public class Analyzer : IDisposable
 
     private void ReportSourceDefinedAttributeUnsupported(AttributeNode attribute)
     {
-        var (line, column, length) = GetAttributeTypeDiagnosticSpan(attribute);
+        var (line, column, length) = AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute);
         Error(
             ErrorCode.FeatureNotImplemented,
             $"Source-defined attribute '{attribute.Name}' is not supported by IL emission yet",
@@ -1317,9 +1326,6 @@ public class Analyzer : IDisposable
             "Use an attribute type from a referenced CLR assembly for now.",
             length);
     }
-
-    private static (int Line, int Column, int Length) GetAttributeTypeDiagnosticSpan(AttributeNode attribute)
-        => (attribute.Line, attribute.Column, Math.Max(1, attribute.Name.Length));
 
     private void ValidateClrAttributeArguments(
         AttributeNode attribute,
@@ -1451,7 +1457,7 @@ public class Analyzer : IDisposable
 
     private void ReportUnknownAttributeNamedArgument(Type attributeType, AttributeArgumentValidationInfo argumentInfo)
     {
-        var (line, column, length) = GetAttributeArgumentDiagnosticSpan(argumentInfo);
+        var (line, column, length) = _spans.GetAttributeArgumentDiagnosticSpan(argumentInfo.Argument, argumentInfo.Value);
         Error(
             ErrorCode.UndefinedMember,
             $"Attribute '{GetAttributeDisplayName(attributeType)}' has no public settable property or field named '{argumentInfo.Name}'",
@@ -1466,7 +1472,7 @@ public class Analyzer : IDisposable
         AttributeArgumentValidationInfo argumentInfo,
         Type memberType)
     {
-        var (line, column, length) = GetAttributeArgumentDiagnosticSpan(argumentInfo);
+        var (line, column, length) = _spans.GetAttributeArgumentDiagnosticSpan(argumentInfo.Argument, argumentInfo.Value);
         Error(
             ErrorCode.TypeMismatch,
             $"Attribute named argument '{argumentInfo.Name}' on '{GetAttributeDisplayName(attributeType)}' expects '{NullabilityMetadataReflection.FormatType(memberType)}' but got '{NullabilityMetadataReflection.FormatType(argumentInfo.ClrType!)}'",
@@ -1482,8 +1488,8 @@ public class Analyzer : IDisposable
         IReadOnlyList<AttributeArgumentValidationInfo> positionalArguments)
     {
         var (line, column, length) = positionalArguments.Count > 0
-            ? GetExpressionDiagnosticSpan(positionalArguments[0].Value)
-            : GetAttributeFallbackDiagnosticSpan(attribute);
+            ? _spans.GetExpressionDiagnosticSpan(positionalArguments[0].Value)
+            : AnalyzerDiagnosticSpanFacts.GetAttributeFallbackDiagnosticSpan(attribute);
         var argumentTypes = positionalArguments
             .Select(argumentInfo => NullabilityMetadataReflection.FormatType(argumentInfo.ClrType!))
             .ToList();
@@ -1498,23 +1504,6 @@ public class Analyzer : IDisposable
 
     private static string GetAttributeDisplayName(Type attributeType)
         => attributeType.FullName ?? attributeType.Name;
-
-    private (int Line, int Column, int Length) GetAttributeArgumentDiagnosticSpan(AttributeArgumentValidationInfo argumentInfo)
-    {
-        if (argumentInfo.Argument.Name == null
-            && argumentInfo.Argument.Value is AssignmentExpression
-            {
-                Target: IdentifierExpression identifier
-            })
-        {
-            return (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length));
-        }
-
-        return GetExpressionDiagnosticSpan(argumentInfo.Value);
-    }
-
-    private static (int Line, int Column, int Length) GetAttributeFallbackDiagnosticSpan(AttributeNode attribute)
-        => (1, 1, Math.Max(1, attribute.Name.Length));
 
     private bool TryInferAttributeArgumentClrType(Expression expression, out Type clrType, out bool isNull)
     {
@@ -1771,7 +1760,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.ConstantRequired,
             $"Table-driven test case values must be compile-time constants; {DescribeTableCaseValueForDiagnostic(expression)} is not supported here",
@@ -1801,7 +1790,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.TypeMismatch,
             $"Table-driven test case value for '{parameterName}' is '{actualType}', but the table header declares '{expectedType}'",
@@ -2081,7 +2070,7 @@ public class Analyzer : IDisposable
             }
             else if (!reportedGeneratorExpressionBody && BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) && !_assignability.IsAssignable(functionReturnType, exprType))
             {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(func.ExpressionBody);
                 var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                 if (sourceSnippet != null && _currentFilePath != null)
@@ -2119,7 +2108,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(func.ExpressionBody);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(func.ExpressionBody);
         Error(
             ErrorCode.InvalidSyntax,
             "Generator functions must use a block body",
@@ -2148,12 +2137,12 @@ public class Analyzer : IDisposable
         var sequenceKind = GeneratorSequenceTypeFacts.ExpectedSequenceKind(isAsyncGenerator);
         var suggestion = GeneratorSequenceTypeFacts.ReturnTypeSuggestion(isAsyncGenerator);
         var (line, column, length) = func.ReturnType != null
-            ? GetSourceSpanDiagnosticSpan(
+            ? AnalyzerDiagnosticSpanFacts.GetSourceSpanDiagnosticSpan(
                 TypeReferenceFacts.GetStartSpan(func.ReturnType),
                 func.Line,
                 func.Column,
                 Math.Max(1, returnType.ToString().Length))
-            : GetFunctionNameDiagnosticSpan(func);
+            : _spans.GetFunctionNameDiagnosticSpan(func);
         Error(
             ErrorCode.TypeMismatch,
             $"Generator function '{func.Name}' must return {sequenceKind}, but it returns '{returnType}'",
@@ -2525,7 +2514,7 @@ public class Analyzer : IDisposable
             if (IsSupportedSoaColumnType(resolvedColumnType))
                 continue;
 
-            var (line, columnPosition, length) = GetSoaColumnTypeDiagnosticSpan(column);
+            var (line, columnPosition, length) = AnalyzerDiagnosticSpanFacts.GetSoaColumnTypeDiagnosticSpan(column);
             Error(
                 ErrorCode.FeatureNotImplemented,
                 $"SoA column type '{resolvedColumnType}' is not supported in this lowering",
@@ -2542,7 +2531,7 @@ public class Analyzer : IDisposable
         var columnNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var column in soaRecordDecl.Columns)
         {
-            var (line, columnPosition, length) = GetSoaColumnNameDiagnosticSpan(column, soaRecordDecl);
+            var (line, columnPosition, length) = AnalyzerDiagnosticSpanFacts.GetSoaColumnNameDiagnosticSpan(column, soaRecordDecl);
             if (!columnNames.Add(column.Name))
             {
                 Error(
@@ -2592,25 +2581,6 @@ public class Analyzer : IDisposable
             || BuiltInTypes.Is(resolved, BuiltInTypes.Bool)
             || BuiltInTypes.Is(resolved, BuiltInTypes.Char)
             || BuiltInTypes.Is(resolved, BuiltInTypes.String);
-    }
-
-    private static (int Line, int Column, int Length) GetSoaColumnTypeDiagnosticSpan(SoaColumnDeclaration column)
-    {
-        var typeSpan = TypeReferenceFacts.GetStartSpan(column.Type);
-        return GetSourceSpanDiagnosticSpan(
-            typeSpan,
-            column.Line,
-            column.Column,
-            Math.Max(1, column.Name.Length));
-    }
-
-    private static (int Line, int Column, int Length) GetSoaColumnNameDiagnosticSpan(
-        SoaColumnDeclaration column,
-        SoaRecordDeclaration declaration)
-    {
-        var line = column.Line > 0 ? column.Line : declaration.Line;
-        var columnPosition = column.Column > 0 ? column.Column : declaration.Column;
-        return (line, columnPosition, Math.Max(1, column.Name.Length));
     }
 
     private void AnalyzeInterfaceDeclaration(InterfaceDeclaration interfaceDecl)
@@ -2749,7 +2719,7 @@ public class Analyzer : IDisposable
                 var valueType = AnalyzeExpression(member.Value);
                 if (enumDecl.Type == EnumType.Int && !IsNumericType(valueType))
                 {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(member.Value);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(member.Value);
                     Error(
                         ErrorCode.TypeMismatch,
                         $"Enum member '{member.Name}' must have a numeric value — this enum uses int values",
@@ -2760,7 +2730,7 @@ public class Analyzer : IDisposable
                 }
                 else if (enumDecl.Type == EnumType.String && !IsStringType(valueType))
                 {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(member.Value);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(member.Value);
                     Error(
                         ErrorCode.TypeMismatch,
                         $"Enum member '{member.Name}' must have a string value — this enum uses string values",
@@ -2821,7 +2791,7 @@ public class Analyzer : IDisposable
                 if (!isSoaRowInitializer && !isSoaDirectColumnInitializer && !_assignability.IsAssignable(fieldType, initType))
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                        GetExpressionDiagnosticSpan(field.Initializer);
+                        _spans.GetExpressionDiagnosticSpan(field.Initializer);
                     var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                     if (sourceSnippet != null && _currentFilePath != null)
@@ -2882,7 +2852,7 @@ public class Analyzer : IDisposable
             if (!_assignability.IsAssignable(propType, exprType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                    GetExpressionDiagnosticSpan(prop.ExpressionBody);
+                    _spans.GetExpressionDiagnosticSpan(prop.ExpressionBody);
                 var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                 if (sourceSnippet != null && _currentFilePath != null)
@@ -3599,7 +3569,7 @@ public class Analyzer : IDisposable
         {
             if (terminated)
             {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetStatementDiagnosticSpan(stmt);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetStatementDiagnosticSpan(stmt);
                 Error(
                     ErrorCode.UnreachableStatement,
                     "This code will never run — there's a 'return' or 'throw' above it",
@@ -3710,7 +3680,7 @@ public class Analyzer : IDisposable
                         && !BuiltInTypes.IsUnknown(elementType)
                         && !_assignability.IsAssignable(elementType, yieldedType))
                     {
-                        var (line, column, length) = GetExpressionDiagnosticSpan(yieldStmt.Value);
+                        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(yieldStmt.Value);
                         Error(
                             ErrorCode.TypeMismatch,
                             $"Generator yield value is '{yieldedType}', but the sequence element type is '{elementType}'",
@@ -3849,7 +3819,7 @@ public class Analyzer : IDisposable
             return;
 
         var calleeName = AnalyzerSyntheticCallFacts.GetCallTargetName(call);
-        var (line, column, length) = GetCallDiagnosticSpan(call, calleeName ?? "call");
+        var (line, column, length) = _spans.GetCallDiagnosticSpan(call, calleeName ?? "call");
         var subject = calleeName != null ? $"the result of '{calleeName}'" : "this result";
 
         Error(
@@ -4029,7 +3999,7 @@ public class Analyzer : IDisposable
 
     private void ReportInvalidExpressionStatement(Expression expression)
     {
-        var (line, column, length) = GetExpressionStatementDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionStatementDiagnosticSpan(expression);
         var description = DescribeExpressionForDiagnostic(expression);
 
         var sourceSnippet = GetSourceSnippet(line);
@@ -4067,7 +4037,7 @@ public class Analyzer : IDisposable
 
     private void ReportInvalidForIteratorExpression(Expression expression)
     {
-        var (line, column, length) = GetExpressionStatementDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionStatementDiagnosticSpan(expression);
         var description = DescribeExpressionForDiagnostic(expression);
 
         var sourceSnippet = GetSourceSnippet(line);
@@ -4092,323 +4062,18 @@ public class Analyzer : IDisposable
             length);
     }
 
-    private (int Line, int Column, int Length) GetExpressionStatementDiagnosticSpan(Expression expression)
-    {
-        return expression switch
-        {
-            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
-            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
-            ParenthesizedExpression parenthesized => GetExpressionStatementDiagnosticSpan(parenthesized.Inner),
-            CheckedExpression checkedExpression => GetExpressionStatementDiagnosticSpan(checkedExpression.Expression),
-            UncheckedExpression uncheckedExpression => GetExpressionStatementDiagnosticSpan(uncheckedExpression.Expression),
-            _ => (expression.Line, expression.Column, GetExpressionLength(expression.Line, expression.Column))
-        };
-    }
-
-    private (int Line, int Column, int Length) GetStatementDiagnosticSpan(Statement statement)
-    {
-        return statement switch
-        {
-            ExpressionStatement expressionStatement => GetExpressionStatementDiagnosticSpan(expressionStatement.Expression),
-            VariableDeclarationStatement variableDeclaration => GetVariableDeclarationNameDiagnosticSpan(variableDeclaration),
-            LocalFunctionStatement localFunction => (
-                localFunction.Line,
-                localFunction.Column,
-                GetTokenLength(localFunction.Line, localFunction.Column)),
-            _ => (statement.Line, statement.Column, GetTokenLength(statement.Line, statement.Column))
-        };
-    }
-
-    private static (int Line, int Column, int Length) GetVariableDeclarationNameDiagnosticSpan(
-        VariableDeclarationStatement variableDeclaration)
-        => (
-            variableDeclaration.Line,
-            variableDeclaration.Column,
-            Math.Max(1, variableDeclaration.Name.Length));
-
-    private (int Line, int Column, int Length) GetFunctionNameDiagnosticSpan(FunctionDeclaration function)
-    {
-        if (string.IsNullOrWhiteSpace(function.Name) || function.Name == "<error>")
-            return (function.Line, function.Column, GetTokenLength(function.Line, function.Column));
-
-        return (
-            function.Line,
-            GetDeclarationNameColumn(function.Name, function.Line, function.Column),
-            Math.Max(1, function.Name.Length));
-    }
-
-    private (int Line, int Column, int Length) GetExpressionDiagnosticSpan(Expression expression)
-    {
-        return expression switch
-        {
-            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
-            ThisExpression thisExpression => (thisExpression.Line, thisExpression.Column, "this".Length),
-            IntLiteralExpression literal => (literal.Line, literal.Column, Math.Max(1, literal.Value.Length)),
-            FloatLiteralExpression literal => (literal.Line, literal.Column, Math.Max(1, literal.Value.Length)),
-            CharLiteralExpression literal => (literal.Line, literal.Column, GetTokenLength(literal.Line, literal.Column)),
-            StringLiteralExpression literal => (literal.Line, literal.Column, GetTokenLength(literal.Line, literal.Column)),
-            InterpolatedStringExpression interpolated => (interpolated.Line, interpolated.Column, GetTokenLength(interpolated.Line, interpolated.Column)),
-            BoolLiteralExpression literal => (literal.Line, literal.Column, literal.Value ? 4 : 5),
-            NullLiteralExpression literal => (literal.Line, literal.Column, 4),
-            MemberAccessExpression memberAccess when TryGetStableNullPath(memberAccess) is { } path
-                => GetStablePathDiagnosticSpan(memberAccess, path, memberAccess.Line, GetMemberNameColumn(memberAccess)),
-            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
-            ParenthesizedExpression parenthesized => GetExpressionDiagnosticSpan(parenthesized.Inner),
-            CheckedExpression checkedExpression => GetExpressionDiagnosticSpan(checkedExpression.Expression),
-            UncheckedExpression uncheckedExpression => GetExpressionDiagnosticSpan(uncheckedExpression.Expression),
-            AllocExpression allocExpression => GetExpressionDiagnosticSpan(allocExpression.Expression),
-            CallExpression call => GetCallDiagnosticSpan(call, AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? "call"),
-            _ => (expression.Line, expression.Column, GetTokenLength(expression.Line, expression.Column))
-        };
-    }
-
-    private (int Line, int Column, int Length) GetPatternNameDiagnosticSpan(Pattern pattern)
-    {
-        return pattern switch
-        {
-            IdentifierPattern identifier => (
-                identifier.Line,
-                identifier.Column,
-                Math.Max(1, identifier.Name.Length)),
-            UnionCasePattern unionCase => (
-                unionCase.Line,
-                unionCase.Column,
-                Math.Max(1, unionCase.CaseName.Length)),
-            TypePattern typePattern => (
-                typePattern.Line,
-                typePattern.Column,
-                GetTypePatternNameLength(typePattern)),
-            ListPattern listPattern => GetListPatternDiagnosticSpan(listPattern),
-            _ => (pattern.Line, pattern.Column, GetTokenLength(pattern.Line, pattern.Column))
-        };
-    }
-
-    private int GetTypePatternNameLength(TypePattern typePattern)
-    {
-        return typePattern.Type switch
-        {
-            SimpleTypeReference simple => Math.Max(1, simple.Name.Length),
-            GenericTypeReference generic => Math.Max(1, generic.Name.Length),
-            _ => GetTokenLength(typePattern.Line, typePattern.Column)
-        };
-    }
-
-    private (int Line, int Column, int Length) GetPropertyPatternNameDiagnosticSpan(
-        PropertyPattern propertyPattern,
-        int fallbackLine,
-        int fallbackColumn)
-    {
-        var line = propertyPattern.Line > 0 ? propertyPattern.Line : fallbackLine;
-        var column = propertyPattern.Column > 0 ? propertyPattern.Column : fallbackColumn;
-        var length = propertyPattern.Name == "<error>"
-            ? GetTokenLength(line, column)
-            : Math.Max(1, propertyPattern.Name.Length);
-
-        return (line, column, length);
-    }
-
-    private (int Line, int Column, int Length) GetListPatternDiagnosticSpan(ListPattern listPattern)
-        => (listPattern.Line, listPattern.Column, GetDelimitedPatternLength(listPattern.Line, listPattern.Column, '[', ']'));
-
-    /// <summary>
-    /// Computes the span for an 'is' expression covering the 'is' keyword through the
-    /// tested type name (e.g. underlines <c>is string</c>). Falls back to the 'is'
-    /// keyword alone when source text is unavailable.
-    /// </summary>
-    private (int Line, int Column, int Length) GetIsExpressionDiagnosticSpan(IsExpression isExpr)
-    {
-        const int IsKeywordLength = 2;
-
-        var sourceLine = GetSourceSnippet(isExpr.Line);
-        if (sourceLine == null)
-            return (isExpr.Line, isExpr.Column, IsKeywordLength);
-
-        var start = isExpr.Column - 1;
-        if (start < 0 || start >= sourceLine.Length)
-            return (isExpr.Line, isExpr.Column, IsKeywordLength);
-
-        // Skip the 'is' keyword and any whitespace before the type name.
-        var typeStart = start + IsKeywordLength;
-        while (typeStart < sourceLine.Length && char.IsWhiteSpace(sourceLine[typeStart]))
-            typeStart++;
-
-        if (typeStart >= sourceLine.Length)
-            return (isExpr.Line, isExpr.Column, IsKeywordLength);
-
-        var typeEnd = typeStart;
-        while (typeEnd < sourceLine.Length &&
-               (char.IsLetterOrDigit(sourceLine[typeEnd]) || sourceLine[typeEnd] is '_' or '.' or '<' or '>' or '?' or '[' or ']'))
-        {
-            typeEnd++;
-        }
-
-        if (typeEnd <= typeStart)
-            return (isExpr.Line, isExpr.Column, IsKeywordLength);
-
-        return (isExpr.Line, isExpr.Column, typeEnd - start);
-    }
-
-    private int GetDelimitedPatternLength(int line, int column, char openDelimiter, char closeDelimiter)
-    {
-        var sourceLine = GetSourceSnippet(line);
-        if (sourceLine == null)
-            return 1;
-
-        var start = column - 1;
-        if (start < 0 || start >= sourceLine.Length || sourceLine[start] != openDelimiter)
-            return GetTokenLength(line, column);
-
-        var depth = 0;
-        for (var i = start; i < sourceLine.Length; i++)
-        {
-            if (sourceLine[i] == openDelimiter)
-            {
-                depth++;
-            }
-            else if (sourceLine[i] == closeDelimiter)
-            {
-                depth--;
-                if (depth == 0)
-                    return i - start + 1;
-            }
-        }
-
-        return Math.Max(1, sourceLine.TrimEnd().Length - start);
-    }
-
     private void ReportBooleanConditionTypeMismatch(Expression condition, string owner, TypeInfo actualType)
     {
         if (BuiltInTypes.IsUnknown(actualType) || ContainsParserErrorPlaceholder(condition))
             return;
 
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(condition);
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(condition);
         Error(
             ErrorCode.TypeMismatch,
             $"The condition in {owner} must be a boolean, but I found '{actualType}'",
             diagnosticLine,
             diagnosticColumn,
             length: diagnosticLength);
-    }
-
-    private (int Line, int Column, int Length) GetBinaryOperatorDiagnosticSpan(BinaryExpression expression)
-        => (expression.Line, expression.Column, Math.Max(1, OperatorFacts.GetBinaryText(expression.Operator).Length));
-
-    private static (int Line, int Column, int Length) GetSourceSpanDiagnosticSpan(
-        SourceSpan span,
-        int fallbackLine,
-        int fallbackColumn,
-        int fallbackLength = 1)
-        => span.IsValid && span.StartLine == span.EndLine
-            ? (span.StartLine, span.StartColumn, Math.Max(1, span.Length))
-            : (fallbackLine, fallbackColumn, Math.Max(1, fallbackLength));
-
-    private (int Line, int Column, int Length) GetBinaryOperandDiagnosticSpan(
-        BinaryExpression expression,
-        bool leftIsWrong,
-        bool rightIsWrong)
-    {
-        if (leftIsWrong && !rightIsWrong)
-            return GetExpressionDiagnosticSpan(expression.Left);
-
-        if (rightIsWrong && !leftIsWrong)
-            return GetExpressionDiagnosticSpan(expression.Right);
-
-        return GetBinaryOperatorDiagnosticSpan(expression);
-    }
-
-    private (int Line, int Column, int Length) GetNullReceiverDiagnosticSpan(
-        Expression receiver,
-        string path,
-        int fallbackLine,
-        int fallbackColumn)
-    {
-        if (path != "this value")
-            return GetStablePathDiagnosticSpan(receiver, path, fallbackLine, fallbackColumn);
-
-        return GetExpressionDiagnosticSpan(receiver);
-    }
-
-    private (int Line, int Column, int Length) GetStablePathDiagnosticSpan(
-        Expression expression,
-        string path,
-        int fallbackLine,
-        int fallbackColumn)
-    {
-        var (line, column) = GetExpressionStartPosition(expression, fallbackLine, fallbackColumn);
-        var sourceLine = GetSourceSnippet(line);
-        if (sourceLine != null)
-        {
-            var startIndex = Math.Clamp(column - 1, 0, sourceLine.Length);
-            var index = sourceLine.IndexOf(path, startIndex, StringComparison.Ordinal);
-            if (index < 0)
-            {
-                index = sourceLine.IndexOf(path, StringComparison.Ordinal);
-            }
-
-            if (index >= 0)
-            {
-                return (line, index + 1, Math.Max(1, path.Length));
-            }
-        }
-
-        return (line, column, Math.Max(1, path.Length));
-    }
-
-    private static (int Line, int Column) GetExpressionStartPosition(Expression expression, int fallbackLine, int fallbackColumn)
-    {
-        return expression switch
-        {
-            MemberAccessExpression memberAccess => GetExpressionStartPosition(memberAccess.Object, fallbackLine, fallbackColumn),
-            IndexAccessExpression indexAccess => GetExpressionStartPosition(indexAccess.Object, fallbackLine, fallbackColumn),
-            CallExpression call => GetExpressionStartPosition(call.Callee, fallbackLine, fallbackColumn),
-            ParenthesizedExpression parenthesized => GetExpressionStartPosition(parenthesized.Inner, fallbackLine, fallbackColumn),
-            CheckedExpression checkedExpression => GetExpressionStartPosition(checkedExpression.Expression, fallbackLine, fallbackColumn),
-            UncheckedExpression uncheckedExpression => GetExpressionStartPosition(uncheckedExpression.Expression, fallbackLine, fallbackColumn),
-            _ when expression.Line > 0 && expression.Column > 0 => (expression.Line, expression.Column),
-            _ => (fallbackLine, fallbackColumn)
-        };
-    }
-
-    private int GetTokenLength(int line, int column)
-    {
-        var sourceLine = GetSourceSnippet(line);
-        if (sourceLine == null)
-            return 1;
-
-        var start = column - 1;
-        if (start < 0 || start >= sourceLine.Length)
-            return 1;
-
-        if (sourceLine[start] == '"')
-            return ScanQuotedTokenLength(sourceLine, start, '"');
-
-        if (sourceLine[start] == '\'')
-            return ScanQuotedTokenLength(sourceLine, start, '\'');
-
-        if (sourceLine[start] == '$' && start + 1 < sourceLine.Length && sourceLine[start + 1] == '"')
-            return 1 + ScanQuotedTokenLength(sourceLine, start + 1, '"');
-
-        var end = start;
-        while (end < sourceLine.Length && !char.IsWhiteSpace(sourceLine[end]) && sourceLine[end] is not ',' and not ')' and not ']' and not '}')
-        {
-            end++;
-        }
-
-        return Math.Max(1, end - start);
-    }
-
-    private static int ScanQuotedTokenLength(string sourceLine, int quoteStart, char quote)
-    {
-        var index = quoteStart + 1;
-        while (index < sourceLine.Length)
-        {
-            if (sourceLine[index] == quote && sourceLine[index - 1] != '\\')
-                return index - quoteStart + 1;
-
-            index++;
-        }
-
-        return Math.Max(1, sourceLine.Length - quoteStart);
     }
 
     private string DescribeExpressionForDiagnostic(Expression expression)
@@ -4425,18 +4090,6 @@ public class Analyzer : IDisposable
             MatchExpression => "match expression",
             _ => expression.GetType().Name.Replace("Expression", "", StringComparison.Ordinal)
         };
-    }
-
-    private int GetExpressionLength(int line, int column)
-    {
-        var sourceLine = GetSourceSnippet(line);
-        if (sourceLine == null)
-            return 1;
-
-        if (column <= 0 || column > sourceLine.Length)
-            return Math.Max(1, sourceLine.TrimEnd().Length);
-
-        return Math.Max(1, sourceLine.TrimEnd().Length - column + 1);
     }
 
     private void AnalyzeAssertStatement(AssertStatement assertStmt)
@@ -4547,7 +4200,7 @@ public class Analyzer : IDisposable
             // Verify expression type matches return type
             if (!reportedGeneratorExpressionBody && BuiltInTypes.IsNot(returnType, BuiltInTypes.Void) && !_assignability.IsAssignable(returnType, exprType))
             {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(func.ExpressionBody);
                 Error(ErrorCode.TypeMismatch, $"Function '{func.Name}' should return '{returnType}' but the expression body gives '{exprType}'",
                     diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
@@ -4591,7 +4244,7 @@ public class Analyzer : IDisposable
             if (!_assignability.IsAssignable(declaredType, inferredType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                    GetExpressionDiagnosticSpan(varDecl.Initializer);
+                    _spans.GetExpressionDiagnosticSpan(varDecl.Initializer);
                 var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
                 if (sourceSnippet != null && _currentFilePath != null)
@@ -4619,7 +4272,7 @@ public class Analyzer : IDisposable
             // Type specified but no initializer
             if (varDecl.Kind == VariableKind.Const)
             {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetVariableDeclarationNameDiagnosticSpan(varDecl);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(varDecl);
                 Error(
                     ErrorCode.InvalidSyntax,
                     "A 'const' must have an initial value — the compiler needs to know its value at compile time",
@@ -4636,8 +4289,8 @@ public class Analyzer : IDisposable
             if (BuiltInTypes.Is(inferredType, BuiltInTypes.Void))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = varDecl.Initializer != null
-                    ? GetExpressionDiagnosticSpan(varDecl.Initializer)
-                    : (varDecl.Line, varDecl.Column, Math.Max(1, varDecl.Name.Length));
+                    ? _spans.GetExpressionDiagnosticSpan(varDecl.Initializer)
+                    : new DiagnosticSpan(varDecl.Line, varDecl.Column, Math.Max(1, varDecl.Name.Length));
                 Error(ErrorCode.TypeMismatch, "This expression doesn't return a value (it's void) — you can't assign it to a variable",
                     diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 finalType = BuiltInTypes.Unknown;
@@ -4650,7 +4303,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetVariableDeclarationNameDiagnosticSpan(varDecl);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(varDecl);
             Error(
                 ErrorCode.InvalidSyntax,
                 "I can't determine the type of this variable — give it a type annotation or an initial value",
@@ -4738,7 +4391,7 @@ public class Analyzer : IDisposable
 
             if (!TryGetTupleDeconstructionElements(initType, out var elements))
             {
-                var (line, column, length) = GetExpressionDiagnosticSpan(tupleDecl.Initializer);
+                var (line, column, length) = _spans.GetExpressionDiagnosticSpan(tupleDecl.Initializer);
                 Error(
                     ErrorCode.InvalidSyntax,
                     $"Tuple deconstruction needs a tuple value, but this initializer is '{initType}'",
@@ -4752,7 +4405,7 @@ public class Analyzer : IDisposable
 
             if (elements.Count != tupleDecl.Names.Count)
             {
-                var (line, column, length) = GetExpressionDiagnosticSpan(tupleDecl.Initializer);
+                var (line, column, length) = _spans.GetExpressionDiagnosticSpan(tupleDecl.Initializer);
                 Error(
                     ErrorCode.InvalidSyntax,
                     $"Tuple deconstruction has {tupleDecl.Names.Count} target(s), but the initializer has {elements.Count} element(s)",
@@ -4850,7 +4503,7 @@ public class Analyzer : IDisposable
         if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !ContainsParserErrorPlaceholder(ifStmt.Condition))
         {
             // Use ErrorMessageBuilder for better error message
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(ifStmt.Condition);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(ifStmt.Condition);
             var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
             if (sourceSnippet != null && _currentFilePath != null)
@@ -5012,7 +4665,7 @@ public class Analyzer : IDisposable
             {
                 // `x is Dog d` — declare d: Dog in then-branch
                 thenNarrowings.Add(new FlowNarrowing(isExpr.VariableName, narrowedType, NullState.NotNull));
-                if (TryGetStableNullPath(isExpr.Expression) is { } path
+                if (AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(isExpr.Expression) is { } path
                     && !path.Contains('.', StringComparison.Ordinal)
                     && _scopes.LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
                     && TryRemoveAnonymousUnionArm(sourceUnion, narrowedType) is { } remainingType)
@@ -5020,7 +4673,7 @@ public class Analyzer : IDisposable
                     elseNarrowings.Add(new FlowNarrowing(path, remainingType, NullState.NotNull));
                 }
             }
-            else if (TryGetStableNullPath(isExpr.Expression) is { } path)
+            else if (AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(isExpr.Expression) is { } path)
             {
                 // `x is Dog` — narrow x to Dog in then-branch
                 thenNarrowings.Add(new FlowNarrowing(path, narrowedType, NullState.NotNull));
@@ -5071,7 +4724,7 @@ public class Analyzer : IDisposable
         if (other is not NullLiteralExpression)
             return;
 
-        var path = TryGetStableNullPath(expr);
+        var path = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(expr);
         if (path == null)
             return;
 
@@ -5317,7 +4970,7 @@ public class Analyzer : IDisposable
         string expectedKind,
         string suggestion)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(collection);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(collection);
         Error(
             ErrorCode.TypeMismatch,
             $"{loopKind} collection must be {expectedKind}, but this collection is '{collectionType}'",
@@ -5516,7 +5169,7 @@ public class Analyzer : IDisposable
 
             if (_currentFunction?.Modifiers.HasFlag(Modifiers.Generator) == true)
             {
-                var (line, column, length) = GetExpressionDiagnosticSpan(returnStmt.Value);
+                var (line, column, length) = _spans.GetExpressionDiagnosticSpan(returnStmt.Value);
                 Error(
                     ErrorCode.InvalidSyntax,
                     "Generator functions cannot return a value",
@@ -5578,10 +5231,10 @@ public class Analyzer : IDisposable
         var functionName = _currentFunction?.Name ?? "this function";
         CompilerError error;
         var (diagnosticLine, diagnosticColumn, diagnosticLength) = _currentFunctionReturnTypeWasOmitted && _currentFunction != null
-            ? GetFunctionNameDiagnosticSpan(_currentFunction)
+            ? _spans.GetFunctionNameDiagnosticSpan(_currentFunction)
             : returnStmt.Value != null
-            ? GetExpressionDiagnosticSpan(returnStmt.Value)
-            : (returnStmt.Line, returnStmt.Column, 6);
+            ? _spans.GetExpressionDiagnosticSpan(returnStmt.Value)
+            : new DiagnosticSpan(returnStmt.Line, returnStmt.Column, 6);
         var diagnosticSourceSnippet = GetSourceSnippet(diagnosticLine) ?? sourceSnippet;
 
         if (BuiltInTypes.Is(_currentReturnType, BuiltInTypes.Void))
@@ -5623,10 +5276,10 @@ public class Analyzer : IDisposable
     private void AddExpressionBodyReturnError(FunctionDeclaration func, TypeInfo expressionType, int? fallbackLine = null, int? fallbackColumn = null)
     {
         var (line, column, length) = _currentFunctionReturnTypeWasOmitted
-            ? GetFunctionNameDiagnosticSpan(func)
+            ? _spans.GetFunctionNameDiagnosticSpan(func)
             : func.ExpressionBody != null
-            ? GetExpressionDiagnosticSpan(func.ExpressionBody)
-            : (fallbackLine ?? func.Line, fallbackColumn ?? func.Column, 1);
+            ? _spans.GetExpressionDiagnosticSpan(func.ExpressionBody)
+            : new DiagnosticSpan(fallbackLine ?? func.Line, fallbackColumn ?? func.Column, 1);
         var sourceSnippet = GetSourceSnippet(line);
 
         if (sourceSnippet != null && _currentFilePath != null)
@@ -5767,7 +5420,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.TypeMismatch,
             $"Throw expressions must be assignable to System.Exception, but this expression is '{thrownType}'",
@@ -5877,7 +5530,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetVariableDeclarationNameDiagnosticSpan(declaration);
+        var (line, column, length) = AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(declaration);
         ReportNonDisposableUsingResource(resourceType, line, column, length);
     }
 
@@ -5888,7 +5541,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         ReportNonDisposableUsingResource(resourceType, line, column, length);
     }
 
@@ -6024,7 +5677,7 @@ public class Analyzer : IDisposable
 
     private void ReportLockRequiresReferenceType(Expression lockee, string typeName, bool isTypeParameter)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(lockee);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(lockee);
         var sourceSnippet = GetSourceSnippet(line);
         if (sourceSnippet != null && _currentFilePath != null)
         {
@@ -6188,7 +5841,7 @@ public class Analyzer : IDisposable
                     if (!TryGetUnionCaseForPattern(ut, identPattern.Name, out _))
                     {
                         var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                            GetPatternNameDiagnosticSpan(identPattern);
+                            _spans.GetPatternNameDiagnosticSpan(identPattern);
                         Error(ErrorCode.InvalidPattern,
                             $"'{identPattern.Name}' is not a case of union '{ut}' — check the union definition for available cases",
                             diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -6219,7 +5872,7 @@ public class Analyzer : IDisposable
                     if (!TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchingCase))
                     {
                         var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                            GetPatternNameDiagnosticSpan(unionPattern);
+                            _spans.GetPatternNameDiagnosticSpan(unionPattern);
                         Error(ErrorCode.InvalidPattern,
                             $"'{unionPattern.CaseName}' is not a case of union '{unionType}' — check the union definition for available cases",
                             diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -6230,7 +5883,7 @@ public class Analyzer : IDisposable
                         if (matchingCase.Properties == null)
                         {
                             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                                GetPatternNameDiagnosticSpan(unionPattern);
+                                _spans.GetPatternNameDiagnosticSpan(unionPattern);
                             Error(ErrorCode.InvalidPattern,
                                 $"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
                                 diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -6238,7 +5891,7 @@ public class Analyzer : IDisposable
                         else if (matchingCase.Properties.Count == 0)
                         {
                             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                                GetPatternNameDiagnosticSpan(unionPattern);
+                                _spans.GetPatternNameDiagnosticSpan(unionPattern);
                             Error(ErrorCode.InvalidPattern,
                                 $"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
                                 diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -6268,14 +5921,14 @@ public class Analyzer : IDisposable
                                         // Simple binding
                                         var bindingName = propPattern.BindingName ?? propPattern.Name;
                                         var (bindingLine, bindingColumn, _) =
-                                            GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
+                                            _spans.GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
                                         DeclareSymbol(bindingName, propType, bindingLine, bindingColumn);
                                     }
                                 }
                                 else
                                 {
                                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                                        GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
+                                        _spans.GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
                                     Error(ErrorCode.InvalidPattern,
                                         $"Union case '{caseName}' doesn't have a property named '{propPattern.Name}' — check the case definition for available properties",
                                         diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -6331,7 +5984,7 @@ public class Analyzer : IDisposable
                 if (!TryGetListPatternElementType(valueType, out var elementType))
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                        GetListPatternDiagnosticSpan(listPattern);
+                        _spans.GetListPatternDiagnosticSpan(listPattern);
                     Error(ErrorCode.PatternTypeMismatch,
                         $"A list pattern can only match arrays or indexable collections, but this value is '{valueType}'",
                         diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -6377,7 +6030,7 @@ public class Analyzer : IDisposable
                 if (!IsPatternPossible(valueType, targetType))
                 {
                     var (impossibleLine, impossibleColumn, impossibleLength) =
-                        GetPatternNameDiagnosticSpan(typePattern);
+                        _spans.GetPatternNameDiagnosticSpan(typePattern);
                     Error(ErrorCode.ImpossiblePattern,
                         $"This '{targetType}' pattern can never match — a '{valueType}' is never a '{targetType}'",
                         impossibleLine, impossibleColumn, length: impossibleLength);
@@ -6618,7 +6271,7 @@ public class Analyzer : IDisposable
             if (propType == null)
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                    GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
+                    _spans.GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
                 Error(ErrorCode.InvalidPattern,
                     $"'{valueType}' doesn't have a property named '{propPattern.Name}'",
                     diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -6635,7 +6288,7 @@ public class Analyzer : IDisposable
                 // Simple binding - use BindingName if provided, otherwise use property Name
                 var bindingName = propPattern.BindingName ?? propPattern.Name;
                 var (bindingLine, bindingColumn, _) =
-                    GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
+                    _spans.GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
                 DeclareSymbol(bindingName, propType, bindingLine, bindingColumn);
             }
         }
@@ -6795,7 +6448,7 @@ public class Analyzer : IDisposable
 
     private void ReportSyntheticSoaOperationUsedAsValue(Expression expression, FunctionTypeInfo operation)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         var operationName = operation.SyntheticName ?? "operation";
         var callTarget = RenderSyntheticSoaOperationTarget(expression, operationName);
         var callShape = operation.ParameterTypes is { Count: 0 }
@@ -6824,7 +6477,7 @@ public class Analyzer : IDisposable
 
     private void ReportMethodGroupUsedAsValue(Expression expression, TypeInfo type)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         var name = GetCallableReferenceName(expression, type);
         if (!_reportedCallableReferenceDiagnostics.Add((line, column, name)))
             return;
@@ -6923,7 +6576,7 @@ public class Analyzer : IDisposable
             return NullState.MaybeNull;
         }
 
-        var path = TryGetStableNullPath(expr);
+        var path = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(expr);
         if (path != null && _scopes.HasNullState(path))
             return _scopes.NullStateOrUnknown(path);
 
@@ -7050,7 +6703,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(endpoint);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(endpoint);
         Error(
             ErrorCode.TypeMismatch,
             $"Range bounds must be int or System.Index, but this bound has type '{endpointType}'",
@@ -7236,7 +6889,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression.Left);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression.Left);
         Error(
             ErrorCode.TypeMismatch,
             $"The left side of '??' has type '{leftType}', which can't be null",
@@ -7274,7 +6927,7 @@ public class Analyzer : IDisposable
             var leftIsWrong = !IsNumericType(left);
             var rightIsWrong = !IsNumericType(right);
             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+                _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
             var opText = OperatorFacts.GetBinaryText(expr.Operator);
             var sideText = leftIsWrong == rightIsWrong
                 ? $"I found '{left}' and '{right}'"
@@ -7295,7 +6948,7 @@ public class Analyzer : IDisposable
         var result = GetWiderType(left, right);
         if (result == null)
         {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expr);
             var opText = OperatorFacts.GetBinaryText(expr.Operator);
             Error(
                 ErrorCode.TypeMismatch,
@@ -7394,7 +7047,7 @@ public class Analyzer : IDisposable
                 return BuiltInTypes.Bool;
             }
 
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expr);
             var opText = OperatorFacts.GetBinaryText(expr.Operator);
             Error(
                 ErrorCode.TypeMismatch,
@@ -7411,7 +7064,7 @@ public class Analyzer : IDisposable
             var leftIsWrong = !IsPrimitiveRelationalType(left);
             var rightIsWrong = !IsPrimitiveRelationalType(right);
             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+                _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
             var opText = OperatorFacts.GetBinaryText(expr.Operator);
             var sideText = leftIsWrong == rightIsWrong
                 ? $"I found '{left}' and '{right}'"
@@ -7430,7 +7083,7 @@ public class Analyzer : IDisposable
 
         if (GetWiderType(left, right) == null)
         {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expr);
             var opText = OperatorFacts.GetBinaryText(expr.Operator);
             Error(
                 ErrorCode.TypeMismatch,
@@ -7459,7 +7112,7 @@ public class Analyzer : IDisposable
                 return BuiltInTypes.Bool;
             }
 
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expr);
             var opText = OperatorFacts.GetBinaryText(expr.Operator);
             Error(
                 ErrorCode.TypeMismatch,
@@ -7477,7 +7130,7 @@ public class Analyzer : IDisposable
         }
 
         var (diagnosticLine2, diagnosticColumn2, diagnosticLength2) =
-            GetBinaryOperandDiagnosticSpan(expr, leftIsWrong: true, rightIsWrong: true);
+            _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong: true, rightIsWrong: true);
         var opText2 = OperatorFacts.GetBinaryText(expr.Operator);
         Error(
             ErrorCode.TypeMismatch,
@@ -7784,7 +7437,7 @@ public class Analyzer : IDisposable
             var leftIsWrong = !IsBoolType(left);
             var rightIsWrong = !IsBoolType(right);
             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+                _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
             var opText = OperatorFacts.GetBinaryText(expr.Operator);
             var sideText = leftIsWrong == rightIsWrong
                 ? $"I found '{left}' and '{right}'"
@@ -7936,7 +7589,7 @@ public class Analyzer : IDisposable
         }
 
         var opText = OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator";
-        var (line, column, length) = GetExpressionDiagnosticSpan(unary.Operand);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(unary.Operand);
         Error(
             ErrorCode.InvalidSyntax,
             $"The '{opText}' operator needs an assignable target",
@@ -8084,7 +7737,7 @@ public class Analyzer : IDisposable
                     }
                     return symbolType;
                 }
-                var memberColumn = GetMemberNameColumn(member);
+                var memberColumn = _spans.GetMemberNameColumn(member);
                 var similarSymbols = symbols.Count == 0
                     ? new List<string>()
                     : new SmartSuggester(symbols.Keys.ToList()).SuggestSimilarNames(member.MemberName);
@@ -8291,7 +7944,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.TypeMismatch,
             $"SoA {targetDescription} indexes must not be negative",
@@ -8304,7 +7957,7 @@ public class Analyzer : IDisposable
 
     private void ReportInvalidSoaRowIndex(Expression expression, TypeInfo indexType, bool isRangeAccess)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
         var indexDescription = isRangeAccess
             ? "a range"
@@ -8322,7 +7975,7 @@ public class Analyzer : IDisposable
 
     private void ReportInvalidBuiltInIndex(Expression expression, TypeInfo indexType, string receiverDescription)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.TypeMismatch,
             $"{receiverDescription} indexes must be int, System.Index, or System.Range, but this index has type '{indexType}'",
@@ -8343,7 +7996,7 @@ public class Analyzer : IDisposable
 
     private void ReportSoaColumnSliceHiddenAllocation(IndexAccessExpression index)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(index);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(index);
         Error(
             ErrorCode.InvalidSyntax,
             "SoA column range slices allocate arrays; use explicit element indexing instead",
@@ -8363,7 +8016,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.InvalidSyntax,
             $"SoA table member '{columnMember.MemberName}' cannot use null-conditional {accessKind} directly",
@@ -8484,7 +8137,7 @@ public class Analyzer : IDisposable
         if (!IsUnsafeNullState(nullState))
             return;
 
-        var path = TryGetStableNullPath(receiver) ?? "this value";
+        var path = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(receiver) ?? "this value";
         var key = (line, column, path, operation);
         if (!_reportedNullabilityDiagnostics.Add(key))
             return;
@@ -8501,7 +8154,7 @@ public class Analyzer : IDisposable
             _ => $"Guard with 'if {path} == null {{ return }}' or add a fallback before using '{path}'."
         };
 
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetNullReceiverDiagnosticSpan(receiver, path, line, column);
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetNullReceiverDiagnosticSpan(receiver, path, line, column);
         Error(ErrorCode.PossibleNullAccess, message, diagnosticLine, diagnosticColumn, suggestion, diagnosticLength);
     }
 
@@ -8539,7 +8192,7 @@ public class Analyzer : IDisposable
                     ErrorCode.NullabilityWarning,
                     "This '.Value' access can throw when the nullable value is absent",
                     member.Line,
-                    GetMemberNameColumn(member),
+                    _spans.GetMemberNameColumn(member),
                     "Prefer 'must value' for an explicit unwrap, or use 'match value { null => ..., inner => ... }' to handle both cases.",
                     length: Math.Max(1, member.MemberName.Length));
             }
@@ -8628,7 +8281,7 @@ public class Analyzer : IDisposable
             && IsCrossPackageFile(filePath)
             && !isExported)
         {
-            _diagnostics.ReportInaccessibleMember(member.MemberName, filePath, member.Line, GetMemberNameColumn(member));
+            _diagnostics.ReportInaccessibleMember(member.MemberName, filePath, member.Line, _spans.GetMemberNameColumn(member));
         }
     }
 
@@ -8652,16 +8305,8 @@ public class Analyzer : IDisposable
 
     private void RecordMemberBinding(MemberAccessExpression member, SymbolDeclaration declaration)
     {
-        var memberColumn = GetMemberNameColumn(member);
+        var memberColumn = _spans.GetMemberNameColumn(member);
         _bindingMap.RecordBinding(_currentFilePath, member.Line, memberColumn, member.MemberName.Length, declaration);
-    }
-
-    private int GetMemberNameColumn(MemberAccessExpression member)
-    {
-        var fallbackColumn = member.Column + (member.IsNullConditional ? 2 : 1);
-        var sourceText = _sourceText ?? _projectSources.TryGetProjectSourceText(_currentFilePath);
-
-        return FindIdentifierNameColumn(sourceText, member.MemberName, member.Line, fallbackColumn);
     }
 
     private bool TryFindMemberDeclaration(
@@ -8788,7 +8433,7 @@ public class Analyzer : IDisposable
         };
 
     private void ReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member, bool includeStaticMembers)
-        => ReportUndefinedMember(receiverType, member.MemberName, member.Line, GetMemberNameColumn(member), includeStaticMembers);
+        => ReportUndefinedMember(receiverType, member.MemberName, member.Line, _spans.GetMemberNameColumn(member), includeStaticMembers);
 
     private void ReportUndefinedMember(
         TypeInfo receiverType,
@@ -8887,7 +8532,7 @@ public class Analyzer : IDisposable
             member.Name,
             filePath,
             member.Line,
-            FindIdentifierNameColumn(sourceText, member.Name, member.Line, member.Column),
+            AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, member.Name, member.Line, member.Column),
             member.KindName);
     }
 
@@ -9240,7 +8885,7 @@ public class Analyzer : IDisposable
 
     private void ReportSoaRowEscape(Expression expression, string action)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.InvalidSyntax,
             $"SoA row views cannot be {action}; use the table and row index instead",
@@ -9252,7 +8897,7 @@ public class Analyzer : IDisposable
 
     private void ReportSoaRowHiddenAllocation(Expression expression)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.InvalidSyntax,
             "this operation would allocate row objects; use column access instead",
@@ -9264,7 +8909,7 @@ public class Analyzer : IDisposable
 
     private void ReportSoaTableNullConditionalAccess(MemberAccessExpression member)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(member);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(member);
         Error(
             ErrorCode.InvalidSyntax,
             "SoA tables cannot use null-conditional member access",
@@ -9501,7 +9146,7 @@ public class Analyzer : IDisposable
         {
             int[]? syntheticParameterIndexByArgument = null;
             var parameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call);
-            if (TryBindSyntheticFunctionArguments(
+            if (_syntheticCallReporter.TryBindAndReport(
                     functionType,
                     AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call),
                     call,
@@ -9724,7 +9369,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(argument.Value);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(argument.Value);
         Error(
             ErrorCode.InvalidSyntax,
             $"The '{modifier}' argument needs an assignable target",
@@ -9917,7 +9562,7 @@ public class Analyzer : IDisposable
         ValidateSyntheticGenericConstraints(functionType, call, genericBindings);
         if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedArgumentCount))
         {
-            var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+            var (line, column, length) = _spans.GetCallDiagnosticSpan(call, functionName);
             var sourceSnippet = GetSourceSnippet(line);
             if (sourceSnippet != null && _currentFilePath != null)
             {
@@ -9947,12 +9592,13 @@ public class Analyzer : IDisposable
             return;
         }
 
-        if (!TryBindSyntheticFunctionArguments(
+        if (!_syntheticCallReporter.TryBindAndReport(
                 functionType,
                 functionName,
                 call,
                 out var parameterIndexByArgument,
-                parameterStartIndex))
+                parameterStartIndex,
+                reportErrors: true))
         {
             return;
         }
@@ -10010,7 +9656,7 @@ public class Analyzer : IDisposable
                 continue;
             }
 
-            var (line, column, length) = GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
             var parameterName = functionType.ParameterNames != null && parameterIndex < functionType.ParameterNames.Count
                 ? functionType.ParameterNames[parameterIndex]
                 : null;
@@ -10051,81 +9697,6 @@ public class Analyzer : IDisposable
         }
 
         ValidateSoaSyntheticFunctionCall(functionType, functionName, call, argTypes, parameterIndexByArgument);
-    }
-
-    /// <summary>
-    /// The family's reporting arm for the source binder's placement walk. The walk itself, and every
-    /// message it produces, is <see cref="AnalyzerSyntheticCallFacts.BindFunctionArguments"/>; all
-    /// this adds is the diagnostic SPAN, which is read off the analysed file's source text. Failures
-    /// are replayed in walk order, so a call reports exactly what the walk produced, where it
-    /// produced it.
-    /// </summary>
-    private bool TryBindSyntheticFunctionArguments(
-        FunctionTypeInfo functionType,
-        string functionName,
-        CallExpression call,
-        out int[] parameterIndexByArgument,
-        int parameterStartIndex = 0,
-        bool reportErrors = true)
-    {
-        var binding = AnalyzerSyntheticCallFacts.BindFunctionArguments(
-            functionType, functionName, call, parameterStartIndex);
-        parameterIndexByArgument = binding.ParameterIndexByArgument;
-        if (!reportErrors)
-            return binding.Success;
-
-        foreach (var failure in binding.Failures)
-        {
-            if (failure.ArgumentIndex >= 0)
-            {
-                ReportSyntheticArgumentBindingError(
-                    functionType,
-                    functionName,
-                    call.Arguments[failure.ArgumentIndex],
-                    failure.Message,
-                    parameterStartIndex);
-                continue;
-            }
-
-            ReportSyntheticMissingArgumentBindingError(
-                functionType, functionName, call, failure.Message, parameterStartIndex);
-        }
-
-        return binding.Success;
-    }
-
-    private void ReportSyntheticMissingArgumentBindingError(
-        FunctionTypeInfo functionType,
-        string functionName,
-        CallExpression call,
-        string message,
-        int parameterStartIndex)
-    {
-        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
-        Error(
-            ErrorCode.NoMatchingOverload,
-            message,
-            line,
-            column,
-            $"Use {AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)}.",
-            length);
-    }
-
-    private void ReportSyntheticArgumentBindingError(
-        FunctionTypeInfo functionType,
-        string functionName,
-        Argument argument,
-        string message,
-        int parameterStartIndex)
-    {
-        var (line, column, length) = GetExpressionDiagnosticSpan(argument.Value);
-        Error(
-            ErrorCode.NoMatchingOverload,
-            message,
-            line,
-            column,
-            $"Use {AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)}, or remove the argument name.",
-            length);
     }
 
     private void ValidateSoaSyntheticFunctionCall(
@@ -10226,7 +9797,7 @@ public class Analyzer : IDisposable
             var columnName = functionType.ParameterNames != null && parameterIndex < functionType.ParameterNames.Count
                 ? functionType.ParameterNames[parameterIndex]
                 : $"column {parameterIndex + 1}";
-            var (line, column, length) = GetExpressionDiagnosticSpan(argument.Value);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(argument.Value);
             Error(
                 ErrorCode.TypeMismatch,
                 $"SoA table wrap column '{columnName}' cannot be null",
@@ -10314,7 +9885,7 @@ public class Analyzer : IDisposable
         if (!IsConstantNegative(call.Arguments[argumentIndex].Value))
             return;
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
         Error(
             ErrorCode.TypeMismatch,
             message,
@@ -10353,7 +9924,7 @@ public class Analyzer : IDisposable
             return;
 
         var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidates[0].SyntheticName ?? "function";
-        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+        var (line, column, length) = _spans.GetCallDiagnosticSpan(call, functionName);
         var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
         var candidateSignatures = candidates
             .Select(candidate => AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(
@@ -10407,7 +9978,7 @@ public class Analyzer : IDisposable
             return;
 
         var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidateMethods[0].Name;
-        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+        var (line, column, length) = _spans.GetCallDiagnosticSpan(call, functionName);
         var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
         var candidateSignatures = candidateMethods
             .Select(method => AnalyzerOverloadFacts.FormatReflectionMethodSignature(method, call))
@@ -10446,7 +10017,7 @@ public class Analyzer : IDisposable
             return;
 
         var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidateMethods[0].Name;
-        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+        var (line, column, length) = _spans.GetCallDiagnosticSpan(call, functionName);
         Error(
             ErrorCode.NoMatchingOverload,
             $"No overload of '{functionName}' matches method group '{methodGroupArgumentName}'",
@@ -10454,16 +10025,6 @@ public class Analyzer : IDisposable
             column,
             "Check that the method group's parameters and return type match one of the delegate parameter types.",
             length);
-    }
-
-    private (int Line, int Column, int Length) GetCallDiagnosticSpan(CallExpression call, string functionName)
-    {
-        return call.Callee switch
-        {
-            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
-            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
-            _ => (call.Line, call.Column, Math.Max(1, functionName.Length))
-        };
     }
 
     private bool TryGetNSharpMethodGroupArgumentName(CallExpression call, out string name)
@@ -10714,7 +10275,7 @@ public class Analyzer : IDisposable
             return false;
 
         var functionName = AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call);
-        if (!TryBindSyntheticFunctionArguments(
+        if (!_syntheticCallReporter.TryBindAndReport(
                 functionType,
                 functionName,
                 call,
@@ -10914,7 +10475,7 @@ public class Analyzer : IDisposable
         }
     }
 
-    private (int Line, int Column, int Length) GetSyntheticGenericConstraintDiagnosticSpan(
+    private DiagnosticSpan GetSyntheticGenericConstraintDiagnosticSpan(
         FunctionTypeInfo functionType,
         CallExpression call,
         string typeParameter,
@@ -10922,10 +10483,10 @@ public class Analyzer : IDisposable
     {
         var sourceParameterTypes = functionType.SourceParameterTypes;
         if (sourceParameterTypes == null || sourceParameterTypes.Count == 0)
-            return GetCallDiagnosticSpan(call, functionName);
+            return _spans.GetCallDiagnosticSpan(call, functionName);
 
         var parameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call);
-        if (!TryBindSyntheticFunctionArguments(
+        if (!_syntheticCallReporter.TryBindAndReport(
                 functionType,
                 functionName,
                 call,
@@ -10933,7 +10494,7 @@ public class Analyzer : IDisposable
                 parameterStartIndex,
                 reportErrors: false))
         {
-            return GetCallDiagnosticSpan(call, functionName);
+            return _spans.GetCallDiagnosticSpan(call, functionName);
         }
 
         Expression? offendingArgument = null;
@@ -10951,15 +10512,15 @@ public class Analyzer : IDisposable
 
             if (offendingArgument != null)
             {
-                return GetCallDiagnosticSpan(call, functionName);
+                return _spans.GetCallDiagnosticSpan(call, functionName);
             }
 
             offendingArgument = call.Arguments[argumentIndex].Value;
         }
 
         return offendingArgument != null
-            ? GetExpressionDiagnosticSpan(offendingArgument)
-            : GetCallDiagnosticSpan(call, functionName);
+            ? _spans.GetExpressionDiagnosticSpan(offendingArgument)
+            : _spans.GetCallDiagnosticSpan(call, functionName);
     }
 
     /// <summary>
@@ -11078,7 +10639,7 @@ public class Analyzer : IDisposable
             _syntheticCallBinder.CollectTypeParameterBounds(sourceParameterTypes[0], receiverType, typeParameters, allBounds);
         }
 
-        if (!TryBindSyntheticFunctionArguments(
+        if (!_syntheticCallReporter.TryBindAndReport(
                 functionType,
                 functionName,
                 call,
@@ -11553,7 +11114,7 @@ public class Analyzer : IDisposable
         {
             if (assignment.Operator != AssignmentOperator.Assign)
             {
-                var (discardLine, discardColumn, discardLength) = GetExpressionDiagnosticSpan(assignment.Target);
+                var (discardLine, discardColumn, discardLength) = _spans.GetExpressionDiagnosticSpan(assignment.Target);
                 Error(
                     ErrorCode.InvalidSyntax,
                     "The discard `_` can only be used with a plain `=` assignment",
@@ -11723,7 +11284,7 @@ public class Analyzer : IDisposable
         var valueAssignable = _assignability.IsAssignable(targetType, valueType);
         if (!valueAssignable)
         {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(assignment.Value);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(assignment.Value);
             var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
             if (sourceSnippet != null && _currentFilePath != null)
@@ -11845,7 +11406,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(assignment.Target);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(assignment.Target);
         Error(
             ErrorCode.TypeMismatch,
             $"The left side of '??=' has type '{targetType}', which can't be null",
@@ -11900,7 +11461,7 @@ public class Analyzer : IDisposable
             // Don't pile a "not an event" error on top of an already-reported resolution failure.
             if (!BuiltInTypes.IsUnknown(targetType))
             {
-                var (line, column, length) = GetExpressionDiagnosticSpan(on.Target);
+                var (line, column, length) = _spans.GetExpressionDiagnosticSpan(on.Target);
                 Error(
                     ErrorCode.InvalidEventSubscription,
                     "`on` can only subscribe to a .NET event",
@@ -11922,7 +11483,7 @@ public class Analyzer : IDisposable
         // letting the IL backend throw on a missing accessor or value-type receiver.
         if (addMethod == null || removeMethod == null || handlerDelegateType == null)
         {
-            var (line, column, length) = GetExpressionDiagnosticSpan(on.Target);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(on.Target);
             Error(
                 ErrorCode.InvalidEventSubscription,
                 $"'{eventInfo.Name}' can't be subscribed to — it has no accessible add/remove accessors",
@@ -11936,7 +11497,7 @@ public class Analyzer : IDisposable
 
         if (!addMethod.IsStatic && (eventInfo.DeclaringType?.IsValueType ?? false))
         {
-            var (line, column, length) = GetExpressionDiagnosticSpan(on.Target);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(on.Target);
             Error(
                 ErrorCode.InvalidEventSubscription,
                 $"subscribing to '{eventInfo.Name}' isn't supported — it's an instance event on a value type (struct)",
@@ -11976,7 +11537,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(off.Handle);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(off.Handle);
         Error(
             ErrorCode.InvalidEventSubscription,
             "`off` expects a subscription returned by `on`",
@@ -11988,7 +11549,7 @@ public class Analyzer : IDisposable
 
     private void ReportEventAssignment(AssignmentExpression assignment, ReflectionEventInfo eventTarget)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(assignment.Target);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(assignment.Target);
         var target = RenderEventTarget(assignment.Target);
         var name = eventTarget.Name;
 
@@ -12015,7 +11576,7 @@ public class Analyzer : IDisposable
 
     private void ReportEventUsedAsValue(Expression expr, ReflectionEventInfo eventRef)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expr);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expr);
         var target = RenderEventTarget(expr);
         Error(
             ErrorCode.EventRequiresOnOff,
@@ -12039,7 +11600,7 @@ public class Analyzer : IDisposable
 
     private void UpdateNullStateAfterAssignment(Expression target, Expression value, TypeInfo targetType, TypeInfo valueType)
     {
-        var path = TryGetStableNullPath(target);
+        var path = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(target);
         if (path == null)
             return;
 
@@ -12090,7 +11651,7 @@ public class Analyzer : IDisposable
         }
 
         var opText = OperatorFacts.GetAssignmentText(assignment.Operator);
-        var (line, column, length) = GetExpressionDiagnosticSpan(assignment.Target);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(assignment.Target);
         Error(
             ErrorCode.InvalidSyntax,
             $"The '{opText}' assignment needs an assignable target",
@@ -12108,7 +11669,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(nullConditionalTarget);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(nullConditionalTarget);
         Error(
             ErrorCode.InvalidSyntax,
             $"Null-conditional {targetKind} can't be {action}",
@@ -12160,7 +11721,7 @@ public class Analyzer : IDisposable
         var action = opText is "++" or "--"
             ? $"changed with '{opText}'"
             : $"assigned with '{opText}'";
-        var (line, column, length) = GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
+        var (line, column, length) = _spans.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
         Error(
             ErrorCode.InvalidSyntax,
             $"Property '{propertyName}' is read-only — it can't be {action}",
@@ -12422,7 +11983,7 @@ public class Analyzer : IDisposable
         }
 
         var line = memberAccess.Line;
-        var column = GetMemberNameColumn(memberAccess);
+        var column = _spans.GetMemberNameColumn(memberAccess);
         var length = Math.Max(1, memberAccess.MemberName.Length);
         Error(
             ErrorCode.InvalidSyntax,
@@ -12572,7 +12133,7 @@ public class Analyzer : IDisposable
         MemberAccessExpression columnMember,
         string action)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
         Error(
             ErrorCode.InvalidSyntax,
             $"SoA table member '{columnMember.MemberName}' cannot be {action} directly",
@@ -12598,7 +12159,7 @@ public class Analyzer : IDisposable
         }
 
         var line = memberAccess.Line;
-        var column = GetMemberNameColumn(memberAccess);
+        var column = _spans.GetMemberNameColumn(memberAccess);
         var length = Math.Max(1, memberAccess.MemberName.Length);
         var action = isCall ? "call" : "use";
         var suffix = isCall ? " directly" : " as a value";
@@ -12775,7 +12336,7 @@ public class Analyzer : IDisposable
 
     private void ReportUnsupportedArraySliceMutation(IndexAccessExpression indexAccess, string action)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(indexAccess);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(indexAccess);
         Error(
             ErrorCode.InvalidSyntax,
             $"Array slices cannot be {action}",
@@ -12787,7 +12348,7 @@ public class Analyzer : IDisposable
 
     private void ReportUnsupportedStringIndexedMutation(IndexAccessExpression indexAccess, string action)
     {
-        var (line, column, length) = GetExpressionDiagnosticSpan(indexAccess);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(indexAccess);
         Error(
             ErrorCode.InvalidSyntax,
             $"String characters and slices cannot be {action}",
@@ -12800,7 +12361,7 @@ public class Analyzer : IDisposable
     private void ReportSoaTableMemberMutation(MemberAccessExpression member, string action, bool isColumn)
     {
         var line = member.Line;
-        var column = GetMemberNameColumn(member);
+        var column = _spans.GetMemberNameColumn(member);
         var length = Math.Max(1, member.MemberName.Length);
         var suggestion = isColumn
             ? "Write individual rows with table[index].column, or construct/wrap the table with the desired column arrays."
@@ -12831,7 +12392,7 @@ public class Analyzer : IDisposable
             _ => "a temporary value (a copy)",
         };
         var typeName = _declarationContext.ResolveDeclaredAlias(offenderType ?? BuiltInTypes.Unknown).ToString() ?? "value";
-        var (line, column, length) = GetExpressionDiagnosticSpan(offender);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(offender);
         var sourceSnippet = GetSourceSnippet(line);
         if (sourceSnippet != null && _currentFilePath != null)
         {
@@ -12963,7 +12524,7 @@ public class Analyzer : IDisposable
 
         if (readonlyTarget.IsStatic)
         {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetAssignmentTargetNameDiagnosticSpan(target, line, column);
             Error(
                 ErrorCode.ReadonlyAssignment,
                 $"Field '{readonlyTarget.Name}' is static readonly — it can only be initialized at its declaration",
@@ -12978,7 +12539,7 @@ public class Analyzer : IDisposable
         if (_inConstructor && readonlyTarget.IsCurrentInstance)
             return;
 
-        var (instanceLine, instanceColumn, instanceLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
+        var (instanceLine, instanceColumn, instanceLength) = _spans.GetAssignmentTargetNameDiagnosticSpan(target, line, column);
         var message = _inConstructor
             ? $"Field '{readonlyTarget.Name}' is readonly — constructors can only assign readonly fields on the current instance"
             : $"Field '{readonlyTarget.Name}' is readonly — it can only be assigned in a constructor";
@@ -13009,7 +12570,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var (line, column, length) = GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
+        var (line, column, length) = _spans.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
         var fieldKind = readonlyTarget.IsStatic ? "static readonly" : "readonly";
         var suggestion = readonlyTarget.IsStatic
             ? "Static readonly fields can only be initialized at their declaration; copy the value to a mutable local or remove `readonly`."
@@ -13039,7 +12600,7 @@ public class Analyzer : IDisposable
         }
 
         var opText = OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator";
-        var (line, column, length) = GetAssignmentTargetNameDiagnosticSpan(unary.Operand, unary.Line, unary.Column);
+        var (line, column, length) = _spans.GetAssignmentTargetNameDiagnosticSpan(unary.Operand, unary.Line, unary.Column);
         var fieldKind = readonlyTarget.IsStatic ? "static readonly" : "readonly";
         var suggestion = readonlyTarget.IsStatic
             ? "Static readonly fields can only be initialized at their declaration; copy the value to a mutable local or remove `readonly`."
@@ -13329,17 +12890,6 @@ public class Analyzer : IDisposable
         return owner;
     }
 
-    private (int Line, int Column, int Length) GetAssignmentTargetNameDiagnosticSpan(Expression target, int fallbackLine, int fallbackColumn)
-    {
-        return target switch
-        {
-            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
-            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
-            ParenthesizedExpression parenthesized => GetAssignmentTargetNameDiagnosticSpan(parenthesized.Inner, fallbackLine, fallbackColumn),
-            _ => (fallbackLine, fallbackColumn, GetTokenLength(fallbackLine, fallbackColumn))
-        };
-    }
-
     private FunctionTypeInfo AnalyzeLambda(
         LambdaExpression lambda,
         TypeInfo? expectedType = null,
@@ -13502,7 +13052,7 @@ public class Analyzer : IDisposable
             lambda.Line,
             lambda.Column,
             "Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.",
-            GetTokenLength(lambda.Line, lambda.Column));
+            _spans.GetTokenLength(lambda.Line, lambda.Column));
     }
 
     private bool ReportUnsupportedExpressionTreeExpressionIfNeeded(Expression expression, ISet<string> parameterNames)
@@ -13512,7 +13062,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(unsupported.Expression);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(unsupported.Expression);
         var message = $"Expression-tree lambda body contains unsupported {unsupported.Description}";
         if (_errors.Any(error =>
                 error.Code == ErrorCode.FeatureNotImplemented
@@ -13902,7 +13452,7 @@ public class Analyzer : IDisposable
                 ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(elem, storageContext);
                 if (!_assignability.IsAssignable(expectedElementType, elemType))
                 {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(elem);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(elem);
                     Error(ErrorCode.TypeMismatch,
                         $"{elementLabel} is '{elemType}', but the target {targetKind} expects '{expectedElementType}'",
                         diagnosticLine,
@@ -13924,7 +13474,7 @@ public class Analyzer : IDisposable
             ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(elem, "stored in an array");
             if (!_assignability.IsAssignable(firstType, elemType))
             {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(elem);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(elem);
                 Error(ErrorCode.TypeMismatch,
                     $"All elements in an array must be the same type — the first element is '{firstType}' but I found '{elemType}'",
                     diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -13947,7 +13497,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (line, column, length) = GetExpressionDiagnosticSpan(array);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(array);
         Error(
             ErrorCode.FeatureNotImplemented,
             $"Collection expressions for '{targetName}' are not implemented yet",
@@ -14349,7 +13899,7 @@ public class Analyzer : IDisposable
         var capacityArgument = newExpr.ConstructorArguments[0];
         if (capacityArgument.Name is { } argumentName && argumentName != "capacity")
         {
-            var (line, column, length) = GetExpressionDiagnosticSpan(capacityArgument.Value);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(capacityArgument.Value);
             Error(
                 ErrorCode.NoMatchingOverload,
                 $"SoA table '{soaRecordType.Declaration.Name}' construction has no parameter named '{argumentName}'",
@@ -14366,7 +13916,7 @@ public class Analyzer : IDisposable
 
         if (!_assignability.IsAssignable(BuiltInTypes.Int, capacityType))
         {
-            var (line, column, length) = GetExpressionDiagnosticSpan(capacityArgument.Value);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(capacityArgument.Value);
             Error(
                 ErrorCode.TypeMismatch,
                 $"SoA table capacity must be int, but this argument has type '{capacityType}'",
@@ -14379,7 +13929,7 @@ public class Analyzer : IDisposable
 
         if (IsConstantNegative(capacityArgument.Value))
         {
-            var (line, column, length) = GetExpressionDiagnosticSpan(capacityArgument.Value);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(capacityArgument.Value);
             Error(
                 ErrorCode.TypeMismatch,
                 "SoA table capacity must not be negative",
@@ -14427,7 +13977,7 @@ public class Analyzer : IDisposable
                 var targetKind = expectedElement?.TargetKind ?? "array";
                 var elementLabel = targetKind == "collection" ? "Collection initializer element" : "Array initializer element";
                 var (initializerDiagnosticLine, initializerDiagnosticColumn, initializerDiagnosticLength) =
-                    GetExpressionDiagnosticSpan(prop.Value);
+                    _spans.GetExpressionDiagnosticSpan(prop.Value);
                 Error(ErrorCode.TypeMismatch,
                     $"{elementLabel} is '{initializerValueType}', but the target {targetKind} expects '{expectedElementType}'",
                     initializerDiagnosticLine,
@@ -14478,7 +14028,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(prop.Value);
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(prop.Value);
         var sourceSnippet = GetSourceSnippet(diagnosticLine);
 
         if (sourceSnippet != null && _currentFilePath != null)
@@ -14678,7 +14228,7 @@ public class Analyzer : IDisposable
         }
 
         var diagnosticTarget = property.IndexExpression ?? property.Value;
-        var (line, column, length) = GetExpressionDiagnosticSpan(diagnosticTarget);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(diagnosticTarget);
         var initializerShape = property.IndexExpression != null
             ? "indexer initializers"
             : "collection initializer entries";
@@ -15029,7 +14579,7 @@ public class Analyzer : IDisposable
         if (!IsPatternPossible(sourceType, targetType))
         {
             var (impossibleLine, impossibleColumn, impossibleLength) =
-                GetIsExpressionDiagnosticSpan(isExpr);
+                _spans.GetIsExpressionDiagnosticSpan(isExpr);
             Error(ErrorCode.ImpossiblePattern,
                 $"This 'is {targetType}' check is always false — a '{sourceType}' is never a '{targetType}'",
                 impossibleLine, impossibleColumn, length: impossibleLength);
@@ -15080,7 +14630,7 @@ public class Analyzer : IDisposable
 
         if (ShouldReportAwaitExpressionTypeMismatch(exprType))
         {
-            var (line, column, length) = GetExpressionDiagnosticSpan(await.Expression);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(await.Expression);
             Error(
                 ErrorCode.TypeMismatch,
                 $"await expression needs an awaitable value, but this expression is '{exprType}'",
@@ -15198,7 +14748,7 @@ public class Analyzer : IDisposable
 
         if (nameofExpr.Target is not (IdentifierExpression or MemberAccessExpression))
         {
-            var (line, column, length) = GetExpressionDiagnosticSpan(nameofExpr.Target);
+            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(nameofExpr.Target);
             Error(
                 ErrorCode.InvalidSyntax,
                 "nameof can only name an identifier or member access",
@@ -15284,7 +14834,7 @@ public class Analyzer : IDisposable
             var valueIsSoaDirectColumn = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(property.Value, "stored in a with expression");
             if (memberType != null && !valueIsSoaRow && !valueIsSoaDirectColumn && !_assignability.IsAssignable(memberType, valueType))
             {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(property.Value);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(property.Value);
                 Error(
                     ErrorCode.TypeMismatch,
                     $"'{property.Name}' is typed as '{memberType}', but the value is '{valueType}'",
@@ -15330,7 +14880,7 @@ public class Analyzer : IDisposable
                 var isSoaDirectColumnGuard = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(matchCase.Guard, "used as a match guard");
                 if (!isSoaRowGuard && !isSoaDirectColumnGuard && !_assignability.IsAssignable(BuiltInTypes.Bool, guardType))
                 {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(matchCase.Guard);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(matchCase.Guard);
                     Error(ErrorCode.GuardNotBoolean, $"A match guard must be a boolean, but this expression is '{guardType}'",
                         diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 }
@@ -15362,7 +14912,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(matchCase.Expression);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(matchCase.Expression);
                     Error(ErrorCode.TypeMismatch,
                         $"All match arms must return the same type — the first arm returns '{resultType}', but this arm returns '{caseType}'",
                         diagnosticLine, diagnosticColumn, length: diagnosticLength);
@@ -16022,20 +15572,6 @@ public class Analyzer : IDisposable
             Math.Max(1, name.Length));
     }
 
-    private static string? TryGetStableNullPath(Expression expression)
-    {
-        return expression switch
-        {
-            IdentifierExpression identifier when identifier.Name != "<error>" => identifier.Name,
-            ThisExpression => "this",
-            ParenthesizedExpression parenthesized => TryGetStableNullPath(parenthesized.Inner),
-            MemberAccessExpression { IsNullConditional: false } memberAccess
-                when TryGetStableNullPath(memberAccess.Object) is { } receiverPath
-                => $"{receiverPath}.{memberAccess.MemberName}",
-            _ => null
-        };
-    }
-
     private bool TryResolveIdentifierBindingTarget(string name, int line, int column, out TypeInfo type)
     {
         // Check local symbols first, then local types
@@ -16671,7 +16207,7 @@ public class Analyzer : IDisposable
         }
 
         var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-            GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+            _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
         var opText = OperatorFacts.GetBinaryText(expr.Operator);
         var sideText = leftIsWrong == rightIsWrong
             ? $"I found '{left}' and '{right}'"
@@ -16752,24 +16288,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    private int GetDeclarationNameColumn(string name, int line, int fallbackColumn)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return fallbackColumn;
-
-        var sourceText = _sourceText ?? _projectSources.TryGetProjectSourceText(_currentFilePath);
-
-        return FindIdentifierNameColumn(sourceText, name, line, fallbackColumn);
-    }
-
-    private static int FindIdentifierNameColumn(string? sourceText, string name, int line, int fallbackColumn)
-    {
-        if (sourceText == null)
-            return fallbackColumn;
-
-        return CodeIntelligenceTextUtilities.FindIdentifierNameColumn(sourceText, name, line, fallbackColumn);
-    }
-
     private void DeclareSymbol(
         string name,
         TypeInfo type,
@@ -16779,7 +16297,7 @@ public class Analyzer : IDisposable
         bool recordBindingDeclaration = true)
     {
         var currentScope = _scopes.Peek();
-        var nameColumn = GetDeclarationNameColumn(name, line, column);
+        var nameColumn = _spans.GetDeclarationNameColumn(name, line, column);
         var shouldRecordBindingDeclaration = recordBindingDeclaration;
         if (currentScope.Symbols.TryGetValue(name, out var existing))
         {
@@ -16879,7 +16397,7 @@ public class Analyzer : IDisposable
         }
 
         var currentScope = _scopes.Peek();
-        var nameColumn = GetDeclarationNameColumn(name, line, column);
+        var nameColumn = _spans.GetDeclarationNameColumn(name, line, column);
         if (currentScope.Types.ContainsKey(name))
         {
             Error(
@@ -16917,7 +16435,7 @@ public class Analyzer : IDisposable
             var param = parameters[i];
             if (param.Modifier == Ast.ParameterModifier.Params)
             {
-                var (paramLine, paramColumn, paramLength) = GetParameterDiagnosticSpan(param, line, column);
+                var (paramLine, paramColumn, paramLength) = AnalyzerDiagnosticSpanFacts.GetParameterDiagnosticSpan(param, line, column);
 
                 if (i != parameters.Count - 1)
                 {
@@ -16969,7 +16487,7 @@ public class Analyzer : IDisposable
                 if (!reportedSoaDefaultParameterDiagnostic
                     && !IsValidDefaultValue(param.DefaultValue!, param.Type))
                 {
-                    var (defaultLine, defaultColumn, defaultLength) = GetExpressionDiagnosticSpan(param.DefaultValue!);
+                    var (defaultLine, defaultColumn, defaultLength) = _spans.GetExpressionDiagnosticSpan(param.DefaultValue!);
                     Error(ErrorCode.InvalidDefaultParameterValue,
                         $"The default value for '{param.Name}' must be something the compiler can evaluate — use a literal, null, or a simple constant",
                         defaultLine, defaultColumn, length: defaultLength);
@@ -16979,7 +16497,7 @@ public class Analyzer : IDisposable
             {
                 if (foundOptional)
                 {
-                    var (paramLine, paramColumn, paramLength) = GetParameterDiagnosticSpan(param, line, column);
+                    var (paramLine, paramColumn, paramLength) = AnalyzerDiagnosticSpanFacts.GetParameterDiagnosticSpan(param, line, column);
                     Error(ErrorCode.RequiredParameterAfterOptional,
                         $"Required parameter '{param.Name}' can't come after optional parameters — move it before the optional ones, or give it a default value too",
                         paramLine, paramColumn, length: paramLength);
@@ -17009,7 +16527,7 @@ public class Analyzer : IDisposable
         }
 
         var tableName = soaRecordType.Declaration.Name;
-        var (line, column, length) = GetExpressionDiagnosticSpan(parameter.DefaultValue);
+        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(parameter.DefaultValue);
         Error(
             ErrorCode.InvalidDefaultParameterValue,
             $"SoA table '{tableName}' cannot be used as a default parameter value — optional parameter defaults are metadata constants, but SoA tables must be constructed or wrapped at runtime",
@@ -17018,16 +16536,6 @@ public class Analyzer : IDisposable
             $"Use an overload that creates the table with 'new {tableName}(capacity)' or accepts a '{tableName}.wrap(...)' value from the caller.",
             length);
         return true;
-    }
-
-    private static (int Line, int Column, int Length) GetParameterDiagnosticSpan(
-        Parameter parameter,
-        int fallbackLine,
-        int fallbackColumn)
-    {
-        var line = parameter.Line > 0 ? parameter.Line : fallbackLine;
-        var column = parameter.Column > 0 ? parameter.Column : fallbackColumn;
-        return (line, column, Math.Max(1, parameter.Name.Length));
     }
 
     private bool IsValidDefaultValue(Expression expr, TypeReference expectedType)
@@ -17111,12 +16619,12 @@ public class Analyzer : IDisposable
 
     private void ValidateOperatorOverload(FunctionDeclaration func)
     {
-        var (operatorKeywordLine, operatorKeywordColumn, operatorKeywordLength) = GetSourceSpanDiagnosticSpan(
+        var (operatorKeywordLine, operatorKeywordColumn, operatorKeywordLength) = AnalyzerDiagnosticSpanFacts.GetSourceSpanDiagnosticSpan(
             func.OperatorKeywordSpan,
             func.Line,
             func.Column,
             "operator".Length);
-        var (operatorSymbolLine, operatorSymbolColumn, operatorSymbolLength) = GetSourceSpanDiagnosticSpan(
+        var (operatorSymbolLine, operatorSymbolColumn, operatorSymbolLength) = AnalyzerDiagnosticSpanFacts.GetSourceSpanDiagnosticSpan(
             func.OperatorSymbolSpan,
             func.Line,
             func.Column,
@@ -17645,7 +17153,7 @@ public class Analyzer : IDisposable
                             name,
                             filePath,
                             decl.Line,
-                            FindIdentifierNameColumn(sourceText, name, decl.Line, decl.Column),
+                            AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, name, decl.Line, decl.Column),
                             DeclarationFacts.GetDeclarationKind(decl))));
                 }
             }

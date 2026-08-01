@@ -37,15 +37,24 @@ public class AnalyzerDiagnosticSink {
         sourceTextValue = sourceText
     }
 
+    // THE ANALYSED FILE'S TEXT, resolved once and the same way for every reader: the caller's own
+    // text when it supplied one, otherwise the project snapshot's copy of the current file (the
+    // unsaved-editor-buffer path). `AnalyzerDiagnosticSpans` reads it through this door so that a
+    // diagnostic's SPAN and its rendered SNIPPET are computed against the same snapshot — two
+    // resolutions could drift and underline the wrong characters.
+    public func ResolvedSourceText(): string? {
+        if sourceTextValue != null {
+            return sourceTextValue
+        }
+
+        return projectSourcesValue.TryGetProjectSourceText(currentFilePathValue)
+    }
+
     public func SourceSnippet(line: int): string? {
         resolved := ""
-        if sourceTextValue != null {
-            resolved = sourceTextValue
-        } else {
-            fromProject := projectSourcesValue.TryGetProjectSourceText(currentFilePathValue)
-            if fromProject != null {
-                resolved = fromProject
-            }
+        fromProject := ResolvedSourceText()
+        if fromProject != null {
+            resolved = fromProject
         }
 
         if resolved.Length == 0 || line <= 0 {
