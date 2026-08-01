@@ -1,6 +1,46 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-01 (**TASK 017 SLICE 18 LANDED (no commit — mandate) — N# OWNS EVERYTHING THE
+Last updated: 2026-08-01 (**TASK 017 SLICE 20 PHASE A LANDED (no commit — mandate) — THE CATALOG
+ROWS THAT UNBLOCK THE REFLECTION PRE-BINDER, AND THE UNBLOCK IS TWO ROWS, NOT ONE.** Slice 19 named
+one row — `System.Type.GetMethods` at `count == 1` with a `System.Reflection.BindingFlags` argument
+— and it is necessary but NOT sufficient. **A CONTROL, NOT A HYPOTHESIS, FOUND THE REST:** with that
+row written the end-to-end probe still declined at the identical site, so the next probe was a
+CONTROL over a row nobody had touched: `Type.GetProperty(string, BindingFlags)`, in the catalog for
+MANY SLICES, declined in the same shape — while `GetProperty(string)`, `IsAssignableFrom(Type)` and
+`MakeGenericType(Type[])` all compiled. A long-standing row failing proves the fault is not in the
+new one. The real blocker is that **`BindingFlags` had no
+`GetStaticMemberPlan` row**, so no expression naming one of its members types at all and the
+argument type name arrives EMPTY — one decline site, two causes. Slice 14 had recorded exactly this
+and slice 19 mis-attributed it. **CONSEQUENCE: slice 19's three "enum-local capability facts" are
+not planner surface and are ALL GONE** — the bare local, the typed `flags: BindingFlags = A | B`,
+and the `Convert.ToInt32`-accumulate-then-cast form all compile now, with no planner, kernel or
+OpCodes change, so **no planner work is owed to this arc**. The slice is **27 lines of catalog DATA,
+ZERO production C#, ZERO N# members, `Analyzer.cs` byte-for-byte untouched (16,885 / 14,888)**.
+**BOTH ROWS PROVEN LOAD-BEARING BY DELETION, FOUR WAYS**, each for a different reason: at contract
+level (1,992/1,993 and 1,993/1,994 with one row removed), and end-to-end with the compiler REBUILT
+at each state — the mask row alone binds a single member and a hoisted local through the ordinary
+resolver but declines the INLINE `A | B | C | D`; the call row alone binds nothing. **PROOF BY
+EXECUTION, NOT BY BUILDING:** an emitted binary carrying `GetOpenReflectionSignatureMethod`'s exact
+body (closed `List<int>.Add` → generic DEFINITION → `GetMethods(mask)` → metadata-token match) RAN
+and printed `57` public-instance vs `79` declared methods — the mask demonstrably widening the
+answer — and re-found the open `Add` with 1 parameter. Contracts **1,991 → 1,994 (+3)**,
+**1,994/1,994** under the CURRENT packaged SDK; **3/3 staged end-to-end contracts** pass against a
+fresh CLI and are parked in `systems-language-closeout/phase-b-binding-mask-contracts.md` (a
+pre-repin `.tests.nl` was MEASURED to break the build with NL103); audit **18/18**; ratchet manifest
+UNTOUCHED at **391** lines; BootstrapServices findings **293** with the touched file contributing
+ZERO. **NO corpus IL sweep and no oracle run are owed**: every corpus target is emitted by the
+PACKAGED toolset, which does not carry these rows until the repin, so emission is bit-identical BY
+CONSTRUCTION. **THE REPIN IS THE COORDINATOR'S NEXT MOVE**, then PHASE B: `PreBindReflectionMethod`
+(86) + `GetOpenReflectionSignatureMethod` (13) from slice 19's known-good body, plus
+`ConvertReflectionSuppliedArgumentType` (16) and `IsExpressionTreeLambdaTarget` (12+2, five sites)
+which need no repin — ~129 body lines)
+
+Last updated (prior): 2026-08-01 (**TASK 017 SLICE 19 LANDED at `e01a772ef`** — the reflection
+call's reporters and the callable-reference report; 6 C# members + 1 field / 123 body lines into
+`AnalyzerReflectionCallReporter`, 11,286-cell differential, oracle 70/70, corpus IL 112/112,
+contracts 1,968 → 1,991. Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-01 (**TASK 017 SLICE 18 LANDED (no commit — mandate) — N# OWNS EVERYTHING THE
 ANALYZER SAYS ABOUT A CALL TO AN N#-DECLARED FUNCTION.** With the walk (slice 17) choosing the
 overload and `AnalyzerSyntheticCallValidator` (**993 lines, 2 classes, 22 members**) judging it,
 `Analyzer.cs` keeps NO part of the source-call semantics: not the arity band, not the argument-type
@@ -711,7 +751,104 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 19 — THE REFLECTION CALL'S REPORTERS AND THE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 20 PHASE A — THE ONE CATALOG ROW.** Target
+  recorded BEFORE any production edit, at `e01a772ef` (`Analyzer.cs` 16,885 lines, non-blank 14,888;
+  `ColumnarExternalBindingPlans.nl` 1,574 lines, its contracts 1,191).
+
+  **THE TARGET, EXACTLY — AND IT IS DATA.** `ColumnarExternalBindingPlans.GetInstanceCallPlan`, the
+  `receiver == "System.Type"` arm, gains ONE row beside the existing `GetMethods && count == 0` arm:
+  `memberName == "GetMethods"` at **`count == 1`** with
+  **`argumentTypeNames[0] == "System.Reflection.BindingFlags"`**, returning
+  **`"System.Reflection.MethodInfo[]"`**. Nothing else in production changes: no C#, no new N#
+  member, no policy, no plan shape — a `VirtualCall` row in the file's existing form. The contract
+  lands beside it in `ColumnarExternalBindingPlans.tests.nl` and the row is proven load-bearing by
+  DELETION. Slice 19's three enum-LOCAL declines (`emit.local.initializer` for
+  `flags := BindingFlags.Public` and for the four-term `Convert.ToInt32(...)` chain,
+  `emit.statement.block-child` for the accumulate form) are planner surface, NOT this row, and stay
+  OUT of this phase. This phase performs NO repin; the repin is the coordinator's, and phase B is
+  the pre-binder pair plus the two no-repin members.
+
+  **RESULT: LANDED (no commit — mandate), AND THE UNBLOCK IS TWO ROWS, NOT ONE. THE ROW SLICE 19
+  NAMED IS NECESSARY BUT NOT SUFFICIENT, AND A CONTROL PROVED IT BEFORE ANY GUESSING.** The mandated
+  row was written first and the end-to-end probe STILL declined at the identical site,
+  `emit.call.instance-member-unmodeled`. The decisive measurement was a CONTROL, not a hypothesis:
+  `Type.GetProperty(string, BindingFlags)` — a row that has been in the catalog for many slices —
+  declines in the same probe shape, while `GetProperty(string)`, `IsAssignableFrom(Type)` and
+  `MakeGenericType(Type[])` all compile. So the blocker was never the missing call row: it was that
+  **`BindingFlags` has no `GetStaticMemberPlan` row**, so NO expression naming one of its members
+  can be typed, and `TryGetPlannedExternalCall` computes an EMPTY argument type name and falls
+  through to the same decline whether the row exists or not. Slice 14 recorded exactly this
+  ("`BindingFlags` members are separately absent from the catalog") and slice 19 mis-attributed it,
+  because one decline site serves both causes.
+
+  **SO THE THREE "ENUM-LOCAL CAPABILITY FACTS" ARE NOT PLANNER SURFACE — THEY ARE ONE MISSING ROW,
+  AND THEY ARE ALL GONE.** Verified against a freshly built compiler: `flags := BindingFlags.Public`
+  then `GetMethods(flags)`; a typed `flags: BindingFlags = A | B`; and the
+  `Convert.ToInt32`-accumulate-then-cast form — **all three compile**, with no planner change, no
+  kernel change and no OpCodes change. The mandate's instruction was to verify they stayed out of
+  scope; the verification found they were never a separate scope at all. **No planner work is owed
+  to this arc.**
+
+  **THE TWO ROWS, BOTH DATA, BOTH IN `ColumnarExternalBindingPlans.nl`, BOTH LOAD-BEARING BY
+  DELETION.** (1) `GetInstanceCallPlan`, `System.Type` arm: `GetMethods` at `count == 1` with
+  `argumentTypeNames[0] == "System.Reflection.BindingFlags"` → `"System.Reflection.MethodInfo[]"`,
+  parameters normalised through `One(...)` so the plan names the mask's own exact identity.
+  (2) `GetStaticMemberPlan`: `MatchesOwner(typeName, "BindingFlags", "System.Reflection.BindingFlags")`
+  → the enum's members as literal `Field`s on their own type, the `NullabilityState`/`StringComparison`
+  shape exactly, admitting the WHOLE enum rather than a chosen few because a mask is used by
+  COMBINING its members — admitting a subset would only move the decline. **13 + 14 = 27 added lines
+  of catalog data. ZERO production C#. ZERO N# members. `Analyzer.cs` byte-for-byte untouched
+  (16,885 / 14,888).**
+
+  **THE DELETION PROOF, RUN FOUR WAYS — AND EACH ROW IS LOAD-BEARING FOR A DIFFERENT REASON.**
+  Contract level: deleting the call row fails
+  `TheFilteredMethodEnumerationIsOnTheTypeCallSurface` (**1,992 / 1,993**); deleting the mask row
+  fails `TheBindingMasksMembersAreOnTheStaticMemberSurface` (**1,993 / 1,994**). End-to-end, with
+  the compiler REBUILT at each state: with the call row alone, EVERY form declines. With the mask
+  row alone, `GetMethods(BindingFlags.Public)`, `flags := BindingFlags.Public` and a typed
+  `hoisted: BindingFlags = A | B` all bind through the ordinary runtime direct-call resolver, but
+  the INLINE combined mask `GetMethods(A | B | C | D)` declines — and so does the real pre-binder
+  leaf. With BOTH, everything binds. **A local hoist is therefore a route-around and the call row is
+  what makes the natural spelling work**; the mask row is what makes anything work at all. (The
+  pre-existing `GetProperty(string, BindingFlags)` row was DEAD DATA until this slice — nothing
+  could reach it — and it is now live, which is its own small proof of the diagnosis.)
+
+  **PROOF BY EXECUTION, NOT BY BUILDING** (slice 14's standard). An emitted binary containing
+  `GetOpenReflectionSignatureMethod`'s exact body — take a closed `List<int>.Add`, walk to its
+  declaring type's generic DEFINITION, enumerate
+  `GetMethods(Public | NonPublic | Instance | Static)` and match on `get_MetadataToken()` — was
+  built by the fresh CLI and RUN: `public instance methods: 57`, `declared incl. non-public: 79`,
+  `mask widens: True`, `open signature: Add`, `open parameter count: 1`. The mask demonstrably
+  WIDENS the answer, so the flags reach the callee as flags and are not being silently dropped.
+
+  **THE STAGED CONTRACT, AND WHY IT IS STAGED — MEASURED, NOT ASSUMED.** A probe `.tests.nl` was
+  placed in `BootstrapServices` and the build FAILED with `NL103 ... Declined at
+  emit.call.instance-member-unmodeled: instance call 'Type.GetMethods' with 1 argument(s) is not
+  modeled` — the packaged toolset carries its own catalog snapshot, so a pre-repin `.tests.nl`
+  breaks the contracts gate (and an `.nl`-suffixed staging file trips the audit's `OWN009`). The
+  three end-to-end contracts therefore live in
+  **`systems-language-closeout/phase-b-binding-mask-contracts.md`**, the 12A home, and **3 / 3 PASS
+  against the freshly built CLI** — which links a freshly built `BootstrapServices` and is
+  behaviourally the post-repin toolset. Phase B copies the block into the project and deletes the
+  file. One `.nl` gotcha re-confirmed while writing them: **`assert x != null` does NOT narrow**
+  (NL905), so a maybe-null lookup must be resolved in a helper that returns non-null or throws.
+
+  **EVIDENCE.** BootstrapServices contracts **1,991 → 1,994 (+3)**, **1,994 / 1,994 PASS** under the
+  CURRENT packaged SDK; staged end-to-end contracts **3 / 3** against a fresh CLI; ownership audit
+  **18 / 18**; the ratchet manifest **UNTOUCHED at 391 lines** (this slice adds no non-N# line — no
+  repin of it is owed); BootstrapServices analyzer findings **293**, the exact recorded baseline,
+  with the touched file contributing **ZERO**. **NO CORPUS IL SWEEP IS OWED AND HERE IS WHY:** every
+  corpus target is emitted by the PACKAGED toolset, which does not carry these rows until the
+  coordinator repins, so corpus emission this phase is bit-identical BY CONSTRUCTION — there is no
+  compiled artifact for a sweep to differ on. The same argument covers the semantic-diagnostic
+  oracle: no analyzer, span, binder or reporter surface was touched.
+
+  **WALL STATUS: THE WALL IS NOW ON THE COORDINATOR'S SIDE.** The rows compile under the current
+  pinned toolset and are proven correct against a compiler built from this tree. What they cannot do
+  until the repin is reach `BootstrapServices`' OWN sources, which is the whole content of the
+  handoff.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 19 — THE REFLECTION CALL'S REPORTERS AND THE
   CALLABLE-REFERENCE REPORT.** Target recorded BEFORE any production edit, at `74cda4405`
   (`Analyzer.cs` 16,995 lines, non-blank 14,981).
 

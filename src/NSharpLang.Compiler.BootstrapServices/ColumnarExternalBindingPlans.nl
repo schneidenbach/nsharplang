@@ -318,6 +318,20 @@ public class ColumnarExternalBindingPlans {
                 "System.Reflection.MethodAttributes")
         }
 
+        // The binding mask. Every member is a literal field on its own type, and the whole enum is
+        // admitted rather than a chosen few: a mask is USED by combining its members, so admitting
+        // a subset would only move the decline. Without this row no expression mentioning a
+        // `BindingFlags` member can be typed at all, which is why the filtered-overload call rows
+        // below (`Type.GetMethods`, and `Type.GetProperty`'s two-argument form before it) are
+        // unreachable until it exists.
+        if MatchesOwner(typeName, "BindingFlags", "System.Reflection.BindingFlags") {
+            return StaticMember(
+                ColumnarExternalStaticMemberKind.Field,
+                "System.Reflection.BindingFlags",
+                memberName,
+                "System.Reflection.BindingFlags")
+        }
+
         if MatchesOwner(
                 typeName,
                 "CallingConventions",
@@ -848,6 +862,19 @@ public class ColumnarExternalBindingPlans {
                     receiver,
                     memberName,
                     Empty(),
+                    "System.Reflection.MethodInfo[]")
+            }
+            // The filtered overload. Re-finding a member on a generic type DEFINITION means asking
+            // for the declared methods regardless of visibility or staticness, which is the binding
+            // mask's whole job; the unfiltered arm above answers public instance members only, so
+            // it cannot stand in for this one.
+            if memberName == "GetMethods"
+                && count == 1
+                && argumentTypeNames[0] == "System.Reflection.BindingFlags" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    One("System.Reflection.BindingFlags"),
                     "System.Reflection.MethodInfo[]")
             }
             if memberName == "GetConstructors" && count == 0 {

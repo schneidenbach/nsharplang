@@ -1189,3 +1189,123 @@ test "the reflected nullability capability adds no call plan of its own" {
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Reflection.MethodInfo", "get_ReturnParameter", noArguments).IsSupported
 }
+
+// The filtered method enumeration (task 017 slice 20 phase A). Re-finding a method on a generic
+// type DEFINITION by metadata token has to ask for the DECLARED methods — public and non-public,
+// static and instance — which is exactly what a binding mask says and what the unfiltered arm
+// cannot express. Two rows carry it, and BOTH are pure data: the call row here, and the mask enum's
+// own static-member row, without which no expression naming a `BindingFlags` member types at all.
+test "the binding mask's members are on the static member surface" {
+    // A mask is used by combining its members, so the whole enum is admitted, not a chosen few.
+    publicFlag := ColumnarExternalBindingPlans.GetStaticMemberPlan("BindingFlags", "Public")
+    assert publicFlag.IsSupported
+    assert publicFlag.Kind == ColumnarExternalStaticMemberKind.Field
+    assert publicFlag.DeclaringTypeName
+        == "System.Reflection.BindingFlags, System.Private.CoreLib"
+    assert publicFlag.MemberName == "Public"
+    assert publicFlag.ValueTypeName == "System.Reflection.BindingFlags, System.Private.CoreLib"
+
+    qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.Reflection.BindingFlags",
+        "NonPublic")
+    assert qualified.IsSupported
+    assert qualified.DeclaringTypeName == publicFlag.DeclaringTypeName
+    assert qualified.ValueTypeName == publicFlag.ValueTypeName
+    assert qualified.MemberName == "NonPublic"
+
+    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "BindingFlags", "Instance").IsSupported
+    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "BindingFlags", "Static").IsSupported
+    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "BindingFlags", "DeclaredOnly").IsSupported
+    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "BindingFlags", "FlattenHierarchy").IsSupported
+
+    // The owner is spelled exactly, in both the short and the qualified form.
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "bindingFlags", "Public").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "BindingFlag", "Public").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.BindingFlags", "Public").IsSupported
+
+    // The mask is a DIFFERENT enum from its reflection neighbours: `Public` names a member of both
+    // it and MethodAttributes, and the two must never collapse onto one declaring identity.
+    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "MethodAttributes", "Public").DeclaringTypeName != publicFlag.DeclaringTypeName
+}
+
+test "the filtered method enumeration is on the Type call surface" {
+    bindingMask := new string[](1)
+    bindingMask[0] = "System.Reflection.BindingFlags"
+    AssertVirtualCall(
+        "System.Type",
+        "GetMethods",
+        bindingMask,
+        "System.Reflection.MethodInfo[]")
+
+    // The plan names the mask's own exact identity as its one parameter, so the emitted call site
+    // resolves the filtered overload and not the unfiltered one.
+    filtered := ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type",
+        "GetMethods",
+        bindingMask)
+    assert filtered.ParameterTypeNames.Length == 1
+    assert filtered.ParameterTypeNames[0]
+        == "System.Reflection.BindingFlags, System.Private.CoreLib"
+
+    // Both arities are on the surface at once, and they are DIFFERENT plans: the arity-0 arm keeps
+    // its empty parameter list, so neither row can be mistaken for the other.
+    noArguments := new string[](0)
+    unfiltered := ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type",
+        "GetMethods",
+        noArguments)
+    assert unfiltered.IsSupported
+    assert unfiltered.ParameterTypeNames.Length == 0
+    assert filtered.MemberName == unfiltered.MemberName
+    assert filtered.DeclaringTypeName == unfiltered.DeclaringTypeName
+    assert filtered.ReturnTypeName == unfiltered.ReturnTypeName
+    assert filtered.Kind == unfiltered.Kind
+}
+
+test "the filtered method enumeration declines every near miss" {
+    bindingMask := new string[](1)
+    bindingMask[0] = "System.Reflection.BindingFlags"
+
+    // The receiver is spelled exactly, and it is the CLR type — not the short name and not a
+    // reflected member type that also answers methods.
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "Type", "GetMethods", bindingMask).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.TypeInfo", "GetMethods", bindingMask).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        null, "GetMethods", bindingMask).IsSupported
+
+    // The member name is exact, and the neighbouring enumerations do NOT gain the mask overload.
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type", "getMethods", bindingMask).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type", "GetMethod", bindingMask).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type", "GetConstructors", bindingMask).IsSupported
+
+    // The one argument is the mask itself. Its underlying integer is a different overload the
+    // surface does not carry, and neither is any other one-argument spelling.
+    wrongArgument := new string[](1)
+    wrongArgument[0] = "System.Int32"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type", "GetMethods", wrongArgument).IsSupported
+    stringArgument := new string[](1)
+    stringArgument[0] = "System.String"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type", "GetMethods", stringArgument).IsSupported
+
+    // Arity is exact in the other direction too: no two-argument form exists.
+    twoArguments := new string[](2)
+    twoArguments[0] = "System.Reflection.BindingFlags"
+    twoArguments[1] = "System.Reflection.BindingFlags"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type", "GetMethods", twoArguments).IsSupported
+}
