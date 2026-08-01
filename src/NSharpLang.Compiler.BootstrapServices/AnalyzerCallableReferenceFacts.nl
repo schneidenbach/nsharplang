@@ -84,6 +84,60 @@ public class AnalyzerCallableReferenceFacts {
         return candidate != delegateRoot && candidate != multicastRoot
     }
 
+    // WHAT TO CALL A CALLABLE REFERENCE IN A DIAGNOSTIC.
+    //
+    // What the user WROTE wins, because that is the text they have to change: an identifier names
+    // itself, and a member access names its member. Only when the expression is neither — a call
+    // result, an index, a synthesised node — does the TYPE get to answer, and there the first
+    // candidate's name is the best available approximation of a group that has not been resolved.
+    // The transparent wrappers are peeled first, so `(f)` names `f` exactly as `f` does.
+    public static func GetCallableReferenceName(expression: Expression, candidate: TypeInfo): string {
+        unwrapped := AnalyzerConstantExpressionFacts.UnwrapTransparentWrappers(expression)
+
+        identifier := unwrapped as IdentifierExpression
+        if identifier != null {
+            return identifier.Name
+        }
+
+        memberAccess := unwrapped as MemberAccessExpression
+        if memberAccess != null {
+            return memberAccess.MemberName
+        }
+
+        reflectionMethod := candidate as ReflectionMethodInfo
+        if reflectionMethod != null {
+            return reflectionMethod.Method.get_Name()
+        }
+
+        reflectionGroup := candidate as ReflectionMethodGroupInfo
+        if reflectionGroup != null && reflectionGroup.Methods.Length > 0 {
+            return reflectionGroup.Methods[0].get_Name()
+        }
+
+        sourceGroup := candidate as NSharpMethodGroupInfo
+        if sourceGroup != null {
+            functions := NSharpMethodGroupInfoFactory.GetFunctions(sourceGroup)
+            if functions.Count > 0 {
+                firstSyntheticName := functions[0].SyntheticName
+                if firstSyntheticName != null {
+                    return firstSyntheticName
+                }
+
+                return "method"
+            }
+        }
+
+        functionType := candidate as FunctionTypeInfo
+        if functionType != null {
+            syntheticName := functionType.SyntheticName
+            if syntheticName != null && syntheticName.Length > 0 {
+                return syntheticName
+            }
+        }
+
+        return "method"
+    }
+
     // The declared modifier of parameter `index`, or `None` when the function type carries no
     // modifier list or the list is shorter than the parameter list.
     public static func GetFunctionParameterModifier(functionType: FunctionTypeInfo, index: int): ParameterModifier {

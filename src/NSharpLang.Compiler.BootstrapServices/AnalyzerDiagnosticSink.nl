@@ -83,6 +83,14 @@ public class AnalyzerDiagnosticSink {
             ErrorSeverity.Error))
     }
 
+    // A diagnostic the RICH builders already constructed, appended to the SAME list `Report` writes
+    // to. The two shapes differ only in how much explanation they carry — a report that has a
+    // snippet and a docs link is still one report, in one position, among its neighbours — so they
+    // must not reach the list by different doors.
+    public func ReportBuilt(error: CompilerError) {
+        errorsValue.Add(error)
+    }
+
     public func Warn(
         code: ErrorCode,
         message: string,

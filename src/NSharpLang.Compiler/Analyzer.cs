@@ -211,6 +211,13 @@ public class Analyzer : IDisposable
     // Overload selection, match scoring and generic inference for a call to an N#-declared function,
     // plus the span its constraint reports anchor on. Rebuilt with the owners it reads.
     private AnalyzerSyntheticCallWalk _syntheticCallWalk;
+    // Everything the analyzer SAYS about a call to an N#-declared function once the walk has chosen
+    // one: arity, argument types, generic constraints, the no-matching-overload report, the SoA
+    // intrinsics' value checks and the call's return type. Rebuilt with the walk it reads.
+    private AnalyzerSyntheticCallValidator _syntheticCallValidator;
+    // Literal and constant SHAPE — the null/default literal and the written negative constant. Reads
+    // only the scope stack and the declaration context, both of which outlive every rebuild.
+    private readonly AnalyzerConstantExpressionFacts _constantExpressionFacts;
     private readonly AnalyzerTypeResolver _typeResolver;
     // The substitution-aware half of the resolution surface, and the two assignability arms that
     // consult it and the metadata probe. Both are constructed once: neither reads the well-known-type
@@ -284,7 +291,21 @@ public class Analyzer : IDisposable
         _reflectionArgumentBinder = CreateReflectionArgumentBinder();
         _syntheticCallBinder = CreateSyntheticCallBinder();
         _syntheticCallWalk = CreateSyntheticCallWalk();
+        _constantExpressionFacts = new AnalyzerConstantExpressionFacts(_scopes, _declarationContext);
+        _syntheticCallValidator = CreateSyntheticCallValidator();
     }
+
+    private AnalyzerSyntheticCallValidator CreateSyntheticCallValidator()
+        => new(
+            _declarationContext,
+            _typeResolver,
+            _assignability,
+            _overloadScoring,
+            _syntheticCallWalk,
+            _syntheticCallReporter,
+            _spans,
+            _diagnostics,
+            _constantExpressionFacts);
 
     private AnalyzerSyntheticCallBinder CreateSyntheticCallBinder()
         => new(
@@ -6492,7 +6513,7 @@ public class Analyzer : IDisposable
     private void ReportMethodGroupUsedAsValue(Expression expression, TypeInfo type)
     {
         var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        var name = GetCallableReferenceName(expression, type);
+        var name = AnalyzerCallableReferenceFacts.GetCallableReferenceName(expression, type);
         if (!_reportedCallableReferenceDiagnostics.Add((line, column, name)))
             return;
 
@@ -6516,45 +6537,6 @@ public class Analyzer : IDisposable
             column,
             $"Call `{name}(...)`, or pass `{name}` to a parameter with a delegate type.",
             length);
-    }
-
-    private static string GetCallableReferenceName(Expression expression, TypeInfo type)
-    {
-        return expression switch
-        {
-            IdentifierExpression identifier => identifier.Name,
-            MemberAccessExpression memberAccess => memberAccess.MemberName,
-            ParenthesizedExpression parenthesized => GetCallableReferenceName(parenthesized.Inner, type),
-            CheckedExpression checkedExpression => GetCallableReferenceName(checkedExpression.Expression, type),
-            UncheckedExpression uncheckedExpression => GetCallableReferenceName(uncheckedExpression.Expression, type),
-            _ => type switch
-            {
-                ReflectionMethodInfo methodInfo => methodInfo.Method.Name,
-                ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 => methodGroup.Methods[0].Name,
-                NSharpMethodGroupInfo methodGroup when GetNSharpMethodGroupFunctions(methodGroup) is [var first, ..] => first.SyntheticName ?? "method",
-                FunctionTypeInfo { SyntheticName: { Length: > 0 } functionName } => functionName,
-                _ => "method"
-            }
-        };
-    }
-
-    private string GetArgumentTypeDiagnosticName(Argument argument, TypeInfo type)
-    {
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
-        if (AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType))
-        {
-            var name = GetCallableReferenceName(argument.Value, resolvedType);
-            return $"method group '{name}'";
-        }
-
-        return type.ToString() ?? "unknown";
-    }
-
-    private string FormatArgumentTypeDiagnosticPhrase(Argument argument, TypeInfo type)
-    {
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
-        var name = GetArgumentTypeDiagnosticName(argument, type);
-        return AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType) ? name : $"'{name}'";
     }
 
     private TypeInfo ApplyNullabilityFlowType(Expression expr, TypeInfo type, NullState nullState)
@@ -7953,7 +7935,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        if (!IsConstantNegative(expression))
+        if (!_constantExpressionFacts.IsConstantNegative(expression))
         {
             return false;
         }
@@ -9183,7 +9165,7 @@ public class Analyzer : IDisposable
                 var expectedIndex = syntheticParameterIndexByArgument != null
                     ? syntheticParameterIndexByArgument[i]
                     : i + parameterStartIndex;
-                var expectedType = GetExpectedSyntheticCallArgumentType(
+                var expectedType = _syntheticCallValidator.GetExpectedArgumentType(
                     functionType,
                     call,
                     i,
@@ -9242,8 +9224,10 @@ public class Analyzer : IDisposable
         {
             if (funcType.ParameterTypes != null)
             {
-                ValidateSyntheticFunctionCall(funcType, call, argTypes);
-                return ResolveSyntheticReturnType(funcType, call, argTypes);
+                _syntheticCallValidator.ValidateCall(
+                    funcType, call, argTypes, AnalyzeSyntheticCallReceiver(funcType, call));
+                return _syntheticCallValidator.ResolveReturnType(
+                    funcType, call, argTypes, AnalyzeSyntheticCallReceiver(funcType, call));
             }
             return funcType.ReturnType ?? BuiltInTypes.Void;
         }
@@ -9303,11 +9287,13 @@ public class Analyzer : IDisposable
                 if (boundFunction != null)
                 {
                     _semanticModel.RecordExpressionType(call.Callee.Line, call.Callee.Column, boundFunction);
-                    ValidateSyntheticFunctionCall(boundFunction, call, argTypes);
-                    return ResolveSyntheticReturnType(boundFunction, call, argTypes);
+                    _syntheticCallValidator.ValidateCall(
+                        boundFunction, call, argTypes, AnalyzeSyntheticCallReceiver(boundFunction, call));
+                    return _syntheticCallValidator.ResolveReturnType(
+                        boundFunction, call, argTypes, AnalyzeSyntheticCallReceiver(boundFunction, call));
                 }
 
-                ReportNoMatchingSyntheticNSharpOverload(functions, call, argTypes);
+                _syntheticCallValidator.ReportNoMatchingOverload(functions, call, argTypes);
                 return BuiltInTypes.Unknown;
             }
         }
@@ -9531,387 +9517,6 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private TypeInfo? GetExpectedSyntheticCallArgumentType(
-        FunctionTypeInfo functionType,
-        CallExpression call,
-        int argumentIndex,
-        int parameterIndex,
-        Dictionary<string, TypeInfo>? genericBindings)
-    {
-        var parameterTypes = functionType.ParameterTypes;
-        if (parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count)
-            return null;
-
-        var parameterType = AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings);
-        var paramsParameterIndex = AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, parameterTypes.Count);
-        if (paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex)
-        {
-            var paramsElementType = _overloadScoring.GetNSharpParamsElementType(parameterType);
-
-            // Match the declaration-backed path: a single array literal can be the params array
-            // itself or an expanded element, so leave it untyped until validation sees the value.
-            if (call.Arguments.Count == paramsParameterIndex + 1
-                && call.Arguments[argumentIndex].Value is ArrayLiteralExpression)
-            {
-                return null;
-            }
-
-            return paramsElementType ?? parameterType;
-        }
-
-        return AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, parameterType);
-    }
-
-    private void ValidateSyntheticFunctionCall(FunctionTypeInfo functionType, CallExpression call, IReadOnlyList<TypeInfo> argTypes)
-    {
-        if (functionType.ParameterTypes == null)
-            return;
-
-        var functionName = AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call);
-        var expectedCount = functionType.ParameterTypes.Count;
-        var parameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call);
-        var requiredCount = AnalyzerOverloadFacts.GetSyntheticRequiredArgumentCount(functionType, expectedCount, parameterStartIndex);
-        var expectedArgumentCount = Math.Max(0, expectedCount - parameterStartIndex);
-        var paramsParameterIndex = AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, expectedCount);
-        var hasParamsParameter = paramsParameterIndex >= 0;
-        var genericBindings = _syntheticCallWalk.InferGenericBindings(
-            functionType, call, argTypes, AnalyzeSyntheticCallReceiver(functionType, call));
-        ValidateSyntheticGenericConstraints(functionType, call, genericBindings);
-        if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedArgumentCount))
-        {
-            var (line, column, length) = _spans.GetCallDiagnosticSpan(call, functionName);
-            var sourceSnippet = GetSourceSnippet(line);
-            if (sourceSnippet != null && _currentFilePath != null)
-            {
-                var expected = argTypes.Count < requiredCount ? requiredCount : expectedArgumentCount;
-                _errors.Add(ErrorMessageBuilder.WrongArgumentCount(
-                    _currentFilePath,
-                    line,
-                    column,
-                    sourceSnippet,
-                    length,
-                    functionName,
-                    expected,
-                    argTypes.Count));
-                return;
-            }
-
-            var expectedDescription = requiredCount == expectedArgumentCount
-                ? expectedArgumentCount.ToString(CultureInfo.InvariantCulture)
-                : $"{requiredCount.ToString(CultureInfo.InvariantCulture)} to {expectedArgumentCount.ToString(CultureInfo.InvariantCulture)}";
-            Error(
-                ErrorCode.WrongArgumentCount,
-                $"'{functionName}' takes {expectedDescription} argument(s), but you passed {argTypes.Count}",
-                line,
-                column,
-                "Check the argument count against the function signature.",
-                length);
-            return;
-        }
-
-        if (!_syntheticCallReporter.TryBindAndReport(
-                functionType,
-                functionName,
-                call,
-                out var parameterIndexByArgument,
-                parameterStartIndex,
-                reportErrors: true))
-        {
-            return;
-        }
-
-        for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
-        {
-            var parameterIndex = parameterIndexByArgument[argumentIndex];
-            if (parameterIndex < 0 || parameterIndex >= expectedCount)
-                continue;
-
-            var expectedType = _declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticParameterModifier(
-                functionType,
-                parameterIndex,
-                AnalyzerSyntheticCallFacts.ApplyGenericBindings(functionType.ParameterTypes[parameterIndex], genericBindings)));
-            var argType = _declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex]);
-            if (hasParamsParameter && parameterIndex == paramsParameterIndex)
-            {
-                var paramsType = _declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(functionType.ParameterTypes[paramsParameterIndex], genericBindings));
-                if (paramsType is not ArrayTypeInfo paramsArrayType)
-                    continue;
-
-                var paramsArgumentIndex = paramsParameterIndex - parameterStartIndex;
-                var isDirectParamsArrayArgument = _overloadScoring.IsSingleDirectNSharpParamsArrayArgument(
-                    paramsArgumentIndex,
-                    call.Arguments,
-                    argTypes,
-                    paramsArrayType);
-
-                if (!isDirectParamsArrayArgument)
-                {
-                    if (call.Arguments[argumentIndex].Value is SpreadExpression)
-                    {
-                        if (argType is ArrayTypeInfo spreadArrayType)
-                        {
-                            expectedType = _declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType);
-                            argType = _declarationContext.ResolveDeclaredAlias(spreadArrayType.ElementType);
-                        }
-                        else if (BuiltInTypes.IsUnknown(argType))
-                        {
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        expectedType = _declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType);
-                    }
-                }
-            }
-
-            if (BuiltInTypes.IsUnknown(expectedType)
-                || BuiltInTypes.IsUnknown(argType)
-                || argType is SoaRowTypeInfo
-                || _assignability.IsAssignable(expectedType, argType))
-            {
-                continue;
-            }
-
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
-            var parameterName = functionType.ParameterNames != null && parameterIndex < functionType.ParameterNames.Count
-                ? functionType.ParameterNames[parameterIndex]
-                : null;
-            var sourceSnippet = GetSourceSnippet(line);
-            if (sourceSnippet != null && _currentFilePath != null && parameterName != null)
-            {
-                _errors.Add(ErrorMessageBuilder.WrongArgumentType(
-                    _currentFilePath,
-                    line,
-                    column,
-                    sourceSnippet,
-                    length,
-                    functionName,
-                    argumentIndex + 1,
-                    parameterName,
-                    GetArgumentTypeDiagnosticName(call.Arguments[argumentIndex], argType),
-                    expectedType.ToString() ?? "unknown"));
-                continue;
-            }
-
-            var argumentName = call.Arguments[argumentIndex].Name;
-            var argumentDescription = argumentName != null
-                ? $"Argument '{argumentName}'"
-                : $"Argument {argumentIndex + 1}";
-            var actualType = FormatArgumentTypeDiagnosticPhrase(call.Arguments[argumentIndex], argType);
-            Error(
-                ErrorCode.TypeMismatch,
-                ErrorMessageBuilder.WrongArgumentTypeMessage(
-                    argumentDescription,
-                    functionName,
-                    actualType,
-                    parameterName,
-                    expectedType.ToString() ?? "unknown"),
-                line,
-                column,
-                "Pass a value with the expected type, or update the function signature.",
-                length);
-        }
-
-        ValidateSoaSyntheticFunctionCall(functionType, functionName, call, argTypes, parameterIndexByArgument);
-    }
-
-    private void ValidateSoaSyntheticFunctionCall(
-        FunctionTypeInfo functionType,
-        string functionName,
-        CallExpression call,
-        IReadOnlyList<TypeInfo> argTypes,
-        IReadOnlyList<int> parameterIndexByArgument)
-    {
-        switch (functionType.SyntheticName)
-        {
-            case "wrap":
-            {
-                ValidateSoaWrapColumnArguments(functionType, functionName, call, argTypes, parameterIndexByArgument);
-
-                var lengthParameterIndex = functionType.ParameterNames?.FindIndex(parameterName => parameterName == "length") ?? -1;
-                if (lengthParameterIndex >= 0)
-                {
-                    ValidateSyntheticNonNegativeIntArgument(
-                        functionName,
-                        call,
-                        argTypes,
-                        parameterIndexByArgument,
-                        lengthParameterIndex,
-                        "SoA table wrap length must not be negative",
-                        "Use zero or a valid row count no greater than the column lengths.");
-                }
-                break;
-            }
-
-            case "ensureCapacity":
-                ValidateSyntheticNonNegativeIntArgument(
-                    functionName,
-                    call,
-                    argTypes,
-                    parameterIndexByArgument,
-                    parameterIndex: 0,
-                    "SoA table capacity must not be negative",
-                    "Use zero or a positive capacity; the table can grow later with add or ensureCapacity.");
-                break;
-
-            case "copyRow":
-                ValidateSyntheticNonNegativeIntArgument(
-                    functionName,
-                    call,
-                    argTypes,
-                    parameterIndexByArgument,
-                    parameterIndex: 0,
-                    "SoA table source row id must not be negative",
-                    "Use zero or a valid non-negative source row id.");
-                ValidateSyntheticNonNegativeIntArgument(
-                    functionName,
-                    call,
-                    argTypes,
-                    parameterIndexByArgument,
-                    parameterIndex: 1,
-                    "SoA table target row id must not be negative",
-                    "Use zero or a valid non-negative target row id.");
-                break;
-        }
-    }
-
-    private void ValidateSoaWrapColumnArguments(
-        FunctionTypeInfo functionType,
-        string functionName,
-        CallExpression call,
-        IReadOnlyList<TypeInfo> argTypes,
-        IReadOnlyList<int> parameterIndexByArgument)
-    {
-        if (functionType.ParameterTypes == null)
-            return;
-
-        for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
-        {
-            var parameterIndex = parameterIndexByArgument[argumentIndex];
-            if (parameterIndex < 0 || parameterIndex >= functionType.ParameterTypes.Count)
-            {
-                continue;
-            }
-
-            var expectedType = functionType.ParameterTypes[parameterIndex];
-            if (_declarationContext.ResolveDeclaredAlias(expectedType) is not ArrayTypeInfo)
-            {
-                continue;
-            }
-
-            if (argumentIndex < argTypes.Count
-                && !BuiltInTypes.IsUnknown(argTypes[argumentIndex])
-                && !_assignability.IsAssignable(expectedType, argTypes[argumentIndex]))
-            {
-                continue;
-            }
-
-            var argument = call.Arguments[argumentIndex];
-            if (!IsNullOrDefaultLiteral(argument.Value))
-                continue;
-
-            var columnName = functionType.ParameterNames != null && parameterIndex < functionType.ParameterNames.Count
-                ? functionType.ParameterNames[parameterIndex]
-                : $"column {parameterIndex + 1}";
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(argument.Value);
-            Error(
-                ErrorCode.TypeMismatch,
-                $"SoA table wrap column '{columnName}' cannot be null",
-                line,
-                column,
-                $"Pass the backing '{columnName}' column array, or allocate one before calling {functionName}.",
-                length);
-        }
-    }
-
-    private static bool IsNullOrDefaultLiteral(Expression expression)
-    {
-        while (true)
-        {
-            expression = UnwrapTransparentExpressionWrappers(expression);
-            if (expression is CastExpression cast)
-            {
-                expression = cast.Expression;
-                continue;
-            }
-
-            return expression is NullLiteralExpression or DefaultExpression;
-        }
-    }
-
-    private static Expression UnwrapTransparentExpressionWrappers(Expression expression)
-    {
-        while (true)
-        {
-            if (expression is ParenthesizedExpression parenthesized)
-            {
-                expression = parenthesized.Inner;
-                continue;
-            }
-
-            if (expression is CheckedExpression checkedExpression)
-            {
-                expression = checkedExpression.Expression;
-                continue;
-            }
-
-            if (expression is UncheckedExpression uncheckedExpression)
-            {
-                expression = uncheckedExpression.Expression;
-                continue;
-            }
-
-            break;
-        }
-
-        return expression;
-    }
-
-    private void ValidateSyntheticNonNegativeIntArgument(
-        string functionName,
-        CallExpression call,
-        IReadOnlyList<TypeInfo> argTypes,
-        IReadOnlyList<int> parameterIndexByArgument,
-        int parameterIndex,
-        string message,
-        string suggestion)
-    {
-        var argumentIndex = -1;
-        for (var i = 0; i < parameterIndexByArgument.Count; i++)
-        {
-            if (parameterIndexByArgument[i] == parameterIndex)
-            {
-                argumentIndex = i;
-                break;
-            }
-        }
-
-        if (argumentIndex < 0)
-            return;
-
-        if (argumentIndex >= call.Arguments.Count || argumentIndex >= argTypes.Count)
-            return;
-
-        var argType = _declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex]);
-        if (BuiltInTypes.IsUnknown(argType)
-            || argType is SoaRowTypeInfo
-            || !_assignability.IsAssignable(BuiltInTypes.Int, argType))
-            return;
-
-        if (!IsConstantNegative(call.Arguments[argumentIndex].Value))
-            return;
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
-        Error(
-            ErrorCode.TypeMismatch,
-            message,
-            line,
-            column,
-            $"{functionName} expects a non-negative int argument here. {suggestion}",
-            length);
-    }
-
     private TypeInfo AnalyzeCallCallee(Expression callee)
     {
         if (callee is IdentifierExpression identifier)
@@ -9930,51 +9535,6 @@ public class Analyzer : IDisposable
         _semanticModel.RecordExpressionNullState(identifier.Line, identifier.Column, nullState);
 
         return flowType;
-    }
-
-    private void ReportNoMatchingSyntheticNSharpOverload(
-        IReadOnlyList<FunctionTypeInfo> candidates,
-        CallExpression call,
-        IReadOnlyList<TypeInfo> argTypes)
-    {
-        if (candidates.Count == 0)
-            return;
-
-        var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidates[0].SyntheticName ?? "function";
-        var (line, column, length) = _spans.GetCallDiagnosticSpan(call, functionName);
-        var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
-        var candidateSignatures = candidates
-            .Select(candidate => AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(
-                candidate,
-                candidate.SyntheticName ?? functionName,
-                AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(candidate, call)))
-            .Distinct(StringComparer.Ordinal)
-            .Take(8)
-            .ToList();
-
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                functionName,
-                call.Arguments.Count,
-                argumentTypes,
-                candidateSignatures));
-            return;
-        }
-
-        Error(
-            ErrorCode.NoMatchingOverload,
-            $"No overload of '{functionName}' accepts {call.Arguments.Count} argument(s) with these types",
-            line,
-            column,
-            "Check the argument count and types against the available overloads.",
-            length);
     }
 
     private TypeInfo HandleUnboundReflectionCall(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
@@ -10255,118 +9815,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void ValidateSyntheticGenericConstraints(
-        FunctionTypeInfo functionType,
-        CallExpression call,
-        Dictionary<string, TypeInfo>? bindings)
-    {
-        if (functionType.GenericConstraints == null || bindings == null || bindings.Count == 0)
-            return;
-
-        var functionName = AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call);
-        foreach (var constraint in functionType.GenericConstraints)
-        {
-            if (!bindings.TryGetValue(constraint.TypeParameter, out var boundType))
-                continue;
-
-            var (line, column, length) = _syntheticCallWalk.GetGenericConstraintDiagnosticSpan(
-                functionType, call, constraint.TypeParameter, functionName);
-
-            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
-            {
-                if (!AnalyzerConversionFacts.IsReferenceType(boundType))
-                {
-                    Error(ErrorCode.GenericConstraintViolation,
-                        $"`{boundType}` is a value type, but type parameter `{constraint.TypeParameter}` of `{functionName}` requires a reference type (the `class` constraint)",
-                        line, column,
-                        $"Pass a class instance for `{constraint.TypeParameter}`, or relax the `class` constraint on `{functionName}`.",
-                        length);
-                }
-            }
-
-            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
-            {
-                if (AnalyzerConversionFacts.IsReferenceType(boundType) || boundType is NullableTypeInfo)
-                {
-                    Error(ErrorCode.GenericConstraintViolation,
-                        $"`{boundType}` is not a non-nullable value type, but type parameter `{constraint.TypeParameter}` of `{functionName}` requires one (the `struct` constraint)",
-                        line, column,
-                        $"Pass a non-nullable value type for `{constraint.TypeParameter}`, or relax the `struct` constraint on `{functionName}`.",
-                        length);
-                }
-            }
-
-            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.New))
-            {
-                if (!HasParameterlessConstructor(boundType))
-                {
-                    Error(ErrorCode.GenericConstraintViolation,
-                        $"`{boundType}` has no parameterless constructor, but type parameter `{constraint.TypeParameter}` of `{functionName}` requires one (the `new()` constraint)",
-                        line, column,
-                        $"Give `{boundType}` a parameterless constructor, or relax the `new()` constraint on `{functionName}`.",
-                        length);
-                }
-            }
-
-            var resolvedConstraintTypes = functionType.ResolvedGenericConstraintTypes != null
-                && functionType.ResolvedGenericConstraintTypes.TryGetValue(
-                    constraint.TypeParameter,
-                    out var declaredConstraintTypes)
-                        ? declaredConstraintTypes
-                        : constraint.Constraints.Select(_typeResolver.ResolveType).ToList();
-            foreach (var constraintType in resolvedConstraintTypes)
-            {
-                var closedConstraintType = AnalyzerSyntheticCallFacts.ApplyGenericBindings(constraintType, bindings);
-                if (!_assignability.IsSubtypeOf(boundType, closedConstraintType)
-                    && !_assignability.IsAssignable(closedConstraintType, boundType))
-                {
-                    Error(ErrorCode.GenericConstraintViolation,
-                        $"`{boundType}` does not implement `{closedConstraintType}`, which type parameter `{constraint.TypeParameter}` of `{functionName}` requires",
-                        line, column,
-                        $"Implement `{closedConstraintType}` on `{boundType}`, or relax the constraint on `{functionName}`.",
-                        length);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Returns true if the type has an accessible parameterless constructor,
-    /// which is required to satisfy a 'new()' generic constraint.
-    /// </summary>
-    private bool HasParameterlessConstructor(TypeInfo type)
-    {
-        // Structs (and record structs) always have an implicit parameterless constructor in
-        if (type is StructTypeInfo)
-            return true;
-
-        if (type is ClassTypeInfo classType)
-        {
-            return classType.HasParameterlessConstructor;
-        }
-
-        if (type is RecordTypeInfo recordType)
-        {
-            // Record structs always have an implicit parameterless constructor regardless of
-            // whether they declare primary constructor parameters.
-            if (recordType.IsStruct)
-                return true;
-
-            // Record classes: a primary constructor with params suppresses the default ctor
-            return recordType.PrimaryConstructorParameters.Length == 0;
-        }
-
-        if (type is ReflectionTypeInfo refl)
-        {
-            // CLR value types always have a parameterless constructor even if no explicit
-            // constructor is declared (they are zero-initialized), so check IsValueType first.
-            return refl.Type.IsValueType || refl.Type.GetConstructor(Type.EmptyTypes) != null;
-        }
-
-        // Conservative: unknown types are assumed to satisfy the constraint
-        return true;
-    }
-
     /// <summary>
     /// The member-access RECEIVER's type, for the one inference arm that needs it — and only when the
     /// N#-owned walk says it will read one. The walk cannot re-enter the expression walk from across
@@ -10386,17 +9834,6 @@ public class Analyzer : IDisposable
             && call.Callee is MemberAccessExpression memberAccess
                 ? AnalyzeExpression(memberAccess.Object)
                 : null;
-
-    /// <summary>
-    /// Resolves the return type of an N#-declared function, applying generic bindings if needed.
-    /// </summary>
-    private TypeInfo ResolveSyntheticReturnType(FunctionTypeInfo functionType, CallExpression call, IReadOnlyList<TypeInfo> argTypes)
-    {
-        var returnType = functionType.ReturnType ?? BuiltInTypes.Void;
-        var genericBindings = _syntheticCallWalk.InferGenericBindings(
-            functionType, call, argTypes, AnalyzeSyntheticCallReceiver(functionType, call));
-        return AnalyzerSyntheticCallFacts.ApplyGenericBindings(returnType, genericBindings);
-    }
 
     private TypeInfo ResolveDeclaredFunctionCallReturnType(FunctionDeclaration decl)
     {
@@ -13663,7 +13100,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        if (IsConstantNegative(capacityArgument.Value))
+        if (_constantExpressionFacts.IsConstantNegative(capacityArgument.Value))
         {
             var (line, column, length) = _spans.GetExpressionDiagnosticSpan(capacityArgument.Value);
             Error(
@@ -14097,7 +13534,7 @@ public class Analyzer : IDisposable
                 stackAlloc.LengthExpression.Column,
                 "Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.");
         }
-        else if (IsConstantNegative(stackAlloc.LengthExpression))
+        else if (_constantExpressionFacts.IsConstantNegative(stackAlloc.LengthExpression))
         {
             Error(ErrorCode.TypeMismatch,
                 "stackalloc length must not be negative",
@@ -14126,67 +13563,6 @@ public class Analyzer : IDisposable
                || BuiltInTypes.Is(type, BuiltInTypes.Byte)
                || BuiltInTypes.Is(type, BuiltInTypes.UShort)
                || BuiltInTypes.Is(type, BuiltInTypes.Char);
-    }
-
-    private bool IsConstantNegative(Expression expression)
-    {
-        while (true)
-        {
-            expression = UnwrapTransparentExpressionWrappers(expression);
-            if (expression is CastExpression cast && IsSignedIntegerCast(cast.TargetType))
-            {
-                expression = cast.Expression;
-                continue;
-            }
-
-            break;
-        }
-
-        return expression is UnaryExpression
-        {
-            Operator: UnaryOperator.Negate,
-            Operand: var operand
-        }
-            && TryGetUnsignedIntegerMagnitude(operand, out var magnitude)
-            && magnitude != 0;
-    }
-
-    private bool TryGetUnsignedIntegerMagnitude(Expression expression, out ulong magnitude)
-    {
-        while (true)
-        {
-            expression = UnwrapTransparentExpressionWrappers(expression);
-            if (expression is CastExpression cast && IsSignedIntegerCast(cast.TargetType))
-            {
-                expression = cast.Expression;
-                continue;
-            }
-
-            break;
-        }
-
-        if (expression is IntLiteralExpression literal
-            && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out magnitude))
-        {
-            return true;
-        }
-
-        magnitude = 0;
-        return false;
-    }
-
-    private bool IsSignedIntegerCast(TypeReference type)
-    {
-        if (type is not SimpleTypeReference simple)
-            return false;
-
-        if (simple.Name is "int" or "short" or "sbyte")
-            return true;
-
-        var resolved = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(simple.Name) ?? BuiltInTypes.Unknown);
-        return BuiltInTypes.Is(resolved, BuiltInTypes.Int)
-               || BuiltInTypes.Is(resolved, BuiltInTypes.Short)
-               || BuiltInTypes.Is(resolved, BuiltInTypes.SByte);
     }
 
     /// <summary>
@@ -17105,6 +16481,7 @@ public class Analyzer : IDisposable
         _reflectionArgumentBinder = CreateReflectionArgumentBinder();
         _syntheticCallBinder = CreateSyntheticCallBinder();
         _syntheticCallWalk = CreateSyntheticCallWalk();
+        _syntheticCallValidator = CreateSyntheticCallValidator();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -17122,6 +16499,7 @@ public class Analyzer : IDisposable
             _reflectionArgumentBinder = CreateReflectionArgumentBinder();
             _syntheticCallBinder = CreateSyntheticCallBinder();
             _syntheticCallWalk = CreateSyntheticCallWalk();
+            _syntheticCallValidator = CreateSyntheticCallValidator();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;

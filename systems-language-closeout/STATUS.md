@@ -1,6 +1,67 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-01 (**TASK 017 SLICE 17 LANDED (no commit — mandate) — N# OWNS THE SOURCE
+Last updated: 2026-08-01 (**TASK 017 SLICE 18 LANDED (no commit — mandate) — N# OWNS EVERYTHING THE
+ANALYZER SAYS ABOUT A CALL TO AN N#-DECLARED FUNCTION.** With the walk (slice 17) choosing the
+overload and `AnalyzerSyntheticCallValidator` (**993 lines, 2 classes, 22 members**) judging it,
+`Analyzer.cs` keeps NO part of the source-call semantics: not the arity band, not the argument-type
+comparison, not one generic-constraint arm, not the no-matching-overload report, not the SoA
+intrinsics' value checks, not the return type. **17 whole C# members DELETED — 625 body lines** —
+and the closure was RE-VERIFIED name by name at this tree, which promoted all THREE of slice 17's
+unmeasured members plus their eight-member prerequisite closure into the cut:
+`ValidateSyntheticFunctionCall` 153, `ValidateSyntheticGenericConstraints` 74,
+`ValidateSoaSyntheticFunctionCall` 59, `ValidateSoaWrapColumnArguments` 48,
+`ReportNoMatchingSyntheticNSharpOverload` 44, `ValidateSyntheticNonNegativeIntArgument` 43,
+`HasParameterlessConstructor(TypeInfo)` 32, `GetExpectedSyntheticCallArgumentType` 30,
+`UnwrapTransparentExpressionWrappers` 27, `TryGetUnsignedIntegerMagnitude` 23, `IsConstantNegative`
+22, `GetCallableReferenceName` 19, `IsNullOrDefaultLiteral` 14, `IsSignedIntegerCast` 13,
+`GetArgumentTypeDiagnosticName` 11, `ResolveSyntheticReturnType` 7,
+`FormatArgumentTypeDiagnosticPhrase` 6. `Analyzer.cs` **17,617 → 16,995** (non-blank
+15,532 → **14,981**), `git diff` **+37 / −659 = net −622**, the only C# added being two fields with
+their comments, two construction lines, a 10-line factory, two rebuild lines and EIGHT rewritten
+references. **THE DECISION THAT IS THE WHOLE SLICE: the two rich-report doors become one.**
+`_errors.Add(ErrorMessageBuilder.X(...))` and `Error(...)` were two different ways into the same
+list; they now both go through `AnalyzerDiagnosticSink` (`ReportBuilt`, 8 new lines), and the
+two-value precondition the rich shape needs is stated once in `TryGetRichContext`. Slice 17's
+receiver re-entry is hoisted COUNT-EXACT to the two call sites, and the one shape where the hoist
+could differ (`ParameterTypes == null`, where the old body returned before analysing) is PINNED
+unreachable rather than assumed: **600 INVARIANT rows, `score=-1` and `bindAlone=<none>` in 600 /
+600**. PROOF, ORDER FIRST: `nlc build` renders `_errors` unsorted and undeduplicated, and **160
+transcripts / 4,677 lines are BYTE-IDENTICAL** — including one shape that prints **12 full rich
+NL202 blocks (242 lines)**, one that prints **5 NL202 in argument order**, one that prints **4 NL208
+at the SAME anchor in constraint-entry order** and one that prints **6 SoA NL202 at six anchors**.
+Then a throwaway differential in BOTH trees — **83,754 CELLS, 0 MISMATCHES, 72 identical throws,
+transcripts BYTE-IDENTICAL (md5 `83652e7af443b6e3a007cd4e1e6c5ad8`)**, 60 distinct answers and
+**14,880 sink reports across NL401/NL402/NL208/NL202/NL301**, over 20 signature shapes × 25 call
+shapes × 8 argument-type shapes × 3 sink modes, plus 6 candidate groups, a 23-type
+parameterless-constructor grid spanning source AND MetadataLoadContext types, a 34-shape
+literal/constant sweep and a 9 × 11 naming grid; `nlc check --json` **byte-identical on ALL 70 corpus
+targets with NO exclusion** (ORACLE_DIFFS=0, STDERR=0, EXIT=0, **326 diagnostics**) plus **41
+purpose-built VALIDATOR fixtures firing 105 diagnostics (DIFFS=0)** across all five owned codes and
+the **112 ACCUMULATED fixtures firing 311 (DIFFS=0)**; corpus IL **112 / 112 comparable assemblies
+BYTE-IDENTICAL** over 122 builds per tree (PRODUCT_IL_DIFFS=0, SINGLE_IL_DIFFS=0, EXIT_DIFFS=0,
+ONLY_IN_BASE/WORK=0, NORMALISER_FAILURES=0). **FOUR ANALYZER FINDINGS IN THE NEW `.nl` WERE CAUGHT BY
+THE ORACLE'S OWN BootstrapServices ROW AND FIXED** (three because `object.ToString()` is `string?` in
+N#, so a carried-across `?? "unknown"` must be written out; one because `ulong != 0` is not a
+comparison N# admits) — BootstrapServices back to **293**, the touched files contributing ZERO.
+GATES: unit **3,192 / 3,192** (zero drift); contracts **1,932 → 1,968 (+36)**; audit **18 / 18**
+after a one-row in-place repin that keeps the manifest at **391 lines**; `dev.sh --since` full-suite
+fail-safe **3,192 / 3,192** in 7m44s; and the FULL VS Code-enabled `./scripts/test-all.sh --commit`
+**ALL TESTS PASSED in 2,003s ON THE FIRST RUN** in a fresh isolated copy (130 `✓ PASSED`, zero `✗`,
+VS Code integration **36 passing in 41s**, all 67 assemblies IL-verified); VSIX rebuilt +
+reinstalled. NO toolset repin needed — no catalog surface was added. Four new .nl gotchas:
+**`object.ToString()` is `string?`**; **an int literal cannot be assigned to a nullable-int field**
+(go through an `int?` local); **an enum-flag `|` in a typed-local initializer declines** (use
+`Convert.ToInt32` then a cast); **`ulong != 0` is an NL202**. ONE PRE-EXISTING PRODUCT BUG FOUND AND
+FLAGGED, NOT FIXED: `nlc check` throws an unhandled `NotImplementedException` on any project
+declaring a receiver-style (`this`-parameter) generic function — minimised to six lines, reproduces
+identically on the unmodified baseline. NEXT: **SLICE 19 — THE REFLECTION CALL'S REPORTERS AND THE
+CALLABLE-REFERENCE REPORT** (`ReportNoMatchingReflectionOverload` 39,
+`ReportMethodGroupUsedAsValue` 27, `TryGetNSharpMethodGroupArgumentName` 19,
+`ReportNoMatchingReflectionMethodGroupOverload` 15, `HandleUnboundReflectionCall` 12 — **~112 body
+lines whose only non-N# dependency is one `HashSet` the owner would own itself**, and whose
+`GetCallableReferenceName` dependency became N# in THIS slice))
+
+Last updated (prior): 2026-08-01 (**TASK 017 SLICE 17 LANDED (no commit — mandate) — N# OWNS THE SOURCE
 BINDER'S WALK, AND THE OVERLOAD ARC IS CLOSED.** `AnalyzerSyntheticCallWalk.nl` (**520 lines, ONE
 class, 8 members**) is the sole authority for which N#-declared overload a call selects, how well a
 candidate matches, what each type parameter is bound to, and where a violated constraint points.
@@ -650,7 +711,293 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 17 — THE SOURCE BINDER'S WALK.** Target recorded
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 18 — THE SYNTHETIC CALL VALIDATOR AND ITS
+  REPORTERS.** Target recorded BEFORE any production edit, at `80087951f` (`Analyzer.cs` 17,617 lines,
+  non-blank 15,532).
+
+  **THE CLOSURE, RE-VERIFIED AT THIS TREE — AND THE THREE UNMEASURED MEMBERS ARE ALL TAKEN.** Every
+  field reference and every bare call inside every candidate body was re-extracted at `80087951f`.
+  The six the mandate named:
+  `ValidateSyntheticFunctionCall` (:9565, **153**, 2 refs) → `AnalyzerSyntheticCallFacts`,
+  `AnalyzerOverloadFacts`, `_syntheticCallWalk`, `_syntheticCallReporter`, `_spans`,
+  `_declarationContext`, `_assignability`, `_overloadScoring`, `ErrorMessageBuilder`, `_errors`,
+  `GetSourceSnippet`/`_currentFilePath` (**all N#**) + `GetArgumentTypeDiagnosticName`,
+  `FormatArgumentTypeDiagnosticPhrase`, `ValidateSyntheticGenericConstraints`,
+  `ValidateSoaSyntheticFunctionCall` (all moving) + `AnalyzeSyntheticCallReceiver`;
+  `ValidateSyntheticGenericConstraints` (:10258, **74**, 1 ref) → `AnalyzerConversionFacts`,
+  `_typeResolver`, `_assignability`, `_syntheticCallWalk` (**all N#**) +
+  `HasParameterlessConstructor`; `HasParameterlessConstructor(TypeInfo)` (:10337, **32**, 1 ref) →
+  pure over `TypeInfo` + `System.Type` (**zero C#**); `ReportNoMatchingSyntheticNSharpOverload`
+  (:9935, **44**, 1 ref) → `AnalyzerSyntheticCallFacts`, `AnalyzerOverloadFacts`, `_spans`,
+  `ErrorMessageBuilder`, `_errors` (**all N#**); `ResolveSyntheticReturnType` (:10393, **7**, 2 refs)
+  → `_syntheticCallWalk`, `AnalyzerSyntheticCallFacts` (**both N#**) + `AnalyzeSyntheticCallReceiver`;
+  `GetExpectedSyntheticCallArgumentType` (:9534, **30**, 1 ref) → `AnalyzerSyntheticCallFacts`,
+  `AnalyzerOverloadFacts`, `_overloadScoring` (**all N#**).
+
+  **THE THREE UNMEASURED, MEASURED — AND THEIR CLOSURE ALLOWS, SO THEY COME.**
+  `ValidateSoaSyntheticFunctionCall` (:9719, **59**, 1 ref) is a `SyntheticName` switch over two
+  private arms: `ValidateSoaWrapColumnArguments` (:9779, **48**, 1 ref) → `_declarationContext`,
+  `_assignability`, `_spans` (N#) + `IsNullOrDefaultLiteral`; and
+  `ValidateSyntheticNonNegativeIntArgument` (:9871, **43**, 4 refs) → the same three (N#) +
+  `IsConstantNegative`. Those two literal-shape predicates are the ONLY non-N# leaves, and both are
+  themselves closed: `IsNullOrDefaultLiteral` (:9828, **14**, 1 ref) → `UnwrapTransparentExpression`
+  `Wrappers` (:9843, **27**, **3 refs, all inside this closure**); `IsConstantNegative` (:14131,
+  **22**, **4 refs**) → `UnwrapTransparentExpressionWrappers`, `TryGetUnsignedIntegerMagnitude`
+  (:14154, **23**, 1 ref) → `NumericLiteralFacts` (N#), and `IsSignedIntegerCast` (:14178, **13**, 2
+  refs) → `_scopes` (**`AnalyzerScopeStack`, N#**) + `_declarationContext` (N#) + `BuiltInTypes` (N#).
+  The two argument-phrase helpers are closed too: `GetArgumentTypeDiagnosticName` (:6541, **11**, 2
+  refs) → `_declarationContext`, `AnalyzerCallableReferenceFacts` (N#) + `GetCallableReferenceName`
+  (:6521, **19**, 2 refs), which is pure over the AST plus `NSharpMethodGroupInfoFactory` (**N#**);
+  and `FormatArgumentTypeDiagnosticPhrase` (:6553, **6**, 1 ref).
+
+  **SO THE SLICE IS 17 WHOLE MEMBERS / 625 BODY LINES**, and **EVERY ONE IS `private` WITH ZERO
+  REFERENCES OUTSIDE `Analyzer.cs`** across `src/`, `tests/` and `editors/` — measured name by name —
+  so no C# assertion migrates. (`HasParameterlessConstructor`'s one outside hit is the unrelated
+  `ClassTypeInfo` PROPERTY in `TypeInfoModels.nl`; `TryGetUnsignedIntegerMagnitude`'s two are
+  `SystemsAnalyzer.cs`'s own private copy, which is task 018's estate and is untouched. The
+  same-named `HasParameterlessConstructor(Type)` overload at :13341 is a DIFFERENT member on the CLR
+  `Type` surface and STAYS.)
+
+  **THE ONE C# DEPENDENCY, AND IT IS SLICE 17'S SHAPE UNCHANGED.** `ValidateSyntheticFunctionCall`
+  and `ResolveSyntheticReturnType` each call `AnalyzeSyntheticCallReceiver(functionType, call)` —
+  the guarded `AnalyzeExpression(memberAccess.Object)` re-entry slice 17 resolved by counterexample.
+  It stays exactly where slice 17 put it: the DECISION is N# (`NeedsReceiverType`), C# performs the
+  one analysis it alone can perform, and the type crosses as an ordinary `TypeInfo?` VALUE. Hoisting
+  it to the two call sites is COUNT-EXACT, and the one place it could differ is proved unreachable:
+  `ValidateSyntheticFunctionCall` returns before the analysis when `ParameterTypes == null`, and both
+  call sites exclude that — :9245 by the enclosing `if (funcType.ParameterTypes != null)`, and :9306
+  because `BindNSharpCall` can never return such a candidate (`GetCallMatchScore` and
+  `TryGetScoringPlacement` both answer `-1`/`false` on a null `ParameterTypes`, so it never scores).
+  The probe pins that invariant rather than assuming it.
+
+  **MEASURED AND DECLINED: `AnalyzeCall` itself.** Its remaining body is `AnalyzeCallCallee`,
+  `ReportPossibleNullAccess`, `AnalyzeRefOutArgumentExpression`,
+  `ReportInvalidRefOutArgumentTargetIfNeeded`, `ReportSoaRowEscape`, four SoA direct-column reporters,
+  `BindSingleReflectionMethod`, `BindReflectionCall`, `HandleUnboundReflectionCall` and
+  `TryAnalyzeResultConstructorCall` — a dozen C# families deep. It is not deletion-ready and is not
+  taken.
+
+  **THE OWNER.** `AnalyzerSyntheticCallValidator` (the validator, its two reporting arms, the SoA
+  arm and the argument-phrase helpers), constructed over the owners it reads; plus
+  `AnalyzerConstantExpressionFacts` (the literal/constant-shape predicates, over the scope stack and
+  the declaration context) and `GetCallableReferenceName` appended to the existing
+  `AnalyzerCallableReferenceFacts`. Type names grepped for assembly-wide uniqueness BEFORE
+  declaration, per slice 16's gotcha. `AnalyzerDiagnosticSink` grows ONE member — `ReportBuilt`,
+  appending an `ErrorMessageBuilder`-constructed `CompilerError` to the SAME list `Report` writes to,
+  which is what keeps a rich report's position among its neighbours. N# is the direct production
+  authority; the 17 C# members are DELETED; `Analyzer.cs` net-negative; no callback, no fallback, no
+  protocol.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS EVERYTHING THE ANALYZER SAYS ABOUT A CALL TO AN
+  N#-DECLARED FUNCTION.** With the walk (slice 17) choosing the overload and the validator now
+  judging it, `Analyzer.cs` keeps NO part of the source-call semantics: not the arity band, not the
+  argument-type comparison, not a single generic constraint arm, not the no-matching-overload
+  report, not the SoA intrinsics' value checks, and not the return type. No callback, no fallback,
+  no shadow path, no protocol.
+
+  **THE CUT — 17 WHOLE C# MEMBERS DELETED, 625 BODY LINES (649 removed lines with their doc comments
+  and separators).** `ValidateSyntheticFunctionCall` 153, `ValidateSyntheticGenericConstraints` 74,
+  `ValidateSoaSyntheticFunctionCall` 59, `ValidateSoaWrapColumnArguments` 48,
+  `ReportNoMatchingSyntheticNSharpOverload` 44, `ValidateSyntheticNonNegativeIntArgument` 43,
+  `HasParameterlessConstructor(TypeInfo)` 32, `GetExpectedSyntheticCallArgumentType` 30,
+  `UnwrapTransparentExpressionWrappers` 27, `TryGetUnsignedIntegerMagnitude` 23, `IsConstantNegative`
+  22, `GetCallableReferenceName` 19, `IsNullOrDefaultLiteral` 14, `IsSignedIntegerCast` 13,
+  `GetArgumentTypeDiagnosticName` 11, `ResolveSyntheticReturnType` 7,
+  `FormatArgumentTypeDiagnosticPhrase` 6. `Analyzer.cs` **17,617 → 16,995** (non-blank
+  15,532 → **14,981**); `git diff` **+37 / −659 = net −622**, and the only C# ADDED anywhere is
+  **two field declarations with their comments, two construction lines, a 10-line factory, two
+  rebuild lines, and eight rewritten references** — five to `_syntheticCallValidator.`, three to
+  `_constantExpressionFacts.`, one to `AnalyzerCallableReferenceFacts.`. **NO new C# method with
+  policy, bridge, callback, shell or state — not one.**
+
+  **THE RE-ENTRY, HOISTED COUNT-EXACT AND THE ONE DIVERGENCE PROVED UNREACHABLE.** The two members
+  that infer now take the receiver type as a value, so each call site evaluates
+  `AnalyzeSyntheticCallReceiver(functionType, call)` immediately before the call it already makes —
+  the same guard (`NeedsReceiverType`, still N#), the same node, the same count of three per walk
+  entry. C# evaluates the second one only after `ValidateCall` has returned, so the analysis keeps
+  its position relative to every report. The one shape where the hoist could differ —
+  `ParameterTypes == null`, where the old body returned BEFORE analysing — is unreachable at both
+  sites, and the probe PINS it rather than assuming it: **600 INVARIANT rows, `score=-1` and
+  `bindAlone=<none>` in 600 / 600**, and grouped with an applicable candidate the winner is that
+  candidate or none, never the null-`ParameterTypes` one.
+
+  **N# ADDED:** `AnalyzerSyntheticCallValidator.nl` (**993 lines, 2 classes, 22 members**),
+  `AnalyzerSyntheticCallValidator.tests.nl` (**1,020 lines, 36 contracts**), **54 lines** appended to
+  `AnalyzerCallableReferenceFacts.nl` (`GetCallableReferenceName`, the natural home — it sits beside
+  `IsCallableReferenceType`, which is its own guard), and **8 lines** on `AnalyzerDiagnosticSink`
+  (`ReportBuilt`).
+
+  **ONE SHAPE DECISION AT THE BOUNDARY, RECORDED.** The rich `ErrorMessageBuilder` reports and the
+  detail-only reports reached `_errors` by two different doors in C# — `_errors.Add(builder(...))`
+  and `Error(...)`. They now reach it by ONE: `AnalyzerDiagnosticSink.ReportBuilt` appends to the
+  same list `Report` writes to, in the same position. The two-value precondition both rich reports
+  share (a file path AND the offending line's text) is stated once, in `TryGetRichContext`, so the
+  three report sites cannot disagree about when the rich shape is available.
+
+  **PROOF — DIAGNOSTIC ORDER AND MULTIPLICITY, UNSORTED AND UNDEDUPLICATED (the slice-17 method).**
+  `nlc build` renders `_errors` in LIST order with NO dedup and NO sort — it is the only surface on
+  which multiplicity is visible at all (`nlc check` collapses by `code|file|line|column|message` and
+  then SORTS). **160 targets, 4,677 lines, FULLBUILD_IDENTICAL = 160, FULLBUILD_DIFFS = 0,
+  FULLBUILD_EXIT_DIFFS = 0** after normalising only the two elapsed-time spellings (`in N.Ns` and
+  `[N.Ns]` — the second was added when the FIRST run reported one diff and it turned out to be
+  `[0.6s]` vs `[0.5s]`, which is exactly the harness bug a swallowing normaliser would have hidden
+  the other way). Seven of those targets are hand-written MULTIPLICITY probes and they are the point: one call with five bad
+  arguments prints **5 NL202 in ARGUMENT order**; twelve identical bad calls print **12 full RICH
+  NL202 blocks, 242 lines, twelve times in both trees**; one call against a three-entry constraint
+  list prints **4 NL208 at the SAME anchor `15:17` in constraint order** (`Shape`, `Shape`, `new()`,
+  `Shape` — the per-entry iteration order, preserved exactly); and one SoA body prints **6 NL202 at
+  six distinct anchors** (`8:22`, `9:22`, `10:15`, `10:19`, `11:15`, `11:19` — capacity twice, then
+  copyRow's source and target twice).
+
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `80087951f` in a throwaway `/private/tmp/nsharp017s18` worktree, and the
+  working tree): **83,754 CELLS, 0 MISMATCHES, 72 IDENTICAL THROWS, transcripts BYTE-IDENTICAL —
+  md5 `83652e7af443b6e3a007cd4e1e6c5ad8` in both**, 60 distinct answers and **14,880 diagnostics
+  reported through the sink in each**, across **five codes: NL401 (6,825), NL402 (6,105), NL208
+  (1,122), NL202 (780) and NL301 (48)**. Every operation resolves to the C# private member when the
+  baseline still has it and to the ROUTED N# owner otherwise, and the receiver type is computed by
+  the analyzer's OWN `AnalyzeSyntheticCallReceiver` in BOTH columns; six `HOST` rows kept OUT of the
+  comparison prove the wiring (baseline `Analyzer`/`Analyzer`, working
+  `AnalyzerSyntheticCallValidator`/`AnalyzerConstantExpressionFacts`). THE GRID, run in **THREE SINK
+  MODES** (file path + text → the rich shape; no path and no text; path but no text — the last two
+  force the detail-only shape): **20 signature shapes** (plain, no parameter NAMES, generic, two
+  type parameters, receiver-generic, params tail, defaulted, ref-modified, each of the `class`,
+  `struct`, `new()`, combined and type constraints, a constraint whose type is only in the
+  declaration's RESOLVED map, a constraint naming an UNBOUND parameter, the three SoA intrinsics, a
+  null-`ParameterTypes` candidate and an empty signature) × **25 call shapes** (no arguments, seven
+  literal kinds, five NEGATIVE-constant forms including `-0` and casts through `int`, `uint` and a
+  declared alias, an array literal, a spread, a method group, named and unknown-named arguments,
+  member-access callees with and without arguments, three explicit type-argument shapes and an
+  out-of-range LINE) × **8 argument-type shapes** — each asked for `ValidateCall` with a FULL
+  fourteen-field transcript of every report it makes (code, line, column, LENGTH, severity, file,
+  message, suggestion, snippet, human explanation, contextual hint, actual/expected type, docs URL),
+  then `ResolveReturnType`, then `GetExpectedArgumentType` over every (argument, parameter) pair
+  including −1 and past-the-end. Plus **six candidate GROUPS** (empty, one, two, a group with
+  DUPLICATE signatures, all twenty, and an unnamed candidate) × the same 25 × 8; a
+  **parameterless-constructor grid over 23 types** — struct, class with and without, record class
+  with and without primary parameters, record struct, six built-ins and **ten METADATA-LOAD-CONTEXT
+  CLR types** (`Int32`, `DateTime`, `Object`, `String`, `StringBuilder`, `Version`, `Array`,
+  `IComparable`, `Exception`, `Uri`) — answering **Y and N on both the source and the MLC side**; a
+  **34-shape literal/constant sweep** asking each shape three questions (negativity, null-or-default,
+  and the unwrapped node's identity and POSITION), with `neg=Y` on 42 cells; and **9 × 11
+  callable-reference NAMING grids** asked three ways (the name, the diagnostic name, the phrase).
+  Deleted from both trees.
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `80087951f` in the throwaway worktree and at the working tree, **both run over the SAME
+  (working-tree) sources**, across **ALL 70 `project.yml` corpus targets with no exclusion
+  (ORACLE_TARGETS=70)**: **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0**, **326
+  diagnostics** (counted as `len(results)` summed over the 70 JSON documents, 293 of them the
+  analyzer's own verdict on `BootstrapServices`). Plus **41 purpose-built VALIDATOR fixtures** —
+  three arity shapes, five argument-type shapes including a method group and a named/unknown-named
+  pair, three params shapes, eight constraint shapes covering all four arms plus explicit type
+  arguments and two satisfied negative controls, two no-matching-overload shapes (one with ten
+  candidates), nine SoA shapes (null and `default` wrap columns, negative length positional AND
+  named, negative capacity, negative source and target rows, negatives through a cast and through
+  parens, `-0`, a wrong-typed column and a clean control), two negative array-capacity shapes and
+  five generic-inference shapes — firing **105 diagnostics with VALIDATOR_FIXTURE_DIFFS = 0 and
+  VALIDATOR_FIXTURE_EXIT_DIFFS = 0**, across **NL401 ×3, NL402 ×7, NL208 ×10, NL202 ×22 and NL411
+  ×1** — every one of the five codes this slice now owns; and the **112 ACCUMULATED fixtures** recoverable from every prior slice's scratchpad, firing
+  **311 diagnostics with ACC_FIXTURE_DIFFS = 0 and ACC_FIXTURE_EXIT_DIFFS = 0**.
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (the slice-16 PE/CLI normaliser and the slice-17 sweep
+  script, both UNCHANGED): **68 project targets + 54 single-file examples = 122 builds per tree.
+  112 COMPARABLE ASSEMBLIES BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 (74) and SINGLE_IL_DIFFS = 0
+  (38)**, **EXIT_DIFFS = 0 across all 122**, **ONLY_IN_BASE = 0 and ONLY_IN_WORK = 0**,
+  **SKIPPED_TARGET_DIFFS = 0**, **NORMALISER_FAILURES = 0**.
+  **FOUR ANALYZER FINDINGS IN THE NEW `.nl` WERE CAUGHT BY THE ORACLE'S OWN BootstrapServices ROW AND
+  FIXED**, exactly as in slices 16 and 17 and for the same reason — the columnar backend had accepted
+  all four: **three NL202s because `object.ToString()` is `string?` in N#**, so the C# originals'
+  `?? "unknown"` has to be RECONSTRUCTED explicitly rather than dropped (it is dead in practice, but
+  dropping it is a type error the backend does not see); and one NL202 on `magnitude != 0`, because
+  comparing a `ulong` against an int literal is not a comparison N# admits. BootstrapServices returns
+  to **293** findings and **the three touched files contribute ZERO**.
+  **ASSERTION MIGRATION.** All 17 members were `private` and none is named anywhere in `src/`,
+  `tests/` or `editors/` — measured name by name. No C# test moved. The DIRECT pinning is new and
+  native: **36 contracts**, and they pin BOTH report shapes (a second owner builder hands the sink a
+  file path and a line of text, which is the only thing that makes the rich `ErrorMessageBuilder`
+  form reachable).
+
+  **FOUR NEW `.nl` GOTCHAS, ALL FOUND BY BUILDING.** **(1) `object.ToString()` is typed `string?`**,
+  so every `x.ToString() ?? "fallback"` carried across needs the fallback written out — and the
+  columnar backend accepts the un-narrowed form silently, so only the analyzer's own verdict finds
+  it. **(2) Assigning an int LITERAL to a nullable-int field declines** —
+  `signature.RequiredParameterCount = 1` fails at `emit.statement.block-child` naming the enclosing
+  TEST; the value must go through an `int?` local first (the `AnalyzerSyntheticCallBinder.tests.nl`
+  idiom). **(3) An enum-FLAG `|` in a typed-local initializer declines** —
+  `both: SpecialConstraintKind = SpecialConstraintKind.Class | SpecialConstraintKind.New` fails at
+  `emit.typed-local.initializer`; `Convert.ToInt32(...) | Convert.ToInt32(...)` then a cast works,
+  which is also how `ColumnarParserRecovery` builds the same enum. **(4) `ulong != 0` is an NL202** —
+  the zero must be a `ulong` local. Plus **`record` RE-CONFIRMED as a reserved local name**
+  (`record := new RecordTypeInfo(…)` declines at `parse.test`, naming the test's first line), and
+  `System.Type`'s properties still need the `get_IsValueType()` form.
+
+  **ONE PRE-EXISTING PRODUCT BUG FOUND AND FLAGGED, NOT FIXED (out of scope).** `nlc check` throws an
+  unhandled `NotImplementedException` — surfaced as `"Check failed: The method or operation is not
+  implemented."` — on ANY project declaring a receiver-style (`this`-parameter) generic function.
+  Minimised to six lines, and it reproduces IDENTICALLY on the unmodified baseline `80087951f`, so it
+  is not this slice's. It is why 12 of the 112 accumulated fixtures return an error document instead
+  of results (identically in both trees, hence DIFFS = 0). `nlc build` on the same source does not
+  crash, so the divergence is on the check-only path. Spawned as its own task.
+
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** (`dotnet test tests/Tests.csproj -c Release`,
+  10m30s under sweep contention — exactly the `80087951f` baseline COUNT, ZERO drift);
+  BootstrapServices contracts **1,932 → 1,968 (+36)**, **1,968 / 1,968 PASS**; ownership audit
+  **18 / 18**; `dev.sh --since` full-suite fail-safe **3,192 / 3,192**, whole run **7m44s**.
+  **RATCHET REPIN** via `scratchpad/s18/repin.py` (the slice-17 script, unchanged) — `current*` +
+  fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs` currentLines
+  17,617 → **16,995**, currentNonBlankLines 15,532 → **14,981**, fingerprint
+  `text-v1:1d02ed362473f987` → `text-v1:9537c17f39ae9bad` (epoch ceilings 23,451 / 20,537 PRESERVED
+  and now clear by **6,456 / 5,556**); `reviewedHeadFingerprint head-v1:0410f061b3393d94` →
+  **`head-v1:7f5a2538c7536637`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and
+  RE-VALIDATED by recomputation both before and after the write. **FORMAT DISCIPLINE HELD: `wc -l` on
+  the manifest is 391 before AND after, and the manifest `git diff` is exactly 2 changed lines.** The
+  two `.nl` additions need no row.
+  **WALL STATUS: NO wall crossed, and NO toolset repin was needed** — this slice adds no catalog
+  surface. The validator's boundary leans on no new capability: the receiver type crosses as an
+  ordinary `TypeInfo?` parameter (slice 17's shape), the placement map as an `int[]`, and the one
+  new sink member takes a `CompilerError` the N# `ErrorMessageBuilder` already builds.
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 2,003s (33m23s) ON THE FIRST RUN** in a fresh isolated copy
+  (`/private/tmp/nsharp-test-all.2727826f529e.9SzbBr`, closing with
+  `Stored validated isolated test cache result: 2727826f529e9051 (2003s)`, so it is neither a cached
+  whole-gate nor a cached per-step verdict; the cool-rerun rule was not needed because nothing
+  flaked). **ZERO `✗`, 130 `✓ PASSED`.** Every step green with its own timing: clean, compiler build
+  (3m36s), the format contract gate, unit tests (10m49s — **3,192 / 3,192**), the native `.tests.nl`
+  estate including BootstrapServices' **1,968** and `tests/native/ownership-audit` — the ratchet
+  re-validated INSIDE the gate against the freshly written manifest — (5m42s), **VS Code integration
+  tests (4m05s, 36 passing in 41s)**, SDK pack + install (8m22s), template pack/install/creation, the
+  template-generated project, all example projects, all single-file examples, `nlc check` over the
+  examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new errors vs
+  baseline**. `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt (289 files,
+  3.98 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE
+  computer-use verification was NOT attempted, per the coordinator's standing instruction. This slice
+  adds no LSP/IDE behaviour of its own; the IDE-facing surface it OWNS is what the squiggle SAYS and
+  where it points for every call to an N#-declared function — the NL401, NL402, NL202 and NL208 a
+  developer sees while typing — and that is pinned at 83,754 differential grid points with 14,880
+  byte-identical sink reports, 326 byte-identical corpus diagnostics, 105 + 311 fixture diagnostics,
+  4,677 byte-identical unsorted build-transcript lines, and the gate's own VS Code integration run.
+
+  **THE NEXT SLICE IS 19 — THE REFLECTION CALL'S REPORTERS AND THE CALLABLE-REFERENCE REPORT**,
+  measured at this tree and unblocked by exactly what this slice landed. The five members and their
+  bodies, with in-file reference counts: `ReportNoMatchingReflectionOverload` (**39**, 1 ref) →
+  `AnalyzerSyntheticCallFacts.GetCallTargetName`, `_spans`,
+  `AnalyzerOverloadFacts.FormatReflectionMethodSignature`, `ErrorMessageBuilder`, the sink — **every
+  one already N#**, and it is the structural TWIN of the
+  `ReportNoMatchingSyntheticNSharpOverload` this slice just moved;
+  `ReportMethodGroupUsedAsValue` (**27**, 1 ref) → `_spans`,
+  `AnalyzerCallableReferenceFacts.GetCallableReferenceName` (**N# as of this slice — that is the
+  unlock**), `ErrorMessageBuilder`, the sink, plus `_reportedCallableReferenceDiagnostics`, a
+  per-analysis dedupe set that is the owner's OWN state and moves with it;
+  `TryGetNSharpMethodGroupArgumentName` (**19**, 1 ref) → `_scopes` (**N#**) and
+  `AnalyzerCallableReferenceFacts` (**N#**); `ReportNoMatchingReflectionMethodGroupOverload`
+  (**15**, 1 ref) → the same four N# owners; and `HandleUnboundReflectionCall` (**12**, 2 refs), the
+  two-line driver that chooses between them. **~112 body lines whose only non-N# dependency is one
+  `HashSet` of a value tuple**, which the C# original owns and the N# owner would own instead.
+  `AnalyzeCall` itself stays: its remaining body is a dozen C# families deep (callee analysis,
+  ref/out argument analysis, four SoA direct-column reporters, the reflection binders and the result
+  constructor), and it is not deletion-ready.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 17 — THE SOURCE BINDER'S WALK.** Target recorded
   BEFORE any production edit, at `1c3aa4597` (`Analyzer.cs` 17,879 lines, non-blank 15,757).
 
   **THE TRIO'S CLOSURE, RE-VERIFIED AT THIS TREE.** Every field reference and every bare call inside
