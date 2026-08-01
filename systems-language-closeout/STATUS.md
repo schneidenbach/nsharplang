@@ -1,6 +1,49 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-07-31 (**TASK 017 SLICE 12 STAGE B, STEP 1 LANDED (no commit — mandate) — THE
+Last updated: 2026-07-31 (**TASK 017 SLICE 14 LANDED (no commit — mandate) — THE REFLECTION
+BINDER'S PURE INTERIOR IS N#-OWNED, AND THE RECORDED ENUM-OR CAPABILITY GAP IS CLOSED IN THE
+LANGUAGE.** `AnalyzerReflectionArgumentBinder` (**1,101 lines, 5 classes, 22 members**) is the sole
+authority for which argument fills which reflected parameter position, how well a candidate matches,
+and the generic inference that falls out of it — and it OWNS the four bound-argument records the
+finalising walk reads. **11 whole C# members plus the four records DELETED, 697 body lines (730 with
+the doc comment and separators)**; `Analyzer.cs` **19,510 → 18,807** (non-blank 17,182 → **16,577**),
+`git diff` **+27 / −730 = net −703**, the only C# added being a field with its comment, three
+construction lines, a 6-line factory helper and 13 rewritten references. THE ENUM-OR GAP splits into
+THREE measured facts: an admitted external enum MEMBER read is fine, `a | b` over two enum operands
+DECLINES uniformly (source enums too), and `BindingFlags` members are separately absent from the
+catalog. The operator half is FIXED N#-side with **zero kernel/OpCodes change and zero catalog
+surface** — `ColumnarPrimitiveBinaryPlanner` selects the opcode and `ColumnarCodePlanExecutor`
+validates the stack, both now reading one rule, `ColumnarNumericFacts.IsBitwiseEnum`; the
+non-mechanical part is that an enum is NOT another promotable row, because the result must keep the
+ENUM type. Verified by RUNNING an emitted binary, not only by building. `GetReflectionMemberFlags`
+(7 lines) and `GetOpenReflectionSignatureMethod` (13) nevertheless stay in C# behind TWO measured
+walls — the `BindingFlags` catalog row would be surface BootstrapServices itself consumes, and the
+packaged SDK's frozen planner makes the OR inert there until a repack (proven by inserting it,
+watching it decline, and reverting). PROOF: a throwaway differential run in BOTH trees —
+**12,866 CELLS, 0 MISMATCHES, 0 THROWN, transcripts BYTE-IDENTICAL (md5
+`70a6fabaaee134002033242ec20a5be6`)**, 7,439 of them MetadataLoadContext cells, 433 distinct answers,
+1,730 successful binds, all three bound-argument kinds materialized; `nlc check --json`
+**byte-identical on 49 / 49 corpus targets with NO exclusion** (ORACLE_DIFFS=0, STDERR=0, EXIT=0) plus
+53 fixtures firing 123 diagnostics with **FIXTURE_DIFFS=2, both of them the INTENDED enum gain** (the
+two negative controls are byte-identical); corpus IL **95 / 95 comparable assemblies BYTE-IDENTICAL**
+(PRODUCT_IL_DIFFS=0, SINGLE_IL_DIFFS=0, SINGLE_LOG_DIFFS=0, SKIPPED_TARGET_DIFFS=0). GATES: unit
+**3,192 / 3,192** (zero drift); contracts **1,827 → 1,847 (+20)**; audit **18 / 18** after a one-row
+in-place repin that keeps the manifest at **391 lines**; `dev.sh --since` full-suite fail-safe
+**3,192 / 3,192 in 51s, zero flakes**; and the FULL VS Code-enabled `./scripts/test-all.sh --commit`
+**ALL TESTS PASSED in 1,804s** in a fresh isolated copy (105 `✓ PASSED`, zero `✗`, VS Code
+integration **36 passing in 41s**, all 67 assemblies IL-verified) — the SECOND, COOL run, the first
+having tripped the known `DaemonCommandTests` load flake (31 / 31 cool); VSIX rebuilt + reinstalled.
+Three new .nl gotchas: **a COVARIANT ARRAY STORE declines**
+(type the local as the base first); **`new Dictionary<K,V>(other)` is off the surface**; **a
+constructor argument may not be a nested call on an indexed receiver**. NEXT: **SLICE 15 — the SOURCE
+binder's argument FILLER**)
+
+Last updated (prior): 2026-07-31 (**TASK 017 SLICE 13 LANDED at `6bc0e970f`** — the overload arc's
+scoring and applicability kernel; 35 C# members / 454 body lines into `AnalyzerOverloadScoring`,
+70,758-cell differential, oracle 49/49, corpus IL 95/95, contracts 1,787 → 1,827. Its full record is
+in the Cursor block below)
+
+Last updated (prior): 2026-07-31 (**TASK 017 SLICE 12 STAGE B, STEP 1 LANDED (no commit — mandate) — THE
 NULLABILITY METADATA READER IS N#-OWNED AND `NullabilityMetadata.cs` IS DELETED.** The whole 251-line
 C# file went, because the file WAS the reflection half; `NullabilityMetadataCore.nl` already owned
 every pure decision. Its replacement is `NullabilityMetadataReflection.nl` (**449 lines, ONE class,
@@ -474,8 +517,277 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 13 — THE OVERLOAD-RESOLUTION ARC OPENS; ITS
-  SCORING AND APPLICABILITY KERNEL IS THE FIRST CUT.** Target recorded BEFORE any production edit.
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 14 — OVERLOAD ARC STAGE 2: THE REFLECTION
+  BINDER'S PURE INTERIOR.** Target recorded BEFORE any production edit, at `6bc0e970f`
+  (`Analyzer.cs` 19,510 lines).
+
+  **THE MANDATED TARGET.** `TryBindReflectionArguments`' non-reporting arms (:11967, 179),
+  `EnumerateSuppliedReflectionArguments` (:12585, 23), the four bound-argument records (:11737-11747
+  — letting `IsExpandedReflectionParamsArgument` take its natural shape),
+  `ShouldPassReflectionParamsArgumentDirectly` (:12237, 31), `TryScoreReflectionSuppliedArgument`
+  (:12147, 89), `TryBindMethodGroupToReflectionDelegate` (:12269, 68) and `GetReflectionMemberFlags`
+  (:9149, 7) once the enum-OR capability gap is closed or recorded as a wall.
+
+  **STEP 1 — THE RECORDED ENUM-OR CAPABILITY GAP.** A bitwise OR over an EXTERNAL enum
+  (`BindingFlags.Public | BindingFlags.Instance`) declines at `emit.local.initializer`. Find the
+  admission point on the N#-side primitive-binary/conversion planner surface and measure where
+  external-enum operands are refused. If the fix is N#-planner-side data/logic with NO kernel/OpCodes
+  change, land it with contracts and use it for `GetReflectionMemberFlags`; if it genuinely needs
+  kernel surface, record precisely and keep `GetReflectionMemberFlags` in C#.
+
+  **STEP 2 — THE INTERIOR.** Re-verify each member's reporting status AT THIS TREE, design the N#
+  owner beside `AnalyzerOverloadScoring` (the record shapes are ours to define in N#), route, DELETE,
+  net-negative, no callback. The reporting arms of `TryBindReflectionArguments` — if any are measured
+  — stay for stage 6. Measured recuts as the pattern allows, recorded here.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS THE REFLECTION BINDER'S PURE INTERIOR, AND THE
+  RECORDED ENUM-OR CAPABILITY GAP IS CLOSED IN THE LANGUAGE.**
+  `AnalyzerReflectionArgumentBinder` is the sole authority for which argument fills which reflected
+  parameter position, how well a candidate matches, and the generic inference that falls out of it —
+  and it owns the four bound-argument records the finalising walk reads. No callback, no fallback, no
+  shadow path, no protocol.
+
+  **STEP 1 — THE ENUM-OR GAP: MEASURED, ISOLATED AND CLOSED, N#-SIDE, WITH NO KERNEL CHANGE.**
+  The recorded symptom was `BindingFlags.Public | BindingFlags.Instance` declining at
+  `emit.local.initializer`. Bisecting it against the packaged compiler splits it into THREE
+  independent facts, and only one of them is the operator:
+  * `s := StringComparison.Ordinal` — an admitted external enum member read into a local — is **OK**.
+    The enum TYPE really is on the surface, exactly as slice 13 recorded.
+  * `a | b` over TWO enum PARAMETERS — no member read, no catalog involved — **DECLINES**. So does
+    `Colors.Red | Colors.Green` over a SOURCE enum. The gap is the OPERATOR, and it is uniform.
+  * `BindingFlags.Public` alone **DECLINES**: `ColumnarExternalBindingPlans.GetStaticMemberPlan` has
+    no `BindingFlags` row. That is a SECOND, separate gap, and it is the one that would have needed a
+    toolset repin.
+  **THE FIX IS TWO N#-SIDE OWNERS AND A RULE STATED ONCE.** `ColumnarPrimitiveBinaryPlanner`'s
+  `TryAppendBitwise` refused any op type outside the int-promotable set plus long/ulong/uint, so an
+  enum pair rolled the whole binary back; and behind it `ColumnarCodePlanExecutor`'s
+  `BinaryBitwiseResultType` — the schema validator — refused the resulting stack shape as well, which
+  is why the planner fix ALONE produced "Schema-v3 and/or/xor requires an Int32-promotable pair…"
+  rather than a working build. Both now consult **`ColumnarNumericFacts.IsBitwiseEnum`**, and the
+  rule is stated there ONCE because the owner that selects the opcode and the owner that validates
+  the stack must agree on it. **THE NON-MECHANICAL PART IS THE RESULT TYPE:** an enum is NOT another
+  row in the promotable table — the CLR already carries it on the stack as its underlying integral
+  type, so the opcode needs no conversion at all, but the result must keep the ENUM
+  (`Public | Instance` is a `BindingFlags`, not an `int`) whereas an int-promotable pair promotes to
+  `int`. Folding enums into the promotable table would have produced the right instruction and the
+  wrong type. The admitted underlying set is exactly the set the family already runs, so an enum
+  never reaches an opcode a value of its underlying type could not; a string-backed source enum is
+  not a CLR enum and is refused; a mixed enum pair never unifies to one op type and stays refused.
+  **ZERO kernel/OpCodes change, ZERO catalog surface added: `And`/`Or`/`Xor` already existed and
+  `get_IsEnum()`/`GetEnumUnderlyingType()` were already bound and already used in production N#.**
+  **PROVEN BY RUNNING, not only by building**: a throwaway executable emits and runs
+  `Red|Blue == 5`, `5 & Blue == 4`, `5 ^ Red == 4`, a cross-function `Green|Blue == 6` and
+  `Ordinal|OrdinalIgnoreCase == 5`, `OrdinalIgnoreCase & Ordinal == 4` — every value exact. Pinned by
+  **2 new contracts** covering all three operators over an int-backed enum, an EXTERNAL long-backed
+  enum (`EventKeywords`, answered exactly above 2^32 so the operands provably never promote), the
+  underlying-set rule over byte/short/long-backed BCL enums, and the four refusals — a mixed enum
+  pair, an enum mixed with its own underlying type, and the arithmetic/ordering/shift families, which
+  are UNCHANGED.
+  **`GetReflectionMemberFlags` (7 lines, 2 sites) NEVERTHELESS STAYS IN C#, and the reason is now two
+  measured walls rather than one.** (a) `BindingFlags.Public/.Instance/.Static` are not on the
+  catalog surface, and adding a `GetStaticMemberPlan` row is catalog surface `BootstrapServices`
+  itself consumes — the toolset-repin wall the mandate says to stop at. (b) Independently, the
+  packaged SDK carries the FROZEN planner, so `enum | enum` is inert inside `BootstrapServices` until
+  a repack: this was measured directly, by putting `return a | b` over `StringComparison` into
+  `ColumnarNumericFacts.nl` and watching the packaged compiler decline it at
+  `emit.return.expression`, then reverting. Both walls are recorded; neither is crossed. The same two
+  walls also keep `GetOpenReflectionSignatureMethod` (13 lines) in C# — its
+  `Public | NonPublic | Instance | Static` is the same expression — which is a second measured
+  consequence of the same gap.
+
+  **STEP 2 — THE INTERIOR'S REPORTING STATUS, RE-VERIFIED AT THIS TREE.** Every one of the mandated
+  members and every member of their transitive closure was grepped for `ReportError` / `_errors` /
+  `_semanticModel` / `AddError` at `6bc0e970f` — 13 members in all: **ZERO report sites and ZERO
+  recording sites in every one of them.** The map is confirmed, and the closure is bigger than the
+  mandate names because six more non-reporting members are FORCED by it. The family's reporting
+  boundary is exactly where the plan said: `PreBindReflectionMethod` reports (through
+  `_typeResolver.ResolveType` on explicit type arguments) and stays for stage 6, as do
+  `FinalizeBoundReflectionCall` and `ValidateFinalReflectionSuppliedArgument`.
+
+  **THE CUT — 11 WHOLE C# MEMBERS AND THE FOUR RECORDS DELETED, 697 body lines (730 with the doc
+  comment and separators).** The mandated five, the sixth being the four records and the seventh
+  `GetReflectionMemberFlags` (the wall above): `TryBindReflectionArguments` 179,
+  `TryScoreReflectionSuppliedArgument` 89, `TryBindMethodGroupToReflectionDelegate` 68,
+  `ShouldPassReflectionParamsArgumentDirectly` 31, `EnumerateSuppliedReflectionArguments` 23, and the
+  four bound-argument records 11 — **390 + 11**.
+  **THE MEASURED RECUT — 6 MORE MEMBERS, 296 lines, every one forced by the named targets' own
+  closure and every one net-negative**: `PopulateTypeInfoBindingsFromType` 83 (the N# half of generic
+  inference, called from the scoring arm), `CreateDelegateSignatureFromOpenType` 66 (the lambda
+  arm's expected signature), `PopulateReflectionBindingsFromTypeInfo` 63,
+  `TryPopulateReflectionBindingsFromMethodGroupDelegate` 35,
+  `TryGetReflectionEnumerableElementParameter` 29 and `TryPopulateReceiverGenericTypeBindings` 20 —
+  the last of these because once the inference walk moved, its whole body was two N# calls, which is
+  precisely the shell the mandate forbids leaving behind. 390 + 11 + 296 = **697, exactly**.
+  `Analyzer.cs` **19,510 → 18,807** (non-blank 17,182 → **16,577**); `git diff`
+  **+27 / −730 = net −703**, and the only C# ADDED anywhere is a four-line comment with its field
+  declaration, three construction/rebuild lines, a 6-line `CreateReflectionArgumentBinder()` helper
+  and 13 rewritten call/type-reference lines. **NO new C# method with policy, bridge, callback, shell
+  or state.**
+
+  **ROUTING: 13 rewritten references, every one mechanical and all inside `Analyzer.cs`** — 7 through
+  `_reflectionArgumentBinder.`, 3 `IReadOnlyList<ReflectionBoundArgument>` → `List<…>` type
+  references, 1 `IsExpandedReflectionParamsArgument` argument, and the params loop in
+  `FinalizeBoundReflectionCall`, which now ITERATES the materialized elements instead of
+  reconstructing them.
+  **TWO SHAPE DECISIONS AT THE BOUNDARY, BOTH RECORDED.**
+  * **`IsExpandedReflectionParamsArgument` TAKES ITS NATURAL SHAPE.** Slice 13 had to pass the loose
+    open parameter type because the record was a private C# nested type; it now takes the
+    `SuppliedReflectionBoundArgument` itself, which is the value the question is really about — the
+    recorded open type is the ONLY evidence the tail was ever expanded.
+  * **AN EXPANDED PARAMS TAIL MATERIALIZES ITS ELEMENTS ONCE, AT BINDING TIME.** The C# built a fresh
+    `SuppliedReflectionBoundArgument` per element at THREE separate sites (the scoring loop, the
+    flattener and the finalising walk), each having to remember to pass the ELEMENT type rather than
+    the array. `ParamsReflectionBoundArgument.Arguments` is now a
+    `List<SuppliedReflectionBoundArgument>` built once, so all three read one shape and the flattener
+    is a read. The differential proves the produced elements are identical.
+  **N# ADDED:** `AnalyzerReflectionArgumentBinder.nl` (**1,101 lines, 5 classes, 22 members**) and
+  `AnalyzerReflectionArgumentBinder.tests.nl` (**1,100 lines, 18 contracts**); plus 2 contracts and
+  ~90 lines for the enum-bitwise capability across `ColumnarNumericFacts`,
+  `ColumnarPrimitiveBinaryPlanner` and `ColumnarCodePlanExecutor`. Three private helpers on
+  `AnalyzerFunctionTypeFactory` (`RepeatNoModifier`, `IsActionDefinitionName`,
+  `IsFuncDefinitionName`) became `public static` so the `Action`/`Func` name table is still stated
+  ONCE rather than copied into the new owner.
+
+  **THREE NEW .nl GOTCHAS, ALL FOUND BY BUILDING AND ALL BISECTED:**
+  * **A COVARIANT ARRAY STORE DECLINES.** Assigning a SUBCLASS-typed value into an array of the BASE
+    type (`bound[i] = new SuppliedReflectionBoundArgument(...)` where `bound` is
+    `ReflectionBoundArgument?[]`) declines at `emit.statement.block-child`. Declaring the local as the
+    BASE type first (`b: ReflectionBoundArgument? = new Supplied…(...)`) compiles, and so does
+    `List<Base>.Add(derived)` — it is specifically the array element store. Bisected on a
+    six-line probe.
+  * **`new Dictionary<K,V>(other)` — THE COPY CONSTRUCTOR — IS OFF THE SURFACE**
+    (`emit.local.initializer`). Copy with `foreach entry in source { copy[entry.Key] = entry.Value }`.
+  * **A CONSTRUCTOR ARGUMENT MAY NOT BE A NESTED CALL ON AN INDEXED RECEIVER.**
+    `new X(i, Facts.GetByRefElementType(parameters[i].get_ParameterType()), …)` declines; binding the
+    inner value to a local first compiles. The same shape bit `"p" + index` inside a call argument
+    (bind the concatenation, and use `index.ToString()`) and `Object.ReferenceEquals(a[0], b[0])`
+    (bind both operands through `as object` first).
+  * PROCESS NOTE, re-confirmed: **NL103 reports only the FIRST columnar decline in an assembly**, so
+    every one of these was found by iterating one file to full green.
+
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `6bc0e970f` in a throwaway `/private/tmp/nsharp017s14` worktree, and the
+  working tree): **12,866 CELLS, 0 MISMATCHES, 0 THROWN, transcripts BYTE-IDENTICAL — md5
+  `70a6fabaaee134002033242ec20a5be6` in both trees.** Every operation resolves to the C# private
+  member when the baseline still has it and to the ROUTED N# owner otherwise, and the N# binder is
+  consulted FIRST, so in the working tree a routed operation cannot silently fall back to a surviving
+  C# member of the same name. The bound-argument records are read BY NAME on both sides, and the
+  params arm's element list — `(Argument, int)` tuples in the baseline, materialized supplied
+  arguments in the working tree — renders to the same two facts, so the shape change is compared, not
+  hidden. THE GRID: a purpose-built reflected signature surface (`S14Subject<TItem>` — fixed arity,
+  optional filling, three params shapes, ref/out, two generic shapes, an `Action` parameter, a broad
+  `Delegate` parameter, an expression tree, a params ARRAY OF DELEGATES, a generic receiver and a
+  receiver-style extension pair) plus ten BCL methods, times a **44-shape CALL grid** — positional,
+  named, an unknown name, a duplicate name, a name before and after a positional, ref/out, a missing
+  modifier, lambdas of arity 0/1/2 both `var` and ANNOTATED, spread, `default`, params direct,
+  params expanded, a wrong element type, and SOURCE FUNCTION / METHOD GROUP / AMBIGUOUS-GROUP
+  arguments — over TWO receiver offsets. Every successful bind is then re-read: its bound list, its
+  flattening, each supplied argument RE-SCORED with FRESH dictionaries in both the element and
+  non-element modes, and the expansion question. Beside it, four independent grids: the direct-params
+  rule over 10 argument shapes × 7 params types × a seeded and an unseeded binding set; the
+  method-group binder and the bindings it flows back over 26 parameter types × 8 argument types × 2;
+  `CreateDelegateSignatureFromOpenType` over 33 open types × 5 override sets; and the two inference
+  walks over 17 open types × 11 source types × 2. **Every cell is run TWICE — on an analyzer WITH
+  `LoadSystemAssemblies` and on one WITHOUT it — so 7,439 of the 12,866 cells are MetadataLoadContext
+  cells**, and in that pass the delegate and method grids are read THROUGH the context, because the
+  well-known bag's `System.Delegate` is the CONTEXT'S: a LIVE `Func<int,int>` is not a delegate as
+  far as the analyzer is concerned, and the delegate arms are unreachable any other way. **433
+  DISTINCT ANSWERS**, **1,730 successful binds**, all three bound-argument kinds materialized (329
+  supplied, 166 params, 42 default), 218 true expansion answers and 10 recorded method-group
+  selections. THE WIRING IS PROVEN SEPARATELY by **24 `HOST.*` rows kept OUT of the byte
+  comparison**: all ten operations say `Analyzer` in the baseline and
+  **`AnalyzerReflectionArgumentBinder`** in the working tree, and the owner is `<missing>` in the
+  baseline. The probe was DELETED from both trees after the run.
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `6bc0e970f` in the throwaway worktree and at the working tree, **both run over the SAME
+  (working-tree) sources**, across all **49 `project.yml` corpus targets (ORACLE_TARGETS=49)**:
+  **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0 — with no exclusion at all**,
+  `BootstrapServices` included, which also proves the analyzer's own verdict on the new `.nl` files is
+  clean under BOTH compilers. Re-run in full AFTER the contracts landed, so the recorded numbers are
+  the final tree's. Plus **53 purpose-built fixtures** — slice 13's 30 overload-resolution fixtures
+  unchanged, 19 NEW binder-shape fixtures (named/unknown-name/duplicate-name against an external
+  signature, params expanded / direct / spread / empty, `out` and its missing-modifier and
+  wrong-direction arms, a lambda arity mismatch, a method group to a delegate and its wrong-shape arm,
+  generic inference, an explicit `default`, receiver generic inference, an extension on a sequence,
+  and a clean whole-grid shape), and 4 enum-bitwise fixtures — firing **123 diagnostics with
+  FIXTURE_DIFFS = 2**. **BOTH DIFFS ARE THE INTENDED CAPABILITY GAIN AND NOTHING ELSE**:
+  `e-enum-bitwise-source` and `e-enum-bitwise-external` declined at baseline with NL103 and are now
+  CLEAN. The two negative controls — `e-enum-mixed-pair` and `e-enum-arithmetic-unchanged` — are
+  byte-identical, so a mixed enum pair and enum arithmetic still decline exactly as before.
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (the established explicit PE/CLI normaliser, unchanged —
+  COFF `TimeDateStamp`, optional-header `CheckSum`, the Debug Directory entries AND the CodeView
+  blobs they point at, and the `#GUID`/`#Pdb` heaps only): **95 / 95 comparable assemblies
+  BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 and SINGLE_IL_DIFFS = 0** (57 product assemblies from the 70
+  corpus targets that build standalone, 38 single-file examples), **SINGLE_LOG_DIFFS = 0**, and
+  **SKIPPED_TARGET_DIFFS = 0** in BOTH sweeps — the 11 targets that do not build standalone fail with
+  byte-identical output and the same exit code in both trees. `BootstrapServices` is excluded by
+  design: its source set changed.
+  **ASSERTION MIGRATION.** All 12 members and all four records were `private` and none is named
+  anywhere in `src/`, `tests/` or `editors/`, so no C# test moved and the unit suite is unchanged at
+  **3,192**. The DIRECT pinning is new and native: **18 contracts** on the binder plus **2** on the
+  enum-bitwise capability.
+
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** (`dotnet test tests/Tests.csproj -c Release`,
+  7m16s — exactly the `6bc0e970f` baseline, ZERO drift); BootstrapServices contracts
+  **1,827 → 1,847 (+20)**, **1,847 / 1,847 PASS**; ownership audit **18 / 18**.
+  **RATCHET REPIN** via `scratchpad/s14/repin_017_s14.py` (slice 2…13's script, TOUCHED reduced to one
+  row) — `current*` + fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs`
+  currentLines 19,510 → **18,807**, currentNonBlankLines 17,182 → **16,577**, fingerprint
+  `text-v1:e5a14b360a81ddde` → `text-v1:b2464840e3c23a8f` (epoch ceilings 23,451 / 20,537 PRESERVED
+  and now clear by **4,644 / 3,960**); `reviewedHeadFingerprint head-v1:901772e48e0e3ac8` →
+  **`head-v1:c07095ad2b8d1ab6`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED
+  by recomputation both before and after the write. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest
+  is 391 before AND after, and the manifest `git diff` is exactly 2 changed lines.** The two `.nl`
+  additions need no row.
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 1,804s (30m04s)** in a fresh isolated copy (the log opens with "Fresh isolated test run
+  required: pre-commit verification" / "Existing cache entries will not satisfy this invocation." and
+  closes with `Stored validated isolated test cache result: 313d7d030c88c3ea (1804s)`, so it is
+  neither a cached whole-gate nor a cached per-step verdict). **105 `✓ PASSED`, ZERO `✗`.** Every step
+  green: clean, compiler build, the format contract gate, unit tests **3,192 / 3,192** (7m11s inside
+  the gate), the native `.tests.nl` estate across every project including BootstrapServices'
+  **1,847 / 1,847** and `tests/native/ownership-audit` — the ratchet re-validated INSIDE the gate
+  against the freshly written manifest — **VS Code integration smoke 36 passing in 41s** (the healthy
+  timing, not the recorded ~19m load-flake signature), SDK pack + install, template
+  pack/install/creation, the template-generated project, all example projects, all single-file
+  examples, `nlc check` over the examples, and the ECMA-335 **IL verification gate — all 67 N#
+  assemblies pass, no new errors vs baseline**.
+  **THE COOL-RERUN RULE WAS EXERCISED AND IS RECORDED.** The FIRST gate run exited 1 on exactly one
+  test — `DaemonCommandTests.DaemonServer_QueryPositionsUseDogfoodCompatibilityParser`, 3,191 / 3,192
+  — which is the KNOWN daemon handshake-timing load flake, in the same family slice 13 recorded. It
+  passes **31 / 31 on a cool re-run of its class**, it touches nothing this slice changed, and the
+  Release suite outside the gate and `dev.sh --since` in Debug were both clean at 3,192 / 3,192. The
+  gate was then re-run COOL end to end and is the clean 105-step run above; the failed first run is
+  reported rather than discarded. `./scripts/reload-vscode-extension.sh` was RUN:
+  `nsharp-0.6.0.vsix` rebuilt (289 files, 3.98 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix'
+  was successfully installed."). INTERACTIVE computer-use verification was NOT attempted, per the
+  coordinator's standing instruction; this slice adds no LSP/IDE behaviour of its own, and the
+  IDE-facing surface it does touch — the overload verdict behind every NL402 squiggle and the
+  reflected signature the hover/completion/signature-help printer reads — is pinned at 12,866
+  differential grid points, well over half of them MetadataLoadContext cells, which is exactly how
+  the language server sees an external assembly.
+
+  **WALL STATUS: NO wall crossed. TWO reached, measured and recorded, both for the same 20 lines of
+  C#.** (1) The **catalog wall** — `BindingFlags.Public/.Instance/.Static` need a
+  `GetStaticMemberPlan` row, which is catalog surface `BootstrapServices` itself consumes. (2) The
+  **two-stage bootstrap wall** — the packaged SDK carries the frozen planner, so even with the row the
+  enum OR would be inert inside `BootstrapServices` until `test-all.sh --commit` repacks it; proven by
+  putting the expression into a production `.nl` file, watching it decline, and reverting.
+  `GetReflectionMemberFlags` (7 lines, 2 sites) and `GetOpenReflectionSignatureMethod` (13 lines,
+  1 site) therefore stay in C#, exactly as the mandate directs. The enum-OR CAPABILITY itself is
+  landed and available to every N# program the moment the toolset is repacked; nothing else in this
+  slice needed it.
+
+  **THE NEXT SLICE IS 15 — the SOURCE binder's argument FILLER**, per the staged arc plan:
+  `TryBindSyntheticFunctionArguments` (117 lines) and its two reporting arms, then
+  `TryGetSyntheticCallMatchScore` + `BindSyntheticNSharpCall` whole. The scoring kernel it consults is
+  already N# (slice 13) and the reflection half is now N# too, so what remains between them is the
+  source-side placement walk and the ambiguity/report decisions on top of it.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 13 — THE OVERLOAD-RESOLUTION ARC
+  OPENS; ITS SCORING AND APPLICABILITY KERNEL IS THE FIRST CUT.** Target recorded BEFORE any
+  production edit.
 
   **THE FAMILY, MEASURED AT `c86ac6db4` (`Analyzer.cs` 19,993 lines).** Overload resolution and
   reflection argument binding is ONE family with FOUR entry points and a shared periphery:

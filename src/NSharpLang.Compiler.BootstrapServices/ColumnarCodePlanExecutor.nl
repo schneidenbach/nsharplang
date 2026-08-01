@@ -3626,7 +3626,32 @@ public class ColumnarCodePlanExecutor {
         if IsExactPrimitivePair(left, right, typeof(bool)) {
             return typeof(bool)
         }
+        // ONE enum, on both sides. The stack form is the enum's underlying integral type, so the
+        // opcode is already the right one; the result keeps the ENUM type rather than promoting.
+        // A mixed enum pair is not this shape and stays refused.
+        if IsExactBitwiseEnumPair(left, right) {
+            return left.ValueType
+        }
         return null
+    }
+
+    // Both operands are the exact same bitwise-admitted enum value. An address slot, a literal slot
+    // and a mismatched pair are all refused, so this widens nothing but the one shape the primitive
+    // binary planner now selects and/or/xor for.
+    static func IsExactBitwiseEnumPair(
+        left: ColumnarCodePlanStackNode,
+        right: ColumnarCodePlanStackNode): bool {
+        if left.IsAddress || right.IsAddress {
+            return false
+        }
+        if left.ValueKind != ColumnarCodePlanStackValueKind.Exact()
+            || right.ValueKind != ColumnarCodePlanStackValueKind.Exact() {
+            return false
+        }
+        if left.ValueType != right.ValueType {
+            return false
+        }
+        return ColumnarNumericFacts.IsBitwiseEnum(left.ValueType)
     }
 
     // Checked signed add/sub/mul overflow admit an Int32-promotable pair or an exact Int64 pair.

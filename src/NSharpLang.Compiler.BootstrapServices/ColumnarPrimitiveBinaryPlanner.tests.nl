@@ -1592,3 +1592,115 @@ test "primitive binary planner declines legacy-owned cast forms atomically" {
     // represent as its own fragment; the legacy owner keeps serving it.
     PrimitiveBinaryDeclines("(int)left + right", intPair)
 }
+
+// A SECOND int-backed probe enum, so a MIXED enum pair has a shape to be refused in. Two distinct
+// enums over the same underlying type are the case a rule keyed only on "is integral on the stack"
+// would wrongly admit.
+enum ColumnarPrimitiveBinaryOtherProbeEnum {
+    Zero = 0,
+    One = 1,
+    Four = 4
+}
+
+// Non-int-backed enums are resolved by CANONICAL IDENTITY: N# source enums are int- or
+// string-backed, so the wider underlying set only exists on external types.
+func PrimitiveBinaryRuntimeType(canonicalName: string): Type {
+    resolved := Type.GetType(canonicalName)
+    if resolved == null {
+        throw new InvalidOperationException(
+            "The runtime does not define '" + canonicalName + "'.")
+    }
+
+    return resolved
+}
+
+test "primitive binary planner owns bitwise and or xor over ONE enum and KEEPS the enum type" {
+    probe := typeof(ColumnarRangePlannerProbeEnum)
+
+    // The result type is the ENUM, not int. This is the whole difference between the enum arm and
+    // another row in the promotable table: `One | Four` is a ColumnarRangePlannerProbeEnum(5), and
+    // a non-Flags enum with no member at 5 renders as its number.
+    orPlan := PrimitiveBinaryPlan(
+        "left | right", PrimitiveBinaryParameterBindings(probe))
+    assert orPlan.ResultType == probe
+    assert PrimitiveBinaryOpcodeCount(
+        orPlan, ColumnarCodePlanContract.Or()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        orPlan, probe, probe, probe,
+        ColumnarRangePlannerProbeEnum.One,
+        ColumnarRangePlannerProbeEnum.Four) == "5"
+
+    andPlan := PrimitiveBinaryPlan(
+        "left & right", PrimitiveBinaryParameterBindings(probe))
+    assert andPlan.ResultType == probe
+    assert PrimitiveBinaryOpcodeCount(
+        andPlan, ColumnarCodePlanContract.And()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        andPlan, probe, probe, probe,
+        ColumnarRangePlannerProbeEnum.Four,
+        ColumnarRangePlannerProbeEnum.Four) == "Four"
+
+    xorPlan := PrimitiveBinaryPlan(
+        "left ^ right", PrimitiveBinaryParameterBindings(probe))
+    assert xorPlan.ResultType == probe
+    assert PrimitiveBinaryOpcodeCount(
+        xorPlan, ColumnarCodePlanContract.Xor()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        xorPlan, probe, probe, probe,
+        ColumnarRangePlannerProbeEnum.Four,
+        ColumnarRangePlannerProbeEnum.Four) == "Zero"
+
+    // An EXTERNAL long-backed enum runs the same way and keeps its own 64-bit form: the operands
+    // never promote, so the answer is exact above 2^32.
+    keywords := PrimitiveBinaryRuntimeType("System.Diagnostics.Tracing.EventKeywords")
+    longPlan := PrimitiveBinaryPlan(
+        "left | right", PrimitiveBinaryParameterBindings(keywords))
+    assert longPlan.ResultType == keywords
+    assert PrimitiveBinaryOpcodeCount(
+        longPlan, ColumnarCodePlanContract.Or()) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        longPlan, keywords, keywords, keywords,
+        Enum.ToObject(keywords, 4294967296L),
+        Enum.ToObject(keywords, 1L)) == "4294967297"
+
+    // TWO DIFFERENT enums are not one op type, so the pair never unifies and the family declines.
+    mixed := PrimitiveBinaryPairBindings(
+        probe, typeof(ColumnarPrimitiveBinaryOtherProbeEnum))
+    PrimitiveBinaryDeclines("left | right", mixed)
+
+    // An enum mixed with its own underlying type is likewise not one op type.
+    PrimitiveBinaryDeclines(
+        "left | right", PrimitiveBinaryPairBindings(probe, typeof(int)))
+
+    // The ordering, arithmetic and shift families are UNCHANGED: only and/or/xor grew an enum arm.
+    PrimitiveBinaryDeclines(
+        "left + right", PrimitiveBinaryParameterBindings(probe))
+    PrimitiveBinaryDeclines(
+        "left < right", PrimitiveBinaryParameterBindings(probe))
+    PrimitiveBinaryDeclines(
+        "left << right", PrimitiveBinaryPairBindings(probe, typeof(int)))
+}
+
+test "the bitwise enum rule admits exactly the underlying set the family already runs" {
+    // Every CLR enum underlying type is one the family runs over plain operands, so an enum never
+    // reaches an opcode a value of its underlying type could not.
+    assert ColumnarNumericFacts.IsBitwiseEnum(typeof(ColumnarRangePlannerProbeEnum))
+    assert ColumnarNumericFacts.IsBitwiseEnum(
+        PrimitiveBinaryRuntimeType("System.Diagnostics.Tracing.EventKeywords"))
+    assert ColumnarNumericFacts.IsBitwiseEnum(
+        PrimitiveBinaryRuntimeType("System.Security.SecurityRuleSet"))
+    assert ColumnarNumericFacts.IsBitwiseEnum(
+        PrimitiveBinaryRuntimeType("System.Runtime.InteropServices.ComTypes.TYPEFLAGS"))
+
+    // A non-enum is refused however integral it is, which is what keeps the plain-operand table the
+    // only route for int/long/uint/ulong.
+    assert !ColumnarNumericFacts.IsBitwiseEnum(typeof(int))
+    assert !ColumnarNumericFacts.IsBitwiseEnum(typeof(long))
+    assert !ColumnarNumericFacts.IsBitwiseEnum(typeof(bool))
+    assert !ColumnarNumericFacts.IsBitwiseEnum(typeof(string))
+    assert !ColumnarNumericFacts.IsBitwiseEnum(typeof(decimal))
+
+    // The rule is stated once and the two owners that must agree on it both read it: the planner
+    // that selects the opcode and the executor that validates the resulting stack shape.
+    assert !ColumnarNumericFacts.IsIntPromotable(typeof(ColumnarRangePlannerProbeEnum))
+}

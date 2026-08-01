@@ -410,16 +410,17 @@ public class AnalyzerOverloadFacts {
     // Whether a bound argument landed in an EXPANDED params tail. The bound argument records the OPEN
     // parameter type it was matched against; when the tail was expanded that is the ELEMENT type and
     // therefore differs from the declared parameter type, and when the whole array was passed
-    // directly the two are the same type.
+    // directly the two are the same type. The question is asked of the BOUND ARGUMENT rather than of
+    // a loose type, because that recorded type is the only evidence the expansion ever happened.
     public static func IsExpandedReflectionParamsArgument(
-        openParameterType: Type,
+        bound: SuppliedReflectionBoundArgument,
         parameter: ParameterInfo): bool {
         if !IsParamsParameter(parameter) {
             return false
         }
 
         return !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(
-            openParameterType,
+            bound.OpenParameterType,
             GetByRefElementType(parameter.get_ParameterType()))
     }
 

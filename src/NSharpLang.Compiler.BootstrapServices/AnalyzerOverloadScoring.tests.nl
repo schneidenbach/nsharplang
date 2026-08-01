@@ -452,11 +452,28 @@ test "an expanded params argument is distinguished from a directly passed array"
     paramsParameter := formatParameters[1]
     fixedParameter := formatParameters[0]
 
-    assert AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(typeof(object), paramsParameter)
-    assert !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(typeof(object[]), paramsParameter)
+    expandedElement := OverloadBoundArgument(1, typeof(object))
+    directArray := OverloadBoundArgument(1, typeof(object[]))
+    assert AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(
+        expandedElement, paramsParameter)
+    assert !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(
+        directArray, paramsParameter)
 
     // A parameter that is not a params tail is never expanded.
-    assert !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(typeof(string), fixedParameter)
+    fixedArgument := OverloadBoundArgument(0, typeof(string))
+    assert !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(
+        fixedArgument, fixedParameter)
+}
+
+// A bound argument for the expansion question. Only the position and the OPEN parameter type
+// participate; the argument node is a placeholder.
+func OverloadBoundArgument(
+    parameterIndex: int,
+    openParameterType: Type): SuppliedReflectionBoundArgument {
+    placeholder := new Argument(
+        null, new IdentifierExpression("x", 1, 1), ArgumentModifier.None)
+    return new SuppliedReflectionBoundArgument(
+        parameterIndex, openParameterType, placeholder, parameterIndex)
 }
 
 test "a by-ref element type is taken off, and a non-by-ref type is itself" {

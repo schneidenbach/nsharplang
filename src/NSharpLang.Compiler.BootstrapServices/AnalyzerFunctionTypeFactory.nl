@@ -574,7 +574,7 @@ public class AnalyzerFunctionTypeFactory {
         return false
     }
 
-    static func RepeatNoModifier(count: int): List<ParameterModifier> {
+    public static func RepeatNoModifier(count: int): List<ParameterModifier> {
         modifiers := new List<ParameterModifier>()
         index := 0
         while index < count {
@@ -585,7 +585,7 @@ public class AnalyzerFunctionTypeFactory {
         return modifiers
     }
 
-    static func IsActionDefinitionName(definitionName: string?): bool {
+    public static func IsActionDefinitionName(definitionName: string?): bool {
         if definitionName == null {
             return false
         }
@@ -594,7 +594,7 @@ public class AnalyzerFunctionTypeFactory {
             || definitionName == "System.Action`3" || definitionName == "System.Action`4"
     }
 
-    static func IsFuncDefinitionName(definitionName: string?): bool {
+    public static func IsFuncDefinitionName(definitionName: string?): bool {
         if definitionName == null {
             return false
         }

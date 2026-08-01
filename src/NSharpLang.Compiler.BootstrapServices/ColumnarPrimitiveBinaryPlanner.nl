@@ -500,8 +500,16 @@ public class ColumnarPrimitiveBinaryPlanner {
         return true
     }
 
-    // and/or/xor over the int-promotable set, long, ulong, or uint. Boolean pairs are not part of
-    // this family (the short-circuit `&&`/`||` owner serves logical Boolean operators).
+    // and/or/xor over the int-promotable set, long, ulong, uint, or ONE ENUM. Boolean pairs are not
+    // part of this family (the short-circuit `&&`/`||` owner serves logical Boolean operators).
+    //
+    // THE ENUM ARM IS NOT ANOTHER ROW IN THE PROMOTABLE TABLE, and that is the whole point. The CLR
+    // carries an enum on the evaluation stack as its UNDERLYING integral type, and this family is
+    // only reached when both operands already unified to ONE op type, so the two values share that
+    // form and `and`/`or`/`xor` apply with no conversion at all. What differs is the RESULT: a
+    // bitwise operation over an enum keeps the ENUM type (`Public | Instance` is a `BindingFlags`,
+    // not an `int`), whereas an int-promotable pair promotes to `int`. Folding enums into the
+    // promotable table would have produced the right instruction and the wrong type.
     static func TryAppendBitwise(
         nodes: ColumnarNodeTable,
         source: string,
@@ -510,7 +518,9 @@ public class ColumnarPrimitiveBinaryPlanner {
         plan: ColumnarCodePlan,
         out resultType: Type): bool {
         resultType = typeof(int)
-        if !ColumnarNumericFacts.IsIntPromotable(opType)
+        enumOperand := ColumnarNumericFacts.IsBitwiseEnum(opType)
+        if !enumOperand
+            && !ColumnarNumericFacts.IsIntPromotable(opType)
             && opType != typeof(long) && opType != typeof(ulong)
             && opType != typeof(uint) {
             return false
@@ -526,10 +536,10 @@ public class ColumnarPrimitiveBinaryPlanner {
             return false
         }
 
-        if ColumnarNumericFacts.IsIntPromotable(opType) {
-            resultType = typeof(int)
-        } else {
+        if enumOperand || !ColumnarNumericFacts.IsIntPromotable(opType) {
             resultType = opType
+        } else {
+            resultType = typeof(int)
         }
         return true
     }
