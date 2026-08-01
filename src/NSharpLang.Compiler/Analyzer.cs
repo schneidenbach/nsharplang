@@ -223,6 +223,10 @@ public class Analyzer : IDisposable
     // it holds the conversion funnel, the assignability owner, the assignability facts and the
     // scoring kernel, and all four of those are.
     private AnalyzerReflectionArgumentBinder _reflectionArgumentBinder;
+    // The source binder's collaborator-backed half: the params comparison shapes, the least upper
+    // bound and the generic-inference collecting walk. Rebuilt with the SCC — it holds the
+    // declaration context, the scoring kernel, the assignability owner and the conversion funnel.
+    private AnalyzerSyntheticCallBinder _syntheticCallBinder;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly HashSet<MemberAccessExpression> _soaColumnMemberAccesses = new(ReferenceEqualityComparer.Instance);
@@ -266,7 +270,15 @@ public class Analyzer : IDisposable
         _assignability = CreateAssignability();
         _overloadScoring = CreateOverloadScoring();
         _reflectionArgumentBinder = CreateReflectionArgumentBinder();
+        _syntheticCallBinder = CreateSyntheticCallBinder();
     }
+
+    private AnalyzerSyntheticCallBinder CreateSyntheticCallBinder()
+        => new(
+            _declarationContext,
+            _overloadScoring,
+            _assignability,
+            _clrTypeConversion);
 
     private AnalyzerReflectionArgumentBinder CreateReflectionArgumentBinder()
         => new(
@@ -3836,7 +3848,7 @@ public class Analyzer : IDisposable
         if (!TryGetMustUseReason(call, out var reason))
             return;
 
-        var calleeName = GetCallTargetName(call);
+        var calleeName = AnalyzerSyntheticCallFacts.GetCallTargetName(call);
         var (line, column, length) = GetCallDiagnosticSpan(call, calleeName ?? "call");
         var subject = calleeName != null ? $"the result of '{calleeName}'" : "this result";
 
@@ -3882,7 +3894,7 @@ public class Analyzer : IDisposable
         switch (calleeType)
         {
             case FunctionTypeInfo { HasMustUseAttribute: true } functionType:
-                reason = $"'{functionType.SyntheticName ?? GetCallTargetName(call) ?? "function"}' is marked [MustUse]";
+                reason = $"'{AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)}' is marked [MustUse]";
                 return true;
             case NSharpMethodGroupInfo group:
                 {
@@ -4145,7 +4157,7 @@ public class Analyzer : IDisposable
             CheckedExpression checkedExpression => GetExpressionDiagnosticSpan(checkedExpression.Expression),
             UncheckedExpression uncheckedExpression => GetExpressionDiagnosticSpan(uncheckedExpression.Expression),
             AllocExpression allocExpression => GetExpressionDiagnosticSpan(allocExpression.Expression),
-            CallExpression call => GetCallDiagnosticSpan(call, GetCallTargetName(call) ?? "call"),
+            CallExpression call => GetCallDiagnosticSpan(call, AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? "call"),
             _ => (expression.Line, expression.Column, GetTokenLength(expression.Line, expression.Column))
         };
     }
@@ -9491,7 +9503,7 @@ public class Analyzer : IDisposable
             var parameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call);
             if (TryBindSyntheticFunctionArguments(
                     functionType,
-                    functionType.SyntheticName ?? GetCallTargetName(call) ?? "function",
+                    AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call),
                     call,
                     out var boundSyntheticArguments,
                     parameterStartIndex,
@@ -9869,7 +9881,7 @@ public class Analyzer : IDisposable
         if (parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count)
             return null;
 
-        var parameterType = ApplyNSharpGenericBindings(parameterTypes[parameterIndex], genericBindings);
+        var parameterType = AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings);
         var paramsParameterIndex = AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, parameterTypes.Count);
         if (paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex)
         {
@@ -9894,7 +9906,7 @@ public class Analyzer : IDisposable
         if (functionType.ParameterTypes == null)
             return;
 
-        var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
+        var functionName = AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call);
         var expectedCount = functionType.ParameterTypes.Count;
         var parameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call);
         var requiredCount = AnalyzerOverloadFacts.GetSyntheticRequiredArgumentCount(functionType, expectedCount, parameterStartIndex);
@@ -9954,11 +9966,11 @@ public class Analyzer : IDisposable
             var expectedType = _declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticParameterModifier(
                 functionType,
                 parameterIndex,
-                ApplyNSharpGenericBindings(functionType.ParameterTypes[parameterIndex], genericBindings)));
+                AnalyzerSyntheticCallFacts.ApplyGenericBindings(functionType.ParameterTypes[parameterIndex], genericBindings)));
             var argType = _declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex]);
             if (hasParamsParameter && parameterIndex == paramsParameterIndex)
             {
-                var paramsType = _declarationContext.ResolveDeclaredAlias(ApplyNSharpGenericBindings(functionType.ParameterTypes[paramsParameterIndex], genericBindings));
+                var paramsType = _declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(functionType.ParameterTypes[paramsParameterIndex], genericBindings));
                 if (paramsType is not ArrayTypeInfo paramsArrayType)
                     continue;
 
@@ -10041,6 +10053,13 @@ public class Analyzer : IDisposable
         ValidateSoaSyntheticFunctionCall(functionType, functionName, call, argTypes, parameterIndexByArgument);
     }
 
+    /// <summary>
+    /// The family's reporting arm for the source binder's placement walk. The walk itself, and every
+    /// message it produces, is <see cref="AnalyzerSyntheticCallFacts.BindFunctionArguments"/>; all
+    /// this adds is the diagnostic SPAN, which is read off the analysed file's source text. Failures
+    /// are replayed in walk order, so a call reports exactly what the walk produced, where it
+    /// produced it.
+    /// </summary>
     private bool TryBindSyntheticFunctionArguments(
         FunctionTypeInfo functionType,
         string functionName,
@@ -10049,132 +10068,43 @@ public class Analyzer : IDisposable
         int parameterStartIndex = 0,
         bool reportErrors = true)
     {
-        var expectedCount = functionType.ParameterTypes?.Count ?? 0;
-        parameterIndexByArgument = Enumerable.Repeat(-1, call.Arguments.Count).ToArray();
+        var binding = AnalyzerSyntheticCallFacts.BindFunctionArguments(
+            functionType, functionName, call, parameterStartIndex);
+        parameterIndexByArgument = binding.ParameterIndexByArgument;
+        if (!reportErrors)
+            return binding.Success;
 
-        parameterStartIndex = Math.Clamp(parameterStartIndex, 0, expectedCount);
-        var parameterNames = functionType.ParameterNames;
-        var paramsParameterIndex = AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, expectedCount);
-        var boundArgumentIndexByParameter = Enumerable.Repeat(-1, expectedCount).ToArray();
-        var nextPositionalParameter = parameterStartIndex;
-        var success = true;
-
-        for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
+        foreach (var failure in binding.Failures)
         {
-            var argument = call.Arguments[argumentIndex];
-            if (argument.Name is { } argumentName)
+            if (failure.ArgumentIndex >= 0)
             {
-                var parameterIndex = parameterNames != null
-                    ? parameterNames.FindIndex(parameterName => parameterName == argumentName)
-                    : -1;
-                if (parameterIndex < parameterStartIndex || parameterIndex >= expectedCount)
-                {
-                    if (reportErrors)
-                    {
-                        ReportSyntheticArgumentBindingError(
-                            functionType,
-                            functionName,
-                            argument,
-                            $"'{functionName}' has no parameter named '{argumentName}'",
-                            parameterStartIndex);
-                    }
-                    success = false;
-                    continue;
-                }
-
-                if (boundArgumentIndexByParameter[parameterIndex] >= 0)
-                {
-                    if (reportErrors)
-                    {
-                        ReportSyntheticArgumentBindingError(
-                            functionType,
-                            functionName,
-                            argument,
-                            $"'{functionName}' got multiple values for parameter '{argumentName}'",
-                            parameterStartIndex);
-                    }
-                    success = false;
-                    continue;
-                }
-
-                boundArgumentIndexByParameter[parameterIndex] = argumentIndex;
-                parameterIndexByArgument[argumentIndex] = parameterIndex;
-                continue;
-            }
-
-            while (nextPositionalParameter < expectedCount
-                   && boundArgumentIndexByParameter[nextPositionalParameter] >= 0)
-            {
-                nextPositionalParameter++;
-            }
-
-            if (nextPositionalParameter >= expectedCount)
-            {
-                if (paramsParameterIndex >= 0)
-                {
-                    if (boundArgumentIndexByParameter[paramsParameterIndex] < 0)
-                        boundArgumentIndexByParameter[paramsParameterIndex] = argumentIndex;
-
-                    parameterIndexByArgument[argumentIndex] = paramsParameterIndex;
-                    continue;
-                }
-
-                if (reportErrors)
-                {
-                    ReportSyntheticArgumentBindingError(
-                        functionType,
-                        functionName,
-                        argument,
-                        $"'{functionName}' got more positional arguments than its signature accepts",
-                        parameterStartIndex);
-                }
-                success = false;
-                continue;
-            }
-
-            boundArgumentIndexByParameter[nextPositionalParameter] = argumentIndex;
-            parameterIndexByArgument[argumentIndex] = nextPositionalParameter;
-            nextPositionalParameter++;
-        }
-
-        var requiredCount = AnalyzerOverloadFacts.GetSyntheticRequiredParameterCount(functionType, expectedCount);
-        for (var parameterIndex = parameterStartIndex; parameterIndex < requiredCount; parameterIndex++)
-        {
-            if (boundArgumentIndexByParameter[parameterIndex] >= 0)
-                continue;
-
-            if (reportErrors)
-            {
-                ReportSyntheticMissingArgumentBindingError(
+                ReportSyntheticArgumentBindingError(
                     functionType,
                     functionName,
-                    call,
-                    parameterIndex,
+                    call.Arguments[failure.ArgumentIndex],
+                    failure.Message,
                     parameterStartIndex);
+                continue;
             }
 
-            success = false;
+            ReportSyntheticMissingArgumentBindingError(
+                functionType, functionName, call, failure.Message, parameterStartIndex);
         }
 
-        return success;
+        return binding.Success;
     }
 
     private void ReportSyntheticMissingArgumentBindingError(
         FunctionTypeInfo functionType,
         string functionName,
         CallExpression call,
-        int parameterIndex,
+        string message,
         int parameterStartIndex)
     {
-        var parameterName = functionType.ParameterNames != null
-                            && parameterIndex >= 0
-                            && parameterIndex < functionType.ParameterNames.Count
-            ? functionType.ParameterNames[parameterIndex]
-            : $"arg{parameterIndex + 1}";
         var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
         Error(
             ErrorCode.NoMatchingOverload,
-            $"'{functionName}' needs an argument for parameter '{parameterName}'",
+            message,
             line,
             column,
             $"Use {AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)}.",
@@ -10422,7 +10352,7 @@ public class Analyzer : IDisposable
         if (candidates.Count == 0)
             return;
 
-        var functionName = GetCallTargetName(call) ?? candidates[0].SyntheticName ?? "function";
+        var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidates[0].SyntheticName ?? "function";
         var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
         var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
         var candidateSignatures = candidates
@@ -10476,7 +10406,7 @@ public class Analyzer : IDisposable
         if (candidateMethods.Count == 0)
             return;
 
-        var functionName = GetCallTargetName(call) ?? candidateMethods[0].Name;
+        var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidateMethods[0].Name;
         var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
         var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
         var candidateSignatures = candidateMethods
@@ -10515,7 +10445,7 @@ public class Analyzer : IDisposable
         if (candidateMethods.Count == 0)
             return;
 
-        var functionName = GetCallTargetName(call) ?? candidateMethods[0].Name;
+        var functionName = AnalyzerSyntheticCallFacts.GetCallTargetName(call) ?? candidateMethods[0].Name;
         var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
         Error(
             ErrorCode.NoMatchingOverload,
@@ -10524,16 +10454,6 @@ public class Analyzer : IDisposable
             column,
             "Check that the method group's parameters and return type match one of the delegate parameter types.",
             length);
-    }
-
-    private static string? GetCallTargetName(CallExpression call)
-    {
-        return call.Callee switch
-        {
-            IdentifierExpression identifier => identifier.Name,
-            MemberAccessExpression memberAccess => memberAccess.MemberName,
-            _ => null
-        };
     }
 
     private (int Line, int Column, int Length) GetCallDiagnosticSpan(CallExpression call, string functionName)
@@ -10727,8 +10647,8 @@ public class Analyzer : IDisposable
             var bestArgumentCount = Math.Max(0, bestParameterCount - bestStartIndex);
             var currentHasParams = AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(candidate, currentParameterCount) >= 0;
             var bestHasParams = AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(bestFunction, bestParameterCount) >= 0;
-            var currentGenericParameterCost = GetSyntheticGenericParameterCost(candidate, call, argTypes);
-            var bestGenericParameterCost = GetSyntheticGenericParameterCost(bestFunction, call, argTypes);
+            var currentGenericParameterCost = AnalyzerSyntheticCallFacts.GetGenericParameterCost(candidate, call, argTypes);
+            var bestGenericParameterCost = AnalyzerSyntheticCallFacts.GetGenericParameterCost(bestFunction, call, argTypes);
 
             if (currentGenericParameterCost < bestGenericParameterCost)
             {
@@ -10765,59 +10685,12 @@ public class Analyzer : IDisposable
 
         if (ambiguous && bestFunction != null)
         {
-            var functionName = bestFunction.SyntheticName ?? GetCallTargetName(call) ?? "function";
+            var functionName = AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(bestFunction, call);
             Error($"Ambiguous call to '{functionName}': multiple overloads match with equal specificity",
                 call.Line, call.Column);
         }
 
         return bestFunction;
-    }
-
-    private int GetSyntheticGenericParameterCost(
-        FunctionTypeInfo functionType,
-        CallExpression call,
-        IReadOnlyList<TypeInfo> argTypes)
-    {
-        var typeParameters = functionType.TypeParameters;
-        var sourceParameterTypes = functionType.SourceParameterTypes;
-        if (typeParameters == null
-            || typeParameters.Count == 0
-            || sourceParameterTypes == null
-            || sourceParameterTypes.Count == 0)
-        {
-            return 0;
-        }
-
-        var parameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call);
-        var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
-        if (!TryBindSyntheticFunctionArguments(
-                functionType,
-                functionName,
-                call,
-                out var parameterIndexByArgument,
-                parameterStartIndex,
-                reportErrors: false))
-        {
-            return 0;
-        }
-
-        var paramsParameterIndex = AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, sourceParameterTypes.Count);
-        var cost = 0;
-        for (var argumentIndex = 0; argumentIndex < argTypes.Count && argumentIndex < parameterIndexByArgument.Length; argumentIndex++)
-        {
-            var parameterIndex = parameterIndexByArgument[argumentIndex];
-            if (parameterIndex < 0 || parameterIndex >= sourceParameterTypes.Count)
-                continue;
-
-            var sourceParameterType = sourceParameterTypes[parameterIndex];
-            if (paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex)
-                sourceParameterType = AnalyzerOverloadFacts.GetParamsInferenceTypeReference(sourceParameterType);
-
-            if (AnalyzerOverloadFacts.IsDirectFunctionTypeParameterReference(sourceParameterType, typeParameters))
-                cost++;
-        }
-
-        return cost;
     }
 
     private bool TryGetSyntheticCallMatchScore(
@@ -10840,7 +10713,7 @@ public class Analyzer : IDisposable
         if (argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedArgumentCount))
             return false;
 
-        var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
+        var functionName = AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call);
         if (!TryBindSyntheticFunctionArguments(
                 functionType,
                 functionName,
@@ -10867,21 +10740,20 @@ public class Analyzer : IDisposable
             if (parameterIndex < 0 || parameterIndex >= expectedCount)
                 continue;
 
-            if (!TryGetSyntheticArgumentComparisonTypes(
-                    functionType,
-                    call,
-                    argTypes,
-                    argumentIndex,
-                    parameterIndex,
-                    paramsParameterIndex,
-                    parameterStartIndex,
-                    genericBindings,
-                    out var expectedType,
-                    out var argumentType))
-            {
+            var comparison = _syntheticCallBinder.GetArgumentComparisonTypes(
+                functionType,
+                call,
+                argTypes,
+                argumentIndex,
+                parameterIndex,
+                paramsParameterIndex,
+                parameterStartIndex,
+                genericBindings);
+            if (!comparison.Matched)
                 return false;
-            }
 
+            var expectedType = comparison.ExpectedType;
+            var argumentType = comparison.ArgumentType;
             if (expectedType == null
                 || argumentType == null
                 || BuiltInTypes.IsUnknown(expectedType)
@@ -10895,69 +10767,6 @@ public class Analyzer : IDisposable
                 return false;
 
             score += _overloadScoring.GetNSharpMatchScore(expectedType, argumentType);
-        }
-
-        return true;
-    }
-
-    private bool TryGetSyntheticArgumentComparisonTypes(
-        FunctionTypeInfo functionType,
-        CallExpression call,
-        IReadOnlyList<TypeInfo> argTypes,
-        int argumentIndex,
-        int parameterIndex,
-        int paramsParameterIndex,
-        int parameterStartIndex,
-        Dictionary<string, TypeInfo>? genericBindings,
-        out TypeInfo? expectedType,
-        out TypeInfo? argumentType)
-    {
-        expectedType = null;
-        argumentType = null;
-
-        var parameterTypes = functionType.ParameterTypes;
-        if (parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count)
-            return false;
-
-        expectedType = _declarationContext.ResolveDeclaredAlias(ApplyNSharpGenericBindings(parameterTypes[parameterIndex], genericBindings));
-        argumentType = _declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex]);
-        if (paramsParameterIndex < 0 || parameterIndex != paramsParameterIndex)
-            return true;
-
-        var paramsType = _declarationContext.ResolveDeclaredAlias(ApplyNSharpGenericBindings(parameterTypes[paramsParameterIndex], genericBindings));
-        if (paramsType is not ArrayTypeInfo paramsArrayType)
-        {
-            expectedType = null;
-            argumentType = null;
-            return true;
-        }
-
-        var paramsArgumentIndex = paramsParameterIndex - parameterStartIndex;
-        var isDirectParamsArrayArgument = _overloadScoring.IsSingleDirectNSharpParamsArrayArgument(
-            paramsArgumentIndex,
-            call.Arguments,
-            argTypes,
-            paramsArrayType);
-
-        if (isDirectParamsArrayArgument)
-            return true;
-
-        if (call.Arguments[argumentIndex].Value is SpreadExpression)
-        {
-            if (argumentType is ArrayTypeInfo spreadArrayType)
-            {
-                expectedType = _declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType);
-                argumentType = _declarationContext.ResolveDeclaredAlias(spreadArrayType.ElementType);
-            }
-            else if (BuiltInTypes.IsUnknown(argumentType))
-            {
-                expectedType = null;
-                argumentType = null;
-            }
-        }
-        else
-        {
-            expectedType = _declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType);
         }
 
         return true;
@@ -11039,7 +10848,7 @@ public class Analyzer : IDisposable
         if (functionType.GenericConstraints == null || bindings == null || bindings.Count == 0)
             return;
 
-        var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
+        var functionName = AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call);
         foreach (var constraint in functionType.GenericConstraints)
         {
             if (!bindings.TryGetValue(constraint.TypeParameter, out var boundType))
@@ -11091,7 +10900,7 @@ public class Analyzer : IDisposable
                         : constraint.Constraints.Select(_typeResolver.ResolveType).ToList();
             foreach (var constraintType in resolvedConstraintTypes)
             {
-                var closedConstraintType = ApplyNSharpGenericBindings(constraintType, bindings);
+                var closedConstraintType = AnalyzerSyntheticCallFacts.ApplyGenericBindings(constraintType, bindings);
                 if (!_assignability.IsSubtypeOf(boundType, closedConstraintType)
                     && !_assignability.IsAssignable(closedConstraintType, boundType))
                 {
@@ -11197,7 +11006,7 @@ public class Analyzer : IDisposable
     {
         var returnType = functionType.ReturnType ?? BuiltInTypes.Void;
         var genericBindings = TryInferSyntheticGenericBindings(functionType, call, argTypes);
-        return ApplyNSharpGenericBindings(returnType, genericBindings);
+        return AnalyzerSyntheticCallFacts.ApplyGenericBindings(returnType, genericBindings);
     }
 
     private TypeInfo ResolveDeclaredFunctionCallReturnType(FunctionDeclaration decl)
@@ -11259,14 +11068,14 @@ public class Analyzer : IDisposable
         if (sourceParameterTypes == null || sourceParameterTypes.Count == 0)
             return bindings;
 
-        var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
+        var functionName = AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call);
         var parameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call);
         if (parameterStartIndex > 0
             && call.Callee is MemberAccessExpression memberAccess
             && sourceParameterTypes.Count > 0)
         {
             var receiverType = AnalyzeExpression(memberAccess.Object);
-            CollectNSharpTypeParameterBounds(sourceParameterTypes[0], receiverType, typeParameters, allBounds);
+            _syntheticCallBinder.CollectTypeParameterBounds(sourceParameterTypes[0], receiverType, typeParameters, allBounds);
         }
 
         if (!TryBindSyntheticFunctionArguments(
@@ -11295,7 +11104,7 @@ public class Analyzer : IDisposable
                 argumentType = _overloadScoring.GetParamsInferenceArgumentType(call.Arguments[argumentIndex], argumentType);
             }
 
-            CollectNSharpTypeParameterBounds(parameterTypeRef, argumentType, typeParameters, allBounds);
+            _syntheticCallBinder.CollectTypeParameterBounds(parameterTypeRef, argumentType, typeParameters, allBounds);
         }
 
         foreach (var tp in typeParameters)
@@ -11309,257 +11118,10 @@ public class Analyzer : IDisposable
 
             bindings[tp.Name] = bounds.Count == 1
                 ? bounds[0]
-                : ComputeLeastUpperBound(bounds);
+                : _syntheticCallBinder.ComputeLeastUpperBound(bounds);
         }
 
         return bindings;
-    }
-
-    /// <summary>
-    /// Computes the least upper bound (best common type) of a list of types.
-    /// Used when multiple arguments constrain the same type parameter.
-    /// </summary>
-    private TypeInfo ComputeLeastUpperBound(List<TypeInfo> types)
-    {
-        if (types.Count == 0)
-            return BuiltInTypes.Object;
-        if (types.Count == 1)
-            return types[0];
-
-        // If all types are the same, return that type
-        var first = types[0];
-        if (types.All(t => TypeInfoIdentityFacts.AreEqual(t, first)))
-            return first;
-
-        // Check if one type is assignable from all others (common supertype among the candidates)
-        foreach (var candidate in types)
-        {
-            if (types.All(t => TypeInfoIdentityFacts.AreEqual(t, candidate) || _assignability.IsAssignable(candidate, t)))
-                return candidate;
-        }
-
-        // For numeric types, find the widest numeric type
-        var numericLub = TryComputeNumericLub(types);
-        if (numericLub != null)
-            return numericLub;
-
-        // No common type found — use object as the safe fallback
-        // ( would fail best-common-type inference here; object is the conservative choice)
-        return BuiltInTypes.Object;
-    }
-
-    /// <summary>
-    /// Tries to compute the widest numeric type from a list of numeric types.
-    /// </summary>
-    private TypeInfo? TryComputeNumericLub(List<TypeInfo> types)
-    {
-        // Numeric widening order: byte < short < int < long < float < double < decimal
-        var numericOrder = new[] { "byte", "short", "int", "long", "float", "double", "decimal" };
-
-        int maxIndex = -1;
-        foreach (var type in types)
-        {
-            var name = type.ToString().ToLowerInvariant();
-            // Also handle System.* names
-            name = name switch
-            {
-                "system.byte" => "byte",
-                "system.int16" => "short",
-                "system.int32" => "int",
-                "system.int64" => "long",
-                "system.single" => "float",
-                "system.double" => "double",
-                "system.decimal" => "decimal",
-                _ => name
-            };
-            var index = Array.IndexOf(numericOrder, name);
-            if (index < 0)
-                return null; // Not all types are numeric
-            maxIndex = Math.Max(maxIndex, index);
-        }
-
-        if (maxIndex >= 0)
-        {
-            return numericOrder[maxIndex] switch
-            {
-                "byte" => BuiltInTypes.Byte,
-                "short" => BuiltInTypes.Short,
-                "int" => BuiltInTypes.Int,
-                "long" => BuiltInTypes.Long,
-                "float" => BuiltInTypes.Float,
-                "double" => BuiltInTypes.Double,
-                "decimal" => BuiltInTypes.Decimal,
-                _ => null
-            };
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Collects type parameter bounds by recursively matching a parameter type reference against an argument type.
-    /// Unlike direct binding, this collects ALL bounds so LUB can be computed when a type param appears multiple times.
-    /// </summary>
-    private void CollectNSharpTypeParameterBounds(
-        TypeReference paramTypeRef,
-        TypeInfo argType,
-        List<TypeParameter> typeParameters,
-        Dictionary<string, List<TypeInfo>> allBounds)
-    {
-        // Skip types that provide no inference information
-        if (BuiltInTypes.IsUnknown(argType))
-            return;
-        if (BuiltInTypes.Is(argType, BuiltInTypes.Null))
-            return; // null carries no type information for generic inference
-
-        if (paramTypeRef is SimpleTypeReference simple)
-        {
-            foreach (var tp in typeParameters)
-            {
-                if (tp.Name == simple.Name)
-                {
-                    allBounds[tp.Name].Add(argType);
-                    return;
-                }
-            }
-        }
-        else if (paramTypeRef is GenericTypeReference generic)
-        {
-            // e.g., List<T> matched against List<int> → T=int
-            if (argType is GenericTypeInfo argGeneric && AnalyzerOverloadFacts.GenericNamesMatch(generic.Name, argGeneric.Name) &&
-                generic.TypeArguments.Count == argGeneric.TypeArguments.Count)
-            {
-                for (int i = 0; i < generic.TypeArguments.Count; i++)
-                {
-                    CollectNSharpTypeParameterBounds(generic.TypeArguments[i], argGeneric.TypeArguments[i], typeParameters, allBounds);
-                }
-            }
-            // Also match against ExternalTypeInfo that wraps a generic CLR type
-            else if (argType is ExternalTypeInfo ext)
-            {
-                TryMatchGenericRefAgainstExternalType(generic, ext, typeParameters, allBounds);
-            }
-            // Match against ReflectionTypeInfo wrapping a generic CLR type
-            else if (argType is ReflectionTypeInfo refl && refl.Type.IsGenericType)
-            {
-                var typeArgs = refl.Type.GetGenericArguments();
-                if (generic.TypeArguments.Count == typeArgs.Length &&
-                    AnalyzerOverloadFacts.GenericNamesMatch(generic.Name, refl.Type.Name.Split('`')[0]))
-                {
-                    for (int i = 0; i < generic.TypeArguments.Count; i++)
-                    {
-                        CollectNSharpTypeParameterBounds(generic.TypeArguments[i], AnalyzerReflectionTypeConversion.ConvertReflectionType(typeArgs[i]), typeParameters, allBounds);
-                    }
-                }
-            }
-        }
-        else if (paramTypeRef is ArrayTypeReference array)
-        {
-            if (argType is ArrayTypeInfo argArray)
-            {
-                CollectNSharpTypeParameterBounds(array.ElementType, argArray.ElementType, typeParameters, allBounds);
-            }
-        }
-        else if (paramTypeRef is NullableTypeReference nullable)
-        {
-            if (argType is NullableTypeInfo argNullable)
-            {
-                CollectNSharpTypeParameterBounds(nullable.InnerType, argNullable.InnerType, typeParameters, allBounds);
-            }
-            // Also allow matching T? against a non-nullable T (infer the inner type)
-            else
-            {
-                CollectNSharpTypeParameterBounds(nullable.InnerType, argType, typeParameters, allBounds);
-            }
-        }
-        else if (paramTypeRef is ByRefTypeReference byRef)
-        {
-            var innerArgType = argType is ByRefTypeInfo byRefArg ? byRefArg.InnerType : argType;
-            CollectNSharpTypeParameterBounds(byRef.InnerType, innerArgType, typeParameters, allBounds);
-        }
-        // Handle Func/Action delegate types for lambda inference
-        else if (paramTypeRef is FunctionTypeReference funcRef)
-        {
-            if (argType is FunctionTypeInfo funcType)
-            {
-                // Match parameter types
-                if (funcRef.ParameterTypes != null && funcType.ParameterTypes != null)
-                {
-                    for (int i = 0; i < funcRef.ParameterTypes.Count && i < funcType.ParameterTypes.Count; i++)
-                    {
-                        CollectNSharpTypeParameterBounds(funcRef.ParameterTypes[i], funcType.ParameterTypes[i], typeParameters, allBounds);
-                    }
-                }
-                // Match return type
-                if (funcRef.ReturnType != null && funcType.ReturnType != null)
-                {
-                    CollectNSharpTypeParameterBounds(funcRef.ReturnType, funcType.ReturnType, typeParameters, allBounds);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Tries to match a GenericTypeReference (from a parameter declaration) against an ExternalTypeInfo (from an argument).
-    /// This handles cases like matching List&lt;T&gt; against an ExternalTypeInfo("List`1") from reflection.
-    /// </summary>
-    private void TryMatchGenericRefAgainstExternalType(
-        GenericTypeReference generic,
-        ExternalTypeInfo ext,
-        List<TypeParameter> typeParameters,
-        Dictionary<string, List<TypeInfo>> allBounds)
-    {
-        // Try to resolve the ExternalTypeInfo to a CLR type for deeper matching
-        var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(ext);
-        if (clrType != null && clrType.IsGenericType)
-        {
-            var typeArgs = clrType.GetGenericArguments();
-            if (generic.TypeArguments.Count == typeArgs.Length &&
-                AnalyzerOverloadFacts.GenericNamesMatch(generic.Name, clrType.Name.Split('`')[0]))
-            {
-                for (int i = 0; i < generic.TypeArguments.Count; i++)
-                {
-                    CollectNSharpTypeParameterBounds(generic.TypeArguments[i], AnalyzerReflectionTypeConversion.ConvertReflectionType(typeArgs[i]), typeParameters, allBounds);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Applies inferred generic bindings to a resolved TypeInfo.
-    /// Replaces ExternalTypeInfo/SimpleTypeInfo matching type parameter names with their bound types.
-    /// </summary>
-    private TypeInfo ApplyNSharpGenericBindings(TypeInfo type, Dictionary<string, TypeInfo>? bindings)
-    {
-        if (bindings == null || bindings.Count == 0)
-            return type;
-
-        // Check if this type is a generic parameter that should be replaced
-        if (type is ExternalTypeInfo ext && bindings.TryGetValue(ext.Name, out var bound))
-            return bound;
-        if (type is SimpleTypeInfo simple && bindings.TryGetValue(simple.Name, out var simpleBound))
-            return simpleBound;
-
-        // Recurse into composite types
-        if (type is GenericTypeInfo generic)
-        {
-            var newArgs = generic.TypeArguments.Select(a => ApplyNSharpGenericBindings(a, bindings)).ToList();
-            return new GenericTypeInfo(generic.Name, newArgs, generic.GenericDefinition);
-        }
-        if (type is ArrayTypeInfo array)
-        {
-            return new ArrayTypeInfo(ApplyNSharpGenericBindings(array.ElementType, bindings));
-        }
-        if (type is NullableTypeInfo nullable)
-        {
-            return new NullableTypeInfo(ApplyNSharpGenericBindings(nullable.InnerType, bindings));
-        }
-        if (type is ObliviousTypeInfo oblivious)
-        {
-            return new ObliviousTypeInfo(ApplyNSharpGenericBindings(oblivious.InnerType, bindings));
-        }
-
-        return type;
     }
 
     private FunctionTypeInfo? BindReflectionCall(ReflectionMethodGroupInfo methodGroup, CallExpression call)
@@ -18297,6 +17859,7 @@ public class Analyzer : IDisposable
         _assignability = CreateAssignability();
         _overloadScoring = CreateOverloadScoring();
         _reflectionArgumentBinder = CreateReflectionArgumentBinder();
+        _syntheticCallBinder = CreateSyntheticCallBinder();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -18312,6 +17875,7 @@ public class Analyzer : IDisposable
             _assignability = CreateAssignability();
             _overloadScoring = CreateOverloadScoring();
             _reflectionArgumentBinder = CreateReflectionArgumentBinder();
+            _syntheticCallBinder = CreateSyntheticCallBinder();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;
