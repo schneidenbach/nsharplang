@@ -1,6 +1,56 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-01 (**TASK 017 SLICE 16 LANDED (no commit — mandate) — N# OWNS WHERE EVERY
+Last updated: 2026-08-01 (**TASK 017 SLICE 17 LANDED (no commit — mandate) — N# OWNS THE SOURCE
+BINDER'S WALK, AND THE OVERLOAD ARC IS CLOSED.** `AnalyzerSyntheticCallWalk.nl` (**520 lines, ONE
+class, 8 members**) is the sole authority for which N#-declared overload a call selects, how well a
+candidate matches, what each type parameter is bound to, and where a violated constraint points.
+**4 whole C# members DELETED — 290 body lines** (`TryInferSyntheticGenericBindings` 87,
+`BindSyntheticNSharpCall` 78, `TryGetSyntheticCallMatchScore` 78,
+`GetSyntheticGenericConstraintDiagnosticSpan` 47). `Analyzer.cs` **17,879 → 17,617** (non-blank
+15,757 → **15,532**), `git diff` **+46 / −308 = net −262**, the only C# added being a field with its
+comment, three construction lines, an 8-line factory, five rewritten references and TWO
+expression-bodied pre-analysis helpers. **THE DECISION THAT IS THE WHOLE SLICE: the mandate's option
+(a) — read the receiver's type back out of the semantic model — is UNSOUND, and a measurement proved
+it by counterexample.** A throwaway probe over the corpus found **ZERO re-entries in all 70 targets**
+(no generic receiver-style function exists there), so purpose-built fixtures were needed; they found
+`prior=Y` in **57 / 57** re-entries but ALSO found `Read.Tag("mg")`, where the semantic model holds
+the permissive `FunctionTypeInfo` recorded by the callee walk while the walk's own analysis answers
+`unknown` **and is the SOLE PRODUCER of the NL411**. A cache read would have returned the wrong type
+and DELETED a user-visible diagnostic. Option (b) was taken in its COUNT-EXACT form: the decision
+stays in N# (`NeedsReceiverType` IS the walk's own guard, hoisted; `AnyCandidateNeedsReceiverType`
+reads the SCORING gate so a rejected candidate cannot cause an analysis), and C# performs only the
+one analysis it alone can perform, immediately before the call it already makes. PROOF, ORDER FIRST:
+`nlc build` renders `_errors` unsorted and undeduplicated, and **45 full transcripts / 1,830 lines
+are BYTE-IDENTICAL** — including the shape that prints the same NL202 **twelve times, twelve times in
+both**. Then a throwaway differential in BOTH trees — **40,320 CELLS, 0 MISMATCHES, 0 THROWN,
+transcripts BYTE-IDENTICAL (md5 `7fa7e56690764deb751c933dbe610f74`)**, 63 distinct answers, 1,610
+sink reports, over 12 signature shapes × 7 receiver literal kinds × 10 argument shapes × 4
+type-argument shapes plus a full 8 × 8 TIE-BREAK grid in both orders and as 3-candidate groups;
+`nlc check --json` **byte-identical on ALL 70 corpus targets with NO exclusion** (ORACLE_DIFFS=0,
+STDERR=0, EXIT=0, **857 diagnostics**) plus **41 purpose-built WALK fixtures firing 44 diagnostics
+(FIXTURE_DIFFS=0)** and the **91 ACCUMULATED fixtures firing 177 (DIFFS=0)**; corpus IL **112 / 112
+comparable assemblies BYTE-IDENTICAL** over 122 builds per tree (PRODUCT_IL_DIFFS=0,
+SINGLE_IL_DIFFS=0, EXIT_DIFFS=0, ONLY_IN_BASE/WORK=0, NORMALISER_FAILURES=0).
+**FIVE ANALYZER FINDINGS IN THE NEW `.nl` WERE CAUGHT BY THE ORACLE'S OWN BootstrapServices ROW AND
+FIXED** (2 × NL905 + 3 × NL202: `best := bestFunction` after a negative null check does not narrow —
+the tie-break now carries the winner as an INDEX) — BootstrapServices back to **293**, the new files
+contributing ZERO. GATES: unit **3,192 / 3,192** (zero drift); contracts **1,913 → 1,932 (+19)**;
+audit **18 / 18** after a one-row in-place repin that keeps the manifest at **391 lines**;
+`dev.sh --since` full-suite fail-safe **3,192 / 3,192 in 7m35s**; and the FULL VS Code-enabled
+`./scripts/test-all.sh --commit` **ALL TESTS PASSED in 1,857s ON THE FIRST RUN** in a fresh isolated
+copy (105 `✓ PASSED`, zero `✗`, VS Code integration **36 passing in 41s**, all 67 assemblies
+IL-verified); VSIX rebuilt + reinstalled. NO toolset repin needed — no catalog
+surface was added. Two new .nl gotchas: **`partial` is RESERVED as a local name** (declines at
+`parse.test`, naming the test's first line); **`DiagnosticSpan`'s `Line`/`Column`/`Length` are
+emitted as FIELDS, not properties**. NEXT: **SLICE 18 — THE SYNTHETIC CALL'S VALIDATOR AND ITS
+REPORTERS**, measured at this tree and now unblocked by the walk: `ValidateSyntheticFunctionCall`
+(153), `ValidateSyntheticGenericConstraints` (74) → `HasParameterlessConstructor` (32),
+`ReportNoMatchingSyntheticNSharpOverload` (44), `ResolveSyntheticReturnType` (7) and
+`GetExpectedSyntheticCallArgumentType` (30) — **~340 lines whose every collaborator is already N#**,
+`ErrorMessageBuilder` included (it moved in an earlier arc), so the only things left to measure are
+`ValidateSoaSyntheticFunctionCall` and the two argument-phrase helpers)
+
+Last updated (prior): 2026-08-01 (**TASK 017 SLICE 16 LANDED (no commit — mandate) — N# OWNS WHERE EVERY
 SEMANTIC DIAGNOSTIC POINTS, AND THE ARC'S BLOCKED REPORTING ARMS ARE UNBLOCKED.**
 `AnalyzerDiagnosticSpans.nl` (**892 lines, 3 classes, 38 members**) is the sole authority for the
 line, the column and the LENGTH of every semantic report the analyzer makes. **35 whole C# members
@@ -600,7 +650,194 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 16 — THE DIAGNOSTIC SPAN RESOLVER.** Target
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 17 — THE SOURCE BINDER'S WALK.** Target recorded
+  BEFORE any production edit, at `1c3aa4597` (`Analyzer.cs` 17,879 lines, non-blank 15,757).
+
+  **THE TRIO'S CLOSURE, RE-VERIFIED AT THIS TREE.** Every field reference and every bare call inside
+  the four member bodies was re-extracted at `1c3aa4597`:
+  `BindSyntheticNSharpCall` (:10178, **78**) → `TryGetSyntheticCallMatchScore` + `Error`;
+  `TryGetSyntheticCallMatchScore` (:10257, **78**) → `_assignability`, `_overloadScoring`,
+  `_syntheticCallBinder`, `_syntheticCallReporter` (**all four already N#**) +
+  `TryInferSyntheticGenericBindings`; `GetSyntheticGenericConstraintDiagnosticSpan` (:10478, **47**)
+  → `_spans`, `_syntheticCallReporter` (**both N#**); `TryInferSyntheticGenericBindings` (:10600,
+  **87**) → `_overloadScoring`, `_syntheticCallBinder`, `_syntheticCallReporter`, `_typeResolver`
+  (**all N#**) + **`AnalyzeExpression`**. So the closure is **290 body lines whose ONLY C# dependency
+  is the single `AnalyzeExpression(memberAccess.Object)` re-entry**, exactly as slices 15 and 16
+  measured, plus `Error` — a two-line shell that is nothing but `_diagnostics.Report(...)` on the N#
+  sink. All four are `private` with **ZERO references outside `Analyzer.cs`** across `src/`, `tests/`
+  and `editors/`, so no C# assertion migrates.
+
+  **THE RE-ENTRY IS THE SLICE.** Its guard is
+  `parameterStartIndex > 0 && call.Callee is MemberAccessExpression && sourceParameterTypes.Count > 0`,
+  and `GetSyntheticParameterStartIndex` returns 1 only when
+  `SourceHasReceiverParameter && Callee is MemberAccessExpression`, so the member-access half is
+  IMPLIED and the analysed node is `((MemberAccessExpression)call.Callee).Object` — the SAME node for
+  every candidate. What is per-candidate is only WHETHER it is evaluated. The resolution is chosen by
+  MEASUREMENT among the mandate's three options, and the measurement is recorded below before the cut.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS THE SOURCE BINDER'S WALK, AND THE OVERLOAD ARC IS
+  CLOSED.** `AnalyzerSyntheticCallWalk.nl` (**520 lines, ONE class, 8 members**) is the sole authority
+  for which N#-declared overload a call selects, how well a candidate matches, what each type
+  parameter is bound to, and where a violated constraint points. No callback, no fallback, no shadow
+  path, no protocol.
+
+  **THE RE-ENTRY, RESOLVED BY MEASUREMENT — AND THE MEASUREMENT OVERTURNED OPTION (a).** A throwaway
+  probe wrapped `AnalyzeExpression` and recorded, per node REFERENCE, the first answer, every repeat,
+  the error-count delta, and whether the semantic model agreed.
+  * **The 70-target corpus produced ZERO re-entries** (607,320 analysis rows, 546,456 FIRST /
+    60,864 REPEAT) — it contains no generic receiver-style (`this`-parameter) N# function at all, so
+    the corpus could not decide the question. It did prove re-analysis is NOT idempotent in general:
+    **78 REPEATs answered differently** from the first analysis of the same node (literal typing is
+    expected-type dependent) and 11 REPEATs emitted a diagnostic.
+  * Purpose-built fixtures produced **57 re-entries**. `prior=Y` in **57 / 57** — the receiver is
+    ALWAYS already analysed before the first re-entry, by `AnalyzeCall`'s own
+    `AnalyzeCallCallee(call.Callee)`. The count is **3 per analyzer PASS**, one per C# walk entry.
+  * **THE COUNTEREXAMPLE THAT KILLS OPTION (a).** For `Read.Tag("mg")` — receiver a METHOD GROUP used
+    as a value — the semantic model holds `FunctionTypeInfo` (recorded by the callee walk under
+    `_allowUnboundCallableReference = true`), while the walk's OWN analysis, run with that flag at its
+    outer value, answers **`unknown` and IS THE SOLE PRODUCER of the NL411**. `modelSame=N` and
+    `priorSame=N` on those cells. Reading a recorded/cached value would have returned the wrong type
+    AND DELETED a user-visible diagnostic. Option (a) is unsound, proven by counterexample.
+  * **Option (b) TAKEN, in its count-exact form.** The DECISION stays in N# — `NeedsReceiverType` IS
+    the walk's own guard, hoisted, so the caller can neither analyse an expression the walk would not
+    have analysed nor skip one it would; C# performs only the analysis it alone can perform,
+    immediately before the call it already makes. Each of the three C#-driven walk entries does its
+    own guarded pre-analysis, so the count, the position and the value are all EXACT there. The
+    per-candidate scoring loop moved wholly into N#, so its k analyses collapse to one under
+    `AnyCandidateNeedsReceiverType` — which reads the SCORING gate, not just the guard, so a candidate
+    the arity tables reject cannot cause an analysis the current walk never performs. Nothing else in
+    that loop reports (`TryBindAndReport` is asked with `reportErrors: false`, and comparison,
+    assignability and scoring are pure), so the collapse cannot reorder anything.
+  * **THE RESIDUE, MEASURED RATHER THAN ASSUMED: there is none on any exercised shape.** `nlc build`
+    renders `_errors` in LIST order with NO dedup and NO sort — it is the only surface on which the
+    duplicate multiplicity is visible at all (`nlc check` collapses by
+    `code|file|line|column|message` and then SORTS). **45 full, unfiltered build transcripts,
+    1,830 lines, are BYTE-IDENTICAL between the trees** after normalising only the elapsed-time
+    strings — including the shape that prints the SAME NL202 **twelve times**, twelve times in both.
+
+  **THE CUT — 4 WHOLE C# MEMBERS DELETED, 290 BODY LINES (303 removed lines with their doc comments
+  and separators).** `TryInferSyntheticGenericBindings` 87, `BindSyntheticNSharpCall` 78,
+  `TryGetSyntheticCallMatchScore` 78, `GetSyntheticGenericConstraintDiagnosticSpan` 47. `Analyzer.cs`
+  **17,879 → 17,617** (non-blank 15,757 → **15,532**); `git diff` **+46 / −308 = net −262**, and the
+  only C# ADDED anywhere is a field with its comment, three construction lines, an 8-line factory,
+  five rewritten references, and **two expression-bodied `AnalyzeSyntheticCallReceiver` overloads**
+  whose entire body is "ask the N# owner whether a receiver type is wanted; if so, call
+  `AnalyzeExpression` on the member-access object". **NO new C# method with policy, bridge, callback,
+  shell or state.**
+
+  **N# ADDED:** `AnalyzerSyntheticCallWalk.nl` (**520 lines, 1 class, 8 members** — `NeedsReceiverType`,
+  `AnyCandidateNeedsReceiverType`, `BindNSharpCall`, `GetCallMatchScore`, `TryGetScoringPlacement`,
+  `InferGenericBindings`, `GetGenericConstraintDiagnosticSpan`, plus the constructor) and
+  `AnalyzerSyntheticCallWalk.tests.nl` (**529 lines, 19 contracts**).
+  **ONE SHAPE DECISION AT THE BOUNDARY, RECORDED.** `TryGetSyntheticCallMatchScore`'s `bool` +
+  `out int score` becomes a single `int`, with **-1 meaning "does not apply"** — because ZERO is a
+  real score (an applicable overload every one of whose positions carries no comparable type scores
+  zero), so the "out" answer has to live outside the score's range rather than beside it. And the
+  arity-and-placement GATE is now stated ONCE, in `TryGetScoringPlacement`, read by both the scorer
+  and the receiver-type question, so the two can never disagree about which candidates reach the walk.
+
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `1c3aa4597` in a throwaway `/private/tmp/nsharp017s17` worktree, and the
+  working tree): **40,320 CELLS, 0 MISMATCHES, 0 THROWN, transcripts BYTE-IDENTICAL — md5
+  `7fa7e56690764deb751c933dbe610f74` in both**, 63 distinct answers and **1,610 diagnostics reported
+  through the sink in each**. Every operation resolves to the C# private member when the baseline
+  still has it and to the ROUTED N# owner otherwise, and the receiver type is computed by the
+  analyzer's OWN `AnalyzeExpression` in BOTH columns, so the working tree feeds the walk exactly what
+  the baseline walk re-entered to compute; two `HOST` rows kept OUT of the comparison prove the
+  wiring (baseline `Analyzer`, working `AnalyzerSyntheticCallWalk`). THE GRID: **12 signature shapes**
+  (plain, generic, receiver-generic with one and two type parameters, receiver-generic binding the
+  same parameter twice, receiver-plain, receiver-with-no-source-types, receiver-params,
+  receiver-with-defaults, three-parameter receiver, params-only) × **7 RECEIVER literal kinds**
+  (int, long, double, string, char, bool, null) × **10 argument shapes** (none, one of four types,
+  two mixed, three, and three NAMED forms including an unknown name) × **4 type-argument shapes**
+  (none, partial, exact, over-supplied) — each asked for `NeedsReceiverType`, `InferGenericBindings`,
+  `GetCallMatchScore`, and the constraint span for TWO different type parameters, then asked all of it
+  AGAIN through a BARE call so the receiver arm is off; plus **a full 8 × 8 TIE-BREAK grid in both
+  orders** (written vs inferred, object, params, defaulted, receiver-generic, receiver-written,
+  receiver-params) × the 7 receivers × the 10 argument shapes, each bound as a 2-candidate group
+  through a member call and a bare call and as a **3-candidate group** that pins "a later equally
+  specific candidate never displaces an earlier one". The answers exercise every arm: `NEEDS` **Y in
+  490 cells**; `INFER` in **26 distinct binding shapes** including two-parameter inference, the
+  `{T=object}` least-upper-bound fallback and the empty binding; `SCORE` at **-1, 0, 8, 16 and 24**;
+  `BIND` at `#0`, `#1` and `<none>` with **1,610 ambiguity reports**; and `SPAN` across all three arms
+  — the call fallback `3|8|1`, and the ARGUMENT anchor at `3|20|1` and `3|20|3` (280 cells). Deleted
+  from both trees.
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `1c3aa4597` in the throwaway worktree and at the working tree, **both run over the SAME
+  (working-tree) sources**, across **ALL 70 `project.yml` corpus targets with no exclusion
+  (ORACLE_TARGETS=70)**: **ORACLE_DIFFS=0, ORACLE_STDERR_DIFFS=0, ORACLE_EXIT_DIFFS=0**, **857
+  diagnostics**. Plus **41 purpose-built WALK fixtures** — receiver inference for two receiver types,
+  two type parameters, all four explicit-type-argument shapes, a bare call of a receiver function,
+  receiver-vs-argument conflict and agreement, five overload-group tie-break shapes, ambiguity, no
+  matching overload, named and unknown-named arguments, three params-tail shapes, **seven generic
+  CONSTRAINT shapes covering all three span arms**, and **six shapes in which the RECEIVER'S OWN
+  ANALYSIS REPORTS** (a call with a type error, a method group as receiver in both the single-candidate
+  and the overload-group path, a chain, an undefined identifier, a null-conditional) — firing **44
+  diagnostics with WALK_FIXTURE_DIFFS = 0**; and the **91 ACCUMULATED fixtures** from the earlier
+  slices of the arc, firing **177 diagnostics with ACC_FIXTURE_DIFFS = 0**.
+  **PROOF — DIAGNOSTIC ORDER, UNSORTED AND UNDEDUPLICATED.** `nlc build` over the 41 walk fixtures
+  plus 4 hand-written probes: **45 targets, 1,830 lines, FULLBUILD_IDENTICAL = 45, FULLBUILD_DIFFS =
+  0, FULLBUILD_EXIT_DIFFS = 0** after normalising only `N.Ns` elapsed-time strings. This is the
+  transcript the re-entry decision had to survive, and it survives it exactly — duplicates included.
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (the slice-16 PE/CLI normaliser, unchanged): **68 project
+  targets + 54 single-file examples = 122 builds per tree. 112 COMPARABLE ASSEMBLIES BYTE-IDENTICAL —
+  PRODUCT_IL_DIFFS = 0 (74) and SINGLE_IL_DIFFS = 0 (38)**, **EXIT_DIFFS = 0 across all 122**,
+  **ONLY_IN_BASE = 0 and ONLY_IN_WORK = 0**, **SKIPPED_TARGET_DIFFS = 0**, **NORMALISER_FAILURES = 0**.
+  **FIVE ANALYZER FINDINGS IN THE NEW `.nl` WERE CAUGHT BY THE ORACLE'S OWN BootstrapServices ROW AND
+  FIXED**, exactly as in slice 16 and for the same reason — the columnar backend had accepted them:
+  `best := bestFunction` after `if … || bestFunction == null { continue }` does NOT narrow, so the
+  tie-break block took **2 × NL905 and 3 × NL202**. The fix carries the winner as an INDEX into the
+  candidate list rather than as a nullable reference, which is also the honest shape: the tie-break is
+  about POSITION in the group. BootstrapServices returns to **293** findings and **the two new files
+  contribute ZERO**.
+  **ASSERTION MIGRATION.** All four members were `private` and none is named anywhere in `src/`,
+  `tests/` or `editors/`, so no C# test moved and the unit suite is unchanged at **3,192**. The DIRECT
+  pinning is new and native: **19 contracts**.
+
+  **TWO NEW `.nl` GOTCHAS.** **`partial` is RESERVED as a local name** — `partial := …` declines at
+  `parse.test`, naming the TEST's first line rather than the identifier's (the same shape as the
+  `record` gotcha from slice 16). And **`DiagnosticSpan`'s `Line` / `Column` / `Length` are emitted as
+  FIELDS, not properties** — a reflection reader must fall back to `GetField`, which cost one probe
+  iteration to find because `GetProperty(...)!` fails as a NullReferenceException inside the caller.
+
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** (`dotnet test tests/Tests.csproj -c Release`, 7m16s
+  — exactly the `1c3aa4597` baseline, ZERO drift); BootstrapServices contracts
+  **1,913 → 1,932 (+19)**, **1,932 / 1,932 PASS**; ownership audit **18 / 18**; `dev.sh --since`
+  full-suite fail-safe **3,192 / 3,192 in 7m35s** (14m10s including the build).
+  **RATCHET REPIN** via `scratchpad/s17/repin.py` — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 17,879 → **17,617**, currentNonBlankLines
+  15,757 → **15,532**, fingerprint `text-v1:387d7904b7344def` → `text-v1:1d02ed362473f987` (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **5,834 / 5,005**);
+  `reviewedHeadFingerprint head-v1:0fe594d7a123595d` → **`head-v1:0410f061b3393d94`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value, `epochPathFingerprint`, `epochFactFingerprint` and
+  `epochFileCount` (381) untouched and RE-VALIDATED by recomputation both before and after the write.
+  **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after, and the manifest
+  `git diff` is exactly 2 changed lines.** The two `.nl` additions need no row.
+  **WALL STATUS: NO wall crossed, and NO toolset repin was needed** — this slice adds no catalog
+  surface, so the packaged-SDK bootstrap wall was never approached. The walk's boundary leans on no
+  new capability at all: the receiver type crosses as an ordinary `TypeInfo?` parameter.
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 1,857s (30m57s) ON THE FIRST RUN** in a fresh isolated copy
+  (`/private/tmp/nsharp-test-all.e67e89a728ab.JtDHTS`, closing with
+  `Stored validated isolated test cache result: e67e89a728ab5c2a (1857s)`, so it is neither a cached
+  whole-gate nor a cached per-step verdict; the cool-rerun rule was not needed because nothing
+  flaked). **ZERO `✗`, 105 `✓ PASSED`.** Every step green with its own timing: clean, compiler build
+  (3m30s), the format contract gate, unit tests (10m30s — **3,192 / 3,192**), the native `.tests.nl`
+  estate including BootstrapServices' **1,932** and `tests/native/ownership-audit` — the ratchet
+  re-validated INSIDE the gate against the freshly written manifest — (5m29s), **VS Code integration
+  tests (4m18s, 36 passing in 41s)**, SDK pack + install (6m21s), template pack/install/creation, the
+  template-generated project, all example projects, all single-file examples, `nlc check` over the
+  examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new errors vs
+  baseline**. `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt (289 files,
+  3.98 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE
+  computer-use verification was NOT attempted, per the coordinator's standing instruction. This slice
+  adds no LSP/IDE behaviour of its own; the IDE-facing surface it OWNS is which overload a call
+  resolves to — the hover, the signature help and the go-to-definition target for every call to an
+  N#-declared function — and that is pinned at 40,320 differential grid points, 857 byte-identical
+  corpus diagnostics, 44 + 177 fixture diagnostics, 1,830 byte-identical unsorted build-transcript
+  lines, and the gate's own VS Code integration run.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 16 — THE DIAGNOSTIC SPAN RESOLVER.** Target
   recorded BEFORE any production edit, at `454505582` (`Analyzer.cs` 18,371 lines, non-blank 16,181).
 
   **THE SPAN SUB-TREE, RE-VERIFIED AT THIS TREE.** Slice 15 named seven members / 118 lines / 113
