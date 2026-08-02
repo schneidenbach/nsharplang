@@ -230,16 +230,17 @@ public class Analyzer : IDisposable
     // guard for user-defined conversions is deliberately NOT part of that rebuild — it is the one
     // piece of state that must outlive an owner.
     private readonly AnalyzerFunctionTypeFactory _functionTypeFactory;
-    // What a member NAME resolves to on a declared shape: a declared function's type or method
-    // group, the inherited `object` surface, and the SoA table's synthesised intrinsics. Reads only
-    // the factory, which is constructed once and never rebuilt, so neither is this.
-    private readonly AnalyzerMemberResolution _memberResolution;
+    // WHAT A MEMBER NAME RESOLVES TO ON A TYPE, whole: the dispatcher, every shape's closed member
+    // set, the metadata probe and the fall-through to the extension surface. Rebuilt with the SCC —
+    // it holds the CLR conversion funnel and the extension surface, both of which are.
+    private AnalyzerMemberResolution _memberResolution;
     private readonly AnalyzerImplicitConversionGuard _implicitConversionGuard = new();
     private AnalyzerAssignability _assignability;
-    // Whether a source extension method accepts a receiver. Rebuilt with the SCC — it holds the
-    // assignability owner, which is. The analyzer's own `_extensionMethods`, `_usingNamespaces` and
-    // `_mlcAssemblies` are deliberately NOT handed over yet: the members that read them cannot move
-    // until `Assembly.GetTypes` is on the columnar surface.
+    // Which extension method a member name resolves to — the source `func`s and the external
+    // `[Extension]` scan. Rebuilt with the SCC: it holds the assignability owner and the CLR
+    // conversion funnel. The three collections it is handed — `_extensionMethods`,
+    // `_usingNamespaces`, `_mlcAssemblies` — are `readonly` and mutated in place, so it holds the
+    // LIVE lists and a rebuild does not resnapshot them.
     private AnalyzerExtensionMethodResolution _extensionMethodResolution;
     // The overload scoring kernel's collaborator-backed half. Rebuilt with the SCC: it holds the
     // conversion funnel, the assignability owner and the well-known-type bag, all three of which are.
@@ -301,9 +302,9 @@ public class Analyzer : IDisposable
         _typeSubstitution = new AnalyzerTypeSubstitution(_scopes, _declarationContext, _typeResolver);
         _structuralAssignability = new AnalyzerStructuralAssignability(_typeResolver, _externalTypeProbe);
         _functionTypeFactory = new AnalyzerFunctionTypeFactory(_declarationContext, _typeSubstitution);
-        _memberResolution = new AnalyzerMemberResolution(_functionTypeFactory);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
+        _memberResolution = CreateMemberResolution();
         _overloadScoring = CreateOverloadScoring();
         _reflectionArgumentBinder = CreateReflectionArgumentBinder();
         _syntheticCallBinder = CreateSyntheticCallBinder();
@@ -360,7 +361,25 @@ public class Analyzer : IDisposable
             _typeResolver);
 
     private AnalyzerExtensionMethodResolution CreateExtensionMethodResolution()
-        => new(_typeResolver, _assignability);
+        => new(
+            _typeResolver,
+            _assignability,
+            _declarationContext,
+            _functionTypeFactory,
+            _clrTypeConversion,
+            _extensionMethods,
+            _usingNamespaces,
+            _mlcAssemblies);
+
+    private AnalyzerMemberResolution CreateMemberResolution()
+        => new(
+            _functionTypeFactory,
+            _declarationContext,
+            _typeSubstitution,
+            _typeResolver,
+            _clrTypeConversion,
+            _extensionMethodResolution,
+            _usingNamespaces);
 
     private AnalyzerAssignability CreateAssignability()
         => new(
@@ -7780,7 +7799,7 @@ public class Analyzer : IDisposable
         TryRecordMemberBinding(receiverType, member);
 
         var includeStaticMembers = IsStaticMemberAccessTarget(member.Object);
-        var memberType = ResolveMember(receiverType, member.MemberName, includeStaticMembers);
+        var memberType = _memberResolution.ResolveMember(receiverType, member.MemberName, includeStaticMembers, _currentTypeName);
         if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member, includeStaticMembers))
         {
             ReportUndefinedMember(receiverType, member, includeStaticMembers);
@@ -8246,7 +8265,7 @@ public class Analyzer : IDisposable
         foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentUnitNamespace, _usingNamespaces))
             if (_projectDiscovery.TryResolveProjectTypeInNamespace(rootName, visibleNamespace, currentUnitNamespace, out _, out _)) return false;
         if (_scopes.LookupSymbol(rootName) != null || _scopes.LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
-            || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(ResolveMember(currentType, rootName)))
+            || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(currentType, rootName, true, _currentTypeName)))
             || TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && _projectDiscovery.TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], currentUnitNamespace, out _, out _))
             || !ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, qualifiedName, out var runtimeType))
             return false;
@@ -8524,336 +8543,6 @@ public class Analyzer : IDisposable
             member.KindName);
     }
 
-    private TypeInfo ResolveMember(TypeInfo objectType, string memberName, bool includeStaticMembers = true)
-    {
-        if (objectType is ObliviousTypeInfo obliviousType)
-        {
-            objectType = obliviousType.InnerType;
-        }
-
-        if (objectType is ByRefTypeInfo byRefType)
-        {
-            objectType = byRefType.InnerType;
-        }
-
-        objectType = _declarationContext.ResolveDeclaredAlias(objectType);
-        var extensionReceiverType = objectType;
-        Dictionary<string, TypeInfo>? sourceGenericSubstitution = null;
-
-        if (objectType is NullableTypeInfo nullableType)
-        {
-            if (memberName == "HasValue")
-                return BuiltInTypes.Bool;
-            if (memberName == "Value")
-                return nullableType.InnerType;
-        }
-
-        if (objectType is SoaRowTypeInfo soaRowType)
-        {
-            if (AnalyzerMemberResolution.TryGetSoaColumn(soaRowType.Declaration, memberName) is { } rowColumn)
-            {
-                return _declarationContext.TryGetSoaType(
-                    soaRowType.Declaration,
-                    out var soaOwner)
-                    ? _typeSubstitution.ResolveTypeForSourceOwner(
-                        rowColumn.Type,
-                        soaOwner,
-                        substitution: null)
-                    : _typeResolver.ResolveType(rowColumn.Type);
-            }
-
-            return BuiltInTypes.Unknown;
-        }
-
-        if (objectType is SoaRecordTypeInfo soaRecordType)
-        {
-            if (!includeStaticMembers)
-            {
-                if (AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, memberName) is { } column)
-                    return new ArrayTypeInfo(_typeSubstitution.ResolveTypeForSourceOwner(
-                        column.Type,
-                        soaRecordType,
-                        substitution: null));
-
-                return memberName switch
-                {
-                    "length" or "capacity" => BuiltInTypes.Int,
-                    "add" => AnalyzerMemberResolution.CreateSoaIntrinsic("add", BuiltInTypes.Int),
-                    "clear" => AnalyzerMemberResolution.CreateSoaIntrinsic("clear", BuiltInTypes.Void),
-                    "ensureCapacity" => AnalyzerMemberResolution.CreateSoaIntrinsicWithParameter("ensureCapacity", BuiltInTypes.Void, "capacity", BuiltInTypes.Int),
-                    "copyRow" => AnalyzerMemberResolution.CreateSoaIntrinsicWithTwoParameters("copyRow", BuiltInTypes.Void, "from", BuiltInTypes.Int, "to", BuiltInTypes.Int),
-                    _ => BuiltInTypes.Unknown
-                };
-            }
-
-            if (memberName == "wrap")
-            {
-                var parameters = soaRecordType.Declaration.Columns
-                    .Select(column => (Name: column.Name, Type: new ArrayTypeInfo(
-                        _typeSubstitution.ResolveTypeForSourceOwner(
-                            column.Type,
-                            soaRecordType,
-                            substitution: null)) as TypeInfo))
-                    .Concat(new[] { (Name: "length", Type: BuiltInTypes.Int as TypeInfo) })
-                    .ToList();
-                return new FunctionTypeInfo()
-                {
-                    SyntheticName = "wrap",
-                    ParameterNames = parameters.Select(parameter => parameter.Name).ToList(),
-                    ParameterTypes = parameters.Select(parameter => parameter.Type).ToList(),
-                    ReturnType = soaRecordType
-                };
-            }
-
-            return BuiltInTypes.Unknown;
-        }
-
-        // Convert built-in simple types to reflection types for full CLR member resolution.
-        // This enables member access on literals and built-in types (e.g., 5.ToString(), "hello".Length)
-        if (objectType is SimpleTypeInfo && !BuiltInTypes.IsUnknown(objectType)
-            && BuiltInTypes.IsNot(objectType, BuiltInTypes.Null) && BuiltInTypes.IsNot(objectType, BuiltInTypes.Never) && BuiltInTypes.IsNot(objectType, BuiltInTypes.Void))
-        {
-            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(objectType);
-            if (clrType != null)
-                objectType = new ReflectionTypeInfo(clrType);
-        }
-
-        if (objectType is GenericTypeInfo sourceGeneric
-            && _typeSubstitution.ResolveGenericDefinition(sourceGeneric) is { } sourceGenericDefinition
-            && sourceGenericDefinition is not ReflectionTypeInfo)
-        {
-            sourceGenericSubstitution = _declarationContext.CreateGenericSubstitution(
-                sourceGenericDefinition,
-                sourceGeneric.TypeArguments);
-            objectType = sourceGenericDefinition;
-        }
-        else
-        {
-            if (!includeStaticMembers
-                && _declarationContext.TryResolveKnownArrayExtensionMember(
-                    objectType,
-                    memberName,
-                    _usingNamespaces.Contains("System"),
-                    out var arrayExtensionMemberType))
-            {
-                return arrayExtensionMemberType;
-            }
-
-            if (!includeStaticMembers
-                && _declarationContext.TryResolveKnownGenericStructuralMember(
-                    objectType, memberName, out var structuralMemberType))
-            {
-                return structuralMemberType;
-            }
-
-            if (objectType is GenericTypeInfo or ArrayTypeInfo)
-            {
-                var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(objectType);
-                if (clrType != null)
-                {
-                    objectType = new ReflectionTypeInfo(clrType);
-                }
-                else
-                {
-                    var bindingClrType = _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(objectType);
-                    if (bindingClrType != null &&
-                        TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out var memberType))
-                    {
-                        return memberType;
-                    }
-                }
-            }
-        }
-
-        // Handle reflection-based types
-        if (objectType is ReflectionTypeInfo reflectionType)
-        {
-            var type = reflectionType.Type;
-            var memberFlags = GetReflectionMemberFlags(includeStaticMembers);
-
-            if (_declarationContext.TryResolveRuntimeInterfaceMethodMember(
-                    type,
-                    memberName,
-                    includeStaticMembers,
-                    out var interfaceMemberType))
-            {
-                return interfaceMemberType;
-            }
-
-            if (TryResolveReflectionPropertyOrField(type, memberName, includeStaticMembers, out var memberType))
-                return memberType;
-
-            // Try methods (get all matching methods to handle overloads)
-            var methods = type.GetMethods(memberFlags)
-                .Where(m => m.Name == memberName)
-                .ToArray();
-
-            if (methods.Length > 0)
-            {
-                // Return a special type that represents overloaded methods
-                return new ReflectionMethodGroupInfo(methods, $"{methods[0].Name}(...)");
-            }
-
-            // No member found on reflection type, try extension methods against the source receiver shape.
-            return TryResolveExtensionMethod(extensionReceiverType, memberName);
-        }
-
-        if (_declarationContext.TryGetSourceMemberShape(
-                objectType, sourceGenericSubstitution, out var sourceShape))
-        {
-            TypeInfo? resolvedMember = null;
-            if (_declarationContext.TryResolveDeclaredValueMember(
-                    sourceShape.Owner,
-                    sourceShape.DeclaredMembers,
-                    memberName,
-                    sourceGenericSubstitution,
-                    out var resolvedValueMember))
-            {
-                resolvedMember = resolvedValueMember;
-            }
-            resolvedMember ??= _memberResolution.ResolveDeclaredFunctionMember(
-                sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, sourceShape.Owner);
-            if (resolvedMember != null)
-                return resolvedMember;
-
-            if (!includeStaticMembers
-                && sourceShape.SupportsPrimaryParameters
-                && _declarationContext.TryResolvePrimaryParameter(
-                    sourceShape.Owner,
-                    sourceShape.PrimaryParameters,
-                    memberName,
-                    sourceGenericSubstitution,
-                    out var primaryConstructorMember))
-            {
-                return primaryConstructorMember;
-            }
-            if (includeStaticMembers
-                && _declarationContext.TryResolveNestedType(
-                    sourceShape.Owner, memberName, requireExported: false, out var nestedTypeMember))
-            {
-                return nestedTypeMember;
-            }
-            if (sourceShape.BaseType != null)
-            {
-                var baseMember = ResolveMember(
-                    sourceShape.BaseType, memberName, includeStaticMembers);
-                if (!BuiltInTypes.IsUnknown(baseMember))
-                    return baseMember;
-            }
-            if (!includeStaticMembers
-                && sourceShape.SupportsObjectMembers
-                && AnalyzerMemberResolution.TryResolveSourceObjectMember(memberName, out var objectMember))
-            {
-                return objectMember;
-            }
-        }
-
-        if (objectType is TupleTypeInfo tupleType)
-        {
-            if (_declarationContext.TryResolveTupleMember(tupleType, memberName, out var tupleMember))
-                return tupleMember;
-
-            if (!includeStaticMembers && AnalyzerMemberResolution.TryResolveSourceObjectMember(memberName, out var objectMember))
-                return objectMember;
-        }
-
-        if (objectType is EnumTypeInfo enumType)
-        {
-            if (includeStaticMembers && enumType.Declaration.Members.Any(member => member.Name == memberName))
-                return objectType;
-
-            if (!includeStaticMembers && AnalyzerMemberResolution.TryResolveSourceObjectMember(memberName, out var objectMember))
-                return objectMember;
-        }
-
-        if (objectType is AnonymousUnionTypeInfo)
-        {
-            return memberName switch
-            {
-                "Index" => BuiltInTypes.Int,
-                "Value" => BuiltInTypes.Object,
-                _ => TryResolveExtensionMethod(objectType, memberName)
-            };
-        }
-
-        if (objectType is UnionTypeInfo)
-        {
-            return objectType;
-        }
-
-        // Handle newtype .Value access
-        if (objectType is NewtypeInfo newtypeInfo)
-        {
-            if (memberName == "Value")
-                return _typeSubstitution.ResolveTypeForSourceOwner(
-                    newtypeInfo.UnderlyingType,
-                    newtypeInfo,
-                    substitution: null);
-            if (!includeStaticMembers && AnalyzerMemberResolution.TryResolveSourceObjectMember(memberName, out var objectMember))
-                return objectMember;
-        }
-
-        // Handle array types
-        if (objectType is ArrayTypeInfo arrayType)
-        {
-            if (memberName == "Length")
-                return BuiltInTypes.Int;
-        }
-
-        // Member not found on type, try extension methods
-        return TryResolveExtensionMethod(extensionReceiverType, memberName);
-    }
-
-    private static BindingFlags GetReflectionMemberFlags(bool includeStaticMembers)
-    {
-        var memberFlags = BindingFlags.Public | BindingFlags.Instance;
-        if (includeStaticMembers)
-            memberFlags |= BindingFlags.Static;
-        return memberFlags;
-    }
-
-    private static bool TryResolveReflectionPropertyOrField(
-        Type type,
-        string memberName,
-        bool includeStaticMembers,
-        out TypeInfo memberType)
-    {
-        var memberFlags = GetReflectionMemberFlags(includeStaticMembers);
-
-        var property = type.GetProperty(memberName, memberFlags);
-        if (property != null)
-        {
-            memberType = NullabilityMetadataReflection.ConvertProperty(property);
-            return true;
-        }
-
-        var field = type.GetField(memberName, memberFlags);
-        if (field != null)
-        {
-            memberType = NullabilityMetadataReflection.ConvertField(field);
-            return true;
-        }
-
-        // .NET events resolve to a distinct symbol (never a field) so that `+=`/`-=` against
-        // them is rejected with a friendly diagnostic and `on`/`off` can subscribe via the
-        // event's add_/remove_ accessors instead of touching the private backing field.
-        var evt = type.GetEvent(memberName, memberFlags);
-        if (evt != null)
-        {
-            memberType = new ReflectionEventInfo(
-                evt.Name,
-                evt.GetAddMethod(nonPublic: true),
-                evt.GetRemoveMethod(nonPublic: true),
-                evt.EventHandlerType,
-                evt.DeclaringType,
-                $"event {evt.Name}");
-            return true;
-        }
-
-        memberType = BuiltInTypes.Unknown;
-        return false;
-    }
-
     private void ReportSoaRowEscape(Expression expression, string action)
     {
         var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
@@ -8903,107 +8592,6 @@ public class Analyzer : IDisposable
 
     private static bool IsSystemObjectType(Type type)
         => type == typeof(object) || string.Equals(type.FullName, "System.Object", StringComparison.Ordinal);
-
-    private TypeInfo TryResolveExtensionMethod(TypeInfo targetType, string methodName)
-    {
-        // Find all extension methods with matching name
-        var matchingExtensions = _extensionMethods
-            .Where(em => em.Name == methodName)
-            .ToList();
-
-        if (matchingExtensions.Count == 0)
-        {
-            var externalExtensions = FindExternalExtensionMethods(targetType, methodName);
-            if (externalExtensions.Count == 1)
-                return new ReflectionMethodInfo(externalExtensions[0], $"{externalExtensions[0].Name}(...)");
-
-            if (externalExtensions.Count > 1)
-                return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), $"{externalExtensions[0].Name}(...)");
-
-            return BuiltInTypes.Unknown;
-        }
-
-        // Filter by matching this parameter type
-        var applicableExtensions = new List<FunctionDeclaration>();
-        foreach (var ext in matchingExtensions)
-        {
-            if (ext.Parameters.Count == 0)
-                continue;
-
-            if (_extensionMethodResolution.IsExtensionReceiverApplicable(ext, targetType))
-            {
-                applicableExtensions.Add(ext);
-            }
-        }
-
-        if (applicableExtensions.Count == 0)
-        {
-            var externalExtensions = FindExternalExtensionMethods(targetType, methodName);
-            if (externalExtensions.Count == 1)
-                return new ReflectionMethodInfo(externalExtensions[0], $"{externalExtensions[0].Name}(...)");
-
-            if (externalExtensions.Count > 1)
-                return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), $"{externalExtensions[0].Name}(...)");
-
-            return BuiltInTypes.Unknown;
-        }
-
-        // If only one match, return it
-        if (applicableExtensions.Count == 1)
-            return _functionTypeFactory.CreateFromDeclaration(applicableExtensions[0], _currentTypeName);
-
-        // Multiple matches - return fact-backed method group for overload resolution
-        return NSharpMethodGroupInfoFactory.FromFunctions(
-            applicableExtensions.Select(declaration =>
-                _functionTypeFactory.CreateFromDeclaration(declaration, _currentTypeName)).ToList());
-    }
-
-    private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
-    {
-        var exactClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(targetType);
-        var targetClrType = exactClrType ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(targetType);
-        if (targetClrType == null)
-            return new List<MethodInfo>();
-
-        // Only the SURROGATE receiver type exists here, so the instance surface was never searched and
-        // an instance method that hides this name must still win. See HasRuntimeInstanceMethod.
-        if (exactClrType == null && _declarationContext.HasRuntimeInstanceMethod(targetClrType, methodName))
-            return new List<MethodInfo>();
-
-        var methods = new List<MethodInfo>();
-
-        foreach (var assembly in _mlcAssemblies)
-        {
-            foreach (var type in GetLoadableTypes(assembly))
-            {
-                if (type.Namespace == null || !_usingNamespaces.Contains(type.Namespace))
-                    continue;
-
-                if (!(type.IsSealed && type.IsAbstract))
-                    continue;
-
-                foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
-                {
-                    if (method.Name != methodName || !AnalyzerOverloadFacts.HasExtensionAttribute(method))
-                        continue;
-
-                    var parameters = method.GetParameters();
-                    if (parameters.Length == 0)
-                        continue;
-
-                    if (AnalyzerOverloadFacts.IsExtensionParameterCompatible(parameters[0].ParameterType, targetClrType))
-                        methods.Add(method);
-                }
-            }
-        }
-
-        return methods;
-    }
-
-    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
-    {
-            return assembly.GetTypes();
-    }
 
     /// <summary>
     /// Walks a CLR parameter type and a TypeInfo argument in parallel to extract TypeInfo bindings
@@ -12804,7 +12392,7 @@ public class Analyzer : IDisposable
                 // class would need its own substitution chain, so it suppresses instead).
                 var hasBaseClass = openType is ClassTypeInfo openClassType && openClassType.BaseClass != null;
                 if (!hasBaseClass
-                    && BuiltInTypes.IsUnknown(ResolveMember(openType, memberName, includeStaticMembers: false))
+                    && BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(openType, memberName, false, _currentTypeName))
                     && ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
                 {
                     ReportUndefinedMember(
@@ -12833,7 +12421,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var resolved = ResolveMember(constructedType, memberName, includeStaticMembers: false);
+        var resolved = _memberResolution.ResolveMember(constructedType, memberName, false, _currentTypeName);
         if (BuiltInTypes.IsUnknown(resolved))
         {
             if (ShouldReportUndefinedMember(constructedType, memberName, includeStaticMembers: false))
@@ -14165,7 +13753,7 @@ public class Analyzer : IDisposable
         var currentType = _scopes.CurrentTypeScope();
         if (currentType != null)
         {
-            var memberType = ResolveMember(currentType, name);
+            var memberType = _memberResolution.ResolveMember(currentType, name, true, _currentTypeName);
             if (!BuiltInTypes.IsUnknown(memberType))
             {
                 type = memberType;
@@ -15947,6 +15535,7 @@ public class Analyzer : IDisposable
         _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
+        _memberResolution = CreateMemberResolution();
         _overloadScoring = CreateOverloadScoring();
         _reflectionArgumentBinder = CreateReflectionArgumentBinder();
         _syntheticCallBinder = CreateSyntheticCallBinder();
@@ -15967,6 +15556,7 @@ public class Analyzer : IDisposable
             _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, null);
             _assignability = CreateAssignability();
             _extensionMethodResolution = CreateExtensionMethodResolution();
+            _memberResolution = CreateMemberResolution();
             _overloadScoring = CreateOverloadScoring();
             _reflectionArgumentBinder = CreateReflectionArgumentBinder();
             _syntheticCallBinder = CreateSyntheticCallBinder();
