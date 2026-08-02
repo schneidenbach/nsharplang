@@ -94,7 +94,7 @@ func BinderFor(wellKnown: AnalyzerWellKnownTypes?): AnalyzerReflectionArgumentBi
         context, facts, structural, substitution, clrConversion, guard)
     scoring := new AnalyzerOverloadScoring(
         context, clrConversion, assignability, resolver, wellKnown)
-    return new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring)
+    return new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver)
 }
 
 func BinderWellKnown(loadContext: MetadataLoadContext): AnalyzerWellKnownTypes {
@@ -1186,4 +1186,150 @@ test "an open signature is re-found on the generic definition by metadata token"
     assert openAdd.get_Name() == "Add"
     assert openAdd.GetParameters().Length == 1
     assert openAdd.get_MetadataToken() == maskProbeClosedAdd().get_MetadataToken()
+}
+
+// THE PRE-BINDER (task 017 slice 20 phase B). The first pass over one candidate. These pin the
+// decisions a reader cannot recover from any single arm: which method the signature is READ from,
+// the order of the four gates, and the three tie-break fields that order the candidates.
+
+test "the open signature reduces a generic method to its own definition" {
+    // A closed generic method is not the signature: its parameters are already substituted, so the
+    // type parameters inference must bind are gone.
+    listType := BinderClosed(
+        BinderRuntimeType("System.Collections.Generic.List`1, System.Private.CoreLib"),
+        typeof(int))
+    convertAll := listType.GetMethod("ConvertAll")
+    assert convertAll != null
+    assert convertAll.get_IsGenericMethodDefinition()
+
+    reduced := AnalyzerReflectionArgumentBinder.GetOpenReflectionSignatureMethod(convertAll)
+    assert reduced.get_IsGenericMethodDefinition()
+    assert reduced.get_Name() == "ConvertAll"
+}
+
+test "the open signature is re-found on the declaring type's definition" {
+    // THE ROW'S WHOLE REASON. `List<int>.Add` declares `void Add(int)`; the OPEN form declares
+    // `void Add(T)`, and only the definition's own member table has it.
+    closedListType := BinderClosed(
+        BinderRuntimeType("System.Collections.Generic.List`1, System.Private.CoreLib"),
+        typeof(int))
+    closed := closedListType.GetMethod("Add")
+    assert closed != null
+    closedParameters := closed.GetParameters()
+    assert closedParameters[0].get_ParameterType() == typeof(int)
+
+    open := AnalyzerReflectionArgumentBinder.GetOpenReflectionSignatureMethod(closed)
+    assert open.get_MetadataToken() == closed.get_MetadataToken()
+    openParameters := open.GetParameters()
+    openFirstType := openParameters[0].get_ParameterType()
+    assert openFirstType.get_IsGenericParameter()
+    openOwner := open.get_DeclaringType()
+    assert openOwner != null
+    assert openOwner.get_IsGenericTypeDefinition()
+
+    // The METADATA TOKEN is what identifies it, not the name: `Insert` and `Add` are both on the
+    // same definition and must not be confused, and a name-keyed re-find would have to pick
+    // between overloads it cannot tell apart.
+    closedInsert := closedListType.GetMethod("Insert")
+    assert closedInsert != null
+    openInsert := AnalyzerReflectionArgumentBinder.GetOpenReflectionSignatureMethod(closedInsert)
+    assert openInsert.get_MetadataToken() == closedInsert.get_MetadataToken()
+    assert openInsert.get_MetadataToken() != open.get_MetadataToken()
+    assert openInsert.GetParameters().Length == 2
+}
+
+test "the open signature leaves an already-open or non-generic method alone" {
+    // A method on a NON-generic type is already open.
+    stringType := typeof(string)
+    substring := stringType.GetMethod("Substring", PreBindTypeArray(typeof(int)))
+    assert substring != null
+    reducedSubstring := AnalyzerReflectionArgumentBinder.GetOpenReflectionSignatureMethod(substring)
+    assert reducedSubstring.get_MetadataToken() == substring.get_MetadataToken()
+    substringParameters := reducedSubstring.GetParameters()
+    assert substringParameters[0].get_ParameterType() == typeof(int)
+
+    // A method declared on the DEFINITION is already open too, and comes back unchanged.
+    listDefinition := BinderRuntimeType("System.Collections.Generic.List`1, System.Private.CoreLib")
+    openAdd := listDefinition.GetMethod("Add")
+    assert openAdd != null
+    reduced := AnalyzerReflectionArgumentBinder.GetOpenReflectionSignatureMethod(openAdd)
+    assert reduced.get_MetadataToken() == openAdd.get_MetadataToken()
+    reducedOwner := reduced.get_DeclaringType()
+    assert reducedOwner != null
+    assert reducedOwner.get_IsGenericTypeDefinition()
+}
+
+test "the pre-binder answers a candidate with its score and both tie-breaks" {
+    binder := BinderDefault()
+    substring := typeof(string).GetMethod("Substring", PreBindTypeArray(typeof(int)))
+    assert substring != null
+
+    bound := binder.PreBindReflectionMethod(
+        substring, PreBindCall(1), typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed1(BuiltInTypes.Int))
+    assert bound != null
+    assert bound.RuntimeMethod.get_MetadataToken() == substring.get_MetadataToken()
+    assert bound.SignatureMethod.get_MetadataToken() == substring.get_MetadataToken()
+    assert bound.BoundArguments.Count == 1
+    // An exact single-argument match neither expands a tail nor consumes a default.
+    assert !bound.UsesParams
+    assert bound.DefaultsUsed == 0
+
+    // ARITY IS EXACT: the same candidate refuses a call it cannot fill.
+    assert binder.PreBindReflectionMethod(
+        substring, PreBindCall(3), typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed3(BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int)) == null
+    assert binder.PreBindReflectionMethod(
+        substring, PreBindCall(0), typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed(new List<TypeInfo?>())) == null
+}
+
+test "the pre-binder refuses written type arguments a candidate cannot take" {
+    binder := BinderDefault()
+    substring := typeof(string).GetMethod("Substring", PreBindTypeArray(typeof(int)))
+    assert substring != null
+
+    // WRITTEN TYPE ARGUMENTS ARE ABSOLUTE. A non-generic candidate cannot take one at all, and a
+    // wrong COUNT is a non-binding rather than a partial inference.
+    typed := PreBindCallWithTypeArguments(1, 1)
+    assert binder.PreBindReflectionMethod(
+        substring, typed, typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed1(BuiltInTypes.Int)) == null
+
+    // The same call WITHOUT the type argument binds, so the refusal is the type argument's doing.
+    assert binder.PreBindReflectionMethod(
+        substring, PreBindCall(1), typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed1(BuiltInTypes.Int)) != null
+}
+
+// A call on a MEMBER-ACCESS callee, which is the shape a reflected instance call always has, with
+// `arity` positional arguments and an optional written type argument.
+func PreBindCall(arity: int): CallExpression {
+    return PreBindCallWithTypeArguments(arity, 0)
+}
+
+func PreBindCallWithTypeArguments(arity: int, typeArgumentCount: int): CallExpression {
+    arguments := BinderArguments()
+    i := 0
+    while i < arity {
+        arguments.Add(BinderPositional("a"))
+        i = i + 1
+    }
+
+    typeArguments: List<TypeReference>? = null
+    if typeArgumentCount > 0 {
+        written := new List<TypeReference>()
+        t := 0
+        while t < typeArgumentCount {
+            written.Add(new SimpleTypeReference("int", 1, 1))
+            t = t + 1
+        }
+        typeArguments = written
+    }
+
+    receiver: Expression = new MemberAccessExpression(BinderIdentifier("receiver"), "m", false, 1, 1)
+    return new CallExpression(receiver, arguments, typeArguments, 1, 1)
+}
+
+// Named for assembly-wide uniqueness: a bare `One` collides with the catalog's own static helper
+// and makes an UNRELATED file decline (slice 16's gotcha, and it applies to free functions too).
+func PreBindTypeArray(first: Type): Type[] {
+    values := new Type[](1)
+    values[0] = first
+    return values
 }

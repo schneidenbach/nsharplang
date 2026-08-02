@@ -1,6 +1,60 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-01 (**TASK 017 SLICE 20 PHASE A LANDED (no commit — mandate) — THE CATALOG
+Last updated: 2026-08-01 (**TASK 017 SLICE 20 PHASE B LANDED (no commit — mandate) — N# OWNS WHICH
+REFLECTED OVERLOAD A CALL SELECTS, END TO END.** With the argument walk N# since slice 14 and the
+reporters N# since slice 19, the candidate GATE is now N# too: `Analyzer.cs` keeps no part of "does
+this reflected method accept this call, and how well?" — not the receiver's contribution to
+inference, not the written type arguments, not the arity band, not the extension penalty, not the
+score, not the two tie-breaks, and not the open signature the whole thing is read from. **5 whole C#
+members DELETED — 129 body lines**: `PreBindReflectionMethod` 86,
+`ConvertReflectionSuppliedArgumentType` 16, `GetOpenReflectionSignatureMethod` 13, and both
+`IsExpressionTreeLambdaTarget` overloads 12 + 2. `Analyzer.cs` **16,885 → 16,754** (non-blank
+14,888 → **14,777**), `git diff` **+22 / −153 = net −131**, and **every one of the 22 added lines is a
+construction argument or a rewritten reference — no new C# method, bridge, callback, shell or
+state.** N# gains `ReflectionPreBoundCandidate` + the pre-binder + the open-signature re-find on
+`AnalyzerReflectionArgumentBinder` (258 lines), `ConvertSuppliedArgumentType` on
+`AnalyzerReflectionTypeConversion` (27), and both expression-tree overloads on
+`AnalyzerFunctionTypeFactory` (43). **THE ONE NON-MECHANICAL DECISION IS A LIFETIME QUESTION, AND IT
+CHANGED A SIGNATURE:** the expression-tree predicate's natural home already owns the CLR half, but
+that factory is built ONCE while `AnalyzerClrTypeConversion` is REPLACED on every toolset rebuild and
+on `Dispose` — so both overloads land as STATICS and the `TypeInfo?` arm takes the context and the
+conversion as PARAMETERS, making staleness impossible by construction rather than managed by a
+rebuild list. The pre-binder's 9-field C# value tuple becomes a real model; the binder gains
+`AnalyzerTypeResolver` as a fifth constructor argument (safe because the resolver is MUTATED in place
+across rebuilds, never replaced). PROOF: a throwaway differential run in BOTH trees —
+**2,895 CELLS across five grids, 0 MISMATCHES, transcripts BYTE-IDENTICAL (md5
+`67d809ac1af5d634c1727fe2fa15d8ef`)**, including **254 open-signature cells of which 117 are a
+genuine metadata-token RE-FIND** (the arm phase A's catalog rows unblocked, exercised 117 times) and
+**2,484 pre-bind cells with 128 binds, 26 distinct answers, 24 params-expanded and 18
+defaults-filled** — the last two only after the grid was deliberately widened, because the first pass
+left the defaults phase unexercised; `nlc build` transcripts **17 / 17 BYTE-IDENTICAL, 651 lines, 36
+NL402**, showing 5 blocks in SOURCE order, **12 undeduplicated blocks** for twelve identical calls,
+and a body ALTERNATING string and `List<int>` receivers printing `Substring, Add, Remove, Insert,
+PadLeft` — plain and generic-receiver calls interleaving in source order; `nlc check --json`
+**byte-identical on ALL 70 corpus targets** (ORACLE_DIFFS=0, STDERR=0, EXIT=0, **857 diagnostics**)
+plus the **169 ACCUMULATED fixtures at 465 diagnostics (DIFFS=0, EXIT_DIFFS=0)**; corpus IL **112 /
+112 comparable assemblies BYTE-IDENTICAL** over 122 builds per tree (PRODUCT_IL_DIFFS=0,
+SINGLE_IL_DIFFS=0, EXIT_DIFFS=0, ONLY_IN_BASE/WORK=0, NORMALISER_FAILURES=0) — and the differential
+and the IL sweep were BOTH re-run after the one code change made late in the slice, which is what
+proves that change behaviour-preserving. **ONE ANALYZER FINDING IN THE NEW `.nl` WAS CAUGHT BY THE
+ORACLE'S OWN BootstrapServices ROW AND FIXED** — an NL202 where the C# assigned a `Type?` twice and
+stored it (C# narrows there, N# does not) — BootstrapServices back to **293**, the three touched
+files contributing ZERO. GATES: unit **3,192 / 3,192** (zero drift); contracts **1,997 → 2,006
+(+9)**; audit **18 / 18** after a one-row in-place repin that keeps the manifest at **391 lines**;
+`dev.sh --since` full-suite fail-safe (known `DaemonCommandTests` load flake on a hot machine, **31 /
+31 COOL**); and the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in
+1,880s ON THE FIRST RUN** in a fresh isolated copy (130 `✓`, zero `✗`, VS Code integration **36
+passing in 41s**, all 67 assemblies IL-verified); VSIX rebuilt + reinstalled. Three previously
+recorded .nl gotchas re-confirmed the hard way: **`type` is RESERVED as a parameter name**; **a
+chained call on a CALL RESULT declines**; and **a free function's name must be unique ASSEMBLY-WIDE**
+— a `.tests.nl` helper called `One` made an UNRELATED production file decline. NEXT: **SLICE 21 — THE
+FINALISING WALK**, and it is a wall of a different kind: `FinalizeBoundReflectionCall` (141) and
+`ValidateFinalReflectionSuppliedArgument` (62) re-measured at this tree and they **DO NOT CLOSE** —
+each re-enters `AnalyzeLambda` per lambda argument against a signature the loop is still
+accumulating, so there is no count-exact hoist and finding one is its own measurement)
+
+Last updated (prior): 2026-08-01 (**TASK 017 SLICE 20 PHASE A LANDED (committed at `c430a30d9` +
+`7665e48e2`) — THE CATALOG
 ROWS THAT UNBLOCK THE REFLECTION PRE-BINDER, AND THE UNBLOCK IS TWO ROWS, NOT ONE.** Slice 19 named
 one row — `System.Type.GetMethods` at `count == 1` with a `System.Reflection.BindingFlags` argument
 — and it is necessary but NOT sufficient. **A CONTROL, NOT A HYPOTHESIS, FOUND THE REST:** with that
@@ -751,7 +805,196 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 20 PHASE A — THE ONE CATALOG ROW.** Target
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 20 PHASE B — THE REFLECTION PRE-BINDER.**
+  Target recorded BEFORE any production edit, at `7665e48e2` (`Analyzer.cs` 16,885 lines, non-blank
+  14,888; contracts 1,997).
+
+  **THE CLOSURE, RE-VERIFIED AT THIS TREE.** Every field reference and every bare call inside every
+  candidate body was re-extracted at `7665e48e2`. `PreBindReflectionMethod` (:9845, **86**, 2 refs)
+  → `AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver`/`TryMatchReflectionParameter`/
+  `GetReflectionMatchScore`/`HasCompatibleReflectionArity`, `AnalyzerReflectionTypeConversion.
+  ApplyReflectionBindings`, `_reflectionArgumentBinder.PopulateTypeInfoBindingsFromType`/
+  `TryPopulateReceiverGenericTypeBindings`/`TryBindReflectionArguments`, `_typeResolver.ResolveType`,
+  `_clrTypeConversion.TryConvertTypeInfoToClrType`/`TryConvertTypeInfoToClrTypeForBinding`
+  (**every one N#** — checked class by class: none of the seven collaborator types has a C#
+  declaration anywhere) + `GetOpenReflectionSignatureMethod` (:9932, **13**, 1 ref, `private static`
+  and pure over `MethodInfo`/`Type`). `ConvertReflectionSuppliedArgumentType` (:10152, **16**,
+  1 ref) → `AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument`,
+  `AnalyzerReflectionTypeConversion.ConvertBoundType`/`ConvertBoundParameter` (**all N#**, and it
+  reads NO instance state, so it is static in its new home).
+  `IsExpressionTreeLambdaTarget(TypeInfo?)` (:12082, **12**) → `_declarationContext.
+  ResolveDeclaredAlias`, `_clrTypeConversion.TryConvertTypeInfoToClrType` (**both N#**) + its own
+  `Type` overload (:12095, **2**) → `AnalyzerFunctionTypeFactory.TryGetExpressionTreeDelegateType`
+  (**N#**). **129 body lines across 5 members**, every one `private` with **ZERO references outside
+  `Analyzer.cs`** across `src/`, `tests/` and `editors/` — measured name by name; the single outside
+  hit is a COMMENT in the contracts phase A activated — so no C# assertion migrates.
+
+  **THE OWNER, AND ONE LIFETIME DECISION THAT CHANGES A SIGNATURE.**
+  `AnalyzerReflectionArgumentBinder` gains `PreBindReflectionMethod`, `GetOpenReflectionSignatureMethod`
+  and a `ReflectionPreBoundCandidate` model in place of the 9-field C# value tuple, plus
+  `AnalyzerTypeResolver` as a fifth constructor argument (`_typeResolver` is constructed BEFORE the
+  binder at both construction sites and is MUTATED in place rather than replaced, so its identity
+  survives every rebuild). `AnalyzerReflectionTypeConversion` gains
+  `ConvertSuppliedArgumentType`. **THE ONE NON-MECHANICAL CHOICE IS WHERE THE EXPRESSION-TREE
+  PREDICATE LIVES, AND IT IS A STALENESS QUESTION.** Its natural home is
+  `AnalyzerFunctionTypeFactory`, which already owns `TryGetExpressionTreeDelegateType` — but the
+  factory is built ONCE (`_declarationContext` + `_typeSubstitution`, neither rebuilt) while
+  `_clrTypeConversion` IS replaced on every toolset rebuild and on `Dispose`. Giving the factory a
+  conversion FIELD would hand it a stale one the moment the SCC is rebuilt. So both overloads land
+  on the factory as STATICS and the `TypeInfo?` arm takes the context and the conversion as
+  PARAMETERS: the single call site reads the analyzer's live fields at the call, and staleness
+  becomes impossible by construction rather than managed by a rebuild list.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHICH REFLECTED OVERLOAD A CALL SELECTS, END TO
+  END.** With the argument walk already N# (slice 14) and the reporters already N# (slice 19), the
+  candidate GATE is now N# too: `Analyzer.cs` keeps no part of the question "does this reflected
+  method accept this call, and how well?" — not the receiver's contribution to inference, not the
+  written type arguments, not the arity band, not the extension penalty, not the score, not the two
+  tie-breaks, and not the open signature the whole thing is read from. No callback, no fallback, no
+  shadow path.
+
+  **THE CUT — 5 WHOLE C# MEMBERS DELETED, 129 BODY LINES (153 removed lines with their separators
+  and the rewritten references).** `PreBindReflectionMethod` 86, `ConvertReflectionSuppliedArgumentType`
+  16, `GetOpenReflectionSignatureMethod` 13, `IsExpressionTreeLambdaTarget(TypeInfo?)` 12,
+  `IsExpressionTreeLambdaTarget(Type)` 2. `Analyzer.cs` **16,885 → 16,754** (non-blank
+  14,888 → **14,777**); `git diff` **+22 / −153 = net −131**, and **every one of the 22 added lines is
+  a construction argument or a rewritten reference** — one `_typeResolver` constructor argument, the
+  candidate list and its loop, the `preBound.X` reads, and the five routed predicate sites. **NO new
+  C# method, bridge, callback, shell or state — not one.**
+
+  **N# ADDED:** `ReflectionPreBoundCandidate` + `PreBindReflectionMethod` +
+  `GetOpenReflectionSignatureMethod` + `TryConvertWrittenTypeArgument` on
+  `AnalyzerReflectionArgumentBinder` (**258 lines**), `ConvertSuppliedArgumentType` on
+  `AnalyzerReflectionTypeConversion` (**27**), and both expression-tree overloads on
+  `AnalyzerFunctionTypeFactory` (**43**).
+
+  **THE ONE EXTRA N# MEMBER IS A NARROWING FACT, NOT A DESIGN CHOICE.**
+  `TryConvertWrittenTypeArgument` exists because the C# body assigned a `Type?` twice and then
+  stored it, which C#'s flow analysis narrows and N#'s does not — the oracle's own BootstrapServices
+  row caught it as **one new NL202**, and the fix is the arc's recorded shape: answer a NON-NULL
+  value or `false`, and let the positive null check inside do the narrowing.
+
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `7665e48e2` in a throwaway `/private/tmp/nsharp017s20b` worktree, and the
+  working tree): **2,895 CELLS across five grids, 0 MISMATCHES, transcripts BYTE-IDENTICAL — md5
+  `67d809ac1af5d634c1727fe2fa15d8ef` in both**, and re-run BYTE-IDENTICAL AGAIN after the NL202
+  restructure, which is what proves that fix behaviour-preserving rather than merely plausible. Five
+  `HOST` rows kept OUT of the comparison prove the wiring (baseline `Analyzer` ×5; working
+  `AnalyzerReflectionArgumentBinder` ×2, `AnalyzerFunctionTypeFactory` ×2,
+  `AnalyzerReflectionTypeConversion` ×1). THE GRIDS: **254 open-signature cells** over 20 owner types
+  (non-generic, generic DEFINITIONS, CONSTRUCTED generics, closed generic METHODS, interfaces,
+  value types) recording the answer's declaring type, metadata token, generic-definition flags, full
+  parameter list and return type — **117 answers are a genuine metadata-token RE-FIND** and 137 are
+  the method unchanged, so the arm the catalog rows unblocked is exercised 117 times; **24 + 37
+  expression-tree cells** over CLR types and `TypeInfo`s (trees, trees over non-delegates, bare
+  delegates, `Delegate`/`MulticastDelegate` roots, by-ref and array shells, the OPEN definition, and
+  six `TypeInfo` shapes) — 7 true on each overload; **96 supplied-conversion cells** over 10 methods ×
+  every parameter × 3 recorded-type spellings × override on/off — 13 distinct answers; and **2,484
+  pre-bind cells** over 15 method groups × 9 call shapes × 6 receiver shapes — **128 successful
+  binds, 2,357 non-bindings, 26 distinct answers, 24 params-expanded and 18 defaults-filled**, the
+  last two only after the grid was widened on purpose, because the first pass left the
+  defaults-fill phase and the `DefaultsUsed` tie-break unexercised. Deleted from both trees.
+
+  **PROOF — DIAGNOSTIC ORDER AND MULTIPLICITY, UNSORTED AND UNDEDUPLICATED (the slice-17/18/19
+  method).** `nlc build` renders `_errors` in LIST order with NO dedup and NO sort. **17 targets,
+  651 lines, FULLBUILD_IDENTICAL = 17, FULLBUILD_DIFFS = 0, FULLBUILD_EXIT_DIFFS = 0** after
+  normalising only the two elapsed-time spellings. **36 NL402 across 12 failing fixtures**, and the
+  order/multiplicity ones are the point: five different bad reflected calls print **5 rich blocks in
+  SOURCE order** (`Substring, Substring, IndexOf, Substring, Remove`); twelve identical calls print
+  **12 full blocks**, undeduplicated; and a body that ALTERNATES a `string` receiver with a
+  `List<int>` receiver prints **`Substring, Add, Remove, Insert, PadLeft`** — the plain reflected
+  calls and the GENERIC-RECEIVER calls (the re-find path) interleaving in source order, which is
+  direct evidence they reach the same list in the same positions. (An early revision proved the
+  HARNESS rather than the code: `nlc build` fails at the FIRST diagnostic pass, so the NL010
+  unused-import lint hid the analyzer's verdict on 8 of 17 fixtures — a swallowing harness would
+  have reported "identical" on files that never ran this code. Every import is now anchored by a
+  line that consumes it, and the fixtures went from 12 diagnostics to 36.)
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `7665e48e2` and at the working tree, **both run over the SAME (working-tree) sources**, across
+  **ALL 70 `project.yml` corpus targets with no exclusion** — including the ROOT target, which is the
+  whole compiler: **ORACLE_DIFFS = 0, ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0**, **859
+  diagnostics**. Plus the **169 ACCUMULATED fixtures** recovered from every prior slice's scratchpad
+  (112 from slice 18's accumulated set + slice 18's 41 validator + slice 19's 16 reporter fixtures) at
+  **465 diagnostics, ACC_FIXTURE_DIFFS = 0 and ACC_FIXTURE_EXIT_DIFFS = 0**. The accumulated set for
+  slice 21 is therefore **186 fixtures**.
+
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP** (the slice-16 PE/CLI normaliser byte-identical to slice 16's,
+  and the slice-17 sweep script UNCHANGED but for the two paths — both diffed to prove it): **68
+  project targets + 54 single-file examples = 122 builds per tree. 112 COMPARABLE ASSEMBLIES
+  BYTE-IDENTICAL — PRODUCT_IL_DIFFS = 0 (74) and SINGLE_IL_DIFFS = 0 (38)**, **EXIT_DIFFS = 0 across
+  all 122**, **ONLY_IN_BASE = 0 and ONLY_IN_WORK = 0**, **SKIPPED_TARGET_DIFFS = 0**,
+  **NORMALISER_FAILURES = 0** — re-run in full against the FINAL tree after the NL202 restructure.
+
+  **ASSERTION MIGRATION.** All 5 members were `private` and none is named anywhere in `src/`,
+  `tests/` or `editors/` — measured name by name; the single outside hit is a COMMENT in the
+  contracts phase A activated. No C# test moved. The DIRECT pinning is new and native: **9
+  contracts**, pinning the generic-method reduction, the metadata-token re-find (and that the TOKEN
+  is what identifies it — `Add` and `Insert` on the same definition must not be confused), the
+  already-open and non-generic passthroughs, the candidate's score and both tie-breaks, arity
+  exactness in both directions, written type arguments as an absolute gate, the expanded-versus-
+  declared params spelling, and both expression-tree overloads including the null-expected-type
+  guard the one call site depends on.
+
+  **THREE `.nl` GOTCHAS RE-CONFIRMED THE HARD WAY, ALL PREVIOUSLY RECORDED.** `type` is RESERVED and
+  cannot be a parameter name (the whole class declined at `parse.struct`); a chained call on a CALL
+  RESULT declines (bind the receiver first); and — the one worth re-reading — **a free function's
+  name must be unique ASSEMBLY-WIDE**: a helper named `One` in a `.tests.nl` made an UNRELATED
+  production file, `ColumnarExternalBindingPlans.nl`, decline at `emit.call.static-argument`,
+  because it collided with that class's own static helper. Slice 16 recorded this for TYPE names; it
+  applies to free functions too.
+
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** — exactly the `7665e48e2` baseline COUNT, ZERO
+  drift; BootstrapServices contracts **1,997 → 2,006 (+9)**, **2,006 / 2,006 PASS**; ownership audit
+  **18 / 18**; BootstrapServices analyzer findings back to **293**, the exact baseline, with the three
+  touched files contributing **ZERO**. `dev.sh --since` selected the FULL suite and said why
+  (`Analyzer.cs` is central) — it tripped the known `DaemonCommandTests` load flake on a hot machine
+  and the COOL re-run is **31 / 31**, which is the recorded rule, and the gate's own first-run
+  3,192 / 3,192 is the independent confirmation. **RATCHET REPIN** via `scratchpad/s20b/repin.py`
+  (the slice-19 script, diffed to prove it unchanged but for its docstring) — `current*` +
+  fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs` currentLines
+  16,885 → **16,754**, currentNonBlankLines 14,888 → **14,777**, fingerprint
+  `text-v1:4454a37df5577069` → `text-v1:8f0999d02d567703` (epoch ceilings 23,451 / 20,537 PRESERVED
+  and now clear by **6,697 / 5,760**); `reviewedHeadFingerprint head-v1:26919e7e0a6a87e9` →
+  **`head-v1:afc1de96b91f82b1`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED
+  by recomputation both before and after the write. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest
+  is 391 before AND after, and the manifest `git diff` is exactly 2 changed lines.** (The audit
+  EARNED its keep this slice: it failed 17 / 18 while the throwaway differential probe was still on
+  disk as a new `.cs` file, and passed the moment it was deleted.)
+
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 1,880s (31m20s) ON THE FIRST RUN** in a fresh isolated copy (the log opens with
+  `Fresh isolated test run required: pre-commit verification` and closes with
+  `Stored validated isolated test cache result: c91184be4788be03 (1880s)`, so it is neither a cached
+  whole-gate nor a cached per-step verdict). **ZERO `✗`, 130 `✓ PASSED`.** Every step green: clean,
+  compiler build, the format contract gate, unit tests (**3,192 / 3,192**), the native `.tests.nl`
+  estate including BootstrapServices' **2,006** and `tests/native/ownership-audit` — the ratchet
+  re-validated INSIDE the gate against the freshly written manifest — **VS Code integration tests
+  (36 passing in 41s)**, SDK pack + install, template pack/install/creation, the template-generated
+  project, all example projects, all single-file examples, `nlc check` over the examples, and the
+  ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new errors vs baseline**.
+  `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt (289 files, 3.98 MB)
+  and reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE
+  computer-use verification was NOT attempted, per the coordinator's standing instruction. This slice
+  adds no LSP/IDE behaviour of its own; the IDE-facing surface it OWNS is which .NET overload the
+  editor thinks a call resolves to — the type shown on hover, the members offered after it, and
+  whether NL402 squiggles — and that is pinned at 2,895 differential grid points, 857 byte-identical
+  corpus diagnostics across all 70 targets, 465 accumulated-fixture diagnostics, 651 byte-identical
+  unsorted build-transcript lines, 112 byte-identical assemblies, and the gate's own VS Code run.
+
+  **THE NEXT SLICE IS 21 — THE FINALISING WALK, AND IT IS THE ARC'S REMAINING WALL OF A DIFFERENT
+  KIND.** With the pre-binder owned, the only reflection members left in `Analyzer.cs` are
+  `FinalizeBoundReflectionCall` (:9846, **141**) and `ValidateFinalReflectionSuppliedArgument`
+  (**62**), and both were re-measured at this tree: they **DO NOT CLOSE**. Each re-enters
+  `AnalyzeLambda` / `AnalyzeExpressionWithExpectedType` once per lambda argument, against an expected
+  signature the loop computes from bindings it is still accumulating, so there is no count-exact
+  pre-analysis of the slice-17 shape — the analysed node is chosen INSIDE the loop. Finding a hoist
+  (or proving none exists and inverting the loop so N# drives and C# supplies one analysis per
+  callback-free step) is its own measurement, and it is the honest next question rather than a
+  mechanical next cut.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `c430a30d9` + `7665e48e2`): **017 SLICE 20 PHASE A — THE ONE CATALOG ROW.** Target
   recorded BEFORE any production edit, at `e01a772ef` (`Analyzer.cs` 16,885 lines, non-blank 14,888;
   `ColumnarExternalBindingPlans.nl` 1,574 lines, its contracts 1,191).
 

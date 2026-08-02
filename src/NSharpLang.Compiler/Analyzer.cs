@@ -345,7 +345,8 @@ public class Analyzer : IDisposable
             _clrTypeConversion,
             _assignability,
             _assignabilityFacts,
-            _overloadScoring);
+            _overloadScoring,
+            _typeResolver);
 
     private AnalyzerAssignability CreateAssignability()
         => new(
@@ -9766,17 +9767,16 @@ public class Analyzer : IDisposable
             analyzedNonLambdaArguments[i] = AnalyzeExpressionAllowingUnboundCallableReference(call.Arguments[i].Value);
         }
 
-        var candidates = new List<(MethodInfo RuntimeMethod, MethodInfo SignatureMethod, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
-            Dictionary<int, FunctionTypeInfo> MethodGroupArguments, List<ReflectionBoundArgument> BoundArguments,
-            int Score, bool UsesParams, int DefaultsUsed)>();
+        var candidates = new List<ReflectionPreBoundCandidate>();
 
         foreach (var method in methodGroup.Methods)
         {
-            var candidate = PreBindReflectionMethod(method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);
+            var candidate = _reflectionArgumentBinder.PreBindReflectionMethod(
+                method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);
             if (candidate == null)
                 continue;
 
-            candidates.Add(candidate.Value);
+            candidates.Add(candidate);
         }
 
         if (candidates.Count == 0)
@@ -9828,119 +9828,19 @@ public class Analyzer : IDisposable
             analyzedNonLambdaArguments[i] = AnalyzeExpressionAllowingUnboundCallableReference(call.Arguments[i].Value);
         }
 
-        var preBound = PreBindReflectionMethod(method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);
+        var preBound = _reflectionArgumentBinder.PreBindReflectionMethod(
+            method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);
         if (preBound == null)
             return null;
 
         return FinalizeBoundReflectionCall(
-            preBound.Value.RuntimeMethod,
-            preBound.Value.SignatureMethod,
+            preBound.RuntimeMethod,
+            preBound.SignatureMethod,
             call,
-            preBound.Value.Bindings,
-            preBound.Value.TypeInfoBindings,
-            preBound.Value.MethodGroupArguments,
-            preBound.Value.BoundArguments);
-    }
-
-    private (MethodInfo RuntimeMethod, MethodInfo SignatureMethod, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
-        Dictionary<int, FunctionTypeInfo> MethodGroupArguments, List<ReflectionBoundArgument> BoundArguments,
-        int Score, bool UsesParams, int DefaultsUsed)? PreBindReflectionMethod(
-        MethodInfo method,
-        CallExpression call,
-        Type? receiverClrType,
-        TypeInfo? receiverTypeInfo,
-        TypeInfo?[] analyzedNonLambdaArguments)
-    {
-        var bindings = new Dictionary<Type, Type>();
-        var typeInfoBindings = new Dictionary<Type, TypeInfo>();
-        var methodGroupArguments = new Dictionary<int, FunctionTypeInfo>();
-        var openMethod = GetOpenReflectionSignatureMethod(method);
-        var parameterOffset = AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(openMethod, call, receiverClrType) ? 1 : 0;
-        var parameters = openMethod.GetParameters();
-        var receiverScore = 0;
-
-        if (parameterOffset == 1)
-        {
-            if (receiverClrType == null || !AnalyzerOverloadFacts.TryMatchReflectionParameter(parameters[0].ParameterType, receiverClrType, bindings))
-                return null;
-
-            // Track N# TypeInfo bindings from the receiver type
-            if (receiverTypeInfo != null)
-                _reflectionArgumentBinder.PopulateTypeInfoBindingsFromType(parameters[0].ParameterType, receiverTypeInfo, typeInfoBindings);
-
-            receiverScore = AnalyzerOverloadFacts.GetReflectionMatchScore(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(parameters[0].ParameterType, bindings), receiverClrType);
-        }
-        else if (receiverClrType != null
-                 && receiverTypeInfo != null
-                 && !_reflectionArgumentBinder.TryPopulateReceiverGenericTypeBindings(openMethod.DeclaringType, receiverClrType, receiverTypeInfo, bindings, typeInfoBindings))
-        {
-            return null;
-        }
-
-        if (call.TypeArguments != null && call.TypeArguments.Count > 0)
-        {
-            if (!openMethod.IsGenericMethodDefinition)
-                return null;
-
-            var genericParameters = openMethod.GetGenericArguments();
-            if (genericParameters.Length != call.TypeArguments.Count)
-                return null;
-
-            for (int i = 0; i < genericParameters.Length; i++)
-            {
-                var resolvedTypeInfo = _typeResolver.ResolveType(call.TypeArguments[i]);
-                var typeArgument = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTypeInfo);
-                if (typeArgument == null)
-                {
-                    // N# type - use object as CLR surrogate for binding
-                    typeArgument = _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(resolvedTypeInfo);
-                    if (typeArgument == null)
-                        return null;
-                }
-
-                bindings[genericParameters[i]] = typeArgument;
-                typeInfoBindings[genericParameters[i]] = resolvedTypeInfo;
-            }
-        }
-
-        if (!AnalyzerOverloadFacts.HasCompatibleReflectionArity(parameters, parameterOffset, call.Arguments.Count))
-            return null;
-
-        // Extension methods get a small penalty so instance methods are preferred (matches production semantics)
-        var score = (parameterOffset == 1 ? -1 : 0) + receiverScore;
-
-        if (!_reflectionArgumentBinder.TryBindReflectionArguments(
-                parameters,
-                parameterOffset,
-                call,
-                bindings,
-                typeInfoBindings,
-                methodGroupArguments,
-                analyzedNonLambdaArguments,
-                out var boundArguments,
-                out var argumentScore,
-                out var usesParams,
-                out var defaultsUsed))
-        {
-            return null;
-        }
-
-        score += argumentScore;
-        return (method, openMethod, bindings, typeInfoBindings, methodGroupArguments, boundArguments, score, usesParams, defaultsUsed);
-    }
-
-    private static MethodInfo GetOpenReflectionSignatureMethod(MethodInfo method)
-    {
-        var signatureMethod = method.IsGenericMethod ? method.GetGenericMethodDefinition() : method;
-        var declaringType = signatureMethod.DeclaringType;
-        if (declaringType is not { IsGenericType: true } || declaringType.IsGenericTypeDefinition)
-            return signatureMethod;
-
-            var genericDefinition = declaringType.GetGenericTypeDefinition();
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
-            return genericDefinition.GetMethods(flags)
-                .FirstOrDefault(candidate => candidate.MetadataToken == signatureMethod.MetadataToken)
-                ?? signatureMethod;
+            preBound.Bindings,
+            preBound.TypeInfoBindings,
+            preBound.MethodGroupArguments,
+            preBound.BoundArguments);
     }
 
     private FunctionTypeInfo? FinalizeBoundReflectionCall(
@@ -9977,7 +9877,7 @@ public class Analyzer : IDisposable
             var lambdaType = AnalyzeLambda(
                 lambda,
                 expectedSignature,
-                isExpressionTreeTarget: IsExpressionTreeLambdaTarget(boundArgument.OpenParameterType));
+                isExpressionTreeTarget: AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(boundArgument.OpenParameterType));
             var lambdaDelegateType = _clrTypeConversion.TryConstructDelegateType(lambdaType);
             if (lambdaDelegateType != null)
             {
@@ -10113,12 +10013,12 @@ public class Analyzer : IDisposable
             var lambdaArgumentType = AnalyzeLambda(
                 lambda,
                 expectedSignature,
-                isExpressionTreeTarget: IsExpressionTreeLambdaTarget(supplied.OpenParameterType));
+                isExpressionTreeTarget: AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType));
             validatedArgumentTypes.Add(lambdaArgumentType);
             return true;
         }
 
-        var expectedType = ConvertReflectionSuppliedArgumentType(
+        var expectedType = AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
             supplied,
             parameter,
             workingBindings,
@@ -10147,23 +10047,6 @@ public class Analyzer : IDisposable
         validatedArgumentTypes.Add(argumentType);
 
         return _overloadScoring.IsAssignableReflectionArgument(expectedType, argumentType);
-    }
-
-    private TypeInfo ConvertReflectionSuppliedArgumentType(
-        SuppliedReflectionBoundArgument supplied,
-        ParameterInfo parameter,
-        Dictionary<Type, Type> workingBindings,
-        Dictionary<Type, TypeInfo> workingTypeInfoBindings,
-        bool hasTypeInfoOverrides)
-    {
-        if (AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(supplied, parameter))
-        {
-            return AnalyzerReflectionTypeConversion.ConvertBoundType(
-                supplied.OpenParameterType, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides);
-        }
-
-        return AnalyzerReflectionTypeConversion.ConvertBoundParameter(
-            parameter, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides);
     }
 
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
@@ -11958,7 +11841,9 @@ public class Analyzer : IDisposable
         bool isExpressionTreeTarget = false)
     {
         var expectedSignature = GetFunctionSignature(expectedType);
-        var targetsExpressionTree = isExpressionTreeTarget || IsExpressionTreeLambdaTarget(expectedType);
+        var targetsExpressionTree = isExpressionTreeTarget
+            || AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
+                expectedType, _declarationContext, _clrTypeConversion);
         PushScope(new Scope(ScopeKind.Function), lambda.Line, lambda.Column);
         var parameterTypes = new List<TypeInfo>();
         var reportedParameterInferenceFailure = false;
@@ -12078,22 +11963,6 @@ public class Analyzer : IDisposable
             ReturnType = returnType
         };
     }
-
-    private bool IsExpressionTreeLambdaTarget(TypeInfo? expectedType)
-    {
-        if (expectedType == null)
-            return false;
-
-        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
-        if (resolvedExpectedType is ReflectionTypeInfo reflectionType)
-            return IsExpressionTreeLambdaTarget(reflectionType.Type);
-
-        var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedExpectedType);
-        return clrType != null && IsExpressionTreeLambdaTarget(clrType);
-    }
-
-    private static bool IsExpressionTreeLambdaTarget(Type type)
-        => AnalyzerFunctionTypeFactory.TryGetExpressionTreeDelegateType(type, out _);
 
     private void ReportExpressionTreeBlockLambdaIfNeeded(LambdaExpression lambda)
     {
@@ -12371,7 +12240,7 @@ public class Analyzer : IDisposable
             return functionType;
 
         if (resolvedExpectedType is ReflectionTypeInfo reflectionType
-            && (_assignabilityFacts.IsDelegateType(reflectionType.Type) || IsExpressionTreeLambdaTarget(reflectionType.Type)))
+            && (_assignabilityFacts.IsDelegateType(reflectionType.Type) || AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(reflectionType.Type)))
         {
             return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(reflectionType.Type);
         }
@@ -12380,7 +12249,7 @@ public class Analyzer : IDisposable
         if (resolvedExpectedType is GenericTypeInfo)
         {
             var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedExpectedType);
-            if (clrType != null && (_assignabilityFacts.IsDelegateType(clrType) || IsExpressionTreeLambdaTarget(clrType)))
+            if (clrType != null && (_assignabilityFacts.IsDelegateType(clrType) || AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(clrType)))
                 return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(clrType);
         }
 

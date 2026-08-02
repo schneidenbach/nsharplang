@@ -317,6 +317,33 @@ public class AnalyzerReflectionTypeConversion {
         return substitution.Answer(clrType)
     }
 
+    // The type a written argument is EXPECTED to have, once the candidate's inference is known.
+    //
+    // THE ONE DECISION IS WHICH SPELLING OF THE PARAMETER TO ASK ABOUT. An EXPANDED params tail
+    // records the ELEMENT type as its open parameter type while the `ParameterInfo` still declares
+    // the ARRAY, so the tail must be converted from the recorded type; every other position reads
+    // the parameter itself, which is what carries the declaration's nullability metadata.
+    public static func ConvertSuppliedArgumentType(
+        supplied: SuppliedReflectionBoundArgument,
+        parameter: ParameterInfo,
+        workingBindings: Dictionary<Type, Type>,
+        workingTypeInfoBindings: Dictionary<Type, TypeInfo>,
+        hasTypeInfoOverrides: bool): TypeInfo {
+        if AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(supplied, parameter) {
+            return ConvertBoundType(
+                supplied.OpenParameterType,
+                workingTypeInfoBindings,
+                workingBindings,
+                hasTypeInfoOverrides)
+        }
+
+        return ConvertBoundParameter(
+            parameter,
+            workingTypeInfoBindings,
+            workingBindings,
+            hasTypeInfoOverrides)
+    }
+
     // The generic head's name without its arity suffix. The two conversions differ here on purpose:
     // the plain one indexes the backtick UNGUARDED (a generic type without one is a nested type whose
     // own name carries no arity, and the C# this replaces threw there), while the substituting one

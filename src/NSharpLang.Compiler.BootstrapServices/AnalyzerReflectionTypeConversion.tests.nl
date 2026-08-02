@@ -276,3 +276,92 @@ test "the BOUND override rule differs from the direct one exactly where it shoul
     assert forcedGeneric != null
     assert forcedGeneric.Name == "List"
 }
+
+// THE SUPPLIED ARGUMENT'S EXPECTED TYPE (task 017 slice 20 phase B). One decision: which spelling of
+// the parameter to convert. An EXPANDED params tail records the ELEMENT type while the declaration
+// still says ARRAY, so reading the parameter there would expect the array and reject every element.
+test "an expanded params element is converted from its recorded element type" {
+    format := ConversionFormatMethod()
+    parameters := format.GetParameters()
+    tail := parameters[1]
+    assert tail.get_ParameterType() == typeof(object[])
+
+    elementType := tail.get_ParameterType().GetElementType()
+    assert elementType != null
+
+    // The EXPANDED spelling: the bound argument carries the ELEMENT type.
+    expanded := new SuppliedReflectionBoundArgument(
+        1, elementType, ConversionArgument(), 1)
+    expandedType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
+        expanded,
+        tail,
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        false)
+    assert !(expandedType is ArrayTypeInfo)
+
+    // The DIRECT spelling: the bound argument carries the declared ARRAY, so the parameter is read
+    // and the expected type is the array itself.
+    direct := new SuppliedReflectionBoundArgument(
+        1, tail.get_ParameterType(), ConversionArgument(), 1)
+    directType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
+        direct,
+        tail,
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        false)
+    assert directType is ArrayTypeInfo
+}
+
+test "an ordinary position is converted from the parameter, not the recorded type" {
+    format := ConversionFormatMethod()
+    parameters := format.GetParameters()
+    head := parameters[0]
+    assert head.get_ParameterType() == typeof(string)
+
+    // The recorded open type is deliberately WRONG here; a non-params position must still read the
+    // PARAMETER, because that is what carries the declaration's nullability metadata.
+    supplied := new SuppliedReflectionBoundArgument(
+        0, typeof(int), ConversionArgument(), 0)
+    answered := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
+        supplied,
+        head,
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        false)
+    assert ConversionTypeName(answered) == "string"
+}
+
+func ConversionFormatMethod(): MethodInfo {
+    stringType := typeof(string)
+    methods := stringType.GetMethods()
+    index := 0
+    while index < methods.Length {
+        candidate := methods[index]
+        if candidate.get_Name() == "Format" {
+            parameters := candidate.GetParameters()
+            if parameters.Length == 2 {
+                first := parameters[0].get_ParameterType()
+                second := parameters[1].get_ParameterType()
+                if first == typeof(string) && second == typeof(object[]) {
+                    return candidate
+                }
+            }
+        }
+
+        index = index + 1
+    }
+
+    throw new InvalidOperationException("string.Format(string, object[]) was not found.")
+}
+
+func ConversionArgument(): Argument {
+    value: Expression = new IdentifierExpression("x", 1, 1)
+    return new Argument(null, value, ArgumentModifier.None)
+}
+
+func ConversionTypeName(typeInfo: TypeInfo): string {
+    asObject := typeInfo as object
+    rendered := asObject.ToString()
+    return rendered ?? "unknown"
+}

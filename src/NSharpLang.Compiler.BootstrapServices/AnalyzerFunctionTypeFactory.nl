@@ -442,6 +442,49 @@ public class AnalyzerFunctionTypeFactory {
         return baseType.get_FullName() == "System.MulticastDelegate"
     }
 
+    // Does a lambda written against this expected type compile to an expression TREE rather than to
+    // a delegate? The question is asked in two spellings and both are answered here.
+    //
+    // THE CLR SPELLING is the whole predicate: an expression-tree target is exactly an
+    // `Expression<TDelegate>` whose argument is a delegate, which the unwrapper above already
+    // decides.
+    public static func IsExpressionTreeLambdaTarget(clrType: Type): bool {
+        delegateType := typeof(object)
+        return TryGetExpressionTreeDelegateType(clrType, out delegateType)
+    }
+
+    // THE N# SPELLING resolves the declared alias, then asks the CLR question of whatever the
+    // expected type really is — directly when it is already a reflected type, and through a
+    // conversion otherwise.
+    //
+    // THE CONTEXT AND THE CONVERSION ARE PARAMETERS, NOT FIELDS, AND THAT IS DELIBERATE. This
+    // factory is constructed ONCE, but `AnalyzerClrTypeConversion` is REPLACED on every toolset
+    // rebuild and again on `Dispose`. A conversion held as a field here would go stale the moment
+    // the SCC is rebuilt and would answer from a disposed MetadataLoadContext; taken as a
+    // parameter, the caller necessarily passes the live one, so staleness is impossible rather
+    // than merely managed.
+    public static func IsExpressionTreeLambdaTargetTypeInfo(
+        expectedType: TypeInfo?,
+        declaration: AnalyzerDeclarationContext,
+        conversion: AnalyzerClrTypeConversion): bool {
+        if expectedType == null {
+            return false
+        }
+
+        resolvedExpectedType := declaration.ResolveDeclaredAlias(expectedType)
+        reflectionType := resolvedExpectedType as ReflectionTypeInfo
+        if reflectionType != null {
+            return IsExpressionTreeLambdaTarget(reflectionType.Type)
+        }
+
+        clrType := conversion.TryConvertTypeInfoToClrType(resolvedExpectedType)
+        if clrType == null {
+            return false
+        }
+
+        return IsExpressionTreeLambdaTarget(clrType)
+    }
+
     func ResolveDeclarationReference(
         typeReference: TypeReference,
         methodSubstitution: Dictionary<string, TypeInfo>,

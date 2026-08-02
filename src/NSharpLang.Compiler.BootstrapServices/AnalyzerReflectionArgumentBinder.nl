@@ -89,6 +89,61 @@ public class ParamsReflectionBoundArgument: ReflectionBoundArgument {
     }
 }
 
+// A candidate that ACCEPTED the call, with everything the finalising walk needs to convert,
+// validate and report it. This is the first pass's whole answer.
+//
+// THE TWO METHODS ARE DIFFERENT ON PURPOSE. `RuntimeMethod` is the one that will be CALLED;
+// `SignatureMethod` is the open form its parameter and return types are read from, which for a
+// method on a constructed generic type is re-found on the type DEFINITION. Collapsing them would
+// lose either the callee or the open signature that carries the type parameters.
+//
+// THE TIE-BREAK FIELDS ARE PART OF THE ANSWER, not bookkeeping: candidates are ordered by `Score`
+// descending, then by NOT using a params tail, then by using fewer defaults, so a candidate that
+// matches exactly beats one that matched by expanding or by defaulting.
+public class ReflectionPreBoundCandidate {
+
+    runtimeMethodValue: MethodInfo
+    signatureMethodValue: MethodInfo
+    bindingsValue: Dictionary<Type, Type>
+    typeInfoBindingsValue: Dictionary<Type, TypeInfo>
+    methodGroupArgumentsValue: Dictionary<int, FunctionTypeInfo>
+    boundArgumentsValue: List<ReflectionBoundArgument>
+    scoreValue: int
+    usesParamsValue: bool
+    defaultsUsedValue: int
+
+    RuntimeMethod: MethodInfo => runtimeMethodValue
+    SignatureMethod: MethodInfo => signatureMethodValue
+    Bindings: Dictionary<Type, Type> => bindingsValue
+    TypeInfoBindings: Dictionary<Type, TypeInfo> => typeInfoBindingsValue
+    MethodGroupArguments: Dictionary<int, FunctionTypeInfo> => methodGroupArgumentsValue
+    BoundArguments: List<ReflectionBoundArgument> => boundArgumentsValue
+    Score: int => scoreValue
+    UsesParams: bool => usesParamsValue
+    DefaultsUsed: int => defaultsUsedValue
+
+    constructor(
+        runtimeMethod: MethodInfo,
+        signatureMethod: MethodInfo,
+        bindings: Dictionary<Type, Type>,
+        typeInfoBindings: Dictionary<Type, TypeInfo>,
+        methodGroupArguments: Dictionary<int, FunctionTypeInfo>,
+        boundArguments: List<ReflectionBoundArgument>,
+        score: int,
+        usesParams: bool,
+        defaultsUsed: int) {
+        runtimeMethodValue = runtimeMethod
+        signatureMethodValue = signatureMethod
+        bindingsValue = bindings
+        typeInfoBindingsValue = typeInfoBindings
+        methodGroupArgumentsValue = methodGroupArguments
+        boundArgumentsValue = boundArguments
+        scoreValue = score
+        usesParamsValue = usesParams
+        defaultsUsedValue = defaultsUsed
+    }
+}
+
 // THE REFLECTION BINDER'S PURE INTERIOR.
 //
 // This owner answers the question "does this reflected candidate accept this call, and how well?"
@@ -127,16 +182,22 @@ public class AnalyzerReflectionArgumentBinder {
     assignability: AnalyzerAssignability
     assignabilityFacts: AnalyzerAssignabilityFacts
     overloadScoring: AnalyzerOverloadScoring
+    // Written type arguments are resolved through the analyzer's own resolver. It is MUTATED in
+    // place across a toolset rebuild (`SetWellKnownTypes`) rather than replaced, so unlike the
+    // conversion beside it, holding it as a field cannot go stale.
+    typeResolver: AnalyzerTypeResolver
 
     constructor(
         conversion: AnalyzerClrTypeConversion,
         assignabilityOwner: AnalyzerAssignability,
         facts: AnalyzerAssignabilityFacts,
-        scoring: AnalyzerOverloadScoring) {
+        scoring: AnalyzerOverloadScoring,
+        resolver: AnalyzerTypeResolver) {
         clrTypeConversion = conversion
         assignability = assignabilityOwner
         assignabilityFacts = facts
         overloadScoring = scoring
+        typeResolver = resolver
     }
 
     // Phase one and two: PLACE every written argument, then FILL the rest from defaults. Phase
@@ -742,6 +803,202 @@ public class AnalyzerReflectionArgumentBinder {
         signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(
             invokeMethod, typeInfoOverrides, clrBindings)
         return signature
+    }
+
+    // THE FIRST PASS OVER ONE CANDIDATE: does this reflected method accept this call at all, and
+    // how well? A null answer is a non-binding and says nothing — the reporting walk decides what
+    // to say when EVERY candidate answers null.
+    //
+    // THE ORDER OF THE FOUR GATES IS THE SEMANTICS. The receiver is settled first, because an
+    // extension call binds the receiver into the same inference the arguments will read. WRITTEN
+    // type arguments come next and are absolute: they fix the bindings before any argument can
+    // infer a different one, and a wrong count or a non-generic target is an outright non-binding.
+    // Arity is checked before any argument work, so a hopeless candidate costs nothing. Only then
+    // are the arguments placed, filled and scored.
+    //
+    // THE EXTENSION PENALTY IS NOT COSMETIC. A candidate reached as an extension scores one lower
+    // than the same match reached as an instance member, which is what makes a real instance method
+    // win against an extension of the same name and shape.
+    public func PreBindReflectionMethod(
+        method: MethodInfo,
+        call: CallExpression,
+        receiverClrType: Type?,
+        receiverTypeInfo: TypeInfo?,
+        analyzedNonLambdaArguments: TypeInfo?[]): ReflectionPreBoundCandidate? {
+        bindings := new Dictionary<Type, Type>()
+        typeInfoBindings := new Dictionary<Type, TypeInfo>()
+        methodGroupArguments := new Dictionary<int, FunctionTypeInfo>()
+        openMethod := GetOpenReflectionSignatureMethod(method)
+        parameterOffset := 0
+        if AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(openMethod, call, receiverClrType) {
+            parameterOffset = 1
+        }
+        parameters := openMethod.GetParameters()
+        receiverScore := 0
+
+        if parameterOffset == 1 {
+            if receiverClrType == null {
+                return null
+            }
+            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(
+                    parameters[0].get_ParameterType(), receiverClrType, bindings) {
+                return null
+            }
+
+            // Track N# TypeInfo bindings from the receiver type.
+            if receiverTypeInfo != null {
+                PopulateTypeInfoBindingsFromType(
+                    parameters[0].get_ParameterType(), receiverTypeInfo, typeInfoBindings)
+            }
+
+            receiverScore = AnalyzerOverloadFacts.GetReflectionMatchScore(
+                AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
+                    parameters[0].get_ParameterType(), bindings),
+                receiverClrType)
+        } else {
+            if receiverClrType != null && receiverTypeInfo != null {
+                if !TryPopulateReceiverGenericTypeBindings(
+                        openMethod.get_DeclaringType(),
+                        receiverClrType,
+                        receiverTypeInfo,
+                        bindings,
+                        typeInfoBindings) {
+                    return null
+                }
+            }
+        }
+
+        if call.TypeArguments != null && call.TypeArguments.Count > 0 {
+            if !openMethod.get_IsGenericMethodDefinition() {
+                return null
+            }
+
+            genericParameters := openMethod.GetGenericArguments()
+            if genericParameters.Length != call.TypeArguments.Count {
+                return null
+            }
+
+            i := 0
+            while i < genericParameters.Length {
+                resolvedTypeInfo := typeResolver.ResolveType(call.TypeArguments[i])
+                typeArgument := typeof(object)
+                if !TryConvertWrittenTypeArgument(resolvedTypeInfo, out typeArgument) {
+                    return null
+                }
+
+                bindings[genericParameters[i]] = typeArgument
+                typeInfoBindings[genericParameters[i]] = resolvedTypeInfo
+                i = i + 1
+            }
+        }
+
+        if !AnalyzerOverloadFacts.HasCompatibleReflectionArity(
+                parameters, parameterOffset, call.Arguments.Count) {
+            return null
+        }
+
+        // An extension gets a small penalty so instance methods are preferred.
+        score := receiverScore
+        if parameterOffset == 1 {
+            score = score - 1
+        }
+
+        boundArguments := new List<ReflectionBoundArgument>()
+        argumentScore := 0
+        usesParams := false
+        defaultsUsed := 0
+        if !TryBindReflectionArguments(
+                parameters,
+                parameterOffset,
+                call,
+                bindings,
+                typeInfoBindings,
+                methodGroupArguments,
+                analyzedNonLambdaArguments,
+                out boundArguments,
+                out argumentScore,
+                out usesParams,
+                out defaultsUsed) {
+            return null
+        }
+
+        score = score + argumentScore
+        return new ReflectionPreBoundCandidate(
+            method,
+            openMethod,
+            bindings,
+            typeInfoBindings,
+            methodGroupArguments,
+            boundArguments,
+            score,
+            usesParams,
+            defaultsUsed)
+    }
+
+    // A WRITTEN type argument's CLR form. An N# type has no CLR form of its own, so `object` stands
+    // in as the binding surrogate; a type that answers neither is a non-binding.
+    //
+    // This is a separate member because the answer is a NON-NULL type or nothing at all, and N#
+    // does not narrow a nullable local across a negative check — writing it inline would leave the
+    // dictionary store reading a `Type?`.
+    func TryConvertWrittenTypeArgument(resolvedTypeInfo: TypeInfo, out typeArgument: Type): bool {
+        direct := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTypeInfo)
+        if direct != null {
+            typeArgument = direct
+            return true
+        }
+
+        surrogate := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(resolvedTypeInfo)
+        if surrogate != null {
+            typeArgument = surrogate
+            return true
+        }
+
+        typeArgument = typeof(object)
+        return false
+    }
+
+    // The OPEN form a candidate's signature is read from.
+    //
+    // A generic METHOD reduces to its own definition. A method on a CONSTRUCTED generic type needs
+    // more: its `ParameterInfo`s already have the type arguments substituted in, so the type
+    // parameters that inference must bind are simply gone. The open form is re-found on the type
+    // DEFINITION, and the metadata TOKEN is what identifies it — names collide across overloads and
+    // the substituted signature cannot be compared against the open one.
+    //
+    // A method already declared on a definition, or on a non-generic type, is already open. If the
+    // re-find fails the substituted method is returned unchanged rather than treated as an error:
+    // a candidate is never rejected for the shape of its declaring type.
+    public static func GetOpenReflectionSignatureMethod(method: MethodInfo): MethodInfo {
+        signatureMethod := method
+        if method.get_IsGenericMethod() {
+            signatureMethod = method.GetGenericMethodDefinition()
+        }
+
+        declaringType := signatureMethod.get_DeclaringType()
+        if declaringType == null {
+            return signatureMethod
+        }
+        if !declaringType.get_IsGenericType() || declaringType.get_IsGenericTypeDefinition() {
+            return signatureMethod
+        }
+
+        genericDefinition := declaringType.GetGenericTypeDefinition()
+        candidates := genericDefinition.GetMethods(
+            BindingFlags.Public
+                | BindingFlags.NonPublic
+                | BindingFlags.Instance
+                | BindingFlags.Static)
+        i := 0
+        while i < candidates.Length {
+            candidate := candidates[i]
+            if candidate.get_MetadataToken() == signatureMethod.get_MetadataToken() {
+                return candidate
+            }
+            i = i + 1
+        }
+
+        return signatureMethod
     }
 
     // The RECEIVER's contribution to generic inference, for a call on a generic type. A declaring

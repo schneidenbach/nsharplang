@@ -455,3 +455,91 @@ test "a declared member's signature reads its arrays and its required count off 
     assert substitutedTypes != null
     assert FactoryTypeName(substitutedTypes[0]) == "double"
 }
+
+// THE EXPRESSION-TREE LAMBDA TARGET (task 017 slice 20 phase B). Whether a lambda written against
+// an expected type compiles to an expression TREE rather than to a delegate. Two spellings, one
+// question, and the N# one takes its collaborators as PARAMETERS so a rebuilt conversion can never
+// be read stale.
+
+test "the CLR spelling recognises an expression tree and nothing else" {
+    expressionDefinition := FactoryExpressionDefinition()
+    funcOfIntInt := FactoryFuncOfIntInt()
+
+    treeOverFunc := FactoryClose(expressionDefinition, funcOfIntInt)
+    assert AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(treeOverFunc)
+
+    // The DELEGATE itself is not a tree target — only the wrapper is.
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(funcOfIntInt)
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(typeof(int))
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(typeof(string))
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(typeof(object))
+
+    // The BY-REF shell is stripped first, so an `in`/`ref` tree parameter still answers true.
+    assert AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(treeOverFunc.MakeByRefType())
+
+    // An ARRAY of trees is not a tree, and neither is the open definition.
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(treeOverFunc.MakeArrayType())
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(expressionDefinition)
+
+    // `Expression<T>` over a NON-delegate is not a lambda target: the wrapper alone is not enough.
+    treeOverInt := FactoryClose(expressionDefinition, typeof(int))
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(treeOverInt)
+}
+
+test "the N# spelling answers through the declared alias and the conversion" {
+    context := new AnalyzerDeclarationContext()
+    context.Reset(Path.GetFullPath("."), new List<Assembly>())
+    conversion := new AnalyzerClrTypeConversion(context, null)
+
+    expressionDefinition := FactoryExpressionDefinition()
+    treeOverFunc := FactoryClose(expressionDefinition, FactoryFuncOfIntInt())
+
+    // A REFLECTED expected type is answered directly, without a conversion round trip.
+    treeTypeInfo: TypeInfo = new ReflectionTypeInfo(treeOverFunc)
+    assert AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
+        treeTypeInfo, context, conversion)
+
+    delegateTypeInfo: TypeInfo = new ReflectionTypeInfo(FactoryFuncOfIntInt())
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
+        delegateTypeInfo, context, conversion)
+
+    // NO expected type is not a tree target, which is the guard the one call site depends on.
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(null, context, conversion)
+
+    // A source type that converts to nothing CLR-shaped answers false rather than throwing.
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
+        BuiltInTypes.Int, context, conversion)
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
+        BuiltInTypes.Unknown, context, conversion)
+    unknownName: TypeInfo = new SimpleTypeInfo("NotAType")
+    assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
+        unknownName, context, conversion)
+}
+
+func FactoryExpressionDefinition(): Type {
+    resolved := Type.GetType(
+        "System.Linq.Expressions.Expression`1, System.Linq.Expressions")
+    if resolved == null {
+        throw new InvalidOperationException("Expression`1 was unavailable.")
+    }
+
+    return resolved
+}
+
+func FactoryFuncOfIntInt(): Type {
+    definition := Type.GetType("System.Func`2, System.Private.CoreLib")
+    if definition == null {
+        throw new InvalidOperationException("Func`2 was unavailable.")
+    }
+
+    arguments := new Type[](2)
+    arguments[0] = typeof(int)
+    arguments[1] = typeof(int)
+    return definition.MakeGenericType(arguments)
+}
+
+func FactoryClose(definition: Type, argument: Type): Type {
+    arguments := new Type[](1)
+    arguments[0] = argument
+    return definition.MakeGenericType(arguments)
+}
