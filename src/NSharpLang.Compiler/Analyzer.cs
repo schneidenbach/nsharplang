@@ -230,8 +230,17 @@ public class Analyzer : IDisposable
     // guard for user-defined conversions is deliberately NOT part of that rebuild — it is the one
     // piece of state that must outlive an owner.
     private readonly AnalyzerFunctionTypeFactory _functionTypeFactory;
+    // What a member NAME resolves to on a declared shape: a declared function's type or method
+    // group, the inherited `object` surface, and the SoA table's synthesised intrinsics. Reads only
+    // the factory, which is constructed once and never rebuilt, so neither is this.
+    private readonly AnalyzerMemberResolution _memberResolution;
     private readonly AnalyzerImplicitConversionGuard _implicitConversionGuard = new();
     private AnalyzerAssignability _assignability;
+    // Whether a source extension method accepts a receiver. Rebuilt with the SCC — it holds the
+    // assignability owner, which is. The analyzer's own `_extensionMethods`, `_usingNamespaces` and
+    // `_mlcAssemblies` are deliberately NOT handed over yet: the members that read them cannot move
+    // until `Assembly.GetTypes` is on the columnar surface.
+    private AnalyzerExtensionMethodResolution _extensionMethodResolution;
     // The overload scoring kernel's collaborator-backed half. Rebuilt with the SCC: it holds the
     // conversion funnel, the assignability owner and the well-known-type bag, all three of which are.
     private AnalyzerOverloadScoring _overloadScoring;
@@ -292,7 +301,9 @@ public class Analyzer : IDisposable
         _typeSubstitution = new AnalyzerTypeSubstitution(_scopes, _declarationContext, _typeResolver);
         _structuralAssignability = new AnalyzerStructuralAssignability(_typeResolver, _externalTypeProbe);
         _functionTypeFactory = new AnalyzerFunctionTypeFactory(_declarationContext, _typeSubstitution);
+        _memberResolution = new AnalyzerMemberResolution(_functionTypeFactory);
         _assignability = CreateAssignability();
+        _extensionMethodResolution = CreateExtensionMethodResolution();
         _overloadScoring = CreateOverloadScoring();
         _reflectionArgumentBinder = CreateReflectionArgumentBinder();
         _syntheticCallBinder = CreateSyntheticCallBinder();
@@ -347,6 +358,9 @@ public class Analyzer : IDisposable
             _assignabilityFacts,
             _overloadScoring,
             _typeResolver);
+
+    private AnalyzerExtensionMethodResolution CreateExtensionMethodResolution()
+        => new(_typeResolver, _assignability);
 
     private AnalyzerAssignability CreateAssignability()
         => new(
@@ -7756,7 +7770,7 @@ public class Analyzer : IDisposable
         }
 
         if (receiverType is SoaRowTypeInfo soaRowType
-            && TryGetSoaColumn(soaRowType.Declaration, member.MemberName) is null)
+            && AnalyzerMemberResolution.TryGetSoaColumn(soaRowType.Declaration, member.MemberName) is null)
         {
             ReportSoaRowEscape(member.Object, "used as a member receiver");
             return BuiltInTypes.Unknown;
@@ -7772,7 +7786,7 @@ public class Analyzer : IDisposable
             ReportUndefinedMember(receiverType, member, includeStaticMembers);
         }
         else if (receiverType is SoaRecordTypeInfo soaRecordType
-                 && TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null)
+                 && AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null)
         {
             _soaColumnMemberAccesses.Add(member);
         }
@@ -8302,7 +8316,8 @@ public class Analyzer : IDisposable
         }
 
         var extension = _extensionMethods.FirstOrDefault(candidate =>
-            candidate.Name == memberName && IsExtensionReceiverApplicable(candidate, objectType));
+            candidate.Name == memberName
+            && _extensionMethodResolution.IsExtensionReceiverApplicable(candidate, objectType));
         if (extension != null)
         {
             declaration = new SymbolDeclaration(
@@ -8535,7 +8550,7 @@ public class Analyzer : IDisposable
 
         if (objectType is SoaRowTypeInfo soaRowType)
         {
-            if (TryGetSoaColumn(soaRowType.Declaration, memberName) is { } rowColumn)
+            if (AnalyzerMemberResolution.TryGetSoaColumn(soaRowType.Declaration, memberName) is { } rowColumn)
             {
                 return _declarationContext.TryGetSoaType(
                     soaRowType.Declaration,
@@ -8554,7 +8569,7 @@ public class Analyzer : IDisposable
         {
             if (!includeStaticMembers)
             {
-                if (TryGetSoaColumn(soaRecordType.Declaration, memberName) is { } column)
+                if (AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, memberName) is { } column)
                     return new ArrayTypeInfo(_typeSubstitution.ResolveTypeForSourceOwner(
                         column.Type,
                         soaRecordType,
@@ -8563,10 +8578,10 @@ public class Analyzer : IDisposable
                 return memberName switch
                 {
                     "length" or "capacity" => BuiltInTypes.Int,
-                    "add" => CreateSoaIntrinsicFunction("add", BuiltInTypes.Int),
-                    "clear" => CreateSoaIntrinsicFunction("clear", BuiltInTypes.Void),
-                    "ensureCapacity" => CreateSoaIntrinsicFunction("ensureCapacity", BuiltInTypes.Void, ("capacity", BuiltInTypes.Int)),
-                    "copyRow" => CreateSoaIntrinsicFunction("copyRow", BuiltInTypes.Void, ("from", BuiltInTypes.Int), ("to", BuiltInTypes.Int)),
+                    "add" => AnalyzerMemberResolution.CreateSoaIntrinsic("add", BuiltInTypes.Int),
+                    "clear" => AnalyzerMemberResolution.CreateSoaIntrinsic("clear", BuiltInTypes.Void),
+                    "ensureCapacity" => AnalyzerMemberResolution.CreateSoaIntrinsicWithParameter("ensureCapacity", BuiltInTypes.Void, "capacity", BuiltInTypes.Int),
+                    "copyRow" => AnalyzerMemberResolution.CreateSoaIntrinsicWithTwoParameters("copyRow", BuiltInTypes.Void, "from", BuiltInTypes.Int, "to", BuiltInTypes.Int),
                     _ => BuiltInTypes.Unknown
                 };
             }
@@ -8696,7 +8711,7 @@ public class Analyzer : IDisposable
             {
                 resolvedMember = resolvedValueMember;
             }
-            resolvedMember ??= ResolveDeclaredFunctionMember(
+            resolvedMember ??= _memberResolution.ResolveDeclaredFunctionMember(
                 sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, sourceShape.Owner);
             if (resolvedMember != null)
                 return resolvedMember;
@@ -8727,7 +8742,7 @@ public class Analyzer : IDisposable
             }
             if (!includeStaticMembers
                 && sourceShape.SupportsObjectMembers
-                && TryResolveSourceObjectMember(memberName, out var objectMember))
+                && AnalyzerMemberResolution.TryResolveSourceObjectMember(memberName, out var objectMember))
             {
                 return objectMember;
             }
@@ -8738,7 +8753,7 @@ public class Analyzer : IDisposable
             if (_declarationContext.TryResolveTupleMember(tupleType, memberName, out var tupleMember))
                 return tupleMember;
 
-            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+            if (!includeStaticMembers && AnalyzerMemberResolution.TryResolveSourceObjectMember(memberName, out var objectMember))
                 return objectMember;
         }
 
@@ -8747,7 +8762,7 @@ public class Analyzer : IDisposable
             if (includeStaticMembers && enumType.Declaration.Members.Any(member => member.Name == memberName))
                 return objectType;
 
-            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+            if (!includeStaticMembers && AnalyzerMemberResolution.TryResolveSourceObjectMember(memberName, out var objectMember))
                 return objectMember;
         }
 
@@ -8774,7 +8789,7 @@ public class Analyzer : IDisposable
                     newtypeInfo.UnderlyingType,
                     newtypeInfo,
                     substitution: null);
-            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+            if (!includeStaticMembers && AnalyzerMemberResolution.TryResolveSourceObjectMember(memberName, out var objectMember))
                 return objectMember;
         }
 
@@ -8839,23 +8854,6 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private static SoaColumnInfo? TryGetSoaColumn(SoaRecordDeclarationInfo declaration, string name)
-        => declaration.Columns.FirstOrDefault(column => column.Name == name);
-
-    private static FunctionTypeInfo CreateSoaIntrinsicFunction(
-        string syntheticName,
-        TypeInfo returnType,
-        params (string Name, TypeInfo Type)[] parameters)
-    {
-        return new FunctionTypeInfo()
-        {
-            SyntheticName = syntheticName,
-            ParameterNames = parameters.Select(parameter => parameter.Name).ToList(),
-            ParameterTypes = parameters.Select(parameter => parameter.Type).ToList(),
-            ReturnType = returnType
-        };
-    }
-
     private void ReportSoaRowEscape(Expression expression, string action)
     {
         var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
@@ -8903,81 +8901,6 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private TypeInfo? ResolveDeclaredFunctionMember(
-        IEnumerable<DeclaredMemberInfo> members,
-        string memberName,
-        Dictionary<string, TypeInfo>? substitution = null,
-        TypeInfo? declarationOwner = null)
-    {
-        var matchingMembers = members
-            .Where(member => member.Kind == DeclaredMemberKind.Function && member.Name == memberName)
-            .ToList();
-
-        if (matchingMembers.Count == 0)
-            return null;
-
-        if (matchingMembers.All(CanResolveFunctionMemberFromTypeInfo))
-        {
-            var functionTypes = matchingMembers
-                .Select(declaration => _functionTypeFactory.CreateFromDeclaredMember(
-                    declaration,
-                    substitution,
-                    declarationOwner))
-                .ToList();
-            return functionTypes.Count == 1
-                ? functionTypes[0]
-                : NSharpMethodGroupInfoFactory.FromFunctions(functionTypes);
-        }
-
-        return null;
-    }
-
-    private static bool CanResolveFunctionMemberFromTypeInfo(DeclaredMemberInfo member)
-        => member.TypeParameters.Length == member.TypeParameterCount
-           && member.RequiredParameterCount >= 0
-           && member.RequiredParameterCount <= member.ParameterCount
-           && member.ParameterNames.Length == member.ParameterCount
-           && member.ParameterTypes.Length == member.ParameterCount
-           && member.ParameterModifiers.Length == member.ParameterCount;
-
-    private bool TryResolveSourceObjectMember(string memberName, out TypeInfo memberType)
-    {
-        var flags = BindingFlags.Public | BindingFlags.Instance;
-
-        var property = typeof(object).GetProperty(memberName, flags);
-        if (property != null)
-        {
-            memberType = NullabilityMetadataReflection.ConvertProperty(property);
-            return true;
-        }
-
-        var field = typeof(object).GetField(memberName, flags);
-        if (field != null)
-        {
-            memberType = NullabilityMetadataReflection.ConvertField(field);
-            return true;
-        }
-
-        var methods = typeof(object).GetMethods(flags)
-            .Where(method => method.Name == memberName && !method.IsSpecialName)
-            .ToArray();
-
-        if (methods.Length == 1)
-        {
-            memberType = new ReflectionMethodInfo(methods[0], $"{methods[0].Name}(...)");
-            return true;
-        }
-
-        if (methods.Length > 1)
-        {
-            memberType = new ReflectionMethodGroupInfo(methods, $"{methods[0].Name}(...)");
-            return true;
-        }
-
-        memberType = BuiltInTypes.Unknown;
-        return false;
-    }
-
     private static bool IsSystemObjectType(Type type)
         => type == typeof(object) || string.Equals(type.FullName, "System.Object", StringComparison.Ordinal);
 
@@ -9007,7 +8930,7 @@ public class Analyzer : IDisposable
             if (ext.Parameters.Count == 0)
                 continue;
 
-            if (IsExtensionReceiverApplicable(ext, targetType))
+            if (_extensionMethodResolution.IsExtensionReceiverApplicable(ext, targetType))
             {
                 applicableExtensions.Add(ext);
             }
@@ -9034,25 +8957,6 @@ public class Analyzer : IDisposable
             applicableExtensions.Select(declaration =>
                 _functionTypeFactory.CreateFromDeclaration(declaration, _currentTypeName)).ToList());
     }
-
-    private bool IsExtensionReceiverApplicable(FunctionDeclaration extension, TypeInfo targetType)
-    {
-        if (extension.Parameters.Count == 0)
-            return false;
-
-        var receiverTypeReference = extension.Parameters[0].Type;
-        if (receiverTypeReference is SimpleTypeReference simple
-            && IsFunctionTypeParameter(extension, simple.Name))
-        {
-            return true;
-        }
-
-        var receiverType = _typeResolver.ResolveType(receiverTypeReference);
-        return TypeInfoIdentityFacts.AreEqual(receiverType, targetType) || _assignability.IsAssignable(receiverType, targetType);
-    }
-
-    private static bool IsFunctionTypeParameter(FunctionDeclaration function, string name)
-        => function.TypeParameters?.Any(typeParameter => typeParameter.Name == name) == true;
 
     private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
     {
@@ -9384,7 +9288,7 @@ public class Analyzer : IDisposable
                 resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
 
             if (resolvedReceiverType is SoaRowTypeInfo soaRowType
-                && TryGetSoaColumn(soaRowType.Declaration, member.MemberName) != null)
+                && AnalyzerMemberResolution.TryGetSoaColumn(soaRowType.Declaration, member.MemberName) != null)
             {
                 return true;
             }
@@ -10635,7 +10539,7 @@ public class Analyzer : IDisposable
         if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType)) is not SoaRecordTypeInfo soaRecordType)
             return false;
 
-        var isColumn = TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null;
+        var isColumn = AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null;
         var isBookkeepingField = member.MemberName is "length" or "capacity";
         if (!isColumn && !isBookkeepingField)
             return false;
@@ -10999,7 +10903,7 @@ public class Analyzer : IDisposable
                 return true;
             case MemberAccessExpression memberAccess
                 when TryGetSoaRecordReceiverType(memberAccess.Object, out var soaRecordType)
-                    && TryGetSoaColumn(soaRecordType.Declaration, memberAccess.MemberName) != null:
+                    && AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, memberAccess.MemberName) != null:
                 member = memberAccess;
                 return true;
             case ParenthesizedExpression parenthesized:
@@ -12991,7 +12895,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var isColumn = TryGetSoaColumn(soaRecordType.Declaration, memberName) != null;
+        var isColumn = AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, memberName) != null;
         var isBookkeepingField = memberName is "length" or "capacity";
         if (isColumn || isBookkeepingField)
         {
@@ -16042,6 +15946,7 @@ public class Analyzer : IDisposable
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
         _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
         _assignability = CreateAssignability();
+        _extensionMethodResolution = CreateExtensionMethodResolution();
         _overloadScoring = CreateOverloadScoring();
         _reflectionArgumentBinder = CreateReflectionArgumentBinder();
         _syntheticCallBinder = CreateSyntheticCallBinder();
@@ -16061,6 +15966,7 @@ public class Analyzer : IDisposable
             _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, null);
             _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, null);
             _assignability = CreateAssignability();
+            _extensionMethodResolution = CreateExtensionMethodResolution();
             _overloadScoring = CreateOverloadScoring();
             _reflectionArgumentBinder = CreateReflectionArgumentBinder();
             _syntheticCallBinder = CreateSyntheticCallBinder();

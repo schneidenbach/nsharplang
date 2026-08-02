@@ -120,6 +120,8 @@ public class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.MetadataAssemblyResolver"
         } else if canonical == "ParameterInfo" || canonical == "System.Reflection.ParameterInfo" {
             runtimeTypeName = "System.Reflection.ParameterInfo"
+        } else if canonical == "EventInfo" || canonical == "System.Reflection.EventInfo" {
+            runtimeTypeName = "System.Reflection.EventInfo"
         } else if canonical == "Index" || canonical == "System.Index" {
             runtimeTypeName = "System.Index"
         } else if canonical == "Range" || canonical == "System.Range" {
@@ -178,6 +180,11 @@ public class ColumnarExternalBindingPlans {
             || name == "System.Reflection.PathAssemblyResolver"
             || name == "System.Reflection.MetadataAssemblyResolver"
             || name == "System.Reflection.ParameterInfo"
+            // A .NET EVENT is a distinct member kind, not a field: `+=` against one must be
+            // rejected with its own diagnostic and `on`/`off` must subscribe through the add_/
+            // remove_ accessors instead of writing the private backing field. Naming the member
+            // kind is what makes that distinction expressible.
+            || name == "System.Reflection.EventInfo"
             || name == "System.Index"
             || name == "System.Range"
             || name == "System.RuntimeTypeHandle"
@@ -857,6 +864,16 @@ public class ColumnarExternalBindingPlans {
                     argumentTypeNames,
                     "System.Reflection.PropertyInfo")
             }
+            if memberName == "GetEvent"
+                && count == 2
+                && argumentTypeNames[0] == "System.String"
+                && argumentTypeNames[1] == "System.Reflection.BindingFlags" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    argumentTypeNames,
+                    "System.Reflection.EventInfo")
+            }
             if memberName == "GetMethods" && count == 0 {
                 return VirtualCall(
                     receiver,
@@ -1104,6 +1121,28 @@ public class ColumnarExternalBindingPlans {
             }
         }
 
+        // The event's own surface. `GetAddMethod`/`GetRemoveMethod` take the NON-PUBLIC opt-in
+        // because an event's accessors may be private while the event itself is public, and the
+        // subscription must still find them.
+        if receiver == "System.Reflection.EventInfo" {
+            if (memberName == "GetAddMethod" || memberName == "GetRemoveMethod")
+                && count == 1
+                && argumentTypeNames[0] == "System.Boolean" {
+                return VirtualCall(
+                    receiver,
+                    memberName,
+                    One("System.Boolean"),
+                    "System.Reflection.MethodInfo")
+            }
+            if (memberName == "get_EventHandlerType" || memberName == "get_DeclaringType")
+                && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type")
+            }
+            if memberName == "get_Name" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.String")
+            }
+        }
+
         if receiver == "System.Reflection.Assembly" {
             if memberName == "GetName" && count == 0 {
                 return VirtualCall(
@@ -1121,6 +1160,13 @@ public class ColumnarExternalBindingPlans {
                 return VirtualCall(receiver, memberName, One("System.String"), "System.Type")
             }
             if memberName == "GetExportedTypes" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Type[]")
+            }
+            // NOT interchangeable with GetExportedTypes. An extension-method scan must see the
+            // INTERNAL static classes of a referenced assembly too: the exported surface answers a
+            // strictly smaller set, so substituting it would silently drop candidates rather than
+            // decline.
+            if memberName == "GetTypes" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Type[]")
             }
         }

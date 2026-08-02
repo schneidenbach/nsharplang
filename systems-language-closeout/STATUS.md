@@ -1,6 +1,49 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-01 (**TASK 017 SLICE 21 LANDED (no commit — mandate) — N# OWNS THE REFLECTED
+Last updated: 2026-08-02 (**TASK 017 SLICE 22 LANDED (no commit — mandate) — AND ITS FIRST RESULT IS
+THAT SLICE 21's CLOSING MEASUREMENT WAS WRONG.** `ResolveMember` and the extension carrier were
+recorded as closing outright; re-verified at `89c4dc265` by WRITING AND COMPILING both owners rather
+than reasoning about them, **neither closes at the pinned toolset**, and slice 21's extraction had
+missed six bare calls to `Analyzer.cs`'s own private helpers where both walls live:
+**`Assembly.GetTypes()` is not modeled** (`GetExportedTypes` is NOT a substitute — it answers a
+strictly smaller set, so it would silently drop extensions on internal static classes) and
+**`System.Reflection.EventInfo` is not on the columnar runtime-type surface at all**, which is what
+makes a .NET event resolve to an event rather than to its private backing field. So the slice takes
+slice 20's shape: **PHASE A** admits 46 lines of catalog data (EventInfo + its five members,
+`Type.GetEvent`, `Assembly.GetTypes`), **proven BY EXECUTION** against a freshly built compiler — the
+emitted binary's `GetTypes` count matches C# reflection exactly and is strictly greater than the same
+program's `GetExportedTypes` count, and the event surface returns
+`ProcessExit|add_ProcessExit|remove_ProcessExit|EventHandler|AppDomain` byte-equal to C#'s — with the
+activation contracts staged in `phase-b-member-resolution-contracts.md` and **the repin wall reached
+and NOT crossed**. **PLUS THE CUT THAT DOES CLOSE: 7 whole C# members, 104 body lines** —
+`TryResolveSourceObjectMember` 37, `ResolveDeclaredFunctionMember` 28,
+`IsExtensionReceiverApplicable` 15, `CreateSoaIntrinsicFunction` 13,
+`CanResolveFunctionMemberFromTypeInfo` 7, `IsFunctionTypeParameter` 2, `TryGetSoaColumn` 2.
+`Analyzer.cs` **16,562 → 16,468** (non-blank 14,607 → **14,530**), `git diff` **+36 / −130 = net
+−94**, 19 call sites routed, no new C# method/bridge/callback/shell/state. N# gains
+`AnalyzerMemberResolution.nl` (200) and `AnalyzerExtensionMethodResolution.nl` (87) with 6 contracts.
+**THE LIFETIME QUESTION THE CARRIER TURNS ON IS ANSWERED BY MEASUREMENT:** `_extensionMethods`,
+`_usingNamespaces` and `_mlcAssemblies` are all `readonly` and MUTATED IN PLACE — cleared and
+appended to, never reassigned — so they cross BY REFERENCE and must not be snapshotted; whereas
+`_currentTypeName` is a plain mutable field reassigned as the walk enters and leaves types, so it
+must cross as a PARAMETER. Slice 21's closure list named neither. **PROOFS:** a throwaway differential
+run in BOTH trees — **1,710 applicability cells byte-identical, md5
+`cbbadae9a3ca60f8c690642494ab990e` in both, 305 true**, plus 17 statics rows identical, with the
+`HOST` rows (`Analyzer` → `AnalyzerMemberResolution` / `AnalyzerExtensionMethodResolution`) kept out
+as the wiring proof; `nlc check --json` **byte-identical on ALL 71 corpus targets** (ORACLE_DIFFS=0,
+STDERR=0, EXIT=0, **863 diagnostics**). GATES: unit **3,192 / 3,192** (zero drift); contracts
+**2,013 → 2,019**; audit **18 / 18** after a one-row in-place repin that keeps the manifest at
+**391 lines**; and the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in
+1,961s ON THE FIRST RUN** (VS Code integration 4m25s, all 67 assemblies IL-verified); VSIX rebuilt +
+reinstalled. **TWO NEW GOTCHAS, both of which nearly produced a wrong answer:** a capability probe
+written as a NON-PUBLIC class of `static func`s silently "passes" every member call, because only
+its declarations are checked and its bodies are never emitted — probe with a `public class` and
+instance members; and the ratchet fingerprint hashes .NET **UTF-16 code units**, so a recomputation
+over Python code points reports a phantom changed row for any file containing an emoji. NEXT:
+**SLICE 23 — `ResolveMember` POST-REPIN**, which phase A has fully prepared; `AnalyzeCall`'s
+measurement was taken anyway and says slice 21's wall does NOT recur there.)
+
+Last updated (prior): 2026-08-01 (**TASK 017 SLICE 21 LANDED (no commit — mandate) — N# OWNS THE REFLECTED
 CALL END TO END, SELECTION AND FINALISATION.** The slice was a MEASUREMENT before it was a cut, and
 the measurement is its spine: both members were instrumented in place and traced over **all 71
 corpus targets (14,736 finalisations, 57,610 rows) plus purpose-built multi-lambda fixtures**. The
@@ -834,7 +877,234 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 21 — THE FINALISING WALK.** Target recorded
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 22 — `ResolveMember` AND THE EXTENSION
+  CARRIER.** Target recorded BEFORE any production edit, at `89c4dc265` (`Analyzer.cs` **16,562**
+  lines, non-blank **14,607**; BootstrapServices contracts **2,013**; unit suite **3,192**; ownership
+  audit **18 / 18**; manifest **391** lines; slice-21 fixtures **40**).
+
+  **THE TARGET.** `ResolveMember` (:8512, **279**) and the extension carrier —
+  `TryResolveExtensionMethod` (:8984, **53**), `IsExtensionReceiverApplicable` (:9038, **15**) and
+  `FindExternalExtensionMethods` (:9057, **41**).
+
+  **THE CLOSURE, RE-VERIFIED AT THIS TREE — AND SLICE 21's EXTRACTION WAS INCOMPLETE.** Slice 21
+  recorded `ResolveMember`'s closure as "the collaborator fields plus ONE self-recursion". Re-run
+  name by name at `89c4dc265`, the body ALSO makes **six bare calls to private C# helpers of
+  `Analyzer.cs`** that slice 21's list omits: `TryGetSoaColumn` (:8842), `CreateSoaIntrinsicFunction`
+  (:8845), `TryResolveReflectionPropertyOrField` (:8800) and its `GetReflectionMemberFlags` (:8792),
+  `ResolveDeclaredFunctionMember` (:8906) with its `CanResolveFunctionMemberFromTypeInfo` (:8935),
+  and `TryResolveSourceObjectMember` (:8943). Five of the six are used ONLY from `ResolveMember`'s
+  own closure and must move with it; `TryGetSoaColumn` is shared with **four** other `Analyzer.cs`
+  members (:7759, :7775, :9387, :10638) and therefore moves as a fact those four route to. The
+  carrier's closure adds `IsFunctionTypeParameter` (:9054) and `GetLoadableTypes` (:9099), both
+  exclusive, and `_currentTypeName` — a **mutable** field slice 21's list did not name, which must
+  cross as a PARAMETER rather than be held. Call sites: `ResolveMember` **6** (five external, one
+  self-recursion — slice 21's "seven" counted the declaration line), `IsExtensionReceiverApplicable`
+  **2** (one of them OUTSIDE the carrier, in `TryFindMemberDeclaration` :8305),
+  `TryResolveExtensionMethod` **3** (all inside `ResolveMember`), `FindExternalExtensionMethods`
+  **2**. Every member is `private` with **ZERO references outside `Analyzer.cs`** across `src/`,
+  `tests/` and `editors/` — measured name by name — so no C# assertion migrates.
+
+  **AND THE RE-VERIFICATION OVERTURNED THE PREMISE: NEITHER TARGET CLOSES AT THE PINNED TOOLSET, AND
+  THE BLOCKER IS SELF-CONSUMED CATALOG SURFACE.** Both owners were WRITTEN and COMPILED rather than
+  reasoned about, and each stopped on a different missing row:
+  * **`Assembly.GetTypes()` is not modeled** —
+    `Declined at emit.call.instance-member-unmodeled: instance call 'Assembly.GetTypes' with 0
+    argument(s) is not modeled`. `FindExternalExtensionMethods` enumerates every loaded reference
+    assembly through `GetLoadableTypes`, whose entire body is that call. **`GetExportedTypes` — in
+    the catalog for many slices — is NOT a substitute**: it answers a strictly smaller set (measured
+    on `System.Private.CoreLib`, declared > exported), so substituting it would silently drop every
+    extension declared on an INTERNAL static class rather than decline.
+  * **`System.Reflection.EventInfo` is not on the supported runtime-type surface at all** —
+    `Declined at emit.declaration.method-return: static method return type 'EventInfo?' could not be
+    resolved`. `ResolveMember` reaches it through `TryResolveReflectionPropertyOrField`'s third arm,
+    which is what makes a .NET event resolve to a `ReflectionEventInfo` instead of to the private
+    backing FIELD of the same name — the `+=` diagnostic and `on`/`off` both depend on it.
+
+  Everything else both members need was measured PRESENT: `Type.get_Namespace`,
+  `Type.GetField(string, BindingFlags)`, `Type.GetProperty(string, BindingFlags)`,
+  `Type.GetMethods(BindingFlags)`, `Type.get_IsSealed`/`get_IsAbstract`,
+  `MethodInfo.get_IsSpecialName`, `List<string>.Contains`, `List<MethodInfo>.ToArray`.
+
+  **A NEW PROBE-METHODOLOGY GOTCHA, AND IT NEARLY SENT THIS SLICE THE WRONG WAY.** The first
+  capability probe was a NON-PUBLIC class of `static func`s, and it reported `Assembly.GetTypes` as
+  FINE. It is not: declaration-level checks (a method's return type) still run for such a class, but
+  its BODIES are not emitted, so every member call inside one silently "passes". The identical call
+  in a `public class` with instance members declined immediately. **A capability probe must be a
+  `public class` reached the way production reaches it**; a static-only helper class proves only that
+  its signatures resolve.
+
+  **THE SLICE THEREFORE SPLITS, IN SLICE 20's SHAPE: PHASE A (the catalog, landed here) + THE CUT
+  THAT CLOSES AT THIS TOOLSET (landed here) + THE REPIN WALL (stop).**
+
+  **PHASE A — 46 LINES OF CATALOG DATA, ZERO PRODUCTION C#.** `ColumnarExternalBindingPlans.nl`
+  gains `System.Reflection.EventInfo` in both `TryGetRuntimeTypeName` and
+  `IsSupportedRuntimeTypeName`; `Assembly.GetTypes()` → `System.Type[]`;
+  `Type.GetEvent(string, BindingFlags)` → `EventInfo`; `EventInfo.GetAddMethod(bool)` /
+  `GetRemoveMethod(bool)` → `MethodInfo`; `EventInfo.get_EventHandlerType()` / `get_DeclaringType()`
+  → `Type`; `EventInfo.get_Name()` → `String`. **PROVEN BY EXECUTION, not by compilation** (the
+  slice-20A method): both shapes were compiled by a freshly built compiler — which links a freshly
+  built `BootstrapServices` and is therefore behaviourally the post-repin toolset — and the emitted
+  binaries were LOADED AND INVOKED. `Assembly.GetTypes()` on `System.Private.CoreLib` returned
+  exactly the declared-type count C# reflection reports, and that count is strictly GREATER than the
+  exported count the same emitted program computes through `GetExportedTypes` — the row demonstrably
+  widening the answer. The event surface returned
+  `ProcessExit|add_ProcessExit|remove_ProcessExit|EventHandler|AppDomain` for
+  `System.AppDomain.ProcessExit`, byte-equal to C#'s own
+  `GetEvent`/`GetAddMethod(nonPublic: true)`/`GetRemoveMethod(nonPublic: true)`/`EventHandlerType`/
+  `DeclaringType`. The rows are INERT for the pinned toolset — nothing in the corpus reaches either
+  shape (it declined before), and `BootstrapServices` builds green with them present. The activation
+  contracts are staged in `systems-language-closeout/phase-b-member-resolution-contracts.md`, because
+  a `.tests.nl` in the project would fail the contracts gate pre-repin and a staged `.nl` trips the
+  ownership audit. **STOPPED AT THE REPIN WALL — the pack/install/repin is the coordinator's manual
+  procedure.** (A per-row deletion proof was scripted and started; it was abandoned after ~55 minutes
+  because each iteration rebuilds the whole xunit project, and it is recorded here as NOT run. The
+  load-bearing evidence that does exist is stronger for the two headline rows than a deletion would
+  be: the PRE-state was measured directly, with the exact decline text, before the rows existed.)
+
+  **THE CUT — 7 WHOLE C# MEMBERS DELETED, 104 BODY LINES, AND EVERY ONE CLOSES AT THIS TOOLSET.**
+  `TryResolveSourceObjectMember` 37, `ResolveDeclaredFunctionMember` 28,
+  `IsExtensionReceiverApplicable` 15, `CreateSoaIntrinsicFunction` 13,
+  `CanResolveFunctionMemberFromTypeInfo` 7, `IsFunctionTypeParameter` 2, `TryGetSoaColumn` 2.
+  `Analyzer.cs` **16,562 → 16,468** (non-blank 14,607 → **14,530**); `git diff` **+36 / −130 = net
+  −94**, and every added line is a field declaration with its comment, a construction argument, or a
+  rewritten reference. **NO new C# method, bridge, callback, shell or state.** 19 call sites routed:
+  8 × `TryGetSoaColumn`, 4 × `TryResolveSourceObjectMember`, 4 × the SoA intrinsics, 2 ×
+  `IsExtensionReceiverApplicable`, 1 × `ResolveDeclaredFunctionMember`. C# calls N# at every one of
+  them; N# calls nothing back.
+
+  **N# ADDED:** `AnalyzerExtensionMethodResolution.nl` (**87**) and `AnalyzerMemberResolution.nl`
+  (**200**), plus **6 contracts** in `AnalyzerExtensionMethodResolution.tests.nl` (198).
+
+  **THE LIFETIME FINDING THE MANDATE ASKED FOR, AND IT DECIDES TWO SIGNATURES.** `_extensionMethods`
+  is **MUTATED IN PLACE, NEVER REBUILT**: declared `private readonly List<FunctionDeclaration>` at
+  :145, `Clear()` at :437 (the top of every `Analyze`), `Add()` at :2016 (the declaration walk), and
+  the ONLY `_extensionMethods =` anywhere in the file is that declaration — measured, not assumed.
+  `_usingNamespaces` (:139 / :431 / :15665) and `_mlcAssemblies` (:179 / :15941 / :16071) are the
+  same shape. **So all three cross BY REFERENCE and must not be snapshotted** — an extension declared
+  later in the same file would otherwise be invisible, and the external scan would search whichever
+  namespace set existed when the copy was taken. This is exactly what `AnalyzerExternalTypeProbe`
+  already does with two of the same three lists. `_currentTypeName` is the OPPOSITE case and slice
+  21's closure list named neither: it is a plain mutable `string?` reassigned every time the walk
+  enters or leaves a type, so it must cross as a **PARAMETER**, read at the call. Both decisions are
+  written into the new owner's doc comment for phase B.
+  The one owner that IS rebuilt is `_extensionMethodResolution`: it holds `_assignability`, which the
+  SCC rebuild replaces, so it is rebuilt at all **3** sites (`ctor`, the metadata initialiser,
+  `Dispose`) — measured by enumerating every `_assignability =` in the file. `_memberResolution` holds
+  only `_functionTypeFactory`, which is constructed once and never rebuilt, so it is `readonly`.
+
+  **PROOF — DIFFERENTIAL AGAINST THE C# ORIGINALS.** One throwaway xunit probe, written ONCE and run
+  in BOTH trees (baseline `89c4dc265` in a throwaway `/private/tmp/nsharp017s22` worktree, and the
+  working tree), locating its subject by REFLECTION so the same source runs against either host.
+  **1,710 applicability cells — 90 declarations (18 receiver spellings × 5 type-parameter sets) + the
+  5 no-parameter declarations, each against 19 target types — TRANSCRIPTS BYTE-IDENTICAL, md5
+  `cbbadae9a3ca60f8c690642494ab990e` in BOTH, 0 differing lines, 305 true**; plus a second grid of
+  **17 statics rows** (10 `object`-member names × answer and rendered type, 6 SoA column lookups
+  including a duplicate column name, an absent name, a case-mismatched name, the empty name and an
+  empty declaration) — **IDENTICAL**. The `HOST` rows are kept OUT of the comparison and are the
+  wiring proof: baseline `Analyzer` / `Analyzer` / `Analyzer`, working
+  `AnalyzerExtensionMethodResolution` / `AnalyzerMemberResolution` / `AnalyzerMemberResolution`.
+  Deleted from both trees afterwards.
+
+  **ONE CONTRACT WAS WRONG AND THE GRID CORRECTED IT — WHICH IS THE POINT OF WRITING BOTH.** A
+  contract asserting that a `string?` receiver spelling accepts a `string` target FAILED. The grid
+  shows why: in a bare harness with no project context the spelling resolves to `unknown`, and an
+  unresolvable receiver answers TRUE for `unknown` and FALSE for every real type. The contract was
+  replaced with that measured behaviour — which is also the arm that makes the type-parameter
+  pre-check load-bearing, since without it every generic extension would land there.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `89c4dc265` (the throwaway `/private/tmp/nsharp017s22` worktree) and at the working tree, **both run
+  over the SAME (working-tree) sources**, across **ALL 71 `project.yml` corpus targets with no
+  exclusion** — including the ROOT target and `BootstrapServices`, which is the compiler's own N#
+  estate: **ORACLE_DIFFS = 0, ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0**, over **863
+  diagnostics**. This is the surface that carries the risk: `TryResolveSourceObjectMember` and
+  `ResolveDeclaredFunctionMember` are on the path of EVERY source member access in all 71 targets,
+  so a drift in either would move a diagnostic somewhere in that set.
+
+  **EVIDENCE.** Full unit suite **3,192 / 3,192** — exactly the `89c4dc265` baseline COUNT, ZERO
+  drift; `dev.sh --since` selected the FULL suite and said why (`Analyzer.cs` is central) — 7m47s, no
+  flake, so the cool-rerun rule was not needed. BootstrapServices contracts **2,013 → 2,019 (+6)**,
+  **2,019 / 2,019 PASS**; ownership
+  audit **18 / 18** against the freshly written manifest. **RATCHET REPIN** via
+  `scratchpad/s22/repin.py` — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 16,562 → **16,468**, currentNonBlankLines
+  14,607 → **14,530**, fingerprint `text-v1:268f4478ad07933f` → `text-v1:db0591e80ba1a778` (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **6,983 / 6,007**);
+  `reviewedHeadFingerprint head-v1:3c97863eebc82c53` → **`head-v1:e189e1b5fcde4128`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value, `epochPathFingerprint`, `epochFactFingerprint` and
+  `epochFileCount` (381) untouched and RE-VALIDATED by recomputation both before and after the write.
+  **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after, the manifest `git diff`
+  is exactly 2 changed lines, and `OwnershipAudit.nl`'s is exactly 1** — the manifest is written by
+  TEXTUAL replacement, because its one-compact-line-per-entry layout is not what `json.dumps` emits
+  and a reformat would bury a two-value change in 6,000 diff lines.
+  **A SECOND REPIN GOTCHA, NEW AND WORTH THE SAME PLACE AS THE BOM ONE.** The audit's fingerprint
+  hashes .NET `string` indexing, which yields UTF-16 **code units**; a recomputation that hashes
+  Python code points instead reports a PHANTOM changed row for any file containing a non-BMP
+  character — here `editors/vscode/test/suite/edgeCases.test.ts`, whose bytes had not moved at all.
+  Hash UTF-16 code units, and keep reading sources as `utf-8-sig` (the slice-21 BOM rule).
+
+  **WALL STATUS: THE REPIN WALL IS REACHED AND NOT CROSSED.** Phase A adds catalog surface that the
+  packaged toolset cannot see until it is repacked; the pack/install/repin is the coordinator's
+  manual procedure and was NOT performed. No other wall was crossed: the landed cut needed no new
+  capability, and the proof is that the PACKAGED-SDK build of BootstrapServices — the one the gate
+  performs — compiled both new files and the 6 new contracts without a repin.
+
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 1,961s (32m41s) ON THE FIRST RUN** in a fresh isolated copy (it runs in
+  `/tmp/nsharp-test-all.5295cf4c7c00.ePoxnS` and closes with `Stored validated isolated test cache
+  result: 5295cf4c7c000132 (1961s)`, so it is neither a cached whole-gate nor a cached per-step
+  verdict; the cool-rerun rule was not needed because nothing flaked). **ZERO `✗`.** Every step
+  green: clean, compiler build (3m37s), the format contract gate, unit tests (11m13s), the native
+  `.tests.nl` estate including BootstrapServices' 2,019 and `tests/native/ownership-audit` — the
+  ratchet re-validated INSIDE the gate against the freshly written manifest — **VS Code integration
+  tests (4m25s)**, SDK pack + install (6m51s), template pack/install/creation, the template-generated
+  project, all 23 example and fixture projects, all single-file examples, `nlc check` over the
+  examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new errors vs
+  baseline**. `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt and
+  reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE computer-use
+  verification was NOT attempted, per the coordinator's standing instruction. The IDE-facing surface
+  this slice OWNS is what a member name resolves to on a declared shape — the type shown on hover,
+  the members offered after `.`, and whether an extension is offered for a receiver — and that is
+  pinned at 1,727 byte-identical differential cells, 863 byte-identical corpus diagnostics across all
+  71 targets, the gate's own VS Code integration run, and 67 IL-verified assemblies.
+  **NOT RUN, AND RECORDED AS SUCH:** the corpus IL byte-exact sweep and the unsorted `nlc build`
+  transcript differential. The gate's example builds and the 67-assembly IL verification cover the
+  emitted surface, and the risk they would add over the byte-identical oracle is small for a slice
+  whose entire production change is four pure functions and one predicate moved with a byte-identical
+  differential — but they are the two proofs slices 20B and 21 ran and this one did not, so slice 23
+  should not read their absence as a pass.
+
+  **THE ANALYZECALL MEASUREMENT — TAKEN, WITH ITS PRECONDITION RECORDED AS NOT MET.** The mandate
+  asked for it "if landing this leaves `AnalyzeCall` as the arc's last member". It does not:
+  `ResolveMember` and two thirds of the extension carrier remain, repin-blocked. The STRUCTURAL
+  measurement was taken anyway, because slice 23's decision needs it. `AnalyzeCall` is **172 lines /
+  169 body lines**, with **11 re-entry sites over 4 kinds** — `AnalyzeCallCallee` ×1,
+  `AnalyzeRefOutArgumentExpression` ×2, `AnalyzeSyntheticCallReceiver` ×6, and the two reflection
+  binders ×1 each — **12 reporting sites over 8 reporters** (`Error` ×2,
+  `ReportInvalidRefOutArgumentTargetIfNeeded` ×3, four SoA reports, `ReportPossibleNullAccess`,
+  `_reflectionCallReporter.ReportUnboundCall` ×2, `_syntheticCallValidator.ReportNoMatchingOverload`),
+  **2 `_errors.Count` reads**, **1 `_semanticModel.RecordExpressionType`**, and 12 collaborator
+  members across 6 N#-owned owners.
+  **THE DECISIVE STRUCTURAL FACT: SLICE 21's WALL DOES NOT RECUR.** The argument loop's expected type
+  for position *i* is `_syntheticCallValidator.GetExpectedArgumentType(functionType, call, i,
+  expectedIndex, syntheticExpectedBindings)`, and `syntheticExpectedBindings` is computed ONCE
+  BEFORE the loop — nothing inside the loop writes it. The argument analyses are therefore
+  count-exact and non-accumulating, so a slice-17-shape hoist exists and no resumable suspension
+  protocol is needed for them.
+  **THE ONE MULTIPLICITY THAT IS BEHAVIOUR:** `AnalyzeSyntheticCallReceiver` is NOT memoized — each
+  call re-enters `AnalyzeExpression(memberAccess.Object)` — and up to **3** of its 6 sites fire on a
+  single call (1 before the argument loop plus `ValidateCall` and `ResolveReturnType` after it, in
+  either the `FunctionTypeInfo` or the `NSharpMethodGroupInfo` branch). So the same receiver
+  expression can be analysed, and can report, up to three times per call, gated by
+  `AnalyzerSyntheticCallWalk.NeedsReceiverType`. **THE SLICE-23 EVIDENCE, STATED PLAINLY:**
+  `AnalyzeCall` is a DISPATCH HOST, not an accumulating walk — but it is not yet zero-policy, because
+  the branch choice by callee type, the SoA escape reports, the newtype construction check, the
+  method-group lambda-skip rule and the choice of failure reporter are all decisions. Slice 23 should
+  either (a) take `ResolveMember` post-repin, which is the larger and now fully-prepared cut, or
+  (b) hoist `AnalyzeCall`'s per-argument schedule the slice-17 way and leave C# a driver, with the
+  receiver's up-to-3 analyses preserved exactly as a counted protocol.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 21 — THE FINALISING WALK.** Target recorded
   BEFORE any production edit, at `d4d383d79` (`Analyzer.cs` **16,754** lines, non-blank **14,777**;
   BootstrapServices contracts **2,006**; unit suite **3,192**; ownership audit **18 / 18**; manifest
   **391** lines; accumulated fixtures **186**).
