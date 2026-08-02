@@ -596,6 +596,53 @@ func main() {
     }
 
     [Fact]
+    public void CheckCommand_ReceiverStyleGenericFunction_ReportsDiagnosticsInsteadOfCrashing()
+    {
+        // Regression: the IL-verification step used to surface an unhandled
+        // NotImplementedException as the crash envelope "Check failed: The method or
+        // operation is not implemented." for any project declaring a receiver-style
+        // (`this`-parameter) generic function. The persisted-emit generic parameter T
+        // does not implement Type.IsSZArray, so preflight typing of `value.ToString()`
+        // receivers must probe it via IsSafeSzArrayType instead of the raw property.
+        // The shape is not yet modeled by the columnar backend, so the correct outcome
+        // is the normal diagnostic result shape carrying its NL103 decline.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ReceiverGenericCheck
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+namespace W
+
+import System
+
+func Tag<T>(this value: T, note: string): string { return note + value.ToString() }
+func main() { Console.WriteLine(5.Tag("ok")) }
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.TryGetProperty("error", out _), stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(1, exitCode);
+
+            var decline = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray());
+            Assert.Equal("NL103", decline.GetProperty("code").GetString());
+            Assert.Contains("instance call 'T.ToString'", decline.GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CheckCommand_VerificationDoesNotRunWhenAnalysisHasErrors()
     {
         // When analysis already found errors, we skip the verification step entirely.

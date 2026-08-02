@@ -115,6 +115,39 @@ test "x" {
     }
 
     [Fact]
+    public void CompileToIlAssembly_ReceiverStyleGenericFunctionDeclinesInsteadOfCrashing()
+    {
+        // Regression: this shape used to throw an unhandled NotImplementedException out of
+        // CompileToIlAssembly, which `nlc check` surfaced as the crash envelope
+        // "Check failed: The method or operation is not implemented." The persisted-emit
+        // generic parameter T does not implement Type.IsSZArray, and the legacy preflight
+        // for the `value.ToString()` receiver read the property raw instead of through
+        // IsSafeSzArrayType. Until instance calls on generic parameter receivers are
+        // modeled, the correct product outcome is this decline.
+        var tempDir = CreateTempDir();
+        try
+        {
+            WriteProject(tempDir, "ReceiverGenericDecline");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Tag<T>(this value: T, note: string): string {
+    return note + value.ToString()
+}
+""");
+
+            var result = CompileProject(tempDir, "ReceiverGenericDecline");
+            var error = Assert.Single(result.Errors.Where(error => error.DiagnosticId == "NL103"));
+
+            Assert.False(result.Success);
+            Assert.Contains("Declined at emit.call.instance-member-unmodeled:", error.Message);
+            Assert.Contains("'T.ToString'", error.Message);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CompileToIlAssembly_DeclineLogEnvVarWritesTraceToStderr()
     {
         var tempDir = CreateTempDir();

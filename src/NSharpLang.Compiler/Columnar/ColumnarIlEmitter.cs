@@ -8507,7 +8507,7 @@ internal sealed class ColumnarIlEmitter
             || !TryGetPureLocalOrParameterType(arrayNode, out _, out var arrayType)
             || !TryGetPureLocalOrParameterType(indexNode, out _, out var indexType))
             return false;
-        if (indexType != typeof(int) || !arrayType.IsSZArray)
+        if (indexType != typeof(int) || !IsSafeSzArrayType(arrayType))
             return false;
         var elementType = arrayType.GetElementType()!;
         var helper = ReductionHelperForColumnarElementType(elementType);
@@ -8532,7 +8532,7 @@ internal sealed class ColumnarIlEmitter
         // acc = acc + Sum...(array, index, bound)
         if (!EmitExpression(shape.AccumulatorNode, out var accumulatorType) || accumulatorType != shape.ElementType)
             return false;
-        if (!EmitExpression(shape.ArrayNode, out var arrayType) || !arrayType.IsSZArray || arrayType.GetElementType() != shape.ElementType)
+        if (!EmitExpression(shape.ArrayNode, out var arrayType) || !IsSafeSzArrayType(arrayType) || arrayType.GetElementType() != shape.ElementType)
             return false;
         if (!EmitExpression(shape.IndexNode, out var indexType) || indexType != typeof(int))
             return false;
@@ -9454,7 +9454,7 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(node) == 8 && _nodes.ChildCount(node) == 1 && Text(node) == "Length")
         {
             var receiver = Child(node, 0);
-            return TryGetPureLocalOrParameterType(receiver, out _, out var receiverType) && receiverType.IsSZArray;
+            return TryGetPureLocalOrParameterType(receiver, out _, out var receiverType) && IsSafeSzArrayType(receiverType);
         }
 
         return false;
@@ -17152,7 +17152,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if (receiverType.IsSZArray
+        if (IsSafeSzArrayType(receiverType)
             && receiverType.GetElementType() == typeof(byte)
             && member == "AsSpan"
             && (_nodes.ChildCount(callIdx) == 1 || _nodes.ChildCount(callIdx) == 3))
@@ -17379,7 +17379,7 @@ internal sealed class ColumnarIlEmitter
 
         if (member == "Length"
             && TryGetPreflightExpressionType(receiver, out var lengthReceiverType)
-            && (lengthReceiverType.IsSZArray
+            && (IsSafeSzArrayType(lengthReceiverType)
                 || lengthReceiverType == typeof(string)
                 || lengthReceiverType == typeof(System.Text.StringBuilder)
                 || IsSupportedSpanLikeType(lengthReceiverType)))
