@@ -281,6 +281,10 @@ public class Analyzer : IDisposable
     // Whether a match covers everything its scrutinee can be, and the diagnostic when it does not.
     // Rebuilt with the SCC: it holds assignability, which the rebuild replaces.
     private AnalyzerMatchExhaustiveness _matchExhaustiveness;
+    // The two pattern SHAPE questions: whether a value has a list shape (and what one element of it
+    // holds), and whether a relational pattern's two sides can be compared before IL emission.
+    // Rebuilt with the SCC: it holds assignability, which the rebuild replaces.
+    private AnalyzerPatternShapes _patternShapes;
     private bool _disposed;
 
     public Analyzer()
@@ -319,10 +323,14 @@ public class Analyzer : IDisposable
         _reflectionCallReporter = CreateReflectionCallReporter();
         _callAnalysis = CreateCallAnalysis();
         _matchExhaustiveness = CreateMatchExhaustiveness();
+        _patternShapes = CreatePatternShapes();
     }
 
     private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
         => new(_diagnostics, _typeSubstitution, _assignability, _typeResolver);
+
+    private AnalyzerPatternShapes CreatePatternShapes()
+        => new(_diagnostics, _spans, _declarationContext, _assignability);
 
     private AnalyzerCallAnalysis CreateCallAnalysis()
         => new(
@@ -6051,7 +6059,7 @@ public class Analyzer : IDisposable
                 if (!ReportSoaRowEscapeIfNeeded(relationalPattern.Value, relationalValueType, "used as a relational pattern value")
                     && !ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(relationalPattern.Value, "used as a relational pattern value"))
                 {
-                    ValidateRelationalPattern(relationalPattern, valueType, relationalValueType);
+                    _patternShapes.ValidateRelationalPattern(relationalPattern, valueType, relationalValueType);
                 }
                 break;
 
@@ -6087,16 +6095,7 @@ public class Analyzer : IDisposable
                 break;
 
             case ListPattern listPattern:
-                // List pattern lowering requires a stable Count/Length and int indexer.
-                if (!TryGetListPatternElementType(valueType, out var elementType))
-                {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                        _spans.GetListPatternDiagnosticSpan(listPattern);
-                    Error(ErrorCode.PatternTypeMismatch,
-                        $"A list pattern can only match arrays or indexable collections, but this value is '{valueType}'",
-                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                    elementType = BuiltInTypes.Unknown; // fallback to avoid cascading errors
-                }
+                var elementType = _patternShapes.ResolveListPatternElementType(listPattern, valueType);
 
                 // Analyze each element pattern
                 foreach (var elemPattern in listPattern.Elements)
@@ -6149,189 +6148,6 @@ public class Analyzer : IDisposable
                     DeclareSymbol(typePattern.BindingName, targetType, pattern.Line, pattern.Column);
                 }
                 break;
-        }
-    }
-
-    private bool TryGetListPatternElementType(TypeInfo valueType, out TypeInfo elementType)
-    {
-        valueType = _declarationContext.ResolveDeclaredAlias(valueType);
-        elementType = BuiltInTypes.Unknown;
-
-        if (valueType is ArrayTypeInfo arrayType)
-        {
-            elementType = arrayType.ElementType;
-            return true;
-        }
-
-        if (valueType is GenericTypeInfo genericType && IsIndexableGenericListPatternType(genericType.Name))
-        {
-            elementType = genericType.TypeArguments.Count > 0
-                ? genericType.TypeArguments[0]
-                : BuiltInTypes.Unknown;
-            return true;
-        }
-
-        if (valueType is ReflectionTypeInfo reflectionType)
-        {
-            return TryGetReflectionListPatternElementType(reflectionType.Type, out elementType);
-        }
-
-        return false;
-    }
-
-    private void ValidateRelationalPattern(
-        RelationalPattern pattern,
-        TypeInfo valueType,
-        TypeInfo patternValueType)
-    {
-        var resolvedValueType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(valueType));
-        var resolvedPatternValueType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(patternValueType));
-        if (BuiltInTypes.IsUnknown(resolvedValueType) || BuiltInTypes.IsUnknown(resolvedPatternValueType))
-        {
-            return;
-        }
-
-        var allowBool = IsEqualityPatternOperator(pattern.Operator);
-        if (IsNullableRelationalPatternType(valueType)
-            || IsNullableRelationalPatternType(patternValueType)
-            || !IsRelationalPatternComparableType(resolvedValueType, allowBool)
-            || !IsRelationalPatternComparableType(resolvedPatternValueType, allowBool)
-            || !_assignability.IsAssignable(valueType, patternValueType))
-        {
-            ReportRelationalPatternTypeMismatch(pattern, valueType, patternValueType);
-        }
-    }
-
-    private static bool IsEqualityPatternOperator(string op)
-        => op is "==" or "!=";
-
-    private bool IsNullableRelationalPatternType(TypeInfo type)
-    {
-        type = _declarationContext.ResolveDeclaredAlias(type);
-        return type is NullableTypeInfo
-            || type is ReflectionTypeInfo reflection && Nullable.GetUnderlyingType(reflection.Type) != null;
-    }
-
-    private bool IsRelationalPatternComparableType(TypeInfo type, bool allowBool)
-    {
-        type = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(type));
-        if (allowBool && IsBoolType(type))
-        {
-            return true;
-        }
-
-        if (BuiltInTypes.Is(type, BuiltInTypes.Decimal))
-        {
-            return false;
-        }
-
-        if (IsNumericType(type))
-        {
-            return true;
-        }
-
-        if (type is ReflectionTypeInfo reflection)
-        {
-            var runtimeType = Nullable.GetUnderlyingType(reflection.Type) ?? reflection.Type;
-            if (allowBool && runtimeType == typeof(bool))
-            {
-                return true;
-            }
-
-            return runtimeType != typeof(decimal)
-                && (runtimeType == typeof(byte)
-                    || runtimeType == typeof(sbyte)
-                    || runtimeType == typeof(short)
-                    || runtimeType == typeof(ushort)
-                    || runtimeType == typeof(int)
-                    || runtimeType == typeof(uint)
-                    || runtimeType == typeof(long)
-                    || runtimeType == typeof(ulong)
-                    || runtimeType == typeof(float)
-                    || runtimeType == typeof(double)
-                    || runtimeType == typeof(char));
-        }
-
-        return false;
-    }
-
-    private void ReportRelationalPatternTypeMismatch(
-        RelationalPattern pattern,
-        TypeInfo valueType,
-        TypeInfo patternValueType)
-    {
-        Error(
-            ErrorCode.TypeMismatch,
-            $"Relational pattern '{pattern.Operator}' can't compare '{valueType}' with '{patternValueType}' before IL emission",
-            pattern.Line,
-            pattern.Column,
-            "Use numeric operands with a supported common type, use a literal pattern for string equality, or move custom comparisons into a match guard.",
-            Math.Max(1, pattern.Operator.Length));
-    }
-
-    private static bool IsIndexableGenericListPatternType(string name)
-        => name is "List" or "IList" or "IReadOnlyList";
-
-    private static bool TryGetReflectionListPatternElementType(Type type, out TypeInfo elementType)
-    {
-        elementType = BuiltInTypes.Unknown;
-        if (type.IsArray)
-        {
-            var arrayElementType = type.GetElementType();
-            if (arrayElementType == null)
-            {
-                return false;
-            }
-
-            elementType = new ReflectionTypeInfo(arrayElementType);
-            return true;
-        }
-
-        const BindingFlags bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-            var shapeTypes = GetListPatternShapeTypes(type).ToArray();
-            var lengthProperty = shapeTypes
-                .Select(shapeType => shapeType.GetProperty("Count", bindingFlags)
-                    ?? shapeType.GetProperty("Length", bindingFlags))
-                .FirstOrDefault(property => property?.GetMethod != null && property.PropertyType == typeof(int));
-            if (lengthProperty?.GetMethod == null || lengthProperty.PropertyType != typeof(int))
-            {
-                return false;
-            }
-
-            var indexerProperty = shapeTypes
-                .SelectMany(shapeType => shapeType.GetProperties(bindingFlags))
-                .FirstOrDefault(property =>
-                {
-                    if (property.GetMethod == null)
-                    {
-                        return false;
-                    }
-
-                    var parameters = property.GetIndexParameters();
-                    return parameters.Length == 1 && parameters[0].ParameterType == typeof(int);
-                });
-
-            if (indexerProperty?.GetMethod == null)
-            {
-                return false;
-            }
-
-            elementType = new ReflectionTypeInfo(indexerProperty.PropertyType);
-            return true;
-    }
-
-    private static IEnumerable<Type> GetListPatternShapeTypes(Type type)
-    {
-        yield return type;
-
-        if (!type.IsInterface)
-        {
-            yield break;
-        }
-
-        foreach (var inheritedInterface in type.GetInterfaces())
-        {
-            yield return inheritedInterface;
         }
     }
 
@@ -14820,6 +14636,7 @@ public class Analyzer : IDisposable
         _reflectionCallReporter = CreateReflectionCallReporter();
         _callAnalysis = CreateCallAnalysis();
         _matchExhaustiveness = CreateMatchExhaustiveness();
+        _patternShapes = CreatePatternShapes();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -14843,6 +14660,7 @@ public class Analyzer : IDisposable
             _reflectionCallReporter = CreateReflectionCallReporter();
             _callAnalysis = CreateCallAnalysis();
             _matchExhaustiveness = CreateMatchExhaustiveness();
+        _patternShapes = CreatePatternShapes();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;

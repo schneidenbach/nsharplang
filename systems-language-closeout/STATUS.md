@@ -1,6 +1,56 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-02 (**TASK 017 SLICE 25 LANDED (no commit — mandate) — THE PATTERN/EXHAUSTIVENESS
+Last updated: 2026-08-02 (**TASK 017 SLICE 26 LANDED (no commit — mandate) — N# OWNS BOTH PATTERN
+SHAPE QUESTIONS: WHETHER A VALUE CAN BE MATCHED AS A LIST, AND WHETHER TWO VALUES CAN BE COMPARED.**
+`AnalyzerPatternShapes.nl` (**361 lines, ONE class, 14 members**) is the sole authority for the list
+pattern's element type and for the relational pattern's comparability judgement, and for BOTH of
+their diagnostics. **9 WHOLE C# MEMBERS DELETED — 174 source lines — PLUS the inline NL504 report
+block (9 lines)**: `TryGetReflectionListPatternElementType` 47, `IsRelationalPatternComparableType`
+42, `TryGetListPatternElementType` 26, `ValidateRelationalPattern` 22, `GetListPatternShapeTypes` 14,
+`ReportRelationalPatternTypeMismatch` 13, `IsNullableRelationalPatternType` 6,
+`IsEqualityPatternOperator` 2, `IsIndexableGenericListPatternType` 2. `git diff` **+12 / −194 = net
+−182**, `Analyzer.cs` **15,338 → 15,156** (non-blank 13,542 → **13,386**), and **ALL 12 ADDED LINES
+ARE MECHANICAL** — a field with its two-line comment, three rebuild assignments, one two-line
+`=> new(...)` factory and the two routed call sites, one of which collapses a 10-line probe-and-report
+block to a single expression. **NO new C# method with policy, bridge, callback, shell or state.**
+**THE MEASUREMENT CAME FIRST AND IT OVERTURNED THE OBVIOUS CLEANUP.** An MLC-instrumented baseline
+logged both clusters' inputs, verdicts, AND the verdict the `FullName` spelling WOULD have given,
+over **all 72 corpus targets + the 50 slice-25 fixtures + 72 new fixtures**: the corpus produces
+**34 list probes (all `ArrayTypeInfo`, all true), ZERO reflected list probes and ZERO relational
+judgements of any kind**, while the fixtures produce **91 comparability judgements, 57 relational
+judgements over 30 distinct type shapes, and 2 reflected list probes** — and one of those two
+DISAGREES: `System.Text.StringBuilder`, read through the `MetadataLoadContext` as an
+`EcmaDefinitionType`, answers **false under `typeof(int)` and true under `FullName`**. So the
+"MLC-safe" rewrite the estate's other reflection owners use is a **BEHAVIOUR CHANGE here**, and the
+`typeof` reference test was PRESERVED and documented rather than quietly improved. PROOFS: the
+semantic-diagnostic oracle over **ALL 72 targets — ORACLE_DIFFS = 0 / STDERR = 0 / EXIT = 0 over 833
+diagnostics across 23 codes**, md5 identical in both trees; **122 fixtures (72 new + all 50 from
+slice 25), 122 / 122 byte-identical on `nlc check` (906 diagnostics over 17 codes, of which NL202 ×36
+and NL504 ×10 are the two this slice owns) and 122 / 122 byte-identical on the UNSORTED `nlc build`
+transcript (8,124 lines, 590 rich blocks)**; **72 / 72 corpus build transcripts, NORMALISED_DIFFS = 0,
+EXIT_DIFFS = 0**; and a corpus IL sweep whose **SAME-CLI CONTROL RAN FIRST and passed** (4 / 4
+identical), then **134 assemblies, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, all 75 EMITTED assemblies
+BYTE-IDENTICAL**, the 59 remaining being one file — the COPIED `NSharpLang.Runtime.dll` — differing in
+**73 bytes inside the CodeView record** with a **0-SOURCE-FILE** Runtime diff between the worktrees,
+and **134 / 134 identical** under the opt-in path/GUID-blind normalisation. GATES: unit **3,194 /
+3,194** zero drift (`dev.sh --since` selected the FULL suite and said why); contracts **2,100 → 2,134
+(+34)**, **2,134 / 2,134**; audit **18 / 18** after a ONE-row in-place repin keeping the manifest at
+**391 lines**, no BOM; the FULL VS Code-enabled `./scripts/test-all.sh --commit`; VSIX rebuilt +
+reinstalled. NO toolset repin needed — the surface probe proved every reflection member this owner
+needs is already published. **FOUR NEW GOTCHAS: (1) `property.GetMethod` as a PROPERTY READ declines
+(`emit.local.initializer`) — the accessor-call spelling `property.get_GetMethod()` binds**, and
+`GetGetMethod()` is NOT a substitute because it is public-only while the search flags include
+`NonPublic`; **(2) `shapeTypes[index].GetProperties(flags)` declines — an INDEXED receiver is a
+chained receiver**, and so is `parameters[0].get_ParameterType()`; bind both to a local first;
+**(3) `typeof(StringBuilder)` declines even with `import System.Text` — the estate's working spelling
+is the FULLY QUALIFIED `typeof(System.Text.StringBuilder)`**; **(4) a transcript normaliser that
+erases `[N.Ns]` still misses `in N.Ns`** — two of 72 corpus transcripts flagged on that alone.
+**A CORRECTION TO THE SLICE-25 INVENTORY:** the family's codes are `PatternTypeMismatch = 504`,
+`GuardNotBoolean = 505`, `ImpossiblePattern = 506` — the slice-25 map named all three one place too
+high. NEXT: slice 27, `IsPatternPossible` and the two `ContainsParserErrorPlaceholder` overloads
+(~76 lines, NL506). Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-02 (**TASK 017 SLICE 25 LANDED (no commit — mandate) — THE PATTERN/EXHAUSTIVENESS
 ARC OPENS AND N# OWNS WHETHER A MATCH IS EXHAUSTIVE, END TO END.** The family was MAPPED first — 30
 members / ~1,330 lines in five clusters — and MEASURED before a line was written: instrumenting every
 decision point of the exhaustiveness cluster over **all 71 corpus targets** showed **96 matches reach
@@ -1052,7 +1102,238 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 25 — THE PATTERN/EXHAUSTIVENESS ARC OPENS, AND
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 26 — THE LIST-PATTERN SHAPE PROBE AND THE
+  RELATIONAL-PATTERN COMPARABILITY PREDICATES** (stage 2 of the slice-25 arc plan). Target recorded
+  BEFORE any production edit, at `19b523c4c` (`Analyzer.cs` **15,338** lines, non-blank **13,542**;
+  BootstrapServices contracts **2,100**; unit suite **3,194**; ownership audit **18 / 18**; manifest
+  **391** lines; `reviewedHeadFingerprint head-v1:85721c0951a0052d`).
+
+  **THE TWO CLOSURES, RE-VERIFIED MEMBER BY MEMBER AT THIS TREE (the established rule).**
+  * **LIST-PATTERN SHAPE — 4 members, 89 source lines.** `TryGetListPatternElementType` (:6155, **26**),
+    `IsIndexableGenericListPatternType` (:6272, **2**), `TryGetReflectionListPatternElementType`
+    (:6275, **47**), `GetListPatternShapeTypes` (:6323, **14**). Reads: `_declarationContext`
+    (`ResolveDeclaredAlias`) only. Callers: ONE — `AnalyzePattern`'s `ListPattern` arm at :6091 — plus
+    the three private edges (:6166, :6176, :6291) that are internal to the cluster. Its reporter is
+    the INLINE `PatternTypeMismatch` block at :6093–:6098 (`_spans.GetListPatternDiagnosticSpan`
+    + `Error` + the `BuiltInTypes.Unknown` cascade fallback), which has exactly this one site and so
+    moves in the same slice. **A CORRECTION TO THE SLICE-25 INVENTORY, verified against the
+    `ErrorCode` enum and against real `nlc check --json` output: this diagnostic renders as
+    **NL504**, not NL505. The enum is `PatternTypeMismatch = 504`, `GuardNotBoolean = 505`,
+    `ImpossiblePattern = 506` — the slice-25 map named the family's last three codes one place too
+    high, so slice 27's `IsPatternPossible` reports **NL506**, not NL505.
+  * **RELATIONAL PATTERNS — 5 members, 85 source lines.** `ValidateRelationalPattern` (:6182, **22**),
+    `IsEqualityPatternOperator` (:6205, **2**), `IsNullableRelationalPatternType` (:6208, **6**),
+    `IsRelationalPatternComparableType` (:6215, **42**), `ReportRelationalPatternTypeMismatch`
+    (:6258, **13**). Reads: `_declarationContext` (`ResolveDeclaredAlias`), `_assignability`
+    (`IsAssignable`), and the two analyzer primitive facts `GetNonNullableType` / `IsBoolType` /
+    `IsNumericType`. Diagnostic: `TypeMismatch` at :6263 with its suggestion line and
+    `Math.Max(1, Operator.Length)` span. Caller: ONE — `AnalyzePattern`'s `RelationalPattern` arm at
+    :6054, behind the two SoA escape gates.
+  * **CONFINEMENT PROVED:** a repo-wide grep for all nine names over `src`, `tests`, `editors`, `docs`
+    and `memory` returns **NOTHING outside `Analyzer.cs`**. `SystemsAnalyzer.cs` holds no copy.
+
+  **THE CAPABILITY WALL WAS PROBED BEFORE THE OWNER WAS WRITTEN, AND IT IS NOT THERE.** The reflected
+  list probe needs four members no `.nl` in the estate had ever used —
+  `Type.GetProperties(BindingFlags)`, `PropertyInfo.GetMethod`, `PropertyInfo.GetIndexParameters()`
+  and `ParameterInfo.ParameterType` — and only two of them appear in
+  `ColumnarExternalBindingPlans.nl`. A throwaway 30-line probe file, built at the PACKAGED toolset and
+  deleted afterwards, settled it in two rounds: **all four bind through the ordinary runtime resolver
+  with no catalog row**, provided the accessor-call spelling is used. **NO toolset repin was needed and
+  NO wall was crossed.** (`GetGetMethod()` — which IS in the catalog — would have been the wrong
+  substitute anyway: it is public-only, while the probe's search flags include `NonPublic`.)
+
+  **THE MEASUREMENT, AND IT DECIDED THE ONE REAL DESIGN QUESTION.** A THROWAWAY instrumented copy of
+  the baseline logged, at all five decision points, the input type, its REFLECTION IMPLEMENTATION
+  CLASS (so an MLC type is visible as such), the real verdict, AND the verdict the `FullName` spelling
+  would have produced. It was run over **all 72 corpus targets + the 50 slice-25 fixtures** and over
+  **72 new fixtures**, then deleted.
+  * **THE CORPUS CANNOT DECIDE EITHER CLUSTER.** 72 targets + 50 fixtures produce **34 list probes —
+    every one an `ArrayTypeInfo`, every one true (32 `int[]`, 2 `string[]`) — and ZERO reflected list
+    probes, ZERO comparability judgements, ZERO nullable questions and ZERO relational judgements.**
+    That is exactly the 34-and-zero the slice-25 measurement predicted, re-measured at this tree.
+  * **THE FIXTURES CARRY THE WHOLE PROOF.** 72 purpose-built fixtures produce **57 relational
+    judgements over 30 distinct `(operator, scrutinee, pattern-value)` shapes, 91 comparability
+    judgements, 110 nullable questions, 16 list probes and 2 reflected list probes.**
+  * **AND THE ONE DISAGREEMENT IS THE DESIGN DECISION.** Of the 91 comparability judgements, **NONE**
+    disagree between `typeof` and `FullName` — the reflected arm's primitive tests are never reached,
+    because `AnalyzerReflectionTypeConversion` maps every primitive to a `BuiltInTypes` simple type
+    before a `ReflectionTypeInfo` can carry one. But of the 2 reflected LIST probes, **ONE DOES**:
+    `System.Text.StringBuilder`, loaded through the `MetadataLoadContext` as an `EcmaDefinitionType`,
+    has an int `Length` and an int indexer and so is list-shaped by NAME — and is NOT list-shaped by
+    `typeof(int)` REFERENCE identity, because the projected `System.Int32` is not `typeof(int)`.
+    **So the estate's documented "MLC-safe" idiom would have SILENTLY CHANGED BEHAVIOUR here**, turning
+    an NL504 into a successful match. The `typeof` reference test is PRESERVED verbatim, the fixture
+    that pins it (`l13-external-stringbuilder`) is byte-identical in both trees, and the owner carries
+    a comment saying why the obvious cleanup is not a cleanup. An ownership slice does not smuggle a
+    behaviour change; a later slice can make that change with its own evidence.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS BOTH SHAPE QUESTIONS.** `Analyzer.cs` keeps no part
+  of "can this value be matched as a list, and what does one element hold?" — not the alias
+  resolution, not the array arm, not the three-name generic test, not the reflected array arm, not the
+  `Count`-then-`Length` search, not the inherited-interface walk, not the indexer scan, not the
+  `unknown` cascade fallback and not the NL504 report or its span. And it keeps no part of "can these
+  two values be compared before IL emission?" — not the unknown early return, not the `allowBool`
+  derivation, not either nullable test, not the ordered-primitive table in either vocabulary, not the
+  `decimal` exclusion, not the assignability test and not the NL202 report, its suggestion or its
+  operator-width span.
+
+  **THE CUT — 9 WHOLE C# MEMBERS (174 SOURCE LINES) PLUS THE INLINE 9-LINE NL504 BLOCK.**
+  `TryGetReflectionListPatternElementType` 47, `IsRelationalPatternComparableType` 42,
+  `TryGetListPatternElementType` 26, `ValidateRelationalPattern` 22, `GetListPatternShapeTypes` 14,
+  `ReportRelationalPatternTypeMismatch` 13, `IsNullableRelationalPatternType` 6,
+  `IsEqualityPatternOperator` 2, `IsIndexableGenericListPatternType` 2. `git diff` **+12 / −194 = net
+  −182**; `Analyzer.cs` **15,338 → 15,156** (non-blank 13,542 → **13,386**). **ALL 12 ADDED LINES ARE
+  MECHANICAL:** a field declaration with its two-line comment, three rebuild-site assignments, one
+  two-line `=> new(...)` factory (`CreatePatternShapes`, in the shape of `CreateMatchExhaustiveness`
+  beside it) and the two routed call sites. The `ListPattern` arm's 10-line probe-and-report block
+  becomes ONE line, `var elementType = _patternShapes.ResolveListPatternElementType(listPattern,
+  valueType);`. **NO new C# method with policy, bridge, callback, shell or state, and N# calls nothing
+  back.** No surviving member became dead; every `using` in the file is still load-bearing.
+
+  **N# ADDED:** `AnalyzerPatternShapes.nl` **361** lines (ONE class, 14 members) and
+  `AnalyzerPatternShapes.tests.nl` **592** lines with **34 contracts**. The contracts go at the
+  decision rather than at the message: the three indexable names and their near misses
+  (`IReadOnlyCollection` is NOT one), the zero-type-argument generic that answers `unknown` rather
+  than "no shape", the OWNED-versus-UNOWNED alias (registration is what makes `ResolveDeclaredAlias`
+  transparent), the reflected array / class / INTERFACE arms with real BCL metadata — including the
+  one that proves the inherited-interface walk by first asserting that
+  `typeof(IReadOnlyList<int>).GetProperty("Count", flags)` is **null**, so without the walk every
+  `[first]` over an `IReadOnlyList<int>` would report — every ordered primitive in both vocabularies,
+  `decimal`'s exclusion under BOTH operator kinds, `bool`'s equality-only admission, the reflected
+  `Nullable<T>` on which the two members deliberately DISAGREE (comparability looks through it and
+  says yes; the nullable question says yes and is what makes the judgement report), the four
+  independent ways to say no OR-ed into exactly ONE report, the assignability test's independence
+  (`int` and `double` are both comparable and `int < 1.5` still reports), and both diagnostics'
+  verbatim message, suggestion and span.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `19b523c4c` and at the working tree, **both over the SAME sources**, across **ALL 72 `project.yml`
+  targets with no exclusion** — the ROOT target and `BootstrapServices` (which now contains the new
+  owner) included: **ORACLE_DIFFS = 0, ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0, SKIPPED = 0**,
+  over **833 diagnostics across 23 codes**, md5 `994342f8bfe2bc7c5b07053b350fa7d2` in BOTH trees.
+
+  **PROOF — 122 FIXTURES, CHECK AND THE UNSORTED BUILD TRANSCRIPT.** 72 new fixtures (24 list-shape,
+  48 relational) run TOGETHER WITH all 50 from slice 25, so the exhaustiveness family's proofs are
+  re-run rather than assumed. Coverage built straight from the measurement's gaps: arrays of int /
+  string / nested array / record / union / nullable element, `List` / `IList` / `IReadOnlyList`, the
+  rejected `IEnumerable` / `Dictionary` / `int` / `string` scrutinees, an EXTERNAL reflected receiver
+  in both directions (`StringBuilder`, `Uri`), empty / nested / slice-bound / slice-unbound /
+  slice-only patterns, a generic function's `List<T>`, two mismatches in declaration order; and for
+  the relational half every ordered primitive, `decimal` under both operator kinds, `string` under
+  `<` and `==`, `object`, `bool` under `==`, `!=` and `>`, a source enum and an external enum,
+  `int?` and `double?`, both directions of the numeric widening, `and` / `or` / `not` nesting, a
+  guard, a non-boolean guard (NL505), a nested match, list-element relational patterns, and an
+  unknown operand. **A PRODUCT OBSERVATION THE FIXTURES TURNED UP, unchanged by this slice and equal
+  in both trees: `type Row = []int` does NOT parse** — an ARRAY alias is off the N# surface today, and
+  the declaration reports NL102 / NL101 / NL903 rather than declaring an alias. The alias arm of both
+  clusters is therefore pinned by CONTRACTS (an owned `AliasTypeInfo` over an `ArrayTypeReference`)
+  rather than by a fixture. **`nlc check --json`: FX_CHECK_DIFFS = 0, FX_CHECK_EXIT_DIFFS = 0, 906 diagnostics
+  over 17 codes — NL202 ×36 and NL504 ×10 are the two this slice owns, alongside NL501 ×25, NL503 ×6
+  and NL505 ×5**, md5 `53832552366b055f6e95162c9a0cfa71` in BOTH. **`nlc build main.nl`, which renders
+  `_errors` in LIST order with NO dedup and NO sort: 122 / 122 BYTE-IDENTICAL, FX_BUILD_DIFFS = 0,
+  FX_BUILD_EXIT_DIFFS = 0, 8,124 lines carrying 590 rich diagnostic blocks over 11 codes**, md5
+  `de84a78b05928678adc6143489e0b0f8` in BOTH.
+
+  **A MEASURED FACT WORTH RECORDING: BOTH FAMILIES REPORT EXACTLY ONCE PER PATTERN.** Like slice 25's
+  exhaustiveness check and unlike slice 24's receiver protocol — where the same NL401 printed 12 and
+  48 times — the unsorted build transcript's counts EQUAL the deduplicated `check` counts: the
+  three-arm relational fixture prints NL202 exactly 3 times in both surfaces, the two-mismatch list
+  fixture prints NL504 exactly twice, and the nested-match fixture prints once. The order fixture is
+  the other half of the point: a file with a list mismatch and a relational mismatch emits **NL504
+  then NL202**, in declaration order, in both trees.
+
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP, SAME-CLI CONTROL FIRST.** The control ran before the sweep and
+  PASSED — three targets built twice by the SAME CLI into equal-length output paths, **4 / 4
+  assemblies identical, DIFFERENT = 0** — so the normaliser (COFF `TimeDateStamp` at +4, the PE
+  checksum, the debug-directory stamps, and the `#GUID` heap) is proven complete before any verdict is
+  read off it. Both CLIs then built all **72 targets** from equal-length worktrees
+  (`/private/tmp/nsharp017s26b` and `…26w`): **134 comparable assemblies, ONLY_IN_BASE = 0,
+  ONLY_IN_WORK = 0**, and **all 75 EMITTED assemblies BYTE-IDENTICAL**. The 59 remaining are one file,
+  the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — **73 bytes of a
+  14,848-byte file, first at offset 136, all inside the CodeView record** (PDB GUID, the embedded
+  worktree path, the PDB checksum) — and `diff -rq` over `src/NSharpLang.Runtime` between the two
+  worktrees reports **0 SOURCE files** (all 11 reported entries are `bin/` and `obj/` build
+  artefacts), so no slice change can reach it. Under the OPT-IN path/GUID-blind normalisation all
+  **134 / 134** compare identical.
+
+  **PROOF — CORPUS UNSORTED BUILD TRANSCRIPTS, AND A NEW NORMALISER GOTCHA THE PASS ITSELF FOUND.**
+  All 72 targets' `nlc build` output was compared with only the elapsed-time reading and the
+  `--output` path normalised: **TRANSCRIPTS = 72, EXIT_DIFFS = 0**, and **NORMALISED_DIFFS = 0** —
+  but only after the normaliser was WIDENED. Two targets (the ROOT and `BootstrapServices`) flagged on
+  the first pass, and the diagnosis was ONE line each: `Build failed in 14.1s` versus `in 14.5s`. The
+  pattern erased `[N.Ns]` and there is a SECOND spelling, `in N.Ns`, with no brackets. Re-run with
+  both, each target's 482- and 466-line transcript differs in **0 lines** with identical exit codes.
+  Slice 24's rule generalises: a transcript differential needs its own normaliser AND its own
+  justification for every field it erases — and the fields are not always spelled the same way twice.
+
+  **FOUR `.nl` GOTCHAS, ALL FOUND BY BUILDING, ALL NEW.** **(1) `property.GetMethod` written as a
+  PROPERTY READ declines** at `emit.local.initializer` naming the LOCAL, not the member — the
+  accessor-call spelling **`property.get_GetMethod()`** binds, and `GetGetMethod()` is NOT an
+  equivalent substitute because it is public-only while the search flags include `NonPublic`.
+  **(2) An INDEXED receiver is a chained receiver:** `shapeTypes[index].GetProperties(flags)` declines
+  at `emit.call.instance-member-unmodeled`, and so does `parameters[0].get_ParameterType()`; bind both
+  to a local first. This is the previously recorded "chained instance call on a member-access or call
+  result" gotcha in a NEW shape. **(3) `typeof(StringBuilder)` declines even with `import System.Text`
+  in scope** — the estate's 11 working uses are all the FULLY QUALIFIED
+  `typeof(System.Text.StringBuilder)`; the same care applies to any type not already in the contracts'
+  `typeof` vocabulary (`typeof(DayOfWeek)` and `typeof(Uri)` were replaced with
+  `typeof(MethodAttributes)` and `typeof(Version)` for the same reason, and `typeof(Nullable<int>)`
+  with `typeof(int?)`). **(4) NL103 reports only the FIRST decline**, so a file with several
+  unmodelled shapes takes one build per shape to clear — budget for it.
+
+  **EVIDENCE.** Full unit suite **3,194 / 3,194, 0 failed** — exactly the `19b523c4c` baseline COUNT,
+  ZERO drift; `./scripts/dev.sh --since` selected the FULL suite and said why (`Analyzer.cs` is
+  central), 8m01s, no flake, so the cool-rerun rule was not needed. BootstrapServices contracts
+  **2,100 → 2,134 (+34)**, **2,134 / 2,134 PASS** via the gate's own
+  `dotnet test -p:NSharpExcludeTests=false` invocation. Ownership audit **18 / 18** against the freshly
+  written manifest. **NO toolset repin was needed and NO wall was crossed** — the surface probe above
+  proved it in advance, and the PACKAGED-SDK build of `BootstrapServices` compiled the owner and all
+  34 contracts. **RATCHET REPIN** — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 15,338 → **15,156**, currentNonBlankLines
+  13,542 → **13,386**, fingerprint `text-v1:2f52563fd4476414` → `text-v1:0d4f5048d745efa8` (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **8,295 / 7,151**); `reviewedHeadFingerprint
+  head-v1:85721c0951a0052d` → **`head-v1:e4b800d212b0459d`**, mirrored into `OwnershipAudit.nl`. Every
+  `epoch*` value, `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched
+  and RE-VALIDATED by recomputation both before and after the write — all four STORED values
+  reproduced EXACTLY before a single byte changed. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is
+  391 before AND after, the manifest `git diff` is exactly 2 changed lines and `OwnershipAudit.nl`'s is
+  exactly 1**; neither file carries a BOM afterwards. The full 381-row sweep found exactly ONE drifted
+  row (`Analyzer.cs`) plus the six PRE-EXISTING `MISSING` rows for files earlier slices deleted, which
+  were deliberately LEFT ALONE.
+
+  **GATE — THE FULL VS CODE-ENABLED `./scripts/test-all.sh --commit`, ALL TESTS PASSED ON THE FIRST
+  RUN, 30m35s**, in a fresh isolated copy (stored key `1485f1d31e27bfb1` — "Fresh isolated test run
+  required: pre-commit verification", so neither a cached whole-gate nor a cached per-step verdict;
+  the validated result was stored only on success). Green with **zero `✗`** across all sixteen steps:
+  clean, compiler build (3m29s), the format contract gate, unit tests (10m12s, **3,194 / 3,194**), the
+  native `.tests.nl` estate including BootstrapServices' **2,134 / 2,134** and
+  `tests/native/ownership-audit`'s **18 / 18** (5m29s), **VS Code integration tests (4m12s, 36
+  passing / 0 failing)**, SDK pack + install (6m27s), template pack / install / creation, the
+  template-generated project, all example and fixture projects, all single-file examples, `nlc check`
+  over the examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new
+  errors vs baseline**. The cold-`TestSdkFeed` five-minute-cap hazard did NOT appear and no cool rerun
+  was needed. `./scripts/reload-vscode-extension.sh` was RUN and the VSIX rebuilt + reinstalled.
+  INTERACTIVE computer-use verification was NOT attempted, per the coordinator's standing instruction.
+  The IDE-facing surface this slice OWNS is two squiggles — "a list pattern can only match arrays or
+  indexable collections" on the scrutinee's `[...]`, and "relational pattern '<' can't compare …" under
+  the OPERATOR — and they are pinned by 833 byte-identical corpus diagnostics across all 72 targets,
+  122 byte-identical fixture `check` results carrying NL504 ×10 and NL202 ×36, 122 byte-identical
+  unsorted fixture build transcripts (8,124 lines, 590 rich blocks), 72 byte-identical corpus build
+  transcripts, 75 byte-identical emitted assemblies, the gate's own VS Code integration run, and 67
+  IL-verified assemblies.
+
+  **WALL STATUS: NO wall crossed, NO toolset repin needed.** This slice consumes only surface the
+  catalog and the ordinary runtime resolver already publish; it adds no catalog row and no language
+  capability.
+
+  **NEXT SLICE: 017 SLICE 27 — `IsPatternPossible` (:13958, 56 lines, the impossible-pattern
+  judgement, which reports **NL506** `ImpossiblePattern` — NOT NL505, per the code correction above)
+  and the two `ContainsParserErrorPlaceholder` overloads (20 lines).** ~76 lines, stage 3 of the arc
+  plan. It is pure over two `TypeInfo`s and already sits on the N#-owned `AnalyzerConversionFacts` /
+  `AnalyzerAssignability`, and it has no walk to suspend. Its fixtures must again be built rather than
+  found: the slice-25 measurement counted `pat.impossible = 0` across the whole corpus.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 25 — THE PATTERN/EXHAUSTIVENESS ARC OPENS, AND
   ITS FIRST SLICE IS TERMINAL FOR THE WHOLE EXHAUSTIVENESS DECISION.** Target recorded BEFORE any
   production edit, at `19a3579ce` (`Analyzer.cs` **15,966** lines, non-blank **14,099**;
   BootstrapServices contracts **2,059**; unit suite **3,194**; ownership audit **18 / 18**; manifest
