@@ -276,6 +276,10 @@ public class Analyzer : IDisposable
     // What the analyzer says about a reflected call that bound to nothing, and about a method named
     // where a value is required. Rebuilt with the SCC — it holds the assignability facts.
     private AnalyzerReflectionCallReporter _reflectionCallReporter;
+    // Everything a call expression means — the branch, the argument schedule, the receiver protocol,
+    // the reporting order and the resulting type. Rebuilt with the SCC: it holds the walk, the
+    // validator, the reflected-call reporter and assignability, all of which the rebuild replaces.
+    private AnalyzerCallAnalysis _callAnalysis;
     private bool _disposed;
 
     public Analyzer()
@@ -312,7 +316,18 @@ public class Analyzer : IDisposable
         _constantExpressionFacts = new AnalyzerConstantExpressionFacts(_scopes, _declarationContext);
         _syntheticCallValidator = CreateSyntheticCallValidator();
         _reflectionCallReporter = CreateReflectionCallReporter();
+        _callAnalysis = CreateCallAnalysis();
     }
+
+    private AnalyzerCallAnalysis CreateCallAnalysis()
+        => new(
+            _syntheticCallReporter,
+            _syntheticCallWalk,
+            _syntheticCallValidator,
+            _reflectionCallReporter,
+            _typeSubstitution,
+            _assignability,
+            _diagnostics);
 
     private AnalyzerReflectionCallReporter CreateReflectionCallReporter()
         => new(
@@ -8597,177 +8612,88 @@ public class Analyzer : IDisposable
     /// Walks a CLR parameter type and a TypeInfo argument in parallel to extract TypeInfo bindings
     /// for generic parameters. Handles interface compatibility (e.g., List&lt;T&gt; matching IEnumerable&lt;TSource&gt;).
     /// </summary>
+    /// <summary>
+    /// The steps the N#-owned call walk cannot take for itself: the analyzer's own expression walk,
+    /// the reflected-call binders, and the reporters that have not moved yet. The walk runs in
+    /// <see cref="AnalyzerCallAnalysis"/>, suspends at each step and resumes with the answer, because
+    /// the number of times the member-access RECEIVER is analysed depends on which overload the bind
+    /// chose — and the bind consumes the first receiver analysis, so no schedule computed up front
+    /// reproduces it. Which branch, which node, which expected type, which report, how many receiver
+    /// analyses and what the call's type finally is are all the walk's decisions; this loop performs
+    /// the one operation it is handed, with the operands it is handed.
+    /// </summary>
     private TypeInfo AnalyzeCall(CallExpression call)
     {
-        if (TryAnalyzeResultConstructorCall(call, out var resultType))
-            return resultType;
-
-        var calleeType = AnalyzeCallCallee(call.Callee);
-        ReportPossibleNullAccess(call.Callee, calleeType, call.Line, call.Column, "call", isNullConditional: false);
-
-        // Analyze arguments
-        var argTypes = new List<TypeInfo>();
-        if (calleeType is FunctionTypeInfo functionType && functionType.ParameterTypes != null)
+        var state = _callAnalysis.BeginCall(call);
+        for (var step = _callAnalysis.NextCallStep(state);
+             step != null;
+             step = _callAnalysis.NextCallStep(state))
         {
-            int[]? syntheticParameterIndexByArgument = null;
-            var parameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call);
-            if (_syntheticCallReporter.TryBindAndReport(
-                    functionType,
-                    AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call),
-                    call,
-                    out var boundSyntheticArguments,
-                    parameterStartIndex,
-                    reportErrors: false))
+            TypeInfo? answer = null;
+            var handled = false;
+            switch (step.Kind)
             {
-                syntheticParameterIndexByArgument = boundSyntheticArguments;
-            }
-
-            // Receiver-style extension calls supply the first source parameter from the member
-            // access receiver, not the argument list.
-            var syntheticExpectedBindings = _syntheticCallWalk.InferGenericBindings(
-                functionType, call, Array.Empty<TypeInfo>(), AnalyzeSyntheticCallReceiver(functionType, call));
-            for (int i = 0; i < call.Arguments.Count; i++)
-            {
-                var argument = call.Arguments[i];
-                var argumentErrorsBefore = _errors.Count;
-                Dictionary<Expression, TypeInfo>? refOutTargetExpressionTypes;
-                var expectedIndex = syntheticParameterIndexByArgument != null
-                    ? syntheticParameterIndexByArgument[i]
-                    : i + parameterStartIndex;
-                var expectedType = _syntheticCallValidator.GetExpectedArgumentType(
-                    functionType,
-                    call,
-                    i,
-                    expectedIndex,
-                    syntheticExpectedBindings);
-
-                argTypes.Add(AnalyzeRefOutArgumentExpression(argument, expectedType, out refOutTargetExpressionTypes));
-                ReportInvalidRefOutArgumentTargetIfNeeded(argument, argumentErrorsBefore, refOutTargetExpressionTypes);
-            }
-        }
-        else
-        {
-            // When the callee is a method group, lambdas will be analyzed later during
-            // method binding with proper delegate type context. Analyzing them here with
-            // null expected type would give lambda parameters 'unknown' type, producing
-            // spurious errors for operators like || and && inside the lambda body.
-            var isMethodGroup = calleeType is ReflectionMethodGroupInfo or NSharpMethodGroupInfo
-                or ReflectionMethodInfo;
-            foreach (var arg in call.Arguments)
-            {
-                var argumentErrorsBefore = _errors.Count;
-                if (isMethodGroup && arg.Value is LambdaExpression)
+                case 1:
+                    handled = TryAnalyzeResultConstructorCall(call, out var factoryType);
+                    answer = factoryType;
+                    break;
+                case 2:
+                    answer = AnalyzeCallCallee(call.Callee);
+                    break;
+                case 3:
+                    ReportPossibleNullAccess(
+                        step.Node!, step.CarriedType!, step.Line, step.Column, step.Text!, step.Flag);
+                    break;
+                case 4:
                 {
-                    argTypes.Add(BuiltInTypes.Unknown);
-                    ReportInvalidRefOutArgumentTargetIfNeeded(arg, argumentErrorsBefore, expressionTypes: null);
-                    continue;
+                    var argumentErrorsBefore = _errors.Count;
+                    answer = AnalyzeRefOutArgumentExpression(
+                        step.ArgumentNode!,
+                        step.CarriedType,
+                        out var refOutTargetExpressionTypes,
+                        allowUnboundCallableReference: step.Flag);
+                    ReportInvalidRefOutArgumentTargetIfNeeded(
+                        step.ArgumentNode!, argumentErrorsBefore, refOutTargetExpressionTypes);
+                    break;
                 }
-                argTypes.Add(AnalyzeRefOutArgumentExpression(
-                    arg,
-                    expectedType: null,
-                    out var refOutTargetExpressionTypes,
-                    allowUnboundCallableReference: isMethodGroup));
-                ReportInvalidRefOutArgumentTargetIfNeeded(arg, argumentErrorsBefore, refOutTargetExpressionTypes);
+                case 5:
+                    ReportInvalidRefOutArgumentTargetIfNeeded(
+                        step.ArgumentNode!, _errors.Count, expressionTypes: null);
+                    break;
+                case 6:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 7:
+                    ReportSoaRowEscape(step.Node!, step.Text!);
+                    break;
+                case 8:
+                    handled = ReportSoaDirectColumnMutatingArrayCallIfNeeded(call);
+                    break;
+                case 9:
+                    handled = ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded(call);
+                    break;
+                case 10:
+                    handled = ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(call, step.CarriedType!);
+                    break;
+                case 11:
+                    handled = ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded(call, step.CarriedType!);
+                    break;
+                case 12:
+                    answer = BindSingleReflectionMethod(step.Method!, call);
+                    break;
+                case 13:
+                    answer = BindReflectionCall(step.MethodGroup!, call);
+                    break;
+                case 14:
+                    _semanticModel.RecordExpressionType(
+                        call.Callee.Line, call.Callee.Column, step.CarriedType!);
+                    break;
             }
+
+            _callAnalysis.SupplyCallStep(state, answer, handled);
         }
 
-        for (var i = 0; i < argTypes.Count; i++)
-        {
-            if (argTypes[i] is SoaRowTypeInfo)
-            {
-                ReportSoaRowEscape(call.Arguments[i].Value, "passed as an argument");
-            }
-        }
-
-        if (ReportSoaDirectColumnMutatingArrayCallIfNeeded(call))
-            return BuiltInTypes.Unknown;
-        if (ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded(call))
-            return BuiltInTypes.Unknown;
-        if (ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(call, calleeType))
-            return BuiltInTypes.Unknown;
-        if (ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded(call, calleeType))
-            return BuiltInTypes.Unknown;
-
-        // Resolve return type from function type
-        if (calleeType is FunctionTypeInfo funcType)
-        {
-            if (funcType.ParameterTypes != null)
-            {
-                _syntheticCallValidator.ValidateCall(
-                    funcType, call, argTypes, AnalyzeSyntheticCallReceiver(funcType, call));
-                return _syntheticCallValidator.ResolveReturnType(
-                    funcType, call, argTypes, AnalyzeSyntheticCallReceiver(funcType, call));
-            }
-            return funcType.ReturnType ?? BuiltInTypes.Void;
-        }
-
-        // Handle reflection method calls
-        if (calleeType is ReflectionMethodInfo methodInfo)
-        {
-            var boundCall = BindSingleReflectionMethod(methodInfo.Method, call);
-            if (boundCall?.ReturnType != null)
-                return boundCall.ReturnType;
-
-            return _reflectionCallReporter.ReportUnboundCall(call, new[] { methodInfo.Method }, argTypes);
-        }
-
-        // Handle method group (overloaded methods)
-        if (calleeType is ReflectionMethodGroupInfo methodGroup)
-        {
-            var boundCall = BindReflectionCall(methodGroup, call);
-            if (boundCall?.ReturnType != null)
-                return boundCall.ReturnType;
-
-            return _reflectionCallReporter.ReportUnboundCall(call, methodGroup.Methods, argTypes);
-        }
-
-        // Handle newtype construction: UserId(42)
-        if (calleeType is NewtypeInfo newtypeInfo)
-        {
-            if (call.Arguments.Count != 1)
-            {
-                Error($"Newtype '{newtypeInfo.Name}' constructor expects exactly 1 argument but got {call.Arguments.Count}",
-                    call.Line, call.Column);
-            }
-            else
-            {
-                var underlyingType = _typeSubstitution.ResolveTypeForSourceOwner(
-                    newtypeInfo.UnderlyingType,
-                    newtypeInfo,
-                    substitution: null);
-                if (!_assignability.IsAssignable(underlyingType, argTypes[0]))
-                {
-                    Error(ErrorCode.TypeMismatch,
-                        $"Cannot construct '{newtypeInfo.Name}': argument of type '{argTypes[0]}' is not assignable to underlying type '{underlyingType}'",
-                        call.Line, call.Column);
-                }
-            }
-            return newtypeInfo;
-        }
-
-        // Handle N#-declared method group (overloaded N# methods)
-        if (calleeType is NSharpMethodGroupInfo nsharpGroup)
-        {
-            var functions = GetNSharpMethodGroupFunctions(nsharpGroup);
-            if (functions.Count > 0)
-            {
-                var boundFunction = _syntheticCallWalk.BindNSharpCall(
-                    functions, call, argTypes, AnalyzeSyntheticCallReceiver(functions, call, argTypes));
-                if (boundFunction != null)
-                {
-                    _semanticModel.RecordExpressionType(call.Callee.Line, call.Callee.Column, boundFunction);
-                    _syntheticCallValidator.ValidateCall(
-                        boundFunction, call, argTypes, AnalyzeSyntheticCallReceiver(boundFunction, call));
-                    return _syntheticCallValidator.ResolveReturnType(
-                        boundFunction, call, argTypes, AnalyzeSyntheticCallReceiver(boundFunction, call));
-                }
-
-                _syntheticCallValidator.ReportNoMatchingOverload(functions, call, argTypes);
-                return BuiltInTypes.Unknown;
-            }
-        }
-
-        return BuiltInTypes.Unknown;
+        return state.Result;
     }
 
     private TypeInfo AnalyzeRefOutArgumentExpression(
@@ -9195,26 +9121,6 @@ public class Analyzer : IDisposable
             }
         }
     }
-
-    /// <summary>
-    /// The member-access RECEIVER's type, for the one inference arm that needs it — and only when the
-    /// N#-owned walk says it will read one. The walk cannot re-enter the expression walk from across
-    /// the boundary and a provider would be a callback, so the analysis happens here and the type
-    /// crosses as a value; the DECISION stays in <see cref="AnalyzerSyntheticCallWalk.NeedsReceiverType"/>,
-    /// which is the walk's own guard.
-    /// </summary>
-    private TypeInfo? AnalyzeSyntheticCallReceiver(FunctionTypeInfo functionType, CallExpression call)
-        => AnalyzerSyntheticCallWalk.NeedsReceiverType(functionType, call)
-            && call.Callee is MemberAccessExpression memberAccess
-                ? AnalyzeExpression(memberAccess.Object)
-                : null;
-
-    private TypeInfo? AnalyzeSyntheticCallReceiver(
-        IReadOnlyList<FunctionTypeInfo> candidates, CallExpression call, IReadOnlyList<TypeInfo> argTypes)
-        => _syntheticCallWalk.AnyCandidateNeedsReceiverType(candidates, call, argTypes)
-            && call.Callee is MemberAccessExpression memberAccess
-                ? AnalyzeExpression(memberAccess.Object)
-                : null;
 
     private TypeInfo ResolveDeclaredFunctionCallReturnType(FunctionDeclaration decl)
     {
@@ -15542,6 +15448,7 @@ public class Analyzer : IDisposable
         _syntheticCallWalk = CreateSyntheticCallWalk();
         _syntheticCallValidator = CreateSyntheticCallValidator();
         _reflectionCallReporter = CreateReflectionCallReporter();
+        _callAnalysis = CreateCallAnalysis();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -15563,6 +15470,7 @@ public class Analyzer : IDisposable
             _syntheticCallWalk = CreateSyntheticCallWalk();
             _syntheticCallValidator = CreateSyntheticCallValidator();
             _reflectionCallReporter = CreateReflectionCallReporter();
+            _callAnalysis = CreateCallAnalysis();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;

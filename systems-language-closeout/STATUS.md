@@ -1,6 +1,54 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-02 (**RATCHET REMEDIATION of the two chip commits `6658e8304` (nlc-check
+Last updated: 2026-08-02 (**TASK 017 SLICE 24 LANDED (no commit — mandate) — N# OWNS WHAT A CALL
+MEANS, END TO END, AND THE OVERLOAD ARC IS CLOSED.** `AnalyzeCall` was the arc's last substantial
+member and it moved as a RESUMABLE WALK — a shape the measurement made mandatory rather than
+preferred. **THE MEASUREMENT CAME FIRST**: all six `AnalyzeSyntheticCallReceiver` sites were
+instrumented in the baseline, and over ALL 71 corpus targets **48,611 `AnalyzeCall` entries produced
+96,502 receiver-site evaluations and NOT ONE FIRED** — the corpus declares no receiver-style generic
+function, so it could not decide the shape. Purpose-built fixtures did: the common shapes are bimodal
+(0 or 3 receiver analyses, never 1 or 2), a receiver whose own analysis reports **reports on every
+repeat** (27 of 30 measured triples report THREE times; `nlc build` prints the same NL401 **12 times**
+on `Bad(1, 2).Tag("x")` and **48 times** on the nested form, while `nlc check` distincts it to one),
+and — the counterexample that settled it — **an overload group whose winner is NOT receiver-style
+generic fires the receiver exactly ONCE**, because only the chosen overload decides whether the other
+two happen and the bind consumes the first analysis. No schedule computed up front reproduces that,
+so the banked recommendation (a) is REFUTED and the walk suspends instead. **3 C# members DELETED,
+190 source lines** (`AnalyzeCall` 172, both `AnalyzeSyntheticCallReceiver` overloads 11, their doc
+comment 7); `git diff` **+90 / −182 = net −92**, `Analyzer.cs` **16,058 → 15,966** (non-blank
+14,177 → **14,099**), and what remains is a zero-policy driver — a request loop and a switch whose
+every case performs ONE pre-existing operation with N#-supplied operands. **N# ADDED:**
+`AnalyzerCallAnalysis.nl` **704** and `AnalyzerCallAnalysis.tests.nl` **541** with **13 contracts**
+that pin the step transcript itself, including both receiver counts. PROOFS: a canonical protocol
+differential instrumented at the SAME 14 operations in both trees and compared IN EMISSION ORDER —
+**4,551 rows over 36 fixtures (md5 `06ca7841cd6f76e67a679f7300e895e6`) and 26,259 rows over 47 corpus
+targets (md5 `d9492ba861d4e23c181feaac7c1a8848`), 0 mismatches, identical md5s in BOTH trees**, each
+row carrying `_errors.Count` before and after; the semantic-diagnostic oracle across **ALL 71 corpus
+targets, ORACLE_DIFFS = 0 / STDERR = 0 / EXIT = 0 over 809 diagnostics**; **36 / 36 byte-identical
+`nlc check` results AND unsorted `nlc build` transcripts** (2,500 lines, 166 rich blocks, 68
+diagnostics over 14 NL codes); and a corpus IL sweep over **109 targets / 218 transcripts
+(TRANSCRIPT_DIFFS = 0)** in which **all 100 EMITTED assemblies are BYTE-IDENTICAL** and the 92
+remaining diffs are one file, the COPIED `NSharpLang.Runtime.dll`, root-caused to a one-byte-longer
+CodeView PDB path (34 bytes over the whole file; the two trees' Runtime SOURCE diff is 0 files).
+GATES: unit **3,194 / 3,194** (zero drift, `dev.sh --since` full-suite fail-safe, 17m33s); contracts
+**2,046 → 2,059 (+13)**, **2,059 / 2,059**; audit **18 / 18** after a ONE-row in-place repin that
+keeps the manifest at **391 lines** (2 changed lines there, 1 in `OwnershipAudit.nl`, every epoch
+value re-validated by recomputation before AND after); and the FULL VS Code-enabled
+`./scripts/test-all.sh --commit` **ALL TESTS PASSED in 31m42s ON THE FIRST RUN** in a fresh isolated
+copy (zero `✗`, VS Code integration **4m24s**, all 67 assemblies IL-verified); VSIX rebuilt +
+reinstalled. NO toolset repin needed — no catalog surface was added, and the owner plus all 13
+contracts compiled clean on the FIRST build at the packaged toolset. THREE NEW GOTCHAS, all found by
+measuring: **(1) a byte-exact IL sweep's verdict means nothing until a SAME-CLI control proves the
+normaliser complete** — the first sweep cried "173 of 192 differ" because the COFF `TimeDateStamp` is
+at `IMAGE_FILE_HEADER + 4`, not `+8`, and only building one target twice with the SAME compiler
+exposed it; **(2) `new LambdaExpression(...)` with a non-existent constructor overload declines at
+`emit.typed-local.initializer` naming the LOCAL, not the constructor**; **(3) the ratchet manifest and
+`OwnershipAudit.nl` carry NO BOM** — read them `utf-8-sig` but write them plain `utf-8`, or the repin
+adds one and shows as a phantom first-line diff. NEXT FAMILY: **patterns and exhaustiveness**, then
+definite assignment / flow joins, then the expression and statement walkers. Its full record is in
+the Cursor block below)
+
+Last updated (prior): 2026-08-02 (**RATCHET REMEDIATION of the two chip commits `6658e8304` (nlc-check
 NotImplementedException on receiver-style generics) and `c78ea1f22` (formatter safety-check
 failures).** Both fixes are CORRECT and STAY; both landed WITHOUT ratchet accounting, so the
 ownership audit failed with **10 violations** across five tracked files. All ten are now **PAID, with
@@ -968,8 +1016,213 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 23 — `ResolveMember` AND THE EXTENSION CARRIER
-  LAND (phase B, post-repin).** Target recorded BEFORE any production edit, at `47e4b8f44`
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 24 — `AnalyzeCall`, THE OVERLOAD ARC'S TERMINAL
+  MEMBER.** Target recorded BEFORE any production edit, at `889528b52` (`Analyzer.cs` **16,058**
+  lines, non-blank **14,177**; BootstrapServices contracts **2,046**; unit suite **3,194**; ownership
+  audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint head-v1:b4b2e4cdedb18076`).
+
+  **THE TARGET — `AnalyzeCall` (:8600, 172 lines / 169 body), plus the two
+  `AnalyzeSyntheticCallReceiver` overloads (:9206 and :9212, 12 lines) whose GUARD is the thing the
+  walk owns.** Re-measured name by name at this tree: **11 re-entry sites over 4 kinds** —
+  `AnalyzeCallCallee` ×1 (:8605), `AnalyzeRefOutArgumentExpression` ×2 (:8644, :8665),
+  `AnalyzeSyntheticCallReceiver` ×6 (:8628, :8697, :8699, :8755, :8760, :8762), the two reflection
+  binders ×1 each (`BindSingleReflectionMethod` :8707, `BindReflectionCall` :8717) — **11 C#
+  reporting sites over 8 reporters** (`ReportPossibleNullAccess` :8606,
+  `ReportInvalidRefOutArgumentTargetIfNeeded` :8645/:8662/:8670, `ReportSoaRowEscape` :8678, the four
+  SoA direct-column gates :8682/:8684/:8686/:8688, `Error` :8729/:8740), **2 `_errors.Count` reads**
+  (:8632, :8658), **1 `_semanticModel.RecordExpressionType`** (:8758), and one C# probe
+  (`TryAnalyzeResultConstructorCall` :8602). `AnalyzeCall` has exactly **ONE** call site (:6399) and
+  **ZERO references outside `Analyzer.cs`** across `src/`, `tests/` and `editors/`.
+
+  **THE MEASUREMENT CAME FIRST, AND IT OVERTURNED THE BANKED RECOMMENDATION.** All six receiver
+  sites were instrumented in the baseline and the count taken before a line of the owner was written.
+  * **THE CORPUS CANNOT DECIDE IT — AGAIN.** Over ALL 71 targets: **48,611 `AnalyzeCall` entries,
+    96,502 receiver-site evaluations, and NOT ONE FIRED** (32,250 reconstructed call occurrences, all
+    with a fired count of 0). The corpus declares no receiver-style generic function anywhere. Callee
+    kinds measured: `FunctionTypeInfo` 31,884, `ReflectionMethodGroupInfo` 14,687, `unknown` 1,351,
+    `NSharpMethodGroupInfo` 366, `ClassTypeInfo` 230, **`ReflectionMethodInfo` 93**.
+  * **THE COMMON SHAPES ARE BIMODAL, 0 OR 3.** 22 purpose-built fixtures: 107 occurrences, fired
+    distribution **{0: 25, 3: 82}** — never 1, never 2 — in BOTH branches (`FunctionTypeInfo` 0→22 /
+    3→73, group 0→3 / 3→9). Per site: 1/2/3 fired 73 each, 4/5/6 fired 9 each.
+  * **THE TRIPLE REPORTS THREE TIMES, AND IT IS USER-VISIBLE.** Six more fixtures whose RECEIVER's
+    own analysis reports (arity error, missing member, unbound name, bad argument): 102 occurrences,
+    fired {0: 72, 3: 30} and **reporting {0: 75, 3: 27} — 27 occurrences report THREE times,
+    undeduplicated**. (In the first 22 the reports were deduped to one by the callable-reference
+    report log's position key, which is why the second set was needed.) `nlc build` on a
+    `Bad(1, 2).Tag("x")` receiver prints the SAME NL401 **12 times** (four analyses per pass × three
+    passes) and the nested `Bad(1, 2).Tag("in").Tag("out")` prints it **48 times**; `nlc check --json`
+    distincts its result set and shows ONE, which is exactly why the unsorted build transcript is the
+    only surface that shows this.
+  * **AND THE COUNTEREXAMPLE THAT SETTLED THE SHAPE.** An overload group holding a receiver-style
+    GENERIC candidate AND a plain candidate that WINS the scoring fires the receiver **ONCE**: site 4
+    fires to score the group, the winner is not receiver-style generic, and sites 5 and 6 are never
+    reached. The count is therefore a function of an answer the walk does not have until it has
+    already suspended once — **the banked recommendation (a), a hoisted count-exact schedule, is
+    REFUTED, and the resumable walk is REQUIRED rather than preferred.**
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHAT A CALL MEANS, END TO END.** `Analyzer.cs`
+  keeps no part of "what does this call expression do and what is its type?" — not the
+  result-constructor probe's position, not the callee's analysis, not the possible-null report, not
+  the choice between the expected-type argument schedule and the method-group one, not the
+  lambda-skip, not the SoA row-escape scan, not the four SoA gates' order or their short-circuit, not
+  the branch on the callee's type, not the reflected binds' verdicts, not the newtype checks, not the
+  overload group's bind/record/validate/resolve sequence, and not the receiver protocol. What is left
+  is a **zero-policy driver**: a `for` loop over the walk's requests and a `switch` in which every
+  case performs exactly ONE pre-existing operation with operands the walk supplied.
+
+  **THE CUT — `AnalyzeCall` (172 lines / 169 body) AND BOTH `AnalyzeSyntheticCallReceiver` OVERLOADS
+  (5 + 6) WITH THEIR 7-LINE DOC COMMENT: 190 SOURCE LINES.** `git diff` **+90 / −182 = net −92**;
+  `Analyzer.cs` **16,058 → 15,966** (non-blank 14,177 → **14,099**). The ONE new C# member is
+  `CreateCallAnalysis()`, a single-expression `=> new(...)` in exactly the shape of the
+  `CreateSyntheticCallValidator()` beside it; the other added lines are a field declaration with its
+  comment, three construction-site lines, the driver's doc comment and the driver itself (a 64-line
+  switch over 14 step kinds). **NO new C# method with policy, bridge, callback, shell or state.** No
+  member became dead: `AnalyzeCallCallee`, `TryAnalyzeResultConstructorCall`, the two reflection
+  binders, `ReportPossibleNullAccess`, `ReportSoaRowEscape`, `ReportInvalidRefOutArgumentTargetIfNeeded`
+  and the four SoA gates are all still reached — now only from the driver, at the walk's instruction.
+
+  **N# ADDED:** `AnalyzerCallAnalysis.nl` **704** lines (three types — `CallAnalysisRequest`, the
+  suspended `CallAnalysisState`, and `AnalyzerCallAnalysis` itself) and
+  `AnalyzerCallAnalysis.tests.nl` **541** lines with **13 contracts**, which pin the step transcript
+  directly: the prologue order, the factory short-circuit, the receiver TRIPLE, the receiver ONCE
+  counterexample, each SoA gate's short-circuit and the fact that later gates are never asked, the
+  method-group lambda skip, the reflected unbound answer, the newtype arity-before-assignability
+  order, the unrecognised callee, and the closed expected type.
+
+  **PROOF — CANONICAL PROTOCOL DIFFERENTIAL, COMPARED IN EMISSION ORDER.** Both trees were
+  instrumented at the SAME 14 operations with the SAME line format — op name, the call's file, line
+  and column, the operands, and the analyzer's `_errors.Count` BEFORE and AFTER the operation — so a
+  drift of one diagnostic anywhere inside a call moves a row. **36 purpose-built fixtures: 4,551 rows,
+  0 mismatches, md5 `06ca7841cd6f76e67a679f7300e895e6` in BOTH** (probe 433, callee 433, nullreport
+  433, arg 524, argskip 2, receiver 432, soaescape 9, gate1 433 / gate2 431 / gate3 428 / gate4 425 —
+  the falling counts ARE the short-circuits — bindgroup 120, record 15, result 433). **47 corpus
+  targets that produce calls: 26,259 rows, 0 mismatches, md5 `d9492ba861d4e23c181feaac7c1a8848` in
+  BOTH**, and this run is what covers **`bindsingle` 52** — the single-`ReflectionMethodInfo` arm no
+  fixture could reach — plus argskip 70, bindgroup 1,339, record 27, arg 3,197 and 2,682 of each gate.
+  Both instrumented trees were deleted-from-scope afterwards; neither shipped.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `889528b52` and at the working tree, **both run over the SAME sources**, across **ALL 71
+  `project.yml` corpus targets with no exclusion** — including the ROOT target (the whole compiler)
+  and `BootstrapServices` (the compiler's own N# estate, which contains the new owner):
+  **ORACLE_DIFFS = 0, ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0, SKIPPED = 0**, over **809
+  diagnostics**. This is the surface that carries the risk: `AnalyzeCall` is on the path of EVERY
+  call expression in all of them.
+
+  **PROOF — 36 PURPOSE-BUILT FIXTURES, CHECK AND THE UNSORTED BUILD TRANSCRIPT.** Coverage: single
+  and overloaded receiver-style generics, the method-group receiver (NL411), explicit type arguments,
+  non-generic receiver style, direct calls, nested and chained receivers, missing/extra/wrong-typed
+  arguments, `params`, `out`, newtype construction (both arms), reflected overloads and a
+  single-method callee, a null-call receiver, generic class receivers, interleaved callee kinds, six
+  receiver shapes whose own analysis reports, the mixed overload group, a LINQ lambda argument, and
+  three SoA fixtures that fire the row escape and **all four gates**. `nlc check --json`:
+  **FX_CHECK_DIFFS = 0, FX_EXIT_DIFFS = 0, 68 diagnostics over 14 NL codes**. `nlc build`, which
+  renders `_errors` in LIST order with NO dedup and NO sort: **36 / 36 BYTE-IDENTICAL,
+  FX_BUILD_DIFFS = 0, 2,500 lines, 166 rich diagnostic blocks**. The multiplicity rows are the point:
+  the same NL401 appears **12 times** in one fixture and **48 times** in the nested one, and NL411
+  **3 times** in another — in BOTH trees, byte for byte.
+
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP.** **109 targets (71 project targets + 38 single-file
+  examples), each built into its own `--output` tree by both CLIs**: **218 build transcripts,
+  TRANSCRIPT_DIFFS = 0**; **192 comparable assemblies, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0,
+  NORMALISER_FAILURES = 0**, and of them **all 100 EMITTED assemblies are BYTE-IDENTICAL**. The
+  remaining 92 are one file — the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc`
+  does not emit — and the difference was DIAGNOSED rather than waved away: **34 bytes over the whole
+  14,848-byte file, the first at offset 256 where a length field reads `0x4F53` against `0x4F54`**,
+  i.e. the CodeView PDB path string is one byte longer in the working worktree
+  (`…/nsharp017s24w/…` versus `…/nsharp017s24/…`), which shifts every following field by one. A
+  source-tree diff of `src/NSharpLang.Runtime` between the two worktrees is **0 files**, so no slice
+  change can reach it.
+
+  **A NEW, GENERAL METHODOLOGY GOTCHA — AND IT NEARLY PRODUCED A FALSE ALARM ON THE IL SWEEP.** The
+  first sweep reported **173 of 192 assemblies "different"**. A SAME-CLI CONTROL — build one target
+  twice with the SAME compiler into two output paths of EQUAL LENGTH — showed the emitted assembly
+  differing from ITSELF in exactly ONE byte, at file offset 136. The normaliser was zeroing the COFF
+  `TimeDateStamp` at `IMAGE_FILE_HEADER + 8`; the field is at **+4**. **A byte-exact sweep's verdict
+  means nothing until a same-CLI control proves the normaliser complete — run the control FIRST,
+  every time.** With the field corrected the same control is deterministic for both the emitted
+  assembly and the copied runtime, and the sweep's verdict is the one recorded above.
+
+  **A `.nl` GOTCHA, NEW AND WORTH RECORDING.** `new LambdaExpression(...)` written with a constructor
+  overload that does not exist DECLINES at `emit.typed-local.initializer` naming the **LOCAL**, not
+  the constructor — it reads like a typed-local-surface gap when it is an unresolved overload. (The
+  real shape is the 5-argument `(parameters, expressionBody, blockBody, line, column)`.) Everything
+  else in the owner and all 13 contracts compiled clean on the FIRST build at the packaged toolset.
+
+  **ONE CONTRACT WAS WRONG AND THE BUILD CORRECTED IT.** A contract asserting that a parameter
+  declared `p2: T` closes to `int` from the receiver binding FAILED: `GetExpectedArgumentType`
+  substitutes into `ParameterTypes` (resolved `TypeInfo`s), not into `SourceParameterTypes`. A
+  parameter that must close has to be a `SimpleTypeInfo("T")` in `ParameterTypes`; a
+  `SimpleTypeReference("T")` in the source list alone does not do it.
+
+  **EVIDENCE.** Full unit suite **3,194 / 3,194, 0 failed** — exactly the `889528b52` baseline COUNT,
+  ZERO drift; `dev.sh --since` selected the FULL suite and said why (`Analyzer.cs` is central), 17m33s,
+  no flake, so the cool-rerun rule was not needed. BootstrapServices contracts **2,046 → 2,059 (+13)**,
+  **2,059 / 2,059 PASS**. Ownership audit **18 / 18** against the freshly written manifest.
+  **RATCHET REPIN** — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 16,058 → **15,966**, currentNonBlankLines
+  14,177 → **14,099**, fingerprint `text-v1:9ee71f2043e8a20a` → `text-v1:c1be9100ecafc563` (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **7,485 / 6,438**);
+  `reviewedHeadFingerprint head-v1:b4b2e4cdedb18076` → **`head-v1:3671b58edaefa8e0`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value, `epochPathFingerprint`, `epochFactFingerprint` and
+  `epochFileCount` (381) untouched and RE-VALIDATED by recomputation both before and after the write —
+  and the recomputation reproduced all three STORED values exactly before a single byte was changed.
+  **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after, the manifest `git diff`
+  is exactly 2 changed lines, and `OwnershipAudit.nl`'s is exactly 1.** **A THIRD REPIN GOTCHA, NEW:
+  the manifest and `OwnershipAudit.nl` carry NO BOM** — reading them `utf-8-sig` is correct, but
+  writing them back `utf-8-sig` ADDS one and surfaces as a phantom first-line diff; write plain
+  `utf-8`. The full 381-row sweep found exactly **2** drifted rows, and the second —
+  `editors/vscode/test/suite/edgeCases.test.ts`, content-only with identical metrics — is
+  **PRE-EXISTING and was deliberately LEFT ALONE**: the audit is **18 / 18 at the baseline
+  `889528b52` with that drift already present**, so repinning it would have moved the head
+  fingerprint for something this slice did not do.
+
+  **GATE — THE FULL VS CODE-ENABLED `./scripts/test-all.sh --commit`, ALL TESTS PASSED ON THE FIRST
+  RUN, 31m42s**, in a fresh isolated copy (`/tmp/nsharp-test-all.90a3b0b85d4f.VGrNu2`, key
+  `90a3b0b85d4f8e4e` — neither a cached whole-gate nor a cached per-step verdict; the validated
+  result was stored only on success). Green with **zero `✗`**: clean, compiler build (3m37s), the
+  format contract gate, unit tests (10m49s), the native `.tests.nl` estate including
+  BootstrapServices' 2,059 and `tests/native/ownership-audit`'s 18 / 18 — the ratchet re-validated
+  INSIDE the gate against the freshly written manifest (5m33s) — **VS Code integration tests
+  (4m24s)**, SDK pack + install (6m30s), template pack/install/creation, the template-generated
+  project, all example and fixture projects, all single-file examples, `nlc check` over the examples,
+  and the ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new errors vs baseline**.
+  The cold-`TestSdkFeed` five-minute-cap hazard did NOT appear: the gate was run from the main
+  checkout, which already carries the Release output that the isolated copy reuses. No cool rerun was
+  needed. `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt (289 files,
+  3.98 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE
+  computer-use verification was NOT attempted, per the coordinator's standing instruction. The
+  IDE-facing surface this slice OWNS is what a call expression resolves to — the type on hover for
+  every call, which overload a call binds to, and every call diagnostic — and that is pinned by 809
+  byte-identical corpus diagnostics across all 71 targets, 30,810 byte-identical protocol rows, 36
+  byte-identical unsorted build transcripts, 100 byte-identical emitted assemblies, the gate's own VS
+  Code integration run, and 67 IL-verified assemblies.
+
+  **WALL STATUS: NO wall crossed, and NO toolset repin was needed.** This slice adds no catalog
+  surface and no new language capability — it consumes what is already published. The proof is that
+  the PACKAGED-SDK build of `BootstrapServices` — the one the gate performs — compiled the new owner
+  and all 13 contracts on the first try.
+
+  **THE OVERLOAD ARC IS CLOSED.** What remains of it in `Analyzer.cs` is exactly the zero-policy
+  drivers and the members of OTHER families that the walk now calls into: `AnalyzeCall`'s 64-line
+  request loop and `FinalizeBoundReflectionCall`'s 19-line one (slice 21); `AnalyzeCallCallee`,
+  `AnalyzeRefOutArgumentExpression`, `BindSingleReflectionMethod` and `BindReflectionCall`, which are
+  entry points into the general EXPRESSION walk rather than overload policy; and four reporters that
+  belong to other families and are named here so the next slice inherits them rather than discovers
+  them — `ReportPossibleNullAccess` (the NULLABILITY family, 3 further sites),
+  `ReportSoaRowEscape` / `ReportInvalidRefOutArgumentTargetIfNeeded` (60+ and 3 sites), and the four
+  SoA direct-column gates, which are ~320 lines reachable ONLY from the call walk but are
+  **systems/SoA policy and therefore task 018's**, not this arc's. Overload selection, applicability,
+  scoring, inference, argument placement, constraint reporting, member resolution, the extension
+  carrier, the finalising walk and now the call schedule and dispatch are all N#.
+  **NEXT FAMILY, per the post-SCC assessment: PATTERNS AND EXHAUSTIVENESS** — `AnalyzerExhaustivenessSelector`
+  already exists as an N# beachhead with no C# owner moved to it yet, the family is
+  self-contained (match/switch arms, pattern binding, reachability), and it is the last large
+  *semantic* family before the two remaining walkers. Then DEFINITE ASSIGNMENT / FLOW JOINS, then the
+  expression and statement walkers themselves — which are what actually stand between this arc and
+  deleting `Analyzer.cs`.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 23 — `ResolveMember` AND THE EXTENSION
+  CARRIER LAND (phase B, post-repin).** Target recorded BEFORE any production edit, at `47e4b8f44`
   (`Analyzer.cs` **16,468** lines, non-blank **14,530**; BootstrapServices contracts **2,019**; unit
   suite **3,192**; ownership audit **18 / 18**; manifest **391** lines; slice-21/22 fixtures **40**).
 
