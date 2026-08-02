@@ -136,7 +136,9 @@ public class Formatter
                 }
             }
             FormatDeclaration(decl, sb);
-            _lastEmittedSourceLine = decl.Line;
+            // Gaps are measured from the declaration's END line; measuring from its start counts a
+            // multi-line body as a phantom gap and breaks idempotence when formatting reflows lines.
+            _lastEmittedSourceLine = decl.EndLine;
         }
 
         // Emit any trailing comments after all declarations
@@ -200,7 +202,7 @@ public class Formatter
                 sb.AppendLine();
             }
             FormatDeclaration(member, sb);
-            _lastEmittedSourceLine = member.Line;
+            _lastEmittedSourceLine = member.EndLine;
         }
     }
 
@@ -350,7 +352,6 @@ public class Formatter
         else if (func.Body != null)
         {
             sb.AppendLine(" {");
-            _lastEmittedSourceLine = func.Line;
             _indent++;
             FormatBlock(func.Body, sb);
             _indent--;
@@ -516,19 +517,13 @@ public class Formatter
             sb.Append(string.Join(", ", rec.Interfaces.Select(FormatTypeReference)));
         }
 
-        if (rec.Members.Count > 0)
-        {
-            sb.AppendLine(" {");
-            _indent++;
-            FormatMembers(rec.Members, sb);
-            _indent--;
-            Indent(sb);
-            sb.AppendLine("}");
-        }
-        else
-        {
-            sb.AppendLine();
-        }
+        // The grammar requires a braced body on every record, so an empty member list still emits braces.
+        sb.AppendLine(" {");
+        _indent++;
+        FormatMembers(rec.Members, sb);
+        _indent--;
+        Indent(sb);
+        sb.AppendLine("}");
     }
 
     private void FormatSoaRecord(SoaRecordDeclaration soa, StringBuilder sb)
@@ -964,6 +959,12 @@ public class Formatter
 
     private void FormatBlock(BlockStatement block, StringBuilder sb)
     {
+        // Baseline the gap tracker on this block's opening-brace line so top-of-block comments and
+        // statements measure from the `{`, not from a statement before the block's header lines.
+        if (block.Line > 0)
+        {
+            _lastEmittedSourceLine = block.Line;
+        }
         for (int i = 0; i < block.Statements.Count; i++)
         {
             var stmt = block.Statements[i];
@@ -975,7 +976,7 @@ public class Formatter
                 sb.AppendLine();
             }
             FormatStatement(stmt, sb);
-            _lastEmittedSourceLine = stmt.Line;
+            _lastEmittedSourceLine = stmt.EndLine;
         }
     }
 
@@ -1360,7 +1361,6 @@ public class Formatter
                 sb.Append("lock ");
                 FormatExpression(lockStmt.LockObject, sb);
                 sb.AppendLine(" {");
-                _lastEmittedSourceLine = lockStmt.Line;
                 _indent++;
                 FormatBlock(lockStmt.Body, sb);
                 _indent--;

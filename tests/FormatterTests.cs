@@ -682,7 +682,6 @@ public class legacyCamel {
     public func visibleExplicit(): string {
         return ""ok""
     }
-
     public valueExplicit: string
 }";
 
@@ -725,7 +724,6 @@ private HiddenValue: string
     private func HiddenMethod(): string {
         return ""nope""
     }
-
     private HiddenValue: string
 }";
 

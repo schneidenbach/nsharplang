@@ -461,12 +461,15 @@ public class ColumnarParserRecovery {
     }
 
     func Check(tokenType: TokenType): bool {
-        // Split-`>>` discipline (Parser.cs Check, :6025): while we owe a `>` from a previously split
-        // `>>`, a request for `>` is satisfied without consuming a real token.
+        // Split-`>>` discipline: while we owe a `>` from a previously split `>>`, the owed `>` IS the
+        // effective current token — a request for `>` is satisfied without consuming a real token, and
+        // a request for ANY other type must answer false, because Advance would hand back the owed `>`
+        // first. (Parser.cs :6025 only special-cased `>` and let other requests read the real cursor,
+        // which desynced Check/Advance: after splitting the `>>` in `List<List<int>>?`, Check(Question)
+        // matched the real `?` but the paired Advance consumed the owed `>` — the inner type got
+        // nullable-wrapped twice and the outer close reported a spurious "Expected '>'".)
         if SplitGreaterDepth > 0 {
-            if tokenType == TokenType.Greater {
-                return true
-            }
+            return tokenType == TokenType.Greater
         }
         return Current().Type == tokenType
     }
@@ -1497,6 +1500,10 @@ public class ColumnarParserRecovery {
     // being parsed (the stack top), or the top-level DeclarationNodes when no type body is open. Replaces
     // the direct `DeclarationNodes.Add(...)`, so a NESTED type/member lands in its enclosing type's Members.
     func AddDeclaration(node: Declaration) {
+        // Every declaration is routed here AFTER its full extent (including any type/function body) has
+        // been consumed, so Previous() is its last token — stamp EndLine for the formatter's
+        // end-anchored blank-line gap measurement.
+        node.EndLine = Previous().Line
         if TypeMemberStack.Count > 0 {
             TypeMemberStack[TypeMemberStack.Count - 1].Add(node)
         } else {
@@ -4099,6 +4106,9 @@ public class ColumnarParserRecovery {
             if statement == null {
                 declined = true
             } else {
+                // Stamp the statement's last covered source line (its final consumed token) so the
+                // formatter can measure blank-line gaps from statement ENDS instead of starts.
+                statement.EndLine = Previous().Line
                 statements.Add(statement)
             }
 
@@ -5232,6 +5242,7 @@ public class ColumnarParserRecovery {
                     if caseStatement == null {
                         declined = true
                     } else {
+                        caseStatement.EndLine = Previous().Line
                         caseStatements.Add(caseStatement)
                     }
                 }
@@ -6343,7 +6354,11 @@ public class ColumnarParserRecovery {
                 leftNode := result.Node
                 typeNode := ParseMaterializedTypeReference()
                 varName: string? = null
-                if Check(TokenType.Identifier) {
+                // The pattern variable must sit on the SAME line as the end of the type: statements are
+                // newline-terminated, so an identifier opening the next line starts a new statement.
+                // (Parser.cs :4157 had no line gate and swallowed it — `flag := x is string` followed by
+                // `other := 42` consumed `other` as the pattern variable and orphaned the `:=`.)
+                if Check(TokenType.Identifier) && Current().Line == Previous().Line {
                     varName = Advance().Value
                 }
                 result = new ExprResult(new RecoverySpan(isToken.Line, isToken.Column, 1), false)

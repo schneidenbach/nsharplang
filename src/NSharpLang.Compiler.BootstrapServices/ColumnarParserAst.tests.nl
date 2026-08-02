@@ -5325,19 +5325,20 @@ test "016 N+1c tranche 11: a missing object-initializer `:` materializes the `<e
 
 // ---- the STRUCTURAL gaps this tranche closed ----
 
-test "016 N+1c tranche 11: a `>>`-split nested generic keeps Parser.cs's MULTI-LINE type span (:1966/:5884)" {
+test "017: a `>>`-split nested generic followed by `?` parses as a singly-nullable outer generic" {
     actual := RunAst("class C {\n    F: Dictionary<string, List<int>>?\n    G: int\n}\n")
+    // Parser.cs's split discipline desynced Check/Advance here (the owed `>` was consumed as a `?`,
+    // doubly-nullable-wrapping the INNER arm and giving the field a multi-line error span). The owner
+    // fixes the defect: while a split `>` is owed it is the effective current token, so `>>?` closes
+    // both generics and the single `?` wraps the OUTER type. This contract records the CORRECTED tree,
+    // deliberately diverging from the retired Parser.cs.
     innerArgs := Golden.NoTypeRefs()
     innerArgs.Add(Golden.SimpleT("int", 2, 32, 35))
     inner := Golden.GenericT("List", innerArgs, 2, 27, 36)
-    // Parser.cs's `?` postfix fires TWICE here: the owed split `>` is consumed as the first `?` (the
-    // ConsumeGreater/Advance split discipline), so the arm is doubly nullable and the OUTER `>` is then
-    // missing — Parser.cs's ConsumeGreater returns the NEXT LINE's token, giving a MULTI-LINE span.
     outerArgs := Golden.NoTypeRefs()
     outerArgs.Add(Golden.SimpleT("string", 2, 19, 25))
-    outerArgs.Add(Golden.NullableT(Golden.NullableT(inner, 2, 27, 37), 2, 27, 38))
-    fieldType := new GenericTypeReference("Dictionary", outerArgs, 2, 8)
-    fieldType.Span = new SourceSpan(2, 8, 3, 6)
+    outerArgs.Add(inner)
+    fieldType := Golden.NullableT(Golden.GenericT("Dictionary", outerArgs, 2, 8, 37), 2, 8, 38)
     members := new List<Declaration>()
     Golden.AddFieldT(members, "F", fieldType, 2, 5)
     Golden.AddFieldT(members, "G", Golden.SimpleT("int", 3, 8, 11), 3, 5)
@@ -5347,13 +5348,42 @@ test "016 N+1c tranche 11: a `>>`-split nested generic keeps Parser.cs's MULTI-L
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 11: an `is` pattern variable swallows the NEXT LINE's identifier (Parser.cs :4157)" {
+test "017: statements and declarations carry EndLine from their final consumed token" {
+    // The formatter's blank-line preservation measures gaps from a construct's END line; the parser
+    // stamps EndLine from the last token each statement/declaration consumed (closing brace included).
+    // Without the stamp everything defaults to EndLine == Line and multi-line constructs register
+    // phantom gaps, which made formatting non-idempotent on the compiler corpus.
+    unit := RunAst("func f() {\n    if true {\n        x := 1\n    }\n    y := 2\n}\n")
+    decl := unit.Declarations[0]
+    assert decl.Line == 1
+    assert decl.EndLine == 6
+    fn := decl as FunctionDeclaration
+    verified := false
+    if fn != null {
+        body := fn.Body
+        if body != null {
+            ifStatement := body.Statements[0]
+            assert ifStatement.Line == 2
+            assert ifStatement.EndLine == 4
+            tailStatement := body.Statements[1]
+            assert tailStatement.Line == 5
+            assert tailStatement.EndLine == 5
+            verified = true
+        }
+    }
+    assert verified
+}
+
+test "017: an `is` pattern variable stops at the line boundary — the next line stays its own statement" {
     actual := RunAst("func f() {\n    x := a is B\n    y := 1\n}\n")
+    // Parser.cs :4157 had no line gate, so `x := a is B` swallowed the NEXT LINE's `y` as the pattern
+    // variable and the orphaned `:= 1` materialized `<error>` statements. Statements are
+    // newline-terminated; the owner gates the pattern variable to the type's line. This contract
+    // records the CORRECTED tree, deliberately diverging from the retired Parser.cs.
     statements := Golden.NoStmts()
-    isExpr := Golden.Is(Golden.Ident("a", 2, 10), Golden.SimpleT("B", 2, 15, 16), "y", 2, 12)
+    isExpr := Golden.Is(Golden.Ident("a", 2, 10), Golden.SimpleT("B", 2, 15, 16), null, 2, 12)
     Golden.Add(statements, Golden.VarDecl("x", null, isExpr, VariableKind.Let, 2, 5))
-    Golden.Add(statements, Golden.ExprStmt(Golden.Ident("<error>", 3, 7), 3, 7))
-    Golden.Add(statements, Golden.ExprStmt(Golden.IntLit("1", 3, 10), 3, 10))
+    Golden.Add(statements, Golden.VarDecl("y", null, Golden.IntLit("1", 3, 10), VariableKind.Let, 3, 5))
     decls := new List<Declaration>()
     Golden.AddFunc(decls, Golden.Func("f", Golden.NoParams(), null, Golden.Block(statements, 1, 10), null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
@@ -5376,7 +5406,9 @@ test "016 N+1c tranche 11 (negative): a WRONG synthetic-operand COLUMN is reject
     assert AstEq.Diff(expected, actual, "unit") != ""
 }
 
-test "016 N+1c tranche 11 (negative): a SINGLE-LINE type span is rejected where Parser.cs builds a multi-line one" {
+test "016 N+1c tranche 11 (negative): retired Parser.cs's doubly-nullable `>>?` mis-parse is rejected" {
+    // The buggy pre-fix shape (inner arm doubly nullable, no outer nullable wrapper) must NOT match the
+    // corrected tree — proves AstEq still rejects a wrong synthetic artifact for this corpus line.
     actual := RunAst("class C {\n    F: Dictionary<string, List<int>>?\n    G: int\n}\n")
     innerArgs := Golden.NoTypeRefs()
     innerArgs.Add(Golden.SimpleT("int", 2, 32, 35))

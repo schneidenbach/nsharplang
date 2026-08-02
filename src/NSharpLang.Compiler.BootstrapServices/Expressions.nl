@@ -6,10 +6,16 @@ import System.Collections.Generic
 public class AstNode {
     Line: int
     Column: int
+    // Last source line the node covers. The recovery parser stamps it from the final consumed
+    // token of each statement/declaration; it defaults to Line so single-line nodes and nodes
+    // from paths that never stamp it stay well-formed. The formatter's blank-line preservation
+    // depends on it: gaps are measured from a node's END, not its start.
+    EndLine: int
 
     constructor(Line: int, Column: int) {
         this.Line = Line
         this.Column = Column
+        this.EndLine = Line
     }
 }
 

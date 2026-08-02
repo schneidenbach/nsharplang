@@ -1304,6 +1304,20 @@ test "016 generics: a well-formed nested generic List<List<int>> reports nothing
     assert errors.Count == 0
 }
 
+test "017 generics: a nested generic closed by a split >> then '?' reports nothing" {
+    // Regression: while a split `>` is owed, Check must answer false for every non-`>` request — the
+    // owed `>` is the effective current token. Before the fix, Check(Question) matched the real `?`
+    // after the split `>>`, the paired Advance consumed the owed `>` instead, the inner type was
+    // nullable-wrapped twice, and the outer close reported a spurious "Expected '>'".
+    errors := RunPreamble("func f(m: Dictionary<string, List<int>>?) {\n}\n")
+    assert errors.Count == 0
+}
+
+test "017 generics: a >>? nested generic in return-type position reports nothing" {
+    errors := RunPreamble("func f(): List<Dictionary<string, object>>? {\n    return null\n}\n")
+    assert errors.Count == 0
+}
+
 // ---- where-clause constraint validations (InvalidSyntax) ----
 
 test "016 constraints: combining 'class' and 'struct' reports the mutual-exclusion NL103 anchored on 'struct'" {
@@ -3164,6 +3178,14 @@ test "016 is: a well-formed `is` type test reports no parser diagnostic" {
 
 test "016 is: an `is` type test with a pattern variable name reports no parser diagnostic" {
     errors := RunPreamble("func f() {\n    y := x is string s\n}\n")
+    assert errors.Count == 0
+}
+
+test "017 is: the pattern variable does not greedily continue onto the next line" {
+    // Regression: statements are newline-terminated, so an identifier that OPENS the next line starts a
+    // new statement. Before the same-line gate, `flag := x is string` swallowed the next line's `other`
+    // as the pattern variable and reported "Unexpected token ':='" on the orphaned assignment.
+    errors := RunPreamble("func f(x: object) {\n    flag := x is string\n    other := 42\n}\n")
     assert errors.Count == 0
 }
 
