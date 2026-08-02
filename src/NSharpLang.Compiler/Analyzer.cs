@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -26,7 +25,6 @@ public class Analyzer : IDisposable
     /// Length of the <c>match</c> keyword. Non-exhaustive-match diagnostics underline
     /// the <c>match</c> keyword so the squiggle lands on the construct that is incomplete.
     /// </summary>
-    private const int MatchKeywordLength = 5;
 
     private static readonly HashSet<string> BuiltInObjectMembers = new(StringComparer.Ordinal)
     {
@@ -280,6 +278,9 @@ public class Analyzer : IDisposable
     // the reporting order and the resulting type. Rebuilt with the SCC: it holds the walk, the
     // validator, the reflected-call reporter and assignability, all of which the rebuild replaces.
     private AnalyzerCallAnalysis _callAnalysis;
+    // Whether a match covers everything its scrutinee can be, and the diagnostic when it does not.
+    // Rebuilt with the SCC: it holds assignability, which the rebuild replaces.
+    private AnalyzerMatchExhaustiveness _matchExhaustiveness;
     private bool _disposed;
 
     public Analyzer()
@@ -317,7 +318,11 @@ public class Analyzer : IDisposable
         _syntheticCallValidator = CreateSyntheticCallValidator();
         _reflectionCallReporter = CreateReflectionCallReporter();
         _callAnalysis = CreateCallAnalysis();
+        _matchExhaustiveness = CreateMatchExhaustiveness();
     }
+
+    private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
+        => new(_diagnostics, _typeSubstitution, _assignability, _typeResolver);
 
     private AnalyzerCallAnalysis CreateCallAnalysis()
         => new(
@@ -5936,9 +5941,9 @@ public class Analyzer : IDisposable
                     }
                 }
                 else if (identPattern.Name.Contains('.')
-                    && TryResolveDeclaredUnionType(valueType, out var ut, out _))
+                    && _matchExhaustiveness.ResolveDeclaredUnionType(valueType, out _) is { } ut)
                 {
-                    if (!TryGetUnionCaseForPattern(ut, identPattern.Name, out _))
+                    if (AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(ut, identPattern.Name) == null)
                     {
                         var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                             _spans.GetPatternNameDiagnosticSpan(identPattern);
@@ -5965,11 +5970,13 @@ public class Analyzer : IDisposable
             case UnionCasePattern unionPattern:
                 // Verify the union case exists if matching against a union type
                 // (including a closed generic instantiation like Result<int>).
-                if (TryResolveDeclaredUnionType(valueType, out var unionType, out var unionSubstitution))
+                if (_matchExhaustiveness.ResolveDeclaredUnionType(valueType, out var unionSubstitution) is { } unionType)
                 {
-                    var caseName = GetUnionCaseName(unionPattern.CaseName);
+                    var caseName = AnalyzerExhaustivenessSelector.GetUnionCaseName(unionPattern.CaseName);
+                    var matchingCase = AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(
+                        unionType, unionPattern.CaseName);
 
-                    if (!TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchingCase))
+                    if (matchingCase == null)
                     {
                         var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                             _spans.GetPatternNameDiagnosticSpan(unionPattern);
@@ -11915,7 +11922,7 @@ public class Analyzer : IDisposable
                 }
                 if (parts.Length == 2 && unionBaseLookup is UnionTypeInfo unionBaseType)
                 {
-                    if (TryGetUnionCaseForPattern(unionBaseType, qualifiedCaseName, out _))
+                    if (AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionBaseType, qualifiedCaseName) != null)
                     {
                         // This is a union case instantiation - the variable should have the union type
                         type = ResolveUnionCaseConstructionType(newExpr, unionBaseType, parts[0], qualifiedCaseName, unionCaseTypeArguments);
@@ -12233,8 +12240,11 @@ public class Analyzer : IDisposable
         // construction is a GenericTypeInfo over the union's name.
         if (unionCaseName != null)
         {
-            if (!TryResolveDeclaredUnionType(constructedType, out var unionType, out var unionSubstitution)
-                || !TryGetUnionCaseForPattern(unionType, unionCaseName, out var unionCase))
+            var unionType = _matchExhaustiveness.ResolveDeclaredUnionType(constructedType, out var unionSubstitution);
+            var unionCase = unionType == null
+                ? null
+                : AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionType, unionCaseName);
+            if (unionType == null || unionCase == null)
             {
                 return false;
             }
@@ -12242,7 +12252,7 @@ public class Analyzer : IDisposable
             var caseProperty = unionCase.Properties?.FirstOrDefault(property => property.Name == memberName);
             if (caseProperty == null)
             {
-                var caseDisplayName = GetUnionCaseName(unionCaseName);
+                var caseDisplayName = AnalyzerExhaustivenessSelector.GetUnionCaseName(unionCaseName);
                 var casePropertyNames = unionCase.Properties?.Select(property => property.Name).ToList() ?? new List<string>();
                 var similarProperties = casePropertyNames.Count > 0
                     ? new SmartSuggester(casePropertyNames).SuggestSimilarNames(memberName)
@@ -12591,45 +12601,6 @@ public class Analyzer : IDisposable
             $"Specify them after the case name: 'new {qualifiedCaseName}<...> {{ ... }}'",
             qualifiedCaseName.Length);
         return unionType;
-    }
-
-    /// <summary>
-    /// Resolves the declared union behind a scrutinee or constructed value. Handles
-    /// both the bare union type (UnionTypeInfo) and a closed generic instantiation
-    /// (GenericTypeInfo whose name is a declared generic union, e.g. Result&lt;int&gt;),
-    /// producing the type-parameter substitution map for case property types in the
-    /// latter case.
-    /// </summary>
-    private bool TryResolveDeclaredUnionType(
-        TypeInfo valueType,
-        [NotNullWhen(true)] out UnionTypeInfo? unionType,
-        out Dictionary<string, TypeInfo>? substitution)
-    {
-        substitution = null;
-
-        if (valueType is UnionTypeInfo direct)
-        {
-            unionType = direct;
-            return true;
-        }
-
-        if (valueType is GenericTypeInfo generic
-            && _typeSubstitution.ResolveGenericDefinition(generic) is UnionTypeInfo declared
-            && declared.Declaration.TypeParameters is { Count: > 0 } typeParameters
-            && typeParameters.Count == generic.TypeArguments.Count)
-        {
-            substitution = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
-            for (var i = 0; i < typeParameters.Count; i++)
-            {
-                substitution[typeParameters[i].Name] = generic.TypeArguments[i];
-            }
-
-            unionType = declared;
-            return true;
-        }
-
-        unionType = null;
-        return false;
     }
 
     /// <summary>
@@ -12997,610 +12968,9 @@ public class Analyzer : IDisposable
             PopScope();
         }
 
-        // Check exhaustiveness for union types and enum types
-        // Guarded arms only partially cover their pattern, so unguarded arms (or a wildcard) are
-        // still required for full coverage.
-        if (valueType is AnonymousUnionTypeInfo anonymousUnionType)
-        {
-            CheckAnonymousUnionMatchExhaustiveness(match, anonymousUnionType);
-        }
-        else if (valueType is UnionTypeInfo unionType)
-        {
-            CheckMatchExhaustiveness(match, unionType);
-        }
-        else if (valueType is GenericTypeInfo
-            && TryResolveDeclaredUnionType(valueType, out var genericUnionType, out var genericUnionSubstitution))
-        {
-            CheckMatchExhaustiveness(match, genericUnionType, genericUnionSubstitution);
-        }
-        else if (valueType is EnumTypeInfo enumType)
-        {
-            CheckEnumMatchExhaustiveness(match, enumType);
-        }
-        else if (valueType is NullableTypeInfo nullableType)
-        {
-            CheckNullableMatchExhaustiveness(match, nullableType);
-        }
-        else
-        {
-            // For non-union/non-enum types, mark exhaustive if there's a wildcard or catch-all
-            foreach (var matchCase in match.Cases)
-            {
-                if (matchCase.Guard != null) continue;
-                if (matchCase.Pattern is IdentifierPattern id &&
-                    (id.Name == "_" || !id.Name.Contains('.')))
-                {
-                    match.IsExhaustive = true;
-                    break;
-                }
-            }
-        }
+        _matchExhaustiveness.Check(match, valueType);
 
         return resultType ?? BuiltInTypes.Unknown;
-    }
-
-    private void CheckNullableMatchExhaustiveness(MatchExpression match, NullableTypeInfo nullableType)
-    {
-        var coversNull = false;
-        var coversPresent = false;
-
-        foreach (var matchCase in match.Cases)
-        {
-            if (matchCase.Guard != null)
-            {
-                continue;
-            }
-
-            switch (matchCase.Pattern)
-            {
-                case IdentifierPattern identifier when identifier.Name == "_":
-                    match.IsExhaustive = true;
-                    return;
-
-                case LiteralPattern { Literal: NullLiteralExpression }:
-                    coversNull = true;
-                    break;
-
-                case IdentifierPattern identifier when !identifier.Name.Contains('.'):
-                    coversPresent = true;
-                    break;
-
-                case TypePattern:
-                case ObjectPattern:
-                case PositionalPattern:
-                case ListPattern:
-                    coversPresent = true;
-                    break;
-            }
-        }
-
-        if (coversNull && coversPresent)
-        {
-            match.IsExhaustive = true;
-            return;
-        }
-
-        var missing = new List<string>();
-        if (!coversNull)
-        {
-            missing.Add("null");
-        }
-        if (!coversPresent)
-        {
-            missing.Add($"present {nullableType.InnerType}");
-        }
-
-        var missingText = string.Join(" and ", missing);
-        Error(
-            ErrorCode.NonExhaustiveMatch,
-            $"This nullable match doesn't cover {missingText} — handle both 'null' and a non-null value arm",
-            match.Line,
-            match.Column,
-            "Use `null => ...` for the absent case and `value => ...` to bind the non-null value.",
-            length: MatchKeywordLength);
-    }
-
-    private void CheckAnonymousUnionMatchExhaustiveness(MatchExpression match, AnonymousUnionTypeInfo unionType)
-    {
-        var covered = new bool[unionType.Arms.Count];
-
-        foreach (var matchCase in match.Cases)
-        {
-            if (matchCase.Guard != null)
-                continue;
-
-            switch (matchCase.Pattern)
-            {
-                case IdentifierPattern identifier when identifier.Name == "_" || !identifier.Name.Contains('.'):
-                    match.IsExhaustive = true;
-                    return;
-
-                case TypePattern typePattern:
-                    var patternType = _typeResolver.ResolveType(typePattern.Type);
-                    for (var i = 0; i < unionType.Arms.Count; i++)
-                    {
-                        if (_assignability.IsAssignable(patternType, unionType.Arms[i]))
-                            covered[i] = true;
-                    }
-                    break;
-            }
-        }
-
-        var missingArms = unionType.Arms
-            .Where((_, index) => !covered[index])
-            .Select(arm => arm.ToString())
-            .ToList();
-
-        if (missingArms.Count == 0)
-        {
-            match.IsExhaustive = true;
-            return;
-        }
-
-        Error(
-            ErrorCode.NonExhaustiveMatch,
-            $"This match doesn't cover all anonymous union arms — missing: {string.Join(", ", missingArms)}",
-            match.Line,
-            match.Column,
-            "Add an arm for each missing type, or add a wildcard `_` arm.",
-            length: MatchKeywordLength);
-    }
-
-    private void CheckMatchExhaustiveness(
-        MatchExpression match,
-        UnionTypeInfo unionType,
-        Dictionary<string, TypeInfo>? substitution = null)
-    {
-        var unionDeclaration = unionType.Declaration;
-        var unionCases = unionDeclaration.Cases;
-        var caseCount = unionCases.Count;
-        var coveredFlags = ArrayPool<int>.Shared.Rent(caseCount);
-        var partialFlags = ArrayPool<int>.Shared.Rent(caseCount);
-
-        try
-        {
-            Array.Clear(coveredFlags, 0, caseCount);
-            Array.Clear(partialFlags, 0, caseCount);
-
-            // Collect all union case names that are covered by UNGUARDED arms.
-            // Guarded arms only partially cover their pattern (the guard may be false at runtime),
-            // so they don't count toward exhaustiveness.
-            var caseIndexByName = new Dictionary<string, int>(caseCount, StringComparer.Ordinal);
-            for (var caseIndex = 0; caseIndex < caseCount; caseIndex++)
-            {
-                caseIndexByName.TryAdd(unionCases[caseIndex].Name, caseIndex);
-            }
-
-            var unionCasePatterns = new Dictionary<string, List<UnionCasePattern>>();
-            var partialCoverageHints = new Dictionary<string, List<string>>();
-
-            foreach (var matchCase in match.Cases)
-            {
-                // Skip guarded arms — they only partially cover their pattern
-                if (matchCase.Guard != null)
-                    continue;
-
-                if (matchCase.Pattern is UnionCasePattern unionPattern)
-                {
-                    if (TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchedCase))
-                    {
-                        if (!unionCasePatterns.TryGetValue(matchedCase.Name, out var patterns))
-                        {
-                            patterns = new List<UnionCasePattern>();
-                            unionCasePatterns[matchedCase.Name] = patterns;
-                        }
-
-                        patterns.Add(unionPattern);
-                    }
-                }
-                else if (matchCase.Pattern is IdentifierPattern identPattern)
-                {
-                    if (identPattern.Name == "_")
-                    {
-                        // Unguarded wildcard pattern covers all remaining cases
-                        match.IsExhaustive = true;
-                        return;
-                    }
-                    else if (identPattern.Name.Contains('.'))
-                    {
-                        // Qualified union case name without properties
-                        if (TryGetUnionCaseForPattern(unionType, identPattern.Name, out var matchedCase) &&
-                            caseIndexByName.TryGetValue(matchedCase.Name, out var matchedCaseIndex))
-                        {
-                            coveredFlags[matchedCaseIndex] = 1;
-                        }
-                    }
-                    else
-                    {
-                        // Unqualified, non-wildcard identifier is a catch-all binding (e.g., `other =>`)
-                        // that matches everything at runtime — treat it the same as `_`
-                        match.IsExhaustive = true;
-                        return;
-                    }
-                }
-            }
-
-            // Check if all union cases are covered
-            for (var caseIndex = 0; caseIndex < caseCount; caseIndex++)
-            {
-                var unionCase = unionCases[caseIndex];
-                if (!unionCasePatterns.TryGetValue(unionCase.Name, out var patterns))
-                    continue;
-
-                if (IsUnionCaseCoveredByPatterns(
-                        unionType,
-                        unionDeclaration.Name,
-                        unionCase,
-                        patterns,
-                        substitution,
-                        out var hints))
-                {
-                    coveredFlags[caseIndex] = 1;
-                }
-                else
-                {
-                    partialFlags[caseIndex] = 1;
-                    if (hints.Count > 0)
-                    {
-                        partialCoverageHints[unionCase.Name] = hints;
-                    }
-                }
-            }
-
-            AnalyzerExhaustivenessSelector.SelectMissingUnionCasesFromFlags(
-                unionCases,
-                coveredFlags,
-                partialFlags,
-                caseCount,
-                out var missingCases,
-                out var partialMissingCases,
-                out var neverCoveredCases);
-
-            if (missingCases.Any())
-            {
-                if (partialMissingCases.Any())
-                {
-                    var messageParts = new List<string>();
-                    if (neverCoveredCases.Any())
-                    {
-                        messageParts.Add($"missing: {string.Join(", ", neverCoveredCases)}");
-                    }
-
-                    messageParts.Add($"partially covered: {FormatPartialCoverageCases(partialMissingCases, partialCoverageHints)}");
-
-                    var partialHint = string.Join("; ", partialMissingCases.Select(caseName =>
-                    {
-                        if (partialCoverageHints.TryGetValue(caseName, out var hints) && hints.Count > 0)
-                        {
-                            return $"add '{hints[0]}', an unconstrained '{unionDeclaration.Name}.{caseName}' arm, or a wildcard '_' arm";
-                        }
-
-                        return $"add an unconstrained '{unionDeclaration.Name}.{caseName}' arm or a wildcard '_' arm";
-                    }));
-                    Error(ErrorCode.NonExhaustiveMatch,
-                        $"This match doesn't cover all cases — {string.Join("; ", messageParts)}. {partialHint}.",
-                        match.Line,
-                        match.Column,
-                        ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)),
-                        length: MatchKeywordLength);
-                }
-                else
-                {
-                    var sourceSnippet = GetSourceSnippet(match.Line);
-
-                    if (sourceSnippet != null && _currentFilePath != null)
-                    {
-                        var error = ErrorMessageBuilder.NonExhaustiveMatch(
-                            _currentFilePath,
-                            match.Line,
-                            match.Column,
-                            sourceSnippet,
-                            MatchKeywordLength,
-                            missingCases
-                        );
-                        _errors.Add(error);
-                    }
-                    else
-                    {
-                        var missingCasesStr = string.Join(", ", missingCases);
-                        Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
-                            match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr),
-                            length: MatchKeywordLength);
-                    }
-                }
-            }
-            else
-            {
-                // All union cases covered by unguarded arms.
-                match.IsExhaustive = true;
-            }
-        }
-        finally
-        {
-            ArrayPool<int>.Shared.Return(coveredFlags, clearArray: false);
-            ArrayPool<int>.Shared.Return(partialFlags, clearArray: false);
-        }
-    }
-
-    private static string FormatPartialCoverageCases(
-        List<string> partialMissingCases,
-        Dictionary<string, List<string>> partialCoverageHints)
-    {
-        return string.Join(", ", partialMissingCases.Select(caseName =>
-        {
-            if (partialCoverageHints.TryGetValue(caseName, out var hints) && hints.Count > 0)
-            {
-                return $"{caseName} (missing nested arm: {hints[0]})";
-            }
-
-            return caseName;
-        }));
-    }
-
-    private bool IsUnionCaseCoveredByPatterns(
-        UnionTypeInfo unionType,
-        string unionName,
-        UnionCase unionCase,
-        List<UnionCasePattern> patterns,
-        Dictionary<string, TypeInfo>? substitution,
-        out List<string> partialCoverageHints)
-    {
-        partialCoverageHints = new List<string>();
-
-        if (patterns.Any(IsTotalUnionCasePattern))
-        {
-            return true;
-        }
-
-        var nestedCoverage = new Dictionary<string, (string UnionName, HashSet<string> AllCases, HashSet<string> CoveredCases, HashSet<string> ConstrainedCases)>();
-        foreach (var pattern in patterns)
-        {
-            if (pattern.Properties == null)
-                continue;
-
-            var constrainedProperties = pattern.Properties
-                .Where(property => property.Pattern != null && !IsCatchAllPattern(property.Pattern))
-                .ToList();
-            if (constrainedProperties.Count != 1)
-                continue;
-
-            var constrainedProperty = constrainedProperties[0];
-            if (!pattern.Properties.Where(p => !ReferenceEquals(p, constrainedProperty)).All(IsTotalPropertyPattern))
-                continue;
-
-            var caseProperty = unionCase.Properties?.FirstOrDefault(property => property.Name == constrainedProperty.Name);
-            if (caseProperty == null)
-                continue;
-
-            // Apply the scrutinee's generic substitution so a `value: T` property on a
-            // Result<Option<int>> scrutinee resolves to the nested union for coverage.
-            var propertyType = _typeSubstitution.ResolveTypeForSourceOwner(
-                caseProperty.Type,
-                unionType,
-                substitution);
-            if (!TryResolveDeclaredUnionType(propertyType, out var nestedUnionType, out _))
-                continue;
-
-            var nestedCaseName = GetMatchedUnionCaseName(nestedUnionType, constrainedProperty.Pattern!);
-
-            if (nestedCaseName == null)
-                continue;
-
-            if (!nestedCoverage.TryGetValue(constrainedProperty.Name, out var coverage))
-            {
-                coverage = (
-                    nestedUnionType.Declaration.Name,
-                    nestedUnionType.Declaration.Cases.Select(c => c.Name).ToHashSet(),
-                    new HashSet<string>(),
-                    new HashSet<string>());
-                nestedCoverage[constrainedProperty.Name] = coverage;
-            }
-
-            coverage.CoveredCases.Add(nestedCaseName);
-            if (!IsTotalNestedUnionPattern(constrainedProperty.Pattern!))
-            {
-                coverage.ConstrainedCases.Add(nestedCaseName);
-            }
-        }
-
-        foreach (var (propertyName, coverage) in nestedCoverage)
-        {
-            if (coverage.AllCases.IsSubsetOf(coverage.CoveredCases) && coverage.ConstrainedCases.Count == 0)
-            {
-                return true;
-            }
-
-            foreach (var missingNestedCase in coverage.AllCases.Except(coverage.CoveredCases).Concat(coverage.ConstrainedCases).Distinct())
-            {
-                partialCoverageHints.Add(
-                    $"{unionName}.{unionCase.Name} {{ {propertyName}: {coverage.UnionName}.{missingNestedCase} }}");
-            }
-        }
-
-        return false;
-    }
-
-    private static string? GetMatchedUnionCaseName(UnionTypeInfo unionType, Pattern pattern)
-    {
-        return pattern switch
-        {
-            UnionCasePattern nestedUnionPattern when TryGetUnionCaseForPattern(unionType, nestedUnionPattern.CaseName, out var unionCase)
-                => unionCase.Name,
-            IdentifierPattern nestedIdentifierPattern when nestedIdentifierPattern.Name.Contains('.')
-                && TryGetUnionCaseForPattern(unionType, nestedIdentifierPattern.Name, out var unionCase)
-                => unionCase.Name,
-            _ => null
-        };
-    }
-
-    private static bool IsTotalNestedUnionPattern(Pattern pattern)
-    {
-        return pattern switch
-        {
-            UnionCasePattern nestedUnionPattern => IsTotalUnionCasePattern(nestedUnionPattern),
-            IdentifierPattern nestedIdentifierPattern => nestedIdentifierPattern.Name.Contains('.'),
-            _ => false
-        };
-    }
-
-    private static bool TryGetUnionCaseForPattern(UnionTypeInfo unionType, string patternName, out UnionCase unionCase)
-    {
-        unionCase = null!;
-        if (!IsUnionCaseQualifierCompatible(unionType, patternName))
-            return false;
-
-        var caseName = GetUnionCaseName(patternName);
-        var matchedCase = unionType.Declaration.Cases.FirstOrDefault(c => c.Name == caseName);
-        if (matchedCase == null)
-            return false;
-
-        unionCase = matchedCase;
-        return true;
-    }
-
-    private static bool IsUnionCaseQualifierCompatible(UnionTypeInfo unionType, string patternName)
-    {
-        var lastDot = patternName.LastIndexOf('.');
-        if (lastDot < 0)
-            return true;
-
-        var qualifier = patternName[..lastDot];
-        var declaredName = unionType.Declaration.Name;
-        var simpleName = declaredName.Contains('.')
-            ? declaredName.Substring(declaredName.LastIndexOf('.') + 1)
-            : declaredName;
-
-        return qualifier == declaredName
-            || qualifier == simpleName
-            || declaredName.EndsWith($".{qualifier}", StringComparison.Ordinal);
-    }
-
-    private static string GetUnionCaseName(string patternName)
-    {
-        return patternName.Contains('.')
-            ? patternName.Substring(patternName.LastIndexOf('.') + 1)
-            : patternName;
-    }
-
-    private static bool IsTotalUnionCasePattern(UnionCasePattern pattern)
-    {
-        if (pattern.Properties == null || pattern.Properties.Count == 0)
-        {
-            return true;
-        }
-
-        return pattern.Properties.All(IsTotalPropertyPattern);
-    }
-
-    private static bool IsTotalPropertyPattern(PropertyPattern propertyPattern)
-    {
-        return propertyPattern.Pattern == null || IsCatchAllPattern(propertyPattern.Pattern);
-    }
-
-    private static bool IsCatchAllPattern(Pattern pattern)
-    {
-        return pattern is IdentifierPattern identifierPattern
-            && (identifierPattern.Name == "_" || !identifierPattern.Name.Contains('.'));
-    }
-
-    /// <summary>
-    /// Checks exhaustiveness for enum types in match expressions.
-    /// Both string enums and int enums participate in exhaustiveness checking.
-    /// </summary>
-    private void CheckEnumMatchExhaustiveness(MatchExpression match, EnumTypeInfo enumType)
-    {
-        var coveredMembers = new HashSet<string>();
-
-        foreach (var matchCase in match.Cases)
-        {
-            // Skip guarded arms
-            if (matchCase.Guard != null)
-                continue;
-
-            if (matchCase.Pattern is IdentifierPattern identPattern)
-            {
-                if (identPattern.Name == "_")
-                {
-                    match.IsExhaustive = true;
-                    return; // Wildcard covers all
-                }
-
-                // Check for qualified enum member (e.g., Status.Active)
-                if (identPattern.Name.Contains('.'))
-                {
-                    var parts = identPattern.Name.Split('.');
-                    var qualifier = parts[0];
-                    var memberName = parts[^1];
-                    // Only count if the qualifier matches the enum type name
-                    if (qualifier == enumType.Declaration.Name &&
-                        enumType.Declaration.Members.Any(m => m.Name == memberName))
-                    {
-                        coveredMembers.Add(memberName);
-                    }
-                }
-                else
-                {
-                    // Unqualified non-wildcard identifier — catch-all binding
-                    match.IsExhaustive = true;
-                    return;
-                }
-            }
-            else if (matchCase.Pattern is LiteralPattern literalPattern)
-            {
-                // Check if literal matches an enum member value
-                foreach (var member in enumType.Declaration.Members)
-                {
-                    if (member.ValueKind == EnumMemberValueKind.String &&
-                        literalPattern.Literal is StringLiteralExpression patternStr &&
-                        member.ValueText == patternStr.Value)
-                    {
-                        coveredMembers.Add(member.Name);
-                    }
-                    else if (member.ValueKind == EnumMemberValueKind.Integer &&
-                             literalPattern.Literal is IntLiteralExpression patternInt &&
-                             member.ValueText == patternInt.Value)
-                    {
-                        coveredMembers.Add(member.Name);
-                    }
-                }
-            }
-        }
-
-        // Check if all enum members are covered. The missing-member selection is owned by
-        // the N# analyzer exhaustiveness kernel; do not recover with a duplicate.
-        var missingMembers = AnalyzerExhaustivenessSelector.SelectMissingEnumMembers(
-            enumType.Declaration.Members,
-            coveredMembers);
-
-        if (missingMembers.Count > 0)
-        {
-            var sourceSnippet = GetSourceSnippet(match.Line);
-
-            if (sourceSnippet != null && _currentFilePath != null)
-            {
-                var error = ErrorMessageBuilder.NonExhaustiveMatch(
-                    _currentFilePath,
-                    match.Line,
-                    match.Column,
-                    sourceSnippet,
-                    5, // "match" keyword length
-                    missingMembers
-                );
-                _errors.Add(error);
-            }
-            else
-            {
-                var missingStr = string.Join(", ", missingMembers);
-                Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all enum members — missing: {missingStr}",
-                    match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingStr),
-                    length: MatchKeywordLength);
-            }
-        }
-        else
-        {
-            // All enum members covered by unguarded arms.
-            match.IsExhaustive = true;
-        }
     }
 
     // The function half of project auto-discovery: exported (PascalCase) top-level functions
@@ -15449,6 +14819,7 @@ public class Analyzer : IDisposable
         _syntheticCallValidator = CreateSyntheticCallValidator();
         _reflectionCallReporter = CreateReflectionCallReporter();
         _callAnalysis = CreateCallAnalysis();
+        _matchExhaustiveness = CreateMatchExhaustiveness();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -15471,6 +14842,7 @@ public class Analyzer : IDisposable
             _syntheticCallValidator = CreateSyntheticCallValidator();
             _reflectionCallReporter = CreateReflectionCallReporter();
             _callAnalysis = CreateCallAnalysis();
+            _matchExhaustiveness = CreateMatchExhaustiveness();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;

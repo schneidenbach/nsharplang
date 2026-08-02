@@ -1,6 +1,42 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-02 (**TASK 017 SLICE 24 LANDED (no commit — mandate) — N# OWNS WHAT A CALL
+Last updated: 2026-08-02 (**TASK 017 SLICE 25 LANDED (no commit — mandate) — THE PATTERN/EXHAUSTIVENESS
+ARC OPENS AND N# OWNS WHETHER A MATCH IS EXHAUSTIVE, END TO END.** The family was MAPPED first — 30
+members / ~1,330 lines in five clusters — and MEASURED before a line was written: instrumenting every
+decision point of the exhaustiveness cluster over **all 71 corpus targets** showed **96 matches reach
+the dispatch (union 50, generic-union 4, enum 4, other 38) and the anonymous-union and nullable
+questions fire ZERO times**, that **not one target reports a single exhaustiveness diagnostic** (every
+report counter 0, `covered.hint` 0), and that coverage short-circuits on a total arm 70 times out of
+71 — so the corpus oracle covers only the SILENT path and **every reporting shape had to be built as a
+fixture**, which is also why the pure facts could not be split from the reporting core. **15 C#
+MEMBERS DELETED plus a dead const and a dead using — 588 source lines + 11 doc-comment lines**;
+`git diff` **+24 / −652 = net −628**, `Analyzer.cs` **15,966 → 15,338** (non-blank 14,099 → **13,542**),
+and all 24 added lines are a field, three rebuild assignments, one `=> new(...)` factory and eight
+rewritten references. **N# ADDED:** the beachhead `AnalyzerExhaustivenessSelector.nl` **60 → 231**
+(its FIRST C# owner ever moved onto it) and a new `AnalyzerMatchExhaustiveness.nl` at **838**, with
+**41 contracts** aimed squarely at the arms the corpus cannot reach. PROOFS: the semantic-diagnostic
+oracle over **ALL 72 targets, ORACLE_DIFFS = 0 / STDERR = 0 / EXIT = 0 over 833 diagnostics** (md5
+identical in both trees); **50 purpose-built fixtures, 50 / 50 byte-identical on BOTH `nlc check`
+(58 diagnostics over 11 codes, 25 NL501) and the unsorted `nlc build` transcript (795 lines, 35 rich
+blocks)**; **72 / 72 byte-identical corpus build transcripts**; and a corpus IL sweep over **72
+targets / 134 assemblies** in which **all 75 EMITTED assemblies are BYTE-IDENTICAL** and the 59
+remaining diffs are one file, the COPIED `NSharpLang.Runtime.dll`, root-caused to **49 bytes inside
+the CodeView `RSDS` record** (PDB GUID + the embedded worktree path) with a 0-file Runtime source
+diff. GATES: unit **3,194 / 3,194** (zero drift, in the gate AND under `dev.sh --since`, which
+selected the full suite and said why); contracts **2,059 → 2,100 (+41)**, **2,100 / 2,100**; audit
+**18 / 18** after a ONE-row in-place repin that keeps the manifest at **391 lines**; and the FULL VS
+Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 31m16s ON THE FIRST RUN** in a
+fresh isolated copy (zero `✗`, VS Code integration **4m20s**, all 67 assemblies IL-verified); VSIX
+rebuilt + reinstalled. NO toolset repin needed. **NEW GOTCHAS: (1) `match` is RESERVED and cannot be
+a parameter or local name** — it declines at `parse.struct` naming the CLASS, and a blind rename will
+also rewrite the diagnostic MESSAGE STRINGS; **(2) `nlc` mints a fresh MVID per build, so a byte-exact
+sweep MUST zero the metadata `#GUID` heap** or every assembly differs from itself; **(3)
+`IMAGE_DEBUG_DIRECTORY.AddressOfRawData` (+20) is an RVA — the file offset is `PointerToRawData`
+(+24)**, and reading the wrong one makes debug-payload normalisation silently do nothing. NEXT:
+slice 26, the list-pattern shape probe and the relational comparability predicates. Its full record
+is in the Cursor block below)
+
+Last updated (prior): 2026-08-02 (**TASK 017 SLICE 24 LANDED (no commit — mandate) — N# OWNS WHAT A CALL
 MEANS, END TO END, AND THE OVERLOAD ARC IS CLOSED.** `AnalyzeCall` was the arc's last substantial
 member and it moved as a RESUMABLE WALK — a shape the measurement made mandatory rather than
 preferred. **THE MEASUREMENT CAME FIRST**: all six `AnalyzeSyntheticCallReceiver` sites were
@@ -1016,8 +1052,252 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 24 — `AnalyzeCall`, THE OVERLOAD ARC'S TERMINAL
-  MEMBER.** Target recorded BEFORE any production edit, at `889528b52` (`Analyzer.cs` **16,058**
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 25 — THE PATTERN/EXHAUSTIVENESS ARC OPENS, AND
+  ITS FIRST SLICE IS TERMINAL FOR THE WHOLE EXHAUSTIVENESS DECISION.** Target recorded BEFORE any
+  production edit, at `19a3579ce` (`Analyzer.cs` **15,966** lines, non-blank **14,099**;
+  BootstrapServices contracts **2,059**; unit suite **3,194**; ownership audit **18 / 18**; manifest
+  **391** lines; `reviewedHeadFingerprint head-v1:3671b58edaefa8e0`).
+
+  **THE FAMILY, MEASURED AND MAPPED BEFORE A LINE WAS WRITTEN.** The pattern/exhaustiveness family in
+  `Analyzer.cs` is **30 members / ~1,330 source lines** in five clusters, of which slice 25 takes the
+  exhaustiveness one whole:
+  * **EXHAUSTIVENESS (15 members, 588 lines + the `MatchKeywordLength` const)** — the dispatch tail of
+    `AnalyzeMatchExpression`, `CheckMatchExhaustiveness` (175), `CheckEnumMatchExhaustiveness` (95 + a
+    4-line doc comment), `CheckNullableMatchExhaustiveness` (60), `CheckAnonymousUnionMatchExhaustiveness`
+    (45), `IsUnionCaseCoveredByPatterns` (82), `TryResolveDeclaredUnionType` (31 + a 7-line doc comment)
+    and the eight pure shape predicates (`FormatPartialCoverageCases` 14, `GetMatchedUnionCaseName` 12,
+    `IsTotalNestedUnionPattern` 9, `TryGetUnionCaseForPattern` 14, `IsUnionCaseQualifierCompatible` 16,
+    `GetUnionCaseName` 6, `IsTotalUnionCasePattern` 9, `IsTotalPropertyPattern` 4, `IsCatchAllPattern` 5).
+    **THIS IS SLICE 25.**
+  * **PATTERN BINDING** — `AnalyzePattern` (:5925, **222**, a 13-arm switch that declares symbols and
+    recurses) and `AnalyzePropertyPatterns` (:6331, **65**).
+  * **LIST-PATTERN SHAPE** — `TryGetListPatternElementType` 26, `IsIndexableGenericListPatternType` 2,
+    `TryGetReflectionListPatternElementType` 47, `GetListPatternShapeTypes` 14 (**89**, reflection-bound).
+  * **RELATIONAL PATTERNS** — `ValidateRelationalPattern` 22, `IsEqualityPatternOperator` 2,
+    `IsNullableRelationalPatternType` 6, `IsRelationalPatternComparableType` 42,
+    `ReportRelationalPatternTypeMismatch` 13 (**85**).
+  * **REACHABILITY / RECOVERY** — `IsPatternPossible` (:13958, **56**, the NL505 impossible-pattern
+    judgement) and the two `ContainsParserErrorPlaceholder` overloads (**20**).
+
+  **DIAGNOSTIC INVENTORY (the whole family):** NL501 `NonExhaustiveMatch` (6 report sites, 2 message
+  shapes for unions + 1 for enums + 1 for nullables + 1 for anonymous unions), NL503 `InvalidPattern`
+  (5 sites in `AnalyzePattern` / `AnalyzePropertyPatterns`), NL505 `PatternTypeMismatch` (list-pattern
+  receiver) plus `ImpossiblePattern`, NL506 `GuardNotBoolean`, and `TypeMismatch` from the relational
+  guard and the arm-type join.
+
+  **THE MEASUREMENT CAME FIRST, AND IT SAID THE CORPUS CANNOT DECIDE THIS FAMILY EITHER.** Every
+  decision point of the exhaustiveness cluster was instrumented in a throwaway copy of the baseline
+  and counted over **all 71 corpus targets**: **96 matches reach the dispatch** — union 50,
+  generic-union 4, enum 4, other 38 — and **anonymous-union 0 and nullable 0. NOT ONE of the 71
+  targets reports a single exhaustiveness diagnostic**: `union.report.* = 0`, `enum.report = 0`,
+  `nullable.report = 0`, `anon.report = 0`, `union.casepartial = 0`, `covered.hint = 0`. Coverage
+  short-circuits almost always: `covered.entry` **71**, of which `covered.total` **70** — exactly ONE
+  case in the whole corpus reaches the nested-coverage walk, which finds 2 nested unions and one
+  total nested cover and produces **zero hints**. `union.wildcard` 21, `union.exhaustive` 33,
+  `union.catchall` 0; `enum.wildcard` 3, `enum.exhaustive` 1. The pure helpers are hammered —
+  `GetUnionCaseName` **474**, `TryGetUnionCaseForPattern` **382**, `TryResolveDeclaredUnionType`
+  **192** — while `IsCatchAllPattern` fires **4** times. Pattern kinds over 424 `AnalyzePattern`
+  entries: Identifier 206, UnionCase 106, List 34, Object 33, Literal 32, Type 13, and **zero**
+  Relational, And, Or, Not, Positional or Slice patterns anywhere in the corpus;
+  `pat.list.mismatch = 0`, `pat.impossible = 0`. **CONCLUSION, and it dictated the proof plan: the
+  corpus oracle covers the SILENT path only. Every reporting shape had to be built as a fixture, and
+  the reporting core could not be split from the pure facts without leaving the untested half
+  untested.** The instrumented tree was deleted afterwards.
+
+  **THE STAGED ARC PLAN (the proven sequence — peripheral pure facts, then state carriers, then the
+  reporting core), recorded here for the slices after this one:**
+  1. **SLICE 25 (THIS ONE) — the exhaustiveness DECISION, end to end.** Its pure facts and its
+     reporting core move together because the measurement showed the corpus exercises neither: the
+     facts have no independent observable, and splitting them would have produced a slice whose only
+     evidence was "the corpus still says nothing".
+  2. **SLICE 26 — the list-pattern SHAPE probe and the relational-pattern COMPARABILITY predicates**
+     (peripheral pure facts, ~174 lines): `TryGetListPatternElementType` and its three reflection
+     helpers, plus `IsEqualityPatternOperator` / `IsNullableRelationalPatternType` /
+     `IsRelationalPatternComparableType`. Both are pure functions of a type; the two reporters
+     (`ReportRelationalPatternTypeMismatch`, the NL505 list report) follow them in the same slice
+     since each has exactly one call site.
+  3. **SLICE 27 — `IsPatternPossible` and the two `ContainsParserErrorPlaceholder` overloads**
+     (~76 lines): the reachability judgement, pure over two `TypeInfo`s and already sitting on
+     N#-owned `AnalyzerConversionFacts` / `AnalyzerAssignability`.
+  4. **SLICE 28 — `AnalyzePropertyPatterns`** (65 lines): the first pattern-binding state carrier. It
+     declares symbols and re-enters the pattern walk, so it needs the scope stack and a resumable
+     shape or a supplied-operand driver, exactly like slice 24's call walk.
+  5. **SLICE 29 — `AnalyzePattern`** (222 lines): the family's terminal member, a 13-arm walk that
+     declares symbols, re-enters itself and the expression walk, and reports NL503/NL505. Landing it
+     closes the family and leaves `Analyzer.cs` with no pattern policy at all.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHETHER A MATCH IS EXHAUSTIVE, END TO END.**
+  `Analyzer.cs` keeps no part of "does this match cover everything its scrutinee can be?" — not the
+  five-way dispatch on the scrutinee's type, not the declared-union resolution that turns a closed
+  `Result<int>` into a union plus a substitution, not the guarded-arm skip, not the wildcard and
+  catch-all early returns, not the per-case pattern collection, not the nested partial-coverage walk
+  or its hints, not the enum's name-and-literal coverage, not the nullable's two-element set, not the
+  anonymous union's assignability sweep, not the catch-all-only fallback for everything else, not the
+  `IsExhaustive` write, and not one of the six report sites or either of the two message shapes.
+  `AnalyzeMatchExpression`'s tail is now a SINGLE call: `_matchExhaustiveness.Check(match, valueType)`.
+
+  **THE CUT — 15 WHOLE C# MEMBERS PLUS A CONST, 588 SOURCE LINES + 11 DOC-COMMENT LINES.**
+  `CheckMatchExhaustiveness` 175, `CheckEnumMatchExhaustiveness` 95 (+4 doc),
+  `IsUnionCaseCoveredByPatterns` 82, `CheckNullableMatchExhaustiveness` 60,
+  `CheckAnonymousUnionMatchExhaustiveness` 45, `TryResolveDeclaredUnionType` 31 (+7 doc),
+  `IsUnionCaseQualifierCompatible` 16, `FormatPartialCoverageCases` 14, `TryGetUnionCaseForPattern` 14,
+  `GetMatchedUnionCaseName` 12, `IsTotalNestedUnionPattern` 9, `IsTotalUnionCasePattern` 9,
+  `GetUnionCaseName` 6, `IsCatchAllPattern` 5, `IsTotalPropertyPattern` 4, plus
+  `private const int MatchKeywordLength = 5` (dead once its six uses left) and the now-unused
+  `using System.Buffers` (the `ArrayPool` rent/return went with `CheckMatchExhaustiveness`).
+  `git diff` **+24 / −652 = net −628**; `Analyzer.cs` **15,966 → 15,338** (non-blank
+  14,099 → **13,542**). **ALL 24 ADDED LINES ARE MECHANICAL**: a field declaration with its two-line
+  comment, three rebuild-site assignments, one single-expression `=> new(...)` factory
+  (`CreateMatchExhaustiveness`, in exactly the shape of `CreateCallAnalysis` beside it), and
+  rewritten references at the eight routed sites. **NO new C# method with policy, bridge, callback,
+  shell or state.** 8 call sites routed across four members — `AnalyzeMatchExpression` (the whole
+  38-line dispatch tail → 1 line), `AnalyzePattern` ×2 arms, the union-case construction probe
+  (:11918) and the union-case member shape (:12236/:12245) — and N# calls nothing back.
+
+  **N# ADDED:** `AnalyzerExhaustivenessSelector.nl` **60 → 231** (the beachhead's FIRST C# owner
+  moved onto it: it gains the nine pure shape/qualifier/format facts beside its two existing
+  selectors) and a new `AnalyzerMatchExhaustiveness.nl` at **838** lines (two types — the reporting
+  core and `AnalyzerNestedUnionCoverage`, the ordered nested-coverage tally). **41 NEW CONTRACTS** in
+  `AnalyzerExhaustivenessSelector.tests.nl` (**248**, 13 contracts) and
+  `AnalyzerMatchExhaustiveness.tests.nl` (**687**, 28 contracts), which pin the arms the corpus
+  cannot reach: the nullable question's three missing shapes and its four "present" pattern kinds,
+  the anonymous union's assignability coverage (an `object` pattern covering a two-arm union), the
+  nested partial-coverage hint text verbatim, the total-nested-cover case, the foreign-qualifier
+  rejection in BOTH the union and the enum question (they differ — the union match is lenient
+  three ways, the enum's is exact), the enum's literal coverage in its declared value kind only, the
+  argument-count-mismatch generic that is NOT a union, and that every covering path WRITES
+  `IsExhaustive` rather than merely staying silent.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `19a3579ce` and at the working tree, **both run over the SAME sources**, across **ALL 72
+  `project.yml` targets with no exclusion** — including the ROOT target (the whole compiler) and
+  `BootstrapServices` (the compiler's own N# estate, which now contains the new owners):
+  **ORACLE_DIFFS = 0, ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0, SKIPPED = 0**, over **833
+  diagnostics across 23 codes**, md5 `a31fa07138bf5cf65c52bb65934c24db` in BOTH trees.
+
+  **PROOF — 50 PURPOSE-BUILT FIXTURES, CHECK AND THE UNSORTED BUILD TRANSCRIPT.** Built directly from
+  the measurement's gaps: 16 union shapes (missing one / missing two / wildcard / catch-all binding /
+  qualified-identifier arms / guarded arm / guarded wildcard / nested partial hint / nested total
+  cover / nested partial + missing / two constrained properties / generic union covered and missing /
+  unknown case / foreign qualifier), 8 enum shapes (missing / wildcard / catch-all / string literals /
+  int literals / foreign qualifier / covered / guarded), 9 nullable shapes (missing null / missing
+  present / missing both / covered by binding / by type pattern / by object pattern / wildcard /
+  guarded / object-only), 6 anonymous-union shapes, 3 non-union scrutinees, 5 routing fixtures for
+  the four re-pointed call sites, and 3 multiplicity/order fixtures. **`nlc check --json`:
+  FX_CHECK_DIFFS = 0, FX_CHECK_EXIT_DIFFS = 0, 58 diagnostics over 11 NL codes of which 25 are
+  NL501**, md5 `a01e21af4c3a2f5426d717a8e7ac87f7` in BOTH. **`nlc build`, which renders `_errors` in
+  LIST order with NO dedup and NO sort: 50 / 50 BYTE-IDENTICAL, FX_BUILD_DIFFS = 0,
+  FX_BUILD_EXIT_DIFFS = 0, 795 lines, 35 rich diagnostic blocks**, md5
+  `919cafdd71f32f3edb62205418cd452f` in BOTH — and the order fixture is the point: one file with four
+  non-exhaustive matches emits union, then enum, then nullable, then the anonymous-union arm, in
+  declaration order, in both trees.
+
+  **A MEASURED FACT WORTH RECORDING: THE EXHAUSTIVENESS FAMILY REPORTS EXACTLY ONCE PER MATCH.**
+  Unlike slice 24's receiver protocol — where the same NL401 printed 12 and 48 times — the unsorted
+  build transcript's NL501 count equals the deduplicated `check` count on every one of the 50
+  fixtures, including the nested-match fixture. The check is asked once, after the arms are analysed,
+  and the arms are not re-analysed.
+
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP, WITH ITS SAME-CLI CONTROL RUN FIRST.** Both CLIs built all
+  **72 targets** into their own `--output` trees under EQUAL-LENGTH worktree paths
+  (`/private/tmp/nsharp017s25b` and `…25w`). **134 comparable assemblies, ONLY_IN_BASE = 0,
+  ONLY_IN_WORK = 0**, and **all 75 EMITTED assemblies are BYTE-IDENTICAL**. The 59 remaining are one
+  file, the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the
+  difference was DIAGNOSED rather than waved away: **49 bytes of a 14,848-byte file, all three runs
+  inside the CodeView `RSDS` record** (the PDB GUID, the embedded PDB PATH `…nsharp017s25b…` versus
+  `…nsharp017s25w…`, and the SHA256 PDB checksum), with `diff -r` over `src/NSharpLang.Runtime`
+  between the two worktrees reporting **0 files**. Under an OPT-IN path/GUID-blind normalisation all
+  **134 / 134** compare identical, and the same-CLI control is deterministic in BOTH modes.
+
+  **THE NORMALISER GOTCHA BIT AGAIN, IN A NEW PLACE — AND THE CONTROL CAUGHT IT BOTH TIMES.** Slice
+  24 recorded that a byte-exact sweep's verdict means nothing until a same-CLI control proves the
+  normaliser complete. It was needed twice here. **(1)** With only the COFF `TimeDateStamp` and the
+  PE checksum zeroed, one target built TWICE BY THE SAME CLI differed from itself in exactly **16
+  bytes at file offset 1468** — walking the CLI header to the metadata root and enumerating the
+  stream headers placed that range exactly on the **`#GUID` heap**: `nlc`'s emitter mints a fresh
+  MVID per build, so **the #GUID heap must be zeroed or every emitted assembly differs from itself**.
+  **(2)** The debug-directory payload zeroing silently did nothing because
+  `IMAGE_DEBUG_DIRECTORY.AddressOfRawData` (+20) is an **RVA** while `PointerToRawData` (+24) is the
+  **file offset** — reading +20 as an offset lands on unrelated bytes and the CodeView record
+  survives untouched.
+
+  **TWO `.nl` GOTCHAS, ONE NEW AND EXPENSIVE.** **(1) `match` is RESERVED and cannot be a parameter
+  or local name.** A method declared `func Check(match: MatchExpression, ...)` declines at
+  `parse.struct` naming the **CLASS**, not the parameter — the same misdirection the `type` /
+  `record` / `newtype` / `partial` / `params` family produces, and it cost a four-step bisect to
+  localise because every member of the file used the name. Renamed to `matchExpression` throughout;
+  beware the blind rename, which will also rewrite the diagnostic MESSAGE STRINGS ("This nullable
+  match doesn't cover …") if they are not put back. **(2) `partial` is RESERVED as a local name** —
+  re-confirmed the hard way in a contract (`partial := new List<string>()` declines at `parse.test`).
+  Also worth recording as SHAPE guidance rather than a bug: the estate has **no class-level `const`
+  member and no `null!`**, so a shared constant is written as a `static func` and a `Try…(out T)`
+  over a reference type is better expressed as a `Find…(): T?` — which is why
+  `TryGetUnionCaseForPattern` became `FindUnionCaseForPattern` on the way across.
+
+  **PROOF — CORPUS UNSORTED BUILD TRANSCRIPTS.** Separately from the IL sweep, both CLIs' `nlc build`
+  output over **all 72 targets** was captured and compared with only the two non-behavioural fields
+  normalised (the elapsed-time readings and the `--output` path): **TRANSCRIPTS = 72,
+  NORMALISED_DIFFS = 0, EXIT_DIFFS = 0**, 1,519 lines carrying 153 diagnostic-code mentions over 10
+  distinct codes. (The raw comparison reports 61 "differences" and every one of them is a `[0.4s]`
+  reading or the output path — a reminder that a transcript differential needs its own normaliser
+  and its own justification for every field it erases.)
+
+  **EVIDENCE.** Full unit suite **3,194 / 3,194, 0 failed** — exactly the `19a3579ce` baseline COUNT,
+  ZERO drift, both inside the gate (10m25s) and again under `./scripts/dev.sh --since`, which
+  selected the FULL suite and said why (`Analyzer.cs` is central; 7m23s, no flake, so the cool-rerun
+  rule was not needed). BootstrapServices contracts **2,059 → 2,100 (+41)**, **2,100 / 2,100 PASS**
+  via the gate's own `dotnet test -p:NSharpExcludeTests=false` invocation. Ownership audit **18 / 18**
+  against the freshly written manifest, re-validated INSIDE the gate. The two new owners AND all 41
+  contracts **compiled clean at the PACKAGED toolset**, so **NO toolset repin was needed and NO wall
+  was crossed** — this slice consumes only surface the catalog already publishes. **RATCHET REPIN** —
+  `current*` + fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs` currentLines
+  15,966 → **15,338**, currentNonBlankLines 14,099 → **13,542**, fingerprint
+  `text-v1:c1be9100ecafc563` → `text-v1:2f52563fd4476414` (epoch ceilings 23,451 / 20,537 PRESERVED
+  and now clear by **8,113 / 6,995**); `reviewedHeadFingerprint head-v1:3671b58edaefa8e0` →
+  **`head-v1:85721c0951a0052d`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and
+  RE-VALIDATED by recomputation both before and after the write — and the recomputation reproduced
+  all four STORED values EXACTLY before a single byte was changed. **FORMAT DISCIPLINE HELD: `wc -l`
+  on the manifest is 391 before AND after, the manifest `git diff` is exactly 2 changed lines, and
+  `OwnershipAudit.nl`'s is exactly 1**; both files were read `utf-8-sig` and written plain `utf-8`,
+  and neither carries a BOM afterwards. The full 381-row sweep found exactly ONE drifted row
+  (`Analyzer.cs`) plus the six PRE-EXISTING `MISSING` rows for files earlier slices deleted, which
+  were deliberately LEFT ALONE.
+
+  **GATE — THE FULL VS CODE-ENABLED `./scripts/test-all.sh --commit`, ALL TESTS PASSED ON THE FIRST
+  RUN, 31m16s**, in a fresh isolated copy (`/tmp/nsharp-test-all.f60401a541bb.6B7JcP`, key
+  `f60401a541bb137a` — neither a cached whole-gate nor a cached per-step verdict; the validated
+  result was stored only on success). Green with **zero `✗`** across all sixteen steps: clean,
+  compiler build (3m37s), the format contract gate, unit tests (10m25s), the native `.tests.nl`
+  estate including BootstrapServices' 2,100 and `tests/native/ownership-audit`'s 18 / 18 (5m39s),
+  **VS Code integration tests (4m20s)**, SDK pack + install (6m29s), template pack / install /
+  creation, the template-generated project, all example and fixture projects, all single-file
+  examples, `nlc check` over the examples, and the ECMA-335 **IL verification gate — all 67 N#
+  assemblies pass, no new errors vs baseline**. The cold-`TestSdkFeed` five-minute-cap hazard did NOT
+  appear. No cool rerun was needed. `./scripts/reload-vscode-extension.sh` was RUN:
+  `nsharp-0.6.0.vsix` rebuilt (289 files, 3.97 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix'
+  was successfully installed."). INTERACTIVE computer-use verification was NOT attempted, per the
+  coordinator's standing instruction. The IDE-facing surface this slice OWNS is the non-exhaustive
+  squiggle and its rich explanation — which arm of `match` is missing, and the hint that names the
+  exact arm to add — and that is pinned by 833 byte-identical corpus diagnostics across all 72
+  targets, 50 byte-identical fixture `check` results, 50 byte-identical unsorted fixture build
+  transcripts (795 lines, 35 rich blocks, 25 NL501s), 72 byte-identical corpus build transcripts, 75
+  byte-identical emitted assemblies, the gate's own VS Code integration run, and 67 IL-verified
+  assemblies.
+
+  **WALL STATUS: NO wall crossed, and NO toolset repin was needed.** This slice adds no catalog
+  surface and no new language capability — it consumes what is already published. The proof is that
+  the PACKAGED-SDK build of `BootstrapServices` — the one the gate performs — compiled both new
+  owners and all 41 contracts.
+
+  **NEXT SLICE: 017 SLICE 26 — the list-pattern SHAPE probe and the relational-pattern COMPARABILITY
+  predicates** (stage 2 of the plan above, ~174 lines over 8 members). It is the next peripheral pure
+  layer, it has no walk to suspend, and the measurement already says what its fixtures must carry:
+  the corpus contains **zero** relational patterns and **zero** list-pattern mismatches, so every one
+  of its reporting shapes has to be built rather than found.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 24 — `AnalyzeCall`, THE OVERLOAD ARC'S
+  TERMINAL MEMBER.** Target recorded BEFORE any production edit, at `889528b52` (`Analyzer.cs` **16,058**
   lines, non-blank **14,177**; BootstrapServices contracts **2,046**; unit suite **3,194**; ownership
   audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint head-v1:b4b2e4cdedb18076`).
 
