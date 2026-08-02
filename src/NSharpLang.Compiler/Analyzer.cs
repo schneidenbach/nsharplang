@@ -9788,14 +9788,7 @@ public class Analyzer : IDisposable
                      .ThenBy(candidate => candidate.DefaultsUsed))
         {
             var errorsBefore = _errors.Count;
-            var boundCall = FinalizeBoundReflectionCall(
-                candidate.RuntimeMethod,
-                candidate.SignatureMethod,
-                call,
-                candidate.Bindings,
-                candidate.TypeInfoBindings,
-                candidate.MethodGroupArguments,
-                candidate.BoundArguments);
+            var boundCall = FinalizeBoundReflectionCall(candidate);
             if (boundCall != null)
                 return boundCall;
 
@@ -9833,220 +9826,35 @@ public class Analyzer : IDisposable
         if (preBound == null)
             return null;
 
-        return FinalizeBoundReflectionCall(
-            preBound.RuntimeMethod,
-            preBound.SignatureMethod,
-            call,
-            preBound.Bindings,
-            preBound.TypeInfoBindings,
-            preBound.MethodGroupArguments,
-            preBound.BoundArguments);
+        return FinalizeBoundReflectionCall(preBound);
     }
 
-    private FunctionTypeInfo? FinalizeBoundReflectionCall(
-        MethodInfo runtimeMethod,
-        MethodInfo signatureMethod,
-        CallExpression call,
-        Dictionary<Type, Type> bindings,
-        Dictionary<Type, TypeInfo> typeInfoBindings,
-        Dictionary<int, FunctionTypeInfo> methodGroupArguments,
-        List<ReflectionBoundArgument> boundArguments)
+    /// <summary>
+    /// The one step the N#-owned finalising walk cannot take for itself: analysing an expression.
+    /// The walk runs in <see cref="AnalyzerReflectionArgumentBinder"/>, suspends at each analysis it
+    /// needs and resumes with the answer, because a later lambda's expected signature is read from
+    /// bindings an EARLIER lambda's answer produced — so no schedule can be computed up front. Which
+    /// node, which entry point, which expected type, which expression-tree flag and whether to
+    /// continue at all are the walk's decisions; this loop only performs the analysis it is handed.
+    /// </summary>
+    private FunctionTypeInfo? FinalizeBoundReflectionCall(ReflectionPreBoundCandidate candidate)
     {
-        var workingBindings = new Dictionary<Type, Type>(bindings);
-        var workingTypeInfoBindings = new Dictionary<Type, TypeInfo>(typeInfoBindings);
-        var openMethod = signatureMethod; // Preserve the open method for TypeInfo-based resolution
-        var method = runtimeMethod;
-        var hasTypeInfoOverrides = workingTypeInfoBindings.Count > 0;
-
-        foreach (var boundArgument in _reflectionArgumentBinder.EnumerateSuppliedReflectionArguments(boundArguments))
+        var state = _reflectionArgumentBinder.BeginFinalizeReflectionCall(candidate);
+        for (var request = _reflectionArgumentBinder.NextReflectionAnalysis(state);
+             request != null;
+             request = _reflectionArgumentBinder.NextReflectionAnalysis(state))
         {
-            if (boundArgument.Argument.Value is not LambdaExpression lambda)
-                continue;
-
-            var expectedSignature = _reflectionArgumentBinder.CreateDelegateSignatureFromOpenType(
-                boundArgument.OpenParameterType,
-                workingTypeInfoBindings,
-                workingBindings);
-            expectedSignature ??= _overloadScoring.CreateBroadDelegateSignatureForLambda(
-                boundArgument.OpenParameterType,
-                workingBindings,
-                lambda);
-            if (expectedSignature == null)
-                return null;
-
-            var lambdaType = AnalyzeLambda(
-                lambda,
-                expectedSignature,
-                isExpressionTreeTarget: AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(boundArgument.OpenParameterType));
-            var lambdaDelegateType = _clrTypeConversion.TryConstructDelegateType(lambdaType);
-            if (lambdaDelegateType != null)
-            {
-                var delegateParameterType = AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(boundArgument.OpenParameterType);
-                AnalyzerOverloadFacts.TryMatchReflectionParameter(delegateParameterType, lambdaDelegateType, workingBindings);
-            }
-
-            var lambdaReturnClrType = lambdaType.ReturnType != null
-                ? (_clrTypeConversion.TryConvertTypeInfoToClrType(lambdaType.ReturnType)
-                    ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(lambdaType.ReturnType))
-                : null;
-            if (lambdaReturnClrType != null && method.IsGenericMethodDefinition)
-            {
-                var remainingGenericArguments = method.GetGenericArguments()
-                    .Where(argument => !workingBindings.ContainsKey(argument))
-                    .ToList();
-
-                if (remainingGenericArguments.Count == 1)
-                {
-                    workingBindings[remainingGenericArguments[0]] = lambdaReturnClrType;
-                    if (lambdaType.ReturnType != null)
-                        workingTypeInfoBindings[remainingGenericArguments[0]] = lambdaType.ReturnType;
-                }
-            }
+            _reflectionArgumentBinder.SupplyReflectionAnalysis(
+                state,
+                request.Lambda != null
+                    ? AnalyzeLambda(
+                        request.Lambda,
+                        request.ExpectedType,
+                        isExpressionTreeTarget: request.IsExpressionTreeTarget)
+                    : AnalyzeExpressionWithExpectedType(request.Expression, request.ExpectedType));
         }
 
-        if (method.IsGenericMethodDefinition)
-        {
-            var genericArguments = method.GetGenericArguments();
-            if (genericArguments.Any(argument => !workingBindings.ContainsKey(argument)))
-                return null;
-
-            method = method.MakeGenericMethod(genericArguments.Select(argument => workingBindings[argument]).ToArray());
-        }
-
-        // Recalculate whether we have overrides (lambda return types may have added more)
-        hasTypeInfoOverrides = workingTypeInfoBindings.Count > 0;
-
-        var parameterTypes = new List<TypeInfo>();
-        var validatedArgumentTypes = new List<TypeInfo>();
-        var openParameters = openMethod.GetParameters();
-
-        foreach (var boundArgument in boundArguments)
-        {
-            switch (boundArgument)
-            {
-                case DefaultReflectionBoundArgument defaultArgument:
-                {
-                    var defaultType = AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(
-                        defaultArgument.Parameter, workingTypeInfoBindings, workingBindings);
-                    parameterTypes.Add(defaultType);
-                    validatedArgumentTypes.Add(defaultType);
-                    break;
-                }
-
-                case SuppliedReflectionBoundArgument supplied:
-                {
-                    var parameter = openParameters[supplied.ParameterIndex];
-                    if (!ValidateFinalReflectionSuppliedArgument(
-                            supplied,
-                            parameter,
-                            workingBindings,
-                            workingTypeInfoBindings,
-                            methodGroupArguments,
-                            hasTypeInfoOverrides,
-                            parameterTypes,
-                            validatedArgumentTypes))
-                    {
-                        return null;
-                    }
-                    break;
-                }
-
-                case ParamsReflectionBoundArgument paramsBound:
-                {
-                    foreach (var suppliedElement in paramsBound.Arguments)
-                    {
-                        var parameter = openParameters[paramsBound.ParameterIndex];
-                        if (!ValidateFinalReflectionSuppliedArgument(
-                                suppliedElement,
-                                parameter,
-                                workingBindings,
-                                workingTypeInfoBindings,
-                                methodGroupArguments,
-                                hasTypeInfoOverrides,
-                                parameterTypes,
-                                validatedArgumentTypes))
-                        {
-                            return null;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Compute return type using TypeInfo overrides for the open method's return type
-        var returnType = AnalyzerReflectionTypeConversion.ConvertBoundReturn(
-            openMethod, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides);
-
-        return new FunctionTypeInfo()
-        {
-            ParameterTypes = parameterTypes,
-            ReturnType = returnType
-        };
-    }
-
-    private bool ValidateFinalReflectionSuppliedArgument(
-        SuppliedReflectionBoundArgument supplied,
-        ParameterInfo parameter,
-        Dictionary<Type, Type> workingBindings,
-        Dictionary<Type, TypeInfo> workingTypeInfoBindings,
-        Dictionary<int, FunctionTypeInfo> methodGroupArguments,
-        bool hasTypeInfoOverrides,
-        List<TypeInfo> parameterTypes,
-        List<TypeInfo> validatedArgumentTypes)
-    {
-        if (supplied.Argument.Value is LambdaExpression lambda)
-        {
-            var expectedSignature = _reflectionArgumentBinder.CreateDelegateSignatureFromOpenType(
-                supplied.OpenParameterType,
-                workingTypeInfoBindings,
-                workingBindings);
-            expectedSignature ??= _overloadScoring.CreateBroadDelegateSignatureForLambda(
-                supplied.OpenParameterType,
-                workingBindings,
-                lambda);
-            parameterTypes.Add(expectedSignature ?? new FunctionTypeInfo() { ReturnType = BuiltInTypes.Unknown });
-
-            if (expectedSignature == null)
-                return false;
-
-            var lambdaArgumentType = AnalyzeLambda(
-                lambda,
-                expectedSignature,
-                isExpressionTreeTarget: AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType));
-            validatedArgumentTypes.Add(lambdaArgumentType);
-            return true;
-        }
-
-        var expectedType = AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
-            supplied,
-            parameter,
-            workingBindings,
-            workingTypeInfoBindings,
-            hasTypeInfoOverrides);
-        parameterTypes.Add(expectedType);
-
-        if (methodGroupArguments.TryGetValue(supplied.ArgumentIndex, out var selectedMethodGroup))
-        {
-            var expectedSignature = _reflectionArgumentBinder.CreateDelegateSignatureFromOpenType(
-                supplied.OpenParameterType,
-                workingTypeInfoBindings,
-                workingBindings);
-
-            if (expectedSignature?.ParameterTypes == null
-                || !_assignability.IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(selectedMethodGroup, expectedSignature))
-            {
-                return false;
-            }
-
-            validatedArgumentTypes.Add(selectedMethodGroup);
-            return true;
-        }
-
-        var argumentType = AnalyzeExpressionWithExpectedType(supplied.Argument.Value, expectedType);
-        validatedArgumentTypes.Add(argumentType);
-
-        return _overloadScoring.IsAssignableReflectionArgument(expectedType, argumentType);
+        return state.Result;
     }
 
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)

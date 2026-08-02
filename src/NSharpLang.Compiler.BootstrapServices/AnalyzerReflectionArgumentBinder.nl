@@ -1355,4 +1355,312 @@ public class AnalyzerReflectionArgumentBinder {
 
         return -1
     }
+
+    // THE SECOND PASS OVER THE WINNING CANDIDATE: convert every position, validate every argument
+    // and answer the call's type — or answer nothing, which sends the caller to the next candidate.
+    //
+    // The pass starts here and then SUSPENDS at each expression it needs analysed. The candidate's
+    // own dictionaries are COPIED first, exactly as the walk this replaces did: a finalisation that
+    // fails must leave the candidate's recorded inference untouched, because the caller may retry a
+    // different candidate that shares nothing but them.
+    public func BeginFinalizeReflectionCall(
+        candidate: ReflectionPreBoundCandidate): ReflectionCallFinalizeState {
+        return new ReflectionCallFinalizeState(
+            candidate.RuntimeMethod,
+            candidate.SignatureMethod,
+            candidate.SignatureMethod.GetParameters(),
+            candidate.BoundArguments,
+            EnumerateSuppliedReflectionArguments(candidate.BoundArguments),
+            candidate.MethodGroupArguments,
+            CopyBindings(candidate.Bindings),
+            CopyTypeInfoBindings(candidate.TypeInfoBindings))
+    }
+
+    // Run the walk until it needs an expression analysed, or until it ends. A null answer means the
+    // walk is over — read `state.Result` for the verdict, which is null when it failed. Every
+    // decision the walk makes between two analyses is taken HERE; the caller performs the analysis
+    // the request names and hands the answer back, and nothing else.
+    public func NextReflectionAnalysis(
+        state: ReflectionCallFinalizeState): ReflectionAnalysisRequest? {
+        if state.Failed || state.Phase == 2 {
+            return null
+        }
+
+        if state.Phase == 0 {
+            while state.PreIndex < state.SuppliedArguments.Count {
+                supplied := state.SuppliedArguments[state.PreIndex]
+                state.PreIndex = state.PreIndex + 1
+                lambda := supplied.Argument.Value as LambdaExpression
+                if lambda == null {
+                    continue
+                }
+
+                expectedSignature := CreateLambdaTargetSignature(state, supplied.OpenParameterType, lambda)
+                if expectedSignature == null {
+                    state.Failed = true
+                    return null
+                }
+
+                state.PendingKind = 1
+                state.PendingOpenParameterType = supplied.OpenParameterType
+                return new ReflectionAnalysisRequest(
+                    lambda,
+                    lambda,
+                    expectedSignature,
+                    AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
+            }
+
+            if !CloseGenericRuntimeMethod(state) {
+                state.Failed = true
+                return null
+            }
+
+            // Recalculated AFTER the pre-pass on purpose: a lambda's return type may have added an
+            // override that was not there when the candidate was bound.
+            state.HasTypeInfoOverrides = state.WorkingTypeInfoBindings.Count > 0
+            state.Phase = 1
+        }
+
+        while state.MainIndex < state.BoundArguments.Count {
+            boundArgument := state.BoundArguments[state.MainIndex]
+            defaultArgument := boundArgument as DefaultReflectionBoundArgument
+            if defaultArgument != null {
+                state.ParameterTypes.Add(
+                    AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(
+                        defaultArgument.Parameter,
+                        state.WorkingTypeInfoBindings,
+                        state.WorkingBindings))
+                state.MainIndex = state.MainIndex + 1
+                continue
+            }
+
+            supplied := boundArgument as SuppliedReflectionBoundArgument
+            if supplied != null {
+                state.MainIndex = state.MainIndex + 1
+                request := PrepareReflectionArgument(
+                    state, supplied, state.OpenParameters[supplied.ParameterIndex])
+                if state.Failed {
+                    return null
+                }
+                if request != null {
+                    return request
+                }
+
+                continue
+            }
+
+            paramsBound := boundArgument as ParamsReflectionBoundArgument
+            if paramsBound != null {
+                if state.ParamsIndex < paramsBound.Arguments.Count {
+                    element := paramsBound.Arguments[state.ParamsIndex]
+                    state.ParamsIndex = state.ParamsIndex + 1
+                    request := PrepareReflectionArgument(
+                        state, element, state.OpenParameters[paramsBound.ParameterIndex])
+                    if state.Failed {
+                        return null
+                    }
+                    if request != null {
+                        return request
+                    }
+
+                    continue
+                }
+
+                state.ParamsIndex = 0
+                state.MainIndex = state.MainIndex + 1
+                continue
+            }
+
+            state.MainIndex = state.MainIndex + 1
+        }
+
+        finalized := new FunctionTypeInfo()
+        finalized.ParameterTypes = state.ParameterTypes
+        finalized.ReturnType = AnalyzerReflectionTypeConversion.ConvertBoundReturn(
+            state.OpenMethod,
+            state.WorkingTypeInfoBindings,
+            state.WorkingBindings,
+            state.HasTypeInfoOverrides)
+        state.Result = finalized
+        state.Phase = 2
+        return null
+    }
+
+    // Fold the answer to the outstanding request back in. A phase-one answer INFERS — it matches the
+    // lambda's constructed delegate against the open parameter and, when exactly one type parameter
+    // is still unbound, takes the lambda's return type for it. A phase-two expression answer is
+    // JUDGED against the expected type and a refusal ends the finalisation. A phase-two lambda
+    // answer is neither: the walk this replaces stored it in a list nothing read.
+    public func SupplyReflectionAnalysis(
+        state: ReflectionCallFinalizeState, analyzedType: TypeInfo) {
+        if state.PendingKind == 1 {
+            lambdaType := analyzedType as FunctionTypeInfo
+            if lambdaType != null {
+                FoldLambdaInference(state, lambdaType)
+            }
+        } else if state.PendingKind == 3 {
+            expectedType := state.PendingExpectedType
+            if expectedType == null
+                || !overloadScoring.IsAssignableReflectionArgument(expectedType, analyzedType) {
+                state.Failed = true
+            }
+        }
+
+        state.PendingKind = 0
+        state.PendingExpectedType = null
+        state.PendingOpenParameterType = null
+    }
+
+    // The lambda-target signature, with the BROAD fallback behind it. The fallback is not a
+    // synonym: the first answer is read off the open delegate type and answers null when the type is
+    // not a delegate at all, and only then may the lambda's own written parameters supply one.
+    func CreateLambdaTargetSignature(
+        state: ReflectionCallFinalizeState,
+        openParameterType: Type,
+        lambda: LambdaExpression): FunctionTypeInfo? {
+        expectedSignature := CreateDelegateSignatureFromOpenType(
+            openParameterType, state.WorkingTypeInfoBindings, state.WorkingBindings)
+        if expectedSignature != null {
+            return expectedSignature
+        }
+
+        return overloadScoring.CreateBroadDelegateSignatureForLambda(
+            openParameterType, state.WorkingBindings, lambda)
+    }
+
+    // Close the runtime method over the inference, if it is still open. A type parameter the whole
+    // pre-pass failed to bind is a non-finalisation, not a guess.
+    func CloseGenericRuntimeMethod(state: ReflectionCallFinalizeState): bool {
+        if !state.RuntimeMethod.get_IsGenericMethodDefinition() {
+            return true
+        }
+
+        genericArguments := state.RuntimeMethod.GetGenericArguments()
+        index := 0
+        while index < genericArguments.Length {
+            if !state.WorkingBindings.ContainsKey(genericArguments[index]) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        typeArguments := new Type[](genericArguments.Length)
+        index = 0
+        while index < genericArguments.Length {
+            typeArguments[index] = state.WorkingBindings[genericArguments[index]]
+            index = index + 1
+        }
+
+        state.CloseRuntimeMethod(typeArguments)
+        return true
+    }
+
+    func FoldLambdaInference(state: ReflectionCallFinalizeState, lambdaType: FunctionTypeInfo) {
+        openParameterType := state.PendingOpenParameterType
+        lambdaDelegateType := clrTypeConversion.TryConstructDelegateType(lambdaType)
+        if lambdaDelegateType != null && openParameterType != null {
+            AnalyzerOverloadFacts.TryMatchReflectionParameter(
+                AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openParameterType),
+                lambdaDelegateType,
+                state.WorkingBindings)
+        }
+
+        lambdaReturnType := lambdaType.ReturnType
+        if lambdaReturnType == null {
+            return
+        }
+
+        lambdaReturnClrType := clrTypeConversion.TryConvertTypeInfoToClrType(lambdaReturnType)
+        if lambdaReturnClrType == null {
+            lambdaReturnClrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(lambdaReturnType)
+        }
+
+        if lambdaReturnClrType == null || !state.RuntimeMethod.get_IsGenericMethodDefinition() {
+            return
+        }
+
+        remaining := new List<Type>()
+        genericArguments := state.RuntimeMethod.GetGenericArguments()
+        index := 0
+        while index < genericArguments.Length {
+            if !state.WorkingBindings.ContainsKey(genericArguments[index]) {
+                remaining.Add(genericArguments[index])
+            }
+
+            index = index + 1
+        }
+
+        // ONE remaining type parameter and one lambda return type is an inference; two of either is
+        // an ambiguity the walk refuses to resolve.
+        if remaining.Count == 1 {
+            state.WorkingBindings[remaining[0]] = lambdaReturnClrType
+            state.WorkingTypeInfoBindings[remaining[0]] = lambdaReturnType
+        }
+    }
+
+    // One phase-two position: record the type the parameter EXPECTS, then say whether an analysis is
+    // still needed. A method-group position is settled here and needs none — the selection was made
+    // when the candidate bound, and all that is left is whether it fits the now-bound signature.
+    func PrepareReflectionArgument(
+        state: ReflectionCallFinalizeState,
+        supplied: SuppliedReflectionBoundArgument,
+        parameter: ParameterInfo): ReflectionAnalysisRequest? {
+        lambda := supplied.Argument.Value as LambdaExpression
+        if lambda != null {
+            expectedSignature := CreateLambdaTargetSignature(state, supplied.OpenParameterType, lambda)
+            if expectedSignature == null {
+                unknownSignature := new FunctionTypeInfo()
+                unknownSignature.ReturnType = BuiltInTypes.Unknown
+                state.ParameterTypes.Add(unknownSignature)
+                state.Failed = true
+                return null
+            }
+
+            state.ParameterTypes.Add(expectedSignature)
+            state.PendingKind = 2
+            return new ReflectionAnalysisRequest(
+                lambda,
+                lambda,
+                expectedSignature,
+                AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
+        }
+
+        expectedType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
+            supplied,
+            parameter,
+            state.WorkingBindings,
+            state.WorkingTypeInfoBindings,
+            state.HasTypeInfoOverrides)
+        state.ParameterTypes.Add(expectedType)
+
+        selectedMethodGroup: FunctionTypeInfo? = null
+        if state.MethodGroupArguments.TryGetValue(supplied.ArgumentIndex, out selectedMethodGroup) {
+            expectedSignature := CreateDelegateSignatureFromOpenType(
+                supplied.OpenParameterType, state.WorkingTypeInfoBindings, state.WorkingBindings)
+            if selectedMethodGroup == null
+                || expectedSignature == null
+                || expectedSignature.ParameterTypes == null
+                || !assignability.IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(
+                        selectedMethodGroup, expectedSignature) {
+                state.Failed = true
+            }
+
+            return null
+        }
+
+        state.PendingKind = 3
+        state.PendingExpectedType = expectedType
+        return new ReflectionAnalysisRequest(supplied.Argument.Value, null, expectedType, false)
+    }
+
+    static func CopyTypeInfoBindings(
+        bindings: Dictionary<Type, TypeInfo>): Dictionary<Type, TypeInfo> {
+        copy := new Dictionary<Type, TypeInfo>()
+        foreach entry in bindings {
+            copy[entry.Key] = entry.Value
+        }
+
+        return copy
+    }
 }

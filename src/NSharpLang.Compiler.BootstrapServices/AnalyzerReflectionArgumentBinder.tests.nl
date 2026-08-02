@@ -1333,3 +1333,341 @@ func PreBindTypeArray(first: Type): Type[] {
     values[0] = first
     return values
 }
+
+// ------------------------------------------------------------------ the finalising walk
+//
+// The walk is the candidate's SECOND pass and the only part of the reflected-call arc that cannot be
+// stated as a function: it suspends at each expression it needs analysed. These contracts pin the
+// suspension protocol itself, because it is the part a reader cannot recover from any single arm:
+// WHEN a request is issued, what expected type rides on it, what each answer is folded into, and
+// when the walk stops asking.
+
+// `Array.ConvertAll<TInput, TOutput>(TInput[], Converter<TInput, TOutput>)` — the CoreLib generic
+// with a DELEGATE parameter whose return type is a type parameter nothing else can bind. It is the
+// only shape that exercises the pre-pass's inference rule on a real declaration.
+func FinalizeConvertAllMethod(wellKnown: AnalyzerWellKnownTypes): MethodInfo {
+    arrayType := BinderMlcType(wellKnown, "System.Array")
+    methods := arrayType.GetMethods()
+    index := 0
+    while index < methods.Length {
+        candidate := methods[index]
+        if candidate.get_Name() == "ConvertAll" && candidate.GetParameters().Length == 2 {
+            return candidate
+        }
+
+        index = index + 1
+    }
+
+    throw new InvalidOperationException("Array.ConvertAll was not found in the load context.")
+}
+
+// A call with `arity` positional arguments where the position at `lambdaIndex` is a one-parameter
+// lambda. A negative index means no lambda at all.
+func FinalizeCall(arity: int, lambdaIndex: int): CallExpression {
+    arguments := BinderArguments()
+    index := 0
+    while index < arity {
+        if index == lambdaIndex {
+            arguments.Add(BinderLambda(1, "int"))
+        } else {
+            arguments.Add(BinderPositional("a" + index.ToString()))
+        }
+
+        index = index + 1
+    }
+
+    receiver: Expression = new MemberAccessExpression(BinderIdentifier("receiver"), "m", false, 1, 1)
+    return new CallExpression(receiver, arguments, null, 1, 1)
+}
+
+// An analysed lambda's answer: the shape `AnalyzeLambda` hands back.
+func FinalizeLambdaAnswer(parameter: TypeInfo, returnType: TypeInfo): FunctionTypeInfo {
+    return BinderAnonymousFunction(parameter, returnType)
+}
+
+func FinalizeSignatureText(request: ReflectionAnalysisRequest?): string {
+    if request == null {
+        return "<none>"
+    }
+
+    signature := request.ExpectedType as FunctionTypeInfo
+    if signature == null {
+        return BinderTypeName(request.ExpectedType)
+    }
+
+    text := "("
+    parameterTypes := signature.ParameterTypes
+    if parameterTypes != null {
+        index := 0
+        while index < parameterTypes.Count {
+            if index > 0 {
+                text = text + ","
+            }
+
+            text = text + BinderTypeName(parameterTypes[index])
+            index = index + 1
+        }
+    }
+
+    return text + ")->" + BinderTypeName(signature.ReturnType)
+}
+
+test "the finalising walk asks once per supplied argument and answers the call's type" {
+    binder := BinderDefault()
+    substring := typeof(string).GetMethod("Substring", PreBindTypeArray(typeof(int)))
+    assert substring != null
+
+    candidate := binder.PreBindReflectionMethod(
+        substring, PreBindCall(1), typeof(string), new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed1(BuiltInTypes.Int))
+    assert candidate != null
+
+    state := binder.BeginFinalizeReflectionCall(candidate)
+    first := binder.NextReflectionAnalysis(state)
+    assert first != null
+    // A non-lambda position rides the ordinary expected-type entry point, and the expected type is
+    // the parameter's, not the argument's.
+    assert first.Lambda == null
+    assert !first.IsExpressionTreeTarget
+    assert BinderTypeName(first.ExpectedType) == "int"
+    // The walk is SUSPENDED: no answer, no result.
+    assert state.Result == null
+
+    binder.SupplyReflectionAnalysis(state, BuiltInTypes.Int)
+    assert binder.NextReflectionAnalysis(state) == null
+    assert state.Result != null
+    assert state.Result.ParameterTypes != null
+    assert state.Result.ParameterTypes.Count == 1
+    assert BinderTypeName(state.Result.ReturnType) == "string"
+}
+
+test "an argument that does not assign ends the walk and no later argument is asked for" {
+    binder := BinderDefault()
+    substring := typeof(string).GetMethod(
+        "Substring", PreBindTypeArray2(typeof(int), typeof(int)))
+    assert substring != null
+
+    candidate := binder.PreBindReflectionMethod(
+        substring, PreBindCall(2), typeof(string), new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed2(BuiltInTypes.Int, BuiltInTypes.Int))
+    assert candidate != null
+
+    // Both positions are asked for when both answers assign.
+    accepted := binder.BeginFinalizeReflectionCall(candidate)
+    assert binder.NextReflectionAnalysis(accepted) != null
+    binder.SupplyReflectionAnalysis(accepted, BuiltInTypes.Int)
+    assert binder.NextReflectionAnalysis(accepted) != null
+    binder.SupplyReflectionAnalysis(accepted, BuiltInTypes.Int)
+    assert binder.NextReflectionAnalysis(accepted) == null
+    assert accepted.Result != null
+
+    // A refused FIRST answer stops the walk where it stands: the second position is never asked
+    // for, so the analyzer never analyses it and never reports from inside it.
+    refused := binder.BeginFinalizeReflectionCall(candidate)
+    assert binder.NextReflectionAnalysis(refused) != null
+    binder.SupplyReflectionAnalysis(refused, BuiltInTypes.String)
+    assert binder.NextReflectionAnalysis(refused) == null
+    assert refused.Result == null
+}
+
+test "a defaulted position contributes a parameter type without asking for an analysis" {
+    binder := BinderDefault()
+    method := BinderOptionalMethod()
+    parameters := method.GetParameters()
+    firstType := AnalyzerReflectionTypeConversion.ConvertReflectionType(
+        AnalyzerOverloadFacts.GetByRefElementType(parameters[0].get_ParameterType()))
+    candidate := binder.PreBindReflectionMethod(
+        method, PreBindCall(1), null, null, BinderAnalyzed1(firstType))
+    assert candidate != null
+
+    state := binder.BeginFinalizeReflectionCall(candidate)
+    requests := 0
+    request := binder.NextReflectionAnalysis(state)
+    while request != null {
+        requests = requests + 1
+        binder.SupplyReflectionAnalysis(state, request.ExpectedType)
+        request = binder.NextReflectionAnalysis(state)
+    }
+
+    assert state.Result != null
+    assert state.Result.ParameterTypes != null
+    // One written argument, one analysis; the defaulted positions are typed without one.
+    assert requests == 1
+    assert state.Result.ParameterTypes.Count > requests
+}
+
+test "an expanded params tail asks once per element" {
+    binder := BinderDefault()
+    format := BinderFormatMethod()
+    candidate := binder.PreBindReflectionMethod(
+        format, PreBindCall(4), null, null,
+        BinderAnalyzed(FinalizeStringValues(4)))
+    assert candidate != null
+
+    state := binder.BeginFinalizeReflectionCall(candidate)
+    requests := 0
+    request := binder.NextReflectionAnalysis(state)
+    while request != null {
+        requests = requests + 1
+        binder.SupplyReflectionAnalysis(state, request.ExpectedType)
+        request = binder.NextReflectionAnalysis(state)
+    }
+
+    // The format string plus THREE expanded elements: the tail is one bound argument and three
+    // analyses, not one.
+    assert requests == 4
+    assert state.Result != null
+}
+
+test "a phase-one lambda answer binds the method's one remaining type parameter" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        wellKnown := BinderWellKnown(context)
+        binder := BinderFor(wellKnown)
+        convertAll := FinalizeConvertAllMethod(wellKnown)
+
+        intArray := wellKnown.Int32.MakeArrayType()
+        candidate := binder.PreBindReflectionMethod(
+            convertAll,
+            FinalizeCall(2, 1),
+            null,
+            null,
+            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null))
+        assert candidate != null
+
+        state := binder.BeginFinalizeReflectionCall(candidate)
+
+        // PHASE ONE. The lambda is asked for FIRST, ahead of every conversion, and its expected
+        // return type is still the OPEN type parameter — nothing has bound it yet.
+        first := binder.NextReflectionAnalysis(state)
+        assert first != null
+        assert first.Lambda != null
+        assert FinalizeSignatureText(first) == "(int)->TOutput"
+
+        // The answer INFERS: with exactly one type parameter still unbound, the lambda's return
+        // type takes it.
+        binder.SupplyReflectionAnalysis(
+            state, FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String))
+
+        // PHASE TWO. The array position, then the SAME lambda again — and its signature is now the
+        // bound one, which is why the second analysis is not a repeat of the first.
+        second := binder.NextReflectionAnalysis(state)
+        assert second != null
+        assert second.Lambda == null
+        binder.SupplyReflectionAnalysis(state, second.ExpectedType)
+
+        third := binder.NextReflectionAnalysis(state)
+        assert third != null
+        assert third.Lambda != null
+        // The lambda's own answer closed `TOutput`; the nullability spelling rides along from the
+        // reflected delegate's metadata, which is why the second signature is not merely "(int)->string".
+        assert FinalizeSignatureText(third) == "(int)->string?"
+        binder.SupplyReflectionAnalysis(
+            state, FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String))
+
+        assert binder.NextReflectionAnalysis(state) == null
+        assert state.Result != null
+        // The inferred type parameter reaches the call's own type.
+        assert BinderTypeName(state.Result.ReturnType) == "string[]"
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "a type parameter the pre-pass never binds is a non-finalisation rather than a throw" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        wellKnown := BinderWellKnown(context)
+        binder := BinderFor(wellKnown)
+        convertAll := FinalizeConvertAllMethod(wellKnown)
+
+        intArray := wellKnown.Int32.MakeArrayType()
+        candidate := binder.PreBindReflectionMethod(
+            convertAll,
+            FinalizeCall(2, 1),
+            null,
+            null,
+            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null))
+        assert candidate != null
+
+        state := binder.BeginFinalizeReflectionCall(candidate)
+        first := binder.NextReflectionAnalysis(state)
+        assert first != null
+
+        // A lambda whose return type is UNKNOWN converts to no CLR type, so `TOutput` stays open.
+        // The walk answers nothing at all rather than closing the method on a guess.
+        binder.SupplyReflectionAnalysis(
+            state, FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.Unknown))
+        assert binder.NextReflectionAnalysis(state) == null
+        assert state.Result == null
+        assert state.Failed
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "the finalisation leaves the candidate's own recorded inference untouched" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        wellKnown := BinderWellKnown(context)
+        binder := BinderFor(wellKnown)
+        convertAll := FinalizeConvertAllMethod(wellKnown)
+
+        intArray := wellKnown.Int32.MakeArrayType()
+        candidate := binder.PreBindReflectionMethod(
+            convertAll,
+            FinalizeCall(2, 1),
+            null,
+            null,
+            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null))
+        assert candidate != null
+
+        bindingsBefore := candidate.Bindings.Count
+        typeInfoBindingsBefore := candidate.TypeInfoBindings.Count
+
+        state := binder.BeginFinalizeReflectionCall(candidate)
+        request := binder.NextReflectionAnalysis(state)
+        while request != null {
+            if request.Lambda != null {
+                binder.SupplyReflectionAnalysis(
+                    state, FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String))
+            } else {
+                binder.SupplyReflectionAnalysis(state, request.ExpectedType)
+            }
+
+            request = binder.NextReflectionAnalysis(state)
+        }
+
+        // The pre-pass's inference lands on the WALK's copies. A finalisation that failed would
+        // otherwise poison the next candidate the caller tries.
+        assert candidate.Bindings.Count == bindingsBefore
+        assert candidate.TypeInfoBindings.Count == typeInfoBindingsBefore
+        assert state.WorkingBindings.Count > bindingsBefore
+    } finally {
+        scan.Dispose()
+    }
+}
+
+func FinalizeStringValues(count: int): List<TypeInfo?> {
+    values := new List<TypeInfo?>()
+    index := 0
+    while index < count {
+        values.Add(BuiltInTypes.String)
+        index = index + 1
+    }
+
+    return values
+}
+
+func PreBindTypeArray2(first: Type, second: Type): Type[] {
+    values := new Type[](2)
+    values[0] = first
+    values[1] = second
+    return values
+}

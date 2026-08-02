@@ -1,6 +1,35 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-01 (**TASK 017 SLICE 20 PHASE B LANDED (no commit — mandate) — N# OWNS WHICH
+Last updated: 2026-08-01 (**TASK 017 SLICE 21 LANDED (no commit — mandate) — N# OWNS THE REFLECTED
+CALL END TO END, SELECTION AND FINALISATION.** The slice was a MEASUREMENT before it was a cut, and
+the measurement is its spine: both members were instrumented in place and traced over **all 71
+corpus targets (14,736 finalisations, 57,610 rows) plus purpose-built multi-lambda fixtures**. The
+corpus **cannot decide the question** — 14,608 finalisations carry no lambda, 128 carry exactly one,
+**none carries two** — and the fixtures decide it: on `Join`, `GroupBy`, `SelectMany`, `Aggregate`
+and `ToDictionary`, **7 of 45** pre-pass lambda analyses run against a signature an EARLIER lambda's
+answer produced, so the loop genuinely interleaves and cannot be inverted; and **91 of 173** run
+against a signature that differs from the one the FINAL bindings give, so no schedule computed once
+— up front or at the end — reproduces it. Phase two, by contrast, is **frozen (`MUT=N` in
+13,070 / 13,070 steps)** but still cannot be a static list, because a refused argument must stop the
+walk before later arguments are analysed. So the walk MOVES WHOLE and becomes RESUMABLE: N# runs it
+and suspends at each expression it needs analysed; C# keeps a **19-line driver** that performs the
+one analysis it is handed and gives back the answer. **2 whole C# members DELETED — 203 body
+lines**: `FinalizeBoundReflectionCall` 141 and `ValidateFinalReflectionSuppliedArgument` 62, plus the
+14 lines of 7-argument call list at the two call sites. `Analyzer.cs` **16,754 → 16,562** (non-blank
+14,777 → **14,607**), `git diff` **+24 / −216 = net −192**. N# gains
+`AnalyzerReflectionCallFinalizer.nl` (136) and 308 lines on `AnalyzerReflectionArgumentBinder`, whose
+own doc comment already said a candidate is bound in TWO passes. **PROOFS:** a canonical protocol
+differential run in BOTH trees over every corpus target and fixture — **57,430 rows, md5
+`481df154fdd0b3dc59a3305782b190dc` in both, 15,143 finalisations and 13,572 analyses identical in
+order, phase, expected type, answer and diagnostic count**; the semantic oracle at **ORACLE_DIFFS = 0
+over all 71 targets, 857 diagnostics**, plus 40 new lambda-argument fixtures at 0 diffs; **40
+byte-identical unsorted `nlc build` transcripts** carrying 34 rich blocks including 17 NL402 in
+source order and undeduplicated; and **125 byte-identical assemblies** over 153 builds per tree.
+Contracts **2,006 → 2,013**, audit 18 / 18, unit suite 3,192, ratchet repinned on ONE row. Two dead
+things were found and recorded rather than quietly removed: the finaliser's `call` parameter and
+`validatedArgumentTypes` are both **never read**.)
+
+Last updated (prior): 2026-08-01 (**TASK 017 SLICE 20 PHASE B LANDED (no commit — mandate) — N# OWNS WHICH
 REFLECTED OVERLOAD A CALL SELECTS, END TO END.** With the argument walk N# since slice 14 and the
 reporters N# since slice 19, the candidate GATE is now N# too: `Analyzer.cs` keeps no part of "does
 this reflected method accept this call, and how well?" — not the receiver's contribution to
@@ -805,7 +834,280 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 20 PHASE B — THE REFLECTION PRE-BINDER.**
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 21 — THE FINALISING WALK.** Target recorded
+  BEFORE any production edit, at `d4d383d79` (`Analyzer.cs` **16,754** lines, non-blank **14,777**;
+  BootstrapServices contracts **2,006**; unit suite **3,192**; ownership audit **18 / 18**; manifest
+  **391** lines; accumulated fixtures **186**).
+
+  **THE TARGET.** `FinalizeBoundReflectionCall` (:9846, **141**, 2 refs — `BindReflectionCall` :9791
+  and `BindSingleReflectionMethod` :9836) and `ValidateFinalReflectionSuppliedArgument` (:9988,
+  **62**, 2 refs, both INSIDE `FinalizeBoundReflectionCall` — the `Supplied` arm :9939 and the
+  `Params` arm :9959). **203 body lines across 2 members**, both `private`, **ZERO references outside
+  `Analyzer.cs`** across `src/`, `tests/` and `editors/` — so no C# assertion migrates.
+
+  **THE CLOSURE, RE-EXTRACTED AT THIS TREE.** Every field reference and bare call inside both bodies:
+  `_reflectionArgumentBinder.EnumerateSuppliedReflectionArguments`/`CreateDelegateSignatureFromOpenType`,
+  `_overloadScoring.CreateBroadDelegateSignatureForLambda`/`IsAssignableReflectionArgument`,
+  `_clrTypeConversion.TryConstructDelegateType`/`TryConvertTypeInfoToClrType`/
+  `TryConvertTypeInfoToClrTypeForBinding`, `_assignability.
+  IsFunctionTypeAssignableToRuntimeDelegateMethodGroup`, `AnalyzerOverloadFacts.
+  GetDelegateParameterTypeForLambdaTarget`/`TryMatchReflectionParameter`,
+  `AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides`/`ConvertBoundReturn`/
+  `ConvertSuppliedArgumentType`, `AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget`
+  — **every one already N#**. The ONLY C# dependencies are **THREE RE-ENTRY CALL SITES**:
+  `AnalyzeLambda` at :9877 (the pre-pass) and :10013 (the validator's lambda arm), and
+  `AnalyzeExpressionWithExpectedType` at :10046 (the validator's general arm).
+
+  **WHY IT WAS TWICE MEASURED AS NOT-CLOSING, AND WHAT THIS SLICE MEASURES.** The pre-pass at
+  :9861–9905 folds each lambda's ANALYSED type back into `workingBindings` /
+  `workingTypeInfoBindings` (`TryMatchReflectionParameter` mutates; the single-remaining-generic-
+  argument rule at :9898 writes both dictionaries), and the NEXT lambda's expected signature is read
+  from those same dictionaries — so the accumulation is potentially self-referential and no
+  count-exact hoist of the slice-17 shape exists. This slice is the MEASUREMENT: per lambda argument,
+  (i) does the accumulated signature at analysis time ever DIFFER from the signature the final
+  bindings would produce; (ii) does `AnalyzeLambda`'s result feed FORWARD into a LATER lambda's
+  expected signature (true interleaving) or only into the final call type; (iii) what does each arm
+  report, in what order and multiplicity, relative to the lambda analyses. By that evidence: (a) the
+  schedule/driver split (N# owns everything but the re-entries; C# keeps a zero-policy driver
+  replaying an N#-produced plan — the slice-15 driver pattern), (b) loop inversion if the dependency
+  is one-directional, (c) a partial cut of the non-lambda arms with the lambda residue recorded, or
+  (d) the proven no-cut record. A wrong guess changes diagnostic ORDER, so transcripts decide.
+
+  **THE MEASUREMENT — AND IT IS THE SLICE'S SPINE.** Both members were instrumented in place (an
+  env-gated tracer, reverted before the cut by `git checkout`, the tree re-diffed to prove it gone)
+  recording per lambda argument: the expected signature AT ANALYSIS TIME, the same signature
+  recomputed from the ENTRY bindings and from the FINAL bindings, whether each answer changed either
+  bindings dictionary, the `_errors` delta across every analysis, and the re-entrancy depth.
+  **57,610 trace rows over ALL 71 `project.yml` corpus targets (14,736 finalisations) plus 378 rows
+  over purpose-built multi-lambda fixtures (77 finalisations).**
+  1. **THE CORPUS CANNOT DECIDE THE QUESTION, AND THAT IS ITSELF THE FINDING.** Of 14,736 corpus
+     finalisations, **14,608 carry ZERO lambda arguments, 128 carry exactly ONE, and NOT ONE carries
+     two** (the 128 are `Enumerable.Select` 61, `Enumerable.Where` 40, `MapGet` 14, `Task.Run` 9,
+     `MapPost` 4). `INTERLEAVED=N` in **128 / 128** there — with one lambda there is nothing to
+     interleave with. This is the slice-17 shape exactly: the corpus proves volume, the fixtures
+     decide the semantics.
+  2. **THE INTERLEAVING IS REAL, AND THE FIXTURES SHOW IT.** `Join` (3 lambdas), `GroupBy` (3),
+     `Aggregate` (2), `SelectMany` (2) and `ToDictionary` (2) produce **7 of 45** pre-pass lambda
+     analyses whose signature at analysis time DIFFERS from the entry-bindings signature: `Join`'s
+     inner key selector is analysed against `(int)->int` where the entry bindings give `(int)->TKey`,
+     its result selector against `(string,int)->int` where they give `(string,int)->TResult`,
+     `SelectMany`'s against `(List<int>,int)->List<int>` where they give
+     `(List<int>,TCollection)->TResult`, `GroupBy`'s against `(int,IEnumerable<string>)->string`
+     where they give `(TKey,IEnumerable<TElement>)->TResult`. **An earlier lambda's ANSWER changed a
+     later lambda's expected signature.** Option (b) — a one-directional dependency to invert — is
+     refuted by counterexample.
+  3. **THE DEPENDENCY IS NEVERTHELESS STRICTLY BACKWARD — prefix-stable in the mandate's sense.**
+     Every difference is produced by an EARLIER argument; nothing reads a later one and there is no
+     fixpoint. But a plan computed ONCE is still wrong in both directions: **91 of 173** lambda
+     analyses (30 fixture + 61 corpus) ran against a signature that differs from the one the FINAL
+     bindings give, so neither an up-front schedule nor an end-of-walk recomputation reproduces what
+     the loop does. **91 of 173** answers changed the CLR bindings (`BINDCHG=Y`) and 27 changed the
+     TypeInfo bindings.
+  4. **PHASE TWO IS FROZEN, MEASURED: `MUT=N` in 13,070 / 13,070 phase-two steps** across corpus and
+     fixtures — once the pre-pass ends, neither bindings dictionary is written again, so every
+     phase-two expected type IS a function of the frozen bindings. What phase two still cannot do up
+     front is STOP: a refused argument ends the finalisation and later arguments must then never be
+     analysed (**82 corpus `FAIL_SUPPLIED`**). The phase-two arms are **12,888 + 12 expression,
+     128 + 42 lambda, 124 + 1 default, 6 + 2 method-group**.
+  5. **THE SAME LAMBDA IS ANALYSED TWICE PER CANDIDATE, AND THE SECOND IS NOT A REPEAT.** In **91 of
+     170** phase-two lambda steps the expected signature DIFFERS from the pre-pass one for the same
+     node. And the phase-two answer is DISCARDED: `validatedArgumentTypes` is written five times and
+     read **zero** times — the second analysis runs only for the diagnostics and semantic-model
+     records it leaves behind. The reporting evidence: on the error fixtures a single bad lambda body
+     reported **once in the pre-pass and once again in phase two**, and `BindReflectionCall`'s
+     `_errors.RemoveRange` rollback then removes both. **The walk re-enters itself to depth 3**
+     (d0 54,784 / d1 2,512 / d2 284 / d3 30 rows).
+  6. Two dead things fell out of the measurement and are RECORDED rather than quietly cleaned up:
+     `FinalizeBoundReflectionCall`'s `CallExpression call` parameter is **never read**, and
+     `validatedArgumentTypes` is **never read**.
+
+  **THE CHOICE, BY THE EVIDENCE: (a), IN ITS INCREMENTAL FORM.** A static schedule is impossible
+  (finding 3); a loop inversion is unsound (finding 2); a partial cut would leave the arc's last
+  reflection policy in C# for no measured reason. So the walk MOVES WHOLE and becomes RESUMABLE: N#
+  runs it, suspends at each expression it needs analysed, and resumes with the answer. C# keeps a
+  driver whose entire body is "while N# asks for an analysis, perform the one it names and hand back
+  the answer; then read N#'s result". Which node, which entry point, which expected type, which
+  expression-tree flag, what each answer is folded into, and whether to continue at all are ALL N#'s.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS THE REFLECTED CALL END TO END — SELECTION AND
+  FINALISATION.** With the argument walk N# since slice 14, the reporters since 19 and the candidate
+  gate since 20B, `Analyzer.cs` now keeps no part of "what type does this reflected call have?" —
+  not the lambda pre-pass's inference, not the generic closure, not the parameter conversions, not
+  the per-argument verdict, not the params expansion, not the method-group check, and not the return
+  type. No callback, no fallback, no shadow path.
+
+  **THE CUT — 2 WHOLE C# MEMBERS DELETED, 203 BODY LINES.** `FinalizeBoundReflectionCall` 141 and
+  `ValidateFinalReflectionSuppliedArgument` 62, plus the 14 lines of 7-argument call list at the two
+  call sites, which collapse to `FinalizeBoundReflectionCall(candidate)` and
+  `FinalizeBoundReflectionCall(preBound)`. `Analyzer.cs` **16,754 → 16,562** (non-blank
+  14,777 → **14,607**); `git diff` **+24 / −216 = net −192**. The ONLY C# added anywhere is the
+  **19-line driver with its doc comment** and the two rewritten references. **NO new C# method with
+  policy, bridge, callback, shell or state — the driver takes no decision it could take differently.**
+
+  **N# ADDED:** `AnalyzerReflectionCallFinalizer.nl` (**136 lines** — `ReflectionAnalysisRequest` and
+  `ReflectionCallFinalizeState`) and **308 lines** on `AnalyzerReflectionArgumentBinder`:
+  `BeginFinalizeReflectionCall`, `NextReflectionAnalysis`, `SupplyReflectionAnalysis` and five
+  helpers (`CreateLambdaTargetSignature`, `CloseGenericRuntimeMethod`, `FoldLambdaInference`,
+  `PrepareReflectionArgument`, `CopyTypeInfoBindings`). The owner is the BINDER because the walk is
+  the candidate's SECOND pass over the FIRST pass's recorded answer — the binder's own doc comment
+  already said "a reflected candidate is bound in TWO passes" — and because the binder already holds
+  every collaborator the walk needs, so the slice adds **no construction site, no field and no
+  rebuild-list entry** in `Analyzer.cs`.
+  **ONE SHAPE DECISION AT THE BOUNDARY, RECORDED.** `MakeGenericMethod`'s result is DEAD in the
+  original — the closed method is never read again — but the CALL validates the constraints and
+  throws when they are violated, so it is behaviour, not bookkeeping. The N# state therefore keeps a
+  `CloseRuntimeMethod` that performs the same assignment rather than dropping the call as dead.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs built at baseline
+  `d4d383d79` (throwaway `/private/tmp/nsharp017s21` worktree) and at the working tree, **both run
+  over the SAME (working-tree) sources**, across **ALL 71 `project.yml` corpus targets with no
+  exclusion** — including the ROOT target, which is the whole compiler: **ORACLE_DIFFS = 0,
+  ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0**, **857 diagnostics**. Plus **40 purpose-built
+  LAMBDA-ARGUMENT fixtures** — every multi-lambda BCL shape reachable from N# (`Join`, `GroupJoin`,
+  `GroupBy`/3, `ToDictionary`/2, `SelectMany`/2, `Aggregate`/2 and /3, `Zip`), a lambda whose type
+  depends on an earlier NON-lambda argument (`Aggregate`'s seed), REPORTING lambdas in first, second,
+  both and repeated positions, a method-group argument, the indexed-versus-plain `Select` overload
+  pair (the rollback path), nested lambdas, typed lambda parameters, an `Action` lambda, params tails,
+  defaulted positions, and five bad reflected calls in one body: **FX_DIFFS = 0, FX_EXIT_DIFFS = 0,
+  51 diagnostics**. (The prior slices' 186 accumulated fixtures were NOT recoverable at this tree —
+  their scratchpads had been reaped — which is why the new set is 40 rather than 16, and why it
+  deliberately re-covers the earlier arms as well as the new one. Recorded so the next slice does not
+  look for a set that no longer exists.)
+
+  **PROOF — DIAGNOSTIC ORDER AND MULTIPLICITY, UNSORTED AND UNDEDUPLICATED (the slice-17/18/19/20B
+  method).** `nlc build` renders `_errors` in LIST order with NO dedup and NO sort — it is the only
+  surface on which this slice's risk is visible at all. **40 targets, 711 lines,
+  FULLBUILD_IDENTICAL = 40, FULLBUILD_DIFFS = 0, FULLBUILD_EXIT_DIFFS = 0** after normalising only
+  the two elapsed-time spellings (`[0.4s]` and `in 0.4s` — the second cost one iteration and 9
+  "diffs" that were nothing else). **34 rich diagnostic blocks including 17 NL402**, and the
+  order/multiplicity ones are the point: five bad reflected calls print **5 blocks in SOURCE order**
+  (`Substring, Substring, IndexOf, Substring, Remove`), three IDENTICAL bad `Select` calls print
+  **3 full blocks, undeduplicated**, and a body that alternates an `int` receiver with a `string`
+  receiver prints its three blocks interleaved in source order.
+
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP.** A fresh PE/CLI normaliser was written for this slice (the
+  slice-16/17 one was in a reaped scratchpad): it zeroes the COFF `TimeDateStamp`, the optional
+  header's `CheckSum`, the whole Debug Directory including the raw data its entries point at, and the
+  entire `#GUID` metadata stream (the MVID) — and NOTHING else, so every IL byte, every metadata
+  table, every string and blob still has to match. **71 project targets + 82 single-file example
+  builds = 153 builds per tree**, each into its own `--output` tree so the two runs cannot collide:
+  **125 COMPARABLE ASSEMBLIES BYTE-IDENTICAL — PROJ_IL_DIFFS = 0 (75) and SINGLE_IL_DIFFS = 0 (50)**,
+  **ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, NORMALISER_FAILURES = 0**, and the build LOGS themselves are
+  identical too: **BUILD_LOGS = 153, EXIT_DIFFS = 0, OUTPUT_DIFFS = 0** after normalising only the
+  output path and the elapsed-time spellings.
+
+  **PROOF — THE CANONICAL PROTOCOL DIFFERENTIAL (this slice's own instrument, run in BOTH trees).**
+  Because the two members are a STATEFUL walk rather than a function, the arc's usual synthetic grid
+  cannot express them — so the differential is over the walk's own observable protocol. The SAME
+  canonical emitter was written once and inserted at the SAME semantic points in both trees — at the
+  baseline's two original members and at the working tree's driver — emitting, per finalisation, an
+  `F` row (sequence, method, source position, bound-argument count), a `Q` row before every analysis
+  (phase, lambda-or-expression, the expected type), an `A` row after it (the answer and the
+  `_errors` delta), and an `R` row (OK with the full parameter list and return type, or FAIL). Run
+  over **ALL 71 corpus targets plus the 40 fixtures** in both trees: **57,430 ROWS, TRANSCRIPTS
+  BYTE-IDENTICAL — md5 `481df154fdd0b3dc59a3305782b190dc` in BOTH**, 0 differing lines. **15,143
+  finalisations** (15,053 OK, 90 FAIL) and **13,572 analyses — 295 phase-one lambda, 286 phase-two
+  lambda, 12,991 phase-two expression, 14 of which reported a diagnostic**. Same finalisations in the
+  same order, same phase for each, same expected type on every request, same answer, same
+  diagnostic count per analysis, same parameter list and return type on every result. Both tracers
+  were then removed and both trees re-diffed to prove them gone.
+
+  **ASSERTION MIGRATION.** Both members were `private` and neither is named anywhere in `src/`,
+  `tests/` or `editors/` — measured name by name — so no C# test moved and the unit suite is
+  unchanged at **3,192**. The DIRECT pinning is new and native: **7 contracts** on the suspension
+  protocol itself, which is the part no single arm reveals — one analysis per supplied argument with
+  the PARAMETER's expected type; a refused answer ending the walk so a later argument is never asked
+  for at all; a defaulted position typed without an analysis; an expanded params tail asking once per
+  ELEMENT; the phase-one lambda answer closing the method's one remaining type parameter and the
+  SAME lambda then being asked for again against the now-bound signature; an unbindable type
+  parameter answering nothing rather than throwing; and the candidate's own recorded inference
+  surviving the walk untouched (the copy discipline a retried candidate depends on).
+
+  **THREE `.nl` GOTCHAS, TWO OF THEM NEW.** **A `throw` as the first statement of a block makes the
+  rest of the block unreachable and the whole ASSEMBLY declines** at
+  `emit.statement.unreachable-after-transfer` — which is why a probe must surface a value with
+  `print` rather than by throwing it (and `assert` shows no values, so `print` is the only way to see
+  one). **A reflected delegate's nullability spelling rides into the expected signature**: the
+  phase-two signature for an `Array.ConvertAll` lambda is `(int)->string?`, not `(int)->string`, so a
+  contract that asserts the un-annotated spelling fails for a reason that has nothing to do with the
+  walk. And the previously recorded one held again: a `TryGetValue` out-variable must be declared
+  with its type first, and for a nullable value that declaration is `x: T? = null` with the null
+  check written explicitly afterwards, because N# does not narrow on the `bool` result.
+
+  **EVIDENCE.** BootstrapServices contracts **2,006 → 2,013 (+7)**, **2,013 / 2,013 PASS**; ownership
+  audit **18 / 18**; `dev.sh --since` selected the FULL suite and said why (`Analyzer.cs` is central)
+  — **3,192 / 3,192 in 7m27s**, no flake, so the cool-rerun rule was not needed.
+  **RATCHET REPIN** via `scratchpad/s21/repin.py` — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 16,754 → **16,562**, currentNonBlankLines
+  14,777 → **14,607**, fingerprint `text-v1:8f0999d02d567703` → `text-v1:268f4478ad07933f` (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **6,889 / 5,930**);
+  `reviewedHeadFingerprint head-v1:afc1de96b91f82b1` → **`head-v1:3c97863eebc82c53`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value, `epochPathFingerprint`, `epochFactFingerprint` and
+  `epochFileCount` (381) untouched and RE-VALIDATED by recomputation both before and after the write.
+  **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after, the manifest `git diff`
+  is exactly 2 changed lines, and `OwnershipAudit.nl`'s is exactly 1.** (One repin gotcha worth
+  recording: the audit reads source through .NET's BOM-stripping reader, so a recomputation that does
+  not strip the BOM reports a PHANTOM second changed row — `LanguageServer.csproj`, whose bytes had
+  not moved at all. Read scanned sources as `utf-8-sig`; write the manifest back as plain `utf-8` so
+  no BOM is introduced.)
+  **WALL STATUS: NO wall crossed, and NO toolset repin was needed.** The slice adds no catalog
+  surface and no new language capability: the whole boundary is ordinary classes, a nullable
+  reference and an `int` phase. The proof is that the PACKAGED-SDK build of BootstrapServices — the
+  one the gate performs — compiled the new file, the 308 new binder lines and the 7 new contracts
+  without a repin.
+
+  **THE NEXT SLICE IS 22 — `ResolveMember`, AND ITS CLOSURE WAS MEASURED AT THIS TREE RATHER THAN
+  ASSUMED.** With the reflected call finished, the arc's remaining members are three, and they are
+  not equally ready:
+  * **`ResolveMember` (:8512, 279 lines — the arc's largest single remaining member) CLOSES
+    OUTRIGHT.** Every field reference and bare call in its body was extracted: `_declarationContext`
+    (ten members — `TryResolveDeclaredValueMember`, `TryGetSourceMemberShape`, `TryGetSoaType`,
+    `TryResolveNestedType`, `TryResolvePrimaryParameter`, `TryResolveTupleMember`,
+    `TryResolveKnownArrayExtensionMember`, `TryResolveKnownGenericStructuralMember`,
+    `TryResolveRuntimeInterfaceMethodMember`, `CreateGenericSubstitution`, `ResolveDeclaredAlias`),
+    `_typeSubstitution` (`ResolveGenericDefinition`, `ResolveTypeForSourceOwner`),
+    `_typeResolver.ResolveType`, `_clrTypeConversion` (both conversions), the `_usingNamespaces` set,
+    and ONE self-recursion. **Every collaborator is already N#, and there is NO `Error`, no
+    `_errors`, no `_semanticModel` and no `Analyze*` re-entry anywhere in it** — so unlike slices 17
+    and 21 there is no walk to suspend and no reporting order to preserve: it is a pure function
+    waiting to move. Seven call sites, all inside `Analyzer.cs`.
+  * **The extension carrier — `TryResolveExtensionMethod` (:8984, 53), `FindExternalExtensionMethods`
+    (:9057, 41) and `IsExtensionReceiverApplicable` (:9038, 15), 109 lines — ALSO closes**, on
+    `_functionTypeFactory.CreateFromDeclaration`, `_assignability.IsAssignable`,
+    `_typeResolver.ResolveType`, both CLR conversions, `_declarationContext.HasRuntimeInstanceMethod`
+    and `AnalyzerOverloadFacts`. Its only non-collaborator inputs are the `_extensionMethods`
+    declaration list and `_usingNamespaces`, both of which cross as values. It is the natural
+    companion slice and can ride with `ResolveMember` if the diff stays reviewable.
+  * **`AnalyzeCall` (:9108, 172) is the arc's TERMINAL member and the honest last question.** It
+    REPORTS (`Error`, the `_errors.Count` rollback, `_semanticModel.RecordExpressionType`) and it
+    RE-ENTERS four ways (`AnalyzeCallCallee`, `AnalyzeRefOutArgumentExpression`,
+    `AnalyzeSyntheticCallReceiver`, and the two reflection binders it now drives), so it is either
+    the next resumable walk in the slice-21 shape or the reviewed zero-policy dispatch host that task
+    017's completion criterion actually asks for. That decision wants its own measurement, exactly as
+    this one did.
+
+  **GATES.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — **ALL TESTS PASSED, exit 0,
+  in 1,889s (31m29s) ON THE FIRST RUN** in a fresh isolated copy (the log opens with
+  `Fresh isolated test run required: pre-commit verification` / `Existing cache entries will not
+  satisfy this invocation`, runs in `/tmp/nsharp-test-all.fb1c915f8b2c.AoBcOI` and closes with
+  `Stored validated isolated test cache result: fb1c915f8b2c5258 (1889s)`, so it is neither a cached
+  whole-gate nor a cached per-step verdict; the cool-rerun rule was not needed because nothing
+  flaked). **ZERO `✗`, 105 `✓ PASSED`.** Every step green: clean, compiler build, the format contract
+  gate, unit tests (**3,192 / 3,192** in 7m31s), the native `.tests.nl` estate including
+  BootstrapServices' **2,013 / 2,013** and `tests/native/ownership-audit` **18 / 18** — the ratchet
+  re-validated INSIDE the gate against the freshly written manifest — **VS Code integration tests
+  (4m20s, 36 passing in 41s)**, SDK pack + install (6m32s), template pack/install/creation, the
+  template-generated project, all example projects, all single-file examples, `nlc check` over the
+  examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new errors vs
+  baseline**. `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt and
+  reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE computer-use
+  verification was NOT attempted, per the coordinator's standing instruction. This slice adds no
+  LSP/IDE behaviour of its own; the IDE-facing surface it OWNS is the TYPE the editor gives a
+  reflected call — the hover text, the members offered after it, and whether NL402 squiggles — and
+  that is pinned at 57,430 byte-identical protocol-differential rows over 15,143 finalisations, 857
+  byte-identical corpus diagnostics across all 71 targets, 51 byte-identical fixture diagnostics, 711
+  byte-identical unsorted build-transcript lines, 125 byte-identical assemblies, and the gate's own
+  VS Code integration run.
   Target recorded BEFORE any production edit, at `7665e48e2` (`Analyzer.cs` 16,885 lines, non-blank
   14,888; contracts 1,997).
 
