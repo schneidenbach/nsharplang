@@ -12369,8 +12369,8 @@ internal sealed class ColumnarIlEmitter
             case 46: // IsExpression [value, typeRoot] — `value is Type`: `isinst <T>; ldnull; cgt.un` ->
             case 47: // bool; AsExpression [value, typeRoot] — `value as Type`: `isinst <T>` keeping the
             {        // target type (null on mismatch). The typeRoot resolves a UNION CASE (closed over a
-                     // generic scrutinee via the match machinery) or a registered REFERENCE type; value
-                     // types and unresolvable targets decline (`as` with a value type is pipeline-rejected).
+                     // generic scrutinee via the match machinery) or a registered REFERENCE TYPE; a value-type
+                     // TARGET and unresolvable targets decline. A value-type OPERAND boxes first — see below.
                 if (_nodes.ChildCount(idx) != 2 || !EmitExpression(Child(idx, 0), out var testedType))
                     return false;
                 // A value-struct union has no reference identity: `is U.Case` is an integer tag test and an `is`/`as`
@@ -12397,6 +12397,16 @@ internal sealed class ColumnarIlEmitter
                 }
                 if (targetTestType == null)
                     return false;
+                // A VALUE-TYPED OPERAND BOXES BEFORE THE REFERENCE TEST. `isinst` reads the top of the stack
+                // as an object reference, so over an UNBOXED value it is invalid IL: `(colors as object)` read
+                // the enum's integer payload as a pointer and handed back null, and the wider value shapes
+                // faulted outright (`double` -> AccessViolationException, a struct -> SIGSEGV). C# performs the
+                // boxing conversion at exactly this point (`5 as object` IS a `box`), and the box is what makes
+                // the reference the test needs. `is` takes the same box for the same reason, and stays correct
+                // for a Nullable<T> operand, which boxes to null when empty — the "test fails" answer.
+                // REFERENCE operands are untouched: their shape remains the bare isinst.
+                if (RequiresBoxBeforeReferenceTest(testedType))
+                    _il.Emit(OpCodes.Box, testedType);
                 _il.Emit(OpCodes.Isinst, targetTestType);
                 if (_nodes.Kind(idx) == 46)
                 {
@@ -15371,6 +15381,33 @@ internal sealed class ColumnarIlEmitter
         if (source.IsValueType || source.IsGenericParameter || IsEnumType(source))
             _il.Emit(OpCodes.Box, source);
         return true;
+    }
+
+    // Which `is`/`as` OPERAND types must box before the isinst (kinds 46/47). It is the same question
+    // TryEmitObjectConversion answers at a value-flow boundary — "does this static type carry an unboxed
+    // value?" — and the boxing rule is deliberately identical: a builder-backed enum or value struct, a baked
+    // value type, and a type parameter that is not proven a reference all do. The ONE refinement over the
+    // conversion rule is the `where T: class` parameter: it already holds an object reference, so it keeps the
+    // bare isinst and the established reference-operand `x as object` idiom emits byte-for-byte as before.
+    // GenericParameterAttributes is read defensively — a builder that refuses the query boxes, which is
+    // correct for every instantiation (ECMA-335 III.4.4: `box` over a reference type yields the reference
+    // unchanged), just one redundant instruction when the argument turns out to be a class.
+    private bool RequiresBoxBeforeReferenceTest(Type source)
+    {
+        if (source is TypeBuilder sourceBuilder)
+            return IsEnumType(sourceBuilder) || FindDefByBuilder(sourceBuilder) is { IsReference: false };
+        if (source.IsGenericParameter)
+        {
+            try
+            {
+                return (source.GenericParameterAttributes & GenericParameterAttributes.ReferenceTypeConstraint) == 0;
+            }
+            catch (NotSupportedException)
+            {
+                return true;
+            }
+        }
+        return source.IsValueType || IsEnumType(source);
     }
 
     private bool TryEmitAnonymousUnionConversion(Type source, Type target)
