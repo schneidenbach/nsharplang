@@ -363,7 +363,7 @@ public class Analyzer : IDisposable
         => new(_scopes, _typeResolver, _assignability);
 
     private AnalyzerVariableDeclaration CreateVariableDeclaration()
-        => new(_diagnostics, _spans, _typeResolver, _assignability, _nullFlow, _scopes);
+        => new(_diagnostics, _spans, _typeResolver, _assignability, _nullFlow, _scopes, _declarationContext);
 
     private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
         => new(_diagnostics, _typeSubstitution, _assignability, _typeResolver);
@@ -3731,13 +3731,29 @@ public class Analyzer : IDisposable
     }
 
     private void AnalyzeVariableDeclaration(VariableDeclarationStatement varDecl)
+        => DriveLocalDeclaration(_variableDeclaration.Begin(varDecl));
+
+    private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
+        => DriveLocalDeclaration(_variableDeclaration.BeginTuple(tupleDecl));
+
+    /// <summary>
+    /// The steps the N#-owned local-declaration walks cannot take for themselves. Both of N#'s
+    /// local-declaration statements — <c>let x: T = e</c> and <c>(a, b) := e</c> — run in
+    /// <see cref="AnalyzerVariableDeclaration"/> and share this one loop, because a closure scan of
+    /// the deconstruction arm resolved its re-entries to exactly the annotated arm's. Each walk
+    /// suspends at every step and resumes with the answer, because the type its initializer answers
+    /// is the operand of every step that follows. Which form it is, which phase runs, which report
+    /// fires, which name is declared and with what type are all the walk's decisions; this loop
+    /// performs the one operation it is handed, with the operands it is handed.
+    /// </summary>
+    private void DriveLocalDeclaration(VariableDeclarationState state)
     {
-        var state = _variableDeclaration.Begin(varDecl);
         for (var step = _variableDeclaration.NextStep(state);
              step != null;
              step = _variableDeclaration.NextStep(state))
         {
             TypeInfo? answer = null;
+            var escaped = false;
             switch (step.Kind)
             {
                 case 1:
@@ -3752,173 +3768,21 @@ public class Analyzer : IDisposable
                     ReportSoaRowEscape(step.Node!, step.Text!);
                     break;
                 case 3:
-                    ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(step.Node!, step.Text!);
+                    escaped = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(step.Node!, step.Text!);
                     break;
                 case 4:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, step.Text!);
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, step.Text);
                     break;
                 case 5:
                     RecordVariableInCurrentScope(step.Name!, step.CarriedType);
                     break;
+                case 6:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
             }
 
-            _variableDeclaration.Supply(state, answer);
+            _variableDeclaration.Supply(state, answer, escaped);
         }
-    }
-
-    private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
-    {
-        // Check if this is error handling pattern: (result, err := Function())
-        bool isErrorHandling = tupleDecl.Names.Count == 2 && tupleDecl.Names[1] == "err";
-
-        if (isErrorHandling)
-        {
-            // Error handling pattern
-            var resultVar = tupleDecl.Names[0];
-            var errVar = tupleDecl.Names[1];
-
-            // Analyze the initializer expression to ensure it's valid
-            var initType = AnalyzeExpression(tupleDecl.Initializer);
-            if (ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed")
-                || ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(tupleDecl.Initializer, "deconstructed"))
-            {
-                initType = BuiltInTypes.Unknown;
-            }
-
-            // Declare result variable with inferred type (or Unknown if can't infer)
-            if (resultVar != "_")
-            {
-                DeclareSymbol(resultVar, initType, tupleDecl.Line, tupleDecl.Column);
-                RecordVariableInCurrentScope(resultVar, initType);
-                _scopes.RegisterErrorTupleResult(resultVar, errVar, tupleDecl.Line, tupleDecl.Column);
-            }
-
-            // Declare err variable as nullable Exception
-            if (errVar != "_")
-            {
-                var exceptionType = new ExternalTypeInfo("Exception?");
-                DeclareSymbol(errVar, exceptionType, tupleDecl.Line, tupleDecl.Column);
-                RecordVariableInCurrentScope(errVar, exceptionType);
-                _scopes.SetNullStateInCurrentScope(errVar, NullState.MaybeNull);
-            }
-        }
-        else
-        {
-            // Normal tuple deconstruction
-            // Analyze the initializer expression
-            var initType = AnalyzeExpression(tupleDecl.Initializer);
-            if (ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed")
-                || ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(tupleDecl.Initializer, "deconstructed"))
-            {
-                initType = BuiltInTypes.Unknown;
-            }
-
-            if (BuiltInTypes.IsUnknown(initType))
-            {
-                DeclareTupleDeconstructionTargets(tupleDecl, BuiltInTypes.Unknown);
-                return;
-            }
-
-            if (!TryGetTupleDeconstructionElements(initType, out var elements))
-            {
-                var (line, column, length) = _spans.GetExpressionDiagnosticSpan(tupleDecl.Initializer);
-                Error(
-                    ErrorCode.InvalidSyntax,
-                    $"Tuple deconstruction needs a tuple value, but this initializer is '{initType}'",
-                    line,
-                    column,
-                    "Return or construct a tuple with the same number of elements as the deconstruction targets.",
-                    length);
-                DeclareTupleDeconstructionTargets(tupleDecl, BuiltInTypes.Unknown);
-                return;
-            }
-
-            if (elements.Count != tupleDecl.Names.Count)
-            {
-                var (line, column, length) = _spans.GetExpressionDiagnosticSpan(tupleDecl.Initializer);
-                Error(
-                    ErrorCode.InvalidSyntax,
-                    $"Tuple deconstruction has {tupleDecl.Names.Count} target(s), but the initializer has {elements.Count} element(s)",
-                    line,
-                    column,
-                    "Match the number of target names to the tuple element count.",
-                    length);
-                DeclareTupleDeconstructionTargets(tupleDecl, BuiltInTypes.Unknown);
-                return;
-            }
-
-            for (var i = 0; i < tupleDecl.Names.Count; i++)
-            {
-                DeclareTupleDeconstructionTarget(tupleDecl, tupleDecl.Names[i], elements[i]);
-            }
-        }
-    }
-
-    private void DeclareTupleDeconstructionTargets(TupleDeconstructionStatement tupleDecl, TypeInfo fallbackType)
-    {
-        foreach (var name in tupleDecl.Names)
-        {
-            DeclareTupleDeconstructionTarget(tupleDecl, name, fallbackType);
-        }
-    }
-
-    private void DeclareTupleDeconstructionTarget(TupleDeconstructionStatement tupleDecl, string name, TypeInfo type)
-    {
-        if (name == "_")
-        {
-            return;
-        }
-
-        DeclareSymbol(name, type, tupleDecl.Line, tupleDecl.Column);
-        RecordVariableInCurrentScope(name, type);
-        _scopes.SetNullStateInCurrentScope(name, _nullFlow.GetDefaultNullState(type));
-    }
-
-    private bool TryGetTupleDeconstructionElements(TypeInfo initType, out List<TypeInfo> elements)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(initType);
-        switch (resolved)
-        {
-            case TupleTypeInfo tupleType:
-                elements = tupleType.Elements.Select(element => element.Type).ToList();
-                return true;
-            case GenericTypeInfo { Name: "ValueTuple" } valueTuple:
-                elements = valueTuple.TypeArguments.ToList();
-                return true;
-            case ReflectionTypeInfo reflectionType when TryGetReflectionValueTupleElements(reflectionType.Type, out elements):
-                return true;
-            default:
-                elements = new List<TypeInfo>();
-                return false;
-        }
-    }
-
-    private bool TryGetReflectionValueTupleElements(Type type, out List<TypeInfo> elements)
-    {
-        elements = new List<TypeInfo>();
-
-        var valueTupleType = Nullable.GetUnderlyingType(type) ?? type;
-        if (!valueTupleType.IsValueType
-            || !valueTupleType.IsGenericType
-            || valueTupleType.GetGenericTypeDefinition().FullName is not { } genericDefinitionName
-            || !genericDefinitionName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var fields = valueTupleType.GetFields(BindingFlags.Public | BindingFlags.Instance);
-        for (var i = 1; ; i++)
-        {
-            var field = fields.FirstOrDefault(candidate => candidate.Name == $"Item{i}");
-            if (field == null)
-            {
-                break;
-            }
-
-            elements.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(field.FieldType));
-        }
-
-        return elements.Count > 0;
     }
 
     private void AnalyzeIfStatement(IfStatement ifStmt)

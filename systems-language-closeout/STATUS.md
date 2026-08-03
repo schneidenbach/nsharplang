@@ -1,6 +1,57 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-03 (**TASK 017 SLICE 31 LANDED (no commit — mandate) — THE EXPRESSION/STATEMENT
+Last updated: 2026-08-03 (**TASK 017 SLICE 32 LANDED (no commit — mandate) — N# OWNS BOTH OF N#'s
+LOCAL-DECLARATION STATEMENTS, AND ONE ZERO-POLICY DRIVER SERVES THEM BOTH.**
+`AnalyzerVariableDeclaration.nl` grows **467 → 923 lines (33 members)** and becomes the sole
+authority for what `(a, b) := e` means as well as `let x: T = e`: whether the source is a tuple at
+all, which of THREE shapes answers its elements (a declared `TupleTypeInfo`, a constructed generic
+named `ValueTuple`, or a reflected CLR `System.ValueTuple\`N` read off its `ItemN` FIELDS), whether
+the element count matches the target list, which of its two NL103 reports fires and with which span
+and wording, the `_` discard rule, the error form's `Exception?` and its error-tuple registration,
+and every target's null state. **FIVE WHOLE C# MEMBERS DELETED — 150 SOURCE LINES — and the driver
+slice 31 built is now SHARED**: `git diff` **+24 / −160 = net −136**, `Analyzer.cs` **13,875 →
+13,739** (non-blank 12,273 → **12,153**), method declarations **495 → 492**, and **THE CALL SITE DID
+NOT CHANGE** because `AnalyzeTupleDeconstruction` survives as a one-line router. **THE ARM WAS
+BIGGER THAN BRIEFED AND SMALLER AT THE SAME TIME**: the brief named 1 member / 87 lines and 9
+stay-behind re-entries; re-verification found **5 members / 150 lines** (all four helpers are private
+to the arm and have no other caller in 13,875 lines) but only **5 stay-behind re-entries — slice
+31's five, EXACTLY**, so the kind set needed ZERO additions. The mandate's anticipated
+`Deconstruct`-method overload machinery **does not exist**: N# has no `Deconstruct` protocol.
+**ONE NEW KIND WAS ADDED ANYWAY, AND IT IS A FAITHFULNESS FINDING**: kind 6 analyses the initializer
+WITHOUT touching the ambient target-typing slot, because `Analyzer.cs`'s tuple arm never set it and
+kind 1 would have overwritten it with null — changing what `default`, a lambda, an unbound callable
+reference and a negative integer literal resolve to inside a deconstruction nested in an
+already-target-typed context. **THE CORPUS REACHES ONE FORM OF TWO**: an instrumented baseline over
+all 71 tracked targets found **12 entries, EVERY ONE the error form**, zero diagnostics, zero SoA
+escapes and **the element reader never entered at all**; the 62 fixture entries carry the other 55
+normal deconstructions, 9 not-a-tuple reports, 4 arity reports and both remaining element shapes.
+**RESUMABLE IS PROVEN**: in all 74 entries the declaration step's TYPE operand is a function of the
+kind-6 answer, in 15 WHICH branch runs is, and in 4 the report's own MESSAGE interpolates a count
+derived from it. PROOFS: the semantic-diagnostic oracle over **ALL 71 targets — ORACLE_DIFFS = 0
+over 11,673 lines, 782 diagnostics across 18 codes, ZERO stderr bytes**, md5 identical in both trees;
+an **emission-order protocol differential instrumented at the SAME replayed operations in BOTH trees
+— 843 fixture rows and 5,610 corpus-subset rows, 0 MISMATCHES**, every diagnostic read back off
+`_errors`, every null state and every error-tuple guard read back off the scope stack; **67 fixtures
+(31 new + 36 accumulated), 0 diffs on `nlc check` (2,304 lines, 108 diagnostics over 17 codes) and 0
+diffs on the UNSORTED `nlc build` transcript (3,017 lines)**; **71 / 71 corpus build transcripts,
+TRANSCRIPT_DIFFS = 0 over 1,632 lines** (54 exit 0, 17 exit 1, identically); and a corpus IL sweep
+whose normaliser was **RE-DERIVED FROM SCRATCH** (two same-CLI same-directory builds differ in
+exactly **17 byte positions** — the PE TimeDateStamp and the metadata MVID) and whose **CONTROL RAN
+FIRST AND PASSED 25 / 25**, after which **116 assemblies compared: ONLY_IN_WORK = 0, all 62
+N#-EMITTED assemblies BYTE-IDENTICAL**, the 54 remaining being the COPIED `NSharpLang.Runtime.dll`
+whose 211-byte residue is **ROOT-CAUSED to the CLI-location-dependent embedded PDB path** with **0
+SOURCE files** differing. GATES: contracts **2,472 → 2,526 (+54)**, 0 failed; audit **18 / 18** after
+a ONE-row in-place repin keeping the manifest at **391 lines**, no BOM. NO toolset repin needed — the
+surface probe proved every reflection member is already published. **SIX GOTCHAS, headed by a
+`while true` whose only exit is a `return` declining at `emit.body` — found because the surface probe
+was written as EIGHT separate functions rather than one, which is what kept it from being mistaken
+for a repin wall — and by the compiler's own `nlc check` catching an NL012 in the new owner, the
+FOURTH time the arc's proof surface has graded the owner it was meant to prove.** NEXT: the
+four-member assert/expression-statement cluster, then the function-context and loop-context ambient
+field families BEFORE the arms that read them, and `AnalyzeStatement` last. Its full record is in the
+Cursor block below)
+
+Last updated (prior): 2026-08-03 (**TASK 017 SLICE 31 LANDED (no commit — mandate) — THE EXPRESSION/STATEMENT
 WALKER TERRITORY IS OPEN, AND N# OWNS WHAT A LOCAL DECLARATION MEANS.**
 `AnalyzerVariableDeclaration.nl` (**467 lines, THREE types, 18 members**) is the sole authority for
 what a `let x: T = e` annotation resolves to, whether the initializer is assignable to it, which of
@@ -1311,7 +1362,281 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 31 — THE WALKER TERRITORY OPENS:
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 32 — THE WALKER TERRITORY'S SECOND ARM:
+  `AnalyzeTupleDeconstruction` AND ITS WHOLE PRIVATE CLOSURE.** Target recorded BEFORE any production
+  edit, at `3d1743c9d` (`Analyzer.cs` **13,875** lines, non-blank **12,273**; BootstrapServices
+  contracts **2,472**; unit suite **3,194**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:3ff80fe7c422b7f1`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE — FIVE WHOLE MEMBERS, 150 SOURCE LINES, NOT THE BRIEFED
+  ONE MEMBER / 87.** The slice-31 brief named `AnalyzeTupleDeconstruction` :3769 (87) and predicted
+  its own words: *"Its own extra callees have few callers, so the closure may pull them in and grow
+  the deletion rather than the driver."* That is exactly what re-verification finds — a
+  caller-closure scan over the whole repo (`src`, `tests`, `editors`, `docs`, `memory`) shows all
+  four helpers are PRIVATE TO THE ARM and have no other caller anywhere:
+
+  | member | extent | lines | callers |
+  |---|---|---|---|
+  | `AnalyzeTupleDeconstruction` | :3769–:3855 | **87** | 1 — the statement dispatch :3191, a bare one-line call |
+  | `DeclareTupleDeconstructionTargets` | :3857–:3863 | 7 | 3, ALL inside `AnalyzeTupleDeconstruction` |
+  | `DeclareTupleDeconstructionTarget` | :3865–:3875 | 11 | 2 — the arm's element loop and `…Targets` |
+  | `TryGetTupleDeconstructionElements` | :3877–:3894 | 18 | 1 — `AnalyzeTupleDeconstruction` |
+  | `TryGetReflectionValueTupleElements` | :3896–:3922 | 27 | 1 — `TryGetTupleDeconstructionElements` |
+
+  So the deletion is **150 lines / 5 members**, and the arm's confinement is total: `grep -rn
+  AnalyzeTupleDeconstruction` over the whole repo returns hits in `Analyzer.cs` and in this file
+  only.
+
+  **THE STAY-BEHIND RE-ENTRY COUNT IS 5, NOT THE BRIEFED 9 — AND IT IS SLICE 31'S FIVE, EXACTLY.**
+  The brief's 9 was scored BEFORE the closure was resolved: it counted
+  `TryGetTupleDeconstructionElements` and `DeclareTupleDeconstructionTarget(s)` as members that stay
+  behind, but they MOVE. Re-resolving every callee of all five bodies against the file's declaration
+  set and subtracting the callees that are ALREADY N# (`Error`/`GetSourceSnippet` are the
+  `AnalyzerDiagnosticSink`; `_spans`, `_scopes`, `_nullFlow`, `_declarationContext` are N# owners;
+  `BuiltInTypes`, `SoaRowTypeInfo`, `TupleTypeInfo`, `TupleTypeElementInfo`, `GenericTypeInfo`,
+  `ReflectionTypeInfo`, `ExternalTypeInfo`, `NullState`, `ErrorCode`,
+  `AnalyzerReflectionTypeConversion` are N# types) leaves EXACTLY:
+  `AnalyzeExpression`, `ReportSoaRowEscape` (reached through `ReportSoaRowEscapeIfNeeded`, whose
+  whole body is `if type is SoaRowTypeInfo`, a test the walk makes for itself),
+  `ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded`, `DeclareSymbol` and
+  `RecordVariableInCurrentScope`. **That is slice 31's kind 1 / 2 / 3 / 4 / 5 with ZERO additions**,
+  and the arm holds **ZERO ambient C# state**.
+
+  **THE TWO DIAGNOSTICS IT OWNS, INVENTORIED PRECISELY — AND THE MANDATE'S THIRD ONE DOES NOT
+  EXIST.** The arm reports exactly TWICE, both `ErrorCode.InvalidSyntax` = **NL103**, both anchored
+  on `_spans.GetExpressionDiagnosticSpan(tupleDecl.Initializer)`:
+  (a) *"Tuple deconstruction needs a tuple value, but this initializer is '<T>'"* + suggestion
+  *"Return or construct a tuple with the same number of elements as the deconstruction targets."*;
+  (b) *"Tuple deconstruction has N target(s), but the initializer has M element(s)"* + suggestion
+  *"Match the number of target names to the tuple element count."*
+  **There is NO `Deconstruct`-method resolution anywhere in the arm** — the mandate's anticipated
+  overload-machinery fork does not materialise. A source is deconstructable iff
+  `_declarationContext.ResolveDeclaredAlias(initType)` is a `TupleTypeInfo`, a
+  `GenericTypeInfo` named `ValueTuple`, or a `ReflectionTypeInfo` whose CLR type is a constructed
+  `System.ValueTuple\`N`; everything else is (a). The error-handling form
+  `(result, err := f())` — two names whose second is literally `err` — reports NOTHING and never
+  consults element counts at all.
+
+  **THE OTHER THING THE ARM OWNS AND NOTHING ELSE IN THE FILE DOES**: the error-tuple registration
+  (`_scopes.RegisterErrorTupleResult`, whose ONLY caller in 13,875 lines is this arm), the
+  `Exception?` type the `err` name is given, the `_` discard rule (a target named `_` is neither
+  declared nor recorded), and the null state every deconstruction target comes into existence with.
+
+  **SHAPE: RESUMABLE, and structurally so before any probe runs.** Every one of the arm's later
+  steps takes the initializer's ANSWERED type as an operand: which SoA report fires is chosen by
+  `initType is SoaRowTypeInfo`; whether the walk short-circuits to `Unknown` targets is
+  `BuiltInTypes.IsUnknown(initType)`; the element list is a FUNCTION of that type; and the
+  arity-mismatch report's message interpolates the element COUNT derived from it. The initializer is
+  analysed with NO expected type, so nothing can be hoisted. The instrumented baseline below
+  quantifies it.
+
+  **DRIVER DECISION: EXTEND, NOT PARALLEL.** Because the kind set is identical, slice 31's loop is
+  not merely extensible — it is UNCHANGED except for capturing the kind-3 boolean the tuple arm
+  reads. The terminal state is therefore ONE zero-policy driver, `DriveLocalDeclaration`, called by
+  two one-line routers (`AnalyzeVariableDeclaration`, `AnalyzeTupleDeconstruction`), with both
+  statements' walks in the single N# owner `AnalyzerVariableDeclaration`.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS BOTH OF N#'s LOCAL-DECLARATION STATEMENTS, AND ONE
+  ZERO-POLICY DRIVER SERVES THEM BOTH.** `Analyzer.cs` keeps no part of `(a, b) := e` — not whether
+  the source is a tuple, not which of the three shapes answers its elements, not the arity check or
+  either of its two NL103 reports and their spans and wordings, not the `_` discard rule, not the
+  error form's `Exception?` or its error-tuple registration, and not any target's null state.
+
+  **THE CUT — FIVE WHOLE C# MEMBERS, 150 SOURCE LINES, AND ONE DRIVER NOW SHARED BY TWO ARMS.**
+  `git diff` on `Analyzer.cs` **+24 / −160 = net −136**; the file goes **13,875 → 13,739** (non-blank
+  12,273 → **12,153**). Method declarations **495 → 492**: the four private helpers
+  (`DeclareTupleDeconstructionTargets`, `DeclareTupleDeconstructionTarget`,
+  `TryGetTupleDeconstructionElements`, `TryGetReflectionValueTupleElements`) are GONE and
+  `DriveLocalDeclaration` is the one addition; `AnalyzeTupleDeconstruction` survives ONLY as a
+  one-line router, so **THE CALL SITE — the statement dispatch :3191 — DID NOT CHANGE**. Of the 24
+  added lines, **10 are the driver's doc comment, 5 are the two routers, 1 is the driver signature,
+  3 are the new kind-6 arm, 1 is `var escaped = false`, 3 are modified lines (`escaped =`,
+  `step.Text`, `Supply(..., escaped)`), and 1 is the SCC factory's new argument**. No new C# member
+  with policy, bridge, callback, shell or state, and N# calls nothing back.
+
+  **N# ADDED — the SAME owner, extended: 467 → 923 lines (+456), still THREE types, 18 → 33
+  members.** `VariableDeclarationState` now carries either statement and the deconstruction's
+  working set; `AnalyzerVariableDeclaration` gains `BeginTuple`, the six-phase deconstruction
+  advancer family, the target-type and unknown-fill helpers, the three-shape element reader, the
+  reflected-`ValueTuple` reader and the two reporters. Contracts:
+  `AnalyzerVariableDeclaration.tests.nl` **890 → 1,596 lines, 68 → 122 contracts (+54)**.
+
+  **THE SURFACE PROBE PASSED AND THE WALL WAS NOT CROSSED.** A throwaway eight-function probe
+  compiled at the PACKAGED toolset proved every reflection member the moved helper needs is already
+  published — `Nullable.GetUnderlyingType`, `get_IsValueType`, `get_IsGenericType`,
+  `GetGenericTypeDefinition`, `get_FullName`, `String.StartsWith(String, StringComparison)`,
+  `Type.GetField(String)` → `FieldInfo`, `FieldInfo.get_FieldType`, and
+  `AnalyzerReflectionTypeConversion.ConvertReflectionType`. **NO catalog row, NO toolset repin.**
+  The ONE probe function that declined found a gotcha rather than a wall (below).
+
+  **THE SHAPE, MEASURED — 74 INSTRUMENTED ENTRIES, AND THE CORPUS REACHES ONE FORM OF TWO.** A
+  THROWAWAY instrumented baseline logged, for every entry, the answered type, which escape fired,
+  which of the three element shapes answered, which diagnostic fired and how many names were
+  declared. Over **ALL 71 tracked corpus targets it found just 12 entries, and EVERY ONE is the
+  ERROR form**: zero normal deconstructions, zero diagnostics, zero SoA escapes of either kind, and
+  **the element reader is never entered at all**. The 62 fixture entries carry the rest: 55 normal
+  and 7 error, **9 not-a-tuple reports, 4 arity reports and 2 unknown-source fallbacks**, the
+  `TupleTypeInfo` shape 42 times and the `GenericTypeInfo`-named-`ValueTuple` shape twice (through
+  `Math.DivRem`, which is how a reflected ValueTuple actually reaches the arm). **RESUMABLE IS
+  PROVEN, NOT ASSUMED: in all 74 entries the declaration step's TYPE operand is a function of the
+  kind-6 answer, in 15 of them WHICH of phase 12's four branches runs is a function of that answer,
+  and in 4 the arity report's own MESSAGE interpolates an element count derived from it.** Nothing
+  computable before the initializer is analysed names a single one of those operands.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `3d1743c9d` and at the working tree, across **ALL 71 tracked `project.yml` targets with no
+  exclusion** — the ROOT target and `BootstrapServices` (which contains the extended owner) included.
+  Baseline: **11,673 lines, 782 diagnostics across 18 codes, ZERO stderr bytes**. The 72nd
+  `project.yml` the main repo carries is `artifacts/smoke-turnkey/…/MyApp`, which is GITIGNORED and
+  exists in neither worktree; it is skipped here and named rather than silently dropped.
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, COMPARED ROW BY ROW.** Both trees were instrumented
+  at the **SAME replayed operations** with the SAME line format — every operation with its operands,
+  its ANSWER and `_errors.Count` before and after; every declared name's null state read back off the
+  scope stack; every error-tuple guard read back off it; and every diagnostic read back OFF `_errors`
+  (index, id, line, column, length, message, suggestion). **THE FIXTURE RUN: 843 rows, 0 MISMATCHES**,
+  md5 `4de0cc8bc28b893f0664e3476d1277ed` in BOTH — 109 statements (62 deconstructions, 47 annotated
+  declarations), 164 declare / 164 record pairs, 109 column probes, 164 null-state readbacks, 5
+  error-tuple registrations and 19 diagnostics. **THE CORPUS-SUBSET RUN over 47 targets: 5,610 rows,
+  0 MISMATCHES**, md5 `32a2dfe78bbc8162dde6d4aa49833503` in BOTH — 931 statements, 937 declare /
+  record pairs and 6 error-tuple registrations. Both instrumented trees were built separately from
+  the sweep trees and neither shipped.
+
+  **PROOF — 67 FIXTURES, CHECK AND THE UNSORTED BUILD TRANSCRIPT.** 31 new fixtures (both reports
+  separately and together, all four phase-12 branches, every `_` position including all-discard, the
+  error form with and without a discarded result, the three-name and nested-tuple shapes, both
+  paren'd and bare and `let`-prefixed syntax, the arm in a block / `while` / `for` / local function /
+  lambda body / shadowing inner scope, a reporting deconstruction followed by clean ones, a void
+  source, a `List<int>` source, an unknown source, a BCL `ValueTuple` source and a SoA row source)
+  run TOGETHER WITH the **36 accumulated fixtures still on disk from slice 24**. **`nlc check --json`:
+  FX_CHECK_DIFFS = 0 over 2,304 lines, 108 diagnostics over 17 codes**, md5
+  `e1e3108dd7dcc1338ec548404ac908b1` in BOTH — **13 of them are THIS ARM's (9 not-a-tuple, 4 arity),
+  against ZERO in the 782-diagnostic corpus oracle**, which is the whole reason the fixtures exist.
+  The fixtures also reach the SURROUNDING behaviour this arm feeds: NL314 (`Result 'result' may be
+  unavailable because 'err' can be non-null`, ×2 — the only reader of the error-tuple registration
+  this arm is the sole writer of), NL905 on a dereferenced `err`, and NL316 on shadowed targets. **`nlc build`, which renders `_errors` in LIST order
+  with NO dedup and NO sort: FX_BUILD_DIFFS = 0 over 3,017 lines**, md5
+  `fda1b43a48b1c815a76223def23100e4` in BOTH, the only raw byte differences being elapsed-time
+  readings.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED FROM SCRATCH, AND A CONTROL THAT RAN FIRST.** Slice 31's
+  rule was obeyed rather than its normaliser inherited: two consecutive builds of the same source in
+  the same directory with the same CLI were diffed byte by byte and differ in **exactly 17 byte
+  positions — one inside the PE COFF TimeDateStamp at 0x88 and sixteen inside the metadata `#GUID`
+  heap's MVID** — while the COPIED `NSharpLang.Runtime.dll` was byte-identical. A structural
+  normaliser that walks the PE header to the CLI header to the metadata root and zeroes those two
+  fields AND NOTHING ELSE (20 byte positions) makes the two builds IDENTICAL. **THE CONTROL THEN RAN
+  BEFORE THE SWEEP — the BASELINE CLI building 12 example targets in a SECOND worktree at a
+  DIFFERENT path — and PASSED 25 / 25, DIFFERENT = 0**, so the worktree location does not perturb
+  emitted bytes.
+
+  **PROOF — CORPUS ORACLE, UNSORTED BUILD TRANSCRIPTS AND THE IL SWEEP, ALL THREE FROM ONE PAIR OF
+  SWEEPS.** **ORACLE_DIFFS = 0 over 11,673 lines**, md5 `a36d1ea9f840bea34fb5427ef02ef10c` in BOTH,
+  **782 diagnostics across 18 codes** and **ZERO stderr bytes in either tree**. **`nlc build`, which
+  renders `_errors` in LIST order with NO dedup and NO sort: TRANSCRIPT_DIFFS = 0 over 1,632 lines**,
+  md5 `a6beff60b428069c43250e813ffac069` in BOTH, with **54 targets exiting 0 and 17 exiting 1,
+  identically**. The same two build passes produced the IL: **116 comparable assemblies, ONLY_IN_WORK
+  = 0, and ALL 62 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL** under the normaliser. The 54 that differ are
+  ONE file — the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and
+  the difference is **ROOT-CAUSED, NOT WAVED THROUGH**: `nlc build` copies that DLL from ALONGSIDE
+  THE CLI, the two sweeps ran CLIs at different paths, and the copied DLL therefore carries a
+  different embedded PDB path (`/private/tmp/nl32-base/…` vs `/Users/spencer/repos/nsharplang/…`) of
+  different LENGTH, which shifts its RVAs and its CodeView / PDB-checksum records — 211 bytes after
+  normalisation, in exactly two regions: the debug directory at 0x3068+ and four single bytes in the
+  PE headers the length shift moved. `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between
+  the worktrees reports **0 SOURCE files**, and the assembly's `InformationalVersion` is
+  `0.1.0+3d1743c9da3bcf8b1fc07efd7f4b2240da088891` in BOTH.
+
+  **EVIDENCE.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — a FRESH ISOLATED run, no
+  cached whole-gate or per-step result — **ALL TESTS PASSED in 34m 06s**, with **Step 3 Unit Tests
+  11m24s, Step 3a Native N# Tests 6m03s, Step 3b VS CODE INTEGRATION TESTS 4m31s (the VSIX packaged
+  and installed by the gate itself), Step 4 Pack and Install MSBuild SDK 6m59s, and Step 10b IL
+  VERIFICATION green over all 67 N# assemblies**. Full unit suite **3,194 / 3,194, 0 failed** — the
+  `3d1743c9d` baseline COUNT with ZERO drift; `./scripts/dev.sh --since` selected **"full unit suite
+  (no filter)"** and passed it in **14m22s**, so the change-aware filter did not narrow the coverage.
+  BootstrapServices contracts **2,472 → 2,526 (+54)**, **2,526 / 2,526 PASS, 0
+  failed**, under the CURRENT packaged SDK. Ownership audit **18 / 18** against the freshly written
+  manifest. **NO toolset repin was needed and NO wall was crossed.** **RATCHET REPIN** — `current*`
+  + fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs` currentLines 13,875 →
+  **13,739**, currentNonBlankLines 12,273 → **12,153**, fingerprint `text-v1:78dcd1fc35cbb3bc` →
+  **`text-v1:1a17d60d520b2991`** (epoch ceilings 23,451 / 20,537 PRESERVED and now clear by
+  **9,712 / 8,384**); `reviewedHeadFingerprint head-v1:3ff80fe7c422b7f1` →
+  **`head-v1:90027932675e98c6`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and
+  RE-VALIDATED by recomputation both before and after the write — all four STORED values reproduced
+  EXACTLY before a single byte was changed. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391
+  before AND after**, the manifest `git diff` is exactly 2 changed lines and `OwnershipAudit.nl`'s is
+  exactly 1; neither file carries a BOM afterwards.
+
+  The IDE-facing surface this slice OWNS is **every deconstruction target's hover type and every
+  squiggle a deconstruction can raise**: the two wordings (`Tuple deconstruction needs a tuple value,
+  but this initializer is 'T'` and `Tuple deconstruction has N target(s), but the initializer has M
+  element(s)`) with their suggestions and their underline on the INITIALIZER, the type the IDE shows
+  for each name in `(a, b) := …`, the `Exception?` it shows for `err`, and the null state that
+  decides whether the next dereference of a target — or of `err` — is squiggled. The error-tuple
+  registration this arm is the sole caller of is what NL314 (`Result 'x' may be unavailable because
+  'err' can be non-null`) reads.
+
+  **SIX `.nl` AND HARNESS GOTCHAS, AND THREE OF THEM ARE NEW TO THE ARC.**
+  **(1) A `while true` WHOSE ONLY EXIT IS A `return` INSIDE THE LOOP DECLINES (`emit.body`)** — the
+  method's fall-through is unreachable and the columnar backend rejects the shape. `while true` per
+  se is fine (the estate has two); the working spelling for a search loop is a `searching := true`
+  flag with the exit written as `searching = false`. **THIS WAS FOUND BY THE SURFACE PROBE, WHICH IS
+  WHY THE PROBE WAS WRITTEN AS EIGHT SEPARATE FUNCTIONS**: a single-function probe would have
+  reported `emit.body` and been mistaken for a missing reflection member and a repin wall.
+  **(2) A NESTED GENERIC INSIDE `typeof` DOES NOT EMIT** —
+  `typeof(ValueTuple<int,…,ValueTuple<int>>)` declines at `emit.local.initializer`, the same way
+  `typeof(Nullable<T>)` does; both closed types have to be built at run time from
+  `Type.GetType("System.ValueTuple\`8")` + `MakeGenericType`, which is the estate's existing spelling
+  in `AnalyzerNullFlow.tests.nl`. **(3) `Type.GetField(String)` IS PUBLISHED BUT
+  `Type.GetFields(BindingFlags)` IS NOT**, so the field walk had to be re-spelled as a per-index
+  `GetField("Item" + i.ToString())`; the two are equivalent for a type whose generic DEFINITION is
+  named `System.ValueTuple\`N`, because that type has no public STATIC fields for the default flags
+  to add. **(4) THE COMPILER'S OWN `nlc check` OVER THE NEW OWNER CAUGHT AN NL012** — an unused
+  `tuple` parameter on `AdvanceTupleRecord` — **the FOURTH time in this arc that the proof surface
+  has graded the owner it was meant to prove**, and the ONLY difference the first oracle run found.
+  **(5) `nlc check` AND `nlc build` DO NOT READ `.tests.nl`** in these targets (0 references across
+  all 71 corpus transcripts), so a contracts edit cannot invalidate an oracle run — but the
+  `dotnet test -p:NSharpExcludeTests=false` build DOES, and it is the only thing that grades the
+  contracts' own emittability. **(6) `git diff > patch` AFTER A `cd` INTO A WORKTREE CAPTURES THAT
+  WORKTREE'S DIFF, NOT THE REPO'S** — the first work sweep ran against a stale patch and reported the
+  NL012 above; the sweep was re-run after syncing the three changed files by hand.
+  **(7) KILLING A GATE MID-`dotnet pack` POISONS THE SDK-TOOLCHAIN TEST FAMILY, NOT THE FEED.** A
+  prematurely started gate was stopped while `dotnet pack src/NSharpLang.Sdk` was running; the very
+  next `dev.sh --since` reported **16 failures, ALL of them `IlSdkToolchainTests` /
+  `IlSdkToolchainConsumerTests` / `CompilationBackendTests` / the AOT-project-reference check** —
+  every test that packs and consumes the SDK. `~/.nuget/local-feed` and the global cache were both
+  INTACT (Aug 2 timestamps), so the damage was to the SDK project's own build tree. The gate's own
+  fresh pack cleared it: the gate's unit-suite step and a clean `dev.sh --since` re-run both report
+  **3,194 / 3,194, 0 failed**. Never leave a gate half-killed before an SDK-consuming test run.
+
+  **THE WALKER TERRITORY AFTER TWO ARMS, AND THE NEXT ONE.** The STATEMENT walker is now **15
+  members / ~818 lines** (from 19 / 968) and the EXPRESSION walker is still untouched at 28 members
+  / ~1,618 lines; `Analyzer.cs` holds **492 method declarations / 13,739 lines**. The driver the two
+  local-declaration statements share is the territory's reusable one and it now has SIX kinds; the
+  distinction between kind 1 and kind 6 — whether the ambient target-typing slot is OVERWRITTEN or
+  LEFT ALONE — is the one thing the next arms must each decide for themselves.
+  * **NEXT: the four-member assert/expression-statement cluster** — `AnalyzeExpressionStatement`
+    (5), `AnalyzeDiscardedExpression` (28), `AnalyzeAssertStatement` (17) and
+    `AnalyzeAssertThrowsStatement` (10), ~60 lines that between them re-enter only
+    `AnalyzeExpression`, the two SoA reporters and three report helpers, and hold NO ambient state.
+    `AnalyzeDiscardedExpression` is the interesting one: it reads `_errors.Count` before and after
+    to decide whether to report, which is a driver-visible operand the request must carry.
+  * **THEN the two AMBIENT FIELD FAMILIES, BEFORE the arms that read them**: the FUNCTION context
+    (`_currentReturnType`, `_currentFunction`, `_currentFunctionIsAsync`,
+    `_currentFunctionReturnTypeWasOmitted`, `_finallyDepth`) and the LOOP context (`_inLoop`,
+    `_breakTargetFinallyDepth`, `_continueTargetFinallyDepth`). `AnalyzeReturnStatement` (94),
+    `AnalyzeLocalFunction` (97) and the `for`/`foreach` pair all read them, and every one of those
+    arms pays for them again if they move first.
+  * **AND `AnalyzeStatement` (the dispatch) STILL FALLS LAST**, exactly as `AnalyzePattern` fell
+    last after slices 25–28 carved its arms out.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl32fixtures` (31, this
+  slice) alongside `/private/tmp/s24fixtures` (36, slice 24) — 67 total. Every throwaway artifact was
+  deleted: the surface probe, both instrumented worktrees, both sweep worktrees, the collected IL
+  trees and the shape-probe tree. `git status` is exactly SIX modified files and ZERO untracked.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 31 — THE WALKER TERRITORY OPENS:
   `AnalyzeVariableDeclaration`, ONE BOUNDED STATEMENT ARM.** Target recorded BEFORE any production
   edit, at `85d0b5975` (`Analyzer.cs` **13,946** lines, non-blank **12,337**; BootstrapServices
   contracts **2,404**; unit suite **3,194**; ownership audit **18 / 18**; manifest **391** lines;

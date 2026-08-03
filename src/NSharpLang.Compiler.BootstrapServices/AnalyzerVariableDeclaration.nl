@@ -1,27 +1,37 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
-// THE FIVE STEPS A LOCAL DECLARATION CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
+// THE SIX STEPS A LOCAL DECLARATION CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
 //
-// The walk owns what `let x: T = e` MEANS — what the annotation resolves to, whether the initializer
-// is assignable to it, which of the four type outcomes the declaration has, which of its five
-// diagnostics fires and with which span and wording, which SoA escape report the resulting type
-// selects, and what the local's null state is the instant it comes into existence. What it cannot do
-// is run the analyzer's own EXPRESSION walk, call the two SoA escape reporters that belong to a
+// The walk owns what N#'s TWO local-declaration statements MEAN — `let x: T = e` and
+// `(a, b) := e` — what an annotation resolves to, whether the initializer is assignable to it,
+// which of the four type outcomes a declaration has, whether a deconstruction source is a tuple at
+// all and whether its element count matches the target list, which of the walk's SEVEN diagnostics
+// fires and with which span and wording, which SoA escape report the resulting type selects, and
+// what each declared name's null state is the instant it comes into existence. What it cannot do is
+// run the analyzer's own EXPRESSION walk, call the two SoA escape reporters that belong to a
 // different family, declare a symbol into the analyzer's scope stack, or write the semantic model
 // the IDE reads — so it ASKS: one request at a time, each naming a kind and carrying every value the
 // step needs. Nothing here is a policy the driver may reinterpret — the driver switches on `Kind`,
 // performs exactly the one operation with exactly these operands, and hands the answer back.
 //
 // The kinds:
-//   1  analyse the INITIALIZER expression under an expected type. ANSWERS a type, and that type is
-//      the operand of three of the four steps that follow it.
+//   1  analyse the INITIALIZER expression under an expected type, SETTING the analyzer's ambient
+//      target-typing slot to `ExpectedType` for the duration. ANSWERS a type, and that type is the
+//      operand of three of the four steps that follow it.
 //   2  the SoA row-view escape report. Answers nothing the walk reads.
-//   3  the SoA direct-column escape report. Answers nothing the walk reads.
-//   4  declare the local into the analyzer's scope stack, under the declaration kind carried here.
-//   5  record the local in the semantic model the IDE's hover and completion read.
+//   3  the SoA direct-column escape report. ANSWERS a boolean: whether it fired.
+//   4  declare the name into the analyzer's scope stack, under the declaration kind carried here
+//      (null for a deconstruction target, which is not tagged).
+//   5  record the name in the semantic model the IDE's hover and completion read.
+//   6  analyse the INITIALIZER expression WITHOUT touching the ambient target-typing slot. This is
+//      NOT kind 1 with a null expected type: a deconstruction is analysed inside whatever target
+//      typing already surrounds it (a lambda body inside an annotated initializer is the reachable
+//      case), and overwriting that slot with null would change what `default`, an unbound callable
+//      reference, a lambda and a negative integer literal resolve to.
 public class VariableDeclarationRequest {
 
     public Kind: int
@@ -47,19 +57,33 @@ public class VariableDeclarationRequest {
 
 // THE LOCAL DECLARATION'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
-// `Phase` is the walk's program counter: 0 resolves the annotation and asks for the initializer, 1
-// folds the answer in and settles the type, and 2 through 5 are the four replayed operations in the
-// order `Analyzer.cs` performed them. 99 is done.
+// ONE state serves BOTH local-declaration statements, because ONE driver serves both: exactly one of
+// `declarationValue` and `tupleValue` is set, and which one is set selects the phase family. That is
+// not a convenience — the two statements replay the SAME operations on the analyzer, so a second
+// driver would be a second copy of the same switch.
 //
-// `DeclaredType` is settled at phase 0 and never changes. `InferredType` is the kind-1 answer and is
-// null until it arrives; it is kept SEPARATELY from `FinalType` because the null-state rule at the
-// end reads the initializer's OWN type rather than the declaration's, and those differ whenever an
-// annotation widens or an initializer is void.
+// `Phase` is the walk's program counter. The ANNOTATED family runs 0..5: 0 resolves the annotation
+// and asks for the initializer, 1 folds the answer in and settles the type, and 2 through 5 are the
+// four replayed operations in the order `Analyzer.cs` performed them. The DECONSTRUCTION family runs
+// 10..15: 10 asks for the initializer, 11 chooses and asks for the escape report, 12 settles the
+// target list and reports, and 13/14/15 are the per-target declare / record / post-write loop. 99 is
+// done for both.
+//
+// `DeclaredType` is settled at phase 0 and never changes. `InferredType` is the kind-1/kind-6 answer
+// and is null until it arrives; it is kept SEPARATELY from `FinalType` because the annotated
+// family's null-state rule reads the initializer's OWN type rather than the declaration's, and those
+// differ whenever an annotation widens or an initializer is void.
+//
+// `TargetTypes` is the deconstruction's answer to "what is each name", settled once at phase 12 —
+// either the source's element types or ONE shared unknown instance repeated, which is what
+// `Analyzer.cs` passed when it fell back.
 public class VariableDeclarationState {
 
-    declarationValue: VariableDeclarationStatement
+    declarationValue: VariableDeclarationStatement?
+    tupleValue: TupleDeconstructionStatement?
 
-    Declaration: VariableDeclarationStatement => declarationValue
+    Declaration: VariableDeclarationStatement? => declarationValue
+    Tuple: TupleDeconstructionStatement? => tupleValue
 
     public Phase: int
     public Pending: int
@@ -68,23 +92,49 @@ public class VariableDeclarationState {
     public InferredType: TypeInfo?
     public FinalType: TypeInfo
 
-    constructor(declaration: VariableDeclarationStatement) {
+    public ErrorForm: bool
+    public EscapeFired: bool
+    public TargetTypes: List<TypeInfo>
+    public TargetIndex: int
+    public PendingName: string?
+    public PendingType: TypeInfo
+
+    constructor(
+        declaration: VariableDeclarationStatement?,
+        tuple: TupleDeconstructionStatement?) {
         declarationValue = declaration
+        tupleValue = tuple
         Phase = 0
+        if tuple != null {
+            Phase = 10
+        }
+
         Pending = 0
         DeclaredType = null
         InferredType = null
         FinalType = BuiltInTypes.Unknown
+        ErrorForm = false
+        EscapeFired = false
+        TargetTypes = new List<TypeInfo>()
+        TargetIndex = 0
+        PendingName = null
+        PendingType = BuiltInTypes.Unknown
     }
 }
 
 // WHAT A LOCAL DECLARATION MEANS, as a walk that suspends at each step it cannot take itself.
 //
-// This is the FIRST member of the analyzer's expression/statement walker territory to move, and it
-// was chosen by measurement rather than by size: of the five bounded statement arms at this tree it
-// re-enters the FEWEST members that stay behind — five, every one of them already a driver-replayed
-// kind the pattern walk shipped — and it re-enters the statement dispatch ZERO times, so it does not
-// drag `AnalyzeStatement` in behind it.
+// This is the analyzer's expression/statement walker territory, and it owns BOTH of N#'s
+// local-declaration statements: the annotated form `let x: T = e` and the deconstruction form
+// `(a, b) := e`. They moved in two slices and they share ONE driver, because a caller-closure scan
+// of the deconstruction arm resolved its re-entries to EXACTLY the annotated arm's five —
+// `AnalyzeExpression`, the two SoA escape reporters, `DeclareSymbol` and
+// `RecordVariableInCurrentScope` — with no new kind but the ambient-slot distinction kind 6 records.
+// Neither arm re-enters the statement dispatch, so neither drags `AnalyzeStatement` in behind it.
+//
+// THE DECONSTRUCTION ARM ARRIVED WITH ITS WHOLE PRIVATE CLOSURE. `Analyzer.cs` kept four helpers
+// that nothing else in 13,875 lines called — the two target declarers, the element extractor and the
+// reflected-`ValueTuple` reader — so they are here rather than left behind as callbacks.
 //
 // WHY A RESUMABLE WALK WITH ANSWERS RATHER THAN A SCHEDULE COMPUTED UP FRONT. The deciding question
 // the arc asks every family is whether the step COUNT — or a step's OPERANDS — depend on an answer
@@ -97,19 +147,29 @@ public class VariableDeclarationState {
 // So no schedule computed before the first step can carry the later steps' operands, and the walk
 // suspends and RESUMES WITH THE ANSWER, like slice 24's call walk and slice 29's pattern walk.
 //
+// THE DECONSTRUCTION FORM IS RESUMABLE ON THE STRONGER COUNT: its step COUNT is not knowable either.
+// How many names are declared is `Names.Count` minus the discards, but WHICH steps run is decided by
+// the source's answered type — an escaped or non-tuple source declares every name as `unknown`, a
+// count mismatch does the same and reports, and only a matching tuple hands out element types — and
+// the arity report's own MESSAGE interpolates a count derived from that answer. A schedule computed
+// before the initializer is analysed cannot name a single one of those operands.
+//
 // THE EXPECTED TYPE TRAVELS WITH THE REQUEST RATHER THAN BEING AMBIENT. `Analyzer.cs` set
 // `_currentExpectedType` to the annotation around the initializer analysis so that a target-typed
 // expression (`new()`, a collection literal) could read it. That flag stays in `Analyzer.cs` because
 // the expression walker still reads it, but WHAT it is set to is this walk's answer, so the kind-1
 // request carries it and the driver performs the same save / set / restore around the same one call.
 //
-// THE FOUR TYPE OUTCOMES AND THE FIVE DIAGNOSTICS ARE `Analyzer.cs`'s VERBATIM. An annotation with a
-// non-assignable initializer reports NL202 in the rich `ErrorMessageBuilder` shape when the file and
-// a snippet are both available and in the detail-only shape when either is missing — the SAME report
-// in the SAME position, differing only in how much explanation it carries. A `const` with an
+// THE FOUR TYPE OUTCOMES AND ALL SEVEN DIAGNOSTICS ARE `Analyzer.cs`'s VERBATIM. An annotation with
+// a non-assignable initializer reports NL202 in the rich `ErrorMessageBuilder` shape when the file
+// and a snippet are both available and in the detail-only shape when either is missing — the SAME
+// report in the SAME position, differing only in how much explanation it carries. A `const` with an
 // annotation and no initializer reports NL103. A void initializer with no annotation reports NL202
 // and the declaration falls back to unknown. A declaration with neither reports NL103. And an
-// annotation ALWAYS wins the type, even when the initializer disagreed.
+// annotation ALWAYS wins the type, even when the initializer disagreed. A deconstruction adds two
+// more, both NL103 and both underlining the INITIALIZER: a source that is not a tuple, and a tuple
+// whose element count disagrees with the target count. Both then give every target `unknown` rather
+// than abandoning the statement, so the names still exist for the rest of the scope.
 public class AnalyzerVariableDeclaration {
 
     diagnosticsValue: AnalyzerDiagnosticSink
@@ -118,6 +178,7 @@ public class AnalyzerVariableDeclaration {
     assignabilityValue: AnalyzerAssignability
     nullFlowValue: AnalyzerNullFlow
     scopesValue: AnalyzerScopeStack
+    declarationContextValue: AnalyzerDeclarationContext
 
     constructor(
         diagnostics: AnalyzerDiagnosticSink,
@@ -125,17 +186,25 @@ public class AnalyzerVariableDeclaration {
         typeResolver: AnalyzerTypeResolver,
         assignability: AnalyzerAssignability,
         nullFlow: AnalyzerNullFlow,
-        scopes: AnalyzerScopeStack) {
+        scopes: AnalyzerScopeStack,
+        declarationContext: AnalyzerDeclarationContext) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
         assignabilityValue = assignability
         nullFlowValue = nullFlow
         scopesValue = scopes
+        declarationContextValue = declarationContext
     }
 
     public func Begin(declaration: VariableDeclarationStatement): VariableDeclarationState {
-        return new VariableDeclarationState(declaration)
+        return new VariableDeclarationState(declaration, null)
+    }
+
+    // THE DECONSTRUCTION FORM'S ENTRY. Same state, same `NextStep`, same `Supply`, same driver — only
+    // the phase family differs.
+    public func BeginTuple(tuple: TupleDeconstructionStatement): VariableDeclarationState {
+        return new VariableDeclarationState(null, tuple)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this declaration is finished. Every phase
@@ -153,42 +222,66 @@ public class AnalyzerVariableDeclaration {
         return null
     }
 
-    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 answers anything this walk reads: the
-    // initializer's type, which settles the declaration's type and three later operands. The two
-    // escape reports and the two declaration steps answer nothing, and nothing is folded in for them.
-    public func Supply(state: VariableDeclarationState, answer: TypeInfo?) {
+    // THE ANSWER TO THE OUTSTANDING STEP. Two kinds answer something the walk reads: kinds 1 and 6
+    // answer the initializer's type, which settles the declaration's type and three later operands;
+    // kind 3 answers whether the direct-column escape report FIRED, which is what turns a
+    // deconstruction source into `unknown`. The row-escape report and the two declaration steps
+    // answer nothing, and nothing is folded in for them.
+    public func Supply(state: VariableDeclarationState, answer: TypeInfo?, escaped: bool) {
         pending := state.Pending
         state.Pending = 0
 
-        if pending == 1 {
+        if pending == 1 || pending == 6 {
             state.InferredType = answer
+            return
+        }
+
+        if pending == 3 && escaped {
+            state.EscapeFired = true
         }
     }
 
     func Advance(state: VariableDeclarationState): VariableDeclarationRequest? {
+        tuple := state.Tuple
+        if tuple != null {
+            return AdvanceTuple(state, tuple)
+        }
+
+        declaration := state.Declaration
+        if declaration != null {
+            return AdvanceAnnotated(state, declaration)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    func AdvanceAnnotated(
+        state: VariableDeclarationState,
+        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         phase := state.Phase
         if phase == 0 {
-            return AdvanceAnnotation(state)
+            return AdvanceAnnotation(state, declaration)
         }
 
         if phase == 1 {
-            return AdvanceType(state)
+            return AdvanceType(state, declaration)
         }
 
         if phase == 2 {
-            return AdvanceEscape(state)
+            return AdvanceEscape(state, declaration)
         }
 
         if phase == 3 {
-            return AdvanceDeclare(state)
+            return AdvanceDeclare(state, declaration)
         }
 
         if phase == 4 {
-            return AdvanceRecord(state)
+            return AdvanceRecord(state, declaration)
         }
 
         if phase == 5 {
-            return AdvanceNullState(state)
+            return AdvanceNullState(state, declaration)
         }
 
         state.Phase = 99
@@ -197,8 +290,9 @@ public class AnalyzerVariableDeclaration {
 
     // PHASE 0 — the annotation, and the one step whose answer everything else depends on. A
     // declaration with no initializer skips straight to the type decision with no answer to wait for.
-    func AdvanceAnnotation(state: VariableDeclarationState): VariableDeclarationRequest? {
-        declaration := state.Declaration
+    func AdvanceAnnotation(
+        state: VariableDeclarationState,
+        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         typeReference := declaration.Type
         if typeReference != null {
             state.DeclaredType = typeResolverValue.ResolveDeclaredType(typeReference)
@@ -219,8 +313,9 @@ public class AnalyzerVariableDeclaration {
 
     // PHASE 1 — THE FOUR TYPE OUTCOMES, in the order `Analyzer.cs` tested them. Exactly one arm runs
     // and at most one diagnostic is reported.
-    func AdvanceType(state: VariableDeclarationState): VariableDeclarationRequest? {
-        declaration := state.Declaration
+    func AdvanceType(
+        state: VariableDeclarationState,
+        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         declaredType := state.DeclaredType
         inferredType := state.InferredType
         initializer := declaration.Initializer
@@ -261,8 +356,9 @@ public class AnalyzerVariableDeclaration {
     // PHASE 2 — THE SoA ESCAPE REPORT THE RESULTING TYPE SELECTS. A row view stored in a variable is
     // always an escape; anything else has to be asked. A declaration with no initializer has no
     // expression to report on and asks for neither.
-    func AdvanceEscape(state: VariableDeclarationState): VariableDeclarationRequest? {
-        declaration := state.Declaration
+    func AdvanceEscape(
+        state: VariableDeclarationState,
+        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         initializer := declaration.Initializer
         state.Phase = 3
         if initializer == null {
@@ -284,8 +380,9 @@ public class AnalyzerVariableDeclaration {
 
     // PHASE 3 — the local enters the analyzer's scope stack under the declaration kind `local`, which
     // is what makes it a local rather than a parameter or a field to everything that reads the scope.
-    func AdvanceDeclare(state: VariableDeclarationState): VariableDeclarationRequest? {
-        declaration := state.Declaration
+    func AdvanceDeclare(
+        state: VariableDeclarationState,
+        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         state.Phase = 4
         state.Pending = 4
         request := new VariableDeclarationRequest(4, state.FinalType)
@@ -299,8 +396,9 @@ public class AnalyzerVariableDeclaration {
     // PHASE 4 — the semantic model the IDE's hover and completion read. This is a SEPARATE step from
     // the scope declaration because it writes a different store and, unlike the scope, it is scoped
     // by the semantic scope id rather than by the analyzer's own stack.
-    func AdvanceRecord(state: VariableDeclarationState): VariableDeclarationRequest? {
-        declaration := state.Declaration
+    func AdvanceRecord(
+        state: VariableDeclarationState,
+        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         state.Phase = 5
         state.Pending = 5
         request := new VariableDeclarationRequest(5, state.FinalType)
@@ -316,8 +414,9 @@ public class AnalyzerVariableDeclaration {
     // state from the SYNTAX of the initializer (a literal `null` is null, anything else is
     // maybe-null); everything else asks the null-state owner, about the INITIALIZER'S type when there
     // is an initializer and about the declaration's own type when there is not.
-    func AdvanceNullState(state: VariableDeclarationState): VariableDeclarationRequest? {
-        declaration := state.Declaration
+    func AdvanceNullState(
+        state: VariableDeclarationState,
+        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         initializer := declaration.Initializer
         finalType := state.FinalType
         state.Phase = 99
@@ -356,6 +455,363 @@ public class AnalyzerVariableDeclaration {
             declaration.Name,
             nullFlowValue.GetDefaultNullState(finalType))
         return null
+    }
+
+    // ─── THE DECONSTRUCTION FORM: `(a, b) := e` ──────────────────────────────────────────────────
+    //
+    // Six phases, and the only structural difference from the annotated form is that the last three
+    // are a LOOP: a deconstruction declares N names, and each one replays the same declare / record
+    // pair before the walk writes its null state itself.
+    func AdvanceTuple(
+        state: VariableDeclarationState,
+        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+        phase := state.Phase
+        if phase == 10 {
+            return AdvanceTupleInitializer(state, tuple)
+        }
+
+        if phase == 11 {
+            return AdvanceTupleEscape(state, tuple)
+        }
+
+        if phase == 12 {
+            return AdvanceTupleTargets(state, tuple)
+        }
+
+        if phase == 13 {
+            return AdvanceTupleDeclare(state, tuple)
+        }
+
+        if phase == 14 {
+            return AdvanceTupleRecord(state)
+        }
+
+        if phase == 15 {
+            return AdvanceTupleAfterTarget(state, tuple)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // PHASE 10 — WHICH DECONSTRUCTION THIS IS, and the one step whose answer everything else depends
+    // on. The ERROR form is `(result, err := f())` — exactly two names whose second is literally
+    // `err` — and it is a different statement in every respect below: it never counts elements, it
+    // never reports, and it gives its second name the type `Exception?` regardless of the source.
+    // The initializer is analysed with kind 6, NOT kind 1: a deconstruction has no annotation to
+    // target-type with, and it must not overwrite whatever target typing already surrounds it.
+    func AdvanceTupleInitializer(
+        state: VariableDeclarationState,
+        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+        names := tuple.Names
+        if names.Count == 2 {
+            secondName := names[1]
+            state.ErrorForm = secondName == "err"
+        }
+
+        state.Phase = 11
+        state.Pending = 6
+        request := new VariableDeclarationRequest(6, BuiltInTypes.Unknown)
+        request.Node = tuple.Initializer
+        return request
+    }
+
+    // PHASE 11 — THE SoA ESCAPE REPORT THE SOURCE'S TYPE SELECTS, and the ONE place the two forms
+    // agree completely. A row view is always an escape and the direct-column probe is then NOT run
+    // at all — `Analyzer.cs` joined the two with `||`, so the row report short-circuits it — and
+    // EITHER firing makes the source `unknown`, which is folded in at phase 12.
+    func AdvanceTupleEscape(
+        state: VariableDeclarationState,
+        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+        answered := state.InferredType
+        if answered != null {
+            state.FinalType = answered
+        }
+
+        state.Phase = 12
+        kind := 3
+        soaRow := state.FinalType as SoaRowTypeInfo
+        if soaRow != null {
+            kind = 2
+            state.EscapeFired = true
+        }
+
+        state.Pending = kind
+        request := new VariableDeclarationRequest(kind, state.FinalType)
+        request.Node = tuple.Initializer
+        request.Text = "deconstructed"
+        return request
+    }
+
+    // PHASE 12 — WHAT EACH NAME IS, and both of this arm's diagnostics. In the order `Analyzer.cs`
+    // tested it: an escaped or unknown source gives every target the SAME unknown instance and
+    // reports nothing; a source that is not a tuple at all reports NL103 and does the same; a tuple
+    // whose element count disagrees with the target count reports NL103 and does the same; and only
+    // a matching tuple hands each name its own element type. The error form skips all of it — its
+    // two names' types are decided per-target at phase 13.
+    func AdvanceTupleTargets(
+        state: VariableDeclarationState,
+        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+        state.Phase = 13
+        state.TargetIndex = 0
+        if state.EscapeFired {
+            state.FinalType = BuiltInTypes.Unknown
+        }
+
+        if state.ErrorForm {
+            return null
+        }
+
+        names := tuple.Names
+        targetCount := names.Count
+        if BuiltInTypes.IsUnknown(state.FinalType) {
+            FillUnknownTargets(state, targetCount)
+            return null
+        }
+
+        elements := TryGetTupleElements(state.FinalType)
+        if elements != null {
+            if elements.Count == targetCount {
+                state.TargetTypes = elements
+                return null
+            }
+
+            ReportTupleArityMismatch(tuple, targetCount, elements.Count)
+            FillUnknownTargets(state, targetCount)
+            return null
+        }
+
+        ReportNotATuple(tuple, state.FinalType)
+        FillUnknownTargets(state, targetCount)
+        return null
+    }
+
+    // PHASE 13 — the next name that actually becomes a symbol. `_` is a discard: `Analyzer.cs`
+    // neither declared it, nor recorded it, nor gave it a null state, so the loop skips it whole
+    // rather than declaring it under its own name.
+    func AdvanceTupleDeclare(
+        state: VariableDeclarationState,
+        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+        names := tuple.Names
+        targetCount := names.Count
+        index := state.TargetIndex
+        while index < targetCount {
+            name := names[index]
+            if name != "_" {
+                state.TargetIndex = index
+                state.PendingName = name
+                state.PendingType = TargetType(state, index)
+                state.Phase = 14
+                state.Pending = 4
+                request := new VariableDeclarationRequest(4, state.PendingType)
+                request.Name = name
+                request.Line = tuple.Line
+                request.Column = tuple.Column
+                return request
+            }
+
+            index = index + 1
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // PHASE 14 — the semantic model the IDE's hover and completion read, for the SAME name and the
+    // SAME type instance phase 13 just declared.
+    func AdvanceTupleRecord(state: VariableDeclarationState): VariableDeclarationRequest? {
+        state.Phase = 15
+        state.Pending = 5
+        request := new VariableDeclarationRequest(5, state.PendingType)
+        request.Name = state.PendingName
+        return request
+    }
+
+    // PHASE 15 — THE WRITE THE WALK MAKES ITSELF, because the scope stack is already N#. Which write
+    // it is depends on the form and the position: the error form's FIRST name is registered as an
+    // error-tuple result — the pairing that lets a later `err` check narrow it, and the only caller
+    // of that registration in the whole analyzer — its SECOND name is maybe-null because an
+    // `Exception?` that has not been checked may be anything, and every ordinary target takes the
+    // default state its own type implies.
+    func AdvanceTupleAfterTarget(
+        state: VariableDeclarationState,
+        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+        name := state.PendingName
+        if name != null {
+            if state.ErrorForm {
+                if state.TargetIndex == 0 {
+                    names := tuple.Names
+                    errorName := names[1]
+                    scopesValue.RegisterErrorTupleResult(name, errorName, tuple.Line, tuple.Column)
+                } else {
+                    scopesValue.SetNullStateInCurrentScope(name, NullState.MaybeNull)
+                }
+            } else {
+                scopesValue.SetNullStateInCurrentScope(
+                    name,
+                    nullFlowValue.GetDefaultNullState(state.PendingType))
+            }
+        }
+
+        state.TargetIndex = state.TargetIndex + 1
+        state.Phase = 13
+        return null
+    }
+
+    // THE TYPE A TARGET GETS. The error form decides per position and never consults the target
+    // list: its first name takes the SOURCE's type whole (it is not deconstructed at all) and its
+    // second is always `Exception?`. Every other deconstruction reads the list phase 12 settled.
+    func TargetType(state: VariableDeclarationState, index: int): TypeInfo {
+        if state.ErrorForm {
+            if index == 0 {
+                return state.FinalType
+            }
+
+            exceptionType: TypeInfo = new ExternalTypeInfo("Exception?")
+            return exceptionType
+        }
+
+        return state.TargetTypes[index]
+    }
+
+    // EVERY TARGET UNKNOWN — and every target the SAME unknown, because `Analyzer.cs` evaluated
+    // `BuiltInTypes.Unknown` ONCE at the call and handed that one instance to each name. The
+    // property builds a new instance on every read, so reading it per target would put distinct
+    // instances into the scope and the semantic model.
+    func FillUnknownTargets(state: VariableDeclarationState, count: int) {
+        unknown: TypeInfo = BuiltInTypes.Unknown
+        targets := new List<TypeInfo>()
+        index := 0
+        while index < count {
+            targets.Add(unknown)
+            index = index + 1
+        }
+
+        state.TargetTypes = targets
+    }
+
+    // WHAT A DECONSTRUCTION SOURCE'S ELEMENTS ARE, or null when the source is not a tuple. Three
+    // shapes answer, in `Analyzer.cs`'s order and after the SAME alias resolution: a declared tuple
+    // type, a constructed generic named `ValueTuple`, and a reflected CLR `System.ValueTuple`N`.
+    // There is NO `Deconstruct`-method resolution — a type with a `Deconstruct` method is not
+    // deconstructable in N#, and that is the language's answer rather than an omission here.
+    func TryGetTupleElements(sourceType: TypeInfo): List<TypeInfo>? {
+        resolved := declarationContextValue.ResolveDeclaredAlias(sourceType)
+
+        tupleType := resolved as TupleTypeInfo
+        if tupleType != null {
+            declared := tupleType.Elements
+            elements := new List<TypeInfo>()
+            index := 0
+            while index < declared.Count {
+                element := declared[index]
+                elements.Add(element.Type)
+                index = index + 1
+            }
+
+            return elements
+        }
+
+        generic := resolved as GenericTypeInfo
+        if generic != null && generic.Name == "ValueTuple" {
+            arguments := generic.TypeArguments
+            elements := new List<TypeInfo>()
+            index := 0
+            while index < arguments.Count {
+                elements.Add(arguments[index])
+                index = index + 1
+            }
+
+            return elements
+        }
+
+        reflected := resolved as ReflectionTypeInfo
+        if reflected != null {
+            return TryGetReflectionValueTupleElements(reflected.Type)
+        }
+
+        return null
+    }
+
+    // A REFLECTED `System.ValueTuple`N`'S ELEMENTS, read off the type's own `ItemN` fields rather
+    // than its generic arguments. The distinction is REAL at arity 8 and above: `ValueTuple`8` has
+    // eight generic arguments but only seven `ItemN` fields, the eighth being the nested `Rest`, so
+    // reading fields answers seven and reading arguments would answer eight and silently mis-pair
+    // every target. The guard is on the GENERIC DEFINITION's full name, so a user type merely
+    // spelled `ValueTuple` does not qualify.
+    func TryGetReflectionValueTupleElements(clrType: Type): List<TypeInfo>? {
+        valueTupleType := clrType
+        underlying := Nullable.GetUnderlyingType(clrType)
+        if underlying != null {
+            valueTupleType = underlying
+        }
+
+        if !valueTupleType.get_IsValueType() {
+            return null
+        }
+
+        if !valueTupleType.get_IsGenericType() {
+            return null
+        }
+
+        definition := valueTupleType.GetGenericTypeDefinition()
+        definitionName := definition.get_FullName()
+        if definitionName == null {
+            return null
+        }
+
+        if !definitionName.StartsWith("System.ValueTuple`", StringComparison.Ordinal) {
+            return null
+        }
+
+        elements := new List<TypeInfo>()
+        index := 1
+        searching := true
+        while searching {
+            field := valueTupleType.GetField("Item" + index.ToString())
+            if field != null {
+                elements.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(field.get_FieldType()))
+                index = index + 1
+            } else {
+                searching = false
+            }
+        }
+
+        if elements.Count == 0 {
+            return null
+        }
+
+        return elements
+    }
+
+    // NL103 — THE SOURCE IS NOT A TUPLE. The report underlines the initializer, not the target list,
+    // because the initializer is what has to change.
+    func ReportNotATuple(tuple: TupleDeconstructionStatement, sourceType: TypeInfo) {
+        span := spansValue.GetExpressionDiagnosticSpan(tuple.Initializer)
+        diagnosticsValue.Report(
+            ErrorCode.InvalidSyntax,
+            "Tuple deconstruction needs a tuple value, but this initializer is '" + TypeText(sourceType) + "'",
+            span.Line,
+            span.Column,
+            "Return or construct a tuple with the same number of elements as the deconstruction targets.",
+            span.Length)
+    }
+
+    // NL103 — THE COUNTS DISAGREE. Both counts are named, because which side is wrong is the
+    // author's call.
+    func ReportTupleArityMismatch(
+        tuple: TupleDeconstructionStatement,
+        targetCount: int,
+        elementCount: int) {
+        span := spansValue.GetExpressionDiagnosticSpan(tuple.Initializer)
+        diagnosticsValue.Report(
+            ErrorCode.InvalidSyntax,
+            "Tuple deconstruction has " + targetCount.ToString() + " target(s), but the initializer has "
+                + elementCount.ToString() + " element(s)",
+            span.Line,
+            span.Column,
+            "Match the number of target names to the tuple element count.",
+            span.Length)
     }
 
     // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. `Analyzer.cs` wrote `$"{type}"` and
