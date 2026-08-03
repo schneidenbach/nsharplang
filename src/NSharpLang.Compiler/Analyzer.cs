@@ -306,6 +306,10 @@ public class Analyzer : IDisposable
     // What a condition proves about the code it guards, and the writer that installs it. Rebuilt
     // with the SCC: it holds assignability, which the rebuild replaces.
     private AnalyzerFlowNarrowing _flowNarrowing;
+    // What a local declaration means: the annotation, the four type outcomes, the five diagnostics,
+    // the SoA escape the resulting type selects and the local's initial null state. Rebuilt with the
+    // SCC: it holds assignability, which the rebuild replaces.
+    private AnalyzerVariableDeclaration _variableDeclaration;
     private bool _disposed;
 
     public Analyzer()
@@ -352,10 +356,14 @@ public class Analyzer : IDisposable
         _patternReachability = CreatePatternReachability();
         _patternAnalysis = CreatePatternAnalysis();
         _flowNarrowing = CreateFlowNarrowing();
+        _variableDeclaration = CreateVariableDeclaration();
     }
 
     private AnalyzerFlowNarrowing CreateFlowNarrowing()
         => new(_scopes, _typeResolver, _assignability);
+
+    private AnalyzerVariableDeclaration CreateVariableDeclaration()
+        => new(_diagnostics, _spans, _typeResolver, _assignability, _nullFlow, _scopes);
 
     private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
         => new(_diagnostics, _typeSubstitution, _assignability, _typeResolver);
@@ -3724,119 +3732,38 @@ public class Analyzer : IDisposable
 
     private void AnalyzeVariableDeclaration(VariableDeclarationStatement varDecl)
     {
-        TypeInfo? declaredType = varDecl.Type != null ? _typeResolver.ResolveDeclaredType(varDecl.Type) : null;
-        TypeInfo? inferredType = null;
-
-        if (varDecl.Initializer != null)
+        var state = _variableDeclaration.Begin(varDecl);
+        for (var step = _variableDeclaration.NextStep(state);
+             step != null;
+             step = _variableDeclaration.NextStep(state))
         {
-            // Set expected type for target-typed expressions (like new())
-            var previousExpectedType = _currentExpectedType;
-            _currentExpectedType = declaredType;
-
-            inferredType = AnalyzeExpression(varDecl.Initializer);
-
-            // Restore previous expected type
-            _currentExpectedType = previousExpectedType;
-        }
-
-        // Determine final type
-        TypeInfo finalType;
-        if (declaredType != null && inferredType != null && varDecl.Initializer != null)
-        {
-            // Both specified - check compatibility
-            if (!_assignability.IsAssignable(declaredType, inferredType))
+            TypeInfo? answer = null;
+            switch (step.Kind)
             {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                    _spans.GetExpressionDiagnosticSpan(varDecl.Initializer);
-                var sourceSnippet = GetSourceSnippet(diagnosticLine);
-
-                if (sourceSnippet != null && _currentFilePath != null)
+                case 1:
                 {
-                    var error = ErrorMessageBuilder.TypeMismatch(
-                        _currentFilePath,
-                        diagnosticLine,
-                        diagnosticColumn,
-                        sourceSnippet,
-                        diagnosticLength,
-                        inferredType.ToString(),
-                        declaredType.ToString()
-                    );
-                    _errors.Add(error);
+                    var previousExpectedType = _currentExpectedType;
+                    _currentExpectedType = step.ExpectedType;
+                    answer = AnalyzeExpression(step.Node!);
+                    _currentExpectedType = previousExpectedType;
+                    break;
                 }
-                else
-                {
-                    Error(ErrorCode.TypeMismatch, $"Variable '{varDecl.Name}' is typed as '{declaredType}', but the value is '{inferredType}'", varDecl.Line, varDecl.Column);
-                }
+                case 2:
+                    ReportSoaRowEscape(step.Node!, step.Text!);
+                    break;
+                case 3:
+                    ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(step.Node!, step.Text!);
+                    break;
+                case 4:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, step.Text!);
+                    break;
+                case 5:
+                    RecordVariableInCurrentScope(step.Name!, step.CarriedType);
+                    break;
             }
-            finalType = declaredType;
-        }
-        else if (declaredType != null)
-        {
-            // Type specified but no initializer
-            if (varDecl.Kind == VariableKind.Const)
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(varDecl);
-                Error(
-                    ErrorCode.InvalidSyntax,
-                    "A 'const' must have an initial value — the compiler needs to know its value at compile time",
-                    diagnosticLine,
-                    diagnosticColumn,
-                    $"Add an initializer, for example `const {varDecl.Name}: {declaredType} = 42`.",
-                    diagnosticLength);
-            }
-            finalType = declaredType;
-        }
-        else if (inferredType != null)
-        {
-            // void cannot be used as a value (e.g., x := DoStuff() where DoStuff returns void)
-            if (BuiltInTypes.Is(inferredType, BuiltInTypes.Void))
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = varDecl.Initializer != null
-                    ? _spans.GetExpressionDiagnosticSpan(varDecl.Initializer)
-                    : new DiagnosticSpan(varDecl.Line, varDecl.Column, Math.Max(1, varDecl.Name.Length));
-                Error(ErrorCode.TypeMismatch, "This expression doesn't return a value (it's void) — you can't assign it to a variable",
-                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                finalType = BuiltInTypes.Unknown;
-            }
-            else
-            {
-                // Inferred from initializer
-                finalType = inferredType;
-            }
-        }
-        else
-        {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(varDecl);
-            Error(
-                ErrorCode.InvalidSyntax,
-                "I can't determine the type of this variable — give it a type annotation or an initial value",
-                diagnosticLine,
-                diagnosticColumn,
-                $"Add a type annotation like `let {varDecl.Name}: int`, or add an initializer like `let {varDecl.Name} := 0`.",
-                diagnosticLength);
-            finalType = BuiltInTypes.Unknown;
-        }
 
-        if (finalType is SoaRowTypeInfo && varDecl.Initializer != null)
-        {
-            ReportSoaRowEscape(varDecl.Initializer, "stored in a variable");
+            _variableDeclaration.Supply(state, answer);
         }
-        else if (varDecl.Initializer != null)
-        {
-            ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(varDecl.Initializer, "stored in a variable");
-        }
-
-        DeclareSymbol(varDecl.Name, finalType, varDecl.Line, varDecl.Column, "local");
-
-        // Record in semantic model for IDE features (scoped)
-        RecordVariableInCurrentScope(varDecl.Name, finalType);
-
-        var initialNullState = finalType is NullableTypeInfo
-            ? varDecl.Initializer is NullLiteralExpression ? NullState.Null : NullState.MaybeNull
-            : varDecl.Initializer != null
-                ? _nullFlow.GetExpressionNullState(varDecl.Initializer, inferredType ?? finalType)
-                : _nullFlow.GetDefaultNullState(finalType);
-        _scopes.SetNullStateInCurrentScope(varDecl.Name, initialNullState);
     }
 
     private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
@@ -13424,6 +13351,7 @@ public class Analyzer : IDisposable
         _patternReachability = CreatePatternReachability();
         _patternAnalysis = CreatePatternAnalysis();
         _flowNarrowing = CreateFlowNarrowing();
+        _variableDeclaration = CreateVariableDeclaration();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -13451,6 +13379,7 @@ public class Analyzer : IDisposable
             _patternReachability = CreatePatternReachability();
             _patternAnalysis = CreatePatternAnalysis();
             _flowNarrowing = CreateFlowNarrowing();
+            _variableDeclaration = CreateVariableDeclaration();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;
