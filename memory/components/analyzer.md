@@ -895,6 +895,27 @@ Skipped when:
 - Ensures property patterns match union case properties
 - Type checks guard expressions (must be bool)
 
+### Pattern ownership
+
+Every pattern DECISION is N#-owned. `Analyzer.cs` keeps one zero-policy driver, `AnalyzePattern`,
+which is a request loop over the N# walk plus a five-case switch; each case performs exactly one
+pre-existing analyzer operation (the expression walk, a symbol declaration, or one of the two SoA
+escape reporters) with operands the walk supplied, and hands the answer back. The walk suspends and
+resumes with that answer because a literal pattern's escape report is passed the type the analysis
+before it produced, and a relational pattern's two escape reports are joined by `&&`, so the first
+answer decides whether the second step and the comparability judgement happen at all.
+
+The six N# owners:
+
+| Owner | Decides |
+| --- | --- |
+| `AnalyzerPatternAnalysis.nl` | which of the thirteen arms a pattern node takes, what it binds, which union case it names, and its four NL503 reports |
+| `AnalyzerPropertyPatternBinding.nl` | what an object pattern's property list resolves to and binds, and NL503 for a missing property |
+| `AnalyzerPatternReachability.nl` | whether a type test can ever succeed (NL506), and whether a subtree carries a parser recovery artifact |
+| `AnalyzerPatternShapes.nl` | a list pattern's element type (NL504) and a relational pattern's comparability (NL202) |
+| `AnalyzerMatchExhaustiveness.nl` | whether a match covers everything its scrutinee can be (NL501) |
+| `AnalyzerExhaustivenessSelector.nl` | which union case a pattern names, and which patterns are total |
+
 ## Circular Import Detection
 
 Project compilation detects circular file imports before semantic analysis:

@@ -291,6 +291,10 @@ public class Analyzer : IDisposable
     // What an object pattern's property list resolves to and binds. NOT rebuilt with the SCC: it
     // holds nothing the rebuild replaces.
     private readonly AnalyzerPropertyPatternBinding _propertyPatternBinding;
+    // What a pattern MEANS: which of the thirteen arms it takes, what it binds, which union case a
+    // dotted name or a case pattern names, and which of its four diagnostics fires. Rebuilt with the
+    // SCC: it holds the exhaustiveness, shape and reachability owners, which the rebuild replaces.
+    private AnalyzerPatternAnalysis _patternAnalysis;
     private bool _disposed;
 
     public Analyzer()
@@ -333,6 +337,7 @@ public class Analyzer : IDisposable
         _matchExhaustiveness = CreateMatchExhaustiveness();
         _patternShapes = CreatePatternShapes();
         _patternReachability = CreatePatternReachability();
+        _patternAnalysis = CreatePatternAnalysis();
     }
 
     private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
@@ -343,6 +348,17 @@ public class Analyzer : IDisposable
 
     private AnalyzerPatternReachability CreatePatternReachability()
         => new(_diagnostics, _spans, _declarationContext, _assignability);
+
+    private AnalyzerPatternAnalysis CreatePatternAnalysis()
+        => new(
+            _diagnostics,
+            _spans,
+            _typeResolver,
+            _typeSubstitution,
+            _matchExhaustiveness,
+            _patternShapes,
+            _patternReachability,
+            _propertyPatternBinding);
 
     private AnalyzerCallAnalysis CreateCallAnalysis()
         => new(
@@ -5866,241 +5882,49 @@ public class Analyzer : IDisposable
         _breakTargetFinallyDepth = savedBreakDepth;
     }
 
+    /// <summary>
+    /// The five steps the N#-owned pattern walk cannot take for itself: the analyzer's own
+    /// expression walk, the scope stack's symbol declaration, and the two SoA escape reporters that
+    /// belong to a different family. The walk runs in <see cref="AnalyzerPatternAnalysis"/>,
+    /// suspends at each step and resumes WITH the answer, because both a step's operands and the
+    /// number of steps depend on answers it does not have until it has already suspended: a literal
+    /// pattern's row-escape report is passed the type the analysis before it produced, and a
+    /// relational pattern's two escape reports are joined by `&amp;&amp;` over their negations, so the
+    /// first answer decides whether the second step — and the comparability judgement after it —
+    /// happen at all. Which arm, which node, which binding, which report and in what order are all
+    /// the walk's decisions; this loop performs the one operation it is handed, with the operands it
+    /// is handed. A nested pattern comes back as a kind-5 request and recurses through here, so the
+    /// walk needs no stack of its own.
+    /// </summary>
     private void AnalyzePattern(Pattern pattern, TypeInfo valueType)
     {
-        switch (pattern)
-        {
-            case IdentifierPattern identPattern:
-                // Check if this is a qualified union case name (e.g., "Result.Success")
-                if (valueType is NullableTypeInfo nullableValueType && !identPattern.Name.Contains('.'))
-                {
-                    if (identPattern.Name != "_")
-                    {
-                        DeclareSymbol(identPattern.Name, nullableValueType.InnerType, identPattern.Line, identPattern.Column);
-                    }
-                }
-                else if (identPattern.Name.Contains('.')
-                    && _matchExhaustiveness.ResolveDeclaredUnionType(valueType, out _) is { } ut)
-                {
-                    if (AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(ut, identPattern.Name) == null)
-                    {
-                        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                            _spans.GetPatternNameDiagnosticSpan(identPattern);
-                        Error(ErrorCode.InvalidPattern,
-                            $"'{identPattern.Name}' is not a case of union '{ut}' — check the union definition for available cases",
-                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                    }
-                    // For union cases without properties, no variables to bind
-                }
-                else
-                {
-                    // Regular identifier pattern - bind the identifier to the value type
-                    DeclareSymbol(identPattern.Name, valueType, identPattern.Line, identPattern.Column);
-                }
-                break;
-
-            case LiteralPattern literalPattern:
-                // Just analyze the literal expression for type checking
-                var literalType = AnalyzeExpression(literalPattern.Literal);
-                ReportSoaRowEscapeIfNeeded(literalPattern.Literal, literalType, "used as a pattern value");
-                ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(literalPattern.Literal, "used as a pattern value");
-                break;
-
-            case UnionCasePattern unionPattern:
-                // Verify the union case exists if matching against a union type
-                // (including a closed generic instantiation like Result<int>).
-                if (_matchExhaustiveness.ResolveDeclaredUnionType(valueType, out var unionSubstitution) is { } unionType)
-                {
-                    var caseName = AnalyzerExhaustivenessSelector.GetUnionCaseName(unionPattern.CaseName);
-                    var matchingCase = AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(
-                        unionType, unionPattern.CaseName);
-
-                    if (matchingCase == null)
-                    {
-                        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                            _spans.GetPatternNameDiagnosticSpan(unionPattern);
-                        Error(ErrorCode.InvalidPattern,
-                            $"'{unionPattern.CaseName}' is not a case of union '{unionType}' — check the union definition for available cases",
-                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                    }
-                    else if (unionPattern.Properties != null)
-                    {
-                        // Bind property patterns to their types
-                        if (matchingCase.Properties == null)
-                        {
-                            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                                _spans.GetPatternNameDiagnosticSpan(unionPattern);
-                            Error(ErrorCode.InvalidPattern,
-                                $"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
-                                diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                        }
-                        else if (matchingCase.Properties.Count == 0)
-                        {
-                            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                                _spans.GetPatternNameDiagnosticSpan(unionPattern);
-                            Error(ErrorCode.InvalidPattern,
-                                $"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
-                                diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                        }
-                        else
-                        {
-                            // Analyze each property pattern (supports nested patterns)
-                            foreach (var propPattern in unionPattern.Properties)
-                            {
-                                var caseProperty = matchingCase.Properties
-                                    .FirstOrDefault(p => p.Name == propPattern.Name);
-
-                                if (caseProperty != null)
-                                {
-                                    var propType = _typeSubstitution.ResolveTypeForSourceOwner(
-                                        caseProperty.Type,
-                                        unionType,
-                                        unionSubstitution);
-
-                                    // If there's a nested pattern, analyze it recursively
-                                    if (propPattern.Pattern != null)
-                                    {
-                                        AnalyzePattern(propPattern.Pattern, propType);
-                                    }
-                                    else
-                                    {
-                                        // Simple binding
-                                        var bindingName = propPattern.BindingName ?? propPattern.Name;
-                                        var (bindingLine, bindingColumn, _) =
-                                            _spans.GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
-                                        DeclareSymbol(bindingName, propType, bindingLine, bindingColumn);
-                                    }
-                                }
-                                else
-                                {
-                                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                                        _spans.GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
-                                    Error(ErrorCode.InvalidPattern,
-                                        $"Union case '{caseName}' doesn't have a property named '{propPattern.Name}' — check the case definition for available properties",
-                                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                                }
-                            }
-                        }
-                    }
-                }
-                break;
-
-            case RelationalPattern relationalPattern:
-                var relationalValueType = AnalyzeExpression(relationalPattern.Value);
-                if (!ReportSoaRowEscapeIfNeeded(relationalPattern.Value, relationalValueType, "used as a relational pattern value")
-                    && !ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(relationalPattern.Value, "used as a relational pattern value"))
-                {
-                    _patternShapes.ValidateRelationalPattern(relationalPattern, valueType, relationalValueType);
-                }
-                break;
-
-            case AndPattern andPattern:
-                // Both patterns must be valid for the value type
-                AnalyzePattern(andPattern.Left, valueType);
-                AnalyzePattern(andPattern.Right, valueType);
-                break;
-
-            case OrPattern orPattern:
-                // Either pattern must be valid for the value type
-                AnalyzePattern(orPattern.Left, valueType);
-                AnalyzePattern(orPattern.Right, valueType);
-                break;
-
-            case NotPattern notPattern:
-                // The inner pattern must be valid for the value type
-                AnalyzePattern(notPattern.Pattern, valueType);
-                break;
-
-            case PositionalPattern positionalPattern:
-                // For tuple types, analyze each pattern against the corresponding element type
-                // For now, we'll just analyze each pattern with the same value type
-                foreach (var p in positionalPattern.Patterns)
-                {
-                    AnalyzePattern(p, valueType);
-                }
-                break;
-
-            case ObjectPattern objectPattern:
-                // Object pattern matches properties on any type (not just unions)
-                AnalyzePropertyPatterns(objectPattern.Properties, valueType, pattern.Line, pattern.Column);
-                break;
-
-            case ListPattern listPattern:
-                var elementType = _patternShapes.ResolveListPatternElementType(listPattern, valueType);
-
-                // Analyze each element pattern
-                foreach (var elemPattern in listPattern.Elements)
-                {
-                    if (elemPattern is SlicePattern slicePattern)
-                    {
-                        // Slice pattern captures an array/list of elements
-                        if (slicePattern.BindingName != null)
-                        {
-                            // Bind the slice to an array of the element type
-                            var sliceType = new ArrayTypeInfo(elementType);
-                            DeclareSymbol(slicePattern.BindingName, sliceType, pattern.Line, pattern.Column);
-                        }
-                    }
-                    else
-                    {
-                        // Regular pattern - analyze with element type
-                        AnalyzePattern(elemPattern, elementType);
-                    }
-                }
-                break;
-
-            case SlicePattern slicePattern:
-                // Slice patterns should only appear within list patterns
-                // This case shouldn't be reached, but handle it gracefully
-                if (slicePattern.BindingName != null)
-                {
-                    // Bind to array type (best guess)
-                    DeclareSymbol(slicePattern.BindingName, new ArrayTypeInfo(valueType), pattern.Line, pattern.Column);
-                }
-                break;
-
-            case TypePattern typePattern:
-                // Type pattern checks if value is of a specific type and binds it
-                var targetType = _typeResolver.ResolveType(typePattern.Type);
-
-                // Check if pattern is provably impossible
-                _patternReachability.CheckTypePattern(typePattern, valueType, targetType);
-
-                // Bind the variable if a binding name is provided
-                if (typePattern.BindingName != null)
-                {
-                    DeclareSymbol(typePattern.BindingName, targetType, pattern.Line, pattern.Column);
-                }
-                break;
-        }
-    }
-
-    /// <summary>
-    /// The two steps the N#-owned property-pattern walk cannot take for itself: the analyzer's own
-    /// pattern walk and the scope stack's symbol declaration. The walk runs in
-    /// <see cref="AnalyzerPropertyPatternBinding"/> and yields between steps — not because the step
-    /// COUNT depends on an answer (measurement proved it does not), but because the walk's own
-    /// missing-property report has to land between two driver steps, since a preceding nested
-    /// pattern may itself have reported. Which owner, which substitution, which property type,
-    /// which of the two bindings and which report are all the walk's decisions; this loop performs
-    /// the one operation it is handed, with the operands it is handed.
-    /// </summary>
-    private void AnalyzePropertyPatterns(List<PropertyPattern> propertyPatterns, TypeInfo valueType, int line, int column)
-    {
-        var state = _propertyPatternBinding.Begin(propertyPatterns, valueType, line, column);
-        for (var step = _propertyPatternBinding.NextStep(state);
+        var state = _patternAnalysis.Begin(pattern, valueType);
+        for (var step = _patternAnalysis.NextStep(state);
              step != null;
-             step = _propertyPatternBinding.NextStep(state))
+             step = _patternAnalysis.NextStep(state))
         {
+            TypeInfo? answer = null;
+            var handled = false;
             switch (step.Kind)
             {
                 case 1:
-                    AnalyzePattern(step.Pattern!, step.CarriedType);
+                    answer = AnalyzeExpression(step.Node!);
                     break;
                 case 2:
+                    handled = ReportSoaRowEscapeIfNeeded(step.Node!, step.CarriedType, step.Text!);
+                    break;
+                case 3:
+                    handled = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(step.Node!, step.Text!);
+                    break;
+                case 4:
                     DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
                     break;
+                case 5:
+                    AnalyzePattern(step.Pattern!, step.CarriedType);
+                    break;
             }
+
+            _patternAnalysis.Supply(state, answer, handled);
         }
     }
 
@@ -14461,6 +14285,7 @@ public class Analyzer : IDisposable
         _matchExhaustiveness = CreateMatchExhaustiveness();
         _patternShapes = CreatePatternShapes();
         _patternReachability = CreatePatternReachability();
+        _patternAnalysis = CreatePatternAnalysis();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -14486,6 +14311,7 @@ public class Analyzer : IDisposable
             _matchExhaustiveness = CreateMatchExhaustiveness();
             _patternShapes = CreatePatternShapes();
             _patternReachability = CreatePatternReachability();
+            _patternAnalysis = CreatePatternAnalysis();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;

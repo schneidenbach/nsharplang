@@ -1,6 +1,32 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-03 (**TASK 017 SLICE 28 LANDED (no commit — mandate) — N# OWNS WHAT AN OBJECT
+Last updated: 2026-08-03 (**TASK 017 SLICE 29 LANDED (no commit — mandate) — N# OWNS WHAT A PATTERN
+MEANS, AND THE PATTERN FAMILY IS CLOSED.** `AnalyzerPatternAnalysis.nl` (**759 lines, THREE types,
+26 members**) is the sole authority for the thirteen-way dispatch, for what every arm binds and under
+which name, for which union case a dotted name or a case pattern names, for what a case property
+resolves to under the scrutinee's substitution, for all four NL503 reports and their spans, and for
+the order the whole thing happens in. **2 WHOLE C# MEMBERS DELETED — 237 SOURCE LINES — replaced by a
+32-line loop**: `AnalyzePattern` (208) and the slice-28 driver `AnalyzePropertyPatterns` (28), whose
+only caller was the object-pattern arm and which an N#-owned walk drives itself. `git diff`
+**+48 / −222 = net −174**, `Analyzer.cs` **14,981 → 14,807** (non-blank 13,230 → **13,072**), and of
+the 63 lines written **45 are the driver and its doc comment; the other 18 are a field, a factory and
+three SCC assignments**. **THE SHAPE IS SLICE 24's, NOT SLICE 28's, AND THE MEASUREMENT SAYS SO ON TWO
+COUNTS**: a literal pattern's SECOND step is passed the type its FIRST step answered, so no schedule
+computed up front carries the operand; and a relational pattern's two escape reports are joined by
+`&&` over their negations, so a TRUE answer deletes both the direct-column step and the comparability
+judgement — a LENGTH that is a function of a boolean the driver produces, fired twice in the fixture
+set. So the walk suspends and RESUMES WITH THE ANSWER. **THE CORPUS REACHES SIX ARMS OF THIRTEEN AND
+REPORTS NOTHING** (424 entries: identifier-bind 152, union-case 92, dotted-case 54, list 34, object
+33, literal 32, non-union case 14, type 13; every dotted name and every case pattern names a real
+case, so none of this walk's four diagnostics is in the 72-target oracle), the 275 accumulated
+fixtures add five arms and exactly four reporting entries, and **71 new fixtures carry the rest** —
+every reporting shape including the EMPTY-payload case branch nothing else reaches, 11 substituted
+generic-union bindings, 8 named list slices and the two SoA short-circuits. **THREE ARMS ARE PROVEN
+UNREACHABLE FROM SOURCE AGAINST THE PARSER** (a bare slice, a type pattern with no binding name, and
+the terminal arm) and are pinned by CONTRACTS, as is the explicit case-property binding name and the
+direct-column short-circuit.
+
+Last updated (prior): 2026-08-03 (**TASK 017 SLICE 28 LANDED (no commit — mandate) — N# OWNS WHAT AN OBJECT
 PATTERN'S PROPERTY LIST RESOLVES TO AND BINDS.** `AnalyzerPropertyPatternBinding.nl` (**260 lines,
 THREE types, 7 members**) is the sole authority for which owner a property is looked up on, what a
 closed generic's substitution does to its type, whether the declared shape or the reflected metadata
@@ -1197,7 +1223,271 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 28 — `AnalyzePropertyPatterns`, THE PATTERN
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 29 — `AnalyzePattern` ITSELF, THE 13-ARM WALK;
+  THE PATTERN FAMILY CLOSES** (stage 5 and the last of the slice-25 arc plan). Target recorded BEFORE
+  any production edit, at `7df2723a9` (`Analyzer.cs` **14,981** lines, non-blank **13,230**;
+  BootstrapServices contracts **2,205**; unit suite **3,194**; ownership audit **18 / 18**; manifest
+  **391** lines; `reviewedHeadFingerprint head-v1:6b8f6eef48f9e17e`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE — AND IT IS SMALLER THAN THE SLICE-25 INVENTORY SAID,
+  BECAUSE SLICES 26–28 ALREADY CARVED ITS ARMS OUT.** `AnalyzePattern` is `Analyzer.cs`
+  **:5869–:6076 = 208 lines**, not the 222 the arc plan recorded before the four slices ahead of it
+  landed. The closure is that member PLUS the slice-28 driver `AnalyzePropertyPatterns`
+  (:6078–:6105, **28 lines** including its 10-line doc comment), because the object-pattern arm is
+  its only caller and an N#-owned pattern walk can drive the already-N#-owned property walk itself
+  rather than asking `Analyzer.cs` to. **Total target: 236 source lines, 2 members.**
+
+  * **CONFINEMENT IS PROVED.** A repo-wide grep for both names over `src`, `tests`, `editors`, `docs`
+    and `memory` returns **exactly one hit outside `Analyzer.cs`, and it is a COMMENT**
+    (`AnalyzerPatternShapes.nl` :14). `SystemsAnalyzer.cs` holds no copy.
+  * **THE CALLERS ARE FOUR AND THEY ARE ALL MECHANICAL.** `AnalyzeSwitchStatement` :5858,
+    `AnalyzeMatchExpression` :12615, the slice-28 driver :6098 (which this slice deletes), and its own
+    eight recursive arms (:5963, :5999, :6000, :6005, :6006, :6011, :6019, :6047).
+  * **EVERY COLLABORATOR IS ALREADY N#** — `_matchExhaustiveness.ResolveDeclaredUnionType`,
+    `AnalyzerExhaustivenessSelector.FindUnionCaseForPattern` / `GetUnionCaseName`,
+    `_typeSubstitution.ResolveTypeForSourceOwner`, `_patternShapes.ValidateRelationalPattern` /
+    `ResolveListPatternElementType`, `_patternReachability.CheckTypePattern`,
+    `_typeResolver.ResolveType`, `_spans.GetPatternNameDiagnosticSpan` /
+    `GetPropertyPatternNameDiagnosticSpan`, `_propertyPatternBinding` and the diagnostic sink — so
+    nothing is dragged in behind it. What stays in `Analyzer.cs` as driver-replayed operations is
+    exactly four pre-existing members: `AnalyzeExpression`, `DeclareSymbol`,
+    `ReportSoaRowEscapeIfNeeded` and `ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded` — the last
+    two have 30+ call sites each across the file and belong to a different family.
+  * **THE FOUR REPORTS IT OWNS, all `ErrorCode.InvalidPattern` = NL503.** The identifier arm's "is
+    not a case of union", and the union-case block's three: the same "is not a case of union", the
+    "doesn't carry any data" pair, and "doesn't have a property named … — check the case definition",
+    the near-duplicate of slice 28's NL503 that slice 28 deliberately left behind.
+
+  **THE MEASUREMENT CAME FIRST, AND IT SETTLED THE SHAPE IN BOTH DIRECTIONS AT ONCE.** A THROWAWAY
+  instrumented copy of the baseline labelled every arm and every decision point of the walk and
+  logged every operation with its operands, `_errors.Count` around it, and every diagnostic read back
+  off `_errors`. It was run over all 72 corpus targets and the 275 accumulated fixtures, then deleted.
+  * **THIS IS NOT SLICE 28's ANSWER-FREE LOOP, AND TWO DIFFERENT ARMS SAY SO.** The family's deciding
+    question is whether the step COUNT — or a step's OPERANDS — depend on an answer the walk does not
+    have yet. Here it is **YES ON BOTH**. A LITERAL pattern's schedule is three steps long no matter
+    what, but its SECOND step is passed the type its FIRST step answered, so no schedule computed up
+    front carries the operand (32 corpus entries, 62 fixture entries). A RELATIONAL pattern's schedule
+    is not even a fixed LENGTH: its two escape reports are joined by `&&` over their negations, so a
+    TRUE row-escape answer deletes both the direct-column step and the comparability judgement — and
+    that is not hypothetical, the fixtures fire it twice (SOAROW 170, SOACOL 168 in the protocol).
+    **So this walk suspends and RESUMES WITH THE ANSWER, like slice 24's call walk and unlike slice
+    28's property walk.** The distinction is recorded because the mechanism looks identical from the
+    driver's side and the reason is not.
+  * **THE SELF-RECURSION NEEDS NO STACK, MEASURED RATHER THAN ASSUMED.** A nested pattern is
+    delivered as a kind-5 request and the DRIVER recurses into its own `AnalyzePattern`, which begins
+    a FRESH state; one state is one pattern node and no arm ever holds two. The deepest nesting the
+    whole estate reaches is THREE — corpus and fixtures alike — and both trees produce the same
+    `ENTRY d=` ladder row for row.
+  * **THE CORPUS REACHES SIX ARMS OF THIRTEEN AND REPORTS NOTHING.** 424 entries: a plain identifier
+    binding 152, a union-case pattern 92, a dotted union-case name 54, a list 34, an object 33, a
+    literal 32, a case pattern over a NON-union 14, a type pattern 13 — and **zero relational, zero
+    and / or / not / positional, zero nullable-narrowing, zero bare slice, zero terminal arm**. Every
+    dotted name names a real case (54 / 54), every case pattern names a real case (92 / 92) carrying
+    real properties (137 / 137), so **not one of this walk's four diagnostics fires in the 72-target
+    oracle** — as in slices 25, 26 and 28 and unlike 27. The corpus DOES reach the generic arm
+    (6 substituted case bindings) and the list-slice binding (4 named, 8 unnamed).
+  * **THE 275 ACCUMULATED FIXTURES ADD FIVE ARMS AND EXACTLY FOUR REPORTING ENTRIES.** 495 entries
+    adding relational 72, nullable-narrowing 7, and 4, not 4, or 3, positional 2 — with one unknown
+    dotted case, one unknown case, one null-payload case and two unknown case properties in the whole
+    set. So the reporting shapes had to be built.
+  * **THE 71 NEW FIXTURES CARRY THE REST**: 212 entries over all eight source-reachable arms, and
+    every reporting shape — 5 unknown dotted cases, 3 unknown cases, 3 EMPTY-payload cases (a branch
+    nothing else in the estate reaches), 1 null-payload case, 9 unknown case properties — plus 11
+    substituted generic-union bindings, 8 named list slices, and the two SoA short-circuits.
+  * **THREE ARMS ARE UNREACHABLE FROM SOURCE, PROVEN AGAINST THE PARSER RATHER THAN ASSUMED, AND SO
+    THEY ARE CONTRACTS.** `ColumnarParserRecovery.nl` builds a `SlicePattern` only INSIDE
+    `ParseListPattern` (:8797), so the BARE slice arm — whose own C# comment said "this case shouldn't
+    be reached" — cannot be; it builds a `TypePattern` only when an identifier FOLLOWS the type name
+    (:8888), so a type pattern with a null binding name cannot be; and `Pattern` has no other
+    subclass, so the terminal arm cannot be. All three are live code a later parser change can reach.
+    So is the union-case property's EXPLICIT `BindingName`, for the same reason slice 28 pinned the
+    object pattern's: every parser production passes null. All four are pinned by construction.
+  * **AND THE SoA GATE'S TRUE ANSWER IS REACHABLE ON ONE SITE OF TWO, WHICH TOOK THREE PROBES TO
+    ESTABLISH.** A relational bound is a PRIMARY expression, so `table[0]` and `table.X` are not
+    relational bounds at all (measured: both parse as the bare identifier `table`). The reaching shape
+    is a LOCAL bound to a row view — `row := table[0]` then `> row` — which makes
+    `ReportSoaRowEscapeIfNeeded` answer TRUE, deletes the direct-column step and suppresses the
+    comparability report. The direct-column gate itself answers TRUE at neither pattern site, for the
+    same grammatical reason, and its short-circuit is pinned by contract instead.
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHAT A PATTERN MEANS, AND THE PATTERN FAMILY IS
+  CLOSED.** `Analyzer.cs` keeps no part of "what does this pattern do?" — not the thirteen-way
+  dispatch, not the identifier arm's three-way split or its nullable narrowing or its discard, not
+  the union-case head or its property loop or its substitution, not any of the four diagnostics or
+  their spans or their message text, not the literal arm's escape schedule, not the relational arm's
+  short-circuit, not the and/or/not/positional recursion, not the object arm's composition with the
+  property walk, not the list arm's element type or its slice binding, not the type arm's target
+  resolution or its reachability call or its binding, and not the terminal arm. What is left is a
+  **zero-policy driver**: a request loop and a five-case switch in which every case performs exactly
+  ONE pre-existing operation with operands the walk supplied, and hands the answer back.
+
+  **THE CUT — 2 WHOLE C# MEMBERS, 237 SOURCE LINES, REPLACED BY A 32-LINE LOOP.** `AnalyzePattern`
+  (:5869–:6076, **208**) and the slice-28 driver `AnalyzePropertyPatterns` (:6078–:6105, **28**,
+  including its 10-line doc comment), plus the blank line between them. `git diff` **+48 / −222 = net
+  −174**; `Analyzer.cs` **14,981 → 14,807** (non-blank 13,230 → **13,072**). Of the 63 lines written,
+  **45 are the driver and its doc comment and 18 are mechanical** — a field with its three-line
+  comment, a nine-line `=> new(...)` factory, and the three construction/rebuild/dispose assignments
+  the SCC pattern requires. **NO new C# method with policy, bridge, callback, shell or state, and N#
+  calls nothing back.** No surviving member became dead: `AnalyzeExpression`, `DeclareSymbol` and the
+  two SoA reporters are still reached from dozens of other sites and now also from the driver, at the
+  walk's instruction. Two fields — `_patternShapes` and `_propertyPatternBinding` — now have no direct
+  call site in `Analyzer.cs` at all and exist only to be handed to the root walk; they are kept as
+  fields because `_patternShapes` is SCC-rebuilt and `_propertyPatternBinding` deliberately is NOT,
+  and inlining either into the factory would change which of them the rebuild replaces.
+
+  **N# ADDED:** `AnalyzerPatternAnalysis.nl` **759** lines — THREE types, **26 members**: the
+  `PatternAnalysisRequest` with its five kinds, the suspended `PatternAnalysisState` whose `Phase` is
+  the walk's program counter and whose other fields are one arm's working set apiece, and
+  `AnalyzerPatternAnalysis` itself — and `AnalyzerPatternAnalysis.tests.nl` **1,180** lines with
+  **50 contracts**. The contracts pull `NextStep` the way the driver pulls it and assert the ordered
+  request TRANSCRIPT, not just the answers, including a report landing between two steps and the
+  relational arm driven once with each answer.
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, COMPARED ROW BY ROW.** Both trees were instrumented
+  at the SAME operations with the SAME line format — entry with its recursion DEPTH, each operation
+  with its operands and the `_errors.Count` before and after, each diagnostic read back OFF `_errors`
+  (id, line, column, length, index, message), and exit — so a drift of one diagnostic anywhere inside
+  a pattern moves a row. **3,588 fixture rows: 0 mismatches, md5 `909ad919813bd44b7444938667f418e9` in BOTH**
+  (707 entries, 1,012 operations — 353 declares, 170 expression analyses,
+  170 row gates, 168 column gates and 151 nested analyses, the two-gate gap being
+  the SoA short-circuit — and 150 diagnostics). **1,830 corpus rows over the 72 targets:
+  0 mismatches, md5 `392e16182a8a2ad942cf3bac3cc89f00` in BOTH** (424 entries, 490 operations,
+  2 diagnostics, none of them this walk's own). Both instrumented trees were deleted
+  afterwards; neither shipped.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `7df2723a9` and at the working tree, **both over the SAME sources**, across **ALL 72 `project.yml`
+  targets with no exclusion** — the ROOT target and `BootstrapServices` (which now contains the new
+  owner) included: **ORACLE_DIFFS = 0, ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0, SKIPPED = 0**,
+  over **782 diagnostics across 18 codes** including the slice-27 **NL506 ×3**, md5
+  `a4ee5e24463b917a822ac29ca479b23c` in BOTH trees, and zero stderr bytes in either.
+
+  **PROOF — 346 FIXTURES, CHECK AND THE UNSORTED BUILD TRANSCRIPT.** 71 new fixtures (17 union-case
+  reporting shapes, 10 identifier-arm, 10 list-and-slice, 15 logical and positional, 5 generic-union,
+  4 emission-order, 4 literal/relational, 3 type, 3 SoA) run TOGETHER WITH all 275 accumulated from
+  slices 25 through 28. **`nlc check --json`: FX_CHECK_DIFFS = 0, FX_CHECK_EXIT_DIFFS = 0, 1,495 diagnostics over
+  28 codes — NL503 ×69 is the one this slice owns, alongside NL202 ×63,
+  NL501 ×31, NL506 ×28, NL504 ×11 and NL505 ×5 from the four slices
+  before it**, md5 `1719f108dfd704a6cb3f9aaefbc30ca0` in BOTH. **`nlc build main.nl`, which renders `_errors` in LIST
+  order with NO dedup and NO sort: 346 / 346 BYTE-IDENTICAL, FX_BUILD_DIFFS = 0, FX_BUILD_EXIT_DIFFS = 0, 13,643
+  lines**, md5 `0e20f6bd5dbecae1ed1cfc34ebdc9fc5` in BOTH. **EVERY ONE of the family's six codes has an unsorted count
+  EQUAL to its deduplicated `check` count**, so — like slices 25 through 28 and unlike slice 24's
+  receiver protocol — the whole family reports exactly once per site. Each fixture's JSON carries its
+  own `"ok"` verdict, so the byte-identical result is an exit-code result too.
+
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP, SAME-CLI CONTROL FIRST.** The control ran before the sweep and
+  PASSED — **4 / 4 assemblies IDENTICAL, DIFFERENT = 0** — so the normaliser is proven complete before any verdict is read off it. Both
+  CLIs then built all **72 targets** from EQUAL-LENGTH worktrees (`/private/tmp/nsharp017s29b` and
+  `…29w`): **134 comparable assemblies, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, and all 75 EMITTED
+  assemblies BYTE-IDENTICAL. The 59 remaining are ONE file, the COPIED C# support library
+  `NSharpLang.Runtime.dll`, which `nlc` does not emit — **73 bytes of a 14,848-byte file, first at
+  offset 136, last at 12,627, inside the CodeView record** — and `diff -rq -x bin -x obj` over
+  `src/NSharpLang.Runtime` between the two worktrees reports **0 SOURCE files****.
+
+  **PROOF — CORPUS UNSORTED BUILD TRANSCRIPTS: 72 TARGETS, TRANSCRIPT_DIFFS = 0, BUILD EXIT DIFFS = 0**, with only
+  the elapsed-time readings and the `--output` path normalised.
+  The IDE-facing surface this slice OWNS is **four squiggles and every pattern binding's TYPE**: the
+  two "'X' is not a case of union 'U' — check the union definition for available cases" reports (the
+  dotted-name one and the case-pattern one), "Union case 'C' doesn't carry any data — you can't
+  destructure it with property patterns", and "Union case 'C' doesn't have a property named 'P' —
+  check the case definition for available properties"; plus the type that hover and completion show
+  for EVERY name a pattern introduces — a plain binding, a nullable narrowing, a union-case property
+  under the scrutinee's substitution, a list element, a slice's array, and a type pattern's target.
+  **EVIDENCE.** Full unit suite **3,194 / 3,194, 0 failed** — exactly the `7df2723a9` baseline COUNT, ZERO drift;
+  `./scripts/dev.sh --since` selected the FULL suite and passed it (7m22s of tests inside a 13m55s run), with no flake, so the cool-rerun rule was not needed. BootstrapServices contracts **2,205 → 2,255 (+50)**,
+  **2,255 / 2,255 PASS**. Ownership audit **18 / 18** against the freshly written manifest. **NO
+  toolset repin was needed and NO wall was crossed** — the owner consumes only surface the catalog
+  and the ordinary runtime resolver already publish: no catalog row, no reflection member, no
+  language capability, and it compiled clean at the PACKAGED toolset on the first build. **RATCHET
+  REPIN** — `current*` + fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs`
+  currentLines 14,981 → **14,807**, currentNonBlankLines 13,230 → **13,072**, fingerprint
+  `text-v1:5c35bdd48fda161b` → **`text-v1:8789690e161ce3ab`** (epoch ceilings 23,451 / 20,537
+  PRESERVED and now clear by **8,644 / 7,465**); `reviewedHeadFingerprint head-v1:6b8f6eef48f9e17e` →
+  **`head-v1:ac8c0a44de08d258`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value, `epochPathFingerprint`,
+  `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED by recomputation both
+  before and after the write — all four STORED values reproduced EXACTLY before a single byte was
+  changed. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after**, the manifest
+  `git diff` is exactly 2 changed lines and `OwnershipAudit.nl`'s is exactly 1; neither file carries a
+  BOM afterwards. The full 381-row sweep found exactly ONE drifted row (`Analyzer.cs`) plus the six
+  PRE-EXISTING `MISSING` rows for files earlier slices deleted, which were deliberately LEFT ALONE.
+  **AND THE REPIN-TOUCHED TARGETS WERE RE-RUN AGAINST THE FINAL SOURCES** rather than argued to be
+  unaffected: `tests/native/ownership-audit` — whose `OwnershipAudit.nl` the repin edits and which IS
+  one of the 72 corpus targets — and the ROOT target were both re-checked with both CLIs afterwards,
+  both BYTE-IDENTICAL with the same exit code (0 / 0 and 1 / 1).
+
+  **GATE — THE FULL VS CODE-ENABLED `./scripts/test-all.sh --commit`: **ALL TESTS PASSED in 30m56s ON THE FIRST RUN**, in a fresh isolated copy
+  (`/private/tmp/nsharp-test-all.d548fd8e47bf.Kx3mD5`, the validated result stored only on success —
+  so neither a cached whole-gate nor a cached per-step verdict). Green with **zero `✗`** across all
+  sixteen steps: clean, compiler build (3m30s), the format contract gate, unit tests (10m29s), the
+  native `.tests.nl` estate including BootstrapServices' 2,255 and `tests/native/ownership-audit`'s
+  18 (5m33s), **VS Code integration tests PASSED (4m06s)**, SDK pack + install (6m32s), template
+  pack / install / creation, the template-generated project, all example and fixture projects, all
+  single-file examples, `nlc check` over the examples, and the ECMA-335 **IL verification gate — all
+  67 N# assemblies pass, no new errors vs baseline**. The cold-`TestSdkFeed` five-minute-cap hazard
+  did NOT appear and no cool rerun was needed.**
+  `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt (289 files, 3.97 MB) and reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE computer-use verification was
+  NOT attempted, per the coordinator's standing instruction.
+  **SEVEN `.nl` AND HARNESS GOTCHAS, TWO OF THEM SILENT WRONG ANSWERS RATHER THAN BUILD FAILURES, AND ONE OF THEM CAUGHT BY THE ORACLE ITSELF.**
+  **(1) `union` IS A KEYWORD** — `union := new UnionTypeInfo(...)` declines at `parse.function` naming
+  the FUNCTION, the third member of the `match` / `must` set the arc has now hit. **(2)
+  `AnalyzerTypeResolver.ResolveType` DOES NOT READ THE DECLARATION CONTEXT'S CANONICAL REGISTRY**, and
+  the failure is a wrong ANSWER: a class registered with `RegisterCanonicalType` still resolves to a
+  DIFFERENT `TypeInfo` for a type pattern, after which the reachability judgement reports
+  `This 'Dog' pattern can never match — a 'Dog' is never a 'Dog'`. Slice 28's gotcha in a new place —
+  registration makes a declared MEMBER's type resolvable, not a type NAME resolvable — and the honest
+  contract witness is a BUILT-IN type name. **(3) A CLOSED GENERIC MUST CARRY ITS DEFINITION** in a
+  contract harness: `ResolveGenericDefinition` reads `GenericTypeInfo.GenericDefinition` first and
+  otherwise falls back to a SCOPE lookup, and a harness declares no scope, so a two-argument
+  `new GenericTypeInfo(name, args)` is silently not a union at all and the whole arm goes quiet.
+  **(4) THE FAMILY'S REPORTS DO NOT ALL CARRY THE FAMILY'S CODES.** The relational comparability
+  report is `ErrorCode.TypeMismatch` = **NL202**, not the NL504 the code name suggests, while the
+  LIST-shape report IS `ErrorCode.PatternTypeMismatch` = NL504. **(5) `soa record` IS GATED BEHIND
+  `NSHARP_EXPERIMENTAL_SOA=1`** — without it the declaration reports NL323 and no row view is ever
+  built, so the SoA escape gate cannot be reached from a plain fixture at all. **(6) A RELATIONAL
+  PATTERN'S BOUND IS A PRIMARY EXPRESSION**: `> table[0]` and `> table.X` parse the bare identifier
+  `table` and nothing more, so neither is a route to a row view; the reaching shape is a LOCAL bound
+  to one (`row := table[0]`, then `> row`). **(7) THE ORACLE CHECKS THE OWNER'S OWN SOURCE, AND IT
+  FOUND TWO NULLABILITY DIAGNOSTICS THE BUILD DID NOT** — `nlc check` reported **NL905** (a possible
+  null dereference of a local the walk had already excluded with an early `continue`) and **NL202**
+  (`string?` passed where `string` is required, after a reassignment) on the first draft of
+  `AnalyzerPatternAnalysis.nl`, while `nlc build` emitted it happily. N# narrows on a POSITIVE
+  `if x != null { … }` and narrows neither ACROSS a `continue` nor AFTER a reassignment. Both were
+  fixed — the guard inverted, and the binding name started at its non-null fallback — and then, per
+  slice 27's rule, **every differential was RE-RUN against the final sources** rather than argued to
+  be unaffected. This is slice 27's own gotcha (its NL010 on an unused import) in a stronger form:
+  the 72-target oracle includes the target the new owner LIVES in, so the owner is graded by its own
+  proof.
+
+  **THE PATTERN FAMILY'S CLOSURE STATEMENT.** After five slices the family's C# residue is **exactly
+  one zero-policy driver** — `AnalyzePattern`, a request loop and a five-case switch. Its two callers,
+  `AnalyzeSwitchStatement` (:5858) and `AnalyzeMatchExpression` (:12615), are statement- and
+  expression-walker members of a DIFFERENT family and each calls the driver on one line; so are the
+  three other one-line sites that touch a pattern owner (`_matchExhaustiveness.Check` :12491,
+  `_patternReachability.CheckIsExpression` :12152, `_matchExhaustiveness.ResolveDeclaredUnionType`
+  :11770). **No pattern policy of any kind remains in `Analyzer.cs`**: not exhaustiveness, not
+  coverage, not comparability, not list shape, not reachability, not placeholder detection, not
+  property binding, not the walk. The family's N# estate is SIX owners —
+  `AnalyzerExhaustivenessSelector`, `AnalyzerMatchExhaustiveness`, `AnalyzerPatternShapes`,
+  `AnalyzerPatternReachability`, `AnalyzerPropertyPatternBinding`, `AnalyzerPatternAnalysis` — and the
+  cumulative cut across slices 25–29 is **31 whole C# members and `Analyzer.cs` 15,966 → 14,807, a
+  net −1,159 lines**, with a byte-identical 72-target oracle at every single step.
+
+  **NEXT FAMILY: DEFINITE ASSIGNMENT AND THE NULL-STATE FLOW JOINS — 15 members, 593 lines, in two
+  clusters, and BOTH ITS STATE CARRIERS ARE ALREADY N#.** The definite-assignment walk is
+  `CheckDefiniteAssignment` :3133 (33), `CheckLocalDefiniteAssignment` :3234 (5),
+  `AnalyzeDefiniteAssignmentStatement` :3242 (**124**), `AnalyzeDefiniteAssignmentBlock` :3367 (9),
+  `AnalyzeDefiniteAssignmentIf` :3377 (50), `AnalyzeDefiniteAssignmentLoopBody` :3428 (14),
+  `AnalyzeDefiniteAssignmentSwitch` :3443 (46), `AnalyzeDefiniteAssignmentTry` :3490 (24),
+  `AnalyzeDefiniteAssignmentExpression` :3515 (**171**) and `ReportIfReadBeforeAssigned` :3687 (18) —
+  **494 lines** entered from three sites (:2167, :3126, :4250). The null-state cluster is
+  `ApplyNullabilityFlowType` :6101 (9), `GetExpressionNullState` :6111 (29), `GetDefaultNullState`
+  :6141 (22), `IsUnsafeNullState` :6164 (25) and `UpdateNullStateAfterAssignment` :9285 (14) — **99
+  lines**, with 53 `NullState` references across the file. `DefiniteAssignmentState.nl` and
+  `NullState.nl` are ALREADY N#-owned, so unlike the pattern family this one starts with its model
+  moved and only the walk to take. **The obvious hypothesis is that it moves WHOLE rather than as a
+  driver** — every member returns `void` or `bool` and the expression arm re-enters nothing that
+  answers a type — **but that must be MEASURED before a line is written**, exactly as slices 24 and 29
+  measured and slice 28 measured the other way. After it: the expression and statement walkers.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 28 — `AnalyzePropertyPatterns`, THE PATTERN
   FAMILY'S FIRST BINDING STATE CARRIER** (stage 4 of the slice-25 arc plan). Target recorded BEFORE
   any production edit, at `8a6398106` (`Analyzer.cs` **15,013** lines, non-blank **13,258**;
   BootstrapServices contracts **2,175**; unit suite **3,194**; ownership audit **18 / 18**; manifest
