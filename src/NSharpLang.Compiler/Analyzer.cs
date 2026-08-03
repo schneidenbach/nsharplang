@@ -288,6 +288,9 @@ public class Analyzer : IDisposable
     // Whether a type test can ever succeed, and the two diagnostics when it cannot.
     // Rebuilt with the SCC: it holds assignability, which the rebuild replaces.
     private AnalyzerPatternReachability _patternReachability;
+    // What an object pattern's property list resolves to and binds. NOT rebuilt with the SCC: it
+    // holds nothing the rebuild replaces.
+    private readonly AnalyzerPropertyPatternBinding _propertyPatternBinding;
     private bool _disposed;
 
     public Analyzer()
@@ -314,6 +317,8 @@ public class Analyzer : IDisposable
         _typeSubstitution = new AnalyzerTypeSubstitution(_scopes, _declarationContext, _typeResolver);
         _structuralAssignability = new AnalyzerStructuralAssignability(_typeResolver, _externalTypeProbe);
         _functionTypeFactory = new AnalyzerFunctionTypeFactory(_declarationContext, _typeSubstitution);
+        _propertyPatternBinding = new AnalyzerPropertyPatternBinding(
+            _diagnostics, _spans, _declarationContext, _typeSubstitution);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -6070,68 +6075,31 @@ public class Analyzer : IDisposable
         }
     }
 
+    /// <summary>
+    /// The two steps the N#-owned property-pattern walk cannot take for itself: the analyzer's own
+    /// pattern walk and the scope stack's symbol declaration. The walk runs in
+    /// <see cref="AnalyzerPropertyPatternBinding"/> and yields between steps — not because the step
+    /// COUNT depends on an answer (measurement proved it does not), but because the walk's own
+    /// missing-property report has to land between two driver steps, since a preceding nested
+    /// pattern may itself have reported. Which owner, which substitution, which property type,
+    /// which of the two bindings and which report are all the walk's decisions; this loop performs
+    /// the one operation it is handed, with the operands it is handed.
+    /// </summary>
     private void AnalyzePropertyPatterns(List<PropertyPattern> propertyPatterns, TypeInfo valueType, int line, int column)
     {
-        var declarationOwner = valueType;
-        Dictionary<string, TypeInfo>? substitution = null;
-        if (valueType is GenericTypeInfo genericValue
-            && _typeSubstitution.ResolveGenericDefinition(genericValue) is { } genericDefinition)
+        var state = _propertyPatternBinding.Begin(propertyPatterns, valueType, line, column);
+        for (var step = _propertyPatternBinding.NextStep(state);
+             step != null;
+             step = _propertyPatternBinding.NextStep(state))
         {
-            declarationOwner = genericDefinition;
-            substitution = _declarationContext.CreateGenericSubstitution(
-                genericDefinition,
-                genericValue.TypeArguments);
-        }
-
-        // For each property pattern, validate the property exists and analyze nested patterns
-        foreach (var propPattern in propertyPatterns)
-        {
-            // Try to resolve the property on the value type
-            TypeInfo? propType = null;
-            if (_declarationContext.TryGetSourceMemberShape(
-                    declarationOwner, substitution, out var sourceShape)
-                && _declarationContext.TryResolveDeclaredValueMember(
-                    sourceShape.Owner,
-                    sourceShape.DeclaredMembers,
-                    propPattern.Name,
-                    substitution,
-                    out var resolvedPropertyType))
+            switch (step.Kind)
             {
-                propType = resolvedPropertyType;
-            }
-
-            if (propType == null && valueType is ReflectionTypeInfo reflectionType)
-            {
-                // Use reflection to find the property
-                var prop = reflectionType.Type.GetProperty(propPattern.Name);
-                if (prop != null)
-                {
-                    propType = NullabilityMetadataReflection.ConvertProperty(prop);
-                }
-            }
-
-            if (propType == null)
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                    _spans.GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
-                Error(ErrorCode.InvalidPattern,
-                    $"'{valueType}' doesn't have a property named '{propPattern.Name}'",
-                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                continue;
-            }
-
-            // If there's a nested pattern, analyze it recursively
-            if (propPattern.Pattern != null)
-            {
-                AnalyzePattern(propPattern.Pattern, propType);
-            }
-            else
-            {
-                // Simple binding - use BindingName if provided, otherwise use property Name
-                var bindingName = propPattern.BindingName ?? propPattern.Name;
-                var (bindingLine, bindingColumn, _) =
-                    _spans.GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
-                DeclareSymbol(bindingName, propType, bindingLine, bindingColumn);
+                case 1:
+                    AnalyzePattern(step.Pattern!, step.CarriedType);
+                    break;
+                case 2:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    break;
             }
         }
     }
