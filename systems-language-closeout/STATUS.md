@@ -1,6 +1,49 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-03 (**TASK 017 SLICE 29 LANDED (no commit — mandate) — N# OWNS WHAT A PATTERN
+Last updated: 2026-08-03 (**TASK 017 SLICE 30 LANDED (no commit — mandate) — N# OWNS WHETHER A VALUE
+EXISTS AND WHAT THE ANALYZER BELIEVES ABOUT NULL. THE FLOW FAMILY CLOSES IN ONE SLICE, AND IT IS THE
+FIRST FAMILY IN THE ARC THAT MOVED WHOLE.** Three owners — `AnalyzerDefiniteAssignment.nl` (**761
+lines, 15 members**), `AnalyzerNullFlow.nl` (**274, 10**) and `AnalyzerFlowNarrowing.nl` (**253, 7**)
+— are the sole authority for the definite-assignment walk and both NL304 reports, for the five
+null-state answers, the NL905 report and its four-part dedup log, and for what a condition proves and
+how it is installed into a scope. **24 WHOLE C# MEMBERS DELETED — 857 SOURCE LINES — replaced by 28
+call-site rewrites**: `git diff` **+58 / −919 = net −861**, `Analyzer.cs` **14,807 → 13,946**
+(non-blank 13,072 → **12,337**), and of the 58 added lines **13 are three fields with their comments,
+3 are construction, 3 are the one new C# member (a `=> new(...)` factory), 2 are its rebuild
+assignments and 37 are one-for-one call-site rewrites**. Two C# FIELDS were deleted outright
+(`_suppressNullabilityFlowType`, `_reportedNullabilityDiagnostics`) because both belong to the
+null-state owner, and `IsNullableType` was a BONUS deletion the closure scan found — its only caller
+in 14,807 lines was the constructor arm. **THE TARGET WAS BIGGER THAN THE SLICE-29 BRIEF INVENTORIED
+ON THREE COUNTS** (593 → 857 lines, 15 → 24 members): the constructor collector's two private
+helpers, `ReportPossibleNullAccess` (the slice-24 closure statement's named debt), and the five
+NARROWING-RULE members the brief listed for re-verification but did not count. **AND THE SHAPE
+QUESTION DID NOT ARISE**: a closure scan over all 24 bodies found **exactly ONE outbound call to a
+member that stays behind — `Error`, the already-N# diagnostic sink** — and the walk re-enters nothing
+that answers a type, so there is no request protocol, no suspended state, no driver and no `Supply`.
+PROOFS: the semantic-diagnostic oracle over **ALL 72 targets — ORACLE_DIFFS = 0 / STDERR = 0 /
+EXIT = 0 over 782 diagnostics**, md5 identical in both trees, and **unlike slices 25, 26, 28 and 29
+this family's own diagnostic IS in the oracle** (NL905 fires in the corpus); an **emission-order
+protocol differential instrumented at the SAME 28 call sites in BOTH trees — 2,609 fixture rows and
+812,616 corpus-subset rows, 0 mismatches**, each diagnostic read back off `_errors`; **170 fixtures
+(71 new + 99 accumulated), 0 diffs on `nlc check` (307 diagnostics over 24 codes, NL304 ×22 and
+NL905 ×15) and 0 diffs on the UNSORTED `nlc build` transcript**; **71 / 71 tracked corpus build
+transcripts, TRANSCRIPT_DIFFS = 0**; and a corpus IL sweep whose **SAME-CLI CONTROL FAILED FIRST AND
+INVALIDATED THE ARC'S RAW-BYTE COMPARISON** — two consecutive builds of the same source in the same
+directory differ by **17 bytes**, a fresh v4 MVID plus the PE TimeDateStamp — after which a normaliser
+zeroing exactly those two fields was written, the control was RE-RUN and **PASSED 6 / 6**, and the
+sweep read **116 assemblies, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, all 62 EMITTED assemblies
+byte-identical**, the 54 remaining being the COPIED `NSharpLang.Runtime.dll` with **0 SOURCE files**
+differing between the worktrees. GATES: the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 32m29s ON THE
+FIRST RUN** (106 `✓`, zero `✗`, VS Code integration green, all 67 assemblies IL-verified); unit
+**3,194 / 3,194** zero drift; contracts **2,255 → 2,404 (+149)**; audit **18 / 18** after a
+ONE-row in-place repin keeping the manifest at **391 lines**, no BOM, DRIFTED ROWS = 0. NO toolset
+repin needed. **TWELVE GOTCHAS, headed by the IL-normaliser finding above and by a `continue` that
+killed N# narrowing inside the new owner's OWN source — the 72-target oracle caught it with NL202 ×5,
+the second time the arc's proof has graded the owner it was meant to prove.** NEXT: the expression
+and statement walkers — the analyzer's last territory, ~2,643 lines over 45 members, and the one
+family that certainly will NOT move whole. Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-03 (**TASK 017 SLICE 29 LANDED (no commit — mandate) — N# OWNS WHAT A PATTERN
 MEANS, AND THE PATTERN FAMILY IS CLOSED.** `AnalyzerPatternAnalysis.nl` (**759 lines, THREE types,
 26 members**) is the sole authority for the thirteen-way dispatch, for what every arm binds and under
 which name, for which union case a dotted name or a case pattern names, for what a case property
@@ -1223,9 +1266,290 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 29 — `AnalyzePattern` ITSELF, THE 13-ARM WALK;
-  THE PATTERN FAMILY CLOSES** (stage 5 and the last of the slice-25 arc plan). Target recorded BEFORE
-  any production edit, at `7df2723a9` (`Analyzer.cs` **14,981** lines, non-blank **13,230**;
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 30 — THE DEFINITE-ASSIGNMENT AND NULL-STATE
+  FLOW FAMILY, WHOLE.** Target recorded BEFORE any production edit, at `1ad50517f` (`Analyzer.cs`
+  **14,807** lines, non-blank **13,072**; BootstrapServices contracts **2,255**; unit suite
+  **3,194**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:ac8c0a44de08d258`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE — AND IT IS BIGGER THAN THE SLICE-29 BRIEF INVENTORIED, ON
+  THREE COUNTS.** The brief named 15 members / 593 lines. Re-verification adds NINE more members and
+  264 lines, in three groups: (a) `CheckDefiniteAssignment`'s own two helpers `GetAssignedFields`
+  (6) and `CollectAssignedFields` (46), which nothing else calls; (b) `ReportPossibleNullAccess`
+  (35), the slice-24 closure statement's named debt, whose only reader is `GetExpressionNullState` +
+  `IsUnsafeNullState`; and (c) the NARROWING RULES the brief listed for re-verification but did not
+  count — `ApplyNarrowingsToScope` (41 w/ doc), `ExtractFlowNarrowings` (83 w/ doc),
+  `TryRemoveAnonymousUnionArm` (16), `TryExtractNullNarrowing` (25), `TryExtractHasValueNarrowing`
+  (16), which are the PRODUCER side of every `NullState` fact the null-state cluster then reads.
+  Plus `IsNullableType` (4), which has exactly ONE caller in the whole file — `CheckDefiniteAssignment`
+  — and therefore dies with it. **Total target: 24 members, 857 source lines (with their banners and
+  doc comments), in three clusters.**
+
+  * **CLUSTER A — DEFINITE ASSIGNMENT, 12 members, 561 lines.** `CheckDefiniteAssignment` :3133 (33),
+    `GetAssignedFields` :3167 (6), `CollectAssignedFields` :3174 (46), `CheckLocalDefiniteAssignment`
+    :3221 (18 w/ banner+doc), `AnalyzeDefiniteAssignmentStatement` :3240 (126 w/ comment),
+    `AnalyzeDefiniteAssignmentBlock` :3367 (9), `AnalyzeDefiniteAssignmentIf` :3377 (50),
+    `AnalyzeDefiniteAssignmentLoopBody` :3428 (14), `AnalyzeDefiniteAssignmentSwitch` :3443 (46),
+    `AnalyzeDefiniteAssignmentTry` :3490 (24), `AnalyzeDefiniteAssignmentExpression` :3515 (171),
+    `ReportIfReadBeforeAssigned` :3687 (18) — entered from three sites (:2167, :3126, :4250).
+  * **CLUSTER B — NULL STATE, 6 members, 111 lines.** `ApplyNullabilityFlowType` :6101 (9),
+    `GetExpressionNullState` :6111 (29), `GetDefaultNullState` :6141 (22), `IsUnsafeNullState` :6164
+    (2), `ReportPossibleNullAccess` :7680 (35), `UpdateNullStateAfterAssignment` :9285 (14) — plus
+    the two pieces of C# state that belong to them and move with them, the ambient
+    `_suppressNullabilityFlowType` flag (:259) and the `_reportedNullabilityDiagnostics` dedup log
+    (:268).
+  * **CLUSTER C — THE NARROWING RULES, 5 members, 181 lines.** `ApplyNarrowingsToScope` :4634 (41),
+    `ExtractFlowNarrowings` :4676 (83), `TryRemoveAnonymousUnionArm` :4760 (16),
+    `TryExtractNullNarrowing` :4777 (25), `TryExtractHasValueNarrowing` :4803 (16).
+  * **CONFINEMENT IS PROVED.** A repo-wide grep for all 24 names over `src`, `tests`, `editors`,
+    `docs` and `memory` returns **zero hits outside `Analyzer.cs`** for 23 of them. The single
+    exception is `GetDefaultNullState`, whose 4 outside hits are all
+    `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` calling its OWN private
+    static copy (:1617) — a different file, a different family, untouched here.
+    `SystemsAnalyzer.cs` holds no copy of anything in the family.
+
+  **THE MEASUREMENT CAME FIRST AND IT ANSWERED THE SHAPE QUESTION OUTRIGHT: THIS FAMILY MOVES WHOLE,
+  AND IT IS THE FIRST IN THE ARC THAT NEEDS NO DRIVER AT ALL.** A closure scan over all 24 member
+  bodies, resolving every `\w+(` against the file's own declaration set and every `_field` against
+  its field set, returns **exactly ONE outbound call to a member that stays behind — `Error` — and
+  that is the diagnostic sink, which has been N# since the sink slice**. The seven fields read are
+  `_typeResolver`, `_scopes`, `_declarationContext`, `_spans`, `_assignability` (all five already
+  N#-owned collaborators) plus the two flags in cluster B that move with the family. **The walk
+  re-enters NOTHING that answers a type**: `AnalyzeDefiniteAssignmentExpression` is 171 lines of pure
+  AST recursion that never calls `AnalyzeExpression`, and `ExtractFlowNarrowings` reads
+  `_typeResolver.ResolveType` and `_assignability` directly rather than through the expression
+  walker. So slice 24/29's deciding question — does the step COUNT or a step's OPERANDS depend on an
+  answer the walk does not have yet? — **does not arise**: there are no steps, no suspension, no
+  request kinds and no `Supply`. The hypothesis in the slice-29 brief is CONFIRMED, and it is
+  confirmed by closure rather than assumed from the `void`/`bool` return types.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHETHER A VALUE EXISTS, AND WHAT THE ANALYZER
+  BELIEVES ABOUT NULL. THE FLOW FAMILY IS CLOSED IN ONE SLICE.** `Analyzer.cs` keeps no part of
+  "is this assigned yet?" or "can this be null here?" — not the constructor field collector or its
+  coarser `if` rule, not the local walk's 22-arm statement dispatch or its 27-arm expression
+  recursion, not the if/else merge, the loop snapshot, the switch intersection or the try discard,
+  not the `out`-argument write or the `nameof` non-read or the lambda cut-off, not either NL304
+  report, not the null-state of an expression or the default a type implies or the flow type either
+  induces, not the NL905 report or its four-part dedup log or its four message shapes, not the
+  assignment's fact update, not what a condition proves, not the anonymous-union arm subtraction,
+  and not the scope installation's intersection rule. **THREE N# OWNERS, ZERO DRIVERS, ZERO
+  REQUESTS.**
+
+  **THE CUT — 24 WHOLE C# MEMBERS, 857 SOURCE LINES, REPLACED BY 28 CALL-SITE REWRITES.**
+  `git diff` **+58 / −919 = net −861**; `Analyzer.cs` **14,807 → 13,946** (non-blank 13,072 →
+  **12,337**). Of the 58 added lines, **13 are three field declarations and their comments, 3 are
+  construction assignments, 3 are the one new C# member — a `=> new(...)` factory — 2 are its SCC
+  rebuild/dispose assignments, and the other 37 are one-for-one call-site rewrites** (34 replace an
+  identical original line; the `if`-narrowing site splits one tuple deconstruction into three
+  statements, and `BeginAnalysis()` replaces two reset lines). **NO new C# method with policy,
+  bridge, callback, shell or state, and N# calls nothing back.** Two C# FIELDS were deleted outright
+  rather than rewritten — `_suppressNullabilityFlowType` and `_reportedNullabilityDiagnostics` —
+  because both belong to the null-state owner and moved into it; the flag is now read and written
+  through `SuppressFlowType` / `SetSuppressFlowType` at the same three sites with the same
+  save-and-restore discipline, and the log is cleared by `BeginAnalysis()` from the same reset block.
+  **`IsNullableType` was a BONUS DELETION the closure scan found**: its only caller in 14,807 lines
+  was the constructor arm.
+
+  **N# ADDED — three owners, 1,288 lines, FOUR types, 32 members.**
+  `AnalyzerDefiniteAssignment.nl` **761** lines (1 type, 15 members) — both entry points, the
+  constructor collector, the 22-arm statement dispatch, the four join rules and the 27-arm read
+  walk; `AnalyzerNullFlow.nl` **274** lines (1 type, 10 members) — the five answers, the NL905
+  report, the dedup log and the suppression flag; `AnalyzerFlowNarrowing.nl` **253** lines (2 types,
+  7 members) — the four condition shapes, the arm subtraction and the scope writer, plus the
+  `FlowNarrowingSplit` that replaces the C# tuple return. Contracts:
+  `AnalyzerDefiniteAssignment.tests.nl` **1,048** lines / **68 contracts**,
+  `AnalyzerNullFlow.tests.nl` **525** / **43**, `AnalyzerFlowNarrowing.tests.nl` **566** / **38** —
+  **149 new contracts**.
+
+  **THE MLC IS VISIBLE AND IT PRODUCES A DIVERGENCE THAT IS PINNED RATHER THAN FIXED.** The reflected
+  arm of `GetDefaultNullState` only ever sees an external type through a `MetadataLoadContext`, so
+  three contracts open a real one (`ExternalAssemblyScan.OpenWithReferences`) and assert the types are
+  the CONTEXT'S rather than the live runtime's (`intType != typeof(int)`). An MLC `System.Int32`
+  answers NOT-NULL and an MLC `System.String` answers OBLIVIOUS, as expected — but **an MLC-resolved
+  `Nullable<int>` answers NOT-NULL where a LIVE one answers OBLIVIOUS**, because
+  `Nullable.GetUnderlyingType` compares the context's `Nullable\`1` against the LIVE `typeof(Nullable<>)`
+  and they are different types, so the external nullable takes the value-type arm. That is
+  `Analyzer.cs`'s behaviour verbatim; an ownership slice does not improve behaviour.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `1ad50517f` and at the working tree, **both over the SAME sources**, across **ALL 72 `project.yml`
+  targets with no exclusion** — the ROOT target and `BootstrapServices` (which now contains the three
+  new owners) included: **ORACLE_DIFFS = 0, ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0**, over
+  **782 diagnostics across 18 codes**, md5 `a26ed2dd86add31488de8ba7631dc5e3` in BOTH trees and
+  **zero stderr bytes in either**. **AND UNLIKE SLICES 25, 26, 28 AND 29, THIS FAMILY'S OWN
+  DIAGNOSTIC IS IN THE ORACLE**: `NL905` fires in the corpus, so the null-state walk is graded by the
+  72-target sweep rather than only by fixtures.
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, COMPARED ROW BY ROW.** Both trees were instrumented
+  at the **SAME 28 call sites** — verified site-for-site — with the SAME line format: every operation
+  with its operands, its ANSWER, and `_errors.Count` before and after, plus every diagnostic read back
+  OFF `_errors` (index, id, line, column, length, message). **2,609 fixture rows: 0 mismatches, md5
+  `1ea32325d51f9ead81b81d8f8a09272c` in BOTH** — 169 local-walk entries, 23 constructor-field entries,
+  832 expression null-states, 385 type defaults, 796 flow types, 149 NL905 report calls, 52
+  assignment updates, 58 narrowing extractions, 42 scope installations and 32 diagnostics. Both
+  instrumented trees were built separately from the sweep trees and deleted afterwards; neither
+  shipped.
+
+  **PROOF — 170 FIXTURES, CHECK AND THE UNSORTED BUILD TRANSCRIPT.** 71 new fixtures (28
+  definite-assignment local shapes, 11 constructor-field shapes, 32 null-flow and narrowing shapes)
+  run TOGETHER WITH the 99 accumulated fixtures still on disk from the earlier slices. **`nlc check
+  --json`: FX_CHECK_DIFFS = 0, FX_CHECK_EXIT_DIFFS = 0, 307 diagnostics over 24 codes — NL304 ×22 and
+  NL905 ×15 are the two this family owns**, md5 `71fdc085832ab276fd7f169107600e15` in BOTH.
+  **`nlc build`, which renders `_errors` in LIST order with NO dedup and NO sort: 170 / 170
+  BYTE-IDENTICAL, FX_BUILD_DIFFS = 0, FX_BUILD_EXIT_DIFFS = 0, 1,481 lines**, md5
+  `e1c39971f559302a56cf385cc48e3d0d` in BOTH. **THE 346 ACCUMULATED FIXTURES FROM SLICES 25–29 WERE
+  NOT RECOVERABLE AT THIS TREE** — their `/private/tmp` directories had been removed — so the
+  accumulated half of this differential is the 99 that survive, and that is recorded rather than
+  papered over; the 72-target corpus and its 71 build transcripts are the durable regression surface.
+
+  **PROOF — CORPUS UNSORTED BUILD TRANSCRIPTS: 71 TRACKED TARGETS, TRANSCRIPT_DIFFS = 0, BUILD EXIT
+  DIFFS = 0**, md5 `dc1a51bdaf2b8b672bc02ddb225671c4` in BOTH over 1,490 lines, with only the elapsed
+  reading and the worktree prefix normalised. The 72nd `project.yml` the oracle sweeps is
+  `artifacts/smoke-turnkey/…/MyApp`, which is **GITIGNORED and untracked**, so it exists in the main
+  repo (where the oracle ran it) and in neither worktree; it is skipped here and named rather than
+  silently dropped.
+
+  **PROOF — CORPUS IL SWEEP, AND THE SAME-CLI CONTROL DID ITS JOB BY FAILING FIRST.** The control ran
+  before the sweep and **REFUSED the raw-byte comparison the arc had been using**: the BASELINE CLI
+  building the SAME sources in the two worktrees produced 3 of 6 assemblies differing, and — the
+  decisive probe — **two consecutive builds in the SAME directory with the SAME CLI differ too, by 17
+  bytes**. The two nondeterministic fields were then located exactly: a **fresh version-4 MVID in the
+  metadata `#GUID` heap (16 bytes)** and the **PE COFF TimeDateStamp (4 bytes at 0x88)**. A normaliser
+  that zeroes those two fields and NOTHING else was written, and the control was RE-RUN and **PASSED —
+  6 / 6 IDENTICAL, DIFFERENT = 0** — with repeated same-directory builds also identical, so the
+  normaliser is proven complete before any verdict is read off it. Both CLIs then built all 71 tracked
+  targets from EQUAL-LENGTH worktrees (`/private/tmp/nsharp017s30b` and `…30w`): **116 comparable
+  assemblies, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, 62 IDENTICAL**. The **54 differing are ONE file** —
+  the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — differing in
+  **51 bytes of a 14,848-byte file, first at 12,392 and last at 12,627, inside the debug directory's
+  CodeView/embedded-PDB record** — and `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between
+  the two worktrees reports **0 SOURCE files**. Every N#-EMITTED assembly is byte-identical.
+
+  The IDE-facing surface this slice OWNS is **two squiggles and every flow-narrowed hover type**: the
+  NL304 pair ("'x' is used here before it has been assigned a value on every path that reaches this
+  point" on the READ, and "Field 'F' is non-nullable but isn't assigned in this constructor" on the
+  `constructor` keyword) and NL905's four wordings (dereference, index, call and the generic
+  fallback); plus the type hover and completion show for every name a condition has narrowed — a
+  `!= null` guard collapsing `string?` to `string`, an `is T` test, a `.HasValue` test, and an
+  anonymous union minus a matched arm.
+
+  **EVIDENCE.** Full unit suite **3,194 / 3,194, 0 failed** — exactly the `1ad50517f` baseline COUNT,
+  ZERO drift; `./scripts/dev.sh --since` reported **"Change-aware selection: FULL unit suite
+  (fail-safe)"** and passed it in **7m40s**, so the change-aware filter did not narrow the coverage.
+  (A separate solution-wide `dotnet test NSharpLang.sln` was also started and stalled on the
+  `NSharpLang.Sdk`-resolution error the solution always emits for the N# project; it was killed and
+  is NOT reported as evidence.) BootstrapServices contracts **2,255 → 2,404 (+149)**, **2,404 / 2,404
+  PASS**, 0 failed. Ownership audit **18 / 18** against the freshly written manifest. **NO toolset
+  repin was needed and NO wall was crossed** — the three owners consume only surface the catalog and
+  the ordinary runtime resolver already publish: no catalog row, no reflection member, no language
+  capability. **RATCHET REPIN** — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 14,807 → **13,946**, currentNonBlankLines
+  13,072 → **12,337**, fingerprint `text-v1:8789690e161ce3ab` → **`text-v1:0c06c6601792d0e4`**
+  (epoch ceilings 23,451 / 20,537 PRESERVED and now clear by **9,505 / 8,200**);
+  `reviewedHeadFingerprint head-v1:ac8c0a44de08d258` → **`head-v1:787aaf0902f6a29e`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value, `epochPathFingerprint`, `epochFactFingerprint` and
+  `epochFileCount` (381) untouched and RE-VALIDATED by recomputation both before and after the write
+  — all four STORED values reproduced EXACTLY before a single byte was changed, and the post-write
+  sweep reports **DRIFTED ROWS = 0**. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before
+  AND after**, the manifest `git diff` is exactly 2 changed lines and `OwnershipAudit.nl`'s is exactly
+  1; neither file carries a BOM afterwards. **AND THE REPIN-TOUCHED TARGETS WERE RE-RUN AGAINST THE
+  FINAL SOURCES** rather than argued to be unaffected: `tests/native/ownership-audit` — whose
+  `OwnershipAudit.nl` the repin edits and which IS one of the corpus targets — and the ROOT target
+  were both re-checked with both CLIs afterwards, both BYTE-IDENTICAL with the same exit code
+  (0 / 0 and 1 / 1).
+
+  **TWELVE `.nl` AND HARNESS GOTCHAS, AND THE HEADLINE ONE INVALIDATES A MEASUREMENT THE ARC HAS BEEN
+  QUOTING SINCE SLICE 5.**
+  **(1) THE RAW-BYTE IL COMPARISON IS NOT READABLE WITHOUT A NORMALISER, AND THE SAME-CLI CONTROL IS
+  WHAT PROVED IT.** Two consecutive builds of the SAME source in the SAME directory with the SAME CLI
+  differ by **17 bytes**: a fresh version-4 MVID in the metadata `#GUID` heap and the PE COFF
+  TimeDateStamp at 0x88. Any "N assemblies BYTE-IDENTICAL" claim made without zeroing those two
+  fields was measuring something else. The control caught it BEFORE any verdict was read, which is
+  exactly what it is for. **(2) `new HashSet<string>(source, comparer)` DOES NOT EMIT** — the
+  two-argument copy constructor declines at `emit.local.initializer`; an empty ordinal set plus
+  `UnionWith` is the same set with the same comparer built by the same enumeration.
+  **(3) EVERY LITERAL AST NODE CARRIES ITS VALUE AS A `string`** — `new IntLiteralExpression(1, …)`
+  declines and the spelling is `new IntLiteralExpression("1", …)`; same for float and char, and
+  `StringLiteralExpression` takes no raw-string flag. **(4) `AssignmentOperator.Add` DOES NOT EXIST**
+  — it is `AddAssign` — and the decline names the LOCAL, not the member. **(5) `typeof(Nullable<int>)`
+  DOES NOT EMIT and `Nullable<>` DOES NOT PARSE**; a closed generic over a value type has to be built
+  at run time via `Type.GetType("System.Nullable\`1").MakeGenericType(...)`. **(6) A `continue` KILLS
+  N# NARROWING AND THE ORACLE SAID SO ABOUT THE OWNER'S OWN SOURCE** — `narrowedType == null` then
+  `continue`, then reading `narrowedType`, reported **NL202 ×5** on the first draft of
+  `AnalyzerFlowNarrowing.nl`; the fix is the POSITIVE guard one nesting level deeper. Slice 29's
+  gotcha in a new place, and it is the SECOND time the 72-target oracle has graded the owner it was
+  meant to prove. **(7) N# REPORTS NL012 FOR A PARAMETER NO ONE READS, AND `Analyzer.cs` HAD ONE** —
+  `ApplyNullabilityFlowType(Expression expr, …)` never read `expr` in 14,807 lines; the dead
+  parameter is dropped rather than carried across, which changes no answer. **(8) A `null` SUGGESTION
+  IS NOT NULL ON THE OTHER SIDE**: `AnalyzerDiagnostics.Create` substitutes
+  `ErrorSuggestions.GetSuggestion(code, …)`, so NL304's constructor report carries "Initialize
+  property in constructor or provide default value" even though the reporter passes null — a contract
+  asserting `Suggestion == null` fails. **(9) `IsSubtypeOf` DECIDES AN INHERITANCE CHAIN AND NOTHING
+  ELSE IN A BARE HARNESS** — `int` is NOT a subtype of `object` there, because that answer needs the
+  CLR conversion funnel the toolset rebuild supplies; the intersection contracts had to be written
+  over a registered class hierarchy. **(10) `sed -E` ON macOS HAS NO `\b`**, so an elapsed-time
+  normaliser copied forward silently fails — it reported **17 phantom transcript diffs** that were all
+  `[0.6s]` versus `[0.4s]`. Slice 26's normaliser gotcha, third occurrence, and the rule stands:
+  re-derive the normaliser, never inherit it. **(11) NEVER
+  `find … -path "*/bin/*" -name "*.dll" -delete` ACROSS A WORKTREE** — it deletes the compiler's own
+  `Cli.dll`, after which every subsequent build fails identically in both trees and the comparison
+  reports a vacuous zero. **(12) THE 72nd CORPUS `project.yml` IS GITIGNORED**
+  (`artifacts/smoke-turnkey/…/MyApp`), so it exists in the main repo the oracle sweeps and in no
+  worktree; the worktree sweeps cover 71 and say so.
+
+  **GATE — THE FULL VS CODE-ENABLED `./scripts/test-all.sh --commit`: ALL TESTS PASSED in 32m29s ON
+  THE FIRST RUN**, in a fresh isolated copy (`/private/tmp/nsharp-test-all.104c6daeb5ab.3rFrJO`,
+  logged as "Fresh isolated test run required: pre-commit verification", with the validated result
+  stored only on success — so neither a cached whole-gate nor a cached per-step verdict). Green with
+  **106 `✓ PASSED` and ZERO `✗`** across all sixteen steps: clean, compiler build (3m41s), the format
+  contract gate, **unit tests 3,194 / 3,194 (10m52s)**, the native `.tests.nl` estate including
+  BootstrapServices' **2,404 / 2,404** and `tests/native/ownership-audit` (5m51s), **VS Code
+  integration tests PASSED (4m26s)**, SDK pack + install (6m51s), template pack / install / creation,
+  the template-generated project, all example and fixture projects, all single-file examples,
+  `nlc check` over the examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass,
+  no new errors vs baseline**. The cold-`TestSdkFeed` five-minute-cap hazard did NOT appear and no
+  cool rerun was needed. **THE GATE WAS RESTARTED ONCE ON PURPOSE**: a first run had already reached
+  step 3 when three MLC contracts were added, so it was killed and re-run from scratch over the FINAL
+  sources rather than reported against sources that no longer existed.
+  `./scripts/reload-vscode-extension.sh` was RUN: `nsharp-0.6.0.vsix` rebuilt (289 files, 3.97 MB) and
+  reinstalled ("Extension 'nsharp-0.6.0.vsix' was successfully installed."). INTERACTIVE computer-use
+  verification was NOT attempted, per the coordinator's standing instruction.
+
+  **THE FLOW FAMILY'S CLOSURE STATEMENT.** After ONE slice the family's C# residue is **exactly 28
+  call sites, every one of which passes operands it already had and uses the answer it gets back**.
+  Nothing in `Analyzer.cs` decides anything about assignment or nullability any more. The family's N#
+  estate is THREE owners — `AnalyzerDefiniteAssignment`, `AnalyzerNullFlow`, `AnalyzerFlowNarrowing`
+  — over the two state carriers that were already N# (`DefiniteAssignmentState`, `NullState` with
+  `NullStateFacts`) and the `FlowNarrowing` model that was already in `AnalyzerStateModels`. **This is
+  the first family in the arc that moved WHOLE**: no request protocol, no suspended state, no driver,
+  no `Supply`, and the reason is structural rather than lucky — a flow analysis threads a STATE
+  through the tree instead of asking the tree what things MEAN, so it never needs an answer it does
+  not already hold.
+
+  **NEXT FAMILY: THE EXPRESSION AND STATEMENT WALKERS — THE ANALYZER'S LAST TERRITORY, AND IT IS THE
+  BIG ONE.** Measured at this tree: the STATEMENT walker is **17 members, ~1,025 lines** headed by
+  `AnalyzeStatement` :3171 (~184, the statement dispatch), `AnalyzeVariableDeclaration` :3725 (~116),
+  `AnalyzeLocalFunction` :3627 (~97), `AnalyzeReturnStatement` :4449 (~94),
+  `AnalyzeTupleDeconstruction` :3842 (~87) and `AnalyzeIfStatement` :3997 (~81); the EXPRESSION walker
+  is **28 members, ~1,618 lines** headed by `AnalyzeAssignment` :7949 (~211),
+  `AnalyzeNewExpression` :10507 (~185), `AnalyzeLambda` :9719 (~129), `AnalyzeBinaryExpression` :5515
+  (~101), `AnalyzeExpression` :5190 (~92, the expression dispatch), `AnalyzeMemberAccess` :6470 (~87)
+  and `AnalyzeUnaryExpression` :6206 (~85). `Analyzer.cs` now holds **493 members / 13,946 lines**
+  total, so the two walkers are ~2,643 of them and the remaining ~10,300 are declaration analysis,
+  assembly loading, the reporters and the helper estate. **THIS FAMILY WILL NOT MOVE WHOLE AND THE
+  REASON IS ALREADY KNOWN**: every member of it returns a `TypeInfo` and re-enters itself and its
+  sibling walkers, so the deciding question — does the step COUNT or a step's OPERANDS depend on an
+  answer the walk does not have yet? — is certainly YES, and slice 24/29's RESUMABLE shape is the
+  presumptive answer. **But it must still be MEASURED**, and the honest first cut is NOT the dispatch:
+  take one bounded arm whose closure is provable (`AnalyzeVariableDeclaration`, or the
+  `AnalyzeIfStatement` / `AnalyzeForStatement` / `AnalyzeWhileStatement` trio that this slice's
+  narrowing owner already serves) and let the dispatch fall last, exactly as `AnalyzePattern` fell
+  last after slices 25–28 carved its arms out.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 29 — `AnalyzePattern` ITSELF, THE
+  13-ARM WALK; THE PATTERN FAMILY CLOSES** (stage 5 and the last of the slice-25 arc plan). Target
+  recorded BEFORE any production edit, at `7df2723a9` (`Analyzer.cs` **14,981** lines, non-blank
+  **13,230**;
   BootstrapServices contracts **2,205**; unit suite **3,194**; ownership audit **18 / 18**; manifest
   **391** lines; `reviewedHeadFingerprint head-v1:6b8f6eef48f9e17e`).
 

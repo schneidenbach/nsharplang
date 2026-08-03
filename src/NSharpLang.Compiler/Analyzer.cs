@@ -256,7 +256,6 @@ public class Analyzer : IDisposable
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly HashSet<MemberAccessExpression> _soaColumnMemberAccesses = new(ReferenceEqualityComparer.Instance);
     private int _currentLine; // Tracks last analyzed line for scope end positions
-    private bool _suppressNullabilityFlowType;
     private bool _suppressErrorTupleResultUse;
     private bool _allowUnboundCallableReference;
     private bool _allowSyntheticSoaOperationReference;
@@ -265,7 +264,6 @@ public class Analyzer : IDisposable
     // be used with `on`/`off`. AnalyzeOnSubscription and AnalyzeAssignment flip this while
     // resolving the event member so they can emit their own, more specific diagnostics.
     private bool _allowEventReference;
-    private readonly HashSet<(int Line, int Column, string Path, string Operation)> _reportedNullabilityDiagnostics = new();
     private readonly HashSet<(int Line, int Column, string Name)> _reportedUnverifiedErrorResultDiagnostics = new();
     // The NL411 report log. Like the implicit-conversion guard above it, this is deliberately NOT
     // part of the toolset rebuild: a log rebuilt with its reader would forget what it had already
@@ -295,6 +293,19 @@ public class Analyzer : IDisposable
     // dotted name or a case pattern names, and which of its four diagnostics fires. Rebuilt with the
     // SCC: it holds the exhaustiveness, shape and reachability owners, which the rebuild replaces.
     private AnalyzerPatternAnalysis _patternAnalysis;
+    // Whether a local is assigned by the time something reads it, and whether a constructor leaves a
+    // non-nullable field unset. NOT rebuilt with the SCC: it holds the diagnostic sink and the type
+    // resolver, neither of which the rebuild replaces.
+    private readonly AnalyzerDefiniteAssignment _definiteAssignment;
+    // What the analyzer believes about null at a point: the state of an expression, the default a
+    // type implies, the flow type that state induces, the NL905 report and its dedup log, and the
+    // ambient flow-type suppression flag. NOT rebuilt with the SCC — and the log is the reason, the
+    // same one the callable-reference log carries: a log rebuilt with its reader would forget what
+    // it had already said and squiggle the same dereference twice.
+    private readonly AnalyzerNullFlow _nullFlow;
+    // What a condition proves about the code it guards, and the writer that installs it. Rebuilt
+    // with the SCC: it holds assignability, which the rebuild replaces.
+    private AnalyzerFlowNarrowing _flowNarrowing;
     private bool _disposed;
 
     public Analyzer()
@@ -323,6 +334,8 @@ public class Analyzer : IDisposable
         _functionTypeFactory = new AnalyzerFunctionTypeFactory(_declarationContext, _typeSubstitution);
         _propertyPatternBinding = new AnalyzerPropertyPatternBinding(
             _diagnostics, _spans, _declarationContext, _typeSubstitution);
+        _definiteAssignment = new AnalyzerDefiniteAssignment(_diagnostics, _typeResolver);
+        _nullFlow = new AnalyzerNullFlow(_diagnostics, _spans, _scopes, _declarationContext);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -338,7 +351,11 @@ public class Analyzer : IDisposable
         _patternShapes = CreatePatternShapes();
         _patternReachability = CreatePatternReachability();
         _patternAnalysis = CreatePatternAnalysis();
+        _flowNarrowing = CreateFlowNarrowing();
     }
+
+    private AnalyzerFlowNarrowing CreateFlowNarrowing()
+        => new(_scopes, _typeResolver, _assignability);
 
     private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
         => new(_diagnostics, _typeSubstitution, _assignability, _typeResolver);
@@ -528,9 +545,8 @@ public class Analyzer : IDisposable
         _bindingMap = new BindingMap(); // Reset binding map for new analysis
         _soaColumnMemberAccesses.Clear();
         _currentLine = 0;
-        _suppressNullabilityFlowType = false;
+        _nullFlow.BeginAnalysis();
         _suppressErrorTupleResultUse = false;
-        _reportedNullabilityDiagnostics.Clear();
         _reportedUnverifiedErrorResultDiagnostics.Clear();
         _currentReturnType = null;
         _currentFunction = null;
@@ -2164,7 +2180,7 @@ public class Analyzer : IDisposable
             AnalyzeStatement(func.Body);
 
             // Definite-assignment for locals (NL304): reads before assignment.
-            CheckLocalDefiniteAssignment(func.Body);
+            _definiteAssignment.CheckLocals(func.Body);
 
             // Missing return (all-paths) check for non-void functions.
             // Iterator functions (func* / async*) use yield, not explicit return.
@@ -3123,584 +3139,11 @@ public class Analyzer : IDisposable
         // Check definite assignment only if no initializer (this/base handles assignment)
         if (_currentClass != null && ctor.Initializer == null)
         {
-            CheckDefiniteAssignment(ctor, _currentClass);
+            _definiteAssignment.CheckConstructorFields(ctor, _currentClass);
         }
 
         PopScope();
         _inConstructor = false;
-    }
-
-    private void CheckDefiniteAssignment(ConstructorDeclaration ctor, ClassDeclaration classDecl)
-    {
-        // Collect all non-nullable fields without initializers
-        var uninitializedFields = new HashSet<string>();
-        foreach (var member in classDecl.Members)
-        {
-            if (member is FieldDeclaration field)
-            {
-                // Skip STATIC fields: they are not part of any instance constructor's contract — a static field
-                // is .cctor-initialized (or CLR zero/null), so NL304 must never demand a ctor assignment for it.
-                if (field.Modifiers.HasFlag(Modifiers.Static))
-                {
-                    continue;
-                }
-
-                // Skip fields with type inference (they always have initializers)
-                if (field.Type != null && field.Initializer == null && !IsNullableType(_typeResolver.ResolveType(field.Type)))
-                {
-                    uninitializedFields.Add(field.Name);
-                }
-            }
-        }
-
-        // Check if constructor assigns all required fields
-        var assignedFields = GetAssignedFields(ctor.Body);
-        foreach (var field in uninitializedFields)
-        {
-            if (!assignedFields.Contains(field))
-            {
-                Error(ErrorCode.DefiniteAssignmentError, $"Field '{field}' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration", ctor.Line, ctor.Column, length: "constructor".Length);
-            }
-        }
-    }
-
-    private HashSet<string> GetAssignedFields(BlockStatement block)
-    {
-        var assigned = new HashSet<string>();
-        CollectAssignedFields(block.Statements, assigned);
-        return assigned;
-    }
-
-    private void CollectAssignedFields(IEnumerable<Statement> statements, HashSet<string> assigned)
-    {
-        foreach (var stmt in statements)
-        {
-            switch (stmt)
-            {
-                case ExpressionStatement { Expression: AssignmentExpression assignment }:
-                    if (assignment.Target is MemberAccessExpression { Object: ThisExpression } memberAccess)
-                        assigned.Add(memberAccess.MemberName);
-                    else if (assignment.Target is IdentifierExpression ident)
-                        assigned.Add(ident.Name);
-                    break;
-
-                case BlockStatement block:
-                    CollectAssignedFields(block.Statements, assigned);
-                    break;
-
-                case IfStatement ifStmt:
-                    // Only count as assigned if BOTH branches assign (definite assignment)
-                    if (ifStmt.ElseStatement != null)
-                    {
-                        var thenAssigned = new HashSet<string>();
-                        var elseAssigned = new HashSet<string>();
-                        CollectAssignedFields(new[] { ifStmt.ThenStatement }, thenAssigned);
-                        CollectAssignedFields(new[] { ifStmt.ElseStatement }, elseAssigned);
-                        // Fields assigned in both branches are definitely assigned
-                        thenAssigned.IntersectWith(elseAssigned);
-                        assigned.UnionWith(thenAssigned);
-                    }
-                    // Single-branch if: assignments are not definite, but still recurse
-                    // to catch assignments that happen unconditionally inside
-                    break;
-
-                // try, for, foreach, while, using, lock bodies are NOT guaranteed
-                // to execute (loop may run 0 times, try may throw before assignment),
-                // so assignments inside them do NOT count as definite assignment.
-                case TryStatement:
-                case ForStatement:
-                case ForeachStatement:
-                case WhileStatement:
-                case UsingStatement:
-                case LockStatement:
-                    break;
-            }
-        }
-    }
-
-    // ── Definite assignment for locals (NL304) ─────────────────────────────
-    //
-    // A read of a local that was declared without an initializer is an error
-    // unless the local is definitely assigned on every path that reaches the
-    // read. Modeled after Roslyn's DataFlowPass: we thread an "assigned" set
-    // through the control-flow graph, intersecting at merge points (if/else,
-    // switch) and treating loop bodies conservatively (they may run zero times).
-    // The squiggle lands on the offending READ of the variable.
-
-    /// <summary>
-    /// Run definite-assignment analysis over a function/constructor body, reporting
-    /// NL304 on reads of locals that are not definitely assigned on all paths.
-    /// </summary>
-    private void CheckLocalDefiniteAssignment(BlockStatement body)
-    {
-        var state = new DefiniteAssignmentState();
-        AnalyzeDefiniteAssignmentBlock(body, state);
-    }
-
-    // Returns true if the statement (and therefore the path through it) always
-    // exits the enclosing flow via return/throw/break/continue.
-    private bool AnalyzeDefiniteAssignmentStatement(Statement stmt, DefiniteAssignmentState state)
-    {
-        switch (stmt)
-        {
-            case BlockStatement block:
-                return AnalyzeDefiniteAssignmentBlock(block, state);
-
-            case AllocBlockStatement allocBlock:
-                return AnalyzeDefiniteAssignmentBlock(allocBlock.Body, state);
-
-            case AllowStatement allow:
-                return AnalyzeDefiniteAssignmentBlock(allow.Body, state);
-
-            case UnsafeBlockStatement unsafeBlock:
-                return AnalyzeDefiniteAssignmentBlock(unsafeBlock.Body, state);
-
-            case VariableDeclarationStatement varDecl:
-                if (varDecl.Initializer != null)
-                {
-                    AnalyzeDefiniteAssignmentExpression(varDecl.Initializer, state);
-                    state.Assigned.Add(varDecl.Name);
-                }
-                else
-                {
-                    // Declared without initializer: must be assigned before use.
-                    state.Candidates.Add(varDecl.Name);
-                    state.Assigned.Remove(varDecl.Name);
-                }
-                return false;
-
-            case TupleDeconstructionStatement tupleDecl:
-                AnalyzeDefiniteAssignmentExpression(tupleDecl.Initializer, state);
-                foreach (var name in tupleDecl.Names)
-                {
-                    if (name != "_")
-                        state.Assigned.Add(name);
-                }
-                return false;
-
-            case ExpressionStatement exprStmt:
-                AnalyzeDefiniteAssignmentExpression(exprStmt.Expression, state);
-                return false;
-
-            case PrintStatement printStmt:
-                AnalyzeDefiniteAssignmentExpression(printStmt.Value, state);
-                return false;
-
-            case ReturnStatement returnStmt:
-                if (returnStmt.Value != null)
-                    AnalyzeDefiniteAssignmentExpression(returnStmt.Value, state);
-                return true;
-
-            case YieldStatement yieldStmt:
-                if (yieldStmt.Value != null)
-                    AnalyzeDefiniteAssignmentExpression(yieldStmt.Value, state);
-                return false;
-
-            case ThrowStatement throwStmt:
-                AnalyzeDefiniteAssignmentExpression(throwStmt.Expression, state);
-                return true;
-
-            case BreakStatement:
-            case ContinueStatement:
-                return true;
-
-            case IfStatement ifStmt:
-                return AnalyzeDefiniteAssignmentIf(ifStmt, state);
-
-            case WhileStatement whileStmt:
-                AnalyzeDefiniteAssignmentExpression(whileStmt.Condition, state);
-                AnalyzeDefiniteAssignmentLoopBody(whileStmt.Body, state);
-                return false;
-
-            case ForStatement forStmt:
-                if (forStmt.Initializer != null)
-                    AnalyzeDefiniteAssignmentStatement(forStmt.Initializer, state);
-                if (forStmt.Condition != null)
-                    AnalyzeDefiniteAssignmentExpression(forStmt.Condition, state);
-                AnalyzeDefiniteAssignmentLoopBody(forStmt.Body, state, forStmt.Iterator);
-                return false;
-
-            case ForeachStatement foreachStmt:
-                AnalyzeDefiniteAssignmentExpression(foreachStmt.Collection, state);
-                AnalyzeDefiniteAssignmentLoopBody(foreachStmt.Body, state);
-                return false;
-
-            case AwaitForEachStatement awaitForeach:
-                AnalyzeDefiniteAssignmentExpression(awaitForeach.Collection, state);
-                AnalyzeDefiniteAssignmentLoopBody(awaitForeach.Body, state);
-                return false;
-
-            case SwitchStatement switchStmt:
-                return AnalyzeDefiniteAssignmentSwitch(switchStmt, state);
-
-            case TryStatement tryStmt:
-                return AnalyzeDefiniteAssignmentTry(tryStmt, state);
-
-            case UsingStatement usingStmt:
-                if (usingStmt.Declaration != null)
-                    AnalyzeDefiniteAssignmentStatement(usingStmt.Declaration, state);
-                if (usingStmt.Expression != null)
-                    AnalyzeDefiniteAssignmentExpression(usingStmt.Expression, state);
-                if (usingStmt.Body != null)
-                    return AnalyzeDefiniteAssignmentStatement(usingStmt.Body, state);
-                return false;
-
-            case LockStatement lockStmt:
-                AnalyzeDefiniteAssignmentExpression(lockStmt.LockObject, state);
-                AnalyzeDefiniteAssignmentBlock(lockStmt.Body, state);
-                return false;
-
-            case AssertStatement assertStmt:
-                AnalyzeDefiniteAssignmentExpression(assertStmt.Condition, state);
-                if (assertStmt.Message != null)
-                    AnalyzeDefiniteAssignmentExpression(assertStmt.Message, state);
-                return false;
-
-            // Local functions have their own bodies analyzed independently; do not
-            // flow the enclosing assignment state into them.
-            case LocalFunctionStatement:
-            default:
-                return false;
-        }
-    }
-
-    private bool AnalyzeDefiniteAssignmentBlock(BlockStatement block, DefiniteAssignmentState state)
-    {
-        foreach (var statement in block.Statements)
-        {
-            if (AnalyzeDefiniteAssignmentStatement(statement, state))
-                return true;
-        }
-        return false;
-    }
-
-    private bool AnalyzeDefiniteAssignmentIf(IfStatement ifStmt, DefiniteAssignmentState state)
-    {
-        AnalyzeDefiniteAssignmentExpression(ifStmt.Condition, state);
-
-        var beforeBranches = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
-
-        var thenAlwaysExits = AnalyzeDefiniteAssignmentStatement(ifStmt.ThenStatement, state);
-        var afterThen = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
-
-        // Reset to pre-branch state for the else path.
-        state.Assigned.Clear();
-        state.Assigned.UnionWith(beforeBranches);
-
-        bool elseAlwaysExits;
-        HashSet<string> afterElse;
-        if (ifStmt.ElseStatement != null)
-        {
-            elseAlwaysExits = AnalyzeDefiniteAssignmentStatement(ifStmt.ElseStatement, state);
-            afterElse = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
-        }
-        else
-        {
-            elseAlwaysExits = false;
-            afterElse = beforeBranches;
-        }
-
-        // Merge: a variable is assigned afterward only if it is assigned on every
-        // path that can fall through. A path that always exits contributes nothing.
-        state.Assigned.Clear();
-        if (thenAlwaysExits && elseAlwaysExits)
-        {
-            // Both paths exit — code after the if is unreachable; keep pre-branch state.
-            state.Assigned.UnionWith(beforeBranches);
-            return true;
-        }
-        if (thenAlwaysExits)
-        {
-            state.Assigned.UnionWith(afterElse);
-        }
-        else if (elseAlwaysExits)
-        {
-            state.Assigned.UnionWith(afterThen);
-        }
-        else
-        {
-            afterThen.IntersectWith(afterElse);
-            state.Assigned.UnionWith(afterThen);
-        }
-        return false;
-    }
-
-    private void AnalyzeDefiniteAssignmentLoopBody(
-        Statement body,
-        DefiniteAssignmentState state,
-        Expression? iterator = null)
-    {
-        // The body may execute zero times, so assignments inside it are not
-        // definite afterward. Analyze reads against a snapshot, then restore.
-        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
-        AnalyzeDefiniteAssignmentStatement(body, state);
-        if (iterator != null)
-            AnalyzeDefiniteAssignmentExpression(iterator, state);
-        state.Assigned.Clear();
-        state.Assigned.UnionWith(before);
-    }
-
-    private bool AnalyzeDefiniteAssignmentSwitch(SwitchStatement switchStmt, DefiniteAssignmentState state)
-    {
-        AnalyzeDefiniteAssignmentExpression(switchStmt.Value, state);
-
-        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
-        HashSet<string>? merged = null;
-        var hasDefault = false;
-        var allCasesExit = true;
-
-        foreach (var switchCase in switchStmt.Cases)
-        {
-            if (switchCase.Pattern == null)
-                hasDefault = true;
-
-            state.Assigned.Clear();
-            state.Assigned.UnionWith(before);
-
-            var caseExits = false;
-            foreach (var statement in switchCase.Statements)
-            {
-                if (AnalyzeDefiniteAssignmentStatement(statement, state))
-                {
-                    caseExits = true;
-                    break;
-                }
-            }
-
-            if (!caseExits)
-            {
-                allCasesExit = false;
-                var afterCase = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
-                if (merged == null)
-                    merged = afterCase;
-                else
-                    merged.IntersectWith(afterCase);
-            }
-        }
-
-        state.Assigned.Clear();
-        if (hasDefault && allCasesExit)
-            return true;
-        // Without a default case, the value may fall through unmatched, so only
-        // the pre-switch assignments are guaranteed.
-        state.Assigned.UnionWith(hasDefault && merged != null ? merged : before);
-        return false;
-    }
-
-    private bool AnalyzeDefiniteAssignmentTry(TryStatement tryStmt, DefiniteAssignmentState state)
-    {
-        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
-
-        // The try block may throw partway through, so its assignments are not
-        // guaranteed to reach the catch/finally. Analyze reads, then discard.
-        AnalyzeDefiniteAssignmentBlock(tryStmt.TryBlock, state);
-        state.Assigned.Clear();
-        state.Assigned.UnionWith(before);
-
-        foreach (var catchClause in tryStmt.CatchClauses)
-        {
-            var catchState = new HashSet<string>(before, StringComparer.Ordinal);
-            state.Assigned.Clear();
-            state.Assigned.UnionWith(catchState);
-            AnalyzeDefiniteAssignmentBlock(catchClause.Block, state);
-        }
-
-        state.Assigned.Clear();
-        state.Assigned.UnionWith(before);
-        if (tryStmt.FinallyBlock != null)
-            AnalyzeDefiniteAssignmentBlock(tryStmt.FinallyBlock, state);
-        return false;
-    }
-
-    private void AnalyzeDefiniteAssignmentExpression(Expression? expr, DefiniteAssignmentState state)
-    {
-        switch (expr)
-        {
-            case null:
-                return;
-
-            case IdentifierExpression identifier:
-                ReportIfReadBeforeAssigned(identifier, state);
-                return;
-
-            case AssignmentExpression assignment:
-                // Compound assignment (+=, etc.) reads the target first.
-                if (assignment.Operator != AssignmentOperator.Assign
-                    && assignment.Target is IdentifierExpression compoundTarget)
-                {
-                    ReportIfReadBeforeAssigned(compoundTarget, state);
-                }
-                else if (assignment.Target is not IdentifierExpression)
-                {
-                    AnalyzeDefiniteAssignmentExpression(assignment.Target, state);
-                }
-
-                AnalyzeDefiniteAssignmentExpression(assignment.Value, state);
-
-                if (assignment.Target is IdentifierExpression assignTarget)
-                    state.Assigned.Add(assignTarget.Name);
-                return;
-
-            case BinaryExpression binary:
-                AnalyzeDefiniteAssignmentExpression(binary.Left, state);
-                AnalyzeDefiniteAssignmentExpression(binary.Right, state);
-                return;
-
-            case UnaryExpression unary:
-                AnalyzeDefiniteAssignmentExpression(unary.Operand, state);
-                return;
-
-            case MemberAccessExpression member:
-                AnalyzeDefiniteAssignmentExpression(member.Object, state);
-                return;
-
-            case IndexAccessExpression index:
-                AnalyzeDefiniteAssignmentExpression(index.Object, state);
-                AnalyzeDefiniteAssignmentExpression(index.Index, state);
-                return;
-
-            case CallExpression call:
-                AnalyzeDefiniteAssignmentExpression(call.Callee, state);
-                foreach (var argument in call.Arguments)
-                {
-                    // out arguments assign the target rather than reading it.
-                    if (argument.Modifier == ArgumentModifier.Out
-                        && argument.Value is IdentifierExpression outTarget)
-                    {
-                        state.Assigned.Add(outTarget.Name);
-                    }
-                    else
-                    {
-                        AnalyzeDefiniteAssignmentExpression(argument.Value, state);
-                    }
-                }
-                return;
-
-            case TernaryExpression ternary:
-                AnalyzeDefiniteAssignmentExpression(ternary.Condition, state);
-                AnalyzeDefiniteAssignmentExpression(ternary.ThenExpression, state);
-                AnalyzeDefiniteAssignmentExpression(ternary.ElseExpression, state);
-                return;
-
-            case ParenthesizedExpression parenthesized:
-                AnalyzeDefiniteAssignmentExpression(parenthesized.Inner, state);
-                return;
-
-            case CastExpression cast:
-                AnalyzeDefiniteAssignmentExpression(cast.Expression, state);
-                return;
-
-            case IsExpression isExpr:
-                AnalyzeDefiniteAssignmentExpression(isExpr.Expression, state);
-                return;
-
-            case AwaitExpression await:
-                AnalyzeDefiniteAssignmentExpression(await.Expression, state);
-                return;
-
-            case MustExpression must:
-                AnalyzeDefiniteAssignmentExpression(must.Expression, state);
-                return;
-
-            case ThrowExpression throwExpr:
-                AnalyzeDefiniteAssignmentExpression(throwExpr.Expression, state);
-                return;
-
-            case CheckedExpression checkedExpr:
-                AnalyzeDefiniteAssignmentExpression(checkedExpr.Expression, state);
-                return;
-
-            case UncheckedExpression uncheckedExpr:
-                AnalyzeDefiniteAssignmentExpression(uncheckedExpr.Expression, state);
-                return;
-
-            case AllocExpression alloc:
-                AnalyzeDefiniteAssignmentExpression(alloc.Expression, state);
-                return;
-
-            case StackAllocExpression stackAlloc:
-                AnalyzeDefiniteAssignmentExpression(stackAlloc.LengthExpression, state);
-                return;
-
-            case RangeExpression range:
-                AnalyzeDefiniteAssignmentExpression(range.Start, state);
-                AnalyzeDefiniteAssignmentExpression(range.End, state);
-                return;
-
-            case ArrayLiteralExpression array:
-                foreach (var element in array.Elements)
-                    AnalyzeDefiniteAssignmentExpression(element, state);
-                return;
-
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                    AnalyzeDefiniteAssignmentExpression(element.Value, state);
-                return;
-
-            case InterpolatedStringExpression interpolated:
-                foreach (var part in interpolated.Parts)
-                {
-                    if (part is InterpolatedStringHole hole)
-                        AnalyzeDefiniteAssignmentExpression(hole.Expression, state);
-                }
-                return;
-
-            case NewExpression newExpr:
-                foreach (var argument in newExpr.ConstructorArguments)
-                    AnalyzeDefiniteAssignmentExpression(argument.Value, state);
-                AnalyzeDefiniteAssignmentExpression(newExpr.ArrayLengthExpression, state);
-                if (newExpr.Initializer != null)
-                {
-                    foreach (var property in newExpr.Initializer.Properties)
-                    {
-                        AnalyzeDefiniteAssignmentExpression(property.IndexExpression, state);
-                        AnalyzeDefiniteAssignmentExpression(property.Value, state);
-                    }
-                }
-                return;
-
-            case SpreadExpression spread:
-                AnalyzeDefiniteAssignmentExpression(spread.Expression, state);
-                return;
-
-            case WithExpression with:
-                AnalyzeDefiniteAssignmentExpression(with.Target, state);
-                foreach (var property in with.Properties)
-                {
-                    AnalyzeDefiniteAssignmentExpression(property.IndexExpression, state);
-                    AnalyzeDefiniteAssignmentExpression(property.Value, state);
-                }
-                return;
-
-            case NameofExpression:
-                // nameof does not read the value of its operand.
-                return;
-
-            // Lambdas capture by reference and may run later; their bodies are
-            // analyzed independently and must not consume the enclosing flow state.
-            case LambdaExpression:
-            default:
-                return;
-        }
-    }
-
-    private void ReportIfReadBeforeAssigned(IdentifierExpression identifier, DefiniteAssignmentState state)
-    {
-        var name = identifier.Name;
-        if (!state.Candidates.Contains(name) || state.Assigned.Contains(name))
-            return;
-
-        var key = (name, identifier.Line, identifier.Column);
-        if (!state.Reported.Add(key))
-            return;
-
-        Error(
-            ErrorCode.DefiniteAssignmentError,
-            $"'{name}' is used here before it has been assigned a value on every path that reaches this point",
-            identifier.Line,
-            identifier.Column,
-            $"Give '{name}' an initial value where you declare it, or assign it on every branch before this use.",
-            Math.Max(1, name.Length));
     }
 
     private void AnalyzeStatements(IReadOnlyList<Statement> statements)
@@ -3767,7 +3210,7 @@ public class Analyzer : IDisposable
                 break;
             case WhileStatement whileStmt:
                 var condType = AnalyzeExpression(whileStmt.Condition);
-                var (whileThenNarrowings, _) = ExtractFlowNarrowings(whileStmt.Condition);
+                var whileThenNarrowings = _flowNarrowing.ExtractFlowNarrowings(whileStmt.Condition).Then;
                 var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(whileStmt.Condition, condType, "used as a 'while' condition");
                 var isSoaDirectColumnCondition = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(whileStmt.Condition, "used as a 'while' condition");
                 if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType))
@@ -3783,7 +3226,7 @@ public class Analyzer : IDisposable
                 if (whileThenNarrowings.Count > 0)
                 {
                     PushScope(new Scope(ScopeKind.Block), whileStmt.Body.Line, whileStmt.Body.Column);
-                    ApplyNarrowingsToScope(whileThenNarrowings);
+                    _flowNarrowing.ApplyNarrowingsToScope(whileThenNarrowings);
                     AnalyzeStatement(whileStmt.Body);
                     PopScope();
                 }
@@ -4247,7 +3690,7 @@ public class Analyzer : IDisposable
         if (func.Body != null)
         {
             AnalyzeStatements(func.Body.Statements);
-            CheckLocalDefiniteAssignment(func.Body);
+            _definiteAssignment.CheckLocals(func.Body);
         }
         else if (func.ExpressionBody != null)
         {
@@ -4391,8 +3834,8 @@ public class Analyzer : IDisposable
         var initialNullState = finalType is NullableTypeInfo
             ? varDecl.Initializer is NullLiteralExpression ? NullState.Null : NullState.MaybeNull
             : varDecl.Initializer != null
-                ? GetExpressionNullState(varDecl.Initializer, inferredType ?? finalType)
-                : GetDefaultNullState(finalType);
+                ? _nullFlow.GetExpressionNullState(varDecl.Initializer, inferredType ?? finalType)
+                : _nullFlow.GetDefaultNullState(finalType);
         _scopes.SetNullStateInCurrentScope(varDecl.Name, initialNullState);
     }
 
@@ -4501,7 +3944,7 @@ public class Analyzer : IDisposable
 
         DeclareSymbol(name, type, tupleDecl.Line, tupleDecl.Column);
         RecordVariableInCurrentScope(name, type);
-        _scopes.SetNullStateInCurrentScope(name, GetDefaultNullState(type));
+        _scopes.SetNullStateInCurrentScope(name, _nullFlow.GetDefaultNullState(type));
     }
 
     private bool TryGetTupleDeconstructionElements(TypeInfo initType, out List<TypeInfo> elements)
@@ -4556,7 +3999,9 @@ public class Analyzer : IDisposable
         var condType = AnalyzeExpression(ifStmt.Condition);
         // Allow unknown types (they might be boolean from external methods we can't fully resolve)
         // Extract flow-sensitive type narrowings from the condition (null checks, is-patterns, && chains)
-        var (thenNarrowings, elseNarrowings) = ExtractFlowNarrowings(ifStmt.Condition);
+        var conditionNarrowings = _flowNarrowing.ExtractFlowNarrowings(ifStmt.Condition);
+        var thenNarrowings = conditionNarrowings.Then;
+        var elseNarrowings = conditionNarrowings.Else;
         var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(ifStmt.Condition, condType, "used as an 'if' condition");
         var isSoaDirectColumnCondition = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ifStmt.Condition, "used as an 'if' condition");
 
@@ -4590,7 +4035,7 @@ public class Analyzer : IDisposable
         if (thenNarrowings.Count > 0)
         {
             PushScope(new Scope(ScopeKind.Block), ifStmt.ThenStatement.Line, ifStmt.ThenStatement.Column);
-            ApplyNarrowingsToScope(thenNarrowings);
+            _flowNarrowing.ApplyNarrowingsToScope(thenNarrowings);
             AnalyzeStatement(ifStmt.ThenStatement);
             PopScope();
         }
@@ -4605,7 +4050,7 @@ public class Analyzer : IDisposable
             if (elseNarrowings.Count > 0)
             {
                 PushScope(new Scope(ScopeKind.Block), ifStmt.ElseStatement.Line, ifStmt.ElseStatement.Column);
-                ApplyNarrowingsToScope(elseNarrowings);
+                _flowNarrowing.ApplyNarrowingsToScope(elseNarrowings);
                 AnalyzeStatement(ifStmt.ElseStatement);
                 PopScope();
             }
@@ -4623,198 +4068,12 @@ public class Analyzer : IDisposable
         // If the null branch exits, the surviving path inherits the opposite facts.
         if (thenAlwaysReturns && !elseAlwaysReturns && elseNarrowings.Count > 0)
         {
-            ApplyNarrowingsToScope(elseNarrowings);
+            _flowNarrowing.ApplyNarrowingsToScope(elseNarrowings);
         }
         else if (elseAlwaysReturns && thenNarrowings.Count > 0)
         {
-            ApplyNarrowingsToScope(thenNarrowings);
+            _flowNarrowing.ApplyNarrowingsToScope(thenNarrowings);
         }
-    }
-
-    /// <summary>
-    /// Applies narrowings to the current scope, intersecting duplicate symbols
-    /// (keeping the most specific/derived type rather than last-one-wins).
-    /// </summary>
-    private void ApplyNarrowingsToScope(List<FlowNarrowing> narrowings)
-    {
-        var currentScope = _scopes.Peek();
-        foreach (var narrowing in narrowings)
-        {
-            var nullState = narrowing.NullState;
-            currentScope.NullStates[narrowing.Path] = nullState;
-            if (nullState == NullState.Null)
-            {
-                _scopes.MarkErrorTupleResultsAvailableForError(narrowing.Path);
-            }
-
-            if (narrowing.NarrowedType is not { } narrowedType)
-                continue;
-
-            // Type narrowings currently apply to simple symbols. Stable member-path
-            // null facts are tracked above without rewriting the declared member type.
-            if (narrowing.Path.Contains('.', StringComparison.Ordinal))
-                continue;
-
-            var name = narrowing.Path;
-            if (currentScope.Symbols.TryGetValue(name, out var existing))
-            {
-                // If new type is more specific (subtype of existing), use it.
-                // If existing is more specific (subtype of new), keep existing.
-                // Otherwise (unrelated types), keep the new one (it came from a later condition).
-                if (_assignability.IsSubtypeOf(narrowedType, existing))
-                    currentScope.Symbols[name] = narrowedType;
-                else if (!_assignability.IsSubtypeOf(existing, narrowedType))
-                    currentScope.Symbols[name] = narrowedType;
-            }
-            else
-            {
-                currentScope.Symbols[name] = narrowedType;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Extracts flow-sensitive type narrowings from a condition expression.
-    /// Returns separate narrowing lists for then-branch and else-branch.
-    /// Handles: null checks (!=null, ==null), is-type patterns, and && chains.
-    /// </summary>
-    private (List<FlowNarrowing> Then, List<FlowNarrowing> Else)
-        ExtractFlowNarrowings(Expression condition)
-    {
-        var thenNarrowings = new List<FlowNarrowing>();
-        var elseNarrowings = new List<FlowNarrowing>();
-
-        if (condition is BinaryExpression binary)
-        {
-            // x != null → narrow x to non-nullable in then-branch
-            if (binary.Operator == BinaryOperator.NotEqual)
-            {
-                TryExtractNullNarrowing(binary.Left, binary.Right, thenNarrowings, elseNarrowings, notEqual: true);
-                TryExtractNullNarrowing(binary.Right, binary.Left, thenNarrowings, elseNarrowings, notEqual: true);
-            }
-            // x == null → narrow x to non-nullable in else-branch
-            else if (binary.Operator == BinaryOperator.Equal)
-            {
-                TryExtractNullNarrowing(binary.Left, binary.Right, thenNarrowings, elseNarrowings, notEqual: false);
-                TryExtractNullNarrowing(binary.Right, binary.Left, thenNarrowings, elseNarrowings, notEqual: false);
-            }
-            // a && b → both sides hold in then-branch; else = !a || !b (can't narrow)
-            else if (binary.Operator == BinaryOperator.And)
-            {
-                var (leftThen, _) = ExtractFlowNarrowings(binary.Left);
-                var (rightThen, _) = ExtractFlowNarrowings(binary.Right);
-                thenNarrowings.AddRange(leftThen);
-                thenNarrowings.AddRange(rightThen);
-                // else-branch gets nothing for compound && (negation is disjunction)
-            }
-            // a || b → both sides must be false in else-branch; then = a || b (can't narrow)
-            else if (binary.Operator == BinaryOperator.Or)
-            {
-                var (_, leftElse) = ExtractFlowNarrowings(binary.Left);
-                var (_, rightElse) = ExtractFlowNarrowings(binary.Right);
-                elseNarrowings.AddRange(leftElse);
-                elseNarrowings.AddRange(rightElse);
-                // then-branch gets nothing for compound || (only one side needs to be true)
-            }
-        }
-        // x is Type varName → narrow/declare in then-branch
-        else if (condition is IsExpression isExpr)
-        {
-            var narrowedType = _typeResolver.ResolveType(isExpr.Type);
-            if (isExpr.VariableName != null)
-            {
-                // `x is Dog d` — declare d: Dog in then-branch
-                thenNarrowings.Add(new FlowNarrowing(isExpr.VariableName, narrowedType, NullState.NotNull));
-                if (AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(isExpr.Expression) is { } path
-                    && !path.Contains('.', StringComparison.Ordinal)
-                    && _scopes.LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
-                    && TryRemoveAnonymousUnionArm(sourceUnion, narrowedType) is { } remainingType)
-                {
-                    elseNarrowings.Add(new FlowNarrowing(path, remainingType, NullState.NotNull));
-                }
-            }
-            else if (AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(isExpr.Expression) is { } path)
-            {
-                // `x is Dog` — narrow x to Dog in then-branch
-                thenNarrowings.Add(new FlowNarrowing(path, narrowedType, NullState.NotNull));
-                if (!path.Contains('.', StringComparison.Ordinal)
-                    && _scopes.LookupSymbol(path) is AnonymousUnionTypeInfo sourceUnion
-                    && TryRemoveAnonymousUnionArm(sourceUnion, narrowedType) is { } remainingType)
-                {
-                    elseNarrowings.Add(new FlowNarrowing(path, remainingType, NullState.NotNull));
-                }
-            }
-        }
-        else if (condition is MemberAccessExpression hasValueAccess
-                 && TryExtractHasValueNarrowing(hasValueAccess, thenNarrowings))
-        {
-        }
-        else if (condition is UnaryExpression { Operator: UnaryOperator.Not, Operand: MemberAccessExpression negatedHasValue }
-                 && TryExtractHasValueNarrowing(negatedHasValue, elseNarrowings))
-        {
-        }
-
-        return (thenNarrowings, elseNarrowings);
-    }
-
-    private TypeInfo? TryRemoveAnonymousUnionArm(AnonymousUnionTypeInfo sourceUnion, TypeInfo matchedType)
-    {
-        var remaining = sourceUnion.Arms
-            .Where(arm => !_assignability.IsAssignable(matchedType, arm))
-            .ToList();
-
-        if (remaining.Count == sourceUnion.Arms.Count)
-            return null;
-
-        return remaining.Count switch
-        {
-            0 => BuiltInTypes.Never,
-            1 => remaining[0],
-            _ => new AnonymousUnionTypeInfo(remaining)
-        };
-    }
-
-    private void TryExtractNullNarrowing(
-        Expression expr,
-        Expression other,
-        List<FlowNarrowing> thenNarrowings,
-        List<FlowNarrowing> elseNarrowings,
-        bool notEqual)
-    {
-        if (other is not NullLiteralExpression)
-            return;
-
-        var path = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(expr);
-        if (path == null)
-            return;
-
-        if (notEqual)
-        {
-            thenNarrowings.Add(new FlowNarrowing(path, null, NullState.NotNull));
-            elseNarrowings.Add(new FlowNarrowing(path, null, NullState.Null));
-        }
-        else
-        {
-            thenNarrowings.Add(new FlowNarrowing(path, null, NullState.Null));
-            elseNarrowings.Add(new FlowNarrowing(path, null, NullState.NotNull));
-        }
-    }
-
-    private bool TryExtractHasValueNarrowing(MemberAccessExpression memberAccess, List<FlowNarrowing> narrowings)
-    {
-        if (memberAccess.MemberName != "HasValue" || memberAccess.Object is not IdentifierExpression ident)
-        {
-            return false;
-        }
-
-        var symbolType = _scopes.LookupSymbol(ident.Name);
-        if (symbolType is not NullableTypeInfo nullable)
-        {
-            return false;
-        }
-
-        narrowings.Add(new FlowNarrowing(ident.Name, nullable.InnerType, NullState.NotNull));
-        return true;
     }
 
     private void AnalyzeForStatement(ForStatement forStmt)
@@ -4851,11 +4110,11 @@ public class Analyzer : IDisposable
         _continueTargetFinallyDepth = _finallyDepth;
         if (forStmt.Condition != null)
         {
-            var (bodyNarrowings, _) = ExtractFlowNarrowings(forStmt.Condition);
+            var bodyNarrowings = _flowNarrowing.ExtractFlowNarrowings(forStmt.Condition).Then;
             if (bodyNarrowings.Count > 0)
             {
                 PushScope(new Scope(ScopeKind.Block), forStmt.Body.Line, forStmt.Body.Column);
-                ApplyNarrowingsToScope(bodyNarrowings);
+                _flowNarrowing.ApplyNarrowingsToScope(bodyNarrowings);
                 AnalyzeStatement(forStmt.Body);
                 PopScope();
             }
@@ -5975,8 +5234,8 @@ public class Analyzer : IDisposable
             _ => BuiltInTypes.Unknown
         };
 
-        var nullState = GetExpressionNullState(expr, type);
-        var flowType = ApplyNullabilityFlowType(expr, type, nullState);
+        var nullState = _nullFlow.GetExpressionNullState(expr, type);
+        var flowType = _nullFlow.ApplyNullabilityFlowType(type, nullState);
 
         _semanticModel.RecordExpressionType(expr.Line, expr.Column, flowType);
         _semanticModel.RecordExpressionNullState(expr.Line, expr.Column, nullState);
@@ -6057,15 +5316,15 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeExpressionPreservingNullabilityFlowType(Expression expression)
     {
-        var previous = _suppressNullabilityFlowType;
-        _suppressNullabilityFlowType = true;
+        var previous = _nullFlow.SuppressFlowType;
+        _nullFlow.SetSuppressFlowType(true);
         try
         {
             return AnalyzeExpression(expression);
         }
         finally
         {
-            _suppressNullabilityFlowType = previous;
+            _nullFlow.SetSuppressFlowType(previous);
         }
     }
 
@@ -6097,72 +5356,6 @@ public class Analyzer : IDisposable
             _ => fallbackName
         };
     }
-
-    private TypeInfo ApplyNullabilityFlowType(Expression expr, TypeInfo type, NullState nullState)
-    {
-        if (_suppressNullabilityFlowType)
-            return type;
-
-        return nullState == NullState.NotNull && type is NullableTypeInfo nullable
-            ? nullable.InnerType
-            : type;
-    }
-
-    private NullState GetExpressionNullState(Expression expr, TypeInfo type)
-    {
-        if (expr is NullLiteralExpression)
-            return NullState.Null;
-
-        if (expr is NewExpression or ArrayLiteralExpression or LambdaExpression or InterpolatedStringExpression)
-            return NullState.NotNull;
-
-        if (expr is StringLiteralExpression or IntLiteralExpression or FloatLiteralExpression
-            or CharLiteralExpression or BoolLiteralExpression or TypeOfExpression or NameofExpression)
-        {
-            return NullState.NotNull;
-        }
-
-        if (expr is ParenthesizedExpression parenthesized)
-            return GetExpressionNullState(parenthesized.Inner, type);
-
-        if (expr is MemberAccessExpression { IsNullConditional: true }
-            || expr is IndexAccessExpression { IsNullConditional: true })
-        {
-            return NullState.MaybeNull;
-        }
-
-        var path = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(expr);
-        if (path != null && _scopes.HasNullState(path))
-            return _scopes.NullStateOrUnknown(path);
-
-        return GetDefaultNullState(type);
-    }
-
-    private NullState GetDefaultNullState(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-
-        if (BuiltInTypes.Is(resolved, BuiltInTypes.Null))
-            return NullState.Null;
-
-        if (resolved is NullableTypeInfo)
-            return NullState.MaybeNull;
-
-        if (resolved is UnknownTypeInfo)
-            return NullState.Unknown;
-
-        if (resolved is ReflectionTypeInfo reflectionType)
-        {
-            return reflectionType.Type.IsValueType && Nullable.GetUnderlyingType(reflectionType.Type) == null
-                ? NullState.NotNull
-                : NullState.Oblivious;
-        }
-
-        return NullState.NotNull;
-    }
-
-    private static bool IsUnsafeNullState(NullState state)
-        => state is NullState.Null or NullState.MaybeNull;
 
     private TypeInfo AnalyzeDefaultExpression(DefaultExpression defaultExpr)
     {
@@ -6326,13 +5519,13 @@ public class Analyzer : IDisposable
         if (binary.Operator == BinaryOperator.And)
         {
             var leftType = AnalyzeExpression(binary.Left);
-            var (leftThenNarrowings, _) = ExtractFlowNarrowings(binary.Left);
+            var leftThenNarrowings = _flowNarrowing.ExtractFlowNarrowings(binary.Left).Then;
 
             TypeInfo rightType;
             if (leftThenNarrowings.Count > 0)
             {
                 PushScope(new Scope(ScopeKind.Block), binary.Right.Line, binary.Right.Column);
-                ApplyNarrowingsToScope(leftThenNarrowings);
+                _flowNarrowing.ApplyNarrowingsToScope(leftThenNarrowings);
                 rightType = AnalyzeExpression(binary.Right);
                 PopScope();
             }
@@ -6355,13 +5548,13 @@ public class Analyzer : IDisposable
         if (binary.Operator == BinaryOperator.Or)
         {
             var leftType = AnalyzeExpression(binary.Left);
-            var (_, leftElseNarrowings) = ExtractFlowNarrowings(binary.Left);
+            var leftElseNarrowings = _flowNarrowing.ExtractFlowNarrowings(binary.Left).Else;
 
             TypeInfo rightType;
             if (leftElseNarrowings.Count > 0)
             {
                 PushScope(new Scope(ScopeKind.Block), binary.Right.Line, binary.Right.Column);
-                ApplyNarrowingsToScope(leftElseNarrowings);
+                _flowNarrowing.ApplyNarrowingsToScope(leftElseNarrowings);
                 rightType = AnalyzeExpression(binary.Right);
                 PopScope();
             }
@@ -7313,7 +6506,7 @@ public class Analyzer : IDisposable
             return nullableMemberType;
         }
 
-        ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
+        _nullFlow.ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
         var receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(objectType));
         if (receiverType is ByRefTypeInfo byRefReceiver)
             receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
@@ -7365,7 +6558,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeIndexAccess(IndexAccessExpression index)
     {
         var objectType = AnalyzeExpression(index.Object);
-        ReportPossibleNullAccess(index.Object, objectType, index.Line, index.Column, "index", index.IsNullConditional);
+        _nullFlow.ReportPossibleNullAccess(index.Object, objectType, index.Line, index.Column, "index", index.IsNullConditional);
 
         var receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(objectType));
         var previousExpectedIndexType = _currentExpectedType;
@@ -7675,42 +6868,6 @@ public class Analyzer : IDisposable
         }
 
         return new NullableTypeInfo(type);
-    }
-
-    private void ReportPossibleNullAccess(
-        Expression receiver,
-        TypeInfo receiverType,
-        int line,
-        int column,
-        string operation,
-        bool isNullConditional)
-    {
-        if (isNullConditional)
-            return;
-
-        var nullState = GetExpressionNullState(receiver, receiverType);
-        if (!IsUnsafeNullState(nullState))
-            return;
-
-        var path = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(receiver) ?? "this value";
-        var key = (line, column, path, operation);
-        if (!_reportedNullabilityDiagnostics.Add(key))
-            return;
-
-        var stateLabel = NullStateFacts.GetDiagnosticText(nullState);
-        var message = operation == "call"
-            ? $"Possible null call: `{path}` is {stateLabel}"
-            : $"Possible null {operation}: `{path}` is {stateLabel}";
-        var suggestion = operation switch
-        {
-            "dereference" => $"Use '?.', add a '??' fallback, guard with 'if {path} == null {{ return }}', or explicitly assert after proving '{path}' is not null.",
-            "index" => $"Use '?[', add a '??' fallback, guard with 'if {path} == null {{ return }}', or explicitly assert after proving '{path}' is not null.",
-            "call" => $"Guard with 'if {path} == null {{ return }}', use '?.' when calling through a member, or explicitly assert after proving '{path}' is not null.",
-            _ => $"Guard with 'if {path} == null {{ return }}' or add a fallback before using '{path}'."
-        };
-
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetNullReceiverDiagnosticSpan(receiver, path, line, column);
-        Error(ErrorCode.PossibleNullAccess, message, diagnosticLine, diagnosticColumn, suggestion, diagnosticLength);
     }
 
     private bool TryResolveNullableMemberAccess(MemberAccessExpression member, TypeInfo objectType, out TypeInfo memberType)
@@ -8175,7 +7332,7 @@ public class Analyzer : IDisposable
                     answer = AnalyzeCallCallee(call.Callee);
                     break;
                 case 3:
-                    ReportPossibleNullAccess(
+                    _nullFlow.ReportPossibleNullAccess(
                         step.Node!, step.CarriedType!, step.Line, step.Column, step.Text!, step.Flag);
                     break;
                 case 4:
@@ -8457,8 +7614,8 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeIdentifierCallTarget(IdentifierExpression identifier)
     {
         var type = ResolveIdentifier(identifier.Name, identifier.Line, identifier.Column, reportMissingAsFunction: true);
-        var nullState = GetExpressionNullState(identifier, type);
-        var flowType = ApplyNullabilityFlowType(identifier, type, nullState);
+        var nullState = _nullFlow.GetExpressionNullState(identifier, type);
+        var flowType = _nullFlow.ApplyNullabilityFlowType(type, nullState);
 
         _semanticModel.RecordExpressionType(identifier.Line, identifier.Column, flowType);
         _semanticModel.RecordExpressionNullState(identifier.Line, identifier.Column, nullState);
@@ -8827,14 +7984,14 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
+        var previousSuppressNullabilityFlowType = _nullFlow.SuppressFlowType;
         var previousSuppressErrorTupleResultUse = _suppressErrorTupleResultUse;
         var previousAllowEventReference = _allowEventReference;
         Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
         TypeInfo targetType;
         try
         {
-            _suppressNullabilityFlowType = true;
+            _nullFlow.SetSuppressFlowType(true);
             _suppressErrorTupleResultUse = assignment.Operator == AssignmentOperator.Assign;
             // Resolve the target without the bare-event guard so we can give a tailored
             // "use on/off" message instead of the generic one.
@@ -8852,7 +8009,7 @@ public class Analyzer : IDisposable
             _assignmentTargetExpressionTypes = null;
             _allowEventReference = previousAllowEventReference;
             _suppressErrorTupleResultUse = previousSuppressErrorTupleResultUse;
-            _suppressNullabilityFlowType = previousSuppressNullabilityFlowType;
+            _nullFlow.SetSuppressFlowType(previousSuppressNullabilityFlowType);
         }
 
         if (targetType is SoaRowTypeInfo)
@@ -8995,7 +8152,7 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        UpdateNullStateAfterAssignment(assignment.Target, assignment.Value, targetType, valueType);
+        _nullFlow.UpdateNullStateAfterAssignment(assignment.Target, assignment.Value, targetType, valueType);
         _scopes.MarkErrorTupleResultAvailableAfterAssignment(assignment.Target);
 
         return targetType;
@@ -9281,21 +8438,6 @@ public class Analyzer : IDisposable
         CastExpression cast => RenderEventTarget(cast.Expression),
         _ => "<event>"
     };
-
-    private void UpdateNullStateAfterAssignment(Expression target, Expression value, TypeInfo targetType, TypeInfo valueType)
-    {
-        var path = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(target);
-        if (path == null)
-            return;
-
-        _scopes.InvalidateNullFactsForAssignment(path);
-
-        var valueState = GetExpressionNullState(value, valueType);
-        if (valueState == NullState.Unknown)
-            valueState = GetDefaultNullState(targetType);
-
-        _scopes.SetNullStateInCurrentScope(path, valueState);
-    }
 
     private static bool IsMemberAccessWriteTarget(Expression expression) => expression switch
     {
@@ -13012,11 +12154,6 @@ public class Analyzer : IDisposable
         return BuiltInTypes.Is(type, BuiltInTypes.String);
     }
 
-    private bool IsNullableType(TypeInfo type)
-    {
-        return type is NullableTypeInfo;
-    }
-
     /// <summary>
     /// N# binary numeric promotion rules. These determine the result type of arithmetic binary
     /// operations. NOTE: This is NOT the same as implicit numeric conversion (assignment context).
@@ -13257,7 +12394,7 @@ public class Analyzer : IDisposable
             CheckShadowedDeclaration(name, type, line, nameColumn);
 
             currentScope.Symbols[name] = type;
-            currentScope.NullStates[name] = GetDefaultNullState(type);
+            currentScope.NullStates[name] = _nullFlow.GetDefaultNullState(type);
 
             var kind = declarationKind ?? AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
             if (shouldRecordBindingDeclaration)
@@ -14286,6 +13423,7 @@ public class Analyzer : IDisposable
         _patternShapes = CreatePatternShapes();
         _patternReachability = CreatePatternReachability();
         _patternAnalysis = CreatePatternAnalysis();
+        _flowNarrowing = CreateFlowNarrowing();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -14312,6 +13450,7 @@ public class Analyzer : IDisposable
             _patternShapes = CreatePatternShapes();
             _patternReachability = CreatePatternReachability();
             _patternAnalysis = CreatePatternAnalysis();
+            _flowNarrowing = CreateFlowNarrowing();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;
