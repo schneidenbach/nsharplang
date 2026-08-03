@@ -285,6 +285,9 @@ public class Analyzer : IDisposable
     // holds), and whether a relational pattern's two sides can be compared before IL emission.
     // Rebuilt with the SCC: it holds assignability, which the rebuild replaces.
     private AnalyzerPatternShapes _patternShapes;
+    // Whether a type test can ever succeed, and the two diagnostics when it cannot.
+    // Rebuilt with the SCC: it holds assignability, which the rebuild replaces.
+    private AnalyzerPatternReachability _patternReachability;
     private bool _disposed;
 
     public Analyzer()
@@ -324,12 +327,16 @@ public class Analyzer : IDisposable
         _callAnalysis = CreateCallAnalysis();
         _matchExhaustiveness = CreateMatchExhaustiveness();
         _patternShapes = CreatePatternShapes();
+        _patternReachability = CreatePatternReachability();
     }
 
     private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
         => new(_diagnostics, _typeSubstitution, _assignability, _typeResolver);
 
     private AnalyzerPatternShapes CreatePatternShapes()
+        => new(_diagnostics, _spans, _declarationContext, _assignability);
+
+    private AnalyzerPatternReachability CreatePatternReachability()
         => new(_diagnostics, _spans, _declarationContext, _assignability);
 
     private AnalyzerCallAnalysis CreateCallAnalysis()
@@ -2304,13 +2311,13 @@ public class Analyzer : IDisposable
         switch (statement)
         {
             case ReturnStatement { Value: { } value }:
-                return !ContainsParserErrorPlaceholder(value);
+                return !AnalyzerParserErrorPlaceholders.ContainsInExpression(value);
 
             case ReturnStatement:
                 return true;
 
             case ThrowStatement throwStmt:
-                return !ContainsParserErrorPlaceholder(throwStmt.Expression);
+                return !AnalyzerParserErrorPlaceholders.ContainsInExpression(throwStmt.Expression);
 
             case BlockStatement block:
                 // If any statement always returns, the remainder of the block is unreachable,
@@ -3896,7 +3903,7 @@ public class Analyzer : IDisposable
         var errorsBefore = _errors.Count;
         var expressionType = AnalyzeExpression(expression);
 
-        if (ContainsParserErrorPlaceholder(expression))
+        if (AnalyzerParserErrorPlaceholders.ContainsInExpression(expression))
             return;
 
         if (_errors.Count == errorsBefore && ReportSoaRowEscapeIfNeeded(expression, expressionType, soaUsage))
@@ -4010,87 +4017,6 @@ public class Analyzer : IDisposable
     private static bool IsDiscardTarget(Expression target)
         => target is IdentifierExpression { Name: "_" };
 
-    private static bool ContainsParserErrorPlaceholder(Expression expression)
-    {
-        return expression switch
-        {
-            IdentifierExpression { Name: "<error>" } => true,
-            MemberAccessExpression { MemberName: "<error>" } => true,
-            InterpolatedStringExpression interpolatedString => interpolatedString.Parts
-                .OfType<InterpolatedStringHole>()
-                .Any(hole => ContainsParserErrorPlaceholder(hole.Expression)),
-            RangeExpression range => (range.Start != null && ContainsParserErrorPlaceholder(range.Start)) ||
-                                     (range.End != null && ContainsParserErrorPlaceholder(range.End)),
-            MemberAccessExpression memberAccess => ContainsParserErrorPlaceholder(memberAccess.Object),
-            CallExpression call => ContainsParserErrorPlaceholder(call.Callee) ||
-                                   call.Arguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)),
-            BinaryExpression binary => ContainsParserErrorPlaceholder(binary.Left) ||
-                                       ContainsParserErrorPlaceholder(binary.Right),
-            AssignmentExpression assignment => ContainsParserErrorPlaceholder(assignment.Target) ||
-                                               ContainsParserErrorPlaceholder(assignment.Value),
-            LambdaExpression lambda => lambda.ExpressionBody != null &&
-                                       ContainsParserErrorPlaceholder(lambda.ExpressionBody),
-            UnaryExpression unary => ContainsParserErrorPlaceholder(unary.Operand),
-            MustExpression must => ContainsParserErrorPlaceholder(must.Expression),
-            ParenthesizedExpression parenthesized => ContainsParserErrorPlaceholder(parenthesized.Inner),
-            CheckedExpression checkedExpression => ContainsParserErrorPlaceholder(checkedExpression.Expression),
-            UncheckedExpression uncheckedExpression => ContainsParserErrorPlaceholder(uncheckedExpression.Expression),
-            AllocExpression allocExpression => ContainsParserErrorPlaceholder(allocExpression.Expression),
-            StackAllocExpression stackAllocExpression => ContainsParserErrorPlaceholder(stackAllocExpression.LengthExpression),
-            IndexAccessExpression indexAccess => ContainsParserErrorPlaceholder(indexAccess.Object) ||
-                                                 ContainsParserErrorPlaceholder(indexAccess.Index),
-            CastExpression cast => ContainsParserErrorPlaceholder(cast.Expression),
-            IsExpression isExpression => ContainsParserErrorPlaceholder(isExpression.Expression),
-            AwaitExpression awaitExpression => ContainsParserErrorPlaceholder(awaitExpression.Expression),
-            ThrowExpression throwExpression => ContainsParserErrorPlaceholder(throwExpression.Expression),
-            TernaryExpression ternary => ContainsParserErrorPlaceholder(ternary.Condition) ||
-                                         ContainsParserErrorPlaceholder(ternary.ThenExpression) ||
-                                         ContainsParserErrorPlaceholder(ternary.ElseExpression),
-            ArrayLiteralExpression array => array.Elements.Any(ContainsParserErrorPlaceholder),
-            TupleExpression tuple => tuple.Elements.Any(element => ContainsParserErrorPlaceholder(element.Value)),
-            NewExpression @new => @new.ConstructorArguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)) ||
-                                  (@new.Initializer != null && ContainsParserErrorPlaceholder(@new.Initializer)) ||
-                                  (@new.ArrayLengthExpression != null && ContainsParserErrorPlaceholder(@new.ArrayLengthExpression)),
-            ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
-                (property.IndexExpression != null && ContainsParserErrorPlaceholder(property.IndexExpression)) ||
-                ContainsParserErrorPlaceholder(property.Value)),
-            WithExpression withExpression => ContainsParserErrorPlaceholder(withExpression.Target) ||
-                                             withExpression.Properties.Any(property =>
-                                                 (property.IndexExpression != null && ContainsParserErrorPlaceholder(property.IndexExpression)) ||
-                                                 ContainsParserErrorPlaceholder(property.Value)),
-            SpreadExpression spread => ContainsParserErrorPlaceholder(spread.Expression),
-            MatchExpression match => ContainsParserErrorPlaceholder(match.Value) ||
-                                     match.Cases.Any(matchCase =>
-                                         ContainsParserErrorPlaceholder(matchCase.Pattern) ||
-                                         (matchCase.Guard != null && ContainsParserErrorPlaceholder(matchCase.Guard)) ||
-                                         ContainsParserErrorPlaceholder(matchCase.Expression)),
-            NameofExpression nameofExpression => ContainsParserErrorPlaceholder(nameofExpression.Target),
-            _ => false
-        };
-    }
-
-    private static bool ContainsParserErrorPlaceholder(Pattern pattern)
-    {
-        return pattern switch
-        {
-            LiteralPattern literal => ContainsParserErrorPlaceholder(literal.Literal),
-            RelationalPattern relational => ContainsParserErrorPlaceholder(relational.Value),
-            UnionCasePattern unionCase => unionCase.Properties?.Any(ContainsParserErrorPlaceholder) == true,
-            ObjectPattern objectPattern => objectPattern.Properties.Any(ContainsParserErrorPlaceholder),
-            ListPattern listPattern => listPattern.Elements.Any(ContainsParserErrorPlaceholder),
-            AndPattern andPattern => ContainsParserErrorPlaceholder(andPattern.Left) ||
-                                     ContainsParserErrorPlaceholder(andPattern.Right),
-            OrPattern orPattern => ContainsParserErrorPlaceholder(orPattern.Left) ||
-                                   ContainsParserErrorPlaceholder(orPattern.Right),
-            NotPattern notPattern => ContainsParserErrorPlaceholder(notPattern.Pattern),
-            PositionalPattern positional => positional.Patterns.Any(ContainsParserErrorPlaceholder),
-            _ => false
-        };
-    }
-
-    private static bool ContainsParserErrorPlaceholder(PropertyPattern property)
-        => property.Pattern != null && ContainsParserErrorPlaceholder(property.Pattern);
-
     private static bool IsValidExpressionStatement(Expression expression)
     {
         return expression switch
@@ -4177,7 +4103,7 @@ public class Analyzer : IDisposable
 
     private void ReportBooleanConditionTypeMismatch(Expression condition, string owner, TypeInfo actualType)
     {
-        if (BuiltInTypes.IsUnknown(actualType) || ContainsParserErrorPlaceholder(condition))
+        if (BuiltInTypes.IsUnknown(actualType) || AnalyzerParserErrorPlaceholders.ContainsInExpression(condition))
             return;
 
         var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(condition);
@@ -4613,7 +4539,7 @@ public class Analyzer : IDisposable
         var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(ifStmt.Condition, condType, "used as an 'if' condition");
         var isSoaDirectColumnCondition = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ifStmt.Condition, "used as an 'if' condition");
 
-        if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !ContainsParserErrorPlaceholder(ifStmt.Condition))
+        if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !AnalyzerParserErrorPlaceholders.ContainsInExpression(ifStmt.Condition))
         {
             // Use ErrorMessageBuilder for better error message
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(ifStmt.Condition);
@@ -6133,14 +6059,7 @@ public class Analyzer : IDisposable
                 var targetType = _typeResolver.ResolveType(typePattern.Type);
 
                 // Check if pattern is provably impossible
-                if (!IsPatternPossible(valueType, targetType))
-                {
-                    var (impossibleLine, impossibleColumn, impossibleLength) =
-                        _spans.GetPatternNameDiagnosticSpan(typePattern);
-                    Error(ErrorCode.ImpossiblePattern,
-                        $"This '{targetType}' pattern can never match — a '{valueType}' is never a '{targetType}'",
-                        impossibleLine, impossibleColumn, length: impossibleLength);
-                }
+                _patternReachability.CheckTypePattern(typePattern, valueType, targetType);
 
                 // Bind the variable if a binding name is provided
                 if (typePattern.BindingName != null)
@@ -12438,14 +12357,7 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Bool;
         }
 
-        if (!IsPatternPossible(sourceType, targetType))
-        {
-            var (impossibleLine, impossibleColumn, impossibleLength) =
-                _spans.GetIsExpressionDiagnosticSpan(isExpr);
-            Error(ErrorCode.ImpossiblePattern,
-                $"This 'is {targetType}' check is always false — a '{sourceType}' is never a '{targetType}'",
-                impossibleLine, impossibleColumn, length: impossibleLength);
-        }
+        _patternReachability.CheckIsExpression(isExpr, sourceType, targetType);
 
         return BuiltInTypes.Bool;
     }
@@ -13139,63 +13051,6 @@ public class Analyzer : IDisposable
 
 
         return null;
-    }
-
-    private bool IsPatternPossible(TypeInfo sourceType, TypeInfo targetType)
-    {
-        var resolvedSource = _declarationContext.ResolveDeclaredAlias(sourceType);
-        var resolvedTarget = _declarationContext.ResolveDeclaredAlias(targetType);
-
-        if (resolvedSource is UnknownTypeInfo || resolvedTarget is UnknownTypeInfo) return true;
-        if (resolvedSource is ReflectionTypeInfo || resolvedTarget is ReflectionTypeInfo) return true;
-
-        if (resolvedSource is GenericTypeInfo || resolvedTarget is GenericTypeInfo) return true;
-
-        if (resolvedSource == resolvedTarget) return true;
-        if (resolvedSource is SimpleTypeInfo simplePatternSource && resolvedTarget is SimpleTypeInfo simplePatternTarget
-            && simplePatternSource.Equals(simplePatternTarget)) return true;
-
-        if (resolvedSource is InterfaceTypeInfo || resolvedTarget is InterfaceTypeInfo) return true;
-
-        if (BuiltInTypes.Is(resolvedSource, BuiltInTypes.Object) || BuiltInTypes.Is(resolvedTarget, BuiltInTypes.Object)) return true;
-
-        if (resolvedSource is NullableTypeInfo || resolvedTarget is NullableTypeInfo) return true;
-
-        if (resolvedSource is UnionTypeInfo or AnonymousUnionTypeInfo
-            || resolvedTarget is UnionTypeInfo or AnonymousUnionTypeInfo)
-            return true;
-
-        bool sourceIsValue = !AnalyzerConversionFacts.IsReferenceType(resolvedSource);
-        bool targetIsValue = !AnalyzerConversionFacts.IsReferenceType(resolvedTarget);
-        if (sourceIsValue && targetIsValue)
-        {
-            return false;
-        }
-
-        if (_assignability.IsAssignable(resolvedTarget, resolvedSource)) return true;
-        if (_assignability.IsAssignable(resolvedSource, resolvedTarget)) return true;
-
-        if (sourceIsValue && !targetIsValue)
-        {
-            if (resolvedTarget is not InterfaceTypeInfo)
-                return false;
-        }
-        if (targetIsValue && !sourceIsValue)
-        {
-            if (resolvedSource is not InterfaceTypeInfo)
-                return false;
-        }
-
-        if (resolvedSource is ClassTypeInfo srcClass && srcClass.IsSealed)
-        {
-            if (resolvedTarget is ClassTypeInfo) return false;
-        }
-        if (resolvedTarget is ClassTypeInfo tgtClass && tgtClass.IsSealed)
-        {
-            if (resolvedSource is ClassTypeInfo) return false;
-        }
-
-        return true;
     }
 
     private bool IsNumericType(TypeInfo type)
@@ -14637,6 +14492,7 @@ public class Analyzer : IDisposable
         _callAnalysis = CreateCallAnalysis();
         _matchExhaustiveness = CreateMatchExhaustiveness();
         _patternShapes = CreatePatternShapes();
+        _patternReachability = CreatePatternReachability();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -14660,7 +14516,8 @@ public class Analyzer : IDisposable
             _reflectionCallReporter = CreateReflectionCallReporter();
             _callAnalysis = CreateCallAnalysis();
             _matchExhaustiveness = CreateMatchExhaustiveness();
-        _patternShapes = CreatePatternShapes();
+            _patternShapes = CreatePatternShapes();
+            _patternReachability = CreatePatternReachability();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;

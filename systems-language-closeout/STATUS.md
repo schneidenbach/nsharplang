@@ -1,6 +1,55 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-02 (**TASK 017 SLICE 26 LANDED (no commit — mandate) — N# OWNS BOTH PATTERN
+Last updated: 2026-08-02 (**TASK 017 SLICE 27 LANDED (no commit — mandate) — N# OWNS WHETHER A TYPE
+TEST CAN EVER SUCCEED, AND WHETHER A SUBTREE CARRIES A PARSER RECOVERY ARTIFACT.**
+`AnalyzerPatternReachability.nl` (**605 lines, TWO types, 11 members**) is the sole authority for the
+impossible-pattern judgement, for both of its NL506 wordings, and for the `<error>` placeholder walk
+that suppresses a second diagnostic over text the parser already reported on. **4 WHOLE C# MEMBERS
+DELETED — 134 source lines — PLUS the two inline NL506 report blocks (16 lines)**:
+`ContainsParserErrorPlaceholder(Expression)` 58, `IsPatternPossible` 56,
+`ContainsParserErrorPlaceholder(Pattern)` 18, `ContainsParserErrorPlaceholder(PropertyPattern)` 2.
+`git diff` **+17 / −160 = net −143**, `Analyzer.cs` **15,156 → 15,013** (non-blank 13,386 →
+**13,258**), and **ALL 17 ADDED LINES ARE MECHANICAL**. **THE CLOSURE WAS BIGGER THAN THE INVENTORY
+SAID AND MEASUREMENT IS WHAT FOUND IT:** the two `ContainsParserErrorPlaceholder` overloads the
+slice-25 map named (20 lines) are only reachable from — and recurse back into — a THIRD, 58-line
+`Expression` overload with five further call sites, and N# may not call back into `Analyzer.cs`, so
+all three moved together. **AND THE BRIEF'S "CORPUS-SILENT" EXPECTATION WAS WRONG, MEASURABLY:** the
+slice-25 counter `pat.impossible = 0` counted only the type-pattern site, while the `is`-expression
+site **REPORTS NL506 ×3 IN THE CORPUS** (`examples/17-issue-tracker/backend/Endpoints.nl`), so this
+slice's own diagnostic sits inside the 72-target oracle rather than only in fixtures. The corpus still
+decides only **6 of the judgement's 17 arms** (126 asks, 3 false) and makes the placeholder walk — the
+most-executed member in the whole arc at **392,769 entries** — answer TRUE not once; the **94 new
+fixtures fire ALL SEVENTEEN arms** (52 asks, 26 false), all five placeholder call sites including the
+two the corpus never reaches, and seven pattern kinds. **A MEASURED DEAD GUARD was PRESERVED rather
+than cleaned up** (the two inner `is not InterfaceTypeInfo` tests blocked 0 of 10 firings and cannot
+be true), and **two walk arms proven unreachable from source** — a literal pattern's literal is one
+token, and a list pattern with a malformed element panics the recovery parser through the whole file —
+are pinned by CONTRACTS instead. PROOFS: the semantic-diagnostic oracle over **ALL 72 targets —
+ORACLE_DIFFS = 0 / STDERR = 0 / EXIT = 0 over 833 diagnostics across 23 codes including NL506 ×3**,
+md5 identical in both trees; **216 fixtures (94 new + all 122 accumulated), 216 / 216 byte-identical
+on `nlc check` (1,358 diagnostics over 25 codes, NL506 ×26) and 216 / 216 byte-identical on the
+UNSORTED `nlc build` transcript (12,357 lines, 1,353 rich blocks)**; **72 / 72 corpus build
+transcripts, TRANSCRIPT_DIFFS = 0**; and a corpus IL sweep whose **SAME-CLI CONTROL RAN FIRST and
+passed** (4 / 4), then **134 assemblies, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, all 75 EMITTED assemblies
+BYTE-IDENTICAL**, the 59 remaining being one file — the COPIED `NSharpLang.Runtime.dll` — differing in
+**73 bytes inside the CodeView record** with a **0-SOURCE-FILE** Runtime diff between the worktrees.
+GATES: unit **3,194 / 3,194** zero drift (`dev.sh --since` selected the FULL suite and said why);
+contracts **2,134 → 2,175 (+41)**; audit **18 / 18** after a ONE-row in-place repin keeping the
+manifest at **391 lines**, no BOM; the FULL VS Code-enabled `./scripts/test-all.sh --commit` **ALL
+TESTS PASSED in 29m49s ON THE FIRST RUN** (zero `✗`, VS Code integration green, all 67 assemblies
+IL-verified); VSIX rebuilt + reinstalled. NO toolset repin needed. **SIX NEW GOTCHAS, headed by two
+that read like syntax errors and are not: (1) a class with OVERLOADED methods declines wholesale at
+`parse.struct` naming the CLASS** — three `Contains` overloads had to become
+`ContainsInExpression` / `ContainsInPattern` / `ContainsInPropertyPattern`; **(2) `must` is a KEYWORD**
+and `must := …` declines the same way; (3) `new UnknownTypeInfo()` declines — the estate's spelling is
+`BuiltInTypes.Unknown`; (4) the registration door is `RegisterCanonicalType`, not
+`RegisterDeclaredType`; (5) **a normaliser is not inherited by copying the script** — slice 26's
+`in N.Ns` elapsed-time gotcha flagged the SAME three targets again; (6) `Object.ReferenceEquals` binds
+WITHOUT `import System`, and the oracle's own NL010 caught the unused import, after which every
+differential was RE-RUN against the final sources. NEXT: slice 28, `AnalyzePropertyPatterns` (65
+lines), the family's first pattern-binding state carrier. Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-02 (**TASK 017 SLICE 26 LANDED (no commit — mandate) — N# OWNS BOTH PATTERN
 SHAPE QUESTIONS: WHETHER A VALUE CAN BE MATCHED AS A LIST, AND WHETHER TWO VALUES CAN BE COMPARED.**
 `AnalyzerPatternShapes.nl` (**361 lines, ONE class, 14 members**) is the sole authority for the list
 pattern's element type and for the relational pattern's comparability judgement, and for BOTH of
@@ -1102,7 +1151,219 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 26 — THE LIST-PATTERN SHAPE PROBE AND THE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 27 — PATTERN POSSIBILITY AND PARSER-ERROR
+  PLACEHOLDER DETECTION** (stage 3 of the slice-25 arc plan). Target recorded BEFORE any production
+  edit, at `c824e6cb6` (`Analyzer.cs` **15,156** lines, non-blank **13,386**; BootstrapServices
+  contracts **2,134**; unit suite **3,194**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:e4b800d212b0459d`).
+
+  **THE CLOSURE, RE-VERIFIED MEMBER BY MEMBER AT THIS TREE — AND IT IS BIGGER THAN THE INVENTORY
+  SAID.**
+  * **THE REACHABILITY JUDGEMENT — 1 member, 56 lines.** `IsPatternPossible` (:13144, **56**). Reads
+    `_declarationContext` (`ResolveDeclaredAlias`), `_assignability` (`IsAssignable`) and the already
+    N#-owned `AnalyzerConversionFacts.IsReferenceType`, plus `BuiltInTypes`. Seventeen decision
+    points, all pure over two `TypeInfo`s; no walk to suspend. Callers: TWO — `AnalyzePattern`'s
+    `TypePattern` arm (:6136) and `AnalyzeIsExpression` (:12441) — and each is followed by an INLINE
+    **NL506** `ImpossiblePattern` report (8 lines at :6137 with `_spans.GetPatternNameDiagnosticSpan`,
+    7 lines at :12442 with `_spans.GetIsExpressionDiagnosticSpan`) with a DIFFERENT message shape.
+    Each reporter has exactly one site, so both move in this slice, as in slice 26.
+  * **THE PLACEHOLDER WALK — 3 overloads, 78 lines, NOT the 2 / 20 the slice-25 inventory named.**
+    `ContainsParserErrorPlaceholder(Pattern)` (:4072, **18**) and `(PropertyPattern)` (:4091, **2**)
+    are the two the inventory counted, but they are ONLY reachable from — and they call back into —
+    `ContainsParserErrorPlaceholder(Expression)` (:4013, **58**), whose `LiteralPattern` and
+    `RelationalPattern` arms are the pattern overload's own recursion. **N# may not call back into
+    `Analyzer.cs`, so the Expression overload is inside the closure, not beside it** (slice 22's
+    lesson, re-learned by measurement rather than by grep). That overload has FIVE further call
+    sites — :2307 and :2313 inside the STATIC `StatementAlwaysReturns`, :3899
+    (`AnalyzeDiscardedExpression`), :4180 (`ReportBooleanConditionTypeMismatch`) and :4616
+    (`AnalyzeIfStatement`) — all mechanical, and the owner must therefore be callable STATICALLY.
+  * **CONFINEMENT PROVED, WITH ONE DELIBERATE NON-TARGET.** A repo-wide grep for both names over
+    `src`, `tests`, `editors`, `docs` and `memory` returns nothing outside `Analyzer.cs` — EXCEPT
+    `Linter.cs`, which carries its own `ContainsParserErrorPlaceholder(Expression?)` (:843, 56
+    lines, 2 call sites). It is a NEAR-DUPLICATE and NOT the same function: its parameter is
+    nullable with a `null => false` arm, it has NO `AllocExpression` and NO `StackAllocExpression`
+    arm, and its `MatchExpression` arm does not descend into `matchCase.Pattern` at all (it has no
+    Pattern overload). Routing the linter onto the analyzer's owner would make the linter newly see
+    placeholders inside `alloc`, `stackalloc` and every pattern — a BEHAVIOUR CHANGE dressed as a
+    de-duplication. It STAYS, and it is named here so a later slice can converge the two with its
+    own evidence.
+  * **THE CUT THIS SLICE IS AIMED AT: 4 whole members, 134 source lines, plus the two inline NL506
+    report blocks (16 lines).**
+
+  **THE MEASUREMENT CAME FIRST, AND IT OVERTURNED THE BRIEF'S OWN EXPECTATION.** A THROWAWAY
+  instrumented copy of the baseline labelled all SEVENTEEN decision points of the judgement and
+  counted every entry, verdict and node kind of the placeholder walk; it was run over all 72 corpus
+  targets and over the fixtures, then deleted.
+  * **THE CORPUS IS NOT SILENT — THE SLICE-25 COUNTER MEASURED ONLY HALF THE FAMILY.** `pat.impossible
+    = 0` counted the `AnalyzePattern` TYPE-PATTERN site alone. The `is`-EXPRESSION site **REPORTS IN
+    THE CORPUS: NL506 ×3**, all in `examples/17-issue-tracker/backend/Endpoints.nl`
+    (`IssueStatus is IssueStatus.Open / .InProgress / .Closed`, two `ExternalTypeInfo`s meeting on the
+    `both-value` arm). So unlike slices 25 and 26, **this slice's own diagnostic is inside the 72-target
+    oracle**, and the byte-identical corpus result is a positive proof of the reporting path, not only
+    of silence.
+  * **BUT THE CORPUS DECIDES ONLY SIX ARMS OF SEVENTEEN.** 126 asks: `reflection` 92, `simpleeq` 13,
+    `assign-src-from-tgt` 8, `union` 6, `nullable` 4, `both-value` 3 — 123 true, 3 false. Nothing else
+    fires. **THE MLC IS VISIBLE AND IT IS THE MAJORITY**: 92 of the 126 asks carry a
+    `ReflectionTypeInfo` whose implementation class is `EcmaDefinitionType` in an `EcmaAssembly` — a
+    `MetadataLoadContext` type — and the reflected arm returns TRUE before any name or identity test,
+    so unlike slice 26 there is no `typeof`-versus-`FullName` question on this path at all.
+  * **THE PLACEHOLDER WALK IS THE MOST-EXECUTED MEMBER IN THE ARC AND THE CORPUS NEVER MAKES IT SAY
+    YES.** `cpep.expr.entry` **392,769**, `cpep.expr.true` **0**; the pattern overload 592 entries and
+    the property-pattern overload 394, both **0** true. Call sites: `stmt.return` 54,735,
+    `discarded` 38,045, `stmt.throw` 3,348, and **`ifcond` 0 and `boolcond` 0** — two of the five sites
+    the corpus cannot reach at all.
+  * **THE 94 FIXTURES CARRY EVERYTHING ELSE.** 52 asks, **26 true / 26 false, and ALL SEVENTEEN
+    BRANCHES fire**: `unknown` 3, `reflection` 4, `generic` 1, `refeq` 1, `simpleeq` 1, `iface` 3,
+    `object` 3, `nullable` 2, `union` 2, `both-value` 13, `assign-tgt-from-src` 1,
+    `assign-src-from-tgt` 2, `value-to-ref` 6, `ref-to-value` 4, `sealed-source` 2, `sealed-target` 1,
+    `fallthrough` 3. The walk answers TRUE 105 times over 520 entries, **all five call sites fire**
+    (including `ifcond` 1 and `boolcond` 3), and the pattern overload answers true over **seven pattern
+    kinds** (Relational 14, And, Not, Object, Or, Positional, UnionCase ×2 each) with 4 property-pattern
+    trues.
+  * **A MEASURED DEAD GUARD, PRESERVED ANYWAY.** The value-to-reference and reference-to-value arms
+    each re-test their partner for `InterfaceTypeInfo` before refusing. Over 10 firings the inner guard
+    blocked **ZERO**, and `int is Shape` was measured taking the INTERFACE arm above — the guard cannot
+    be true. It is preserved verbatim and documented in the owner: an ownership slice does not
+    simplify, and a later slice can delete it with its own evidence.
+  * **TWO ARMS OF THE WALK ARE UNREACHABLE FROM SOURCE, MEASURED, AND SO THEY ARE CONTRACTS.** A
+    `LiteralPattern`'s literal is a single token, so no sub-expression of it can fail; and a LIST
+    pattern with a malformed element (`[>, 2]`) makes the recovery parser panic through the WHOLE FILE
+    — the fixture emits 60 syntax diagnostics and never builds a `ListPattern`. Both arms are live code
+    a future parser change can reach; both are pinned by construction in the contracts.
+  * **FOUR FIXTURE-DESIGN FACTS THE MEASUREMENT FORCED, each of which had already produced a fixture
+    that proved nothing.** (1) N#'s type pattern is spelled **`TypeName binding`**, not
+    `binding: TypeName` — twelve first-draft `match` fixtures never reached the judgement at all and
+    only produced `<error>` cascades. (2) **An unresolved type NAME is not `UnknownTypeInfo`**:
+    `x is Missing` resolves to a REFLECTED `System.Reflection.Missing` and `x is Zqx` lands on a value
+    arm; the only reachable `unknown` operand is an EXPRESSION whose analysis failed (`Zqx() is int`,
+    `d.Missing is int`). (3) **A placeholder that POISONS the condition's type never reaches the `if`
+    or boolean-condition site**, because `BuiltInTypes.IsUnknown(condType)` short-circuits first — the
+    reaching shape is a placeholder inside an ARGUMENT of a well-typed call (`if Take(x.) {`).
+    (4) A bare `>` is the only relational placeholder the recovery parser survives; `> y.` does not.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS BOTH QUESTIONS.** `Analyzer.cs` keeps no part of
+  "can a value of this type ever be that type?" — not the alias resolution, not the seven admissions
+  that outrank every refusal, not the reference-identity or simple-name equality, not the
+  value/reference split, not either assignability direction, not either sealed refusal, and not either
+  NL506 report, its message shape or its span. And it keeps no part of "does this subtree carry a
+  parser recovery artifact?" — not the two artifact spellings, not one of the thirty expression arms,
+  not the nine pattern arms, not the property-pattern arm and not the mutual recursion between them.
+
+  **THE CUT — 4 WHOLE C# MEMBERS, 134 SOURCE LINES, PLUS THE TWO INLINE NL506 BLOCKS (16 LINES).**
+  `ContainsParserErrorPlaceholder(Expression)` 58, `IsPatternPossible` 56,
+  `ContainsParserErrorPlaceholder(Pattern)` 18, `ContainsParserErrorPlaceholder(PropertyPattern)` 2.
+  `git diff` **+17 / −160 = net −143**; `Analyzer.cs` **15,156 → 15,013** (non-blank 13,386 →
+  **13,258**). **ALL 17 ADDED LINES ARE MECHANICAL:** a field declaration with its two-line comment,
+  three rebuild-site assignments, one two-line `=> new(...)` factory (`CreatePatternReachability`, in
+  the shape of `CreatePatternShapes` beside it) with its blank line, the five routed placeholder call
+  sites, the two routed reachability call sites — each of which collapses an 8-line probe-and-report
+  block to ONE line — and one re-indented pre-existing line (slice 26 left its `Dispose` rebuild
+  under-indented by four spaces). **NO new C# method with policy, bridge, callback, shell or state,
+  and N# calls nothing back.** No surviving member became dead; every `using` is still load-bearing.
+
+  **N# ADDED:** `AnalyzerPatternReachability.nl` **605** lines — TWO types, 11 members: the stateful
+  `AnalyzerPatternReachability` (the judgement plus its two reporters) and the STATIC
+  `AnalyzerParserErrorPlaceholders` (the walk's three entry points and three list helpers), static
+  because two of the five C# call sites are inside the static `StatementAlwaysReturns` — and
+  `AnalyzerPatternReachability.tests.nl` **876** lines with **41 contracts**.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE, AND IT CARRIES THIS SLICE'S OWN CODE.** `nlc check --json`,
+  fresh Release CLIs at baseline `c824e6cb6` and at the working tree, **both over the SAME sources**,
+  across **ALL 72 `project.yml` targets with no exclusion**: **ORACLE_DIFFS = 0,
+  ORACLE_STDERR_DIFFS = 0, ORACLE_EXIT_DIFFS = 0, SKIPPED = 0**, over **833 diagnostics across 23
+  codes INCLUDING NL506 ×3**, md5 `3b4ddea727fc1553e1401afe8ff5b8ef` in BOTH trees.
+
+  **PROOF — 216 FIXTURES, CHECK AND THE UNSORTED BUILD TRANSCRIPT.** 94 new fixtures (34 `is`-shape,
+  13 type-pattern, 47 malformed-source) run TOGETHER WITH all 122 accumulated from slices 25 and 26.
+  **`nlc check --json`: FX_CHECK_DIFFS = 0, FX_CHECK_EXIT_DIFFS = 0, 1,358 diagnostics over 25 codes —
+  NL506 ×26 is the one this slice owns, alongside NL504 ×10, NL505 ×5 and NL501 ×25 from the two
+  slices before it**, md5 `d9a56e07e465a1c5e9d0b444bb628ccb` in BOTH. **`nlc build main.nl`, which
+  renders `_errors` in LIST order with NO dedup and NO sort: 216 / 216 BYTE-IDENTICAL,
+  FX_BUILD_DIFFS = 0, FX_BUILD_EXIT_DIFFS = 0, 12,357 lines carrying 1,353 rich diagnostic blocks over
+  21 codes**, md5 `ba08a2435ed50d0145058341af53d8cc` in BOTH. **NL506's unsorted count EQUALS its
+  deduplicated `check` count (26 and 26)**, so like slices 25 and 26 — and unlike slice 24's receiver
+  protocol — this family reports exactly once per site.
+
+  **PROOF — CORPUS IL BYTE-EXACT SWEEP, SAME-CLI CONTROL FIRST.** The control ran before the sweep and
+  PASSED — **4 / 4 assemblies identical, DIFFERENT = 0** — so the normaliser is proven complete before
+  any verdict is read off it. Both CLIs then built all **72 targets** from equal-length worktrees
+  (`/private/tmp/nsharp017s27b` and `…27w`): **134 comparable assemblies, ONLY_IN_BASE = 0,
+  ONLY_IN_WORK = 0**, and **all 75 EMITTED assemblies BYTE-IDENTICAL**. The 59 remaining are one file,
+  the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — **73 bytes of a
+  14,848-byte file, first at offset 136, all inside the CodeView record** — and `diff -rq` over
+  `src/NSharpLang.Runtime` between the two worktrees reports **0 SOURCE files**.
+
+  **PROOF — CORPUS UNSORTED BUILD TRANSCRIPTS: 72 TARGETS, TRANSCRIPT_DIFFS = 0, EXIT_DIFFS = 0** —
+  but only after the normaliser was widened, and that is a gotcha worth its own line (below).
+
+  **SIX `.nl` AND HARNESS GOTCHAS, ALL FOUND BY BUILDING OR BY MEASURING, ALL NEW.**
+  **(1) A CLASS WITH OVERLOADED METHODS DECLINES WHOLESALE.** Three `Contains` overloads (Expression /
+  Pattern / PropertyPattern, the exact shape `Analyzer.cs` used) made the emitter decline at
+  `parse.struct` naming the **CLASS**, not the member — a decline that reads like a syntax problem and
+  is not. Distinct names (`ContainsInExpression` / `ContainsInPattern` / `ContainsInPropertyPattern`)
+  bind. **(2) `must` IS A KEYWORD** — `must := expression as MustExpression` also declines at
+  `parse.struct` naming the class; check candidate local names against the LEXER's keyword list
+  (`match`, `must`, `type`, `with`, `case`, `alloc`, `where`, `when`, … — `mustExpression` is fine).
+  **(3) `new UnknownTypeInfo()` declines** at `emit.typed-local.initializer` naming the LOCAL: the
+  model's only constructor takes an `UnknownKind`, and the estate's spelling is `BuiltInTypes.Unknown`.
+  **(4) The declaration context's registration door is `RegisterCanonicalType`**, not
+  `RegisterDeclaredType`; the wrong name declines at `emit.expression-statement.call` naming the TEST.
+  **(5) A NORMALISER IS NOT INHERITED BY COPYING THE SCRIPT.** Slice 26 recorded the `in N.Ns`
+  elapsed-time spelling but fixed it in a different driver, so the copied `il_sweep.sh` flagged the
+  SAME three targets (the ROOT, `BootstrapServices`, `templates/nsharp-systems-cli`) for the SAME
+  reason. Widening it took the corpus transcripts from 3 diffs to 0. **(6) `Object.ReferenceEquals`
+  binds WITHOUT `import System`** — and `nlc check` was right to call the import unused. The oracle
+  caught it (NL010 ×2 on the new owner), the import was removed, and every differential was RE-RUN
+  against the final sources rather than argued to be unaffected.
+
+  **EVIDENCE.** Full unit suite **3,194 / 3,194, 0 failed** — exactly the `c824e6cb6` baseline COUNT,
+  ZERO drift; `./scripts/dev.sh --since` selected the FULL suite and said why (three unmapped paths),
+  7m08s. BootstrapServices contracts **2,134 → 2,175 (+41)**, **2,175 / 2,175 PASS**. Ownership audit
+  **18 / 18**. **NO toolset repin was needed and NO wall was crossed.** **RATCHET REPIN** — `current*`
+  + fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs` currentLines 15,156 →
+  **15,013**, currentNonBlankLines 13,386 → **13,258**, fingerprint `text-v1:0d4f5048d745efa8` →
+  `text-v1:e3f96623498b5db2` (epoch ceilings 23,451 / 20,537 PRESERVED and now clear by
+  **8,438 / 7,279**); `reviewedHeadFingerprint head-v1:e4b800d212b0459d` →
+  **`head-v1:4f9ae39382ff5064`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value,
+  `epochPathFingerprint`, `epochFactFingerprint` and `epochFileCount` (381) untouched and RE-VALIDATED
+  by recomputation both before and after the write. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest
+  is 391 before AND after, the manifest `git diff` is exactly 2 changed lines and `OwnershipAudit.nl`'s
+  is exactly 1**; neither file carries a BOM afterwards.
+
+  **GATE — THE FULL VS CODE-ENABLED `./scripts/test-all.sh --commit`, ALL TESTS PASSED ON THE FIRST
+  RUN, 1,789s (29m49s)**, in a fresh isolated copy (`/private/tmp/nsharp-test-all.241126925c4d.RrWwcH`,
+  "Fresh isolated test run required: pre-commit verification" — so neither a cached whole-gate nor a
+  cached per-step verdict; the validated result was stored only on success). Green with **zero `✗`**
+  across all sixteen steps and **106 `✓ PASSED` lines**: clean, compiler build, the format contract
+  gate, unit tests (**3,194 / 3,194**, 7m05s), the native `.tests.nl` estate including
+  BootstrapServices' **2,175 / 2,175** and `tests/native/ownership-audit`'s **18 / 18**, **VS Code
+  integration tests (smoke) PASSED**, SDK pack + install, template pack / install / creation, the
+  template-generated project, all example and fixture projects, all single-file examples, `nlc check`
+  over the examples, and the ECMA-335 **IL verification gate — all 67 N# assemblies pass, no new
+  errors vs baseline**. The cold-`TestSdkFeed` five-minute-cap hazard did NOT appear and no cool rerun
+  was needed. `./scripts/reload-vscode-extension.sh` was RUN and the VSIX rebuilt + reinstalled.
+  INTERACTIVE computer-use verification was NOT attempted, per the coordinator's standing instruction.
+  The IDE-facing surface this slice OWNS is one squiggle in two wordings — "This 'bool' pattern can
+  never match" under a match arm's pattern name, and "This 'is bool' check is always false" under `is`
+  through the tested type name — plus the SUPPRESSION of a second squiggle wherever the recovery
+  parser already reported one. Both are pinned by 833 byte-identical corpus diagnostics carrying
+  **NL506 ×3 live in the corpus**, 216 byte-identical fixture `check` results carrying NL506 ×26, 216
+  byte-identical unsorted fixture build transcripts, 72 byte-identical corpus build transcripts, 75
+  byte-identical emitted assemblies, the gate's own VS Code integration run, and 67 IL-verified
+  assemblies.
+
+  **WALL STATUS: NO wall crossed, NO toolset repin needed.** The owner consumes only surface the
+  catalog and the ordinary runtime resolver already publish — it adds no catalog row, no reflection
+  member the estate had not used, and no language capability. The one capability question it DID raise
+  (method overloading) was answered by RENAMING rather than by asking for a repin.
+
+  **NEXT SLICE: 017 SLICE 28 — `AnalyzePropertyPatterns` (:6331-era, 65 lines), stage 4 of the arc
+  plan.** It is the family's first pattern-binding STATE CARRIER: it declares symbols and re-enters the
+  pattern walk, so it needs the scope stack and either a resumable shape or a supplied-operand driver,
+  exactly like slice 24's call walk. After it, slice 29 takes `AnalyzePattern` itself (222 lines, the
+  13-arm walk) and the pattern family closes.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 26 — THE LIST-PATTERN SHAPE PROBE AND THE
   RELATIONAL-PATTERN COMPARABILITY PREDICATES** (stage 2 of the slice-25 arc plan). Target recorded
   BEFORE any production edit, at `19b523c4c` (`Analyzer.cs` **15,338** lines, non-blank **13,542**;
   BootstrapServices contracts **2,100**; unit suite **3,194**; ownership audit **18 / 18**; manifest
