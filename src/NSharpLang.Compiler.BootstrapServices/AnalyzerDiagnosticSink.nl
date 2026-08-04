@@ -24,6 +24,13 @@ public class AnalyzerDiagnosticSink {
 
     CurrentFilePath: string? => currentFilePathValue
 
+    // HOW MANY DIAGNOSTICS HAVE BEEN REPORTED SO FAR. The statement-level expression family compares
+    // this against the count it captured before an expression walk ran, so that anything the walk
+    // itself reported silences the statement's own later reports — a bare call that failed to
+    // resolve must not ALSO be told it "has no effect". The sink owns the list, so the count is its
+    // own answer rather than something a driver has to carry across the boundary.
+    ErrorCount: int => errorsValue.Count
+
     constructor(errors: List<CompilerError>, projectSources: AnalyzerProjectSourceProvider) {
         errorsValue = errors
         projectSourcesValue = projectSources

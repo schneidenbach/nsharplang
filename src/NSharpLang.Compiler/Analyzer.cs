@@ -310,6 +310,12 @@ public class Analyzer : IDisposable
     // the SoA escape the resulting type selects and the local's initial null state. Rebuilt with the
     // SCC: it holds assignability, which the rebuild replaces.
     private AnalyzerVariableDeclaration _variableDeclaration;
+    // What an expression means where a statement belongs: the bare expression statement, the `for`
+    // loop's update clause, `assert` and `assert throws` — which expressions actually do something,
+    // the must-use closure, both NL313 forms and the assert-throws type report. NOT rebuilt with the
+    // SCC: it holds only the diagnostic sink, the span reader and the type resolver, none of which
+    // the rebuild replaces.
+    private readonly AnalyzerExpressionStatements _expressionStatements;
     private bool _disposed;
 
     public Analyzer()
@@ -340,6 +346,7 @@ public class Analyzer : IDisposable
             _diagnostics, _spans, _declarationContext, _typeSubstitution);
         _definiteAssignment = new AnalyzerDefiniteAssignment(_diagnostics, _typeResolver);
         _nullFlow = new AnalyzerNullFlow(_diagnostics, _spans, _scopes, _declarationContext);
+        _expressionStatements = new AnalyzerExpressionStatements(_diagnostics, _spans, _typeResolver);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -1313,7 +1320,7 @@ public class Analyzer : IDisposable
 
     private string DescribeAttributeArgumentForDiagnostic(Expression expression)
     {
-        var description = DescribeExpressionForDiagnostic(expression);
+        var description = AnalyzerExpressionStatements.DescribeExpression(expression);
         return expression switch
         {
             IdentifierExpression => "identifier",
@@ -1983,7 +1990,7 @@ public class Analyzer : IDisposable
 
     private string DescribeTableCaseValueForDiagnostic(Expression expression)
     {
-        var description = DescribeExpressionForDiagnostic(expression);
+        var description = AnalyzerExpressionStatements.DescribeExpression(expression);
         return expression switch
         {
             CallExpression => "call",
@@ -3362,216 +3369,65 @@ public class Analyzer : IDisposable
     }
 
     private void AnalyzeExpressionStatement(ExpressionStatement exprStmt)
-        => AnalyzeDiscardedExpression(
-            exprStmt.Expression,
-            soaUsage: "discarded",
-            DiscardedExpressionContext.ExpressionStatement);
-
-    private void AnalyzeDiscardedExpression(
-        Expression expression,
-        string soaUsage,
-        DiscardedExpressionContext context)
-    {
-        var errorsBefore = _errors.Count;
-        var expressionType = AnalyzeExpression(expression);
-
-        if (AnalyzerParserErrorPlaceholders.ContainsInExpression(expression))
-            return;
-
-        if (_errors.Count == errorsBefore && ReportSoaRowEscapeIfNeeded(expression, expressionType, soaUsage))
-            return;
-
-        if (_errors.Count == errorsBefore && ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression, soaUsage))
-            return;
-
-        if (!IsValidExpressionStatement(expression) && _errors.Count == errorsBefore)
-        {
-            ReportInvalidDiscardedExpression(expression, context);
-            return;
-        }
-
-        if (_errors.Count == errorsBefore)
-        {
-            ReportDiscardedMustUseResultIfNeeded(expression);
-        }
-    }
+        => DriveExpressionStatement(_expressionStatements.BeginExpressionStatement(exprStmt.Expression));
 
     /// <summary>
-    /// Enforces the must-use policy: a bare call whose result is "must-use" (annotated
-    /// with [MustUse]) cannot be discarded silently as an expression statement. The result
-    /// must be used or discarded explicitly with `_ = call()`.
+    /// The steps the N#-owned statement-level expression walks cannot take for themselves. The bare
+    /// expression statement, the <c>for</c> loop's update clause, <c>assert</c> and
+    /// <c>assert throws</c> all run in <see cref="AnalyzerExpressionStatements"/> and share this one
+    /// loop. Three of its kinds are <see cref="DriveLocalDeclaration"/>'s, but four are not — a local
+    /// declaration never opens a scope, never re-enters the statement dispatch and never asks whether
+    /// a type is throwable — so the two families keep separate request types and separate loops.
+    /// Each walk suspends at every step and resumes with the answer, because whether the next step
+    /// happens at all is decided by the previous step's answer. Which statement it is, which report
+    /// fires and with what wording are all the walk's decisions; this loop performs the one operation
+    /// it is handed, with the operands it is handed.
     /// </summary>
-    private void ReportDiscardedMustUseResultIfNeeded(Expression expression)
+    private void DriveExpressionStatement(ExpressionStatementState state)
     {
-        var call = UnwrapMustUseCandidate(expression);
-        if (call is null)
-            return;
-
-        if (!TryGetMustUseReason(call, out var reason))
-            return;
-
-        var calleeName = AnalyzerSyntheticCallFacts.GetCallTargetName(call);
-        var (line, column, length) = _spans.GetCallDiagnosticSpan(call, calleeName ?? "call");
-        var subject = calleeName != null ? $"the result of '{calleeName}'" : "this result";
-
-        Error(
-            ErrorCode.DiscardedMustUseResult,
-            $"You're discarding {subject}, but {reason} — its result must be used",
-            line,
-            column,
-            "Use the result (assign it, return it, or pass it to a call), or discard it explicitly with `_ = ...`.",
-            length);
-    }
-
-    /// <summary>
-    /// Returns the underlying call expression if the statement is a bare call whose result
-    /// would be silently discarded. Explicit discards (`_ = call()`) and any other use of
-    /// the value are intentionally excluded.
-    /// </summary>
-    private static CallExpression? UnwrapMustUseCandidate(Expression expression)
-    {
-        return expression switch
+        for (var step = _expressionStatements.NextStep(state);
+             step != null;
+             step = _expressionStatements.NextStep(state))
         {
-            CallExpression call => call,
-            ParenthesizedExpression parenthesized => UnwrapMustUseCandidate(parenthesized.Inner),
-            CheckedExpression checkedExpression => UnwrapMustUseCandidate(checkedExpression.Expression),
-            UncheckedExpression uncheckedExpression => UnwrapMustUseCandidate(uncheckedExpression.Expression),
-            _ => null
-        };
-    }
+            TypeInfo? answer = null;
+            var flag = false;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    ReportSoaRowEscape(step.Node!, step.Text!);
+                    break;
+                case 3:
+                    flag = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(step.Node!, step.Text!);
+                    break;
+                case 4:
+                    PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
+                    break;
+                case 5:
+                    AnalyzeStatements(step.Statements!);
+                    break;
+                case 6:
+                    PopScope();
+                    break;
+                case 7:
+                    flag = IsThrowableType(step.CarriedType);
+                    break;
+                case 8:
+                    answer = _semanticModel.ExpressionTypes.TryGetValue(
+                        (step.Line, step.Column), out var recorded)
+                        ? recorded
+                        : null;
+                    break;
+            }
 
-    private bool TryGetMustUseReason(CallExpression call, out string reason)
-    {
-        reason = string.Empty;
-
-        // The call was already analyzed above, so the callee's resolved type is recorded in the
-        // semantic model. Reuse it instead of re-analyzing the AST, which would double-record
-        // bindings/references and corrupt find-references.
-        if (!_semanticModel.ExpressionTypes.TryGetValue(
-                (call.Callee.Line, call.Callee.Column), out var calleeType))
-        {
-            return false;
+            _expressionStatements.Supply(state, answer, flag);
         }
-
-        switch (calleeType)
-        {
-            case FunctionTypeInfo { HasMustUseAttribute: true } functionType:
-                reason = $"'{AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)}' is marked [MustUse]";
-                return true;
-            case NSharpMethodGroupInfo group:
-                {
-                    var functions = GetNSharpMethodGroupFunctions(group);
-                    if (functions.Count > 0 && functions.All(function => function.HasMustUseAttribute))
-                    {
-                        reason = $"'{functions[0].SyntheticName ?? "function"}' is marked [MustUse]";
-                        return true;
-                    }
-                    return false;
-                }
-            case ReflectionMethodInfo method when HasMustUseAttribute(method.Method):
-                reason = $"'{method.Method.Name}' is marked [MustUse]";
-                return true;
-            case ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 && methodGroup.Methods.All(HasMustUseAttribute):
-                reason = $"'{methodGroup.Methods[0].Name}' is marked [MustUse]";
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static bool HasMustUseAttribute(MethodInfo method)
-    {
-            return method.GetCustomAttributesData()
-                .Any(data => NominalTypeInfoFactory.IsMustUseAttributeName(data.AttributeType.Name)
-                    || NominalTypeInfoFactory.IsMustUseAttributeName(data.AttributeType.FullName ?? string.Empty));
     }
 
     private static bool IsDiscardTarget(Expression target)
         => target is IdentifierExpression { Name: "_" };
-
-    private static bool IsValidExpressionStatement(Expression expression)
-    {
-        return expression switch
-        {
-            AssignmentExpression => true,
-            CallExpression => true,
-            NewExpression => true,
-            OnSubscriptionExpression => true, // subscribing to an event is a side effect
-            AllocExpression alloc => IsValidExpressionStatement(alloc.Expression),
-            AwaitExpression => true,
-            UnaryExpression { Operator: UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
-                or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement } => true,
-            ParenthesizedExpression parenthesized => IsValidExpressionStatement(parenthesized.Inner),
-            CheckedExpression checkedExpression => IsValidExpressionStatement(checkedExpression.Expression),
-            UncheckedExpression uncheckedExpression => IsValidExpressionStatement(uncheckedExpression.Expression),
-            _ => false
-        };
-    }
-
-    private void ReportInvalidExpressionStatement(Expression expression)
-    {
-        var (line, column, length) = _spans.GetExpressionStatementDiagnosticSpan(expression);
-        var description = DescribeExpressionForDiagnostic(expression);
-
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.InvalidExpressionStatement(
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                description));
-            return;
-        }
-
-        Error(
-            ErrorCode.InvalidExpressionStatement,
-            "This expression statement has no effect",
-            line,
-            column,
-            "Use the value by assigning it, printing it, passing it to a call, or remove the expression. If you meant to call a method, add parentheses with the required arguments.",
-            length);
-    }
-
-    private void ReportInvalidDiscardedExpression(Expression expression, DiscardedExpressionContext context)
-    {
-        if (context == DiscardedExpressionContext.ForIterator)
-        {
-            ReportInvalidForIteratorExpression(expression);
-            return;
-        }
-
-        ReportInvalidExpressionStatement(expression);
-    }
-
-    private void ReportInvalidForIteratorExpression(Expression expression)
-    {
-        var (line, column, length) = _spans.GetExpressionStatementDiagnosticSpan(expression);
-        var description = DescribeExpressionForDiagnostic(expression);
-
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.InvalidForIteratorExpression(
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                description));
-            return;
-        }
-
-        Error(
-            ErrorCode.InvalidExpressionStatement,
-            "This for-loop iterator has no effect",
-            line,
-            column,
-            "Use an assignment, call, increment, decrement, await expression, or object construction in the iterator clause, or remove the iterator.",
-            length);
-    }
 
     private void ReportBooleanConditionTypeMismatch(Expression condition, string owner, TypeInfo actualType)
     {
@@ -3587,50 +3443,11 @@ public class Analyzer : IDisposable
             length: diagnosticLength);
     }
 
-    private string DescribeExpressionForDiagnostic(Expression expression)
-    {
-        return expression switch
-        {
-            IdentifierExpression identifier => identifier.Name,
-            MemberAccessExpression memberAccess => memberAccess.MemberName,
-            ParenthesizedExpression parenthesized => DescribeExpressionForDiagnostic(parenthesized.Inner),
-            CheckedExpression checkedExpression => DescribeExpressionForDiagnostic(checkedExpression.Expression),
-            UncheckedExpression uncheckedExpression => DescribeExpressionForDiagnostic(uncheckedExpression.Expression),
-            BinaryExpression => "binary expression",
-            IndexAccessExpression => "index access",
-            MatchExpression => "match expression",
-            _ => expression.GetType().Name.Replace("Expression", "", StringComparison.Ordinal)
-        };
-    }
-
     private void AnalyzeAssertStatement(AssertStatement assertStmt)
-    {
-        // Analyze the condition expression
-        var condType = AnalyzeExpression(assertStmt.Condition);
-        ReportSoaRowEscapeIfNeeded(assertStmt.Condition, condType, "asserted");
-        ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assertStmt.Condition, "asserted");
-
-        // Analyze optional message expression
-        if (assertStmt.Message != null)
-        {
-            var messageType = AnalyzeExpression(assertStmt.Message);
-            ReportSoaRowEscapeIfNeeded(assertStmt.Message, messageType, "used as an assertion message");
-            ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assertStmt.Message, "used as an assertion message");
-        }
-
-        // We don't strictly require boolean type because we support various comparison patterns.
-    }
+        => DriveExpressionStatement(_expressionStatements.BeginAssert(assertStmt));
 
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
-    {
-        var exceptionType = _typeResolver.ResolveDeclaredType(assertThrows.ExceptionType);
-        ReportNonThrowableAssertThrowsTypeIfNeeded(assertThrows.ExceptionType, exceptionType);
-
-        // Analyze the body block
-        PushScope(new Scope(ScopeKind.Block), assertThrows.Line, assertThrows.Column);
-        AnalyzeStatements(assertThrows.Body.Statements);
-        PopScope();
-    }
+        => DriveExpressionStatement(_expressionStatements.BeginAssertThrows(assertThrows));
 
     private void AnalyzeLocalFunction(LocalFunctionStatement localFunc)
     {
@@ -3887,10 +3704,7 @@ public class Analyzer : IDisposable
 
         if (forStmt.Iterator != null)
         {
-            AnalyzeDiscardedExpression(
-                forStmt.Iterator,
-                soaUsage: "used as a 'for' iterator",
-                DiscardedExpressionContext.ForIterator);
+            DriveExpressionStatement(_expressionStatements.BeginForIterator(forStmt.Iterator));
         }
 
         var wasInLoop = _inLoop;
@@ -4503,23 +4317,6 @@ public class Analyzer : IDisposable
             span.StartLine,
             span.StartColumn,
             "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions.",
-            span.Length);
-    }
-
-    private void ReportNonThrowableAssertThrowsTypeIfNeeded(TypeReference typeReference, TypeInfo exceptionType)
-    {
-        if (IsThrowableType(exceptionType))
-        {
-            return;
-        }
-
-        var span = TypeReferenceFacts.GetStartSpan(typeReference);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"Assert throws type must be assignable to System.Exception, but this type is '{exceptionType}'",
-            span.StartLine,
-            span.StartColumn,
-            "Assert an Exception-derived type, or use a broader exception type such as Exception.",
             span.Length);
     }
 

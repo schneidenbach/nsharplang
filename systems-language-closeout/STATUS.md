@@ -1,6 +1,56 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-03 (**TASK 017 SLICE 32 LANDED (no commit — mandate) — N# OWNS BOTH OF N#'s
+Last updated: 2026-08-03 (**TASK 017 SLICE 33 LANDED (no commit — mandate) — N# OWNS WHAT AN
+EXPRESSION MEANS WHERE A STATEMENT BELONGS, AND THE WALKER TERRITORY NOW HAS TWO DRIVERS.**
+`AnalyzerExpressionStatements.nl` (**925 lines, THREE types, 30 members**) is the sole authority for
+a bare expression statement, a `for` loop's update clause, `assert` and `assert throws`: which
+expressions actually DO something, the `_errors.Count` guard that decides whether the statement may
+speak at all, both NL313 forms and their rich/detail-only selection, the whole must-use closure and
+its four reason shapes, and the assert-throws type report's wording, span, suggestion and its
+position BEFORE the scope opens. **FOURTEEN C# MEMBERS DELETED OR ROUTERED — 257 SOURCE LINES**:
+eleven private members gone whole, three surviving as one-line routers so the statement dispatch did
+not change, `git diff` **+60 / −263 = net −203**, `Analyzer.cs` **13,739 → 13,536** (non-blank
+12,153 → **11,978**), method declarations **540 → 530**. **THE CLUSTER WAS 3.5× THE BRIEF**: the
+brief named 4 members / ~60 lines and 3 re-entries; re-verification found **14 members / 257 lines**
+(eleven with no caller outside the cluster) and **7 stay-behind re-entries**, four of them
+(`PushScope`, `AnalyzeStatements`, `PopScope`, `IsThrowableType`) re-entries NO local declaration
+makes — so the slice added a SECOND driver rather than widening `DriveLocalDeclaration`, and said
+why. **ONE COLLABORATOR GREW BY ONE MEMBER AND IT IS A FINDING**: the brief called the
+`_errors.Count` read "a driver-visible operand"; it is not, because `AnalyzerDiagnosticSink` already
+owns the list, so `ErrorCount` keeps the guard entirely inside N#. **THE BRIEF'S GUESS ABOUT ASSERTS
+WAS EXACTLY BACKWARDS**: an instrumented baseline found `nlc check` over all 71 targets enters the
+discard walk **38,929 times** and enters `assert`/`assert throws` **ZERO times** (`nlc check` does
+not read `.tests.nl`); a second `nlc test` sweep over the same 71 targets reaches **886 asserts and 7
+assert-throws, every one clean**. **THE FAMILY FIRES NONE OF ITS FOUR DIAGNOSTICS ANYWHERE IN THE
+ESTATE** — the 158 diagnostics seen inside its walks all come from the expression walk it re-enters,
+and every one of them SUPPRESSES the family's own later reports. PROOFS: the semantic-diagnostic
+oracle over **ALL 71 targets — ORACLE_DIFFS = 0 over 11,630 lines, 835 diagnostics across 23 codes,
+ZERO stderr bytes, ZERO exit differences**, md5 identical; an **emission-order protocol differential
+instrumented at the SAME replayed operations in BOTH trees and pointed at ONE source tree — 166,998
+corpus rows and 659 fixture rows, 0 MISMATCHES**, with the guard's `_errors.Count` pinned before and
+after every step; **114 fixtures (47 new + 67 accumulated), 0 diffs on `nlc check` (3,632 lines, 169
+diagnostics over 20 codes), 0 diffs on the UNSORTED `nlc build` transcript (3,401 lines) and 0 diffs
+on `nlc test` (137 lines)** — the only command that compiles `.tests.nl` and therefore the only one
+that reaches `assert`; **71 / 71 corpus build transcripts, TRANSCRIPT_DIFFS = 0 over 1,585 lines**,
+all 71 exiting 0; and a corpus IL sweep whose normaliser was **RE-DERIVED FROM SCRATCH** (two
+same-CLI same-directory builds differ in exactly **17 byte positions** — the PE TimeDateStamp and the
+metadata MVID) and whose **CONTROL RAN FIRST AND PASSED 24 / 24**, after which **128 assemblies
+compared: ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, all 71 N#-EMITTED assemblies BYTE-IDENTICAL**, the 57
+remaining being the COPIED `NSharpLang.Runtime.dll` whose 211-byte residue is **ROOT-CAUSED to the
+CLI-location-dependent embedded PDB path** with **0 SOURCE files** differing. GATES: the FULL VS
+Code-enabled `./scripts/test-all.sh --commit` **ALL TESTS PASSED in 31m 35s** (VS Code integration
+4m18s, SDK pack 6m42s, IL verification green over all 67 N# assemblies); unit **3,194 / 3,194** zero
+drift; contracts **2,526 → 2,607 (+81)**; audit **18 / 18** after a ONE-row in-place repin keeping
+the manifest at **391 lines**, no BOM; VSIX rebuilt, repackaged and reinstalled. NO toolset repin
+needed — every reflection member was already published. **SIX GOTCHAS, headed by `alloc` being a
+RESERVED WORD whose use as a local name declines at `parse.struct` hundreds of lines away at the
+CLASS declaration, and by the compiler's own `nlc check` catching an NL010 in the new owner — the
+FIFTH time the arc's proof surface has graded the owner it was meant to prove, and it was the ORACLE
+that caught it because a filtered check had been reading the wrong JSON key.** NEXT: the function-
+and loop-context ambient field families (now inventoried field by field) BEFORE the arms that read
+them, and `AnalyzeStatement` last. Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-03 (**TASK 017 SLICE 32 LANDED (no commit — mandate) — N# OWNS BOTH OF N#'s
 LOCAL-DECLARATION STATEMENTS, AND ONE ZERO-POLICY DRIVER SERVES THEM BOTH.**
 `AnalyzerVariableDeclaration.nl` grows **467 → 923 lines (33 members)** and becomes the sole
 authority for what `(a, b) := e` means as well as `let x: T = e`: whether the source is a tuple at
@@ -1362,7 +1412,310 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 32 — THE WALKER TERRITORY'S SECOND ARM:
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 33 — THE WALKER TERRITORY'S THIRD CUT: THE
+  ASSERT / EXPRESSION-STATEMENT CLUSTER AND ITS WHOLE PRIVATE CLOSURE.** Target recorded BEFORE any
+  production edit, at `944adad72` (`Analyzer.cs` **13,739** lines, non-blank **12,153**;
+  BootstrapServices contracts **2,526**; unit suite **3,194**; ownership audit **18 / 18**; manifest
+  **391** lines; `reviewedHeadFingerprint head-v1:90027932675e98c6`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE — FOURTEEN MEMBERS, 257 SOURCE LINES, NOT THE BRIEFED FOUR
+  MEMBERS / ~60.** The slice-32 brief named `AnalyzeExpressionStatement` (5),
+  `AnalyzeDiscardedExpression` (28), `AnalyzeAssertStatement` (17) and `AnalyzeAssertThrowsStatement`
+  (10) and said they "re-enter only `AnalyzeExpression`, the two SoA reporters and three report
+  helpers". A caller-closure scan over the whole repo (`src`, `tests`, `editors`, `docs`, `memory`)
+  finds the three report helpers are themselves a TEN-member private closure, and that the
+  assert-throws arm re-enters the statement dispatch (through `AnalyzeStatements`) and the scope
+  stack, neither of which the brief counted:
+
+  | member | extent | lines | callers |
+  |---|---|---|---|
+  | `AnalyzeExpressionStatement` | :3364–:3368 | 5 | 1 — the statement dispatch :3185 |
+  | `AnalyzeDiscardedExpression` | :3370–:3397 | **28** | 2 — `AnalyzeExpressionStatement`, `AnalyzeForStatement` :3890 |
+  | `ReportDiscardedMustUseResultIfNeeded` | :3399–:3424 | 26 | 1 — the discard walk |
+  | `UnwrapMustUseCandidate` | :3426–:3441 | 16 | 1 (+ 3 self-recursions) |
+  | `TryGetMustUseReason` | :3443–:3480 | **38** | 1 |
+  | `HasMustUseAttribute(MethodInfo)` | :3482–:3487 | 6 | 1 |
+  | `IsValidExpressionStatement` | :3492–:3509 | 18 | 1 (+ 4 self-recursions) |
+  | `ReportInvalidExpressionStatement` | :3511–:3536 | 26 | 1 — `ReportInvalidDiscardedExpression` |
+  | `ReportInvalidDiscardedExpression` | :3538–:3547 | 10 | 1 |
+  | `ReportInvalidForIteratorExpression` | :3549–:3574 | 26 | 1 |
+  | `DescribeExpressionForDiagnostic` | :3590–:3604 | 15 | **4** — the two moved reporters + `DescribeAttributeArgumentForDiagnostic` :1316 and `DescribeTableCaseValueForDiagnostic` :1986 |
+  | `AnalyzeAssertStatement` | :3606–:3622 | 17 | 1 — the statement dispatch :3350 |
+  | `AnalyzeAssertThrowsStatement` | :3624–:3633 | 10 | 1 — the statement dispatch :3353 |
+  | `ReportNonThrowableAssertThrowsTypeIfNeeded` | :4509–:4524 | 16 | 1 |
+
+  Eleven of the fourteen are PRIVATE TO THE CLUSTER with no other caller anywhere in the repo.
+  `DescribeExpressionForDiagnostic` has two stay-behind callers and is ROUTED, not duplicated.
+
+  **THE STAY-BEHIND RE-ENTRY SET IS 7, NOT THE BRIEFED 3.** Re-resolving every callee of all
+  fourteen bodies against the file's declaration set and subtracting the callees that are ALREADY N#
+  (`AnalyzerDiagnosticSink`, `AnalyzerDiagnosticSpans`, `AnalyzerTypeResolver`, `SemanticModel`,
+  `ErrorMessageBuilder`, `AnalyzerParserErrorPlaceholders`, `AnalyzerSyntheticCallFacts`,
+  `NSharpMethodGroupInfoFactory`, `TypeReferenceFacts`, `NominalTypeInfoFactory`, `ErrorCode`,
+  `DiscardedExpressionContext`, every `TypeInfo` model) leaves EXACTLY: `AnalyzeExpression`,
+  `ReportSoaRowEscape`, `ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded`, `PushScope`,
+  `AnalyzeStatements`, `PopScope` and `IsThrowableType`. The first three are slice 31/32's kinds
+  6 / 2 / 3 EXACTLY; the last four are NEW and belong to no local declaration.
+
+  **THE FOUR DIAGNOSTICS THE CLUSTER OWNS, INVENTORIED PRECISELY.**
+  (a) **NL315 `DiscardedMustUseResult`** — *"You're discarding {the result of 'f' | this result}, but
+  {reason} — its result must be used"* + *"Use the result (assign it, return it, or pass it to a
+  call), or discard it explicitly with `_ = ...`."*, anchored on
+  `_spans.GetCallDiagnosticSpan(call, calleeName ?? "call")`. FOUR reason shapes, one per callee
+  type: `FunctionTypeInfo{HasMustUseAttribute}` →
+  `'<AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName>' is marked [MustUse]`;
+  `NSharpMethodGroupInfo` whose functions ALL carry it → `'<functions[0].SyntheticName ?? "function">'
+  …`; `ReflectionMethodInfo` whose `MethodInfo` carries a `[MustUse]`-named attribute →
+  `'<method.Name>' …`; `ReflectionMethodGroupInfo` whose methods ALL carry it → `'<Methods[0].Name>'
+  …`. The callee type is READ OFF THE SEMANTIC MODEL at `(Callee.Line, Callee.Column)`, never
+  re-analysed.
+  (b) **NL313 `InvalidExpressionStatement`, expression-statement form** — the rich
+  `ErrorMessageBuilder.InvalidExpressionStatement` when a snippet and file path exist, and the
+  detail-only *"This expression statement has no effect"* fallback otherwise.
+  (c) **NL313 `InvalidExpressionStatement`, for-iterator form** — the rich
+  `ErrorMessageBuilder.InvalidForIteratorExpression` / detail-only *"This for-loop iterator has no
+  effect"* pair, selected by `DiscardedExpressionContext.ForIterator`.
+  (d) **NL202 `TypeMismatch`, assert-throws form** — *"Assert throws type must be assignable to
+  System.Exception, but this type is '<T>'"* + *"Assert an Exception-derived type, or use a broader
+  exception type such as Exception."*, anchored on `TypeReferenceFacts.GetStartSpan(typeReference)`.
+  `AnalyzeAssertStatement` reports NOTHING of its own — it deliberately does not require a boolean
+  condition — and everything it can raise comes from the two SoA reporters it re-enters.
+
+  **THE OTHER THING THE CLUSTER OWNS**: the `_errors.Count` GUARD. `AnalyzeDiscardedExpression`
+  reads the count before the initializer walk and compares it FOUR times, so every later report in
+  the walk is suppressed the instant anything nested reported first. Nothing else in the file
+  sequences its reports this way.
+
+  **DRIVER DECISION: A SECOND, SEPARATE DRIVER — and the kind vocabulary says why.** Three of the
+  cluster's seven re-entries (`AnalyzeExpression` with the ambient target-typing slot LEFT ALONE, the
+  raw SoA row report, the direct-column report) are `DriveLocalDeclaration`'s kinds 6 / 2 / 3 exactly;
+  four (`PushScope`, `AnalyzeStatements`, `PopScope`, `IsThrowableType`) are new and are re-entries
+  NO local declaration makes — a local declaration never opens a scope and never re-enters the
+  statement dispatch. Sharing would mean either widening `VariableDeclarationState` with a statement
+  list and a scope program counter it can never use, or coupling two families through one request
+  type. So this slice adds `AnalyzerExpressionStatements` with its own request/state pair and its own
+  ~30-line `DriveExpressionStatement`, and states the overlap rather than forcing it.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHAT AN EXPRESSION MEANS WHERE A STATEMENT
+  BELONGS.** `Analyzer.cs` keeps no part of a bare expression statement, a `for` loop's update
+  clause, an `assert` or an `assert throws` — not which expressions actually DO something, not the
+  `_errors.Count` guard that decides whether the statement may speak at all, not either NL313 form or
+  its rich/detail-only selection, not the must-use closure or any of its four reason shapes, not the
+  assert-throws report's wording, span or suggestion, and not the order in which the assert-throws
+  scope opens relative to that report.
+
+  **THE CUT — FOURTEEN C# MEMBERS, 257 SOURCE LINES, REPLACED BY A 35-LINE DRIVER AND FOUR ROUTERS.**
+  `git diff` on `Analyzer.cs` **+60 / −263 = net −203**; the file goes **13,739 → 13,536** (non-blank
+  12,153 → **11,978**). Method declarations **540 → 530**: eleven private members are GONE
+  (`AnalyzeDiscardedExpression`, `ReportDiscardedMustUseResultIfNeeded`, `UnwrapMustUseCandidate`,
+  `TryGetMustUseReason`, `HasMustUseAttribute`, `IsValidExpressionStatement`,
+  `ReportInvalidExpressionStatement`, `ReportInvalidDiscardedExpression`,
+  `ReportInvalidForIteratorExpression`, `DescribeExpressionForDiagnostic`,
+  `ReportNonThrowableAssertThrowsTypeIfNeeded`), three survive as ONE-LINE ROUTERS
+  (`AnalyzeExpressionStatement`, `AnalyzeAssertStatement`, `AnalyzeAssertThrowsStatement`) so the
+  statement dispatch DID NOT CHANGE, and `DriveExpressionStatement` is the one addition. Of the 60
+  added lines, **5 are the field's comment, 1 is the field, 1 is the construction assignment, 10 are
+  the driver's doc comment, 37 are the driver body and signature, 4 are the routers, and 2 are the
+  mechanical re-routing of `DescribeAttributeArgumentForDiagnostic` and
+  `DescribeTableCaseValueForDiagnostic` to `AnalyzerExpressionStatements.DescribeExpression`**. The
+  `for`-iterator call site SHRANK from a four-line call to one line, because the "used as a 'for'
+  iterator" wording and the `ForIterator` context moved into the N# entry point. No new C# member
+  with policy, bridge, callback, shell or state, and N# calls nothing back. The owner is
+  `readonly` and NOT rebuilt with the SCC — it holds only the diagnostic sink, the span reader and
+  the type resolver, none of which the rebuild replaces.
+
+  **N# ADDED — one owner, 925 lines, THREE types, 30 members.**
+  `AnalyzerExpressionStatements.nl`: `ExpressionStatementRequest` (the eight kinds and everything
+  each carries), `ExpressionStatementState` (three phase families on one program counter — discard
+  0..3, assert 10..15, assert-throws 20..23), and `AnalyzerExpressionStatements` itself — four
+  `Begin` entries, `NextStep` / `Supply`, the three family advancers and their phase helpers, the
+  validity predicate, the must-use closure (unwrap, the four reason shapes, the reflected-attribute
+  test), the NL315 reporter, both NL313 reporters and their context selector, the NL202 assert-throws
+  reporter and the public prose-name helper the two stay-behind C# reporters now route to. Contracts:
+  `AnalyzerExpressionStatements.tests.nl` **1,035 lines / 81 contracts**, BootstrapServices **2,526 →
+  2,607 (+81)**.
+
+  **ONE N# COLLABORATOR GREW BY ONE MEMBER, AND IT IS AN OWNERSHIP FINDING.**
+  `AnalyzerDiagnosticSink` gains `ErrorCount: int => errorsValue.Count` (+7 lines with its comment).
+  The brief called the `_errors.Count` read "a driver-visible operand the request must carry"; it is
+  not, because the sink ALREADY OWNS the list. Reading its own `Count` keeps the guard entirely
+  inside N#, removes a kind from the driver, and means the driver never has to be told what a
+  diagnostic is.
+
+  **THE SHAPE, MEASURED — AND THE BRIEF'S GUESS ABOUT ASSERTS WAS EXACTLY BACKWARDS.** A THROWAWAY
+  instrumented baseline logged every entry, its answered type, which exit it took and which
+  diagnostic fired. Over **ALL 71 tracked corpus targets `nlc check` enters the discard walk 38,929
+  times** (38,833 expression statements, 96 `for` iterators) and **enters `assert` and
+  `assert throws` ZERO times** — because `nlc check` does not read `.tests.nl`. The brief predicted
+  "the test-DSL assert statements likely fire heavily in `.tests.nl` files — the corpus may NOT be
+  silent here"; the corpus is TOTALLY silent there, and heavily populated on the discard arm instead.
+  A second sweep — `nlc test --filter <no-match>` over the same 71 targets, which DOES compile
+  `.tests.nl` — reaches **886 asserts (826 without a message, 60 with) and 7 assert-throws**, every
+  one of them clean: **zero SoA escapes, zero non-throwable types, 865 of 886 conditions `bool` and
+  21 `unknown`**. **THE FAMILY FIRES NONE OF ITS FOUR DIAGNOSTICS ANYWHERE IN THE ESTATE.** What the
+  discard walk DOES do 38,771 times is reach the column-escape step and then the must-use question;
+  **158 entries are suppressed by the guard** — in every one of them a nested report had already
+  fired — and **10,834 entries reach the semantic-model lookup** because the expression unwrapped to
+  a call. **RESUMABLE IS PROVEN, NOT ASSUMED**: which of the walk's later steps run is a function of
+  the kind-1 answer (the row test), of the kind-3 answer (the column report), of the guard the
+  expression walk itself moved, and of whether the unwrap succeeded — and 10,834 of the 38,929
+  entries differ in step COUNT from the other 28,095 for exactly that reason.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `944adad72` and at the working tree, across **ALL 71 tracked `project.yml` targets with no
+  exclusion** — the ROOT target and `BootstrapServices` (which contains the new owner) included.
+  **ORACLE_DIFFS = 0 over 11,630 lines, 835 diagnostics across 23 codes, ZERO stderr bytes in either
+  tree, ZERO exit-code differences**, md5 `3361443f6056d446b4ce0f1467339ebc` in BOTH. The ONLY raw
+  textual difference in the 71 payloads is the `"checkedFiles"` counter (+1 on BootstrapServices,
+  +2 on ROOT) — the new source file being counted — which is normalised and NAMED rather than
+  silently dropped. **BOTH TREES HAD TO BE GIVEN A `Debug` BUILD FIRST**: eight targets reference
+  `../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll`, and a fresh worktree that has only
+  been built `Release` fails them for a reason that has nothing to do with the slice — the first
+  sweep pair reported eight exit-code differences from exactly that.
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, COMPARED ROW BY ROW.** Both trees were instrumented
+  at the **SAME replayed operations** with the SAME line format — every operation with its operands,
+  its ANSWER and `_errors.Count` BEFORE and AFTER (the discard guard's read is pinned at every one of
+  its four comparison points), and every diagnostic read back OFF `_errors` at the end of each
+  statement walk (index, id, line, column, length, message, suggestion, human explanation, contextual
+  hint, docs URL). **THE CORPUS RUN over all 71 targets — with BOTH instrumented CLIs pointed at THE
+  SAME source tree, which is the only way the row numbers can line up — 166,998 rows, 0 MISMATCHES**,
+  md5 `47a642848fad3790546626a8b4b3be94` in BOTH: 38,929 statement entries, 38,929 kind-1 steps,
+  38,771 kind-3 steps, 10,834 kind-8 semantic-model lookups, 38,929 END rows and **158 DIAG rows,
+  every one of them a diagnostic the EXPRESSION walk raised (NL201/NL202/NL301/NL303/NL905-class) and
+  NONE from this family**. **THE FIXTURE RUN: 659 rows, 0 MISMATCHES**, md5
+  `c20d41263785e0f6540ed88e6551918f` in BOTH — 113 discard entries, 8 asserts, 8 assert-throws, 4
+  kind-2 SoA row reports, 8 each of kinds 4 / 5 / 6 / 7, and 33 diagnostics. Both instrumented trees
+  were built separately from the sweep trees and neither shipped.
+
+  **PROOF — 114 FIXTURES, CHECK, THE UNSORTED BUILD TRANSCRIPT AND `nlc test`.** 47 new fixtures (30
+  discard-family + 12 assert-family + 5 SoA) run TOGETHER WITH the **67 accumulated fixtures still on
+  disk from slices 24 and 32**. The new ones reach every silent thing: both NL313 forms and every
+  `DescribeExpression` arm that feeds them (identifier, member, binary, index access, match, literal,
+  through parentheses), every valid-statement shape that must stay quiet (assignment, call, `new`,
+  `++`, `--`, await), the guard (an undefined identifier as a statement reports ONLY the undefined
+  error), all four must-use paths (`[MustUse]` function, `[MustUse]` method, all-`[MustUse]`
+  overloads, mixed overloads) plus explicit discard, `checked`/`unchecked`/parenthesized wrapping and
+  a used result, an SoA row and an SoA column discarded and an SoA row as a `for` iterator, `assert`
+  with and without a message and with a call as its message, `assert throws` valid / non-throwable /
+  empty-bodied / nested / with an assert inside / with an invalid statement inside / with a name that
+  must not leak, and an SoA row as both an assert condition and an assert message.
+  **`nlc check --json`: FX_CHECK_DIFFS = 0 over 3,632 lines, 169 diagnostics across 20 codes**, md5
+  `17c7d3430a6403999de841b69e710eb1` in BOTH — **17 NL313, 6 NL315 and the assert-throws NL202 are
+  THIS FAMILY's, against ZERO of them in the 835-diagnostic corpus oracle**, which is the whole
+  reason the fixtures exist. **`nlc build`, which renders `_errors` in LIST order with NO dedup and NO
+  sort: FX_BUILD_DIFFS = 0 over 3,401 lines**, md5 `ced662fe6e7f67c4e6889e1a76226605` in BOTH.
+  **`nlc test`, the only command that compiles `.tests.nl` and therefore the only one that reaches
+  `assert` at all: FX_TEST_DIFFS = 0 over 137 lines**, md5 `f17858cb12748c6be4cd662574e987f4`.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED FROM SCRATCH, AND A CONTROL THAT RAN FIRST.** The rule was
+  obeyed rather than the normaliser inherited: two consecutive builds of the same source in the same
+  directory with the same CLI were diffed byte by byte and differ in **exactly 17 byte positions —
+  one at 0x88 inside the PE COFF TimeDateStamp and sixteen at 0x5bc–0x5cb inside the metadata `#GUID`
+  heap's MVID** — while the COPIED `NSharpLang.Runtime.dll` was byte-identical. A structural
+  normaliser that walks the PE header to the CLI header to the metadata root and zeroes those two
+  fields AND NOTHING ELSE (20 byte positions) makes the two builds IDENTICAL, with **0 residual
+  differing positions**. **THE CONTROL THEN RAN BEFORE THE SWEEP — the BASELINE CLI building 12
+  example targets twice — and PASSED 24 / 24, DIFFERENT = 0**, with identical transcripts.
+
+  **PROOF — CORPUS BUILD TRANSCRIPTS AND THE IL SWEEP, FROM ONE PAIR OF SWEEPS OVER IDENTICAL
+  SOURCES.** Both CLIs built **the SAME 71 source directories** (baseline sources, cleaned between
+  runs), so the only variable is the compiler. **`nlc build`, which renders `_errors` in LIST order
+  with NO dedup and NO sort: TRANSCRIPT_DIFFS = 0 over 1,585 lines**, md5
+  `84b86f4e77e28e3084d7fc2d6b542aa8` in BOTH, with **all 71 targets exiting 0, identically**. The
+  same two passes produced the IL: **128 assemblies compared, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, and
+  ALL 71 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL** under the normaliser. The 57 that differ are ONE file
+  — the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the
+  difference is **ROOT-CAUSED, NOT WAVED THROUGH**: `nlc build` copies that DLL from ALONGSIDE THE
+  CLI, the two CLIs live at paths of different LENGTH, and the copied DLL therefore carries a
+  different embedded PDB path, which shifts its RVAs and its CodeView / PDB-checksum records —
+  **exactly 211 bytes in every one of the 57 copies**, in exactly two regions: the debug directory at
+  0x3068+ and four single bytes in the PE headers the length shift moved. `diff -rq -x bin -x obj`
+  over `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **EVIDENCE.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — a FRESH ISOLATED run, no
+  cached whole-gate or per-step result — **ALL TESTS PASSED in 31m 35s**, with **Step 3 Unit Tests
+  10m26s, Step 3a Native N# Tests 5m45s, Step 3b VS CODE INTEGRATION TESTS 4m18s, Step 4 Pack and
+  Install MSBuild SDK 6m42s, and Step 10b IL VERIFICATION green over all 67 N# assemblies**. Full
+  unit suite **3,194 / 3,194, 0 failed** — the `944adad72` baseline COUNT with ZERO drift;
+  `./scripts/dev.sh --since` selected **"full unit suite (no filter)"** and passed it in **7m37s**, so
+  the change-aware filter did not narrow the coverage. BootstrapServices contracts **2,526 → 2,607
+  (+81)**, **2,607 / 2,607 PASS, 0 failed**, under the CURRENT packaged SDK. Ownership audit
+  **18 / 18** against the freshly written manifest. **NO toolset repin was needed and NO wall was
+  crossed** — every reflection member the moved must-use test needs (`MethodInfo.GetCustomAttributesData`,
+  `CustomAttributeData.get_AttributeType`, `Type.Name`, `Type.FullName`, `MemberInfo.get_Name`) is
+  already published, and the estate's own `AnalyzerOverloadScoring` proved the spelling. **RATCHET
+  REPIN** — `current*` + fingerprints ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs`
+  currentLines 13,739 → **13,536**, currentNonBlankLines 12,153 → **11,978**, fingerprint
+  `text-v1:1a17d60d520b2991` → **`text-v1:b7f7754ebb15807e`** (epoch ceilings 23,451 / 20,537
+  PRESERVED and now clear by **9,915 / 8,559**); `reviewedHeadFingerprint head-v1:90027932675e98c6` →
+  **`head-v1:167198f979ed9d7e`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value untouched.
+  **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after**, the manifest `git diff`
+  is exactly 2 changed lines and `OwnershipAudit.nl`'s is exactly 1; neither file carries a BOM
+  afterwards. **VSIX RELOADED**: `./scripts/reload-vscode-extension.sh` rebuilt the language server,
+  repackaged `nsharp-0.6.0.vsix` and reinstalled it — the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is now the post-slice build and
+  SHRANK 836,096 → 832,000 bytes. No computer-use was used.
+
+  The IDE-facing surface this slice OWNS is **every squiggle a statement-shaped expression can
+  raise**: the two "has no effect" wordings with their rich explanations, contextual hints and
+  `NL313` docs links, and their underline on the described sub-expression; the must-use squiggle on
+  the CALLEE name with its four reasons and its `_ = ...` fix hint; the assert-throws type squiggle on
+  the type reference; and — through the guard — the RULE that none of them ever appears on top of a
+  real error inside the same statement, which is what keeps a mistyped call from being told twice.
+
+  **FOUR `.nl` AND HARNESS GOTCHAS, AND THREE ARE NEW TO THE ARC.**
+  **(1) `alloc` IS A RESERVED WORD AND A LOCAL NAMED `alloc` DECLINES AT `parse.struct`** — the
+  decline is reported at the CLASS declaration, hundreds of lines away from the offending local, with
+  no hint of which construct failed. `allocation` compiles. Bisecting `parse.struct` by construct is
+  the wrong first move; scanning the new locals against the keyword list is the right one.
+  **(2) A PROPERTY CHAIN THROUGH A REFLECTION MEMBER DOES NOT EMIT** — `method.Method.Name` declines
+  at `emit.return.expression`; reading the `MethodInfo` into a local first fixes it, and a
+  `MemberInfo` name must then be spelled `get_Name()` rather than `.Name`.
+  **(3) A CLOSED GENERIC `IList<T>` ANSWERED BY REFLECTION NEEDS THE ESTATE'S THREE-PART SPELLING** —
+  `attributes.Count` and `attributes[i].AttributeType` both decline; the working form is
+  `((IList)(object)attributes).Count`, `attributes.get_Item(i)` and `.get_AttributeType()`, which is
+  `AnalyzerOverloadScoring`'s existing spelling for the same shape.
+  **(4) THE COMPILER'S OWN `nlc check` OVER THE NEW OWNER CAUGHT AN NL010** — an unused
+  `import System` — **the FIFTH time in this arc that the proof surface has graded the owner it was
+  meant to prove**, and it was caught by the ORACLE rather than by a filtered check, because the
+  filtered check was reading the wrong JSON key (`diagnostics` instead of `results`) and reported a
+  clean file. A filter over a schema is only as good as the key it names.
+  **(5) UNBUFFERED PROTOCOL INSTRUMENTATION MAKES A CORPUS SWEEP UNRUNNABLE** — one
+  `File.AppendAllText` per row over 167,000 rows turned a 20-minute sweep into an open-ended one; a
+  `StringBuilder` flushed at 4 MB and on `ProcessExit` made it finish. **(6) THE TWO INSTRUMENTED
+  TREES MUST ANALYSE THE SAME SOURCES** — the first corpus differential reported 977 diffs that were
+  ALL line-number shifts, because the work tree's own `AnalyzerDiagnosticSink.nl` is 7 lines longer;
+  pointing both CLIs at ONE source tree took it to 0.
+
+  **THE WALKER TERRITORY AFTER THREE CUTS, AND THE NEXT ONE.** `Analyzer.cs` holds **530 method
+  declarations / 13,536 lines**; the statement walker's four assert/expression arms are now one-line
+  routers, and the territory has TWO zero-policy drivers — `DriveLocalDeclaration` (6 kinds, 2 arms)
+  and `DriveExpressionStatement` (8 kinds, 4 arms) — which overlap on three kinds and are kept apart
+  deliberately.
+  * **NEXT: the two AMBIENT FIELD FAMILIES, BEFORE the arms that read them, and they are now
+    inventoried concretely.** The FUNCTION context is five fields — `_currentReturnType` (32 refs, 16
+    writes, 11 members), `_currentFunction` (20 / 7 / 11), `_currentFunctionIsAsync` (13 / 7 / 6),
+    `_currentFunctionReturnTypeWasOmitted` (16 / 7 / 8) and `_finallyDepth` (23 / 5 / 11) — and the
+    LOOP context is three — `_inLoop` (22 / 13 / 8), `_breakTargetFinallyDepth` (24 / 15 / 9) and
+    `_continueTargetFinallyDepth` (21 / 13 / 8). Their readers are almost the same seven members in
+    both families: `Analyze`, `AnalyzeFunctionDeclaration`, `AnalyzeLambda`, `AnalyzeLocalFunction`,
+    `AnalyzeReturnStatement`, `AnalyzeStatement` and the `for`/`foreach`/`await foreach` trio, plus
+    `AnalyzeTryStatement` and `AnalyzeSwitchStatement` for the finally depths and three
+    return-diagnostic formatters for the function context. Every one of `AnalyzeReturnStatement`
+    (~196 lines), `AnalyzeLocalFunction` (~98) and the loop trio pays for these fields AGAIN if they
+    move first, so the fields should move as ONE owned context object with save/restore entry points
+    before any of those arms is cut.
+  * **AND `AnalyzeStatement` (the dispatch) STILL FALLS LAST**, exactly as `AnalyzePattern` fell last
+    after slices 25–28 carved its arms out.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl33fixtures` (47, this
+  slice) alongside `/private/tmp/nl32fixtures` (31, slice 32) and `/private/tmp/s24fixtures` (36,
+  slice 24) — **114 total**. Every throwaway artifact was deleted: three worktrees (baseline,
+  instrumented baseline, instrumented work), the IL and oracle collections, the normaliser, every
+  sweep script and both control trees. `git status` is exactly FIVE modified files and TWO untracked.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 32 — THE WALKER TERRITORY'S SECOND ARM:
   `AnalyzeTupleDeconstruction` AND ITS WHOLE PRIVATE CLOSURE.** Target recorded BEFORE any production
   edit, at `3d1743c9d` (`Analyzer.cs` **13,875** lines, non-blank **12,273**; BootstrapServices
   contracts **2,472**; unit suite **3,194**; ownership audit **18 / 18**; manifest **391** lines;
