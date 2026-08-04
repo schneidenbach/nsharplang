@@ -409,7 +409,7 @@ public class OwnershipPolicy {
             return true
         }
 
-        return normalized == "artifacts" || normalized == ".context"
+        return normalized == "artifacts" || normalized == ".context" || normalized == ".claude"
             || normalized == "editors/vscode/out" || normalized == "editors/vscode/server"
             || normalized == "website/static/playground/wasm/_framework"
     }
