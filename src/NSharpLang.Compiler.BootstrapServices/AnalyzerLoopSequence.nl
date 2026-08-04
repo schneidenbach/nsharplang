@@ -71,6 +71,115 @@ public class YieldStatementState {
     }
 }
 
+// THE SIX STEPS A `foreach` LOOP CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
+//
+// The walk owns what N#'s TWO iteration statements MEAN — `foreach x in e { … }` and
+// `await foreach x in e { … }`: which escape report the collection's type selects and with which
+// action word, that an escaped collection collapses to `unknown` before anything else looks at it,
+// which of the two element-type questions is asked, what the loop variable's type therefore is,
+// which scope kind opens and at which position, the ORDER of the six replayed operations, and that
+// the body runs inside an open loop. What it cannot do is run the analyzer's own EXPRESSION walk,
+// open or close a scope on the analyzer's scope stack, declare a name into that stack, write the
+// semantic model the IDE reads, or re-enter the STATEMENT dispatch — so it ASKS: one request at a
+// time, each naming a kind and carrying every value the step needs. Nothing here is a policy the
+// driver may reinterpret — the driver switches on `Kind`, performs exactly the one operation with
+// exactly these operands, and hands the answer back.
+//
+// The kinds:
+//   1  analyse the COLLECTION expression, WITHOUT touching the analyzer's ambient target-typing
+//      slot — neither arm ever set it. ANSWERS a type, and that type is the operand of both escape
+//      reports and of the element-type question that settles every step after it.
+//   2  open a block scope on the analyzer's scope stack at `Line` / `Column`.
+//   3  declare the loop variable into the analyzer's scope stack, under `CarriedType`. No
+//      declaration kind is carried: neither arm tagged one, so the analyzer derives it.
+//   4  record the loop variable in the semantic model the IDE's hover and completion read.
+//   5  analyse the loop BODY, which re-enters the statement dispatch and therefore this walk itself.
+//      This is ONE statement, not a list — it is deliberately NOT
+//      `ExpressionStatementRequest`'s kind 5, because the list walk also runs the unreachable-code
+//      rule, and a loop body that is a single statement never had that rule applied to it.
+//   6  close the scope kind 2 opened.
+//
+// The numbering is this walk's own protocol with its own driver and starts at 1 with no gaps; the
+// other walks' numbers mean different operations, and none of them is a shared vocabulary.
+public class ForeachStatementRequest {
+
+    public Kind: int
+    public Node: Expression?
+    public Body: Statement?
+    public Name: string?
+    public CarriedType: TypeInfo
+    public Line: int
+    public Column: int
+
+    constructor(kind: int, carriedType: TypeInfo) {
+        Kind = kind
+        Node = null
+        Body = null
+        Name = null
+        CarriedType = carriedType
+        Line = 0
+        Column = 0
+    }
+}
+
+// THE LOOP'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
+//
+// ONE state serves BOTH iteration statements, because ONE driver serves both. `ForeachStatement` and
+// `AwaitForEachStatement` are structurally identical but share no base beyond `Statement`, so the
+// state carries the five OPERANDS rather than the node, and `IsAsync` is the single bit that
+// separates the two walks: it selects the action word the escape reports use and which of the two
+// element-type entries is asked. Nothing else about them differs.
+//
+// `Phase` is the walk's program counter: 0 asks for the collection; 1 folds the answer in, runs the
+// two escape reports in order and settles the element type; 2 through 5 are the four replayed
+// operations, with the loop opened at 4 and closed at 5; and 6 finishes. 99 is done.
+//
+// `LoopFrame` is the ambient snapshot `EnterLoop` hands back. It is held on the state rather than in
+// a local because the walk SUSPENDS between opening the loop and closing it — the body runs in the
+// driver — and it is nullable only because a state exists before phase 4 has run.
+public class ForeachStatementState {
+
+    variableNameValue: string
+    collectionValue: Expression
+    bodyValue: Statement
+    lineValue: int
+    columnValue: int
+    isAsyncValue: bool
+
+    VariableName: string => variableNameValue
+    Collection: Expression => collectionValue
+    Body: Statement => bodyValue
+    Line: int => lineValue
+    Column: int => columnValue
+    IsAsync: bool => isAsyncValue
+
+    public Phase: int
+    public Pending: int
+    public CollectionType: TypeInfo
+    public ElementType: TypeInfo
+    public LoopFrame: AmbientContextFrame?
+
+    constructor(
+        variableName: string,
+        collection: Expression,
+        body: Statement,
+        line: int,
+        column: int,
+        isAsync: bool) {
+        variableNameValue = variableName
+        collectionValue = collection
+        bodyValue = body
+        lineValue = line
+        columnValue = column
+        isAsyncValue = isAsync
+        Phase = 0
+        Pending = 0
+        CollectionType = BuiltInTypes.Unknown
+        ElementType = BuiltInTypes.Unknown
+        LoopFrame = null
+    }
+}
+
 // WHAT ITERATING A VALUE PRODUCES — the one question `foreach`, `await foreach` and a generator's
 // `yield` all ask, and the reports that are pure functions of its answer.
 //
@@ -100,6 +209,13 @@ public class YieldStatementState {
 // these probes answer NO for it and the walk falls through to the arms that do not depend on runtime
 // identity. That is the behaviour `Analyzer.cs` had, character for character, and it is preserved
 // rather than "fixed": widening it here would change which foreach loops compile.
+//
+// ALL THREE STATEMENTS THAT ASK THE QUESTION ALSO LIVE HERE — `yield`, `foreach` and
+// `await foreach` — for the same reason each: the rule that ends the walk is a question about the
+// ELEMENT TYPE, and that family is this one. Both walks reach their collaborators through the
+// objects this type already holds; neither needs anything `Analyzer.cs` rebuilds with the metadata
+// load context, which is why neither has to be handed one at `Begin` the way the assignability
+// oracle is.
 public class AnalyzerLoopSequence {
 
     diagnosticsValue: AnalyzerDiagnosticSink
@@ -677,6 +793,170 @@ public class AnalyzerLoopSequence {
         }
 
         return null
+    }
+
+    // THE `foreach` STATEMENT'S ENTRY. The five operands are read off the node here, so the walk
+    // never holds an AST node whose type is one of two unrelated classes.
+    public func BeginForeach(statement: ForeachStatement): ForeachStatementState {
+        return new ForeachStatementState(
+            statement.VariableName,
+            statement.Collection,
+            statement.Body,
+            statement.Line,
+            statement.Column,
+            false)
+    }
+
+    // THE `await foreach` STATEMENT'S ENTRY — the same walk with `IsAsync` set, which is the whole
+    // difference between the two arms.
+    public func BeginAwaitForeach(statement: AwaitForEachStatement): ForeachStatementState {
+        return new ForeachStatementState(
+            statement.VariableName,
+            statement.Collection,
+            statement.Body,
+            statement.Line,
+            statement.Column,
+            true)
+    }
+
+    // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this loop is finished.
+    public func NextForeachStep(state: ForeachStatementState): ForeachStatementRequest? {
+        while state.Phase != 99 {
+            request := AdvanceForeach(state)
+            if request != null {
+                return request
+            }
+        }
+
+        return null
+    }
+
+    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 answers anything: the collection's type. The
+    // four replayed operations and the body walk answer nothing, and nothing is folded in for them.
+    public func SupplyForeach(state: ForeachStatementState, answer: TypeInfo?) {
+        pending := state.Pending
+        state.Pending = 0
+
+        if pending == 1 {
+            if answer != null {
+                state.CollectionType = answer
+            }
+        }
+    }
+
+    func AdvanceForeach(state: ForeachStatementState): ForeachStatementRequest? {
+        phase := state.Phase
+        if phase == 0 {
+            return AdvanceForeachCollection(state)
+        }
+
+        if phase == 1 {
+            return AdvanceForeachElementType(state)
+        }
+
+        if phase == 2 {
+            return AdvanceForeachDeclare(state)
+        }
+
+        if phase == 3 {
+            return AdvanceForeachRecord(state)
+        }
+
+        if phase == 4 {
+            return AdvanceForeachBody(state)
+        }
+
+        if phase == 5 {
+            return AdvanceForeachClose(state)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // PHASE 0 — the collection, and nothing before it. The scope opens only after its type is known,
+    // so an expression that mentions the loop variable's name resolves to whatever that name meant
+    // OUTSIDE the loop, which is what `Analyzer.cs` did.
+    func AdvanceForeachCollection(state: ForeachStatementState): ForeachStatementRequest? {
+        state.Phase = 1
+        state.Pending = 1
+        request := new ForeachStatementRequest(1, BuiltInTypes.Unknown)
+        request.Node = state.Collection
+        return request
+    }
+
+    // PHASE 1 — THE TWO ESCAPES AND THE ELEMENT TYPE. The reports run in order and the second is
+    // SHORT-CIRCUITED by the first: a row view that has already been refused must not also be told
+    // it is a direct column read. Either report collapses the collection to `unknown`, which is what
+    // silences the element-type mismatch that would otherwise follow — one bad collection is one
+    // diagnostic, not two.
+    func AdvanceForeachElementType(state: ForeachStatementState): ForeachStatementRequest? {
+        collection := state.Collection
+        usage := "used as a foreach collection"
+        if state.IsAsync {
+            usage = "used as an async foreach collection"
+        }
+
+        if soaEscapeValue.ReportSoaRowEscapeIfNeeded(collection, state.CollectionType, usage) {
+            state.CollectionType = BuiltInTypes.Unknown
+        } else if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(collection, usage) {
+            state.CollectionType = BuiltInTypes.Unknown
+        }
+
+        if state.IsAsync {
+            state.ElementType = ResolveAwaitForeachElementType(collection, state.CollectionType)
+        } else {
+            state.ElementType = ResolveForeachElementType(collection, state.CollectionType)
+        }
+
+        state.Phase = 2
+        request := new ForeachStatementRequest(2, BuiltInTypes.Unknown)
+        request.Line = state.Line
+        request.Column = state.Column
+        return request
+    }
+
+    // PHASE 2 — the loop variable, declared at the STATEMENT's position rather than the variable's,
+    // because that is the position `Analyzer.cs` passed and it is what the binding map records.
+    func AdvanceForeachDeclare(state: ForeachStatementState): ForeachStatementRequest? {
+        state.Phase = 3
+        request := new ForeachStatementRequest(3, state.ElementType)
+        request.Name = state.VariableName
+        request.Line = state.Line
+        request.Column = state.Column
+        return request
+    }
+
+    // PHASE 3 — the semantic model the IDE's hover and completion read. A separate step from the
+    // scope declaration for the reason `AnalyzerVariableDeclaration` records: it writes a different
+    // store, keyed by the semantic scope id rather than by the analyzer's own stack.
+    func AdvanceForeachRecord(state: ForeachStatementState): ForeachStatementRequest? {
+        state.Phase = 4
+        request := new ForeachStatementRequest(4, state.ElementType)
+        request.Name = state.VariableName
+        return request
+    }
+
+    // PHASE 4 — the loop opens, THEN the body runs. The frame is taken here rather than at entry
+    // because the collection expression is not inside the loop: a `break` written in it is as
+    // illegal as one written outside.
+    func AdvanceForeachBody(state: ForeachStatementState): ForeachStatementRequest? {
+        state.Phase = 5
+        state.LoopFrame = ambientValue.EnterLoop()
+        request := new ForeachStatementRequest(5, BuiltInTypes.Unknown)
+        request.Body = state.Body
+        return request
+    }
+
+    // PHASE 5 — the loop closes BEFORE the scope does, which is the order `Analyzer.cs` used.
+    func AdvanceForeachClose(state: ForeachStatementState): ForeachStatementRequest? {
+        state.Phase = 6
+        frame := state.LoopFrame
+        if frame != null {
+            ambientValue.ExitLoop(frame)
+        }
+
+        return new ForeachStatementRequest(6, BuiltInTypes.Unknown)
     }
 
     // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. Same helper, same reason, as

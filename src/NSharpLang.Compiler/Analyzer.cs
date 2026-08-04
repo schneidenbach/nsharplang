@@ -3203,10 +3203,10 @@ public class Analyzer : IDisposable
                 AnalyzeForStatement(forStmt);
                 break;
             case ForeachStatement foreachStmt:
-                AnalyzeForeachStatement(foreachStmt);
+                DriveForeachStatement(_loopSequence.BeginForeach(foreachStmt));
                 break;
             case AwaitForEachStatement awaitForeachStmt:
-                AnalyzeAwaitForeachStatement(awaitForeachStmt);
+                DriveForeachStatement(_loopSequence.BeginAwaitForeach(awaitForeachStmt));
                 break;
             case WhileStatement whileStmt:
                 var condType = AnalyzeExpression(whileStmt.Condition);
@@ -3613,61 +3613,49 @@ public class Analyzer : IDisposable
         PopScope();
     }
 
-    private void AnalyzeForeachStatement(ForeachStatement foreachStmt)
+    /// <summary>
+    /// The steps the N#-owned iteration walks cannot take for themselves. Both of N#'s iteration
+    /// statements — <c>foreach</c> and <c>await foreach</c> — run in
+    /// <see cref="AnalyzerLoopSequence"/> and share this one loop, because they replay the SAME six
+    /// operations in the same order and differ only in a mode flag the walk keeps to itself. Each
+    /// walk suspends at every step, because the collection's type is the operand of both escape
+    /// reports and of the element-type question, whose answer is the loop variable's type. Which
+    /// escape fires and with which action word, which question is asked, which scope opens and
+    /// where, and the order of the six operations are all the walk's decisions. Kind 5 is a SINGLE
+    /// statement rather than <see cref="DriveExpressionStatement"/>'s statement LIST, because a loop
+    /// body never had the unreachable-code rule applied to it.
+    /// </summary>
+    private void DriveForeachStatement(ForeachStatementState state)
     {
-        var collectionType = AnalyzeExpression(foreachStmt.Collection);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(foreachStmt.Collection, collectionType, "used as a foreach collection"))
+        for (var step = _loopSequence.NextForeachStep(state);
+             step != null;
+             step = _loopSequence.NextForeachStep(state))
         {
-            collectionType = BuiltInTypes.Unknown;
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
+                    break;
+                case 3:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    break;
+                case 4:
+                    RecordVariableInCurrentScope(step.Name!, step.CarriedType);
+                    break;
+                case 5:
+                    AnalyzeStatement(step.Body!);
+                    break;
+                case 6:
+                    PopScope();
+                    break;
+            }
+
+            _loopSequence.SupplyForeach(state, answer);
         }
-        else if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(foreachStmt.Collection, "used as a foreach collection"))
-        {
-            collectionType = BuiltInTypes.Unknown;
-        }
-
-        var elementType = _loopSequence.ResolveForeachElementType(foreachStmt.Collection, collectionType);
-
-        PushScope(new Scope(ScopeKind.Block), foreachStmt.Line, foreachStmt.Column);
-
-        DeclareSymbol(foreachStmt.VariableName, elementType, foreachStmt.Line, foreachStmt.Column);
-
-        // Record in semantic model for IDE features (hover, completion, scoped)
-        RecordVariableInCurrentScope(foreachStmt.VariableName, elementType);
-
-        var loopFrame = _ambient.EnterLoop();
-        AnalyzeStatement(foreachStmt.Body);
-        _ambient.ExitLoop(loopFrame);
-
-        PopScope();
-    }
-
-    private void AnalyzeAwaitForeachStatement(AwaitForEachStatement awaitForeachStmt)
-    {
-        var collectionType = AnalyzeExpression(awaitForeachStmt.Collection);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(awaitForeachStmt.Collection, collectionType, "used as an async foreach collection"))
-        {
-            collectionType = BuiltInTypes.Unknown;
-        }
-        else if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(awaitForeachStmt.Collection, "used as an async foreach collection"))
-        {
-            collectionType = BuiltInTypes.Unknown;
-        }
-
-        var elementType = _loopSequence.ResolveAwaitForeachElementType(
-            awaitForeachStmt.Collection, collectionType);
-
-        PushScope(new Scope(ScopeKind.Block), awaitForeachStmt.Line, awaitForeachStmt.Column);
-
-        DeclareSymbol(awaitForeachStmt.VariableName, elementType, awaitForeachStmt.Line, awaitForeachStmt.Column);
-
-        // Record in semantic model for IDE features (hover, completion, scoped)
-        RecordVariableInCurrentScope(awaitForeachStmt.VariableName, elementType);
-
-        var loopFrame = _ambient.EnterLoop();
-        AnalyzeStatement(awaitForeachStmt.Body);
-        _ambient.ExitLoop(loopFrame);
-
-        PopScope();
     }
 
     /// <summary>

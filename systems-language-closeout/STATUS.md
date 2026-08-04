@@ -1,6 +1,45 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-04 (**TASK 017 SLICE 37 LANDED (no commit — mandate) — N# OWNS WHAT A
+Last updated: 2026-08-04 (**TASK 017 SLICE 38 LANDED (no commit — mandate) — N# OWNS WHAT IT MEANS
+TO ITERATE. THE LAST TWO LOOP ARMS ARE GONE AND THE WALKER TERRITORY HAS FIVE DRIVERS.**
+`AnalyzerLoopSequence.nl` grows **693 → 973 lines (TWO new types, 10 new members, 5 of them public)**
+and becomes the sole authority for both of N#'s iteration statements: which escape report the
+collection selects and with which action word, the short-circuit between them, the escape→`unknown`
+collapse, which of the two element-type questions is asked, the loop variable's type, the scope kind
+and the position it opens at, the ORDER of the six replayed operations, and the ambient loop the body
+runs inside. **TWO MEMBERS, 56 SOURCE LINES, ONE DRIVER BACK**: `git diff` **+41 / −53 = net −12**,
+`Analyzer.cs` **12,838 → 12,826** (non-blank 11,332 → **11,332 — FLAT, and that is the finding**:
+after six prior slices these arms were 43 non-blank lines of replayed operations, and the driver that
+replays them is 43 too). **NOT ONE OTHER C# MEMBER IS ADDED**, and the statement dispatch now has
+**TWELVE arms that are a single routing line** against thirteen that still hold policy. **THE SHARED-
+DRIVER OPTION WAS MEASURED AND REFUSED**: extending `DriveLocalDeclaration` or
+`DriveExpressionStatement` would cost +9 lines instead of +41 but would couple two families through
+one request type — slices 33 and 35's argument. **THE BRIEF WAS WRONG ABOUT THE SIXTH RE-ENTRY**:
+`DriveExpressionStatement`'s kind 5 is a statement LIST that runs the unreachable-code rule, and a
+loop body is a single `Statement`, so one kind is genuinely new. PROOFS: the semantic-diagnostic
+oracle over **ALL 71 targets with BOTH CLIs on the SAME worktree — ORACLE_DIFFS = 0 over 906 lines,
+888 checked files and 835 diagnostics across 23 codes**, md5 identical, ZERO stderr bytes on all 142
+runs, plus a **SUPPLEMENTARY PASS** that named and closed the seven pristine-worktree targets whose
+missing relative DLL reference made them silent; an **emission-order protocol differential of fifteen
+row kinds per loop, each carrying its error count — 9,892 corpus rows, 0 MISMATCHES** (634 loops
+across 11 targets, 623 sync and 11 async) which also PROVES the corpus reaches only half the family
+(all 1,268 gate answers `False`), and **2,224 env-gated fixture rows, 0 MISMATCHES** reaching all
+four told paths and measuring the `else if` short-circuit exactly (**99 column gates for 102 loops —
+the three missing ones are the three row escapes**); **349 fixtures** (323 accumulated + 26 new) with
+**FX_CHECK_DIFFS = 0** over 767 lines / 418 diagnostics across 28 codes, **FX_BUILD_DIFFS = 0 over
+6,525 UNSORTED lines** and **FX_TEST_DIFFS = 0**; the IL normaliser **re-derived from scratch** (17
+differing byte positions, and the MVID offset MOVES per assembly, so the normaliser walks the
+structure) with a **CONTROL that ran FIRST and passed 116/116**, after which **ALL 62 N#-emitted
+assemblies were BYTE-IDENTICAL** (the 54 that differ are one copied C# support library, root-caused
+to an embedded PDB path, 0 source files differing); **corpus build transcripts identical in all
+THREE trees, TRANSCRIPT_DIFFS = 0 over 1,561 lines**; **12 new contracts** (2,746 → 2,758); the FULL
+VS Code-enabled gate **ALL TESTS PASSED in 36m 52s** (3,194/3,194 unit, 2,758/2,758 native, VS Code
+integration green, IL verification green over 67 assemblies); ownership audit **18/18**; `nlc check`
+**ZERO findings** in the new code. The parse-error census over the whole accumulated set went **23 →
+21**, repairing TWO of slice 34's fixtures that were written `await for` instead of **`await
+foreach`** and were silently reaching the SYNC arm. No toolset repin, no wall.)
+
+Last updated (prior): 2026-08-04 (**TASK 017 SLICE 37 LANDED (no commit — mandate) — N# OWNS WHAT A
 STRUCT-OF-ARRAYS VALUE MAY NOT DO, AND ALL FOUR WALKER DRIVERS SHRANK AT ONCE.** A new
 `AnalyzerSoaEscape.nl` (**258 lines, ONE type, 11 members, 8 of them public**) becomes the sole
 authority for both SoA escape questions and for the fact underneath the second one: the row-view
@@ -1549,7 +1588,306 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 37 — THE SoA ESCAPE-REPORT FAMILY, WHOLE, AND
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 38 — THE `foreach` AND `await foreach` ARMS,
+  BOTH, TERMINAL.** Target recorded BEFORE any production edit, at `ea6335a7b` (`Analyzer.cs`
+  **12,838** lines, non-blank **11,332**; BootstrapServices contracts **2,746**; unit suite
+  **3,194**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint
+  head-v1:42d7e79dc0fd2f64`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE.** `AnalyzeForeachStatement` (:3616–:3642, **27 lines**, 21
+  non-blank) and `AnalyzeAwaitForeachStatement` (:3644–:3671, **28 lines**, 22 non-blank) — the
+  slice-37 brief said "26 lines each"; the true extent is 27 and 28, because the await arm's
+  element-type call is written across two lines. **EXACTLY TWO CALL SITES**, both in the
+  `AnalyzeStatement` dispatch (:3206, :3209); nothing else in the estate names either method.
+  **NO EXCLUSIVE HELPERS REMAIN**: every non-driver call the two arms make is already N#-owned —
+  `_soaEscape.ReportSoaRowEscapeIfNeeded`, `_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded`,
+  `_loopSequence.ResolveForeachElementType` / `ResolveAwaitForeachElementType`, `_ambient.EnterLoop` /
+  `ExitLoop`. The await family the slice-36 brief flagged at :10604/:10632 has MOVED to :10248/:10276
+  and is `TryGetAwaitExpressionResultType` / `ShouldReportAwaitExpressionTypeMismatch` — the `await`
+  EXPRESSION's territory, which only shares `NormalizeShapeType` with the loop family and is NOT
+  touched by these arms.
+
+  **THE AWAIT-SPECIFIC SURFACE OF `await foreach` IS THREE THINGS AND NOTHING ELSE**: the two action
+  strings (`"used as an async foreach collection"`), the choice of `ResolveAwaitForeachElementType`
+  over `ResolveForeachElementType`, and — inside that owner — `requireAsync = true`. The arm does NOT
+  validate the enclosing function's `async`-ness, does NOT touch task types, and does NOT name
+  `IAsyncEnumerable` itself: the whole `GetAsyncEnumerator` / `IAsyncEnumerable<T>` probe already
+  lives in `AnalyzerLoopSequence`. The carried `async func(): Task` crash is therefore NOT reachable
+  from these arms; it is reachable from the fixtures that WRAP them, and fixtures are shaped with
+  `Task<int>` accordingly.
+
+  **THE SIX STAY-BEHIND RE-ENTRIES, CONFIRMED**: `AnalyzeExpression`, `PushScope`, `DeclareSymbol`,
+  `RecordVariableInCurrentScope`, `AnalyzeStatement` and `PopScope`. Five are kinds the estate's
+  drivers already have (`DriveExpressionStatement` 1 / 4 / 6, `DriveLocalDeclaration` 4 / 5). The
+  SIXTH IS NEW AND THE BRIEF WAS WRONG ABOUT IT: `DriveExpressionStatement`'s kind 5 is
+  `AnalyzeStatements(List<Statement>)`, the LIST walk, which also runs the unreachable-code rule; a
+  loop BODY is a single `Statement` and must go through `AnalyzeStatement`, so the driver needs one
+  kind no existing driver has.
+
+  **THE SHAPE MEASUREMENT: ONE REQUEST TYPE, ONE STATE, ONE DRIVER, AN `IsAsync` FLAG.** The two arms
+  are the same walk twice: identical operation sequence, identical order, differing only in the mode
+  flag and two action strings. Their AST nodes (`ForeachStatement`, `AwaitForEachStatement`) are
+  structurally identical but share no base beyond `Statement`, so the state carries the five extracted
+  operands rather than the node. The walk lands in **`AnalyzerLoopSequence`**, not a new file: it
+  already owns the element-type question that IS the foreach's central decision, already holds
+  `soaEscape` and `ambient` (both constructed exactly once and never rebuilt with the SCC), and
+  already hosts the `yield` walk for the same reason.
+
+  **THE `for` / `while` ABSORB: DECLINED, AND MEASURED.** `AnalyzeForStatement` (:3568–:3614, 47
+  lines) and the inline `while` arm (:3211–:3233, 23 lines) would need **THREE kinds no driver has**,
+  and one of them is disqualifying: `IsBoolType` (a C# private with **11** call sites) as a predicate
+  step, `ReportBooleanConditionTypeMismatch` (**3** call sites — `while`, `for`, ternary; the `if`
+  arm has its OWN richer report) as a DIAGNOSTIC step, which no driver in this estate has ever
+  performed and which would leave the wording in C#, and a NESTED `DriveExpressionStatement` for the
+  `for` iterator. Both arms also read `_flowNarrowing`, which `Analyzer.cs` **REBUILDS with the
+  metadata load context** (:12304, :12332), so it cannot be held by a once-constructed owner. The
+  boolean-condition family is its own slice.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHAT IT MEANS TO ITERATE.** `Analyzer.cs` keeps no
+  part of either loop statement — not which escape report the collection selects nor with which
+  action word, not the escape→`unknown` collapse, not which of the two element-type questions is
+  asked, not the loop variable's type, not the scope kind or the position it opens at, not the order
+  of the six operations, and not the fact that the body runs inside an open loop. The statement
+  dispatch now has **TWELVE arms that are a single routing line** and thirteen that still hold policy.
+
+  **THE CUT — TWO MEMBERS, 56 SOURCE LINES, ONE DRIVER BACK.** `git diff` on `Analyzer.cs`
+  **+41 / −53 = net −12**; the file goes **12,838 → 12,826**, and non-blank goes **11,332 → 11,332 —
+  FLAT, which is the honest number and is the finding**: after six prior slices took everything else
+  out of these arms, what remained was 43 non-blank lines of replayed operations, and a driver that
+  replays them is 43 non-blank lines too. Members **−1**: `AnalyzeForeachStatement` (:3616–:3642, 27
+  lines, 21 non-blank) and `AnalyzeAwaitForeachStatement` (:3644–:3671, 28 lines, 22 non-blank) are
+  GONE; `DriveForeachStatement` (44 lines, of which 12 are its doc comment) is added. BY REGION the
+  diff is −1 +1 and −1 +1 on the two dispatch cases and −53 +41 on the two arm bodies collapsing into
+  the driver. **NOT ONE OTHER C# MEMBER IS ADDED** — no shell, no bridge, no state — and N# calls
+  nothing back. Compiler warnings are **11 in BOTH trees**.
+
+  **WHY A FIFTH DRIVER AND NOT A SHARED ONE, MEASURED RATHER THAN ASSUMED.** Extending
+  `DriveLocalDeclaration` (which already has `DeclareSymbol` and `RecordVariableInCurrentScope` at
+  kinds 4 and 5) or `DriveExpressionStatement` (which already has `AnalyzeExpression`, `PushScope`
+  and `PopScope`) would each need THREE new kinds and cost about **+9 lines instead of +41** — but it
+  would put a `foreach` inside `AnalyzerVariableDeclaration`'s or `AnalyzerExpressionStatements`'
+  request type and couple two families through one state, which is the exact argument slices 33 and
+  35 used to refuse sharing. The walk lives in `AnalyzerLoopSequence` because the element-type
+  question IS the loop's central decision; a request type owned by one family and constructed by
+  another is not a boundary this arc has accepted.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `ea6335a7b` and at the working tree, across **ALL 71 tracked `project.yml` targets with no
+  exclusion**, BOTH CLIs pointed at the SAME `git worktree` copy. **ORACLE_DIFFS = 0 over 906 lines,
+  888 checked files and 835 diagnostics across 23 codes**, md5 `efeb9805a347ffc8bd3189f22381463f` in
+  BOTH, `stderrBytes = 0` on every one of the 142 runs, **ZERO `PARSE-FAIL` rows**, exit codes
+  identical. ONE field is normalised and NAMED: the absolute project-root prefix on each diagnostic's
+  file path. **SEVEN targets answered `{"error": …}` with no `results` key on BOTH sides** and are
+  NAMED rather than waved through: in a pristine worktree they reference
+  `../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll`, which does not exist there. A
+  **SUPPLEMENTARY PASS placed that reference and re-ran all seven on both sides**: six then analyse
+  (`SUPP_ORACLE_DIFFS = 0`, 0 diagnostics, 0 loops — they contain no `foreach` in a checked file) and
+  the seventh still declines identically, so the gap is closed and measured rather than assumed away.
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, ROW BY ROW, WITH PER-ROW ERROR COUNTS.** Both trees
+  were instrumented at the SAME probe points with the SAME line format, in SEPARATE copies that never
+  shipped. Fifteen row kinds per loop — loop entry with mode / variable / position / error count, the
+  collection's answered type with its error count, the row gate with its answer AND the error count
+  captured INSIDE the walk, the column gate the same way (emitted only when it is REACHED), the
+  collapsed collection type, the element type with its error count, the scope open with its position,
+  the declaration with name / type / position / error count, the semantic-model write, loop open, body
+  with its error count, loop close, scope close with its error count — plus every diagnostic read back
+  off `_errors` at the end of each `Analyze` and that analysis's error count. Because the work side's
+  gate answers live inside N#, six throwaway fields were added to the state IN THE INSTRUMENTED COPY
+  ONLY so the counts compared are the walk's own, not the driver's.
+  * **THE CORPUS RUN over all 71 targets, both instrumented CLIs on THE SAME source tree — 9,892
+    rows, 0 MISMATCHES**, md5 `10f198cd45bbdacff2861ecd47d3262e` in BOTH: 975 analysis ends, **634
+    loop entries across 11 targets (623 `foreach`, 11 `await foreach`)**, 634 element-type answers of
+    which exactly ONE is `unknown`, and 634 of each replayed operation. And a finding the corpus makes
+    about itself: **every one of its 1,268 gate answers is `False`** — a corpus of compiling sources
+    never fires an SoA escape, so `COLGATE` is reached 634 times out of 634 and the short-circuit
+    never runs. The told paths are unreachable from the corpus, which is why the fixtures exist.
+  * **THE ENV-GATED FIXTURE RUN closes that gap: 2,224 rows, 0 MISMATCHES**, md5
+    `0fefd2afcc1abf895ce360f6cba76e29` in BOTH, over all **349** fixtures under
+    `NSHARP_EXPERIMENTAL_SOA=1`: **102 loop entries (88 sync, 14 async)**, and **99 column gates
+    rather than 102 — the three missing ones are exactly the three row escapes that SHORT-CIRCUITED
+    them**, which is the `else if` proven rather than argued. All four told paths fire: row escape 2
+    sync + 1 async, column escape 2 sync + 1 async, and 8 collapses to `unknown` (6 from an escape,
+    2 from a collection that was already unknown).
+
+  **PROOF — 349 FIXTURES, AND A PARSE-ERROR CENSUS THAT REPAIRED TWO MORE.** 26 new fixtures (20
+  plain + 6 env-gated) run TOGETHER WITH the **323 accumulated on disk from slices 24 and 32–37**. The
+  26 cover the element type an array / `string` / `List<T>` / `Dictionary<K,V>` / `IAsyncEnumerable<T>`
+  produces and prove it by MISUSING the loop variable, the non-enumerable and async-mismatch reports,
+  the variable's scope (gone after the loop, shadowing an outer name and releasing it, a collection
+  that mentions the loop variable's own name resolving OUTWARD, nested loops, two loops reusing one
+  name), the loop window (`break`/`continue` legal inside and `break` illegal after), and all four
+  SoA escapes on both arms plus two controls that must stay silent — including one proving the probe
+  is SYNTACTIC: a column bound to a local first reports "stored in a variable", not the loop wording.
+  **`nlc check --json`: FX_CHECK_DIFFS = 0 over 767 lines**, md5 `ea3dbe97926ad98f61b530672eb932e3`
+  in BOTH, **418 diagnostics across 28 codes**, exits identical (0 × 68, 1 × 281), `stderrBytes = 0`
+  everywhere, **ZERO `PARSE-FAIL` and ZERO missing-`results` keys**.
+  **THE CENSUS OVER THE WHOLE ACCUMULATED SET went 23 → 21**, because it found that **N#'s async
+  iteration is `await foreach x in e`, NOT `await for x in e`** — and slice 34's `f08` and `f09` were
+  written the second way, producing NL101 and reaching the **SYNC** arm ("foreach collection must be
+  enumerable, but this collection is 'IAsyncEnumerable<int>'") while looking like `await foreach`
+  coverage. Both were repaired and now reach the async arm. The 21 that remain sit in 9 fixtures, all
+  in other slices' territories (lambda bodies, indexers, `newtype` construction, top-level `return`,
+  a one-name `:=`), and several legitimately test syntax errors. **The 26 new fixtures add ZERO parse
+  errors.**
+  **`nlc build`, which renders `_errors` in LIST order with NO dedup and NO sort — the only surface
+  that shows undeduplicated multiplicity: FX_BUILD_DIFFS = 0 over 6,525 UNSORTED lines**, md5
+  `868c23568e7c23a3fb340f1963814ef3`, identical exits (0 × 68, 1 × 281), with **81 SoA lines in raw
+  list order**, from two PRISTINE staging copies with `bin`/`obj` stripped and verified identical
+  before either was built. The ONLY normalisation is elapsed-time text and the staging root, both
+  NAMED.
+  **`nlc test` over the 14 fixtures that carry a `.tests.nl`: FX_TEST_DIFFS = 0 over 114 lines**, md5
+  `46ac3bde98f8dbf85aed87e3bd37c603` in BOTH, from two pristine staging copies built serially.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED FROM SCRATCH, AND A CONTROL THAT RAN FIRST.** Two
+  consecutive builds of the same source in the same directory with the same CLI differ in **exactly
+  17 byte positions — one at 0x88 inside the PE COFF TimeDateStamp and sixteen inside the metadata
+  `#GUID` heap's MVID** (at 0x1834–0x1843 for the assembly measured; the OFFSET moves per assembly,
+  which is why the normaliser WALKS the DOS header → PE signature → COFF header → optional header →
+  data directories → section table → CLI header → metadata root → stream headers → `#GUID` instead of
+  using fixed offsets). Zeroing those two fields AND NOTHING ELSE (20 byte positions) leaves **0
+  residual differing positions**. **THE CONTROL THEN RAN BEFORE THE TEST — the BASELINE CLI building
+  TWO IDENTICAL COPIES of the whole 71-target corpus — and PASSED: compared 116, SAME 116,
+  DIFFERENT 0**, with `CONTROL_TRANSCRIPT_DIFFS = 0`.
+
+  **PROOF — CORPUS BUILD TRANSCRIPTS AND THE IL SWEEP, FROM THREE SWEEPS OVER IDENTICAL SOURCES.**
+  All three trees were byte-identical copies (`diff -rq` clean) before any build. **`nlc build`:
+  CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS = 0 over 1,561 lines**, md5
+  `067d152e96af407b84f102bd6f681f4b` in ALL THREE, with **identical exit codes (0 × 54, 1 × 17)**. The
+  same passes produced the IL: **116 assemblies compared, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, and ALL
+  62 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL** under the normaliser. The 54 that differ are ONE file —
+  the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the
+  difference is **ROOT-CAUSED, NOT WAVED THROUGH**: exactly ONE distinct content per tree, **76
+  differing byte positions in six runs** (the TimeDateStamp, one MVID, and the CodeView /
+  PDB-checksum debug-directory records), `strings` finds the embedded PDB path
+  `/private/tmp/nl38base/…` in one and `/private/tmp/nl38work/…` in the other, and
+  `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **N# ADDED — 280 lines, TWO new types, 10 new members (5 public), NO new file.**
+  `AnalyzerLoopSequence.nl` grows **693 → 973**: `ForeachStatementRequest` (6 kinds documented),
+  `ForeachStatementState` (the five extracted operands, `IsAsync`, the program counter and the ambient
+  loop frame the walk holds ACROSS a suspension), `BeginForeach`, `BeginAwaitForeach`,
+  `NextForeachStep`, `SupplyForeach` and the six `AdvanceForeach*` phase members.
+  `AnalyzerLoopSequence.tests.nl` gains **12 contracts** written around the four things the pair is
+  easy to get wrong: the six-step ORDER (the collection asked for before the scope opens; the loop
+  closed BEFORE the scope), that the two arms differ ONLY in a mode flag, the escape→`unknown` collapse
+  that keeps one bad collection to ONE diagnostic, and the body step being a single STATEMENT rather
+  than the statement LIST the expression-statement family asks for. One contract samples the ambient
+  loop flag at EVERY step and pins the window: false, false, false, false, TRUE, false. Contracts:
+  BootstrapServices **2,746 → 2,758 (+12)**, 0 failed, green on the first run.
+
+  **THE SIXTH RE-ENTRY WAS NEW, AND THE BRIEF WAS WRONG ABOUT IT.** Slice 37 recorded that all six
+  stay-behind re-entries "are kinds the estate's other drivers already have". Five are.
+  `AnalyzeStatement` is NOT: `DriveExpressionStatement`'s kind 5 is `AnalyzeStatements(List<Statement>)`,
+  the LIST walk, which also runs the unreachable-code rule — and a loop body is a single `Statement`
+  that never had that rule applied to it. Passing a one-element list would have been a silent
+  behaviour change, so the driver carries a `Statement` on its own request field.
+
+  **THE COMPILER'S OWN `nlc check` GRADED THE NEW CODE, AND IT PASSED CLEAN.** `nlc check --json`
+  over `NSharpLang.Compiler.BootstrapServices` reports **ZERO findings in `AnalyzerLoopSequence.nl`**,
+  against an unchanged estate baseline of **282**.
+
+  **RATCHET REPIN** — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 12,838 → **12,826**, currentNonBlankLines
+  **11,332 → 11,332 (unchanged, and recorded as such)**, fingerprint `text-v1:d3ded9b6b0ddac2f` →
+  **`text-v1:0a9a41f9597b75c5`** (epoch ceilings 23,451 / 20,537 PRESERVED and now clear by
+  **10,625 / 9,205**); `reviewedHeadFingerprint head-v1:42d7e79dc0fd2f64` →
+  **`head-v1:ae795f420a927788`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value untouched.
+  The recomputation was VALIDATED BEFORE it was applied: an independent FNV-1a walk reproduced the OLD
+  `text-v1:d3ded9b6b0ddac2f` from the baseline file and the OLD `head-v1:42d7e79dc0fd2f64` from the
+  unmodified manifest exactly, so the new values are derived rather than guessed. **FORMAT DISCIPLINE
+  HELD: `wc -l` on the manifest is 391 before AND after**, the manifest `git diff` is exactly 2 changed
+  lines and `OwnershipAudit.nl`'s is exactly 1; neither file carries a BOM afterwards.
+
+  **NO TOOLSET REPIN WAS TAKEN, AND NONE WAS NEEDED.** The walk consumes nothing new: it holds the
+  same `AnalyzerSoaEscape` and `AnalyzerAmbientContext` the type already had, calls its own
+  `ResolveForeachElementType` / `ResolveAwaitForeachElementType`, and names `ForeachStatement`,
+  `AwaitForEachStatement` and `Statement` from the AST that `AnalyzerLoopSequence.nl` already imports.
+  **There is no reflection in the new code at all**, so unlike slice 36 there is no
+  MetadataLoadContext dimension and no accessor-spelling hazard. **No wall was met.**
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is everything a developer sees at a loop: the loop
+  variable's inferred type in hover and completion (it is the walk that decides the element type and
+  the walk that asks for the semantic-model write), the scope the variable lives in and the fact that
+  it disappears at the closing brace, "foreach collection must be enumerable, but this collection is
+  '*T*'" and its async twin with their own suggestions, both SoA escape squiggles in their `foreach`
+  and async-`foreach` wordings, and whether `break`/`continue` are legal in the body — because the
+  walk is what opens and closes the ambient loop around it.
+
+  **FOUR GOTCHAS, AND THREE ARE NEW TO THE ARC.**
+  **(1) N#'s ASYNC ITERATION IS `await foreach x in e`, NOT `await for x in e`** — while the
+  SYNCHRONOUS form is `for x in e`, with no `foreach` keyword. `await for` parses as an `await`
+  expression followed by a plain `for`, so it produces NL101 "Unexpected token 'for' in expression"
+  AND SILENTLY REACHES THE SYNC ARM. Two of slice 34's fixtures were in exactly that state; both were
+  repaired here. This is the same failure mode as slice 37's `case X:` finding: a fixture that looks
+  like coverage and reaches its arm zero times.
+  **(2) A DRIVER KIND THAT LOOKS SHARED MAY NOT BE.** `DriveExpressionStatement`'s kind 5 analyses a
+  statement LIST and runs the unreachable-code rule with it; a loop body is a single statement. The
+  cheap move — pass a one-element list — would have changed behaviour silently. Check what a kind
+  DOES, not what it is called.
+  **(3) AN N# WALK CANNOT PROBE ITSELF, SO THE THROWAWAY STATE CARRIES THE COUNTS.** The emission-order
+  differential needs the error count at the moment each escape gate answered, and those moments are
+  inside N#. `File.AppendAllText` is still unmodeled (slice 37's gotcha 1), so the instrumented copy
+  adds six public fields to the state and lets the C# driver render them — which keeps the rows in
+  emission order because the driver is what runs between the walk's suspensions.
+  **(4) SEVEN CORPUS TARGETS ARE SILENT IN A PRISTINE WORKTREE**, answering `{"error": …}` with no
+  `results` key because they reference `../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll`,
+  which a fresh `git worktree` has not built. Identical on both sides, so every diff is 0 — the same
+  shape as slice 37's gotcha 3 but from a different cause. Placing the reference and re-running the
+  seven is a two-minute supplementary pass and is the honest way to close it.
+
+  **EVIDENCE.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — a FRESH ISOLATED run, no
+  cached whole-gate or per-step result — **ALL TESTS PASSED in 36m 52s**, with **Step 2 Build N#
+  Compiler 4m10s, Step 2b Format Contract Gate green, Step 3 Unit Tests 12m21s (3,194 / 3,194, 0
+  failed), Step 3a Native N# Tests 6m47s (compiler-service contracts 2,758 / 2,758, 0 failed, plus
+  the whole native estate including ownership-audit 18 / 18), Step 3b VS CODE INTEGRATION TESTS
+  4m56s, Step 4 Pack and Install MSBuild SDK 7m43s, Steps 4b–10 template pack / install / creation /
+  template build / example builds / single-file examples / `nlc check` all green, and Step 10b IL
+  VERIFICATION green over all 67 N# assemblies**. The unit count is the `ea6335a7b` baseline COUNT
+  with ZERO drift; `./scripts/dev.sh --since` selected the **FULL unit suite (fail-safe)** and passed
+  it in **16m 25s** (3,194 / 3,194, 0 failed), so the change-aware filter did not narrow the
+  coverage. BootstrapServices contracts **2,746 → 2,758 (+12)**, 0 failed. Ownership audit **18 / 18**
+  against the freshly repinned manifest. **THE GATE RAN OVER THE FINAL SOURCE TREE**: every compiler,
+  contract and manifest file was byte-final before it started.
+
+  **VSIX RELOADED**: `./scripts/reload-vscode-extension.sh` rebuilt the language server, repackaged
+  `nsharp-0.6.0.vsix` (289 files) and reinstalled it — the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is now the post-slice build and
+  SHRANK **822,784 → 822,272 bytes**. No computer-use was used.
+
+  **THE WALKER TERRITORY AFTER EIGHT CUTS, AND WHAT STANDS BETWEEN HERE AND `AnalyzeStatement`.**
+  `Analyzer.cs` holds **12,826 lines**; the territory has FIVE zero-policy drivers and THREE owned
+  context objects. `AnalyzeStatement` is **117 lines with 25 arms**; **TWELVE are already a single
+  routing line** (expression statement, `let`, deconstruction, `foreach`, `await foreach`, `yield`,
+  `return`, `break`, `continue`, `assert`, `assert throws`, preprocessor directive). **THIRTEEN still
+  hold policy**, and they are the whole remaining bill:
+  * **EIGHT NAMED ARMS, 362 lines**: `AnalyzeIfStatement` (81), `AnalyzeLocalFunction` (71),
+    `AnalyzeForStatement` (47), `AnalyzeTryStatement` (35), `AnalyzeLockStatement` (33),
+    `AnalyzeOffStatement` (33), `AnalyzeUsingStatement` (31), `AnalyzeSwitchStatement` (31).
+  * **FIVE INLINE ARMS, 39 lines**: `WhileStatement` (22 — the largest inline policy left),
+    `ThrowStatement` (7, plus `ReportNonThrowableThrowOperandIfNeeded`, 16 lines, 1 call site),
+    `PrintStatement` (4), `BlockStatement` (3), and `alloc`/`allow`/`unsafe` (1 line each).
+  * **NEXT: THE BOOLEAN-CONDITION FAMILY, because it blocks four arms at once.** `while` (:3216),
+    `if` (:3497), `for` (:3580) and the ternary (:9039) all write
+    `!rowEscape && !columnEscape && !IsBoolType(t)` and then report. `IsBoolType` is 4 lines with
+    **11 call sites**; `ReportBooleanConditionTypeMismatch` is 13 lines with **3** (the `if` arm has
+    its OWN richer report through `ErrorMessageBuilder` with a source snippet, which is the part to
+    measure carefully). Nothing can move `while` or `for` before this family moves, because a driver
+    that emits a diagnostic is a policy leak this arc has never accepted.
+  * **THEN `while` + `for` on ONE driver** (they are the same walk with and without an initializer
+    and an iterator), which additionally needs `_flowNarrowing` handed in at `Begin` — it is REBUILT
+    with the metadata load context at :12304 and :12332, exactly like `_assignability`.
+  * **THEN the resource arms** (`try` / `using` / `lock`), then `switch`, `off` and the local
+    function, and **`AnalyzeStatement` LAST**, exactly as `AnalyzePattern` fell last.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl38fixtures` (20, this
+  slice) and `/private/tmp/nl38soafx` (6, this slice, env-gated `NSHARP_EXPERIMENTAL_SOA=1`)
+  alongside `/private/tmp/nl37soafx` (54), `/private/tmp/nl36fixtures` (35),
+  `/private/tmp/nl36soafx` (4), `/private/tmp/nl35fixtures` (50), `/private/tmp/nl35soafx` (3),
+  `/private/tmp/nl34fixtures` (63, TWO of them repaired here), `/private/tmp/nl33fixtures` (47),
+  `/private/tmp/nl32fixtures` (31) and `/private/tmp/s24fixtures` (36) — **349 total**.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 37 — THE SoA ESCAPE-REPORT FAMILY, WHOLE, AND
   THE COLUMN-ACCESS REGISTRY IT READS.** Target recorded BEFORE any production edit, at `33808eb97`
   (`Analyzer.cs` **12,962** lines, non-blank **11,446**; BootstrapServices contracts **2,723**; unit
   suite **3,194**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint

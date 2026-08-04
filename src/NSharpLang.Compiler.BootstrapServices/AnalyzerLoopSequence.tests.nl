@@ -830,3 +830,293 @@ test "AN UNANSWERED VALUE WALK LEAVES THE YIELDED TYPE unknown RATHER THAN NULL"
     // An unanswered walk leaves `unknown`, which silences the rule rather than reporting nonsense.
     assert harness.Errors.Count == 0
 }
+
+// ── the `foreach` / `await foreach` walk ─────────────────────────────────────
+//
+// These two statements were the LAST `Analyzer.cs` arms in this territory. Their contracts are
+// written around the four things the pair is easy to get wrong: the six-step ORDER (the collection
+// is asked for before the scope opens, and the loop closes before the scope does), the fact that the
+// two arms differ ONLY in a mode flag and therefore must not drift apart, the escape→`unknown`
+// collapse that keeps one bad collection to ONE diagnostic, and the body step being a single
+// STATEMENT rather than the statement LIST the expression-statement family asks for.
+class LoopForeachStep {
+    Kind: int
+    Node: Expression?
+    Body: Statement?
+    Name: string?
+    CarriedType: string
+    Line: int
+    Column: int
+    InLoop: bool
+    ErrorsBefore: int
+
+    constructor(
+        kind: int,
+        node: Expression?,
+        body: Statement?,
+        name: string?,
+        carriedType: string,
+        line: int,
+        column: int,
+        inLoop: bool,
+        errorsBefore: int) {
+        Kind = kind
+        Node = node
+        Body = body
+        Name = name
+        CarriedType = carriedType
+        Line = line
+        Column = column
+        InLoop = inLoop
+        ErrorsBefore = errorsBefore
+    }
+}
+
+// The foreach driver, exactly as `Analyzer.cs` writes it, with the ambient loop flag sampled at
+// every step so that the loop's open/close window is pinned rather than assumed.
+func LoopRunForeach(
+    harness: LoopHarness,
+    state: ForeachStatementState,
+    answer: TypeInfo?): List<LoopForeachStep> {
+    steps := new List<LoopForeachStep>()
+    step := harness.Sequence.NextForeachStep(state)
+    while step != null {
+        steps.Add(new LoopForeachStep(
+            step.Kind,
+            step.Node,
+            step.Body,
+            step.Name,
+            LoopTypeText(step.CarriedType),
+            step.Line,
+            step.Column,
+            harness.Ambient.InLoop,
+            harness.Errors.Count))
+
+        harness.Sequence.SupplyForeach(state, answer)
+        step = harness.Sequence.NextForeachStep(state)
+    }
+
+    return steps
+}
+
+func LoopForeachKinds(steps: List<LoopForeachStep>): string {
+    rendered := ""
+    index := 0
+    while index < steps.Count {
+        if index > 0 {
+            rendered = rendered + ","
+        }
+
+        rendered = rendered + steps[index].Kind.ToString()
+        index = index + 1
+    }
+
+    return rendered
+}
+
+func LoopForeachBody(): Statement {
+    body: Statement = new BlockStatement(new List<Statement>(), 7, 9)
+    return body
+}
+
+func LoopForeachOver(collection: Expression, body: Statement): ForeachStatement {
+    return new ForeachStatement("item", collection, body, 6, 5)
+}
+
+func LoopAwaitForeachOver(collection: Expression, body: Statement): AwaitForEachStatement {
+    return new AwaitForEachStatement("item", collection, body, 6, 5)
+}
+
+func LoopArrayOf(element: TypeInfo): TypeInfo {
+    arrayType: TypeInfo = new ArrayTypeInfo(element)
+    return arrayType
+}
+
+test "A foreach ASKS FOR SIX STEPS IN ONE FIXED ORDER" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert LoopForeachKinds(steps) == "1,2,3,4,5,6"
+    assert harness.Errors.Count == 0
+}
+
+test "AN await foreach ASKS FOR THE SAME SIX STEPS — THE ARMS DIFFER ONLY IN A MODE FLAG" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginAwaitForeach(
+        LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRunForeach(
+        harness, state, LoopGeneric("IAsyncEnumerable", BuiltInTypes.String))
+
+    assert LoopForeachKinds(steps) == "1,2,3,4,5,6"
+    assert steps[2].CarriedType == "string"
+    assert harness.Errors.Count == 0
+}
+
+test "THE COLLECTION IS ASKED FOR BEFORE THE SCOPE OPENS, AND THE SCOPE OPENS AT THE STATEMENT" {
+    harness := LoopDefault()
+    collection := LoopCollection()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(collection, LoopForeachBody()))
+
+    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    // Step 1 carries the collection node itself, and NOTHING has opened yet.
+    assert Object.ReferenceEquals(steps[0].Node, collection)
+    assert steps[0].CarriedType == "unknown"
+    // Step 2 is the scope, at the STATEMENT's position rather than the collection's or the body's.
+    assert steps[1].Line == 6
+    assert steps[1].Column == 5
+    assert LoopText(steps[1].Name) == "<null>"
+}
+
+test "THE LOOP VARIABLE IS DECLARED THEN RECORDED, BOTH WITH THE ELEMENT TYPE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.String))
+
+    assert LoopText(steps[2].Name) == "item"
+    assert steps[2].CarriedType == "string"
+    // The declaration carries the statement's position; the semantic-model write does not need one.
+    assert steps[2].Line == 6
+    assert steps[2].Column == 5
+    assert LoopText(steps[3].Name) == "item"
+    assert steps[3].CarriedType == "string"
+    assert steps[3].Line == 0
+    assert steps[3].Column == 0
+}
+
+test "THE BODY STEP CARRIES THE STATEMENT ITSELF, NOT A LIST AND NOT AN EXPRESSION" {
+    harness := LoopDefault()
+    body := LoopForeachBody()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), body))
+
+    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert Object.ReferenceEquals(steps[4].Body, body)
+    assert steps[4].Node == null
+}
+
+test "THE LOOP IS OPEN FOR THE BODY STEP ALONE, AND CLOSED BEFORE THE SCOPE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    // The collection is NOT inside the loop: a `break` written in it is as illegal as one outside.
+    assert !steps[0].InLoop
+    assert !steps[1].InLoop
+    assert !steps[2].InLoop
+    assert !steps[3].InLoop
+    assert steps[4].InLoop
+    // The loop closes BEFORE the scope does, which is the order `Analyzer.cs` used.
+    assert !steps[5].InLoop
+    assert !harness.Ambient.InLoop
+}
+
+test "A NON-SEQUENCE COLLECTION REPORTS ONCE AND STILL DECLARES THE VARIABLE AS unknown" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRunForeach(harness, state, BuiltInTypes.Int)
+
+    assert LoopForeachKinds(steps) == "1,2,3,4,5,6"
+    assert steps[2].CarriedType == "unknown"
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0)
+        == "foreach collection must be enumerable, but this collection is 'int'|4:14+6"
+    // The report is already in the list by the time the scope opens.
+    assert steps[1].ErrorsBefore == 1
+}
+
+test "AN await foreach OVER A SYNCHRONOUS SEQUENCE REPORTS THE ASYNC WORDING FROM THE ARM" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginAwaitForeach(
+        LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert steps[2].CarriedType == "unknown"
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0)
+        == "await foreach collection must be async enumerable, but this collection is 'int[]'|4:14+6"
+}
+
+test "A ROW-VIEW COLLECTION ESCAPES, COLLAPSES TO unknown, AND SPEAKS WITH THE ARM'S ACTION WORD" {
+    // The SYNCHRONOUS arm.
+    syncHarness := LoopDefault()
+    syncState := syncHarness.Sequence.BeginForeach(
+        LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    syncSteps := LoopRunForeach(syncHarness, syncState, LoopSoaRowType())
+    assert syncSteps[2].CarriedType == "unknown"
+    // ONE diagnostic, not two: the collapse is what silences the element-type mismatch.
+    assert syncHarness.Errors.Count == 1
+    assert syncHarness.Errors[0].Message
+        == "SoA row views cannot be used as a foreach collection; use the table and row index instead"
+
+    // The ASYNCHRONOUS arm, whose only difference is the action word.
+    asyncHarness := LoopDefault()
+    asyncState := asyncHarness.Sequence.BeginAwaitForeach(
+        LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+    asyncSteps := LoopRunForeach(asyncHarness, asyncState, LoopSoaRowType())
+    assert asyncSteps[2].CarriedType == "unknown"
+    assert asyncHarness.Errors.Count == 1
+    assert asyncHarness.Errors[0].Message
+        == "SoA row views cannot be used as an async foreach collection; use the table and row index instead"
+}
+
+test "A DIRECT COLUMN COLLECTION ESCAPES ON SYNTAX, COLLAPSES, AND KEEPS THE ARM'S ACTION WORD" {
+    // Decided by the SYNTAX of the collection, not by its type — so the answered type is an ordinary
+    // array that WOULD have iterated cleanly, and the escape is still what speaks.
+    syncHarness := LoopDefault()
+    LoopDeclareSoaTable(syncHarness)
+    syncState := syncHarness.Sequence.BeginForeach(
+        LoopForeachOver(LoopSoaColumnRead(), LoopForeachBody()))
+    syncSteps := LoopRunForeach(syncHarness, syncState, LoopArrayOf(BuiltInTypes.Int))
+    assert syncSteps[2].CarriedType == "unknown"
+    assert syncHarness.Errors.Count == 1
+    assert syncHarness.Errors[0].Message
+        == "SoA table member 'x' cannot be used as a foreach collection directly"
+
+    asyncHarness := LoopDefault()
+    LoopDeclareSoaTable(asyncHarness)
+    asyncState := asyncHarness.Sequence.BeginAwaitForeach(
+        LoopAwaitForeachOver(LoopSoaColumnRead(), LoopForeachBody()))
+    asyncSteps := LoopRunForeach(asyncHarness, asyncState, LoopArrayOf(BuiltInTypes.Int))
+    assert asyncSteps[2].CarriedType == "unknown"
+    assert asyncHarness.Errors.Count == 1
+    assert asyncHarness.Errors[0].Message
+        == "SoA table member 'x' cannot be used as an async foreach collection directly"
+}
+
+test "AN UNANSWERED COLLECTION WALK LEAVES THE TYPE unknown AND STAYS SILENT" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRunForeach(harness, state, null)
+
+    assert LoopForeachKinds(steps) == "1,2,3,4,5,6"
+    assert steps[2].CarriedType == "unknown"
+    // An unknown collection is not worth reporting — it already carries whatever made it unknown.
+    assert harness.Errors.Count == 0
+}
+
+test "THE WALK'S STATE CARRIES THE OPERANDS, NOT THE NODE — THE TWO ARMS SHARE ONE STATE TYPE" {
+    harness := LoopDefault()
+    syncState := harness.Sequence.BeginForeach(
+        LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    asyncState := harness.Sequence.BeginAwaitForeach(
+        LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+
+    assert !syncState.IsAsync
+    assert asyncState.IsAsync
+    assert syncState.VariableName == "item"
+    assert syncState.Line == 6
+    assert syncState.Column == 5
+    // Nothing has run yet, so neither the loop nor the types have moved.
+    assert syncState.LoopFrame == null
+    assert LoopTypeText(syncState.CollectionType) == "unknown"
+    assert LoopTypeText(syncState.ElementType) == "unknown"
+}
