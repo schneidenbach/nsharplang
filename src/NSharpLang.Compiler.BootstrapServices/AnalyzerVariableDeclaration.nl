@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
-// THE SIX STEPS A LOCAL DECLARATION CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
+// THE FOUR STEPS A LOCAL DECLARATION CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
 //
 // The walk owns what N#'s TWO local-declaration statements MEAN — `let x: T = e` and
 // `(a, b) := e` — what an annotation resolves to, whether the initializer is assignable to it,
@@ -12,18 +12,21 @@ import NSharpLang.Compiler.Ast
 // all and whether its element count matches the target list, which of the walk's SEVEN diagnostics
 // fires and with which span and wording, which SoA escape report the resulting type selects, and
 // what each declared name's null state is the instant it comes into existence. What it cannot do is
-// run the analyzer's own EXPRESSION walk, call the two SoA escape reporters that belong to a
-// different family, declare a symbol into the analyzer's scope stack, or write the semantic model
-// the IDE reads — so it ASKS: one request at a time, each naming a kind and carrying every value the
-// step needs. Nothing here is a policy the driver may reinterpret — the driver switches on `Kind`,
-// performs exactly the one operation with exactly these operands, and hands the answer back.
+// run the analyzer's own EXPRESSION walk, declare a symbol into the analyzer's scope stack, or write
+// the semantic model the IDE reads — so it ASKS: one request at a time, each naming a kind and
+// carrying every value the step needs. Nothing here is a policy the driver may reinterpret — the
+// driver switches on `Kind`, performs exactly the one operation with exactly these operands, and
+// hands the answer back.
+//
+// THE TWO SoA ESCAPE REPORTS ARE NO LONGER STEPS. They were kinds 2 and 3 and are now direct calls
+// on `AnalyzerSoaEscape`, which this walk holds. WHICH report the resulting type selects is still
+// entirely this walk's decision — that was never the driver's — but performing it no longer costs a
+// round trip through C#.
 //
 // The kinds:
 //   1  analyse the INITIALIZER expression under an expected type, SETTING the analyzer's ambient
 //      target-typing slot to `ExpectedType` for the duration. ANSWERS a type, and that type is the
 //      operand of three of the four steps that follow it.
-//   2  the SoA row-view escape report. Answers nothing the walk reads.
-//   3  the SoA direct-column escape report. ANSWERS a boolean: whether it fired.
 //   4  declare the name into the analyzer's scope stack, under the declaration kind carried here
 //      (null for a deconstruction target, which is not tagged).
 //   5  record the name in the semantic model the IDE's hover and completion read.
@@ -32,6 +35,10 @@ import NSharpLang.Compiler.Ast
 //      typing already surrounds it (a lambda body inside an annotated initializer is the reachable
 //      case), and overwriting that slot with null would change what `default`, an unbound callable
 //      reference, a lambda and a negative integer literal resolve to.
+//
+// The numbering keeps its GAPS at 2 and 3 rather than closing up: the kind number is a protocol
+// between this walk and one driver, and a renumber would silently re-point every contract that pins
+// a step's kind.
 public class VariableDeclarationRequest {
 
     public Kind: int
@@ -127,9 +134,10 @@ public class VariableDeclarationState {
 // This is the analyzer's expression/statement walker territory, and it owns BOTH of N#'s
 // local-declaration statements: the annotated form `let x: T = e` and the deconstruction form
 // `(a, b) := e`. They moved in two slices and they share ONE driver, because a caller-closure scan
-// of the deconstruction arm resolved its re-entries to EXACTLY the annotated arm's five —
-// `AnalyzeExpression`, the two SoA escape reporters, `DeclareSymbol` and
-// `RecordVariableInCurrentScope` — with no new kind but the ambient-slot distinction kind 6 records.
+// of the deconstruction arm resolved its re-entries to EXACTLY the annotated arm's — once five
+// (`AnalyzeExpression`, the two SoA escape reporters, `DeclareSymbol` and
+// `RecordVariableInCurrentScope`), now THREE, since the escape reports became N#-owned and are called
+// directly. No new kind but the ambient-slot distinction kind 6 records.
 // Neither arm re-enters the statement dispatch, so neither drags `AnalyzeStatement` in behind it.
 //
 // THE DECONSTRUCTION ARM ARRIVED WITH ITS WHOLE PRIVATE CLOSURE. `Analyzer.cs` kept four helpers
@@ -179,6 +187,7 @@ public class AnalyzerVariableDeclaration {
     nullFlowValue: AnalyzerNullFlow
     scopesValue: AnalyzerScopeStack
     declarationContextValue: AnalyzerDeclarationContext
+    soaEscapeValue: AnalyzerSoaEscape
 
     constructor(
         diagnostics: AnalyzerDiagnosticSink,
@@ -187,7 +196,8 @@ public class AnalyzerVariableDeclaration {
         assignability: AnalyzerAssignability,
         nullFlow: AnalyzerNullFlow,
         scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext) {
+        declarationContext: AnalyzerDeclarationContext,
+        soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
@@ -195,6 +205,7 @@ public class AnalyzerVariableDeclaration {
         nullFlowValue = nullFlow
         scopesValue = scopes
         declarationContextValue = declarationContext
+        soaEscapeValue = soaEscape
     }
 
     public func Begin(declaration: VariableDeclarationStatement): VariableDeclarationState {
@@ -222,22 +233,16 @@ public class AnalyzerVariableDeclaration {
         return null
     }
 
-    // THE ANSWER TO THE OUTSTANDING STEP. Two kinds answer something the walk reads: kinds 1 and 6
-    // answer the initializer's type, which settles the declaration's type and three later operands;
-    // kind 3 answers whether the direct-column escape report FIRED, which is what turns a
-    // deconstruction source into `unknown`. The row-escape report and the two declaration steps
-    // answer nothing, and nothing is folded in for them.
-    public func Supply(state: VariableDeclarationState, answer: TypeInfo?, escaped: bool) {
+    // THE ANSWER TO THE OUTSTANDING STEP. Only kinds 1 and 6 answer anything the walk reads — the
+    // initializer's type, which settles the declaration's type and three later operands. The two
+    // declaration steps answer nothing, and nothing is folded in for them. The escape answer used to
+    // arrive here as a second parameter; the reports are direct calls now, so the flag is gone.
+    public func Supply(state: VariableDeclarationState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
         if pending == 1 || pending == 6 {
             state.InferredType = answer
-            return
-        }
-
-        if pending == 3 && escaped {
-            state.EscapeFired = true
         }
     }
 
@@ -366,16 +371,15 @@ public class AnalyzerVariableDeclaration {
         }
 
         soaRow := state.FinalType as SoaRowTypeInfo
-        kind := 3
         if soaRow != null {
-            kind = 2
+            soaEscapeValue.ReportSoaRowEscape(initializer, "stored in a variable")
+            return null
         }
 
-        state.Pending = kind
-        request := new VariableDeclarationRequest(kind, state.FinalType)
-        request.Node = initializer
-        request.Text = "stored in a variable"
-        return request
+        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+            initializer,
+            "stored in a variable")
+        return null
     }
 
     // PHASE 3 — the local enters the analyzer's scope stack under the declaration kind `local`, which
@@ -529,18 +533,17 @@ public class AnalyzerVariableDeclaration {
         }
 
         state.Phase = 12
-        kind := 3
         soaRow := state.FinalType as SoaRowTypeInfo
         if soaRow != null {
-            kind = 2
             state.EscapeFired = true
+            soaEscapeValue.ReportSoaRowEscape(tuple.Initializer, "deconstructed")
+            return null
         }
 
-        state.Pending = kind
-        request := new VariableDeclarationRequest(kind, state.FinalType)
-        request.Node = tuple.Initializer
-        request.Text = "deconstructed"
-        return request
+        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+            tuple.Initializer,
+            "deconstructed")
+        return null
     }
 
     // PHASE 12 — WHAT EACH NAME IS, and both of this arm's diagnostics. In the order `Analyzer.cs`

@@ -5,29 +5,30 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
-// THE SEVEN STEPS THE STATEMENT-LEVEL EXPRESSION FAMILY CANNOT TAKE FOR ITSELF.
+// THE SIX STEPS THE STATEMENT-LEVEL EXPRESSION FAMILY CANNOT TAKE FOR ITSELF.
 //
 // This walk owns what it MEANS to write an expression where a statement belongs — a bare `f()` or
 // `x = 1` as a statement, the update clause of a `for`, an `assert`, and an `assert throws` — which
 // of those expressions actually DO anything, which of the family's four diagnostics fires and with
 // which span, suggestion and wording, and whether a discarded result was one the callee said must
-// be used. What it cannot do is run the analyzer's own EXPRESSION walk, call the two SoA escape
-// reporters that belong to a different family, open or close a scope on the analyzer's scope stack,
-// re-enter the STATEMENT dispatch for an `assert throws` body, read the recorded type of an
-// already-analysed callee out of the semantic model (which the analysis reset REPLACES, so it
-// cannot be captured here), or decide whether a type is throwable (a predicate two other families
-// still share) — so it ASKS: one request at a time, each naming a kind and carrying every value the
-// step needs. Nothing here is a policy the driver may reinterpret — the driver switches on `Kind`,
-// performs exactly the one operation with exactly these operands, and hands the answer back.
+// be used. What it cannot do is run the analyzer's own EXPRESSION walk, open or close a scope on the
+// analyzer's scope stack, re-enter the STATEMENT dispatch for an `assert throws` body, read the
+// recorded type of an already-analysed callee out of the semantic model (which the analysis reset
+// REPLACES, so it cannot be captured here), or decide whether a type is throwable (a predicate two
+// other families still share) — so it ASKS: one request at a time, each naming a kind and carrying
+// every value the step needs. Nothing here is a policy the driver may reinterpret — the driver
+// switches on `Kind`, performs exactly the one operation with exactly these operands, and hands the
+// answer back.
+//
+// THE TWO SoA ESCAPE REPORTS ARE NO LONGER STEPS. They were kinds 2 and 3 and are now direct calls
+// on `AnalyzerSoaEscape`, which this walk holds: the reports moved to N# whole, so asking a driver
+// to perform them would be asking C# to relay one N# call to another.
 //
 // The kinds:
 //   1  analyse an expression WITHOUT touching the analyzer's ambient target-typing slot. No arm in
 //      this family ever set it — a discarded expression, an assert condition and an assert message
 //      are all analysed inside whatever target typing already surrounds them — so this is
 //      `AnalyzerVariableDeclaration`'s kind 6, not its kind 1. ANSWERS a type.
-//   2  the SoA row-view escape report. Answers nothing the walk reads; the walk makes the
-//      `is SoaRowTypeInfo` test for itself, exactly as `ReportSoaRowEscapeIfNeeded` did.
-//   3  the SoA direct-column escape report. ANSWERS a boolean: whether it fired.
 //   4  open a block scope on the analyzer's scope stack at `Line` / `Column`.
 //   5  analyse a statement LIST — the `assert throws` body — which re-enters the statement dispatch
 //      and therefore this walk itself. Every `Begin` hands back a fresh state, so a nested
@@ -40,6 +41,10 @@ import NSharpLang.Compiler.Ast
 //      callee of a discarded call — or null when nothing was recorded. The call was already
 //      analysed by kind 1, so re-analysing the AST would double-record bindings and references and
 //      corrupt find-references; this reads the answer back instead.
+//
+// The numbering has GAPS at 2 and 3 rather than closing up, because the kind number is a protocol
+// between this walk and one driver, and a renumber would silently re-point every contract that pins
+// a step's kind. The gaps say what left.
 public class ExpressionStatementRequest {
 
     public Kind: int
@@ -146,14 +151,15 @@ public class ExpressionStatementState {
 // validity predicate, the two rich invalid-statement reporters and their context selector, and the
 // assert-throws type reporter — so they are here rather than left behind as callbacks.
 //
-// WHY A SEPARATE DRIVER FROM `DriveLocalDeclaration`, WHICH THIS OVERLAPS ON THREE KINDS. Kinds 1,
-// 2 and 3 here ARE that driver's kinds 6, 2 and 3 — the same expression walk with the ambient
-// target-typing slot left alone, and the same two SoA escape reporters. But kinds 4, 5, 6 and 7 are
-// re-entries NO local declaration makes: a `let` never opens a scope, never re-enters the statement
-// dispatch and never asks whether a type is throwable. Sharing would mean widening
-// `VariableDeclarationState` with a statement list and a scope program counter it can never use, and
-// coupling two statement families through one request type. So the overlap is stated rather than
-// forced, and this family gets its own request, its own state and its own loop.
+// WHY A SEPARATE DRIVER FROM `DriveLocalDeclaration`, WHICH THIS ONCE OVERLAPPED ON THREE KINDS.
+// Kind 1 here IS that driver's kind 6 — the same expression walk with the ambient target-typing slot
+// left alone. The other two shared kinds were the SoA escape reports, and they are gone from BOTH
+// drivers now that the reports are N#-owned; what is left, kinds 4, 5, 6 and 7, are re-entries NO
+// local declaration makes: a `let` never opens a scope, never re-enters the statement dispatch and
+// never asks whether a type is throwable. Sharing would mean widening `VariableDeclarationState`
+// with a statement list and a scope program counter it can never use, and coupling two statement
+// families through one request type. So the overlap is stated rather than forced, and this family
+// keeps its own request, its own state and its own loop.
 //
 // WHY A RESUMABLE WALK RATHER THAN A SCHEDULE COMPUTED UP FRONT. The discard walk's step COUNT is
 // not knowable before the first step: whether the row-escape report runs is decided by the ANSWERED
@@ -177,14 +183,17 @@ public class AnalyzerExpressionStatements {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     typeResolverValue: AnalyzerTypeResolver
+    soaEscapeValue: AnalyzerSoaEscape
 
     constructor(
         diagnostics: AnalyzerDiagnosticSink,
         spans: AnalyzerDiagnosticSpans,
-        typeResolver: AnalyzerTypeResolver) {
+        typeResolver: AnalyzerTypeResolver,
+        soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
+        soaEscapeValue = soaEscape
     }
 
     // A BARE EXPRESSION USED AS A STATEMENT. The SoA reports call it "discarded" and an invalid one
@@ -242,9 +251,8 @@ public class AnalyzerExpressionStatements {
     }
 
     // THE ANSWER TO THE OUTSTANDING STEP. Kind 1 answers a type — the discard walk's escape choice
-    // and the assert walk's escape choice both read it. Kind 3 answers whether the column report
-    // fired, which is what ends the discard walk. Kind 7 answers throwability. Kind 8 answers the
-    // recorded callee type, which selects the must-use reason. Kinds 2, 4, 5 and 6 answer nothing.
+    // and the assert walk's escape choice both read it. Kind 7 answers throwability. Kind 8 answers
+    // the recorded callee type, which selects the must-use reason. Kinds 4, 5 and 6 answer nothing.
     public func Supply(state: ExpressionStatementState, answer: TypeInfo?, flag: bool) {
         pending := state.Pending
         state.Pending = 0
@@ -256,11 +264,6 @@ public class AnalyzerExpressionStatements {
                 state.AnsweredType = BuiltInTypes.Unknown
             }
 
-            return
-        }
-
-        if pending == 3 {
-            state.EscapeFired = flag
             return
         }
 
@@ -335,6 +338,12 @@ public class AnalyzerExpressionStatements {
     // expression was never really written, so nothing after this point may speak. The row report
     // ENDS the walk when it fires, which is what `ReportSoaRowEscapeIfNeeded`'s returned `true`
     // meant at the call site.
+    //
+    // The error-count guard is read TWICE and neither read is redundant. The FIRST gates the row
+    // report; the SECOND gates the column report, and it is only ever reached when the row report did
+    // NOT fire, because that branch ends the walk itself. So a value the walk already rejected as a
+    // row view is never also offered to the column probe — which is what
+    // `ReportSoaRowEscapeIfNeeded`'s returned `true` meant at the C# call site.
     func AdvanceDiscardedEscapes(
         state: ExpressionStatementState,
         expression: Expression): ExpressionStatementRequest? {
@@ -347,7 +356,8 @@ public class AnalyzerExpressionStatements {
             rowView := state.AnsweredType as SoaRowTypeInfo
             if rowView != null {
                 state.Phase = 99
-                return NewEscapeRequest(2, expression, state.SoaUsage)
+                soaEscapeValue.ReportSoaRowEscape(expression, state.SoaUsage)
+                return null
             }
         }
 
@@ -357,8 +367,10 @@ public class AnalyzerExpressionStatements {
         }
 
         state.Phase = 2
-        state.Pending = 3
-        return NewEscapeRequest(3, expression, state.SoaUsage)
+        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+            expression,
+            state.SoaUsage)
+        return null
     }
 
     // PHASE 2 — the validity decision. An expression that cannot stand as a statement reports the
@@ -429,7 +441,8 @@ public class AnalyzerExpressionStatements {
     // SIX PHASES, and every one of them runs unconditionally except the message pair. The assert arm
     // has NO error-count guard and NO short-circuit: both escape reports are called for the
     // condition, and then both again for the message when there is one, in exactly that order, and
-    // neither answer is read. `Pending` stays 0 for the row and column steps for that reason.
+    // neither answer is read. The phases survive the reports becoming direct calls because the
+    // EXPRESSION steps between them are still suspensions.
     func AdvanceAssert(
         state: ExpressionStatementState,
         assertStatement: AssertStatement): ExpressionStatementRequest? {
@@ -444,7 +457,7 @@ public class AnalyzerExpressionStatements {
             state.Phase = 12
             rowView := state.AnsweredType as SoaRowTypeInfo
             if rowView != null {
-                return NewEscapeRequest(2, assertStatement.Condition, "asserted")
+                soaEscapeValue.ReportSoaRowEscape(assertStatement.Condition, "asserted")
             }
 
             return null
@@ -452,7 +465,10 @@ public class AnalyzerExpressionStatements {
 
         if phase == 12 {
             state.Phase = 13
-            return NewEscapeRequest(3, assertStatement.Condition, "asserted")
+            soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+                assertStatement.Condition,
+                "asserted")
+            return null
         }
 
         if phase == 13 {
@@ -472,7 +488,7 @@ public class AnalyzerExpressionStatements {
             message := assertStatement.Message
             rowView := state.AnsweredType as SoaRowTypeInfo
             if message != null && rowView != null {
-                return NewEscapeRequest(2, message, "used as an assertion message")
+                soaEscapeValue.ReportSoaRowEscape(message, "used as an assertion message")
             }
 
             return null
@@ -482,7 +498,9 @@ public class AnalyzerExpressionStatements {
             state.Phase = 99
             message := assertStatement.Message
             if message != null {
-                return NewEscapeRequest(3, message, "used as an assertion message")
+                soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+                    message,
+                    "used as an assertion message")
             }
 
             return null
@@ -540,13 +558,6 @@ public class AnalyzerExpressionStatements {
     func NewExpressionRequest(expression: Expression): ExpressionStatementRequest {
         request := new ExpressionStatementRequest(1, BuiltInTypes.Unknown)
         request.Node = expression
-        return request
-    }
-
-    func NewEscapeRequest(kind: int, expression: Expression, usage: string): ExpressionStatementRequest {
-        request := new ExpressionStatementRequest(kind, BuiltInTypes.Unknown)
-        request.Node = expression
-        request.Text = usage
         return request
     }
 

@@ -36,14 +36,17 @@ class AmbientHarness {
     Context: AnalyzerAmbientContext
     Errors: List<CompilerError>
     Assignability: AnalyzerAssignability
+    Scopes: AnalyzerScopeStack
 
     constructor(
         context: AnalyzerAmbientContext,
         errors: List<CompilerError>,
-        assignability: AnalyzerAssignability) {
+        assignability: AnalyzerAssignability,
+        scopes: AnalyzerScopeStack) {
         Context = context
         Errors = errors
         Assignability = assignability
+        Scopes = scopes
     }
 }
 
@@ -76,10 +79,18 @@ func AmbientHarnessWith(sourceText: string?): AmbientHarness {
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
     diagnostics.BeginAnalysis(AmbientPath(), sourceText)
     spans := new AnalyzerDiagnosticSpans(diagnostics)
+    escapeContext := new AnalyzerDeclarationContext()
+    escapeAssemblies := new List<Assembly>()
+    escapeAssemblies.Add(typeof(List<int>).get_Assembly())
+    escapeContext.Reset(Path.GetFullPath("."), escapeAssemblies)
+    escapeScopes := new AnalyzerScopeStack()
+    escapeScopes.Push(new SemanticModel(), new Scope(ScopeKind.Global), 1, 1)
+    escape := new AnalyzerSoaEscape(diagnostics, spans, escapeScopes, escapeContext)
     return new AmbientHarness(
-        new AnalyzerAmbientContext(diagnostics, spans),
+        new AnalyzerAmbientContext(diagnostics, spans, escape),
         errors,
-        AmbientAssignability(provider, diagnostics))
+        AmbientAssignability(provider, diagnostics),
+        escapeScopes)
 }
 
 // The assignability oracle the `return` walk is HANDED at `BeginReturn` — built here exactly as
@@ -225,14 +236,14 @@ func AmbientExpected(context: AnalyzerAmbientContext): string {
 
 // ── the `return` driver, exactly as `Analyzer.cs` writes it ────────────────
 //
-// Answers every kind-1 step with `answer` and records what was asked, INCLUDING the target-typing
-// slot as it stood when the step was handed out. Kind 3's boolean is answered `escaped` so the
-// contract can prove the walk ignores it.
+// Answers the kind-1 step with `answer` and records what was asked, INCLUDING the target-typing slot
+// as it stood when the step was handed out. It asks for ONE step now: kinds 2 and 3 were the two SoA
+// escape reports, which the walk performs itself against the real `AnalyzerSoaEscape`, so a contract
+// that wants one to fire supplies a row-view TYPE or returns a real declared-table column read.
 func AmbientRunReturn(
     harness: AmbientHarness,
     statement: ReturnStatement,
-    answer: TypeInfo?,
-    escaped: bool): List<AmbientStep> {
+    answer: TypeInfo?): List<AmbientStep> {
     steps := new List<AmbientStep>()
     state := harness.Context.BeginReturn(statement, harness.Assignability)
     step := harness.Context.NextStep(state)
@@ -244,16 +255,31 @@ func AmbientRunReturn(
             AmbientExpected(harness.Context),
             harness.Errors.Count))
 
-        supplied: TypeInfo? = null
-        if step.Kind == 1 {
-            supplied = answer
-        }
-
-        harness.Context.Supply(state, supplied, escaped)
+        harness.Context.Supply(state, answer)
         step = harness.Context.NextStep(state)
     }
 
     return steps
+}
+
+// A table declared in the harness's scope, and a `points.x` read against it — the only way to make
+// the direct-column escape fire for real.
+func AmbientSoaColumns(): List<SoaColumnInfo> {
+    columns := new List<SoaColumnInfo>()
+    columns.Add(new SoaColumnInfo("x", new SimpleTypeReference("int", 0, 0), 1, 1))
+    return columns
+}
+
+func AmbientDeclareSoaTable(harness: AmbientHarness) {
+    table: TypeInfo = new SoaRecordTypeInfo(
+        new SoaRecordDeclarationInfo("Points", AmbientSoaColumns(), 1, 1))
+    harness.Scopes.Peek().Symbols["points"] = table
+}
+
+func AmbientSoaColumnRead(): Expression {
+    read: Expression = new MemberAccessExpression(
+        new IdentifierExpression("points", 9, 12), "x", false, 9, 12)
+    return read
 }
 
 func AmbientKinds(steps: List<AmbientStep>): string {
@@ -931,7 +957,7 @@ test "THE TARGET TYPE IS NOT PART OF ANY OTHER BOUNDARY'S FRAME" {
 test "A return WITH NO FUNCTION AT ALL ASKS FOR NOTHING AND IS TOLD ONLY THAT" {
     harness := AmbientDefault()
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert steps.Count == 0
     assert harness.Errors.Count == 1
@@ -947,54 +973,68 @@ test "A return WITH NO FUNCTION IS NEVER ALSO TOLD IT LEAVES A finally" {
     harness := AmbientDefault()
     harness.Context.EnterFinally()
 
-    AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    AmbientRunReturn(harness, AmbientReturn(null), null)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
 }
 
-test "A VALUED return ASKS FOR THE EXPRESSION AND THEN EXACTLY ONE ESCAPE REPORT" {
+test "A VALUED return ASKS FOR THE EXPRESSION AND NOTHING ELSE" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
-    assert AmbientKinds(steps) == "13"
+    // The escape reports were kinds 2 and 3 and are N#-owned calls now.
+    assert AmbientKinds(steps) == "1"
     assert steps[0].Text == "returned"
-    assert steps[1].Text == "returned"
     assert steps[0].Node != null
-    assert steps[1].Node != null
 }
 
 test "A ROW-VIEW ANSWER SELECTS THE ROW REPORT INSTEAD OF THE DIRECT-COLUMN ONE" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), AmbientRowType(), false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), AmbientRowType())
 
-    assert AmbientKinds(steps) == "12"
+    // The ROW report speaks, not the column one — and, exactly as before, it suppresses nothing, so
+    // the value rule still finds a row view where an `int` was owed.
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be returned; use the table and row index instead"
+    assert harness.Errors[1].Code == ErrorCode.TypeMismatch
+}
+
+test "A RETURNED DIRECT COLUMN SELECTS THE COLUMN REPORT" {
+    harness := AmbientDefault()
+    harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
+    AmbientDeclareSoaTable(harness)
+
+    AmbientRunReturn(harness, AmbientReturn(AmbientSoaColumnRead()), BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be returned directly"
 }
 
 test "A BARE return ASKS FOR NOTHING" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", new SimpleTypeReference("void", 7, 6), Modifiers.None), BuiltInTypes.Void)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(null), null)
 
     assert steps.Count == 0
     assert harness.Errors.Count == 0
 }
 
-test "THE TARGET TYPE IS OPEN FOR THE EXPRESSION STEP AND CLOSED FOR THE ESCAPE STEP" {
+test "THE TARGET TYPE IS OPEN FOR THE EXPRESSION STEP AND CLOSED THE INSTANT IT IS ANSWERED" {
     // THE TRANSITION IS THE CONTRACT. The C# set the slot on the line before `AnalyzeExpression` and
     // restored it on the line after; the walk must open it for kind 1 ONLY.
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert steps[0].ExpectedAtStep == "int"
-    assert steps[1].ExpectedAtStep == "<null>"
     assert AmbientExpected(harness.Context) == "<null>"
 }
 
@@ -1005,7 +1045,7 @@ test "THE TARGET TYPE PUTS BACK WHATEVER SURROUNDED THE STATEMENT" {
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
     harness.Context.EnterExpectedType(BuiltInTypes.String)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert AmbientExpected(harness.Context) == "string"
 }
@@ -1015,7 +1055,7 @@ test "AN async FUNCTION ASKS THE VALUE FOR THE AWAITED RESULT, NOT THE TASK" {
     taskOfInt := AmbientTaskOf(BuiltInTypes.Int)
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.Async), taskOfInt)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert steps[0].ExpectedAtStep == "int"
 }
@@ -1026,7 +1066,7 @@ test "A NON-async FUNCTION ASKS FOR THE DECLARED TYPE EVEN WHEN IT IS TASK-LIKE"
     taskOfInt := AmbientTaskOf(BuiltInTypes.Int)
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), taskOfInt)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), taskOfInt, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), taskOfInt)
 
     assert steps[0].ExpectedAtStep == "Task<int>"
 }
@@ -1034,23 +1074,25 @@ test "A NON-async FUNCTION ASKS FOR THE DECLARED TYPE EVEN WHEN IT IS TASK-LIKE"
 test "THE WALK IGNORES THE DIRECT-COLUMN REPORT'S ANSWER" {
     // Unlike a local declaration, where a fired escape turns the declared type unknown, a `return`
     // called the reporter in statement position and ignored it — so a fired escape suppresses
-    // nothing.
+    // nothing, and the mismatch is reported ON TOP of it.
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
+    AmbientDeclareSoaTable(harness)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String, true)
+    AmbientRunReturn(harness, AmbientReturn(AmbientSoaColumnRead()), BuiltInTypes.String)
 
-    assert harness.Errors.Count == 1
-    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be returned directly"
+    assert harness.Errors[1].Code == ErrorCode.TypeMismatch
 }
 
 test "A NULL ANSWER ON THE EXPRESSION STEP LEAVES THE RETURNED TYPE UNKNOWN" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), null, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), null)
 
-    assert AmbientKinds(steps) == "13"
+    assert AmbientKinds(steps) == "1"
     assert harness.Errors.Count == 0
 }
 
@@ -1060,9 +1102,7 @@ test "THE WALK IS FINISHED AFTER ITS LAST STEP AND STAYS FINISHED" {
     state := harness.Context.BeginReturn(AmbientReturn(AmbientValue()), harness.Assignability)
 
     harness.Context.NextStep(state)
-    harness.Context.Supply(state, BuiltInTypes.Int, false)
-    harness.Context.NextStep(state)
-    harness.Context.Supply(state, null, false)
+    harness.Context.Supply(state, BuiltInTypes.Int)
 
     assert harness.Context.NextStep(state) == null
     assert harness.Context.NextStep(state) == null
@@ -1072,13 +1112,14 @@ test "THE WALK IS FINISHED AFTER ITS LAST STEP AND STAYS FINISHED" {
 // THE return WALK — WHAT IT REPORTS
 // ---------------------------------------------------------------------------------------------
 
-test "A VALUE THAT DOES NOT FIT IS REPORTED AFTER THE ESCAPE STEP, NOT BEFORE" {
+test "A VALUE THAT DOES NOT FIT IS REPORTED AFTER THE ESCAPE REPORT, NOT BEFORE" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String)
 
-    assert steps[1].ErrorsBefore == 0
+    // Nothing had been reported when the one step was handed out; the mismatch comes after it.
+    assert steps[0].ErrorsBefore == 0
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "Function 'f' should return 'int', but this return statement gives back 'string'"
 }
@@ -1087,7 +1128,7 @@ test "A VALUE THAT FITS IS SILENT" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 0
 }
@@ -1098,7 +1139,7 @@ test "A GENERATOR CANNOT RETURN A VALUE, AND THAT REPORT ENDS THE ARM" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.Generator), BuiltInTypes.Int)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String, false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
@@ -1110,7 +1151,7 @@ test "THE GENERATOR REPORT IS SPANNED ON THE RETURNED EXPRESSION, NOT THE KEYWOR
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.Generator), BuiltInTypes.Int)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert harness.Errors[0].Line == 9
     assert harness.Errors[0].Column == 12
@@ -1119,17 +1160,22 @@ test "THE GENERATOR REPORT IS SPANNED ON THE RETURNED EXPRESSION, NOT THE KEYWOR
 test "A GENERATOR STILL WALKS ITS VALUE AND STILL RUNS AN ESCAPE REPORT" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.Generator), BuiltInTypes.Int)
+    AmbientDeclareSoaTable(harness)
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientSoaColumnRead()), BuiltInTypes.Int)
 
-    assert AmbientKinds(steps) == "13"
+    assert AmbientKinds(steps) == "1"
+    // Both the escape report and the generator report speak, in that order.
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be returned directly"
+    assert harness.Errors[1].Message == "Generator functions cannot return a value"
 }
 
 test "A BARE return IN A TYPED FUNCTION IS NL305 MissingReturn AT THE KEYWORD" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    AmbientRunReturn(harness, AmbientReturn(null), null)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.MissingReturn
@@ -1142,7 +1188,7 @@ test "WITH A SNIPPET THE BARE return TAKES THE RICH MissingReturn SHAPE" {
     harness := AmbientHarnessWith("func f(): int {\n\n\n\n\n\n\n\n    return\n}\n")
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    AmbientRunReturn(harness, AmbientReturn(null), null)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.MissingReturn
@@ -1155,7 +1201,7 @@ test "A BARE return IN A void FUNCTION IS SILENT" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", new SimpleTypeReference("void", 7, 6), Modifiers.None), BuiltInTypes.Void)
 
-    AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    AmbientRunReturn(harness, AmbientReturn(null), null)
 
     assert harness.Errors.Count == 0
 }
@@ -1167,7 +1213,7 @@ test "A BARE return IN AN async FUNCTION RETURNING A UNIT TASK IS SILENT" {
     unitTask: TypeInfo = new SimpleTypeInfo("Task")
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.Async), unitTask)
 
-    AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    AmbientRunReturn(harness, AmbientReturn(null), null)
 
     assert harness.Errors.Count == 0
 }
@@ -1177,7 +1223,7 @@ test "A BARE return IN AN async FUNCTION THAT OWES A RESULT IS NOT SILENT" {
     taskOfInt := AmbientTaskOf(BuiltInTypes.Int)
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.Async), taskOfInt)
 
-    AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    AmbientRunReturn(harness, AmbientReturn(null), null)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.MissingReturn
@@ -1190,7 +1236,7 @@ test "A return INSIDE A finally IS REPORTED BEFORE ITS VALUE IS EVEN ASKED FOR" 
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
     harness.Context.EnterFinally()
 
-    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String, false)
+    steps := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String)
 
     assert steps[0].ErrorsBefore == 1
     assert harness.Errors[0].Code == ErrorCode.ControlTransferOutOfFinally
@@ -1203,7 +1249,7 @@ test "A BARE return INSIDE A finally IS STILL REPORTED FOR THE HANDLER" {
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", new SimpleTypeReference("void", 7, 6), Modifiers.None), BuiltInTypes.Void)
     harness.Context.EnterFinally()
 
-    AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    AmbientRunReturn(harness, AmbientReturn(null), null)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.ControlTransferOutOfFinally
@@ -1214,7 +1260,7 @@ test "A return IN A LAMBDA'S BODY IS CHECKED AGAINST THE LAMBDA'S TYPE AND NAMES
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
     harness.Context.EnterNestedBody(null, BuiltInTypes.String)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "Function 'this function' should return 'string', but this return statement gives back 'int'"
@@ -1224,7 +1270,7 @@ test "AN OMITTED RETURN TYPE MAKES THE VALUED return ASK FOR THE ANNOTATION" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", null, Modifiers.None), BuiltInTypes.Void)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "Function 'f' has no return type annotation, so it is treated as 'void', but this code gives back 'int'"
@@ -1234,7 +1280,7 @@ test "A VALUE RETURNED FROM A DECLARED-void FUNCTION SAYS SO" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", new SimpleTypeReference("void", 7, 6), Modifiers.None), BuiltInTypes.Void)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "Function 'f' is declared to return 'void', but this code gives back 'int'"
@@ -1247,7 +1293,7 @@ test "A return STATEMENT DOES NOT DISTURB THE OTHER TWO AMBIENT FAMILIES" {
     harness.Context.EnterFinally()
     before := AmbientState(harness.Context)
 
-    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String, false)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String)
 
     assert AmbientState(harness.Context) == before
 }
@@ -1256,13 +1302,13 @@ test "TWO return STATEMENTS IN A ROW ARE INDEPENDENT WALKS" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    first := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int, false)
-    second := AmbientRunReturn(harness, AmbientReturn(null), null, false)
+    first := AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
+    second := AmbientRunReturn(harness, AmbientReturn(null), null)
 
     // The first fits and is silent; the second is bare in a function that owes an `int`, so the two
     // walks reach DIFFERENT arms from the same context without either one carrying state into the
     // other.
-    assert AmbientKinds(first) == "13"
+    assert AmbientKinds(first) == "1"
     assert second.Count == 0
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.MissingReturn

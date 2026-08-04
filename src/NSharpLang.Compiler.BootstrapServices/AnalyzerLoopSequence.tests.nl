@@ -27,9 +27,10 @@ import NSharpLang.Compiler.Ast
 // contracts pin it so that a later "simplification" to name comparison is a red test rather than a
 // silent change in which loops compile.
 //
-// (3) THE `yield` WALK'S ANSWERS ARE READ. Both escape reports return a boolean the walk uses to
-// SILENCE the element-type rule, which is the one thing that distinguishes this driver's kind 2 and 3
-// from the `return` walk's.
+// (3) THE `yield` WALK READS BOTH ESCAPE ANSWERS. Each escape report returns a boolean the walk uses
+// to SILENCE the element-type rule. The reports are `AnalyzerSoaEscape`'s and are called directly —
+// they were the driver's kinds 2 and 3 until that family moved — so a contract that wants one to fire
+// builds a REAL row view or a REAL declared-table column read rather than handing back a boolean.
 
 // ── a runtime type that satisfies the duck-typed enumerator pattern ───────────
 //
@@ -67,18 +68,21 @@ class LoopHarness {
     Scopes: AnalyzerScopeStack
     Errors: List<CompilerError>
     Assignability: AnalyzerAssignability
+    Model: SemanticModel
 
     constructor(
         sequence: AnalyzerLoopSequence,
         ambient: AnalyzerAmbientContext,
         scopes: AnalyzerScopeStack,
         errors: List<CompilerError>,
-        assignability: AnalyzerAssignability) {
+        assignability: AnalyzerAssignability,
+        model: SemanticModel) {
         Sequence = sequence
         Ambient = ambient
         Scopes = scopes
         Errors = errors
         Assignability = assignability
+        Model = model
     }
 }
 
@@ -141,9 +145,11 @@ func LoopHarnessWith(sourceText: string?): LoopHarness {
     guard := new AnalyzerImplicitConversionGuard()
     assignability := new AnalyzerAssignability(
         context, facts, structural, substitution, clrConversion, guard)
-    ambient := new AnalyzerAmbientContext(diagnostics, spans)
-    sequence := new AnalyzerLoopSequence(diagnostics, spans, scopes, context, resolver, ambient)
-    return new LoopHarness(sequence, ambient, scopes, errors, assignability)
+    escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
+    ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
+    sequence := new AnalyzerLoopSequence(
+        diagnostics, spans, scopes, context, resolver, ambient, escape)
+    return new LoopHarness(sequence, ambient, scopes, errors, assignability, model)
 }
 
 func LoopDefault(): LoopHarness {
@@ -222,12 +228,14 @@ func LoopErrorText(harness: LoopHarness, index: int): string {
 }
 
 // ── the `yield` driver, exactly as `Analyzer.cs` writes it ────────────────────
+//
+// It asks for ONE thing now. Kinds 2 and 3 were the two SoA escape reports, which the walk performs
+// itself against the real `AnalyzerSoaEscape` — so a contract that wants an escape to FIRE supplies a
+// row-view TYPE or yields a real column read, rather than handing the walk a boolean.
 func LoopRunYield(
     harness: LoopHarness,
     statement: YieldStatement,
-    answer: TypeInfo?,
-    rowEscape: bool,
-    columnEscape: bool): List<LoopStep> {
+    answer: TypeInfo?): List<LoopStep> {
     steps := new List<LoopStep>()
     state := harness.Sequence.BeginYield(statement, harness.Assignability)
     step := harness.Sequence.NextStep(state)
@@ -239,25 +247,39 @@ func LoopRunYield(
             LoopTypeText(step.CarriedType),
             harness.Errors.Count))
 
-        supplied: TypeInfo? = null
-        escaped := false
-        if step.Kind == 1 {
-            supplied = answer
-        }
-
-        if step.Kind == 2 {
-            escaped = rowEscape
-        }
-
-        if step.Kind == 3 {
-            escaped = columnEscape
-        }
-
-        harness.Sequence.Supply(state, supplied, escaped)
+        harness.Sequence.Supply(state, answer)
         step = harness.Sequence.NextStep(state)
     }
 
     return steps
+}
+
+// A table declared in the harness's scope, and a `points.x` read against it — the only way to make
+// the direct-column escape fire for real.
+func LoopSoaColumns(): List<SoaColumnInfo> {
+    columns := new List<SoaColumnInfo>()
+    columns.Add(new SoaColumnInfo("x", new SimpleTypeReference("int", 0, 0), 1, 1))
+    return columns
+}
+
+func LoopSoaDeclaration(): SoaRecordDeclarationInfo {
+    return new SoaRecordDeclarationInfo("Points", LoopSoaColumns(), 1, 1)
+}
+
+func LoopSoaRowType(): TypeInfo {
+    row: TypeInfo = new SoaRowTypeInfo(LoopSoaDeclaration())
+    return row
+}
+
+func LoopDeclareSoaTable(harness: LoopHarness) {
+    table: TypeInfo = new SoaRecordTypeInfo(LoopSoaDeclaration())
+    harness.Scopes.Peek().Symbols["points"] = table
+}
+
+func LoopSoaColumnRead(): Expression {
+    read: Expression = new MemberAccessExpression(
+        new IdentifierExpression("points", 6, 11), "x", false, 6, 11)
+    return read
 }
 
 func LoopText(value: string?): string {
@@ -693,26 +715,23 @@ test "A BARE yield ASKS FOR NOTHING" {
     harness.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
 
-    steps := LoopRunYield(harness, LoopYield(null), null, false, false)
+    steps := LoopRunYield(harness, LoopYield(null), null)
 
     assert LoopKinds(steps) == ""
     assert harness.Errors.Count == 0
 }
 
-test "A yield WITH A VALUE ASKS FOR THE WALK AND BOTH ESCAPE REPORTS, IN THAT ORDER" {
+test "A yield WITH A VALUE ASKS FOR THE WALK AND NOTHING ELSE" {
     harness := LoopDefault()
     harness.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
 
-    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.Int, false, false)
+    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.Int)
 
-    assert LoopKinds(steps) == "1,2,3"
+    // The two escape reports were kinds 2 and 3 and are N#-owned calls now.
+    assert LoopKinds(steps) == "1"
     assert LoopText(steps[0].Text) == "<null>"
-    assert LoopText(steps[1].Text) == "yielded"
-    assert LoopText(steps[2].Text) == "yielded"
-    // Kind 2 carries the answered type; kind 1 has nothing to carry yet.
     assert steps[0].CarriedType == "unknown"
-    assert steps[1].CarriedType == "int"
     assert harness.Errors.Count == 0
 }
 
@@ -721,9 +740,9 @@ test "A yield OUTSIDE A GENERATOR IS REPORTED AT THE KEYWORD, AND THE VALUE IS S
     harness.Ambient.EnterFunctionDeclaration(
         LoopFunction("f", null, Modifiers.None), BuiltInTypes.Int)
 
-    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String, false, false)
+    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String)
 
-    assert LoopKinds(steps) == "1,2,3"
+    assert LoopKinds(steps) == "1"
     assert harness.Errors.Count == 1
     assert LoopErrorText(harness, 0)
         == "'yield' can only be used inside a generator function|6:5+5"
@@ -736,7 +755,7 @@ test "A yield OF THE WRONG TYPE IS REPORTED AT THE VALUE, WITH BOTH TYPES IN THE
     harness.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
 
-    LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String, false, false)
+    LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String)
 
     assert harness.Errors.Count == 1
     assert LoopErrorText(harness, 0)
@@ -745,48 +764,56 @@ test "A yield OF THE WRONG TYPE IS REPORTED AT THE VALUE, WITH BOTH TYPES IN THE
         == "Yield a value assignable to 'int', or change the generator return type."
 }
 
-test "EITHER ESCAPE ANSWER SILENCES THE ELEMENT-TYPE RULE" {
+test "EITHER ESCAPE SILENCES THE ELEMENT-TYPE RULE, AND SPEAKS IN ITS PLACE" {
+    // A yielded ROW VIEW: the row escape fires on the answered type, and the mismatch that would
+    // otherwise follow (a row view is not an `int`) never speaks.
     rowHarness := LoopDefault()
     rowHarness.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
-    LoopRunYield(rowHarness, LoopYield(LoopValue()), BuiltInTypes.String, true, false)
-    assert rowHarness.Errors.Count == 0
+    LoopRunYield(rowHarness, LoopYield(LoopValue()), LoopSoaRowType())
+    assert rowHarness.Errors.Count == 1
+    assert rowHarness.Errors[0].Message
+        == "SoA row views cannot be yielded; use the table and row index instead"
 
+    // A yielded DIRECT COLUMN: decided by the SYNTAX of the value, not by its type, so the answered
+    // type is an ordinary mismatching one and the mismatch still does not speak.
     columnHarness := LoopDefault()
     columnHarness.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
-    LoopRunYield(columnHarness, LoopYield(LoopValue()), BuiltInTypes.String, false, true)
-    assert columnHarness.Errors.Count == 0
+    LoopDeclareSoaTable(columnHarness)
+    LoopRunYield(columnHarness, LoopYield(LoopSoaColumnRead()), BuiltInTypes.String)
+    assert columnHarness.Errors.Count == 1
+    assert columnHarness.Errors[0].Message == "SoA table member 'x' cannot be yielded directly"
 }
 
 test "A yield WHOSE VALUE FITS, OR WHOSE SEQUENCE IS UNNAMEABLE, IS SILENT" {
     fitting := LoopDefault()
     fitting.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
-    LoopRunYield(fitting, LoopYield(LoopValue()), BuiltInTypes.Int, false, false)
+    LoopRunYield(fitting, LoopYield(LoopValue()), BuiltInTypes.Int)
     assert fitting.Errors.Count == 0
 
     // A return type that names no sequence at all: a different error, reported elsewhere.
     unnameable := LoopDefault()
     unnameable.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), BuiltInTypes.Int)
-    LoopRunYield(unnameable, LoopYield(LoopValue()), BuiltInTypes.String, false, false)
+    LoopRunYield(unnameable, LoopYield(LoopValue()), BuiltInTypes.String)
     assert unnameable.Errors.Count == 0
 
     // An unknown on either side would make the wording meaningless.
     unknownValue := LoopDefault()
     unknownValue.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
-    LoopRunYield(unknownValue, LoopYield(LoopValue()), BuiltInTypes.Unknown, false, false)
+    LoopRunYield(unknownValue, LoopYield(LoopValue()), BuiltInTypes.Unknown)
     assert unknownValue.Errors.Count == 0
 }
 
 test "A yield WITH NO ENCLOSING FUNCTION AT ALL REPORTS ONLY THE GENERATOR RULE" {
     harness := LoopDefault()
 
-    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String, false, false)
+    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String)
 
-    assert LoopKinds(steps) == "1,2,3"
+    assert LoopKinds(steps) == "1"
     assert harness.Errors.Count == 1
     assert LoopErrorText(harness, 0)
         == "'yield' can only be used inside a generator function|6:5+5"
@@ -797,9 +824,9 @@ test "AN UNANSWERED VALUE WALK LEAVES THE YIELDED TYPE unknown RATHER THAN NULL"
     harness.Ambient.EnterFunctionDeclaration(
         LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
 
-    steps := LoopRunYield(harness, LoopYield(LoopValue()), null, false, false)
+    steps := LoopRunYield(harness, LoopYield(LoopValue()), null)
 
-    assert LoopKinds(steps) == "1,2,3"
-    assert steps[1].CarriedType == "unknown"
+    assert LoopKinds(steps) == "1"
+    // An unanswered walk leaves `unknown`, which silences the rule rather than reporting nonsense.
     assert harness.Errors.Count == 0
 }

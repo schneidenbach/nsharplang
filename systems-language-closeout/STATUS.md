@@ -1,6 +1,41 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-04 (**TASK 017 SLICE 36 LANDED (no commit — mandate) — N# OWNS WHAT ITERATING A
+Last updated: 2026-08-04 (**TASK 017 SLICE 37 LANDED (no commit — mandate) — N# OWNS WHAT A
+STRUCT-OF-ARRAYS VALUE MAY NOT DO, AND ALL FOUR WALKER DRIVERS SHRANK AT ONCE.** A new
+`AnalyzerSoaEscape.nl` (**258 lines, ONE type, 11 members, 8 of them public**) becomes the sole
+authority for both SoA escape questions and for the fact underneath the second one: the row-view
+report in its told and asked shapes, the direct-column report in both, the SYNTACTIC probe that
+decides what a direct column read is, its receiver walk, and the analysis-lifetime reference-keyed
+REGISTRY of column reads the member walk has resolved. **SEVEN MEMBERS, ONE FIELD, EIGHT DRIVER KINDS,
+147 SITES ROUTED**: `git diff` **+202 / −326 = net −124**, `Analyzer.cs` **12,962 → 12,838** (non-blank
+11,446 → **11,332**), declarations **571 → 564**, and **NOT ONE NEW C# MEMBER IS ADDED**. **THE SHAPE
+MEASUREMENT IS THE FINDING**: the two "IfNeeded" gates make DIFFERENT tests and only the row one is a
+function of a `TypeInfo` — the column one is syntactic and needs a registry no driver can carry — so
+NEITHER gate is driver-visible and the whole family moves into the sink, the way slice 33's
+`ErrorCount` guard did. **KINDS 2 AND 3 DIE IN ALL FOUR DRIVERS**: `DriveReturnStatement` and
+`DriveYieldStatement` collapse to a SINGLE `Supply` line each, `DriveLocalDeclaration` drops its escape
+flag, and the corpus transcript measures **95,843 driver round trips gone**. The numbering keeps its
+GAPS at 2 and 3 rather than closing up, because 40-odd contracts pin step kinds by value. PROOFS: the
+semantic-diagnostic oracle over **ALL 71 targets with BOTH CLIs on the SAME worktree — ORACLE_DIFFS = 0
+over 886 checked files and 835 diagnostics across 23 codes**, md5 identical; an **emission-order
+protocol differential of ten row kinds, each carrying its error count — 1,193,143 corpus rows, 0
+MISMATCHES**, which also PROVES the corpus reaches only half the family (691,080 gate answers, every
+one `False`, ZERO told reports), and **10,284 env-gated fixture rows, 0 MISMATCHES** reaching all 36
+told row reports, all 32 told column reports and all 65 registry writes; **323 fixtures** (269
+accumulated + 54 new, all env-gated) with **FX_CHECK_DIFFS = 0** and **FX_BUILD_DIFFS = 0** on the
+unsorted list-order transcript; the IL normaliser **re-derived from scratch** with a **CONTROL that ran
+FIRST and passed 116/116**, then **ALL 62 N#-emitted assemblies BYTE-IDENTICAL** (the 54 that differ
+are one copied C# support library, root-caused to an embedded PDB path, 0 source files differing);
+**23 new contracts** (2,723 → 2,746) including the family's FIRST direct pinning; the FULL VS
+Code-enabled gate **ALL TESTS PASSED in 33m 45s** (3,194/3,194 unit, 2,746/2,746 native, VS Code
+integration green, IL verification green over 67 assemblies); ownership audit **18/18**; `nlc check`
+**ZERO findings** in the new owner. The parse-error census over the whole accumulated set went **29 →
+23**, repairing SIX of slice 34's `break`/`continue` fixtures that were written with C#-style
+`case X:` labels and reaching their arms ZERO times. **THE FOREACH ARMS ARE UNBLOCKED BUT NOT
+ABSORBED**, and the decision is measured: SIX stay-behind re-entries each (the brief said five), one
+request type would cover both, but absorbing means ADDING a fifth driver. No toolset repin.)
+
+Last updated (prior): 2026-08-04 (**TASK 017 SLICE 36 LANDED (no commit — mandate) — N# OWNS WHAT ITERATING A
 VALUE PRODUCES, AND WHAT A `yield` MEANS. THE WALKER TERRITORY HAS FOUR DRIVERS AND A SECOND OWNED
 CONTEXT.** A new `AnalyzerLoopSequence.nl` (**708 lines, THREE types, 28 members, 9 of them public**) becomes the sole
 authority for the one question `foreach`, `await foreach` and a generator's `yield` all ask — the
@@ -1514,7 +1549,328 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 36 — THE LOOP-SEQUENCE ELEMENT-TYPE FAMILY,
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 37 — THE SoA ESCAPE-REPORT FAMILY, WHOLE, AND
+  THE COLUMN-ACCESS REGISTRY IT READS.** Target recorded BEFORE any production edit, at `33808eb97`
+  (`Analyzer.cs` **12,962** lines, non-blank **11,446**; BootstrapServices contracts **2,723**; unit
+  suite **3,194**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint
+  head-v1:62c0541481aae95f`). THE TARGET, as measured at this tree before editing: the three named
+  reporters `ReportSoaRowEscape` (:6312, 11), `ReportSoaRowEscapeIfNeeded` (:6348, 10) and
+  `ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded` (:7999, 10) — **147 name occurrences**,
+  confirmed — PLUS the closure they cannot leave behind: `ReportUnsupportedSoaDirectColumnValueEscape`
+  (:8010, 14, the raw reporter, SHARED with one 018 gate), `TryGetSoaColumnMemberAccess` (:8120, 23,
+  SHARED with four 018 gates), `TryGetSoaRecordReceiverType` (:8144, 25, private to it),
+  `IsSoaColumnMemberAccess` (:5796, 8) and the reference-identity REGISTRY they all read,
+  `_soaColumnMemberAccesses` (:240) with its prologue clear (:561) and its one write (:5616).
+  **THE 018 BOUNDARY, RE-CHECKED**: STATUS's ~320-line assessment covers the CALL-WALK direct-column
+  GATES (`ReportSoaDirectColumnMutatingArrayCallIfNeeded`,
+  `ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded`,
+  `ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded`,
+  `ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded` and their `Sort`/`Fill`/`Copy`
+  parameter tables) — those STAY. The same sentence names `ReportSoaRowEscape` separately as
+  belonging to another family for the next slice to inherit, so the escape-REPORT family is 017's.
+  The two members the two territories SHARE move and are PUBLISHED; 018's gates route to them
+  mechanically, keeping every line of their own policy.
+
+  **THE SHAPE MEASUREMENT, AND IT SAYS THE "IfNeeded" GATES ARE NOT DRIVER-VISIBLE AT ALL.** The two
+  gates make DIFFERENT tests and only one of them is answerable from a `TypeInfo`. The ROW gate is
+  `type is SoaRowTypeInfo` — a pure function of a value the caller already holds. The COLUMN gate is
+  a SYNTACTIC probe: only a member access whose receiver is a table and whose name is one of its
+  declared columns is a direct column value, and NO `TypeInfo` records that, because a column reads as
+  the plain array type its declaration gives it. So the family is not a pure function of a type, and
+  the answer to "is this a column" lives in TWO places the C# owner held privately: an
+  analysis-lifetime REGISTRY of member accesses the member walk already resolved as columns
+  (`HashSet<MemberAccessExpression>` under `ReferenceEqualityComparer`, reproduced in N# as the
+  estate's `HashSet<object>` idiom, which is reference identity because `MemberAccessExpression` is a
+  plain class), and a DECLARED fallback that resolves a plain-identifier receiver through the scope
+  stack. Both moved. **NEITHER GATE IS ANSWERABLE BY A DRIVER**, so — like slice 33's `ErrorCount`
+  finding, which moved a guard INTO the sink — the whole test moves into the sink rather than being
+  relayed. The family therefore moves WHOLE, as a constructor-injected owner in the
+  `AnalyzerLoopSequence` shape, holding `AnalyzerDiagnosticSink`, `AnalyzerDiagnosticSpans`,
+  `AnalyzerScopeStack` and `AnalyzerDeclarationContext` — all four constructed exactly once and NONE
+  rebuilt with the SCC. `GetNonNullableType` could not move (21 other callers), so its two-call body is
+  reproduced as the owner's own `NonNullableType`, exactly as slice 36 did. NOTHING re-enters C#.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHAT A STRUCT-OF-ARRAYS VALUE MAY NOT DO.**
+  `Analyzer.cs` keeps no part of either escape question — not the row test, not the column probe, not
+  the registry the probe consults, not the registry's per-analysis reset, not the two wordings, not
+  the two suggestions and not the spans. And **ALL FOUR ZERO-POLICY DRIVERS SHRANK AT ONCE**, which is
+  what made this the one change worth making before anything else in the walker territory.
+
+  **THE CUT — SEVEN MEMBERS, ONE FIELD, EIGHT DRIVER KINDS, 147 SITES ROUTED.** `git diff` on
+  `Analyzer.cs` **+202 / −326 = net −124**; the file goes **12,962 → 12,838** (non-blank 11,446 →
+  **11,332**). Declarations **571 → 564 (−7)**: seven members and one field GONE, one field added.
+  The seven members are `IsSoaColumnMemberAccess` (8), `ReportSoaRowEscape` (11),
+  `ReportSoaRowEscapeIfNeeded` (10), `ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded` (10),
+  `ReportUnsupportedSoaDirectColumnValueEscape` (14), `TryGetSoaColumnMemberAccess` (23) and
+  `TryGetSoaRecordReceiverType` (25) — **101 source lines**, 108 with their blank separators, 109 with
+  the registry field. **BY REGION** the diff is −1 the field, +6 the new field and its banner, −2 +4
+  the construction, −9 / −12 / −11 / −26 / −50 the five member regions, **−6 and −6 the kind-2/kind-3
+  case blocks in `DriveExpressionStatement` and `DriveLocalDeclaration`, −1 the latter's now-dead
+  `escaped` local, and −20 +4 and −22 +8 the `yield` and `return` drivers COLLAPSING TO A SINGLE
+  `Supply` LINE EACH**; then −12 +28 across four hunks that re-shape 018's own gates from `out`
+  parameters to the owner's nullable-returning probe (mechanical routing — **not one line of their
+  `Sort`/`Fill`/`Copy` policy is touched**); and **145 lines across 98 one-for-one routing hunks**.
+  **NOT ONE NEW C# MEMBER IS ADDED** — no shell, no bridge, no state — and N# calls nothing back.
+  Compiler warnings are **11 in BOTH trees**. `Analyzer.cs` now holds **147 `_soaEscape.` call
+  sites**, and the arithmetic closes on the brief's 147 name occurrences exactly: 20 + 61 + 66 = 147
+  occurrences, minus 3 declarations, minus 1 internal call, minus 8 driver-kind sites = **135
+  surviving reporter sites**, plus 1 raw-reporter, 5 probe, 4 registry-read, 1 registry-write and 1
+  reset site = 147.
+
+  **THE DRIVER-SHRINK ACCOUNTING, AND IT IS THE POINT OF THE SLICE.** Kinds 2 and 3 die in ALL FOUR
+  drivers. `DriveExpressionStatement` keeps 1 / 4 / 5 / 6 / 7 / 8; `DriveLocalDeclaration` keeps
+  1 / 4 / 5 / 6 and its `Supply` **drops the escape flag entirely**; `DriveReturnStatement` and
+  `DriveYieldStatement` are left with kind 1 ALONE and collapse from a 34-line and a 24-line switch
+  loop to a **single `Supply(state, AnalyzeExpression(step.Node!))` line each**, both also dropping the
+  flag. **THE NUMBERING KEEPS ITS GAPS AT 2 AND 3 RATHER THAN CLOSING UP**, and that is deliberate:
+  the kind number is a protocol between one walk and one driver, and 40-odd contracts pin step kinds
+  by value, so a renumber would silently re-point every one of them. The gaps say what left.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `33808eb97` and at the working tree, across **ALL 71 tracked `project.yml` targets with no
+  exclusion**, BOTH CLIs pointed at the SAME `git worktree` copy. **ORACLE_DIFFS = 0 over 886 checked
+  files and 835 diagnostics across 23 codes**, exit codes identical (0 × 59, 1 × 12), `stderrBytes = 0`
+  on every one of the 142 runs, and ZERO `PARSE-FAIL` rows, md5
+  `349f033afdc13942bdd89e577e510e1c` in BOTH. ONE field is normalised and NAMED: the absolute
+  `"projectRoot"`.
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, COMPARED ROW BY ROW, WITH PER-ROW ERROR COUNTS.**
+  Both trees were instrumented at the SAME probe points with the SAME line format, in SEPARATE copies
+  that never shipped. Ten row kinds: the registry reset, every registry write, every syntactic probe
+  and its answer, every registry read and its answer, every row gate with its action word / answer /
+  error count, every told row report, every column gate the same way, every told column report with the
+  COLUMN NODE it named, the end of each `Analyze` with its error count, and every diagnostic read back
+  off `_errors`. Because kinds 2 and 3 left the protocol BY DESIGN, the driver `STEP` rows are counted
+  separately rather than compared — that difference IS the deliverable.
+  * **THE CORPUS RUN over all 71 targets, both instrumented CLIs on THE SAME source tree — 1,193,143
+    semantic rows, 0 MISMATCHES**, md5 `c1e256cdbe2d36fc49f2de8f9224c5c6` in BOTH: 973 resets, 973
+    analysis ends, 675 diagnostics, **482,869 syntactic probes, 444,590 column gates, 246,490 row
+    gates and 16,573 registry reads**. And a finding the corpus itself makes: **ZERO told reports and
+    ZERO registry writes** — a corpus of COMPILING sources never fires an SoA escape and never even
+    resolves a column, so every one of the 691,080 gate answers is `False`. The told paths are
+    unreachable from the corpus, which is exactly why the fixtures below exist.
+  * **THE ENV-GATED FIXTURE RUN closes that gap: 10,284 semantic rows, 0 MISMATCHES**, md5
+    `f210e681107d34563daa11c826053c5e`. `soa record` is NL323-gated behind
+    `NSHARP_EXPERIMENTAL_SOA=1`, so the 323 fixtures run under that variable are the ONLY way to reach
+    the told paths — and they reach all of them: **36 told row reports, 32 told column reports, 65
+    registry writes, 12 registry reads answering YES, and among 1,105 row gates and 3,438 column gates
+    the ones that answer YES at all**.
+  * **THE DRIVER SHRINK, MEASURED IN ROUND TRIPS RATHER THAN LINES.** Corpus `STEP` rows fall
+    **258,425 → 162,582**, so **95,843 driver round trips are gone** — 39,279 `EXPRSTMT` kind 3,
+    27,874 `LOCALDECL` kind 3, 28,512 `RETURN` kind 3 and 89 each of `YIELD` kinds 2 and 3, plus every
+    kind-2 site. On the fixtures the same census falls, and there the
+    removed kinds include the ones the corpus never fires: `EXPRSTMT` kind 2, `LOCALDECL` kind 2 and
+    `RETURN` kind 2. On the FINAL 323-fixture set the same census is **3,788 → 2,447 (−1,341)**.
+
+  **PROOF — 323 FIXTURES, AND A PARSE-ERROR CENSUS THAT REPAIRED SIX MORE.** 54 new env-gated fixtures
+  run TOGETHER WITH the **269 accumulated on disk from slices 24, 32, 33, 34, 35 and 36**. The 54 cover
+  one action word per arm on BOTH sides of the family — returned, thrown, printed, the `if` / `while` /
+  `for` / `switch` conditions, stored in a variable, deconstructed, discarded, the `for` iterator,
+  asserted, an operator operand, a unary operand, an index value, a member receiver, a `using`
+  resource, a lock object, an interpolation hole, a call argument — plus the probe's own shapes: the
+  three transparent wrappers, a `ref` receiver, the `a.b.c` NON-recursion, a name that is not a column,
+  a column-like read on a non-table, element access, null-conditional member access and
+  null-conditional indexing, and four negative controls that must stay silent. FOUR of them exist for
+  the 018 BOUNDARY specifically, and they FIRE: `Array.Sort(points.x)` and `Array.Reverse(points.x)`
+  reach the mutating-array gate ("sorted directly" / "reversed directly"), `Array.IndexOf(points.x, 1)`
+  reaches the static-array gate ("cannot be passed to Array method 'IndexOf' directly"), and
+  `Array.Fill(points.x, 0)` is the ALLOWED control the analyzer stays silent on — so all four gates
+  whose `out`-parameter plumbing this slice re-shaped are covered by a fixture.
+  **`nlc check --json`: FX_CHECK_DIFFS = 0 over all 323**, md5 `f6d7c765e5151de1d3283ebac1658937` in
+  BOTH, 398 diagnostics across 27 codes, exit codes identical (0 × 62, 1 × 261), `stderrBytes = 0`
+  everywhere, **ZERO missing-`results` keys** and **76 SoA escape diagnostics**.
+  **THE CENSUS OVER THE WHOLE ACCUMULATED SET went 29 → 23 in 11 fixtures**, because it found SIX of
+  slice 34's `break`/`continue` fixtures (`c03`, `c04`, `c06`, `c07`, `c08`, `c09`) written with
+  C#-style `case X:` labels — N#'s grammar is `case X => …` — so all six were producing NOTHING but a
+  syntax error and reaching their arms ZERO times. All six were repaired and now reach them (`c03`
+  reports "'break' can only be used inside a loop"). **AND GOTCHA 5 BIT AGAIN, WIDER THAN RECORDED**:
+  `nl33fixtures/d21-await-statement` returned `{"error": …}` with NO `results` key at all, identically
+  on both sides, so every diff was 0 and the arm was reached zero times. Slice 36 recorded the trigger
+  as a non-generic `Task` return on an `async` function **containing `await foreach`**; this one
+  contains a plain `await`, so the real trigger is **any `async func(): Task` with a non-generic
+  `Task`**. Rewritten to `Task<int>`, it is clean and now actually analyses its `await`. The 23 that
+  remain are all in other slices' territories (lambda bodies, indexers, newtype construction,
+  top-level `return`) and several legitimately test syntax errors.
+  **`nlc build`, which renders `_errors` in LIST order with NO dedup and NO sort — the only surface
+  that shows undeduplicated multiplicity: FX_BUILD_DIFFS = 0 over 5,850 lines**, md5
+  `de3a7ed73f17f9e3cf894979972171a7`, identical exit codes (0 × 62, 1 × 261), with **67 SoA escape
+  lines rendered in raw list order**. The ONLY normalisation is elapsed-time text, and it is NAMED.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED FROM SCRATCH, AND A CONTROL THAT RAN FIRST.** Two
+  consecutive builds of the same source in the same directory with the same CLI differ in **exactly 16
+  byte positions — one at 0x88 inside the PE COFF TimeDateStamp and fifteen at 0x46c–0x47b inside the
+  metadata `#GUID` heap's MVID** (slices 34/35 measured 17 and slice 36 measured 18; the timestamp's
+  differing-byte COUNT depends on how much clock passed, its POSITION does not). A structural
+  normaliser that walks the DOS header to the PE signature to the COFF header to the optional header to
+  the section table to the CLI header to the metadata root to the stream headers to `#GUID`, and zeroes
+  those two fields AND NOTHING ELSE (20 byte positions), leaves **0 residual differing positions**.
+  **THE CONTROL THEN RAN BEFORE THE TEST — the BASELINE CLI building TWO IDENTICAL COPIES of the whole
+  71-target corpus — and PASSED: compared 116, SAME 116, DIFFERENT 0.**
+
+  **PROOF — CORPUS BUILD TRANSCRIPTS AND THE IL SWEEP, FROM THREE SWEEPS OVER IDENTICAL SOURCES.**
+  All three trees were byte-identical copies (`diff -rq` clean) before any build. **`nlc build`:
+  CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS = 0 over 1,490 lines**, md5
+  `e96633560a15f14e15de91538b1986af`, with **identical exit codes (0 × 54, 1 × 17)**. The same passes
+  produced the IL: **116 assemblies compared, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, and ALL 62
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL** under the normaliser. The 54 that differ are ONE file — the
+  COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference
+  is **ROOT-CAUSED, NOT WAVED THROUGH**: it has exactly ONE distinct content per tree, `strings` finds
+  the embedded PDB path `/private/tmp/nl37base/…` in one and `/Users/spencer/repos/nsharplang/…` in the
+  other, so the CodeView / PDB-checksum records derived from the CLI's own build location shift —
+  **exactly 232 bytes, spanning 0x88–0x3808** — and `diff -rq -x bin -x obj` over
+  `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **PROOF — `nlc test` OVER THE FIXTURES THAT CARRY A `.tests.nl`.** 14 of the 323 do.
+  **FX_TEST_DIFFS = 0 over 100 lines**, md5 `3af3c452006474a129bfe5027ca5d73e` in BOTH, from two
+  pristine staging copies built serially rather than concurrently.
+
+  **N# ADDED — 258 production lines, ONE type, 11 members (8 public), ONE new file, plus 393 lines of
+  contracts.** `AnalyzerSoaEscape.nl`: the registry and its reset, the registry write, the registry
+  read, the syntactic probe and its receiver walk, the four reporters and the reproduced nullable
+  unwrap. `AnalyzerSoaEscape.tests.nl` is **20 contracts** — the first DIRECT pinning this family has
+  ever had, written around the four things it is easy to get wrong: the two questions' different
+  inputs, the registry's REFERENCE keying (a contract records one `table.x` read and asserts an
+  identical twin still answers NO), the probe stopping at ONE level (`a.b.c` is not a column because
+  `a.b` is), and the exact wrapper lists. **AND THE FOUR WALKS SHRANK RATHER THAN GREW**: their
+  production `.nl` is **+144 / −154 = net −10**, because each one traded a request-emitting branch for
+  a direct call. Contracts: BootstrapServices **2,723 → 2,746 (+23)** — the 20 new ones plus 3 the
+  migration ADDED, since a contract that wants an escape to fire now builds a real row view or a real
+  declared-table column read and reads the DIAGNOSTIC, which pins the action word and the span that
+  the old boolean-handback contracts could not have caught.
+
+  **THE FOREACH ABSORB: DECLINED THIS SLICE, AND THE MEASUREMENT IS THE REASON.** With the family
+  gone, `AnalyzeForeachStatement` and `AnalyzeAwaitForeachStatement` are 26 lines each. Their
+  stay-behind re-entries are **SIX, not the brief's five**: `AnalyzeExpression`, `PushScope`,
+  `DeclareSymbol`, `RecordVariableInCurrentScope`, `AnalyzeStatement` and `PopScope` — the brief
+  counted the scope pair as one. Everything else they call (`_soaEscape.*`, `_loopSequence.Resolve*`,
+  `_ambient.EnterLoop`/`ExitLoop`) is already N#. The shape DOES qualify for a driver — the operands of
+  `DeclareSymbol` and `RecordVariableInCurrentScope` are functions of the kind-1 answer, which is
+  `DriveLocalDeclaration`'s own justification — and ONE request type covers both arms, since they
+  differ only in a mode flag and two action strings. **But absorbing them means ADDING a FIFTH driver,
+  which is new production C#, and the net would be about −20 lines.** This slice's cut is already
+  terminal on its own terms — every driver shrank, two of them to a single kind — so the arms are
+  handed forward with the measurement rather than folded in, exactly as slice 35 handed `yield`
+  forward before slice 36 took it.
+
+  **EVIDENCE.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — a FRESH ISOLATED run, no
+  cached whole-gate or per-step result — **ALL TESTS PASSED in 33m 45s**, with **Step 2 Build N#
+  Compiler 3m47s, Step 2b Format Contract Gate green, Step 3 Unit Tests 11m15s (3,194 / 3,194, 0
+  failed), Step 3a Native N# Tests 6m11s (compiler-service contracts 2,746 / 2,746, 0 failed, plus the
+  whole native estate including ownership-audit 18 / 18), Step 3b VS CODE INTEGRATION TESTS 4m33s,
+  Step 4 Pack and Install MSBuild SDK 7m09s, Steps 4b–10 template pack / install / creation / template
+  build / example builds / single-file examples / `nlc check` all green, and Step 10b IL VERIFICATION
+  green over all 67 N# assemblies**. The unit count is the `33808eb97` baseline COUNT with ZERO drift;
+  `./scripts/dev.sh --since` selected the **FULL unit suite (fail-safe)** and passed it in
+  **14m 44s** (3,194 / 3,194, 0 failed), so the change-aware filter did not narrow the coverage.
+  BootstrapServices contracts **2,723 → 2,746 (+23)**, 0 failed. Ownership audit **18 / 18** against
+  the freshly written manifest. **THE GATE RAN OVER THE FINAL SOURCE TREE**: every compiler, contract
+  and manifest file was byte-final before it started. **A FIRST ATTEMPT WAS STOPPED FIVE MINUTES IN,
+  DELIBERATELY**, to land a one-comment correction in `AnalyzerExpressionStatements.nl` (an earlier
+  wording attributed the discard walk's short-circuit to the second error-count read rather than to
+  the branch that ends the walk); the reported run is the one that started afterwards. Its build
+  orphan overlapped the final run's first two minutes and was terminated — the two were in SEPARATE
+  isolated trees, so the overlap cost CPU rather than correctness, and the gate passed.
+
+  **THE COMPILER'S OWN `nlc check` GRADED THE NEW OWNER, AND IT PASSED CLEAN.** `nlc check --json`
+  over `NSharpLang.Compiler.BootstrapServices` reports **ZERO findings in `AnalyzerSoaEscape.nl` and
+  ZERO in all five files this slice touched**, against an unchanged estate baseline of 282.
+
+  **RATCHET REPIN** — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 12,962 → **12,838**, currentNonBlankLines 11,446
+  → **11,332**, fingerprint `text-v1:cfbdbc3267644529` → **`text-v1:d3ded9b6b0ddac2f`** (epoch ceilings
+  23,451 / 20,537 PRESERVED and now clear by **10,613 / 9,205**);
+  `reviewedHeadFingerprint head-v1:62c0541481aae95f` → **`head-v1:42d7e79dc0fd2f64`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value untouched. The recomputation was VALIDATED before it was
+  applied: an independent FNV-1a walk reproduced the OLD `text-v1:cfbdbc3267644529` from the baseline
+  file and the OLD `head-v1:62c0541481aae95f` from the unmodified manifest exactly, so the new values
+  are derived rather than guessed. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND
+  after**, the manifest `git diff` is exactly 2 changed lines and `OwnershipAudit.nl`'s is exactly 1;
+  neither file carries a BOM afterwards.
+
+  **NO TOOLSET REPIN WAS TAKEN, AND NONE WAS NEEDED.** Everything the owner consumes is already
+  published: `AnalyzerDiagnosticSink.Report` / `.ErrorCount`,
+  `AnalyzerDiagnosticSpans.GetExpressionDiagnosticSpan`, `AnalyzerScopeStack.LookupSymbol`,
+  `AnalyzerDeclarationContext.ResolveDeclaredAlias`, `AnalyzerMemberResolution.TryGetSoaColumn`,
+  `HashSet<object>.Add` / `.Contains` / `.Clear`, and the AST's `MemberAccessExpression`,
+  `ParenthesizedExpression`, `CheckedExpression`, `UncheckedExpression` and `IdentifierExpression`.
+  **THE FAMILY CONTAINS NO REFLECTION AT ALL** — the closure scan found the scope stack, the
+  declaration context, one N# member-resolution static and the AST, and nothing else — so unlike slice
+  36 there is **no MetadataLoadContext dimension** to preserve and no accessor-spelling hazard.
+  **ONE WALL WAS MET AND ROUTED AROUND INSIDE THE LANGUAGE**: the throwaway probe's
+  `File.AppendAllText` is not modeled by the columnar backend (`emit.call.static-member-unmodeled`),
+  so the instrumented copy accumulates its rows on the owner and the driver drains them — a
+  throwaway-only shape, and the production owner is untouched by it.
+
+  **VSIX RELOADED**: `./scripts/reload-vscode-extension.sh` rebuilt the language server, repackaged
+  `nsharp-0.6.0.vsix` (289 files) and reinstalled it — the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is now the post-slice build and
+  SHRANK **823,808 → 822,784 bytes**. No computer-use was used.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is every SoA squiggle a developer can see outside a call:
+  "SoA row views cannot be *X*; use the table and row index instead" and "SoA table member '*c*' cannot
+  be *X* directly", where *X* is one of forty-odd action words the arm supplies — returned, thrown,
+  printed, yielded, deconstructed, discarded, stored in a variable or a field, used as an `if` /
+  `while` / `for` / `switch` condition, as a `foreach` or async-`foreach` collection, as an operator or
+  unary operand, as an index value or receiver, as a member receiver, as a `using` resource, locked,
+  spread, formatted in an interpolated string, asserted, or passed as an argument — each underlining
+  the offending expression and carrying its own suggestion. N# also now owns which member access the
+  IDE considers a direct column read at all.
+
+  **FIVE GOTCHAS, AND FOUR ARE NEW TO THE ARC.**
+  **(1) `File.AppendAllText` IS NOT MODELED BY THE COLUMNAR BACKEND.** A two-argument static
+  `File.AppendAllText(path, text)` declines at `emit.call.static-member-unmodeled` naming the enclosing
+  FUNCTION. This matters for INSTRUMENTATION specifically: an N#-side probe cannot write its own trace
+  file. The shape that works is to accumulate rows in a `List<string>` the owner exposes and let the
+  C# driver drain it — which also keeps the rows in emission order, because the driver drains once per
+  `Analyze`. (A static mutable field is not an option either: **the estate has no static mutable
+  fields**, only `static func`s and expression-bodied `static` properties.)
+  **(2) N#'s `switch` CASE LABEL IS `case X => …`, NOT `case X:`** — and a colon produces NL102
+  "Expected '=>'" that swallows the whole statement, so a fixture written the C# way reaches its arm
+  ZERO times while still looking like coverage. SIX of slice 34's `break`/`continue` fixtures were in
+  exactly that state and were repaired here. **`using` is `using name := expr { … }`**, not
+  `using expr { … }`; and a `ref` PARAMETER is `func F(ref x: T)`, not `func F(x: ref T)` — the latter
+  reports NL109 "Got the reserved keyword 'ref'" at the TYPE position.
+  **(3) GOTCHA 5 IS WIDER THAN SLICE 36 RECORDED.** Slice 36 attributed the `nlc check` crash
+  (`{"error": …}` with NO `results` key, identical on both sides so every diff is 0) to a non-generic
+  `Task` return on an `async` function **containing `await foreach`**. `nl33fixtures/d21-await-statement`
+  has a plain `await` and crashes too, so the real trigger is **any `async func(): Task` with a
+  non-generic `Task`**. Still PRE-EXISTING — reproduced at `33808eb97` — and still recorded as debt;
+  the fixture was rewritten to `Task<int>`.
+  **(4) A CORPUS OF COMPILING SOURCES PROVES ONLY HALF OF A REPORTING FAMILY.** Over all 71 targets
+  this family is asked **691,080 times and answers `False` every single time** — zero told reports,
+  zero registry writes. A transcript that only ran the corpus would have pinned the gates and NONE of
+  the reports. The env-gated fixtures are not a supplement here; they are the only evidence that half
+  the family works.
+  **(5) `nlc check --json` PUTS DIAGNOSTICS UNDER `"results"` AS A FLAT LIST**, each row carrying its
+  own `code`/`line`/`column`/`message` — not under `"diagnostics"`, and not nested per file. Slices 33,
+  35 and 36 all recorded the key; the FLAT shape is what makes the "missing `results` key" check in
+  gotcha 3 a one-line test.
+
+  **THE WALKER TERRITORY AFTER SEVEN CUTS, AND THE NEXT ONE.** `Analyzer.cs` holds **12,838 lines**;
+  the territory has FOUR zero-policy drivers — two of them now a SINGLE LINE — and THREE owned context
+  objects (`AnalyzerAmbientContext`, `AnalyzerLoopSequence`, `AnalyzerSoaEscape`) that every remaining
+  arm reads instead of re-deriving.
+  * **NEXT: the `foreach` and `await foreach` ARMS, which are now unblocked and measured.**
+    `AnalyzeForeachStatement` (:3616) and `AnalyzeAwaitForeachStatement` (:3644) are **26 lines each**
+    at this tree. Every call they make is N# except SIX: `AnalyzeExpression`, `PushScope`,
+    `DeclareSymbol`, `RecordVariableInCurrentScope`, `AnalyzeStatement`, `PopScope` — and all six are
+    kinds the estate's other drivers already have (1, 4, 5, 6 of `DriveExpressionStatement`; 4, 5 of
+    `DriveLocalDeclaration`). **ONE request type covers both arms**: they differ only in the async mode
+    flag and two action strings. What is still POLICY is the escape→`unknown` collapse, the two action
+    strings, which element-type entry to call, the scope KIND and the span it opens at, and the
+    declaration ORDER (push, declare, record, enter loop, walk body, exit loop, pop). Verify at the
+    tree first — every brief in this arc has been wrong about size, and this one was already wrong by
+    one about the re-entry count.
+  * **THEN `AnalyzeStatement` (the dispatch) FALLS LAST**, exactly as `AnalyzePattern` fell last after
+    slices 25–28 carved its arms out.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl37soafx` (54, this
+  slice, ALL env-gated `NSHARP_EXPERIMENTAL_SOA=1`) alongside `/private/tmp/nl36fixtures` (35),
+  `/private/tmp/nl36soafx` (4), `/private/tmp/nl35fixtures` (50), `/private/tmp/nl35soafx` (3),
+  `/private/tmp/nl34fixtures` (63, SIX of them repaired here), `/private/tmp/nl33fixtures` (47, ONE
+  repaired here), `/private/tmp/nl32fixtures` (31) and `/private/tmp/s24fixtures` (36) — **323 total**.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 36 — THE LOOP-SEQUENCE ELEMENT-TYPE FAMILY,
   WHOLE, AND ALL THREE ARMS THAT CONSUME IT (`foreach`, `await foreach`, `yield`).** Target recorded
   BEFORE any production edit, at `f74037b50` (`Analyzer.cs` **13,194** lines, non-blank **11,654**;
   BootstrapServices contracts **2,686**; unit suite **3,194**; ownership audit **18 / 18**; manifest

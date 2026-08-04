@@ -21,6 +21,12 @@ import NSharpLang.Compiler.Ast
 // message. And the assert-throws walk reports BEFORE it opens its scope, so a bad exception type is
 // squiggled outside the block it guards.
 //
+// THE TWO ESCAPE REPORTS ARE NO LONGER STEPS — they were kinds 2 and 3 until `AnalyzerSoaEscape` took
+// the family, and the walk calls them directly now. Every rule above still holds, but a contract that
+// wants one to FIRE builds a real row-view answer or a real declared-table column read and reads the
+// DIAGNOSTIC, rather than handing the walk a boolean. That is a stronger pinning, not a weaker one:
+// the old contracts could not have caught a wrong action word or a wrong span.
+//
 // THE CORPUS REACHES ALMOST NONE OF THIS. `nlc check` over all 71 tracked targets enters the discard
 // walk 38,929 times and fires ZERO of the family's four diagnostics; it never enters `assert` or
 // `assert throws` at all, because `nlc check` does not read `.tests.nl`. An `nlc test` sweep over the
@@ -32,10 +38,10 @@ class EsHarness {
     Owner: AnalyzerExpressionStatements
     Diagnostics: AnalyzerDiagnosticSink
     Errors: List<CompilerError>
+    Scopes: AnalyzerScopeStack
     Steps: List<EsStep>
     Answers: List<TypeInfo>
     AnswerIndex: int
-    ColumnEscape: bool
     Throwable: bool
     CalleeType: TypeInfo?
     ErrorsOnAnalyze: int
@@ -43,14 +49,15 @@ class EsHarness {
     constructor(
         owner: AnalyzerExpressionStatements,
         diagnostics: AnalyzerDiagnosticSink,
-        errors: List<CompilerError>) {
+        errors: List<CompilerError>,
+        scopes: AnalyzerScopeStack) {
         Owner = owner
         Diagnostics = diagnostics
         Errors = errors
+        Scopes = scopes
         Steps = new List<EsStep>()
         Answers = new List<TypeInfo>()
         AnswerIndex = 0
-        ColumnEscape = false
         Throwable = true
         CalleeType = null
         ErrorsOnAnalyze = 0
@@ -126,10 +133,31 @@ func EsHarnessWith(sourceText: string?): EsHarness {
         new BindingMap())
     resolver.BeginAnalysis(EsPath(), null, model, new BindingMap())
 
+    escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
     return new EsHarness(
-        new AnalyzerExpressionStatements(diagnostics, spans, resolver),
+        new AnalyzerExpressionStatements(diagnostics, spans, resolver, escape),
         diagnostics,
-        errors)
+        errors,
+        scopes)
+}
+
+// A table declared in the harness's scope, and a `points.x` read against it — the only way to make
+// the direct-column escape fire for real now that it is not a driver-answered step.
+func EsSoaColumns(): List<SoaColumnInfo> {
+    columns := new List<SoaColumnInfo>()
+    columns.Add(new SoaColumnInfo("x", new SimpleTypeReference("int", 0, 0), 1, 1))
+    return columns
+}
+
+func EsDeclareSoaTable(harness: EsHarness) {
+    table: TypeInfo = new SoaRecordTypeInfo(
+        new SoaRecordDeclarationInfo("Points", EsSoaColumns(), 1, 1))
+    harness.Scopes.Peek().Symbols["points"] = table
+}
+
+func EsSoaColumnRead(): Expression {
+    read: Expression = new MemberAccessExpression(EsName("points"), "x", false, 7, 5)
+    return read
 }
 
 func EsDefault(): EsHarness {
@@ -252,7 +280,7 @@ func EsStringMethod(name: string): MethodInfo {
 // ── the driver, exactly as `Analyzer.cs` writes it ────────────────────────
 
 // Runs the whole walk and records what was asked into the harness. Kind 1 is answered from the
-// `Answers` list in order (falling back to `unknown`), kind 3 from `ColumnEscape`, kind 7 from
+// `Answers` list in order (falling back to `unknown`), kind 7 from
 // `Throwable` and kind 8 from `CalleeType`. `ErrorsOnAnalyze` injects that many diagnostics DURING
 // the kind-1 step, which is how the discard walk's guard is exercised without an expression walker.
 func EsRun(harness: EsHarness, state: ExpressionStatementState) {
@@ -299,10 +327,6 @@ func EsRun(harness: EsHarness, state: ExpressionStatementState) {
             }
 
             harness.AnswerIndex = harness.AnswerIndex + 1
-        }
-
-        if step.Kind == 3 {
-            flag = harness.ColumnEscape
         }
 
         if step.Kind == 7 {
@@ -361,22 +385,25 @@ func EsRunIterator(harness: EsHarness, expression: Expression) {
 
 // ── the discard walk's step protocol ──────────────────────────────────────
 
-test "a clean expression statement asks for the expression, the column escape, and the callee type" {
+test "a clean expression statement asks for the expression and the callee type" {
     harness := EsDefault()
     harness.CalleeType = EsMustUseFunction("Compute")
     EsRunStatement(harness, EsCall("Compute"))
 
-    assert EsKinds(harness.Steps) == "1,3,8"
+    // The escape reports were kinds 2 and 3 and are N#-owned calls now.
+    assert EsKinds(harness.Steps) == "1,8"
     assert harness.Steps[0].Node != null
-    assert harness.Steps[1].Text == "discarded"
 }
 
 test "a for iterator names itself in the SoA report and nowhere else changes" {
     harness := EsDefault()
-    EsRunIterator(harness, EsAssign())
+    EsDeclareSoaTable(harness)
+    EsRunIterator(harness, EsSoaColumnRead())
 
-    assert EsKinds(harness.Steps) == "1,3"
-    assert harness.Steps[1].Text == "used as a 'for' iterator"
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA table member 'x' cannot be used as a 'for' iterator directly"
 }
 
 test "the expression step carries the expression itself and answers nothing else" {
@@ -393,7 +420,7 @@ test "an expression that unwraps to no call never asks for a callee type" {
     harness := EsDefault()
     EsRunStatement(harness, EsAssign())
 
-    assert EsKinds(harness.Steps) == "1,3"
+    assert EsKinds(harness.Steps) == "1"
 }
 
 test "the callee-type step carries the CALLEE's position, not the call's" {
@@ -401,9 +428,9 @@ test "the callee-type step carries the CALLEE's position, not the call's" {
     call := new CallExpression(new IdentifierExpression("Compute", 12, 30), new List<Argument>(), null, 12, 9)
     EsRunStatement(harness, call)
 
-    assert harness.Steps[2].Kind == 8
-    assert harness.Steps[2].Line == 12
-    assert harness.Steps[2].Column == 30
+    assert harness.Steps[1].Kind == 8
+    assert harness.Steps[1].Line == 12
+    assert harness.Steps[1].Column == 30
 }
 
 // ── the guard ─────────────────────────────────────────────────────────────
@@ -443,6 +470,17 @@ test "the guard is read at the step the driver would have read it" {
     assert harness.Steps[1].ErrorsBefore == 0
 }
 
+test "a report from inside the expression suppresses the SoA COLUMN escape too" {
+    harness := EsDefault()
+    harness.ErrorsOnAnalyze = 1
+    EsDeclareSoaTable(harness)
+    EsRunStatement(harness, EsSoaColumnRead())
+
+    // Only the injected error: the column report never ran.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "injected"
+}
+
 // ── the two SoA escapes ───────────────────────────────────────────────────
 
 test "an SoA row-view answer ends the walk at the row report" {
@@ -450,8 +488,11 @@ test "an SoA row-view answer ends the walk at the row report" {
     harness.Answers.Add(EsRowType())
     EsRunStatement(harness, EsName("row"))
 
-    assert EsKinds(harness.Steps) == "1,2"
-    assert harness.Steps[1].Text == "discarded"
+    assert EsKinds(harness.Steps) == "1"
+    // The row report speaks, and the validity report — which `row` would otherwise earn — does not.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be discarded; use the table and row index instead"
 }
 
 test "an SoA row-view iterator names the iterator in its report" {
@@ -459,25 +500,28 @@ test "an SoA row-view iterator names the iterator in its report" {
     harness.Answers.Add(EsRowType())
     EsRunIterator(harness, EsName("row"))
 
-    assert EsKinds(harness.Steps) == "1,2"
-    assert harness.Steps[1].Text == "used as a 'for' iterator"
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as a 'for' iterator; use the table and row index instead"
 }
 
 test "a fired column escape ends the walk with no validity report" {
     harness := EsDefault()
-    harness.ColumnEscape = true
-    EsRunStatement(harness, EsBinary())
+    EsDeclareSoaTable(harness)
+    EsRunStatement(harness, EsSoaColumnRead())
 
-    assert EsKinds(harness.Steps) == "1,3"
-    assert harness.Errors.Count == 0
+    assert EsKinds(harness.Steps) == "1"
+    // ONE report — the escape — where an unescaped member access earns the validity report instead.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be discarded directly"
 }
 
 test "an unfired column escape lets the validity decision run" {
     harness := EsDefault()
-    harness.ColumnEscape = false
     EsRunStatement(harness, EsBinary())
 
-    assert EsKinds(harness.Steps) == "1,3"
+    assert EsKinds(harness.Steps) == "1"
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidExpressionStatement
 }
@@ -746,7 +790,7 @@ test "a plain callee type reports nothing" {
     harness.CalleeType = EsPlainFunction("Compute")
     EsRunStatement(harness, EsCall("Compute"))
 
-    assert EsKinds(harness.Steps) == "1,3,8"
+    assert EsKinds(harness.Steps) == "1,8"
     assert harness.Errors.Count == 0
 }
 
@@ -755,7 +799,7 @@ test "a callee with no recorded type reports nothing" {
     harness.CalleeType = null
     EsRunStatement(harness, EsCall("Compute"))
 
-    assert EsKinds(harness.Steps) == "1,3,8"
+    assert EsKinds(harness.Steps) == "1,8"
     assert harness.Errors.Count == 0
 }
 
@@ -779,31 +823,29 @@ test "the validity report and the must-use report are mutually exclusive" {
 
 // ── the assert walk ───────────────────────────────────────────────────────
 
-test "an assert with no message asks for the condition and both escapes" {
+test "an assert with no message asks for the condition alone" {
     harness := EsDefault()
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), null)))
 
-    assert EsKinds(harness.Steps) == "1,3"
-    assert harness.Steps[1].Text == "asserted"
+    assert EsKinds(harness.Steps) == "1"
 }
 
-test "an assert with a message asks for both expressions and both escapes twice" {
+test "an assert with a message asks for both expressions" {
     harness := EsDefault()
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), EsName("why"))))
 
-    assert EsKinds(harness.Steps) == "1,3,1,3"
-    assert harness.Steps[1].Text == "asserted"
-    assert harness.Steps[3].Text == "used as an assertion message"
+    assert EsKinds(harness.Steps) == "1,1"
 }
 
-test "an SoA row condition adds the row report before the column report" {
+test "an SoA row condition reports under the asserted wording" {
     harness := EsDefault()
     harness.Answers.Add(EsRowType())
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsName("row"), null)))
 
-    assert EsKinds(harness.Steps) == "1,2,3"
-    assert harness.Steps[1].Text == "asserted"
-    assert harness.Steps[2].Text == "asserted"
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be asserted; use the table and row index instead"
 }
 
 test "an SoA row message reports under the message wording" {
@@ -812,16 +854,24 @@ test "an SoA row message reports under the message wording" {
     harness.Answers.Add(EsRowType())
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), EsName("row"))))
 
-    assert EsKinds(harness.Steps) == "1,3,1,2,3"
-    assert harness.Steps[3].Text == "used as an assertion message"
+    assert EsKinds(harness.Steps) == "1,1"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as an assertion message; use the table and row index instead"
 }
 
 test "an assert does not short-circuit on a fired column escape" {
+    // Both halves report: the condition's escape does not stop the message from being walked or from
+    // being asked the same two questions.
     harness := EsDefault()
-    harness.ColumnEscape = true
-    EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), EsName("why"))))
+    EsDeclareSoaTable(harness)
+    EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsSoaColumnRead(), EsSoaColumnRead())))
 
-    assert EsKinds(harness.Steps) == "1,3,1,3"
+    assert EsKinds(harness.Steps) == "1,1"
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be asserted directly"
+    assert harness.Errors[1].Message
+        == "SoA table member 'x' cannot be used as an assertion message directly"
 }
 
 test "an assert has no error-count guard" {
@@ -829,7 +879,7 @@ test "an assert has no error-count guard" {
     harness.ErrorsOnAnalyze = 1
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), EsName("why"))))
 
-    assert EsKinds(harness.Steps) == "1,3,1,3"
+    assert EsKinds(harness.Steps) == "1,1"
 }
 
 test "an assert never reports on its own" {
@@ -846,7 +896,7 @@ test "a non-boolean assert condition is accepted" {
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsName("text"), null)))
 
     assert harness.Errors.Count == 0
-    assert EsKinds(harness.Steps) == "1,3"
+    assert EsKinds(harness.Steps) == "1"
 }
 
 test "the assert steps carry the condition and the message nodes themselves" {
@@ -856,9 +906,7 @@ test "the assert steps carry the condition and the message nodes themselves" {
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(condition, message)))
 
     assert Object.ReferenceEquals(harness.Steps[0].Node, condition)
-    assert Object.ReferenceEquals(harness.Steps[1].Node, condition)
-    assert Object.ReferenceEquals(harness.Steps[2].Node, message)
-    assert Object.ReferenceEquals(harness.Steps[3].Node, message)
+    assert Object.ReferenceEquals(harness.Steps[1].Node, message)
 }
 
 // ── the assert-throws walk ────────────────────────────────────────────────
@@ -869,6 +917,17 @@ test "assert throws asks for throwability, opens a scope, walks the body and clo
 
     assert EsKinds(harness.Steps) == "7,4,5,6"
     assert harness.Steps[2].StatementCount == 2
+}
+
+test "the SoA reports are no longer steps at all" {
+    // Kinds 2 and 3 left the protocol when `AnalyzerSoaEscape` took the two reporters. A walk that
+    // FIRES both still hands the driver nothing but the expression step.
+    harness := EsDefault()
+    harness.Answers.Add(EsRowType())
+    EsRunStatement(harness, EsName("row"))
+
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 1
 }
 
 test "the scope opens at the assert-throws statement's own position" {

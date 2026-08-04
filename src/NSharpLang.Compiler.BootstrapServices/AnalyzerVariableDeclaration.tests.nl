@@ -19,10 +19,15 @@ import NSharpLang.Compiler.Ast
 // LAST, onto a name the scope already knows. Getting any of those backwards reorders `_errors` or
 // writes a fact about a symbol that does not exist yet, and neither shows up as a crash.
 //
-// THREE OF THE FIVE STEPS TAKE THE RESOLVED TYPE AS AN OPERAND, and in the inference form that type
-// IS the first step's answer — which is why the walk resumes rather than scheduling. The contracts
-// pin that by supplying a DIFFERENT type than any annotation and asserting what the later steps
-// carry.
+// THREE OF THE FIVE OPERATIONS TAKE THE RESOLVED TYPE AS AN OPERAND, and in the inference form that
+// type IS the first step's answer — which is why the walk resumes rather than scheduling. The
+// contracts pin that by supplying a DIFFERENT type than any annotation and asserting what the later
+// steps carry.
+//
+// THE TWO SoA ESCAPE REPORTS ARE NO LONGER STEPS — they were kinds 2 and 3 until `AnalyzerSoaEscape`
+// took the family, and the walk calls them directly now. WHICH of the two the resolved type selects,
+// and where in the order they land, are still this walk's decisions; a contract that wants one to
+// FIRE builds a real row-view answer or a real declared-table column read and reads the DIAGNOSTIC.
 //
 // THE CORPUS REACHES ALMOST NONE OF THIS. Over the 72-target corpus this arm runs 27,386 times and
 // reports exactly TWICE, always the rich NL202; every declaration in the whole estate is a `let`,
@@ -130,8 +135,10 @@ func VdHarness(sourceText: string?): VariableDeclarationHarness {
     assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
     nullFlow := new AnalyzerNullFlow(diagnostics, spans, scopes, context)
 
+    escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
     return new VariableDeclarationHarness(
-        new AnalyzerVariableDeclaration(diagnostics, spans, resolver, assignability, nullFlow, scopes, context),
+        new AnalyzerVariableDeclaration(
+            diagnostics, spans, resolver, assignability, nullFlow, scopes, context, escape),
         scopes,
         context,
         diagnostics,
@@ -227,9 +234,28 @@ func VdRun(
             supplied = answer
         }
 
-        harness.Owner.Supply(state, supplied, false)
+        harness.Owner.Supply(state, supplied)
         step = harness.Owner.NextStep(state)
     }
+}
+
+// A table declared in the harness's scope, and a `points.x` read against it — the only way to make
+// the direct-column escape fire for real now that it is not a driver-answered step.
+func VdSoaColumns(): List<SoaColumnInfo> {
+    columns := new List<SoaColumnInfo>()
+    columns.Add(new SoaColumnInfo("x", new SimpleTypeReference("int", 0, 0), 1, 1))
+    return columns
+}
+
+func VdDeclareSoaTable(harness: VariableDeclarationHarness) {
+    table: TypeInfo = new SoaRecordTypeInfo(
+        new SoaRecordDeclarationInfo("Points", VdSoaColumns(), 1, 1))
+    harness.Scopes.Peek().Symbols["points"] = table
+}
+
+func VdSoaColumnRead(): Expression {
+    read: Expression = new MemberAccessExpression(VdName("points"), "x", false, 7, 20)
+    return read
 }
 
 func VdKinds(steps: List<VdStep>): string {
@@ -245,13 +271,14 @@ func VdKinds(steps: List<VdStep>): string {
 
 // ── THE STEP PROTOCOL ─────────────────────────────────────────────────────
 
-test "an inferred declaration asks for the initializer, then the column escape, then declares, then records" {
+test "an inferred declaration asks for the initializer, then declares, then records" {
     harness := VdDefault()
 
     VdRun(harness, VdLet("x", null, VdInt()), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert VdKinds(steps) == "1345"
+    // The escape reports were kinds 2 and 3 and are N#-owned calls now; the numbering keeps its gap.
+    assert VdKinds(steps) == "145"
 }
 test "a declaration with NO initializer never asks for an expression and never asks for an escape" {
     harness := VdDefault()
@@ -310,16 +337,16 @@ test "only the kind-1 step carries an expected type" {
         index = index + 1
     }
 }
-test "the escape step carries the SAME initializer node and the analyzer's own wording" {
+test "the escape report carries the SAME initializer node and the analyzer's own wording" {
     harness := VdDefault()
-    initializer := VdInt()
+    VdDeclareSoaTable(harness)
 
-    VdRun(harness, VdLet("x", null, initializer), BuiltInTypes.Int)
-    steps := harness.Steps
+    VdRun(harness, VdLet("x", null, VdSoaColumnRead()), BuiltInTypes.Int)
 
-    assert steps[1].Kind == 3
-    assert Object.ReferenceEquals(steps[1].Node, initializer)
-    assert steps[1].Text == "stored in a variable"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be stored in a variable directly"
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 20
 }
 test "the declare step carries the declaration's own name, line and column" {
     harness := VdDefault()
@@ -327,10 +354,10 @@ test "the declare step carries the declaration's own name, line and column" {
     VdRun(harness, VdLet("count", null, VdInt()), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert steps[2].Kind == 4
-    assert steps[2].Name == "count"
-    assert steps[2].Line == 7
-    assert steps[2].Column == 5
+    assert steps[1].Kind == 4
+    assert steps[1].Name == "count"
+    assert steps[1].Line == 7
+    assert steps[1].Column == 5
 }
 test "the declare step carries the declaration kind `local`, so the driver hard-codes nothing" {
     harness := VdDefault()
@@ -338,7 +365,7 @@ test "the declare step carries the declaration kind `local`, so the driver hard-
     VdRun(harness, VdLet("x", null, VdInt()), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert steps[2].Text == "local"
+    assert steps[1].Text == "local"
 }
 test "the record step carries the name and the type and no span" {
     harness := VdDefault()
@@ -346,11 +373,11 @@ test "the record step carries the name and the type and no span" {
     VdRun(harness, VdLet("total", null, VdInt()), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert steps[3].Kind == 5
-    assert steps[3].Name == "total"
-    assert BuiltInTypes.Is(steps[3].CarriedType, BuiltInTypes.Int)
-    assert steps[3].Line == 0
-    assert steps[3].Column == 0
+    assert steps[2].Kind == 5
+    assert steps[2].Name == "total"
+    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.Int)
+    assert steps[2].Line == 0
+    assert steps[2].Column == 0
 }
 test "`Supply` with a null answer on a kind-1 step leaves the declaration untyped" {
     harness := VdDefault()
@@ -360,7 +387,7 @@ test "`Supply` with a null answer on a kind-1 step leaves the declaration untype
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
-    assert BuiltInTypes.IsUnknown(steps[2].CarriedType)
+    assert BuiltInTypes.IsUnknown(steps[1].CarriedType)
 }
 
 // ── THE ANSWER IS THE OPERAND: why the walk resumes ───────────────────────
@@ -371,7 +398,7 @@ test "with no annotation the DECLARE step is passed the answer the walk did not 
     VdRun(harness, VdLet("x", null, VdInt()), BuiltInTypes.String)
     steps := harness.Steps
 
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.String)
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.String)
 }
 test "with no annotation the RECORD step is passed the same answer" {
     harness := VdDefault()
@@ -379,34 +406,39 @@ test "with no annotation the RECORD step is passed the same answer" {
     VdRun(harness, VdLet("x", null, VdInt()), BuiltInTypes.String)
     steps := harness.Steps
 
-    assert BuiltInTypes.Is(steps[3].CarriedType, BuiltInTypes.String)
+    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.String)
 }
-test "the answer also CHOOSES which escape report fires — a row view takes the row step" {
+test "the answer also CHOOSES which escape report fires — a row view takes the row report" {
     harness := VdDefault()
 
     rowType: TypeInfo = VdRowType()
     VdRun(harness, VdLet("row", null, VdName("particles")), rowType)
-    steps := harness.Steps
 
-    assert steps[1].Kind == 2
-    assert steps[1].Text == "stored in a variable"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be stored in a variable; use the table and row index instead"
 }
-test "anything that is not a row view takes the direct-column step instead" {
+test "anything that is not a row view is offered to the direct-column probe instead" {
     harness := VdDefault()
+    VdDeclareSoaTable(harness)
 
-    VdRun(harness, VdLet("x", null, VdInt()), BuiltInTypes.Int)
-    steps := harness.Steps
+    VdRun(harness, VdLet("x", null, VdSoaColumnRead()), BuiltInTypes.Int)
 
-    assert steps[1].Kind == 3
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be stored in a variable directly"
 }
-test "an ANNOTATED declaration takes the row step only when the ANNOTATION is a row view" {
+test "an ANNOTATED declaration takes the row report only when the ANNOTATION is a row view" {
     harness := VdDefault()
+    VdDeclareSoaTable(harness)
 
+    // The annotation wins the type, so a row-view ANSWER does not select the row report; the
+    // direct-column probe runs and finds the column. The mismatch is reported first, at phase 1.
     rowType: TypeInfo = VdRowType()
-    VdRun(harness, VdLet("row", VdTypeRef("int"), VdName("particles")), rowType)
-    steps := harness.Steps
+    VdRun(harness, VdLet("row", VdTypeRef("int"), VdSoaColumnRead()), rowType)
 
-    assert steps[1].Kind == 3
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[1].Message == "SoA table member 'x' cannot be stored in a variable directly"
 }
 
 // ── THE FOUR TYPE OUTCOMES ────────────────────────────────────────────────
@@ -417,7 +449,7 @@ test "an annotation WINS the type even when the initializer disagreed" {
     VdRun(harness, VdLet("x", VdTypeRef("int"), VdInt()), BuiltInTypes.String)
     steps := harness.Steps
 
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.Int)
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.Int)
 }
 test "an annotation with no initializer is the declaration's type" {
     harness := VdDefault()
@@ -434,7 +466,7 @@ test "no annotation means the initializer's type is the declaration's type" {
     VdRun(harness, VdLet("x", null, VdInt()), BuiltInTypes.Bool)
     steps := harness.Steps
 
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.Bool)
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.Bool)
     assert harness.Errors.Count == 0
 }
 test "a VOID initializer with no annotation falls back to unknown" {
@@ -443,7 +475,7 @@ test "a VOID initializer with no annotation falls back to unknown" {
     VdRun(harness, VdLet("x", null, VdInt()), BuiltInTypes.Void)
     steps := harness.Steps
 
-    assert BuiltInTypes.IsUnknown(steps[2].CarriedType)
+    assert BuiltInTypes.IsUnknown(steps[1].CarriedType)
 }
 test "a VOID initializer under an ANNOTATION is a mismatch, not the void report" {
     harness := VdDefault()
@@ -451,7 +483,7 @@ test "a VOID initializer under an ANNOTATION is a mismatch, not the void report"
     VdRun(harness, VdLet("x", VdTypeRef("int"), VdInt()), BuiltInTypes.Void)
     steps := harness.Steps
 
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.Int)
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.Int)
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
 }
@@ -543,14 +575,16 @@ test "a line the source text does not reach has no snippet, so the report falls 
 
     assert harness.Errors[0].Message == "Variable 'total' is typed as 'int', but the value is 'string'"
 }
-test "the mismatch report happens BEFORE the escape step" {
+test "the mismatch report happens BEFORE the escape report" {
     harness := VdDefault()
+    VdDeclareSoaTable(harness)
 
-    VdRun(harness, VdLet("x", VdTypeRef("int"), VdInt()), BuiltInTypes.String)
-    steps := harness.Steps
+    VdRun(harness, VdLet("x", VdTypeRef("int"), VdSoaColumnRead()), BuiltInTypes.String)
 
-    assert steps[1].Kind == 3
-    assert steps[1].ErrorsBefore == 1
+    // The type mismatch is raised at phase 1; the escape report at phase 2, so it lands second.
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[1].Message == "SoA table member 'x' cannot be stored in a variable directly"
 }
 test "the mismatch report happens AFTER the initializer step" {
     harness := VdDefault()
@@ -765,7 +799,7 @@ test "the null state is written LAST, after the record step" {
             supplied = BuiltInTypes.Int
         }
 
-        harness.Owner.Supply(state, supplied, false)
+        harness.Owner.Supply(state, supplied)
         step = harness.Owner.NextStep(state)
     }
 
@@ -800,7 +834,7 @@ test "`Supply` clears the outstanding kind whether or not it folded anything in"
 
     state := harness.Owner.Begin(VdLet("x", null, VdInt()))
     harness.Owner.NextStep(state)
-    harness.Owner.Supply(state, BuiltInTypes.Int, false)
+    harness.Owner.Supply(state, BuiltInTypes.Int)
 
     assert state.Pending == 0
 }
@@ -819,7 +853,7 @@ test "the inferred type is kept SEPARATELY from the final type, because the null
     declaration := VdLet("x", VdTypeRef("int"), VdInt())
     state := harness.Owner.Begin(declaration)
     harness.Owner.NextStep(state)
-    harness.Owner.Supply(state, BuiltInTypes.String, false)
+    harness.Owner.Supply(state, BuiltInTypes.String)
     harness.Owner.NextStep(state)
 
     assert BuiltInTypes.Is(state.InferredType, BuiltInTypes.String)
@@ -837,7 +871,7 @@ test "the walk ends at phase 99 and stays there" {
             supplied = BuiltInTypes.Int
         }
 
-        harness.Owner.Supply(state, supplied, false)
+        harness.Owner.Supply(state, supplied)
         step = harness.Owner.NextStep(state)
     }
 
@@ -850,7 +884,7 @@ test "two declarations are two states and neither sees the other's answer" {
     first := harness.Owner.Begin(VdLet("a", null, VdInt()))
     second := harness.Owner.Begin(VdLet("b", null, VdInt()))
     harness.Owner.NextStep(first)
-    harness.Owner.Supply(first, BuiltInTypes.Int, false)
+    harness.Owner.Supply(first, BuiltInTypes.Int)
 
     assert second.InferredType == null
     assert second.Phase == 0
@@ -865,7 +899,7 @@ test "a declared class annotation resolves and wins the type" {
     VdRun(harness, VdLet("w", VdTypeRef("Widget"), VdName("make")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    widget := steps[2].CarriedType as ClassTypeInfo
+    widget := steps[1].CarriedType as ClassTypeInfo
     assert widget != null
     assert widget.Name == "Widget"
 }
@@ -884,7 +918,7 @@ test "an inferred declaration of a declared class needs no registration at all" 
     VdRun(harness, VdLet("w", null, VdName("make")), VdClass("Widget"))
     steps := harness.Steps
 
-    widget := steps[2].CarriedType as ClassTypeInfo
+    widget := steps[1].CarriedType as ClassTypeInfo
     assert widget != null
     assert widget.Name == "Widget"
 }
@@ -985,11 +1019,13 @@ func VdNullablePair(): Type {
 
 // ── the driver, exactly as `Analyzer.cs` writes it, for the tuple form ────
 
+// It asks for the SOURCE and the declaration pairs. The escape reports were kinds 2 and 3 and are
+// N#-owned calls now, so a contract that wants one to FIRE supplies a row-view TYPE or deconstructs
+// a real declared-table column read.
 func VdRunTuple(
     harness: VariableDeclarationHarness,
     tuple: TupleDeconstructionStatement,
-    answer: TypeInfo?,
-    escaped: bool) {
+    answer: TypeInfo?) {
     steps := harness.Steps
     steps.Clear()
     state := harness.Owner.BeginTuple(tuple)
@@ -1011,36 +1047,31 @@ func VdRunTuple(
             supplied = answer
         }
 
-        fired := false
-        if step.Kind == 3 {
-            fired = escaped
-        }
-
-        harness.Owner.Supply(state, supplied, fired)
+        harness.Owner.Supply(state, supplied)
         step = harness.Owner.NextStep(state)
     }
 }
 
 // ── THE STEP PROTOCOL ─────────────────────────────────────────────────────
 
-test "a two-name deconstruction asks for the source, the column escape, then declares and records EACH name" {
+test "a two-name deconstruction asks for the source, then declares and records EACH name" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
 
-    assert VdKinds(harness.Steps) == "634545"
+    assert VdKinds(harness.Steps) == "64545"
 }
 test "a three-name deconstruction repeats the declare/record pair three times" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames3("a", "b", "c"), VdName("triple")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames3("a", "b", "c"), VdName("triple")), BuiltInTypes.Int)
 
-    assert VdKinds(harness.Steps) == "63454545"
+    assert VdKinds(harness.Steps) == "6454545"
 }
 test "the source is analysed with kind 6, NOT kind 1 — a deconstruction must not overwrite the ambient expected type" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), BuiltInTypes.Int)
     steps := harness.Steps
 
     assert steps[0].Kind == 6
@@ -1050,70 +1081,72 @@ test "the kind-6 step carries the initializer node itself" {
     harness := VdDefault()
 
     initializer := VdName("pair")
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), initializer), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), initializer), BuiltInTypes.Int)
     steps := harness.Steps
 
     assert Object.ReferenceEquals(steps[0].Node, initializer)
 }
-test "the escape step carries the initializer and the action word `deconstructed`" {
+test "the escape report names the initializer and the action word `deconstructed`" {
     harness := VdDefault()
+    VdDeclareSoaTable(harness)
 
-    initializer := VdName("pair")
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), initializer), BuiltInTypes.Int, false)
-    steps := harness.Steps
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdSoaColumnRead()), BuiltInTypes.Int)
 
-    assert steps[1].Kind == 3
-    assert steps[1].Text == "deconstructed"
-    assert Object.ReferenceEquals(steps[1].Node, initializer)
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be deconstructed directly"
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 20
 }
-test "a row-view source asks for the ROW escape and never asks for the column escape" {
+test "a row-view source takes the ROW report and never probes for a column at all" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("row")), VdRowType(), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("row")), VdRowType())
     steps := harness.Steps
 
-    assert VdKinds(steps) == "624545"
-    assert steps[1].Text == "deconstructed"
+    assert VdKinds(steps) == "64545"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be deconstructed; use the table and row index instead"
 }
 test "a deconstruction target is declared WITHOUT a declaration kind, unlike an annotated local" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert steps[2].Kind == 4
-    assert steps[2].Text == null
+    assert steps[1].Kind == 4
+    assert steps[1].Text == null
 }
 test "every target is declared at the DECONSTRUCTION's own line and column, not the name's" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert steps[2].Line == 9
-    assert steps[2].Column == 3
-    assert steps[4].Line == 9
-    assert steps[4].Column == 3
+    assert steps[1].Line == 9
+    assert steps[1].Column == 3
+    assert steps[3].Line == 9
+    assert steps[3].Column == 3
 }
 test "the declare step and the record step for one name carry the SAME name and the SAME type instance" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
     steps := harness.Steps
 
+    assert steps[1].Name == "a"
     assert steps[2].Name == "a"
-    assert steps[3].Name == "a"
-    assert Object.ReferenceEquals(steps[2].CarriedType, steps[3].CarriedType)
+    assert Object.ReferenceEquals(steps[1].CarriedType, steps[2].CarriedType)
 }
 test "the names are declared in source order" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames3("first", "second", "third"), VdName("t")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames3("first", "second", "third"), VdName("t")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert steps[2].Name == "first"
-    assert steps[4].Name == "second"
-    assert steps[6].Name == "third"
+    assert steps[1].Name == "first"
+    assert steps[3].Name == "second"
+    assert steps[5].Name == "third"
 }
 
 // ── THE `_` DISCARD ───────────────────────────────────────────────────────
@@ -1121,29 +1154,33 @@ test "the names are declared in source order" {
 test "a `_` target is not declared, not recorded and given no null state" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "_"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "_"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
     steps := harness.Steps
 
-    assert VdKinds(steps) == "6345"
-    assert steps[2].Name == "a"
+    assert VdKinds(steps) == "645"
+    assert steps[1].Name == "a"
     assert !harness.Scopes.HasNullState("_")
 }
 test "a `_` in the FIRST position is skipped and the later names still declare" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames3("_", "b", "c"), VdName("t")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames3("_", "b", "c"), VdName("t")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert VdKinds(steps) == "634545"
-    assert steps[2].Name == "b"
-    assert steps[4].Name == "c"
+    assert VdKinds(steps) == "64545"
+    assert steps[1].Name == "b"
+    assert steps[3].Name == "c"
 }
 test "an all-discard deconstruction still analyses the source and still probes the escape" {
     harness := VdDefault()
+    VdDeclareSoaTable(harness)
 
-    VdRunTuple(harness, VdTuple(VdNames2("_", "_"), VdName("pair")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("_", "_"), VdSoaColumnRead()), BuiltInTypes.Int)
 
-    assert VdKinds(harness.Steps) == "63"
+    // Nothing is declared, but the source is still walked and the escape probe still runs.
+    assert VdKinds(harness.Steps) == "6"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be deconstructed directly"
 }
 
 // ── WHAT EACH NAME IS ─────────────────────────────────────────────────────
@@ -1151,21 +1188,21 @@ test "an all-discard deconstruction still analyses the source and still probes t
 test "a declared tuple type hands each name its own element type" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
     steps := harness.Steps
 
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.Int)
-    assert BuiltInTypes.Is(steps[4].CarriedType, BuiltInTypes.String)
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.Int)
+    assert BuiltInTypes.Is(steps[3].CarriedType, BuiltInTypes.String)
 }
 test "a constructed generic named `ValueTuple` hands each name its own type argument" {
     harness := VdDefault()
 
     source: TypeInfo = VdValueTupleGeneric(BuiltInTypes.String, BuiltInTypes.Int)
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), source, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), source)
     steps := harness.Steps
 
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.String)
-    assert BuiltInTypes.Is(steps[4].CarriedType, BuiltInTypes.Int)
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.String)
+    assert BuiltInTypes.Is(steps[3].CarriedType, BuiltInTypes.Int)
 }
 test "a generic that is NOT named `ValueTuple` is not deconstructable" {
     harness := VdDefault()
@@ -1174,7 +1211,7 @@ test "a generic that is NOT named `ValueTuple` is not deconstructable" {
     arguments.Add(BuiltInTypes.Int)
     arguments.Add(BuiltInTypes.String)
     source: TypeInfo = new GenericTypeInfo("Dictionary", arguments)
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), source, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), source)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "Tuple deconstruction needs a tuple value, but this initializer is 'Dictionary<int, string>'"
@@ -1182,25 +1219,25 @@ test "a generic that is NOT named `ValueTuple` is not deconstructable" {
 test "a reflected CLR ValueTuple hands each name its converted element type" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(ValueTuple<int, string>)), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(ValueTuple<int, string>)))
     steps := harness.Steps
 
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.Int)
-    assert BuiltInTypes.Is(steps[4].CarriedType, BuiltInTypes.String)
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.Int)
+    assert BuiltInTypes.Is(steps[3].CarriedType, BuiltInTypes.String)
 }
 test "a reflected NULLABLE ValueTuple is read through its underlying type" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(VdNullablePair()), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(VdNullablePair()))
     steps := harness.Steps
 
-    assert VdKinds(steps) == "634545"
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.Int)
+    assert VdKinds(steps) == "64545"
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.Int)
 }
 test "a reflected NON-tuple value type is not deconstructable" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(DateTime)), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(DateTime)))
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
@@ -1208,7 +1245,7 @@ test "a reflected NON-tuple value type is not deconstructable" {
 test "a reflected REFERENCE type is not deconstructable" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(string)), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(string)))
 
     assert harness.Errors.Count == 1
 }
@@ -1217,7 +1254,7 @@ test "a reflected ValueTuple's elements come from its `ItemN` FIELDS, not its ge
 
     // `ValueTuple`8` has EIGHT generic arguments but only SEVEN `ItemN` fields — the eighth is the
     // nested `Rest`. Reading arguments would answer 8 and mis-pair every target.
-    VdRunTuple(harness, VdTuple(VdNames3("a", "b", "c"), VdName("big")), VdReflectedType(VdBigTuple()), false)
+    VdRunTuple(harness, VdTuple(VdNames3("a", "b", "c"), VdName("big")), VdReflectedType(VdBigTuple()))
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "Tuple deconstruction has 3 target(s), but the initializer has 7 element(s)"
@@ -1228,7 +1265,7 @@ test "a reflected ValueTuple's elements come from its `ItemN` FIELDS, not its ge
 test "a source that is not a tuple reports NL103 with the source's rendered type" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
@@ -1238,7 +1275,7 @@ test "a source that is not a tuple reports NL103 with the source's rendered type
 test "a count mismatch reports NL103 naming BOTH counts" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames3("a", "b", "c"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String), false)
+    VdRunTuple(harness, VdTuple(VdNames3("a", "b", "c"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
@@ -1248,7 +1285,7 @@ test "a count mismatch reports NL103 naming BOTH counts" {
 test "both reports underline the INITIALIZER, not the target list" {
     harness := VdHarness("func f() {\n(a, b) := value\n}\n")
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Line == 7
@@ -1257,35 +1294,35 @@ test "both reports underline the INITIALIZER, not the target list" {
 test "a report still declares every target, so the names exist for the rest of the scope" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert VdKinds(steps) == "634545"
-    assert steps[2].Name == "a"
-    assert steps[4].Name == "b"
+    assert VdKinds(steps) == "64545"
+    assert steps[1].Name == "a"
+    assert steps[3].Name == "b"
 }
 test "a reported deconstruction gives every target UNKNOWN" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert BuiltInTypes.IsUnknown(steps[2].CarriedType)
-    assert BuiltInTypes.IsUnknown(steps[4].CarriedType)
+    assert BuiltInTypes.IsUnknown(steps[1].CarriedType)
+    assert BuiltInTypes.IsUnknown(steps[3].CarriedType)
 }
 test "the report is emitted BEFORE the first target is declared" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert steps[1].ErrorsBefore == 0
-    assert steps[2].ErrorsBefore == 1
+    assert steps[0].ErrorsBefore == 0
+    assert steps[1].ErrorsBefore == 1
 }
 test "a matching tuple reports NOTHING" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
 
     assert harness.Errors.Count == 0
 }
@@ -1295,40 +1332,45 @@ test "a matching tuple reports NOTHING" {
 test "an UNKNOWN source declares every target as unknown and reports nothing" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("mystery")), BuiltInTypes.Unknown, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("mystery")), BuiltInTypes.Unknown)
     steps := harness.Steps
 
     assert harness.Errors.Count == 0
-    assert BuiltInTypes.IsUnknown(steps[2].CarriedType)
-    assert BuiltInTypes.IsUnknown(steps[4].CarriedType)
+    assert BuiltInTypes.IsUnknown(steps[1].CarriedType)
+    assert BuiltInTypes.IsUnknown(steps[3].CarriedType)
 }
 test "a fired COLUMN escape makes the source unknown even though the source was a real tuple" {
     harness := VdDefault()
+    VdDeclareSoaTable(harness)
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("column")), VdTupleType(BuiltInTypes.Int, BuiltInTypes.String), true)
+    VdRunTuple(
+        harness,
+        VdTuple(VdNames2("a", "b"), VdSoaColumnRead()),
+        VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
     steps := harness.Steps
 
-    assert harness.Errors.Count == 0
-    assert BuiltInTypes.IsUnknown(steps[2].CarriedType)
-    assert BuiltInTypes.IsUnknown(steps[4].CarriedType)
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be deconstructed directly"
+    assert BuiltInTypes.IsUnknown(steps[1].CarriedType)
+    assert BuiltInTypes.IsUnknown(steps[3].CarriedType)
 }
 test "a ROW escape makes the source unknown without any column probe at all" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("row")), VdRowType(), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("row")), VdRowType())
     steps := harness.Steps
 
-    assert VdKinds(steps) == "624545"
-    assert BuiltInTypes.IsUnknown(steps[2].CarriedType)
+    assert VdKinds(steps) == "64545"
+    assert BuiltInTypes.IsUnknown(steps[1].CarriedType)
 }
 test "every unknown target shares ONE unknown instance, exactly as the fallback handed it out" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames3("a", "b", "c"), VdName("mystery")), BuiltInTypes.Unknown, false)
+    VdRunTuple(harness, VdTuple(VdNames3("a", "b", "c"), VdName("mystery")), BuiltInTypes.Unknown)
     steps := harness.Steps
 
-    assert Object.ReferenceEquals(steps[2].CarriedType, steps[4].CarriedType)
-    assert Object.ReferenceEquals(steps[4].CarriedType, steps[6].CarriedType)
+    assert Object.ReferenceEquals(steps[1].CarriedType, steps[3].CarriedType)
+    assert Object.ReferenceEquals(steps[3].CarriedType, steps[5].CarriedType)
 }
 
 // ── THE ERROR-HANDLING FORM `(result, err := f())` ────────────────────────
@@ -1336,35 +1378,35 @@ test "every unknown target shares ONE unknown instance, exactly as the fallback 
 test "exactly two names whose second is `err` is the error form, and it never counts elements" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 0
-    assert VdKinds(harness.Steps) == "634545"
+    assert VdKinds(harness.Steps) == "64545"
 }
 test "the error form's first name takes the SOURCE's type whole, undeconstructed" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.String, false)
+    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.String)
     steps := harness.Steps
 
-    assert steps[2].Name == "value"
-    assert BuiltInTypes.Is(steps[2].CarriedType, BuiltInTypes.String)
+    assert steps[1].Name == "value"
+    assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.String)
 }
 test "the error form's second name is always `Exception?`, whatever the source was" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.String, false)
+    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.String)
     steps := harness.Steps
 
-    assert steps[4].Name == "err"
-    external := steps[4].CarriedType as ExternalTypeInfo
+    assert steps[3].Name == "err"
+    external := steps[3].CarriedType as ExternalTypeInfo
     assert external != null
     assert external.Name == "Exception?"
 }
 test "the error form registers the result under its error name" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.Int)
 
     guard := harness.Scopes.FindErrorTupleResultGuard("value")
     assert guard != null
@@ -1375,7 +1417,7 @@ test "the error form registers the result under its error name" {
 test "the error form gives the ERROR name maybe-null and the result NO null state" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("call")), BuiltInTypes.Int)
 
     assert harness.Scopes.NullStateOrUnknown("err") == NullState.MaybeNull
     assert !harness.Scopes.HasNullState("value")
@@ -1407,7 +1449,7 @@ test "the error form's registration happens AFTER the result is recorded and BEF
             supplied = BuiltInTypes.Int
         }
 
-        harness.Owner.Supply(state, supplied, false)
+        harness.Owner.Supply(state, supplied)
         step = harness.Owner.NextStep(state)
     }
 
@@ -1416,25 +1458,26 @@ test "the error form's registration happens AFTER the result is recorded and BEF
 test "a discarded result in the error form declares only the error name and registers nothing" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("_", "err"), VdName("call")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("_", "err"), VdName("call")), BuiltInTypes.Int)
     steps := harness.Steps
 
-    assert VdKinds(steps) == "6345"
-    assert steps[2].Name == "err"
+    assert VdKinds(steps) == "645"
+    assert steps[1].Name == "err"
     assert harness.Scopes.FindErrorTupleResultGuard("_") == null
 }
 test "the error form still folds an escaped source into unknown" {
     harness := VdDefault()
+    VdDeclareSoaTable(harness)
 
-    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdName("column")), BuiltInTypes.String, true)
+    VdRunTuple(harness, VdTuple(VdNames2("value", "err"), VdSoaColumnRead()), BuiltInTypes.String)
     steps := harness.Steps
 
-    assert BuiltInTypes.IsUnknown(steps[2].CarriedType)
+    assert BuiltInTypes.IsUnknown(steps[1].CarriedType)
 }
 test "THREE names whose second is `err` is NOT the error form" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames3("value", "err", "extra"), VdName("call")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames3("value", "err", "extra"), VdName("call")), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
     assert harness.Scopes.FindErrorTupleResultGuard("value") == null
@@ -1442,7 +1485,7 @@ test "THREE names whose second is `err` is NOT the error form" {
 test "two names whose second is not literally `err` is NOT the error form" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("value", "error"), VdName("call")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("value", "error"), VdName("call")), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
     assert harness.Scopes.FindErrorTupleResultGuard("value") == null
@@ -1450,7 +1493,7 @@ test "two names whose second is not literally `err` is NOT the error form" {
 test "a ONE-name deconstruction is never the error form" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames1("err"), VdName("call")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames1("err"), VdName("call")), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
     assert harness.Scopes.FindErrorTupleResultGuard("err") == null
@@ -1462,7 +1505,7 @@ test "an ordinary target takes the default null state its own type implies" {
     harness := VdDefault()
 
     nullable: TypeInfo = new NullableTypeInfo(BuiltInTypes.String)
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(nullable, BuiltInTypes.Int), false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdTupleType(nullable, BuiltInTypes.Int))
 
     assert harness.Scopes.NullStateOrUnknown("a") == NullState.MaybeNull
     assert harness.Scopes.NullStateOrUnknown("b") == NullState.NotNull
@@ -1488,7 +1531,7 @@ test "a target's null state is written AFTER its record step and BEFORE the next
             supplied = BuiltInTypes.Int
         }
 
-        harness.Owner.Supply(state, supplied, false)
+        harness.Owner.Supply(state, supplied)
         step = harness.Owner.NextStep(state)
     }
 
@@ -1497,7 +1540,7 @@ test "a target's null state is written AFTER its record step and BEFORE the next
 test "every target of a reported deconstruction still gets a null state" {
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("value")), BuiltInTypes.Int)
 
     assert harness.Scopes.HasNullState("a")
     assert harness.Scopes.HasNullState("b")
@@ -1530,29 +1573,34 @@ test "the deconstruction's outstanding kind is 6, so the answer folds into the i
     harness.Owner.NextStep(state)
 
     assert state.Pending == 6
-    harness.Owner.Supply(state, BuiltInTypes.String, false)
+    harness.Owner.Supply(state, BuiltInTypes.String)
     assert BuiltInTypes.Is(state.InferredType, BuiltInTypes.String)
 }
-test "an escape answer of TRUE on the column probe is what records the escape" {
+test "a FIRED column report is what records the escape, and it fires inside the walk" {
     harness := VdDefault()
+    VdDeclareSoaTable(harness)
 
-    state := harness.Owner.BeginTuple(VdTuple(VdNames2("a", "b"), VdName("pair")))
+    state := harness.Owner.BeginTuple(VdTuple(VdNames2("a", "b"), VdSoaColumnRead()))
     harness.Owner.NextStep(state)
-    harness.Owner.Supply(state, BuiltInTypes.Int, false)
+    assert !state.EscapeFired
+
+    // The answer arrives, the walk advances past the escape phase, and the report fires there.
+    harness.Owner.Supply(state, BuiltInTypes.Int)
     harness.Owner.NextStep(state)
 
-    assert state.Pending == 3
-    harness.Owner.Supply(state, null, true)
     assert state.EscapeFired
+    assert harness.Errors.Count == 1
 }
-test "an escape answer of TRUE on a step that is not the column probe records nothing" {
+test "a source no report fires on records nothing" {
     harness := VdDefault()
 
     state := harness.Owner.BeginTuple(VdTuple(VdNames2("a", "b"), VdName("pair")))
     harness.Owner.NextStep(state)
-    harness.Owner.Supply(state, BuiltInTypes.Int, true)
+    harness.Owner.Supply(state, VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
+    harness.Owner.NextStep(state)
 
     assert !state.EscapeFired
+    assert harness.Errors.Count == 0
 }
 test "the deconstruction walk ends at phase 99 and stays there" {
     harness := VdDefault()
@@ -1566,7 +1614,7 @@ test "the deconstruction walk ends at phase 99 and stays there" {
             supplied = BuiltInTypes.Int
         }
 
-        harness.Owner.Supply(state, supplied, false)
+        harness.Owner.Supply(state, supplied)
         step = harness.Owner.NextStep(state)
     }
 
@@ -1579,7 +1627,7 @@ test "two deconstructions are two states and neither sees the other's answer" {
     first := harness.Owner.BeginTuple(VdTuple(VdNames2("a", "b"), VdName("one")))
     second := harness.Owner.BeginTuple(VdTuple(VdNames2("c", "d"), VdName("two")))
     harness.Owner.NextStep(first)
-    harness.Owner.Supply(first, BuiltInTypes.Int, false)
+    harness.Owner.Supply(first, BuiltInTypes.Int)
 
     assert second.InferredType == null
     assert second.Phase == 10
@@ -1589,8 +1637,8 @@ test "an annotated declaration and a deconstruction run through the SAME owner w
 
     VdRun(harness, VdLet("x", null, VdInt()), BuiltInTypes.Int)
     annotated := VdKinds(harness.Steps)
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), BuiltInTypes.Int, false)
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), BuiltInTypes.Int)
 
-    assert annotated == "1345"
-    assert VdKinds(harness.Steps) == "634545"
+    assert annotated == "145"
+    assert VdKinds(harness.Steps) == "64545"
 }

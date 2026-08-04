@@ -43,29 +43,25 @@ public class AmbientContextFrame {
     }
 }
 
-// THE THREE STEPS A `return` STATEMENT CANNOT TAKE FOR ITSELF.
+// THE ONE STEP A `return` STATEMENT CANNOT TAKE FOR ITSELF.
 //
 // The walk owns what a `return` MEANS: whether there is a function to return from at all, whether the
 // statement leaves a `finally`, what type the returned expression is asked for (the AWAITED result
 // type in an `async` function, the declared type otherwise), which of the two SoA escape reports the
 // returned type selects, whether a generator may return a value, and whether the value fits — plus
 // the bare-`return` arm's "not all code paths return a value" pair. What it cannot do is run the
-// analyzer's own EXPRESSION walk or call the two SoA escape reporters, which belong to other
-// families — so it ASKS.
+// analyzer's own EXPRESSION walk — so it ASKS, once.
 //
-// The kinds are `DriveLocalDeclaration`'s 1 / 2 / 3 by MEASUREMENT, not by imitation: resolving every
-// callee of the C# arm against the file's declaration set and subtracting the callees that are
-// already N# leaves EXACTLY those three, with ZERO additions. The one difference is that kind 1 does
-// NOT carry an expected type for the driver to install: this owner IS the ambient context, so it sets
-// its own target-typing slot before emitting the request and restores it when the answer arrives —
-// the transition never leaves N#.
+// IT ASKED THREE THINGS AND NOW ASKS ONE. Kinds 2 and 3 were the two SoA escape reports, and they are
+// now direct calls on `AnalyzerSoaEscape`, which this owner holds. WHICH of the two the returned type
+// selects was always this walk's decision and still is; only the round trip through C# is gone. Kind
+// 1 remains a suspension because the analyzer's expression walk is still C#'s.
 //
-//   1  analyse the RETURNED expression. ANSWERS a type, and that type decides which of the next two
-//      steps runs, whether the generator report fires and whether the value fits.
-//   2  the SoA row-view escape report. Answers nothing the walk reads.
-//   3  the SoA direct-column escape report. Answers a boolean the walk deliberately DISCARDS — the
-//      C# arm called it in statement position and ignored its result, and later reports are NOT
-//      suppressed by it.
+//   1  analyse the RETURNED expression. ANSWERS a type, and that type decides which escape report
+//      runs, whether the generator report fires and whether the value fits. It does NOT carry an
+//      expected type for the driver to install: this owner IS the ambient context, so it sets its own
+//      target-typing slot before emitting the request and restores it when the answer arrives — the
+//      transition never leaves N#.
 public class ReturnStatementRequest {
 
     public Kind: int
@@ -164,6 +160,7 @@ public class AnalyzerAmbientContext {
 
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
+    soaEscapeValue: AnalyzerSoaEscape
 
     currentReturnTypeValue: TypeInfo?
     currentFunctionValue: FunctionDeclaration?
@@ -230,9 +227,13 @@ public class AnalyzerAmbientContext {
     // nested walk.
     CurrentExpectedType: TypeInfo? => currentExpectedTypeValue
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans) {
+    constructor(
+        diagnostics: AnalyzerDiagnosticSink,
+        spans: AnalyzerDiagnosticSpans,
+        soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
+        soaEscapeValue = soaEscape
         currentReturnTypeValue = null
         currentFunctionValue = null
         returnTypeWasOmittedValue = false
@@ -514,16 +515,11 @@ public class AnalyzerAmbientContext {
         return null
     }
 
-    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 answers something the walk reads — the returned
+    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 remains, and it answers the returned
     // expression's type, which is the operand of the escape-report choice, the generator report and
     // the assignability check. Kind 1 is ALSO where the target-typing slot closes, because the C# it
     // replaces restored the slot on the line after the expression walk returned.
-    //
-    // `_escaped` is DELIBERATELY discarded, and the underscore says so: the C# arm called the
-    // direct-column reporter in statement position and ignored its result, so — unlike a local
-    // declaration, where a fired escape turns the declared type unknown — nothing later in a `return`
-    // is suppressed by it. The parameter stays so the three drivers keep one `Supply` shape.
-    public func Supply(state: ReturnStatementState, answer: TypeInfo?, _escaped: bool) {
+    public func Supply(state: ReturnStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -618,23 +614,20 @@ public class AnalyzerAmbientContext {
     }
 
     // PHASE 1 — EXACTLY ONE ESCAPE REPORT, chosen by the answer. A row view is reported as a row
-    // escape; everything else is offered to the direct-column reporter. The two are never both asked,
-    // which is why this is a step and not a pair of steps.
+    // escape; everything else is offered to the direct-column reporter. The two are never both asked.
+    // The direct-column reporter's boolean is DELIBERATELY discarded: the C# arm called it in
+    // statement position and ignored its result, so — unlike a local declaration, where a fired escape
+    // turns the declared type unknown — nothing later in a `return` is suppressed by it.
     func AdvanceEscapeReport(state: ReturnStatementState): ReturnStatementRequest? {
         state.Phase = 2
         value := state.ValueNode
         if value != null {
             rowView := state.ReturnedType as SoaRowTypeInfo
-            kind := 3
             if rowView != null {
-                kind = 2
+                soaEscapeValue.ReportSoaRowEscape(value, "returned")
+            } else {
+                soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(value, "returned")
             }
-
-            state.Pending = kind
-            request := new ReturnStatementRequest(kind)
-            request.Node = value
-            request.Text = "returned"
-            return request
         }
 
         return null

@@ -4,19 +4,17 @@ import System
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
-// THE STEPS THE `yield` WALK CANNOT TAKE FOR ITSELF.
+// THE STEP THE `yield` WALK CANNOT TAKE FOR ITSELF.
 //
 //   1  analyse the YIELDED expression. ANSWERS a type, and that type is the operand of the row-escape
 //      report, of the element-type comparison and of the mismatch wording.
-//   2  the SoA row-view escape report — the BOOL-RETURNING, TYPE-TAKING shape, which is a different
-//      member from the `return` arm's void reporter. Answers a boolean the walk READS: a yielded row
-//      view suppresses the element-type rule entirely.
-//   3  the SoA direct-column escape report. Answers a boolean the walk also reads, for the same
-//      reason and with the same effect.
 //
-// All three run unconditionally and in this order whenever the statement carries a value, so the
-// walk's shape is linear; it is still a suspendable walk rather than three calls because the answer
-// to step 1 is the operand of steps 2, 3 and the rule that follows them.
+// IT ASKED FOR THREE AND NOW ASKS FOR ONE. Kinds 2 and 3 were the two SoA escape reports; both are
+// now direct calls on `AnalyzerSoaEscape`, whose answers this walk still READS — either escape
+// suppresses the element-type rule, because a value the analyzer has already refused to let leave its
+// record must not also be measured against the sequence element type. The walk stays a suspendable
+// walk rather than one call because the answer to step 1 is the operand of both reports and of the
+// rule that follows them.
 public class YieldStatementRequest {
 
     public Kind: int
@@ -35,9 +33,8 @@ public class YieldStatementRequest {
 // THE `yield` STATEMENT'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
 // `Phase` is the walk's program counter: 0 reports a `yield` outside a generator and either finishes
-// the bare form or asks for the value; 1 folds the yielded type in and asks for the row escape; 2
-// folds that answer in and asks for the direct-column escape; 3 applies the element-type rule. 99 is
-// done.
+// the bare form or asks for the value; 1 folds the yielded type in and runs the row escape; 2 runs
+// the direct-column escape; 3 applies the element-type rule. 99 is done.
 //
 // `DeclaresGenerator` IS CAPTURED AT ENTRY, not read at the rule. That is not tidiness: the C# arm
 // read `CurrentFunctionDeclaresGenerator` into a local BEFORE walking the yielded expression, and a
@@ -111,6 +108,7 @@ public class AnalyzerLoopSequence {
     declarationContextValue: AnalyzerDeclarationContext
     typeResolverValue: AnalyzerTypeResolver
     ambientValue: AnalyzerAmbientContext
+    soaEscapeValue: AnalyzerSoaEscape
 
     constructor(
         diagnostics: AnalyzerDiagnosticSink,
@@ -118,13 +116,15 @@ public class AnalyzerLoopSequence {
         scopes: AnalyzerScopeStack,
         declarationContext: AnalyzerDeclarationContext,
         typeResolver: AnalyzerTypeResolver,
-        ambient: AnalyzerAmbientContext) {
+        ambient: AnalyzerAmbientContext,
+        soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
         declarationContextValue = declarationContext
         typeResolverValue = typeResolver
         ambientValue = ambient
+        soaEscapeValue = soaEscape
     }
 
     // THE `foreach` COLLECTION'S ELEMENT TYPE, plus the report when there is not one. The declared
@@ -538,11 +538,9 @@ public class AnalyzerLoopSequence {
         return null
     }
 
-    // THE ANSWER TO THE OUTSTANDING STEP. Kind 1 answers the yielded type; kinds 2 and 3 answer a
-    // boolean the walk READS — either escape suppresses the element-type rule, because a value the
-    // analyzer has already refused to let leave its record must not also be measured against the
-    // sequence element type.
-    public func Supply(state: YieldStatementState, answer: TypeInfo?, escaped: bool) {
+    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 remains, and it answers the yielded type. The
+    // two escape answers used to arrive here; they are read directly from the reporters now.
+    public func Supply(state: YieldStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -550,17 +548,6 @@ public class AnalyzerLoopSequence {
             if answer != null {
                 state.YieldedType = answer
             }
-
-            return
-        }
-
-        if pending == 2 {
-            state.EscapedAsRow = escaped
-            return
-        }
-
-        if pending == 3 {
-            state.EscapedAsDirectColumn = escaped
         }
     }
 
@@ -623,12 +610,11 @@ public class AnalyzerLoopSequence {
         }
 
         state.Phase = 2
-        state.Pending = 2
-        request := new YieldStatementRequest(2)
-        request.Node = value
-        request.Text = "yielded"
-        request.CarriedType = state.YieldedType
-        return request
+        state.EscapedAsRow = soaEscapeValue.ReportSoaRowEscapeIfNeeded(
+            value,
+            state.YieldedType,
+            "yielded")
+        return null
     }
 
     func AdvanceDirectColumnEscape(state: YieldStatementState): YieldStatementRequest? {
@@ -639,11 +625,10 @@ public class AnalyzerLoopSequence {
         }
 
         state.Phase = 3
-        state.Pending = 3
-        request := new YieldStatementRequest(3)
-        request.Node = value
-        request.Text = "yielded"
-        return request
+        state.EscapedAsDirectColumn = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+            value,
+            "yielded")
+        return null
     }
 
     // PHASE 3 — DOES THE YIELDED VALUE FIT THE SEQUENCE. Six conditions gate the report and every one
