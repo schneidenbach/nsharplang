@@ -1092,3 +1092,114 @@ test "the sink's error count is what the guard reads" {
     harness.Errors.Add(new CompilerError(ErrorCode.UndefinedVariable, "seeded", 1, 1, ErrorSeverity.Error))
     assert harness.Diagnostics.ErrorCount == 1
 }
+
+// ── the `throw` and `print` walks ─────────────────────────────────────────
+
+// Both arrived from the statement dispatch on kinds this driver already had — kind 1 for the
+// operand and kind 7 for throwability — so nothing was added to the protocol for either. The
+// contracts below are written around the ONE thing that separates them, because five hand-written
+// escape gates in the estate are split on exactly this line: `throw` SHORT-CIRCUITS (a value refused
+// as a row view is not also probed as a column, and neither is measured against `Exception`) and
+// `print` DOES NOT (both reports always run).
+
+func EsRunThrow(harness: EsHarness, expression: Expression) {
+    EsRun(harness, harness.Owner.BeginThrow(expression))
+}
+
+func EsRunPrint(harness: EsHarness, expression: Expression) {
+    EsRun(harness, harness.Owner.BeginPrint(expression))
+}
+
+test "a throw asks for the operand and then for throwability" {
+    harness := EsDefault()
+    harness.Throwable = true
+    EsRunThrow(harness, EsName("failure"))
+
+    assert EsKinds(harness.Steps) == "1,7"
+    // The throwability question carries the ANSWERED type, not the expression's syntax.
+    assert harness.Steps[1].Node == null
+    assert harness.Errors.Count == 0
+}
+
+test "a non-throwable throw operand reports NL202 with the operand's own span" {
+    harness := EsDefault()
+    harness.Throwable = false
+    harness.Answers.Add(BuiltInTypes.Int)
+    EsRunThrow(harness, EsName("failure"))
+
+    assert harness.Errors.Count == 1
+    error := harness.Errors[0]
+    assert error.Message
+        == "Throw expressions must be assignable to System.Exception, but this expression is 'int'"
+    assert error.Code == ErrorCode.TypeMismatch
+    assert error.Line == 7
+    assert error.Column == 5
+}
+
+test "a row-view throw operand escapes and is NOT also told it is not throwable" {
+    harness := EsDefault()
+    harness.Throwable = false
+    rowView: TypeInfo = EsRowType()
+    harness.Answers.Add(rowView)
+    EsRunThrow(harness, EsName("particle"))
+
+    // The throwability step is never even asked for.
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be thrown; use the table and row index instead"
+}
+
+test "a direct column throw operand escapes on syntax with the throw's action word" {
+    harness := EsDefault()
+    harness.Throwable = false
+    EsDeclareSoaTable(harness)
+    harness.Answers.Add(BuiltInTypes.Int)
+    EsRunThrow(harness, EsSoaColumnRead())
+
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be thrown directly"
+}
+
+test "a print asks for the value and nothing else" {
+    harness := EsDefault()
+    EsRunPrint(harness, EsName("value"))
+
+    assert EsKinds(harness.Steps) == "1"
+    // `print` has no rule of its own — anything can be printed.
+    assert harness.Errors.Count == 0
+}
+
+test "print runs BOTH escape reports and neither short-circuits the other" {
+    harness := EsDefault()
+    EsDeclareSoaTable(harness)
+    rowView: TypeInfo = EsRowType()
+    harness.Answers.Add(rowView)
+    // A column read BY SYNTAX whose ANSWERED type is a row view: the row report and the column
+    // report are both true of it, and `print` is the one statement in the estate that says both.
+    EsRunPrint(harness, EsSoaColumnRead())
+
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be printed; use the table and row index instead"
+    assert harness.Errors[1].Message == "SoA table member 'x' cannot be printed directly"
+}
+
+test "the five entries set exactly one operand each and select their own phase band" {
+    harness := EsDefault()
+    discard := harness.Owner.BeginExpressionStatement(EsCall("Run"))
+    thrown := harness.Owner.BeginThrow(EsName("failure"))
+    printed := harness.Owner.BeginPrint(EsName("value"))
+
+    assert discard.Phase == 0
+    assert thrown.Phase == 30
+    assert printed.Phase == 40
+    assert thrown.Thrown != null
+    assert thrown.Printed == null
+    assert thrown.Discarded == null
+    assert thrown.SoaUsage == "thrown"
+    assert printed.Printed != null
+    assert printed.Thrown == null
+    assert printed.SoaUsage == "printed"
+}

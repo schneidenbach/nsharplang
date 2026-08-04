@@ -306,11 +306,13 @@ public class Analyzer : IDisposable
     // rebuilt with the SCC: it holds only the diagnostic sink and the span reader, neither of which
     // the rebuild replaces.
     private readonly AnalyzerAmbientContext _ambient;
-    // WHAT ITERATING A VALUE PRODUCES: the element type `foreach`, `await foreach` and a generator's
-    // `yield` all ask for, the shape normaliser every structural question starts from, the loop
-    // collection mismatch report, and the `yield` statement itself. NOT rebuilt with the SCC: it
-    // holds the diagnostic sink, the span reader, the scope stack, the declaration context, the type
-    // resolver and the ambient context, none of which the rebuild replaces.
+    // WHAT A LOOP IS: all four loop statements — `foreach`, `await foreach`, `while` and `for` — as
+    // one suspendable walk, plus the element type they and a generator's `yield` all ask for, the
+    // shape normaliser every structural question starts from, the loop collection mismatch report,
+    // and the `yield` statement itself. NOT rebuilt with the SCC: it holds the diagnostic sink, the
+    // span reader, the scope stack, the declaration context, the type resolver, the ambient context,
+    // the SoA escape owner and the boolean-condition owner, none of which the rebuild replaces; the
+    // flow-narrowing writer, which the rebuild DOES replace, is passed in at `Begin`.
     private readonly AnalyzerLoopSequence _loopSequence;
     // WHAT A STRUCT-OF-ARRAYS VALUE MAY NOT DO: the row-view escape report in both its told and its
     // asked shapes, the direct-column escape report, the syntactic probe that decides what a column
@@ -360,7 +362,8 @@ public class Analyzer : IDisposable
             _diagnostics, _spans, _typeResolver, _soaEscape);
         _ambient = new AnalyzerAmbientContext(_diagnostics, _spans, _soaEscape);
         _loopSequence = new AnalyzerLoopSequence(
-            _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _ambient, _soaEscape);
+            _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _ambient, _soaEscape,
+            _conditions);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -3207,32 +3210,16 @@ public class Analyzer : IDisposable
                 AnalyzeIfStatement(ifStmt);
                 break;
             case ForStatement forStmt:
-                AnalyzeForStatement(forStmt);
+                DriveLoopStatement(_loopSequence.BeginFor(forStmt, _flowNarrowing));
                 break;
             case ForeachStatement foreachStmt:
-                DriveForeachStatement(_loopSequence.BeginForeach(foreachStmt));
+                DriveLoopStatement(_loopSequence.BeginForeach(foreachStmt));
                 break;
             case AwaitForEachStatement awaitForeachStmt:
-                DriveForeachStatement(_loopSequence.BeginAwaitForeach(awaitForeachStmt));
+                DriveLoopStatement(_loopSequence.BeginAwaitForeach(awaitForeachStmt));
                 break;
             case WhileStatement whileStmt:
-                var condType = AnalyzeExpression(whileStmt.Condition);
-                var whileThenNarrowings = _flowNarrowing.ExtractFlowNarrowings(whileStmt.Condition).Then;
-                _conditions.ReportConditionTypeMismatchIfNeeded(
-                    whileStmt.Condition, "a 'while' loop", "used as a 'while' condition", condType);
-                var whileLoopFrame = _ambient.EnterLoop();
-                if (whileThenNarrowings.Count > 0)
-                {
-                    PushScope(new Scope(ScopeKind.Block), whileStmt.Body.Line, whileStmt.Body.Column);
-                    _flowNarrowing.ApplyNarrowingsToScope(whileThenNarrowings);
-                    AnalyzeStatement(whileStmt.Body);
-                    PopScope();
-                }
-                else
-                {
-                    AnalyzeStatement(whileStmt.Body);
-                }
-                _ambient.ExitLoop(whileLoopFrame);
+                DriveLoopStatement(_loopSequence.BeginWhile(whileStmt, _flowNarrowing));
                 break;
             case YieldStatement yieldStmt:
                 DriveYieldStatement(_loopSequence.BeginYield(yieldStmt, _assignability));
@@ -3247,12 +3234,7 @@ public class Analyzer : IDisposable
                 _ambient.ReportContinueIfNeeded(stmt.Line, stmt.Column);
                 break;
             case ThrowStatement throwStmt:
-                var thrownType = AnalyzeExpression(throwStmt.Expression);
-                if (!_soaEscape.ReportSoaRowEscapeIfNeeded(throwStmt.Expression, thrownType, "thrown")
-                    && !_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(throwStmt.Expression, "thrown"))
-                {
-                    ReportNonThrowableThrowOperandIfNeeded(throwStmt.Expression, thrownType);
-                }
+                DriveExpressionStatement(_expressionStatements.BeginThrow(throwStmt.Expression));
                 break;
             case TryStatement tryStmt:
                 AnalyzeTryStatement(tryStmt);
@@ -3267,9 +3249,7 @@ public class Analyzer : IDisposable
                 AnalyzeSwitchStatement(switchStmt);
                 break;
             case PrintStatement printStmt:
-                var printValueType = AnalyzeExpression(printStmt.Value);
-                _soaEscape.ReportSoaRowEscapeIfNeeded(printStmt.Value, printValueType, "printed");
-                _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(printStmt.Value, "printed");
+                DriveExpressionStatement(_expressionStatements.BeginPrint(printStmt.Value));
                 break;
             case OffStatement off:
                 AnalyzeOffStatement(off);
@@ -3527,67 +3507,27 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void AnalyzeForStatement(ForStatement forStmt)
-    {
-        PushScope(new Scope(ScopeKind.Block), forStmt.Line, forStmt.Column);
-
-        if (forStmt.Initializer != null)
-            AnalyzeStatement(forStmt.Initializer);
-
-        if (forStmt.Condition != null)
-        {
-            var condType = AnalyzeExpression(forStmt.Condition);
-            _conditions.ReportConditionTypeMismatchIfNeeded(
-                forStmt.Condition, "a 'for' loop", "used as a 'for' condition", condType);
-        }
-
-        if (forStmt.Iterator != null)
-        {
-            DriveExpressionStatement(_expressionStatements.BeginForIterator(forStmt.Iterator));
-        }
-
-        var loopFrame = _ambient.EnterLoop();
-        if (forStmt.Condition != null)
-        {
-            var bodyNarrowings = _flowNarrowing.ExtractFlowNarrowings(forStmt.Condition).Then;
-            if (bodyNarrowings.Count > 0)
-            {
-                PushScope(new Scope(ScopeKind.Block), forStmt.Body.Line, forStmt.Body.Column);
-                _flowNarrowing.ApplyNarrowingsToScope(bodyNarrowings);
-                AnalyzeStatement(forStmt.Body);
-                PopScope();
-            }
-            else
-            {
-                AnalyzeStatement(forStmt.Body);
-            }
-        }
-        else
-        {
-            AnalyzeStatement(forStmt.Body);
-        }
-        _ambient.ExitLoop(loopFrame);
-
-        PopScope();
-    }
-
     /// <summary>
-    /// The steps the N#-owned iteration walks cannot take for themselves. Both of N#'s iteration
-    /// statements — <c>foreach</c> and <c>await foreach</c> — run in
-    /// <see cref="AnalyzerLoopSequence"/> and share this one loop, because they replay the SAME six
-    /// operations in the same order and differ only in a mode flag the walk keeps to itself. Each
-    /// walk suspends at every step, because the collection's type is the operand of both escape
-    /// reports and of the element-type question, whose answer is the loop variable's type. Which
-    /// escape fires and with which action word, which question is asked, which scope opens and
-    /// where, and the order of the six operations are all the walk's decisions. Kind 5 is a SINGLE
-    /// statement rather than <see cref="DriveExpressionStatement"/>'s statement LIST, because a loop
-    /// body never had the unreachable-code rule applied to it.
+    /// The steps the N#-owned loop walks cannot take for themselves. All four of N#'s loop
+    /// statements — <c>foreach</c>, <c>await foreach</c>, <c>while</c> and <c>for</c> — run in
+    /// <see cref="AnalyzerLoopSequence"/> and share this one loop, because they are the same walk
+    /// with and without a collection, an initializer and an update clause. Each walk suspends at
+    /// every step, because the answered type is the operand of the escape reports, of the
+    /// element-type question and of the boolean gate. Which escape fires and with which action word,
+    /// which question is asked, whether a condition is gated and under whose name, what the
+    /// condition proves and in which scope those facts are installed, which scope opens and where,
+    /// and the order of every operation are all the walk's decisions. Kind 5 is a SINGLE statement
+    /// rather than <see cref="DriveExpressionStatement"/>'s statement LIST, because neither a loop
+    /// body nor a <c>for</c> initializer ever had the unreachable-code rule applied to it. Kind 7 is
+    /// the one place in this estate where a driver drives a driver: a <c>for</c> loop's update clause
+    /// belongs to the statement-level expression family, and constructing that family's state and
+    /// running its loop are the two things N# cannot do for itself.
     /// </summary>
-    private void DriveForeachStatement(ForeachStatementState state)
+    private void DriveLoopStatement(LoopStatementState state)
     {
-        for (var step = _loopSequence.NextForeachStep(state);
+        for (var step = _loopSequence.NextLoopStep(state);
              step != null;
-             step = _loopSequence.NextForeachStep(state))
+             step = _loopSequence.NextLoopStep(state))
         {
             TypeInfo? answer = null;
             switch (step.Kind)
@@ -3610,9 +3550,12 @@ public class Analyzer : IDisposable
                 case 6:
                     PopScope();
                     break;
+                case 7:
+                    DriveExpressionStatement(_expressionStatements.BeginForIterator(step.Node!));
+                    break;
             }
 
-            _loopSequence.SupplyForeach(state, answer);
+            _loopSequence.SupplyLoop(state, answer);
         }
     }
 
@@ -3708,23 +3651,6 @@ public class Analyzer : IDisposable
             span.StartColumn,
             "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions.",
             span.Length);
-    }
-
-    private void ReportNonThrowableThrowOperandIfNeeded(Expression expression, TypeInfo thrownType)
-    {
-        if (IsThrowableType(thrownType))
-        {
-            return;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"Throw expressions must be assignable to System.Exception, but this expression is '{thrownType}'",
-            line,
-            column,
-            "Throw an Exception-derived value, or wrap this value in an exception type.",
-            length);
     }
 
     private bool IsThrowableType(TypeInfo type)

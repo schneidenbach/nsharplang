@@ -8,14 +8,15 @@ import NSharpLang.Compiler.Ast
 // THE SIX STEPS THE STATEMENT-LEVEL EXPRESSION FAMILY CANNOT TAKE FOR ITSELF.
 //
 // This walk owns what it MEANS to write an expression where a statement belongs — a bare `f()` or
-// `x = 1` as a statement, the update clause of a `for`, an `assert`, and an `assert throws` — which
-// of those expressions actually DO anything, which of the family's four diagnostics fires and with
-// which span, suggestion and wording, and whether a discarded result was one the callee said must
-// be used. What it cannot do is run the analyzer's own EXPRESSION walk, open or close a scope on the
+// `x = 1` as a statement, the update clause of a `for`, an `assert`, an `assert throws`, the operand
+// of a `throw` and the value of a `print` — which of those expressions actually DO anything, which
+// of the family's five diagnostics fires and with which span, suggestion and wording, and whether a
+// discarded result was one the callee said must be used. What it cannot do is run the analyzer's own
+// EXPRESSION walk, open or close a scope on the
 // analyzer's scope stack, re-enter the STATEMENT dispatch for an `assert throws` body, read the
 // recorded type of an already-analysed callee out of the semantic model (which the analysis reset
-// REPLACES, so it cannot be captured here), or decide whether a type is throwable (a predicate two
-// other families still share) — so it ASKS: one request at a time, each naming a kind and carrying
+// REPLACES, so it cannot be captured here), or decide whether a type is throwable (a predicate the
+// catch-clause family in `Analyzer.cs` still shares) — so it ASKS: one request at a time, each naming a kind and carrying
 // every value the step needs. Nothing here is a policy the driver may reinterpret — the driver
 // switches on `Kind`, performs exactly the one operation with exactly these operands, and hands the
 // answer back.
@@ -35,8 +36,9 @@ import NSharpLang.Compiler.Ast
 //      `assert throws` suspends independently of the one that contains it.
 //   6  close the scope kind 4 opened.
 //   7  ANSWERS whether `CarriedType` is throwable. The predicate stays in `Analyzer.cs` because the
-//      catch-clause and throw-operand families still share it; the DECISION to report, the wording,
-//      the suggestion and the span are here.
+//      catch-clause family still shares it; the DECISION to report, the wording, the suggestion and
+//      the span are here — for BOTH questions that ask it, an `assert throws` type and a `throw`
+//      operand, whose two reports differ in every one of those four things.
 //   8  ANSWERS the type the semantic model recorded for the expression at `Line` / `Column` — the
 //      callee of a discarded call — or null when nothing was recorded. The call was already
 //      analysed by kind 1, so re-analysing the AST would double-record bindings and references and
@@ -68,17 +70,18 @@ public class ExpressionStatementRequest {
 
 // THE STATEMENT'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
-// ONE state serves all three statement shapes, because ONE driver serves them all: exactly one of
-// `discardedValue`, `assertValue` and `assertThrowsValue` is set, and which one is set selects the
-// phase family.
+// ONE state serves all five statement shapes, because ONE driver serves them all: exactly one of
+// `discardedValue`, `assertValue`, `assertThrowsValue`, `thrownValue` and `printedValue` is set, and
+// which one is set selects the phase family.
 //
 // `Phase` is the walk's program counter. The DISCARD family runs 0..3: 0 captures the error count
 // and asks for the expression, 1 folds the answer in and chooses between the placeholder exit, the
 // row-escape report and the column-escape report, 2 folds the escape answer and reaches the
 // validity decision, and 3 folds the recorded callee type and settles the must-use report. The
 // ASSERT family runs 10..13 — condition, condition escapes, message, message escapes. The
-// ASSERT-THROWS family runs 20..23 — throwability, report and scope open, body, scope close. 99 is
-// done for all three.
+// ASSERT-THROWS family runs 20..23 — throwability, report and scope open, body, scope close. The
+// THROW family runs 30..32 — the operand, its two escapes, the throwability rule. The PRINT family
+// runs 40..41 — the value and its two escapes. 99 is done for all five.
 //
 // `ErrorsBefore` is the discard walk's guard, captured at phase 0 from the diagnostic sink's own
 // count. Every later report in that walk is suppressed the instant the count differs, which is what
@@ -89,12 +92,16 @@ public class ExpressionStatementState {
     discardedValue: Expression?
     assertValue: AssertStatement?
     assertThrowsValue: AssertThrowsStatement?
+    thrownValue: Expression?
+    printedValue: Expression?
     contextValue: DiscardedExpressionContext
     soaUsageValue: string
 
     Discarded: Expression? => discardedValue
     Assert: AssertStatement? => assertValue
     AssertThrows: AssertThrowsStatement? => assertThrowsValue
+    Thrown: Expression? => thrownValue
+    Printed: Expression? => printedValue
     Context: DiscardedExpressionContext => contextValue
     SoaUsage: string => soaUsageValue
 
@@ -113,11 +120,15 @@ public class ExpressionStatementState {
         discarded: Expression?,
         assertStatement: AssertStatement?,
         assertThrows: AssertThrowsStatement?,
+        thrown: Expression?,
+        printed: Expression?,
         context: DiscardedExpressionContext,
         soaUsage: string) {
         discardedValue = discarded
         assertValue = assertStatement
         assertThrowsValue = assertThrows
+        thrownValue = thrown
+        printedValue = printed
         contextValue = context
         soaUsageValue = soaUsage
 
@@ -128,6 +139,14 @@ public class ExpressionStatementState {
 
         if assertThrows != null {
             Phase = 20
+        }
+
+        if thrown != null {
+            Phase = 30
+        }
+
+        if printed != null {
+            Phase = 40
         }
 
         Pending = 0
@@ -203,6 +222,8 @@ public class AnalyzerExpressionStatements {
             expression,
             null,
             null,
+            null,
+            null,
             DiscardedExpressionContext.ExpressionStatement,
             "discarded")
     }
@@ -214,6 +235,8 @@ public class AnalyzerExpressionStatements {
             expression,
             null,
             null,
+            null,
+            null,
             DiscardedExpressionContext.ForIterator,
             "used as a 'for' iterator")
     }
@@ -222,6 +245,8 @@ public class AnalyzerExpressionStatements {
         return new ExpressionStatementState(
             null,
             assertStatement,
+            null,
+            null,
             null,
             DiscardedExpressionContext.ExpressionStatement,
             "asserted")
@@ -232,8 +257,37 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             assertThrows,
+            null,
+            null,
             DiscardedExpressionContext.ExpressionStatement,
             "asserted")
+    }
+
+    // A `throw` STATEMENT'S OPERAND. The SoA reports call it "thrown", and a value that survives both
+    // of them is measured against `System.Exception`.
+    public func BeginThrow(expression: Expression): ExpressionStatementState {
+        return new ExpressionStatementState(
+            null,
+            null,
+            null,
+            expression,
+            null,
+            DiscardedExpressionContext.ExpressionStatement,
+            "thrown")
+    }
+
+    // A `print` STATEMENT'S VALUE. The shortest walk in the family: `print` has no rule of its own —
+    // anything can be printed — so everything it can raise comes from the two SoA reporters, and BOTH
+    // of them always run.
+    public func BeginPrint(expression: Expression): ExpressionStatementState {
+        return new ExpressionStatementState(
+            null,
+            null,
+            null,
+            null,
+            expression,
+            DiscardedExpressionContext.ExpressionStatement,
+            "printed")
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this statement is finished. Every phase
@@ -288,9 +342,118 @@ public class AnalyzerExpressionStatements {
             return AdvanceAssert(state, assertStatement)
         }
 
+        thrown := state.Thrown
+        if thrown != null {
+            return AdvanceThrow(state, thrown)
+        }
+
+        printed := state.Printed
+        if printed != null {
+            return AdvancePrint(state, printed)
+        }
+
         discarded := state.Discarded
         if discarded != null {
             return AdvanceDiscarded(state, discarded)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // ── THE `throw` WALK ───────────────────────────────────────────────────────────────────────
+    //
+    // Three phases, and the middle one is the whole reason this is a walk rather than a call: the
+    // operand's ANSWERED type is what the row-escape report measures, and whether that report fired
+    // is what decides if the column probe runs at all — which is what the `&&` chain in the arm this
+    // replaced meant. A value already refused as a row view is not also told it is a direct column
+    // read, and a value refused as either is not ALSO told it is not throwable: one bad operand is
+    // one diagnostic.
+    func AdvanceThrow(
+        state: ExpressionStatementState,
+        expression: Expression): ExpressionStatementRequest? {
+        phase := state.Phase
+        if phase == 30 {
+            state.Phase = 31
+            state.Pending = 1
+            return NewExpressionRequest(expression)
+        }
+
+        if phase == 31 {
+            if soaEscapeValue.ReportSoaRowEscapeIfNeeded(expression, state.AnsweredType, "thrown") {
+                state.EscapeFired = true
+                state.Phase = 99
+                return null
+            }
+
+            if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+                expression,
+                "thrown") {
+                state.EscapeFired = true
+                state.Phase = 99
+                return null
+            }
+
+            state.Phase = 32
+            state.Pending = 7
+            return new ExpressionStatementRequest(7, state.AnsweredType)
+        }
+
+        if phase == 32 {
+            state.Phase = 99
+            if !state.Throwable {
+                ReportNonThrowableThrowOperand(expression, state.AnsweredType)
+            }
+
+            return null
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // NL202 ON A `throw` OPERAND. The span is the whole thrown expression, so the underline lands on
+    // the value rather than on the keyword.
+    func ReportNonThrowableThrowOperand(expression: Expression, thrownType: TypeInfo) {
+        span := spansValue.GetExpressionDiagnosticSpan(expression)
+        diagnosticsValue.Report(
+            ErrorCode.TypeMismatch,
+            "Throw expressions must be assignable to System.Exception, but this expression is '"
+                + TypeText(thrownType) + "'",
+            span.Line,
+            span.Column,
+            "Throw an Exception-derived value, or wrap this value in an exception type.",
+            span.Length)
+    }
+
+    // ── THE `print` WALK ───────────────────────────────────────────────────────────────────────
+    //
+    // Two phases and no rule of its own. BOTH escape reports run and NEITHER short-circuits the
+    // other — which is the one thing about `print` that is easy to get wrong, because every other
+    // member of this family and of the loop family stops at the first one that fires. `print` did
+    // not, and the difference is a second squiggle on a value that is both a row view by type and a
+    // column read by syntax.
+    func AdvancePrint(
+        state: ExpressionStatementState,
+        expression: Expression): ExpressionStatementRequest? {
+        phase := state.Phase
+        if phase == 40 {
+            state.Phase = 41
+            state.Pending = 1
+            return NewExpressionRequest(expression)
+        }
+
+        if phase == 41 {
+            state.Phase = 99
+            rowFired := soaEscapeValue.ReportSoaRowEscapeIfNeeded(
+                expression,
+                state.AnsweredType,
+                "printed")
+            columnFired := soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+                expression,
+                "printed")
+            state.EscapeFired = rowFired || columnFired
+            return null
         }
 
         state.Phase = 99
