@@ -307,6 +307,12 @@ public class Analyzer : IDisposable
     // rebuilt with the SCC: it holds only the diagnostic sink and the span reader, neither of which
     // the rebuild replaces.
     private readonly AnalyzerAmbientContext _ambient;
+    // WHAT ITERATING A VALUE PRODUCES: the element type `foreach`, `await foreach` and a generator's
+    // `yield` all ask for, the shape normaliser every structural question starts from, the loop
+    // collection mismatch report, and the `yield` statement itself. NOT rebuilt with the SCC: it
+    // holds the diagnostic sink, the span reader, the scope stack, the declaration context, the type
+    // resolver and the ambient context, none of which the rebuild replaces.
+    private readonly AnalyzerLoopSequence _loopSequence;
     private bool _disposed;
 
     public Analyzer()
@@ -339,6 +345,8 @@ public class Analyzer : IDisposable
         _nullFlow = new AnalyzerNullFlow(_diagnostics, _spans, _scopes, _declarationContext);
         _expressionStatements = new AnalyzerExpressionStatements(_diagnostics, _spans, _typeResolver);
         _ambient = new AnalyzerAmbientContext(_diagnostics, _spans);
+        _loopSequence = new AnalyzerLoopSequence(
+            _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _ambient);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -3217,41 +3225,7 @@ public class Analyzer : IDisposable
                 _ambient.ExitLoop(whileLoopFrame);
                 break;
             case YieldStatement yieldStmt:
-                var isGeneratorYield = _ambient.CurrentFunctionDeclaresGenerator;
-                if (!isGeneratorYield)
-                {
-                    Error(
-                        ErrorCode.InvalidSyntax,
-                        "'yield' can only be used inside a generator function",
-                        yieldStmt.Line,
-                        yieldStmt.Column,
-                        "Mark the function as `func*`/`async func*`, or replace `yield` with `return` in an ordinary function.",
-                        "yield".Length);
-                }
-                if (yieldStmt.Value != null)
-                {
-                    var yieldedType = AnalyzeExpression(yieldStmt.Value);
-                    var isSoaRowYield = ReportSoaRowEscapeIfNeeded(yieldStmt.Value, yieldedType, "yielded");
-                    var isSoaDirectColumnYield = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(yieldStmt.Value, "yielded");
-                    if (isGeneratorYield
-                        && !isSoaRowYield
-                        && !isSoaDirectColumnYield
-                        && _ambient.CurrentReturnType != null
-                        && TryGetGeneratorYieldElementType(_ambient.CurrentReturnType, out var elementType)
-                        && !BuiltInTypes.IsUnknown(yieldedType)
-                        && !BuiltInTypes.IsUnknown(elementType)
-                        && !_assignability.IsAssignable(elementType, yieldedType))
-                    {
-                        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(yieldStmt.Value);
-                        Error(
-                            ErrorCode.TypeMismatch,
-                            $"Generator yield value is '{yieldedType}', but the sequence element type is '{elementType}'",
-                            line,
-                            column,
-                            $"Yield a value assignable to '{elementType}', or change the generator return type.",
-                            length);
-                    }
-                }
+                DriveYieldStatement(_loopSequence.BeginYield(yieldStmt, _assignability));
                 break;
             case ReturnStatement returnStmt:
                 DriveReturnStatement(_ambient.BeginReturn(returnStmt, _assignability));
@@ -3654,17 +3628,7 @@ public class Analyzer : IDisposable
             collectionType = BuiltInTypes.Unknown;
         }
 
-        TypeInfo elementType = BuiltInTypes.Unknown;
-        if (!TryGetLoopSequenceElementType(collectionType, requireAsync: false, out elementType)
-            && ShouldReportLoopSequenceTypeMismatch(collectionType))
-        {
-            ReportLoopSequenceTypeMismatch(
-                foreachStmt.Collection,
-                collectionType,
-                "foreach",
-                "enumerable",
-                "Use an array, Span<T>, or IEnumerable<T> value as the foreach collection.");
-        }
+        var elementType = _loopSequence.ResolveForeachElementType(foreachStmt.Collection, collectionType);
 
         PushScope(new Scope(ScopeKind.Block), foreachStmt.Line, foreachStmt.Column);
 
@@ -3692,17 +3656,8 @@ public class Analyzer : IDisposable
             collectionType = BuiltInTypes.Unknown;
         }
 
-        TypeInfo elementType = BuiltInTypes.Unknown;
-        if (!TryGetLoopSequenceElementType(collectionType, requireAsync: true, out elementType)
-            && ShouldReportLoopSequenceTypeMismatch(collectionType))
-        {
-            ReportLoopSequenceTypeMismatch(
-                awaitForeachStmt.Collection,
-                collectionType,
-                "await foreach",
-                "async enumerable",
-                "Use an IAsyncEnumerable<T> value as the await foreach collection.");
-        }
+        var elementType = _loopSequence.ResolveAwaitForeachElementType(
+            awaitForeachStmt.Collection, collectionType);
 
         PushScope(new Scope(ScopeKind.Block), awaitForeachStmt.Line, awaitForeachStmt.Column);
 
@@ -3718,226 +3673,39 @@ public class Analyzer : IDisposable
         PopScope();
     }
 
-    private bool TryGetLoopSequenceElementType(TypeInfo collectionType, bool requireAsync, out TypeInfo elementType)
+    /// <summary>
+    /// The steps the N#-owned <c>yield</c> walk cannot take for itself. The walk runs in
+    /// <see cref="AnalyzerLoopSequence"/> rather than in the ambient context, because the rule that
+    /// ends it — does the yielded value fit the sequence — is a question about the ELEMENT TYPE, and
+    /// that family lives there; the two ambient facts it reads it reaches through the context it
+    /// holds. Its three kinds are shapes the other drivers already have: an expression walk, and the
+    /// two SoA escape reports. Only kind 2 differs from <see cref="DriveReturnStatement"/>'s — it is
+    /// the BOOL-returning, TYPE-taking reporter rather than the void one — and both of this walk's
+    /// report answers are READ, because either escape silences the element-type rule.
+    /// </summary>
+    private void DriveYieldStatement(YieldStatementState state)
     {
-        elementType = BuiltInTypes.Unknown;
-
-        var resolved = NormalizeShapeType(collectionType);
-        switch (resolved)
+        for (var step = _loopSequence.NextStep(state);
+             step != null;
+             step = _loopSequence.NextStep(state))
         {
-            case ArrayTypeInfo arrayType when !requireAsync:
-                elementType = arrayType.ElementType;
-                return true;
-            case SimpleTypeInfo simpleType when !requireAsync && BuiltInTypes.Is(simpleType, BuiltInTypes.String):
-                elementType = BuiltInTypes.Char;
-                return true;
-            case GenericTypeInfo genericType when TryGetGenericLoopSequenceElementType(genericType, requireAsync, out elementType):
-                return true;
-            case ReflectionTypeInfo reflectionType when TryGetReflectionLoopSequenceElementType(reflectionType.Type, requireAsync, out elementType):
-                return true;
-            case ClassTypeInfo classType when TryGetSourceLoopSequenceElementType(classType.Interfaces, requireAsync, out elementType):
-                return true;
-            case StructTypeInfo structType when TryGetSourceLoopSequenceElementType(structType.Interfaces, requireAsync, out elementType):
-                return true;
-            case RecordTypeInfo recordType when TryGetSourceLoopSequenceElementType(recordType.Interfaces, requireAsync, out elementType):
-                return true;
-            case InterfaceTypeInfo interfaceType when TryGetSourceLoopSequenceElementType(interfaceType.BaseInterfaces, requireAsync, out elementType):
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private TypeInfo NormalizeShapeType(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(type));
-        while (true)
-        {
-            switch (resolved)
+            TypeInfo? answer = null;
+            var escaped = false;
+            switch (step.Kind)
             {
-                case ObliviousTypeInfo oblivious:
-                    resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(oblivious.InnerType));
-                    continue;
-                case ByRefTypeInfo byRef:
-                    resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRef.InnerType));
-                    continue;
-                case SimpleTypeInfo simple when _scopes.LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
-                    resolved = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(namedType));
-                    continue;
-                default:
-                    return resolved;
-            }
-        }
-    }
-
-    private bool ShouldReportLoopSequenceTypeMismatch(TypeInfo collectionType)
-    {
-        var resolved = NormalizeShapeType(collectionType);
-        return !BuiltInTypes.IsUnknown(resolved) && resolved is not ExternalTypeInfo;
-    }
-
-    private void ReportLoopSequenceTypeMismatch(
-        Expression collection,
-        TypeInfo collectionType,
-        string loopKind,
-        string expectedKind,
-        string suggestion)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(collection);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"{loopKind} collection must be {expectedKind}, but this collection is '{collectionType}'",
-            line,
-            column,
-            suggestion,
-            length);
-    }
-
-    private bool TryGetGenericLoopSequenceElementType(GenericTypeInfo genericType, bool requireAsync, out TypeInfo elementType)
-    {
-        var sourceElementType = LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(genericType, requireAsync);
-        if (sourceElementType != null)
-        {
-            elementType = sourceElementType;
-            return true;
-        }
-
-        elementType = BuiltInTypes.Unknown;
-        return false;
-    }
-
-    private bool TryGetSourceLoopSequenceElementType(
-        IEnumerable<TypeReference> interfaceReferences,
-        bool requireAsync,
-        out TypeInfo elementType)
-    {
-        foreach (var interfaceReference in interfaceReferences)
-        {
-            var interfaceType = _typeResolver.ResolveType(interfaceReference);
-            if (TryGetLoopSequenceElementType(interfaceType, requireAsync, out elementType))
-            {
-                return true;
-            }
-        }
-
-        elementType = BuiltInTypes.Unknown;
-        return false;
-    }
-
-    private bool TryGetReflectionLoopSequenceElementType(Type type, bool requireAsync, out TypeInfo elementType)
-    {
-        elementType = BuiltInTypes.Unknown;
-
-        var runtimeType = Nullable.GetUnderlyingType(type) ?? type;
-        if (!requireAsync && runtimeType.IsArray)
-        {
-            var elementReflectionType = runtimeType.GetElementType();
-            if (elementReflectionType != null)
-            {
-                elementType = AnalyzerReflectionTypeConversion.ConvertReflectionType(elementReflectionType);
-                return true;
-            }
-        }
-
-        if (!requireAsync && TryGetReflectionGenericElementType(runtimeType, "System.Span`1", out elementType))
-        {
-            return true;
-        }
-
-        if (!requireAsync && TryGetReflectionGenericElementType(runtimeType, "System.ReadOnlySpan`1", out elementType))
-        {
-            return true;
-        }
-
-        var expectedInterface = requireAsync ? typeof(IAsyncEnumerable<>) : typeof(IEnumerable<>);
-        if (TryGetReflectionInterfaceElementType(runtimeType, expectedInterface, out elementType))
-        {
-            return true;
-        }
-
-        if (!requireAsync && TryGetReflectionEnumeratorPatternElementType(runtimeType, out elementType))
-        {
-            return true;
-        }
-
-        if (!requireAsync && typeof(System.Collections.IEnumerable).IsAssignableFrom(runtimeType))
-        {
-            elementType = BuiltInTypes.Object;
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool TryGetReflectionGenericElementType(Type type, string genericDefinitionFullName, out TypeInfo elementType)
-    {
-        elementType = BuiltInTypes.Unknown;
-        if (!type.IsGenericType
-            || type.GetGenericTypeDefinition().FullName != genericDefinitionFullName
-            || type.GenericTypeArguments.Length != 1)
-        {
-            return false;
-        }
-
-        elementType = AnalyzerReflectionTypeConversion.ConvertReflectionType(type.GenericTypeArguments[0]);
-        return true;
-    }
-
-    private bool TryGetReflectionInterfaceElementType(Type type, Type expectedInterfaceDefinition, out TypeInfo elementType)
-    {
-        elementType = BuiltInTypes.Unknown;
-            var sequenceInterface = type.IsGenericType && type.GetGenericTypeDefinition() == expectedInterfaceDefinition
-                ? type
-                : type.GetInterfaces()
-                    .FirstOrDefault(candidate =>
-                        candidate.IsGenericType && candidate.GetGenericTypeDefinition() == expectedInterfaceDefinition);
-
-            if (sequenceInterface == null || sequenceInterface.GenericTypeArguments.Length != 1)
-            {
-                return false;
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    escaped = ReportSoaRowEscapeIfNeeded(step.Node!, step.CarriedType, step.Text!);
+                    break;
+                case 3:
+                    escaped = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(step.Node!, step.Text!);
+                    break;
             }
 
-            elementType = AnalyzerReflectionTypeConversion.ConvertReflectionType(sequenceInterface.GenericTypeArguments[0]);
-            return true;
-    }
-
-    private bool TryGetReflectionEnumeratorPatternElementType(Type type, out TypeInfo elementType)
-    {
-        elementType = BuiltInTypes.Unknown;
-            var getEnumeratorMethod = type.GetMethod(
-                "GetEnumerator",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                binder: null,
-                types: Type.EmptyTypes,
-                modifiers: null);
-            if (getEnumeratorMethod == null)
-            {
-                return false;
-            }
-
-            var enumeratorType = getEnumeratorMethod.ReturnType;
-            var moveNextMethod = enumeratorType.GetMethod(
-                "MoveNext",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                binder: null,
-                types: Type.EmptyTypes,
-                modifiers: null);
-            var currentProperty = enumeratorType.GetProperty(
-                "Current",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (moveNextMethod?.ReturnType != typeof(bool) || currentProperty?.GetMethod == null)
-            {
-                return false;
-            }
-
-            elementType = AnalyzerReflectionTypeConversion.ConvertReflectionType(currentProperty.PropertyType);
-            return true;
-    }
-
-    private bool TryGetGeneratorYieldElementType(TypeInfo returnType, out TypeInfo elementType)
-    {
-        var isAsyncGenerator = _ambient.CurrentFunctionDeclaresAsync;
-        return TryGetLoopSequenceElementType(returnType, isAsyncGenerator, out elementType);
+            _loopSequence.Supply(state, answer, escaped);
+        }
     }
 
     /// <summary>
@@ -10601,7 +10369,7 @@ public class Analyzer : IDisposable
     {
         resultType = BuiltInTypes.Unknown;
 
-        var resolved = NormalizeShapeType(awaitableType);
+        var resolved = _loopSequence.NormalizeShapeType(awaitableType);
         if (BuiltInTypes.IsUnknown(resolved) || resolved is ExternalTypeInfo)
         {
             return false;
@@ -10629,7 +10397,7 @@ public class Analyzer : IDisposable
 
     private bool ShouldReportAwaitExpressionTypeMismatch(TypeInfo awaitableType)
     {
-        var resolved = NormalizeShapeType(awaitableType);
+        var resolved = _loopSequence.NormalizeShapeType(awaitableType);
         return !BuiltInTypes.IsUnknown(resolved)
             && resolved is not ClassTypeInfo
             && resolved is not StructTypeInfo
