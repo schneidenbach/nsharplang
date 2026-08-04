@@ -142,22 +142,6 @@ public class Analyzer : IDisposable
     private readonly AnalyzerDeclarationContext _declarationContext = new();
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
-    private TypeInfo? _currentReturnType;
-    private FunctionDeclaration? _currentFunction;
-    private bool _currentFunctionReturnTypeWasOmitted;
-    private bool _currentFunctionIsAsync;
-    private bool _inLoop;
-    // NL319: nesting depth of `finally` blocks currently being analyzed (finallys nest), plus the depth
-    // recorded when the innermost break/continue target was entered. A `return` at depth > 0 — or a
-    // `break`/`continue` whose target loop/switch was entered at a SHALLOWER depth — would have to exit
-    // the finally handler, which ECMA-335 forbids (a finally may only complete via its own end; the
-    // emitted `leave` is invalid IL and crashes with InvalidProgramException on every call). All three
-    // reset at nested-body boundaries (lambdas, local functions): a return there exits the nested body,
-    // not the finally, which is legal. The loop context resets there too; break/continue cannot target
-    // an enclosing method's loop from a nested method body.
-    private int _finallyDepth;
-    private int _breakTargetFinallyDepth;
-    private int _continueTargetFinallyDepth;
     private bool _inConstructor;
     private ClassDeclaration? _currentClass;
     private string? _currentTypeName;
@@ -316,6 +300,14 @@ public class Analyzer : IDisposable
     // SCC: it holds only the diagnostic sink, the span reader and the type resolver, none of which
     // the rebuild replaces.
     private readonly AnalyzerExpressionStatements _expressionStatements;
+    // WHERE THE WALK CURRENTLY IS: the enclosing function's declaration, return type, omitted-return
+    // and async flags, and the control-flow context — whether a loop is open, how deep inside
+    // `finally` handlers the walk sits, and the depths at which the innermost `break` and `continue`
+    // targets were entered — plus every report that is a pure function of those: `break`/`continue`
+    // outside a loop, all three NL319 shapes, and the four return-value-mismatch wordings. NOT
+    // rebuilt with the SCC: it holds only the diagnostic sink and the span reader, neither of which
+    // the rebuild replaces.
+    private readonly AnalyzerAmbientContext _ambient;
     private bool _disposed;
 
     public Analyzer()
@@ -347,6 +339,7 @@ public class Analyzer : IDisposable
         _definiteAssignment = new AnalyzerDefiniteAssignment(_diagnostics, _typeResolver);
         _nullFlow = new AnalyzerNullFlow(_diagnostics, _spans, _scopes, _declarationContext);
         _expressionStatements = new AnalyzerExpressionStatements(_diagnostics, _spans, _typeResolver);
+        _ambient = new AnalyzerAmbientContext(_diagnostics, _spans);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -563,14 +556,7 @@ public class Analyzer : IDisposable
         _nullFlow.BeginAnalysis();
         _suppressErrorTupleResultUse = false;
         _reportedUnverifiedErrorResultDiagnostics.Clear();
-        _currentReturnType = null;
-        _currentFunction = null;
-        _currentFunctionReturnTypeWasOmitted = false;
-        _currentFunctionIsAsync = false;
-        _inLoop = false;
-        _finallyDepth = 0;
-        _breakTargetFinallyDepth = 0;
-        _continueTargetFinallyDepth = 0;
+        _ambient.BeginAnalysis();
         _inConstructor = false;
         _currentFilePath = currentFilePath;
         _projectSources.BeginAnalysis(projectRoot);
@@ -2175,14 +2161,8 @@ public class Analyzer : IDisposable
         }
 
         // Set expected return type
-        var previousFunction = _currentFunction;
-        var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
-        var previousFunctionIsAsync = _currentFunctionIsAsync;
         var functionReturnType = func.ReturnType != null ? _typeResolver.ResolveDeclaredType(func.ReturnType) : BuiltInTypes.Void;
-        _currentReturnType = functionReturnType;
-        _currentFunction = func;
-        _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
-        _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
+        var ambientFrame = _ambient.EnterFunctionDeclaration(func, functionReturnType);
 
         ReportGeneratorReturnTypeIfNeeded(func, functionReturnType);
 
@@ -2238,7 +2218,7 @@ public class Analyzer : IDisposable
             var reportedGeneratorExpressionBody = ReportGeneratorExpressionBodyIfNeeded(func);
             if (!reportedGeneratorExpressionBody && BuiltInTypes.Is(functionReturnType, BuiltInTypes.Void) && BuiltInTypes.IsNot(exprType, BuiltInTypes.Void))
             {
-                AddExpressionBodyReturnError(func, exprType);
+                _ambient.ReportExpressionBodyReturn(func, exprType);
             }
             else if (!reportedGeneratorExpressionBody && BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) && !_assignability.IsAssignable(functionReturnType, exprType))
             {
@@ -2266,10 +2246,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        _currentReturnType = null;
-        _currentFunction = previousFunction;
-        _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
-        _currentFunctionIsAsync = previousFunctionIsAsync;
+        _ambient.ExitFunctionDeclaration(ambientFrame);
         PopScope();
     }
 
@@ -3051,10 +3028,9 @@ public class Analyzer : IDisposable
         if (prop.GetBody != null)
         {
             PushScope(new Scope(ScopeKind.Function), prop.Line, prop.Column);
-            var prevReturnType = _currentReturnType;
-            _currentReturnType = propType; // Getter should return the property type
+            var prevReturnType = _ambient.EnterAccessorReturnType(propType); // Getter should return the property type
             AnalyzeStatement(prop.GetBody);
-            _currentReturnType = prevReturnType;
+            _ambient.ExitAccessorReturnType(prevReturnType);
             PopScope();
         }
 
@@ -3062,13 +3038,12 @@ public class Analyzer : IDisposable
         if (prop.SetBody != null)
         {
             PushScope(new Scope(ScopeKind.Function), prop.Line, prop.Column);
-            var prevReturnType = _currentReturnType;
-            _currentReturnType = BuiltInTypes.Void; // Setter returns void
+            var prevReturnType = _ambient.EnterAccessorReturnType(BuiltInTypes.Void); // Setter returns void
             // Implicitly declare 'value' parameter
             DeclareSymbol("value", propType, prop.Line, prop.Column, recordBindingDeclaration: false);
             RecordVariableInCurrentScope("value", propType);
             AnalyzeStatement(prop.SetBody);
-            _currentReturnType = prevReturnType;
+            _ambient.ExitAccessorReturnType(prevReturnType);
             PopScope();
         }
     }
@@ -3083,10 +3058,9 @@ public class Analyzer : IDisposable
             PushScope(new Scope(ScopeKind.Function), indexer.Line, indexer.Column);
             DeclareIndexerParameters(indexer);
 
-            var previousReturnType = _currentReturnType;
-            _currentReturnType = indexerType;
+            var previousReturnType = _ambient.EnterAccessorReturnType(indexerType);
             AnalyzeStatement(indexer.GetBody);
-            _currentReturnType = previousReturnType;
+            _ambient.ExitAccessorReturnType(previousReturnType);
 
             PopScope();
         }
@@ -3096,12 +3070,11 @@ public class Analyzer : IDisposable
             PushScope(new Scope(ScopeKind.Function), indexer.Line, indexer.Column);
             DeclareIndexerParameters(indexer);
 
-            var previousReturnType = _currentReturnType;
-            _currentReturnType = BuiltInTypes.Void;
+            var previousReturnType = _ambient.EnterAccessorReturnType(BuiltInTypes.Void);
             DeclareSymbol("value", indexerType, indexer.Line, indexer.Column, recordBindingDeclaration: false);
             RecordVariableInCurrentScope("value", indexerType);
             AnalyzeStatement(indexer.SetBody);
-            _currentReturnType = previousReturnType;
+            _ambient.ExitAccessorReturnType(previousReturnType);
 
             PopScope();
         }
@@ -3232,12 +3205,7 @@ public class Analyzer : IDisposable
                 {
                     ReportBooleanConditionTypeMismatch(whileStmt.Condition, "a 'while' loop", condType);
                 }
-                var wasInLoop = _inLoop;
-                var whileBreakDepth = _breakTargetFinallyDepth;
-                var whileContinueDepth = _continueTargetFinallyDepth;
-                _inLoop = true;
-                _breakTargetFinallyDepth = _finallyDepth;
-                _continueTargetFinallyDepth = _finallyDepth;
+                var whileLoopFrame = _ambient.EnterLoop();
                 if (whileThenNarrowings.Count > 0)
                 {
                     PushScope(new Scope(ScopeKind.Block), whileStmt.Body.Line, whileStmt.Body.Column);
@@ -3249,12 +3217,10 @@ public class Analyzer : IDisposable
                 {
                     AnalyzeStatement(whileStmt.Body);
                 }
-                _inLoop = wasInLoop;
-                _breakTargetFinallyDepth = whileBreakDepth;
-                _continueTargetFinallyDepth = whileContinueDepth;
+                _ambient.ExitLoop(whileLoopFrame);
                 break;
             case YieldStatement yieldStmt:
-                var isGeneratorYield = _currentFunction?.Modifiers.HasFlag(Modifiers.Generator) == true;
+                var isGeneratorYield = _ambient.CurrentFunctionDeclaresGenerator;
                 if (!isGeneratorYield)
                 {
                     Error(
@@ -3273,8 +3239,8 @@ public class Analyzer : IDisposable
                     if (isGeneratorYield
                         && !isSoaRowYield
                         && !isSoaDirectColumnYield
-                        && _currentReturnType != null
-                        && TryGetGeneratorYieldElementType(_currentReturnType, out var elementType)
+                        && _ambient.CurrentReturnType != null
+                        && TryGetGeneratorYieldElementType(_ambient.CurrentReturnType, out var elementType)
                         && !BuiltInTypes.IsUnknown(yieldedType)
                         && !BuiltInTypes.IsUnknown(elementType)
                         && !_assignability.IsAssignable(elementType, yieldedType))
@@ -3294,36 +3260,10 @@ public class Analyzer : IDisposable
                 AnalyzeReturnStatement(returnStmt);
                 break;
             case BreakStatement:
-                if (!_inLoop)
-                {
-                    Error(
-                        ErrorCode.InvalidSyntax,
-                        "'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here",
-                        stmt.Line,
-                        stmt.Column,
-                        "Move this `break` inside a loop, or remove it if there is no loop to exit.",
-                        "break".Length);
-                }
-                else if (_finallyDepth > _breakTargetFinallyDepth)
-                {
-                    ReportControlTransferOutOfFinally("break", stmt.Line, stmt.Column);
-                }
+                _ambient.ReportBreakIfNeeded(stmt.Line, stmt.Column);
                 break;
             case ContinueStatement:
-                if (!_inLoop)
-                {
-                    Error(
-                        ErrorCode.InvalidSyntax,
-                        "'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here",
-                        stmt.Line,
-                        stmt.Column,
-                        "Move this `continue` inside a loop, or remove it if there is no loop to continue.",
-                        "continue".Length);
-                }
-                else if (_finallyDepth > _continueTargetFinallyDepth)
-                {
-                    ReportControlTransferOutOfFinally("continue", stmt.Line, stmt.Column);
-                }
+                _ambient.ReportContinueIfNeeded(stmt.Line, stmt.Column);
                 break;
             case ThrowStatement throwStmt:
                 var thrownType = AnalyzeExpression(throwStmt.Expression);
@@ -3487,27 +3427,8 @@ public class Analyzer : IDisposable
         }
 
         // Save current function context
-        var previousReturnType = _currentReturnType;
-        var previousFunction = _currentFunction;
-        var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
-        var previousFunctionIsAsync = _currentFunctionIsAsync;
-        var previousInLoop = _inLoop;
-        var previousFinallyDepth = _finallyDepth;
-        var previousBreakTargetFinallyDepth = _breakTargetFinallyDepth;
-        var previousContinueTargetFinallyDepth = _continueTargetFinallyDepth;
         TypeInfo? returnType = func.ReturnType != null ? _typeResolver.ResolveType(func.ReturnType) : BuiltInTypes.Void;
-        _currentReturnType = returnType;
-        _currentFunction = func;
-        _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
-        _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
-        // NL319 context resets at the nested-body boundary: a return here exits the local
-        // function, not any finally the declaration happens to sit inside — that is legal.
-        // Break/continue targets reset for the same reason: they cannot branch to loops in the
-        // enclosing method body.
-        _inLoop = false;
-        _finallyDepth = 0;
-        _breakTargetFinallyDepth = 0;
-        _continueTargetFinallyDepth = 0;
+        var ambientFrame = _ambient.EnterNestedBody(func, returnType);
 
         ReportGeneratorReturnTypeIfNeeded(func, returnType);
 
@@ -3535,14 +3456,7 @@ public class Analyzer : IDisposable
         }
 
         // Restore function context
-        _currentReturnType = previousReturnType;
-        _currentFunction = previousFunction;
-        _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
-        _currentFunctionIsAsync = previousFunctionIsAsync;
-        _inLoop = previousInLoop;
-        _finallyDepth = previousFinallyDepth;
-        _breakTargetFinallyDepth = previousBreakTargetFinallyDepth;
-        _continueTargetFinallyDepth = previousContinueTargetFinallyDepth;
+        _ambient.ExitNestedBody(ambientFrame);
 
         PopScope();
     }
@@ -3707,12 +3621,7 @@ public class Analyzer : IDisposable
             DriveExpressionStatement(_expressionStatements.BeginForIterator(forStmt.Iterator));
         }
 
-        var wasInLoop = _inLoop;
-        var savedBreakDepth = _breakTargetFinallyDepth;
-        var savedContinueDepth = _continueTargetFinallyDepth;
-        _inLoop = true;
-        _breakTargetFinallyDepth = _finallyDepth;
-        _continueTargetFinallyDepth = _finallyDepth;
+        var loopFrame = _ambient.EnterLoop();
         if (forStmt.Condition != null)
         {
             var bodyNarrowings = _flowNarrowing.ExtractFlowNarrowings(forStmt.Condition).Then;
@@ -3732,9 +3641,7 @@ public class Analyzer : IDisposable
         {
             AnalyzeStatement(forStmt.Body);
         }
-        _inLoop = wasInLoop;
-        _breakTargetFinallyDepth = savedBreakDepth;
-        _continueTargetFinallyDepth = savedContinueDepth;
+        _ambient.ExitLoop(loopFrame);
 
         PopScope();
     }
@@ -3770,16 +3677,9 @@ public class Analyzer : IDisposable
         // Record in semantic model for IDE features (hover, completion, scoped)
         RecordVariableInCurrentScope(foreachStmt.VariableName, elementType);
 
-        var wasInLoop = _inLoop;
-        var savedBreakDepth = _breakTargetFinallyDepth;
-        var savedContinueDepth = _continueTargetFinallyDepth;
-        _inLoop = true;
-        _breakTargetFinallyDepth = _finallyDepth;
-        _continueTargetFinallyDepth = _finallyDepth;
+        var loopFrame = _ambient.EnterLoop();
         AnalyzeStatement(foreachStmt.Body);
-        _inLoop = wasInLoop;
-        _breakTargetFinallyDepth = savedBreakDepth;
-        _continueTargetFinallyDepth = savedContinueDepth;
+        _ambient.ExitLoop(loopFrame);
 
         PopScope();
     }
@@ -3815,16 +3715,9 @@ public class Analyzer : IDisposable
         // Record in semantic model for IDE features (hover, completion, scoped)
         RecordVariableInCurrentScope(awaitForeachStmt.VariableName, elementType);
 
-        var wasInLoop = _inLoop;
-        var savedBreakDepth = _breakTargetFinallyDepth;
-        var savedContinueDepth = _continueTargetFinallyDepth;
-        _inLoop = true;
-        _breakTargetFinallyDepth = _finallyDepth;
-        _continueTargetFinallyDepth = _finallyDepth;
+        var loopFrame = _ambient.EnterLoop();
         AnalyzeStatement(awaitForeachStmt.Body);
-        _inLoop = wasInLoop;
-        _breakTargetFinallyDepth = savedBreakDepth;
-        _continueTargetFinallyDepth = savedContinueDepth;
+        _ambient.ExitLoop(loopFrame);
 
         PopScope();
     }
@@ -4047,13 +3940,14 @@ public class Analyzer : IDisposable
 
     private bool TryGetGeneratorYieldElementType(TypeInfo returnType, out TypeInfo elementType)
     {
-        var isAsyncGenerator = _currentFunction?.Modifiers.HasFlag(Modifiers.Async) == true;
+        var isAsyncGenerator = _ambient.CurrentFunctionDeclaresAsync;
         return TryGetLoopSequenceElementType(returnType, isAsyncGenerator, out elementType);
     }
 
     private void AnalyzeReturnStatement(ReturnStatement returnStmt)
     {
-        if (_currentReturnType == null)
+        var currentReturnType = _ambient.CurrentReturnType;
+        if (currentReturnType == null)
         {
             Error(
                 ErrorCode.InvalidSyntax,
@@ -4065,20 +3959,14 @@ public class Analyzer : IDisposable
             return;
         }
 
-        // NL319: a return anywhere inside a finally block exits the handler — illegal IL. Depth, not
-        // immediate-parent: a return inside a try/lock/using nested in the finally still leaves it.
-        // (_finallyDepth resets at lambda/local-function boundaries, where a return is legal.)
-        if (_finallyDepth > 0)
-        {
-            ReportControlTransferOutOfFinally("return", returnStmt.Line, returnStmt.Column);
-        }
+        _ambient.ReportReturnOutOfFinallyIfNeeded(returnStmt.Line, returnStmt.Column);
 
         if (returnStmt.Value != null)
         {
             var previousExpectedType = _currentExpectedType;
-            var expectedReturnValueType = _currentFunctionIsAsync && AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(_currentReturnType, out var asyncResultType)
+            var expectedReturnValueType = _ambient.CurrentFunctionIsAsync && AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(currentReturnType, out var asyncResultType)
                 ? asyncResultType
-                : _currentReturnType;
+                : currentReturnType;
             _currentExpectedType = expectedReturnValueType;
             var returnedType = AnalyzeExpression(returnStmt.Value);
             _currentExpectedType = previousExpectedType;
@@ -4091,7 +3979,7 @@ public class Analyzer : IDisposable
                 ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(returnStmt.Value, "returned");
             }
 
-            if (_currentFunction?.Modifiers.HasFlag(Modifiers.Generator) == true)
+            if (_ambient.CurrentFunctionDeclaresGenerator)
             {
                 var (line, column, length) = _spans.GetExpressionDiagnosticSpan(returnStmt.Value);
                 Error(
@@ -4106,23 +3994,12 @@ public class Analyzer : IDisposable
 
             if (!_assignability.IsAssignable(expectedReturnValueType, returnedType))
             {
-                // Use ErrorMessageBuilder for better error message
-                var sourceSnippet = GetSourceSnippet(returnStmt.Line);
-
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    AddReturnValueMismatchError(returnStmt, sourceSnippet, returnedType, expectedReturnValueType);
-                }
-                else
-                {
-                    Error(ErrorCode.TypeMismatch, FormatReturnValueMismatchMessage(returnedType, expectedReturnValueType),
-                        returnStmt.Line, returnStmt.Column);
-                }
+                _ambient.ReportReturnValueMismatch(returnStmt, returnedType, expectedReturnValueType);
             }
         }
         else
         {
-            if (BuiltInTypes.IsNot(_currentReturnType, BuiltInTypes.Void) && !(_currentFunctionIsAsync && AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(_currentReturnType)))
+            if (BuiltInTypes.IsNot(currentReturnType, BuiltInTypes.Void) && !(_ambient.CurrentFunctionIsAsync && AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(currentReturnType)))
             {
                 var sourceSnippet = GetSourceSnippet(returnStmt.Line);
 
@@ -4134,117 +4011,16 @@ public class Analyzer : IDisposable
                         returnStmt.Column,
                         sourceSnippet,
                         6, // "return" keyword length
-                        _currentReturnType.ToString()
+                        currentReturnType.ToString()
                     );
                     _errors.Add(error);
                 }
                 else
                 {
-                    Error(ErrorCode.MissingReturn, $"This function should return '{_currentReturnType}', but this 'return' doesn't provide a value", returnStmt.Line, returnStmt.Column);
+                    Error(ErrorCode.MissingReturn, $"This function should return '{currentReturnType}', but this 'return' doesn't provide a value", returnStmt.Line, returnStmt.Column);
                 }
             }
         }
-    }
-
-    private void AddReturnValueMismatchError(
-        ReturnStatement returnStmt,
-        string sourceSnippet,
-        TypeInfo returnedType,
-        TypeInfo expectedReturnValueType)
-    {
-        var functionName = _currentFunction?.Name ?? "this function";
-        CompilerError error;
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _currentFunctionReturnTypeWasOmitted && _currentFunction != null
-            ? _spans.GetFunctionNameDiagnosticSpan(_currentFunction)
-            : returnStmt.Value != null
-            ? _spans.GetExpressionDiagnosticSpan(returnStmt.Value)
-            : new DiagnosticSpan(returnStmt.Line, returnStmt.Column, 6);
-        var diagnosticSourceSnippet = GetSourceSnippet(diagnosticLine) ?? sourceSnippet;
-
-        if (BuiltInTypes.Is(_currentReturnType, BuiltInTypes.Void))
-        {
-            error = _currentFunctionReturnTypeWasOmitted
-                ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
-                    _currentFilePath!,
-                    diagnosticLine,
-                    diagnosticColumn,
-                    diagnosticSourceSnippet,
-                    diagnosticLength,
-                    functionName,
-                    returnedType.ToString())
-                : ErrorMessageBuilder.ReturnValueInVoidFunction(
-                    _currentFilePath!,
-                    diagnosticLine,
-                    diagnosticColumn,
-                    diagnosticSourceSnippet,
-                    diagnosticLength,
-                    functionName,
-                    returnedType.ToString());
-        }
-        else
-        {
-            error = ErrorMessageBuilder.ReturnTypeMismatch(
-                _currentFilePath!,
-                diagnosticLine,
-                diagnosticColumn,
-                diagnosticSourceSnippet,
-                diagnosticLength,
-                functionName,
-                returnedType.ToString(),
-                expectedReturnValueType.ToString());
-        }
-
-        _errors.Add(error);
-    }
-
-    private void AddExpressionBodyReturnError(FunctionDeclaration func, TypeInfo expressionType, int? fallbackLine = null, int? fallbackColumn = null)
-    {
-        var (line, column, length) = _currentFunctionReturnTypeWasOmitted
-            ? _spans.GetFunctionNameDiagnosticSpan(func)
-            : func.ExpressionBody != null
-            ? _spans.GetExpressionDiagnosticSpan(func.ExpressionBody)
-            : new DiagnosticSpan(fallbackLine ?? func.Line, fallbackColumn ?? func.Column, 1);
-        var sourceSnippet = GetSourceSnippet(line);
-
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            var error = _currentFunctionReturnTypeWasOmitted
-                ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
-                    _currentFilePath,
-                    line,
-                    column,
-                    sourceSnippet,
-                    length,
-                    func.Name,
-                    expressionType.ToString())
-                : ErrorMessageBuilder.ReturnValueInVoidFunction(
-                    _currentFilePath,
-                    line,
-                    column,
-                    sourceSnippet,
-                    length,
-                    func.Name,
-                    expressionType.ToString());
-            _errors.Add(error);
-        }
-        else
-        {
-            Error(ErrorCode.TypeMismatch, FormatReturnValueMismatchMessage(expressionType, BuiltInTypes.Void), line, column);
-        }
-    }
-
-    private string FormatReturnValueMismatchMessage(TypeInfo returnedType, TypeInfo expectedReturnValueType)
-    {
-        var functionName = _currentFunction?.Name ?? "this function";
-
-        if (BuiltInTypes.Is(_currentReturnType, BuiltInTypes.Void))
-        {
-            return _currentFunctionReturnTypeWasOmitted
-                ? $"Function '{functionName}' has no return type annotation, so it is treated as 'void', but this code gives back '{returnedType}'"
-                : $"Function '{functionName}' is declared to return 'void', but this code gives back '{returnedType}'";
-        }
-
-        return $"Function '{functionName}' should return '{expectedReturnValueType}', but this return statement gives back '{returnedType}'";
     }
 
     private void AnalyzeTryStatement(TryStatement tryStmt)
@@ -4277,29 +4053,9 @@ public class Analyzer : IDisposable
         {
             // NL319 context: any return — or break/continue targeting a loop/switch entered at a
             // shallower depth — inside this block would leave the finally handler (illegal IL).
-            _finallyDepth++;
+            _ambient.EnterFinally();
             AnalyzeStatement(tryStmt.FinallyBlock);
-            _finallyDepth--;
-        }
-    }
-
-    private void ReportControlTransferOutOfFinally(string keyword, int line, int column)
-    {
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.ControlTransferOutOfFinally(
-                _currentFilePath, line, column, sourceSnippet, keyword.Length, keyword));
-        }
-        else
-        {
-            Error(
-                ErrorCode.ControlTransferOutOfFinally,
-                $"Control cannot leave a 'finally' block with '{keyword}'",
-                line,
-                column,
-                $"Move the `{keyword}` outside the `finally` block.",
-                keyword.Length);
+            _ambient.ExitFinally();
         }
     }
 
@@ -4614,13 +4370,13 @@ public class Analyzer : IDisposable
     {
         isReferenceConstrained = false;
 
-        var declaredOnFunction = _currentFunction?.TypeParameters?.Any(tp => tp.Name == name) == true;
+        var declaredOnFunction = _ambient.CurrentFunction?.TypeParameters?.Any(tp => tp.Name == name) == true;
         var declaredOnType = _currentClass?.TypeParameters?.Any(tp => tp.Name == name) == true;
         if (!declaredOnFunction && !declaredOnType)
             return false;
 
         var constraint = declaredOnFunction
-            ? _currentFunction?.Constraints?.FirstOrDefault(c => c.TypeParameter == name)
+            ? _ambient.CurrentFunction?.Constraints?.FirstOrDefault(c => c.TypeParameter == name)
             : null;
         if (constraint != null)
         {
@@ -4708,8 +4464,7 @@ public class Analyzer : IDisposable
         // A `break` in a case body targets the switch itself (the emitter pushes a break label per
         // switch), so for NL319 the break target's finally depth is the switch's entry depth.
         // `continue` still targets the enclosing loop, so its depth is untouched.
-        var savedBreakDepth = _breakTargetFinallyDepth;
-        _breakTargetFinallyDepth = _finallyDepth;
+        var savedBreakDepth = _ambient.EnterSwitch();
 
         foreach (var switchCase in switchStmt.Cases)
         {
@@ -4726,7 +4481,7 @@ public class Analyzer : IDisposable
             PopScope();
         }
 
-        _breakTargetFinallyDepth = savedBreakDepth;
+        _ambient.ExitSwitch(savedBreakDepth);
     }
 
     /// <summary>
@@ -9384,39 +9139,14 @@ public class Analyzer : IDisposable
                 ReportExpressionTreeBlockLambdaIfNeeded(lambda);
             }
 
-            var previousReturnType = _currentReturnType;
-            var previousFunction = _currentFunction;
-            var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
-            var previousFunctionIsAsync = _currentFunctionIsAsync;
-            var previousInLoop = _inLoop;
-            var previousFinallyDepth = _finallyDepth;
-            var previousBreakTargetFinallyDepth = _breakTargetFinallyDepth;
-            var previousContinueTargetFinallyDepth = _continueTargetFinallyDepth;
-            _currentReturnType = expectedSignature?.ReturnType ?? BuiltInTypes.Unknown;
-            _currentFunction = null;
-            _currentFunctionReturnTypeWasOmitted = false;
-            _currentFunctionIsAsync = false;
-            // NL319 context resets at the nested-body boundary: a return here exits the lambda,
-            // not any finally the lambda happens to sit inside — that is legal. Branch targets
-            // reset too; break/continue cannot target loops in the enclosing method.
-            _inLoop = false;
-            _finallyDepth = 0;
-            _breakTargetFinallyDepth = 0;
-            _continueTargetFinallyDepth = 0;
+            var ambientFrame = _ambient.EnterNestedBody(null, expectedSignature?.ReturnType ?? BuiltInTypes.Unknown);
             try
             {
                 AnalyzeStatement(lambda.BlockBody);
             }
             finally
             {
-                _currentReturnType = previousReturnType;
-                _currentFunction = previousFunction;
-                _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
-                _currentFunctionIsAsync = previousFunctionIsAsync;
-                _inLoop = previousInLoop;
-                _finallyDepth = previousFinallyDepth;
-                _breakTargetFinallyDepth = previousBreakTargetFinallyDepth;
-                _continueTargetFinallyDepth = previousContinueTargetFinallyDepth;
+                _ambient.ExitNestedBody(ambientFrame);
             }
             returnType = expectedSignature?.ReturnType ?? BuiltInTypes.Unknown;
         }

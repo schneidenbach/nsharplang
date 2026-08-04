@@ -1412,9 +1412,252 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 33 — THE WALKER TERRITORY'S THIRD CUT: THE
-  ASSERT / EXPRESSION-STATEMENT CLUSTER AND ITS WHOLE PRIVATE CLOSURE.** Target recorded BEFORE any
-  production edit, at `944adad72` (`Analyzer.cs` **13,739** lines, non-blank **12,153**;
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 34 — THE AMBIENT CONTEXT FAMILIES: THE EIGHT
+  FUNCTION-AND-LOOP FIELDS, EVERY SAVE/RESTORE IDIOM THAT MOVES THEM, AND THE FIVE MEMBERS THAT ARE
+  PURE FUNCTIONS OF THEM.** Target recorded BEFORE any production edit, at `9f8ae278f`
+  (`Analyzer.cs` **13,536** lines, non-blank **11,978**; BootstrapServices contracts **2,607**; unit
+  suite **3,194**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint
+  head-v1:167198f979ed9d7e`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE.** All eight fields (`_currentReturnType` 32 refs,
+  `_currentFunction` 20, `_currentFunctionReturnTypeWasOmitted` 16, `_currentFunctionIsAsync` 13,
+  `_finallyDepth` 23, `_inLoop` 22, `_breakTargetFinallyDepth` 24, `_continueTargetFinallyDepth` 21)
+  are PRIVATE TO `Analyzer.cs` — `grep` over `src`, `tests`, `editors`, `docs`, `memory` finds ZERO
+  references anywhere else. The brief's per-field ref counts are EXACT. **Two members the brief's
+  prose reader-list omitted**: `AnalyzePropertyDeclaration` and `AnalyzeIndexerDeclaration` each
+  save/set/restore `_currentReturnType` TWICE (getter and setter) — four more idiom sites — and
+  `TryGetEnclosingTypeParameter` reads `_currentFunction`.
+
+  **THE SEVEN SAVE/RESTORE IDIOMS, AND THEIR ASYMMETRIES.** (1) `Analyze` resets all 8. (2)
+  `AnalyzeFunctionDeclaration` saves THREE and sets FOUR, then restores the three and sets
+  `_currentReturnType = null` — **NOT** the saved value; the asymmetry must be preserved verbatim.
+  (3) `AnalyzePropertyDeclaration` / `AnalyzeIndexerDeclaration` save/set/restore `_currentReturnType`
+  ALONE, four times. (4) The NESTED-BODY frame (`AnalyzeLocalFunction`, `AnalyzeLambda`) saves all 8,
+  sets the function 4 and ZEROES the control-flow 4. (5) The LOOP frame (`while` inside
+  `AnalyzeStatement`, `AnalyzeForStatement`, `AnalyzeForeachStatement`,
+  `AnalyzeAwaitForeachStatement`) saves 3, sets `_inLoop = true` and both targets to `_finallyDepth`.
+  (6) `AnalyzeSwitchStatement` saves the BREAK target only. (7) `AnalyzeTryStatement` does
+  `_finallyDepth++` / `--` around the finally block. **`AnalyzeLambda` is the ONLY site with a
+  `try`/`finally` restore** — every other restore is straight-line and is SKIPPED on the exception
+  path. The N# owner must therefore hand the saved frame BACK to the C# local, not keep an internal
+  stack: an internal stack would silently make six of the seven idioms exception-safe and change
+  behaviour.
+
+  **THE ABSORB DECISION, MEASURED.** Five members are PURE FUNCTIONS of the ambient context with
+  **ZERO stay-behind re-entries** — every callee they have is already N# (`AnalyzerDiagnosticSink`
+  for `Error`/`GetSourceSnippet`/`_errors.Add`/`_currentFilePath`, `AnalyzerDiagnosticSpans`,
+  `ErrorMessageBuilder`, `DiagnosticSpan`, `BuiltInTypes`, `ErrorCode`) — so they move WITH the state
+  that decides them: the `break` arm (:3296–3311, 16), the `continue` arm (:3312–3327, 16),
+  `ReportControlTransferOutOfFinally` (:4286–4304, 19), `AddReturnValueMismatchError` (:4149–4198,
+  50), `AddExpressionBodyReturnError` (:4200–4234, 35) and `FormatReturnValueMismatchMessage`
+  (:4236–4248, 13). **DECLINED**: `AnalyzeReturnStatement` (:4054–4147, 94) re-enters
+  `AnalyzeExpression`, mutates `_currentExpectedType` — a DIFFERENT ambient field this slice does not
+  touch — and calls two SoA reporters, so it needs a resumable driver and is the NEXT arm; the
+  `yield` arm and `TryGetGeneratorYieldElementType` / `TryGetEnclosingTypeParameter` likewise stay,
+  routed, because their bodies belong to the loop-sequence and type-parameter families.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHERE THE WALK IS.** `Analyzer.cs` keeps no part of
+  the ambient function-and-loop context — not one of the eight fields, not one of the seven
+  save/restore idioms that moved them, not the `AnalyzeFunctionDeclaration` asymmetry that CLEARS the
+  return type instead of restoring it, not the nested-body zeroing, not the switch's
+  break-target-only move, not the `finally` counter, and not any report that is a pure function of
+  that state: `break`/`continue` outside a loop, all three NL319 shapes with their rich/detail-only
+  selection, or the four return-value-mismatch wordings with their omitted-annotation spans.
+
+  **THE CUT — EIGHT FIELDS, SEVEN IDIOMS, FOUR WHOLE MEMBERS, 325 SOURCE LINES.** `git diff` on
+  `Analyzer.cs` **+55 / −325 = net −270**; the file goes **13,536 → 13,266** (non-blank 11,978 →
+  **11,718**). Declarations **577 → 566**: the eight ambient fields are GONE and one owner field
+  replaces them, and FOUR whole methods are deleted (`AddReturnValueMismatchError` 50,
+  `AddExpressionBodyReturnError` 35, `FormatReturnValueMismatchMessage` 13,
+  `ReportControlTransferOutOfFinally` 19). Of the 55 added lines, **7 are the field's doc comment, 1
+  is the field, 1 is the construction assignment, and the remaining 46 are mechanical
+  `Enter`/`Exit`/report/read call sites**. **NOT ONE C# MEMBER IS ADDED** — no driver, no shell, no
+  bridge, no state — and N# calls nothing back. The owner is `readonly` and NOT rebuilt with the SCC:
+  it holds only the diagnostic sink and the span reader, neither of which the rebuild replaces, so it
+  is absent from both `Create*` rebuild lists exactly as `_expressionStatements` is.
+
+  **N# ADDED — one owner, 560 lines, TWO types, 38 members.** `AnalyzerAmbientContext.nl`:
+  `AmbientContextFrame` (the eight-value snapshot the CALLER holds) and `AnalyzerAmbientContext`
+  itself — `BeginAnalysis`, `Snapshot`, six `Enter`/`Exit` pairs, ELEVEN read accessors (four raw
+  values, two modifier questions, the loop flag, the finally depth, both branch-target depths and the
+  `ReturnWouldLeaveFinally` predicate), the three control-transfer reporters and their shared NL319
+  builder, the two return-value reporters and their two rich-shape builders, the detail-only wording,
+  and four private helpers. Contracts: `AnalyzerAmbientContext.tests.nl` **675 lines / 41 contracts**,
+  BootstrapServices **2,607 → 2,648 (+41)**.
+
+  **THE LIFETIME DECISION, AND WHY A STACK WOULD HAVE BEEN WRONG.** Every `Enter` hands its snapshot
+  BACK to the C# caller instead of pushing it inside the owner. Of the seven idioms, exactly ONE —
+  the block-bodied lambda — restores from a `finally`; the other six restore on the straight line and
+  are SKIPPED when the walk throws. An internal stack would pop in `Exit`, so a throw would strand a
+  frame and the NEXT `Exit` would restore the wrong one — and, worse, it would quietly make six
+  idioms exception-safe that are not. A frame in the caller's own local is abandoned by a throw
+  exactly as the C# locals were, so the exception path is unchanged BY CONSTRUCTION rather than by
+  test.
+
+  **AN ASYMMETRY FOUND BY WRITING THE CONTRACT, NOT BY READING THE CODE.** The expression-body
+  report's two paths do not name the same function: the RICH shape names the declaration it was
+  PASSED (`func.Name`), while the detail-only fallback shares the `return`-statement wording, which
+  names the AMBIENT function (`_currentFunction?.Name`). The single production caller passes the
+  function it has just entered, so they always agree there — but they ask different questions, and
+  the contract pins BOTH rather than pretending otherwise. The first draft of that contract asserted
+  the paths agreed and FAILED, which is how the asymmetry surfaced.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `9f8ae278f` and at the working tree, across **ALL 71 tracked `project.yml` targets with no
+  exclusion** — the ROOT target and `BootstrapServices` (which contains the new owner) included, both
+  trees given a `Debug` build first because eight targets reference
+  `../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll`. **ORACLE_DIFFS = 0 over 11,701 lines,
+  782 diagnostics across 18 codes, exit codes identical (0 × 66, 1 × 5), `stderrBytes = 0` on every
+  one of the 142 runs**, md5 `f7a8165f1dfee3883de339fdc842e9be` in BOTH. The only raw textual
+  differences are the `"checkedFiles"` counter (+1 on BootstrapServices — `check` does not read
+  `.tests.nl`, so only the owner is counted) and the absolute `"projectRoot"` path, both NORMALISED
+  AND NAMED rather than silently dropped.
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, COMPARED ROW BY ROW.** Both trees were instrumented
+  at the **SAME 66 probe points** with the SAME line format: every context transition logged TWICE —
+  PRE and POST — each row carrying the WHOLE eight-value context (return type, function name, omitted
+  flag, async flag, loop flag, finally depth, break-target depth, continue-target depth) plus
+  `_errors.Count`, and every diagnostic read back off `_errors` at the end of each `Analyze`
+  (index, id, line, column, length, message, suggestion, human explanation, contextual hint, docs
+  URL). **THE CORPUS RUN over all 71 targets — with BOTH instrumented CLIs pointed at THE SAME source
+  tree, the only way the rows can line up — 164,665 rows, 0 MISMATCHES**, md5
+  `2769951bf1c3fdd68139ed18aba202cc` in BOTH: 29,144 `return` entries, 12,243 function-declaration
+  frames, 4,921 loop frames, 1,198 accessor frames, 977 resets, 675 diagnostics, 599 `continue`
+  reports, 242 `break` reports, 104 yield-generator reads, 54 return-value mismatches, 29 nested-body
+  frames and 13 `finally` frames. **THE FIXTURE RUN: 3,560 rows, 0 MISMATCHES**, md5
+  `97ab426a2827558de9c5b7b4ae6a5e07` — and it reaches what the corpus cannot: 27 `finally` frames, 6
+  SWITCH frames, 17 nested bodies, 16 `break` reports, 14 return mismatches and 520 diagnostics. **A
+  SUPPLEMENTARY RUN of 54 rows, 0 MISMATCHES**, md5 `0ca7b494fbaacdc7ae8b52da3c363968`, closes the
+  last gap — the EXPRESSION-BODY reporter (2 entries) and a `return`/`break` inside a CONSTRUCTOR
+  body, which is the only shape in the estate that reaches "there's no function to return from".
+  **Every one of the six `Enter`/`Exit` pairs and all five report entry points is exercised with zero
+  mismatches.** Both instrumented trees were built separately from the sweep trees and neither
+  shipped.
+
+  **PROOF — 177 FIXTURES, CHECK, THE UNSORTED BUILD TRANSCRIPT AND `nlc test`.** 63 new fixtures run
+  TOGETHER WITH the **114 accumulated on disk from slices 24, 32 and 33**. The new ones reach every
+  silent thing: `return`/`break`/`continue` out of a `finally` (nested, deep, `while`, `for`,
+  `foreach`, `await foreach`) and the four shapes that must stay QUIET (a loop opened inside the
+  finally, a `return` in the `try`, in a `catch`, and after the `finally`); `break`/`continue` with no
+  loop at all, in a `switch` with no loop, and after a loop closed; a `switch` inside a loop, and a
+  `switch` inside a `finally` inside a loop, where `break` is legal and `continue` is not; all four
+  return-value shapes plus `MissingReturn`, the generator return-value error and the yield type
+  mismatch; both expression-body `void` shapes; the nested-body resets (a `return` inside a lambda and
+  inside a local function nested in a `finally` are LEGAL; a `break` there is not); property and
+  indexer getters and setters; and the async awaited-result type. **`nlc check --json`:
+  FX_CHECK_DIFFS = 0 over 9,567 lines, 584 diagnostics across 25 codes**, md5
+  `f8e2fb6aed5087890522d37de5dbf1b0` in BOTH — **10 NL319, 56 NL103 and 22 NL202 are THIS FAMILY's,
+  against ZERO NL319 in the 782-diagnostic corpus oracle**, which is the whole reason the fixtures
+  exist. **`nlc build`, which renders `_errors` in LIST order with NO dedup and NO sort:
+  FX_BUILD_DIFFS = 0 over 7,223 lines**, md5 `bef80998881c70e089a58082bd798e63`. **`nlc test`:
+  FX_TEST_DIFFS = 0 over 138 lines**, md5 `3c7e567622d46703f3aa866a4ce1543e`. The supplementary five
+  add **FX2_CHECK_DIFFS = 0 over 144 lines and FX2_BUILD_DIFFS = 0 over 90 lines**.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED FROM SCRATCH, AND A CONTROL THAT RAN FIRST.** The rule was
+  obeyed rather than the normaliser inherited: two consecutive builds of the same source in the same
+  directory with the same CLI were diffed byte by byte and differ in **exactly 17 byte positions —
+  one at 0x88 inside the PE COFF TimeDateStamp and sixteen at 0x5bc–0x5cb inside the metadata `#GUID`
+  heap's MVID**. A structural normaliser that walks the PE header to the CLI header to the metadata
+  root to the `#GUID` stream and zeroes those two fields AND NOTHING ELSE (20 byte positions) leaves
+  **0 residual differing positions**. **THE CONTROL THEN RAN BEFORE THE SWEEP — the BASELINE CLI
+  building 12 example targets twice — and PASSED: SAME = 24, DIFFERENT = 0.**
+
+  **PROOF — CORPUS BUILD TRANSCRIPTS AND THE IL SWEEP, FROM ONE PAIR OF SWEEPS OVER IDENTICAL
+  SOURCES.** Both CLIs built **the SAME 71 source directories** (two clean copies of the baseline
+  tree), so the only variable is the compiler. **`nlc build`, which renders `_errors` in LIST order
+  with NO dedup and NO sort: TRANSCRIPT_DIFFS = 0 over 1,585 lines**, md5
+  `5e4a56504846c0bd5dbef217a2311391` in BOTH, with **identical exit codes (0 × 57, 1 × 14)**. The
+  same two passes produced the IL: **128 assemblies compared, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, and
+  ALL 71 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL** under the normaliser. The 57 that differ are ONE file
+  — the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the
+  difference is **ROOT-CAUSED, NOT WAVED THROUGH**: `nlc build` copies that DLL from ALONGSIDE THE
+  CLI, the two CLI paths are 60 and 78 characters long, and the copied DLL therefore carries a
+  different embedded PDB path, which shifts its RVAs and its CodeView / PDB-checksum records —
+  **exactly 230 bytes in every one of the 57 copies**, spanning the PE-header page and the debug
+  directory. `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports
+  **0 SOURCE files**.
+
+  **EVIDENCE.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — a FRESH ISOLATED run, no
+  cached whole-gate or per-step result — **ALL TESTS PASSED in 30m 44s**, with **Step 3 Unit Tests
+  10m18s, Step 3a Native N# Tests 5m37s, Step 3b VS CODE INTEGRATION TESTS 4m13s, Step 4 Pack and
+  Install MSBuild SDK 6m24s, and Step 10b IL VERIFICATION green over all 67 N# assemblies**. Full
+  unit suite **3,194 / 3,194, 0 failed** — the `9f8ae278f` baseline COUNT with ZERO drift;
+  `./scripts/dev.sh --since` selected **"FULL unit suite (fail-safe)"** — naming all three unmapped
+  paths — and passed it in **13m 58s**, so the change-aware filter did not narrow the coverage.
+  BootstrapServices contracts **2,607 → 2,648 (+41)**, **2,648 / 2,648 PASS, 0 failed**. Ownership
+  audit **18 / 18** against the freshly written manifest. **NO toolset repin was needed and NO wall
+  was crossed** — the owner consumes only members the estate already publishes
+  (`Convert.ToInt32`, `List<CompilerError>`, `ErrorMessageBuilder`, `DiagnosticSpan`), and the one
+  emit decline it hit had an established spelling. **RATCHET REPIN** — `current*` + fingerprints
+  ONLY, **ONE row**: `src/NSharpLang.Compiler/Analyzer.cs` currentLines 13,536 → **13,266**,
+  currentNonBlankLines 11,978 → **11,718**, fingerprint `text-v1:b7f7754ebb15807e` →
+  **`text-v1:e9911d1bcd9a4a00`** (epoch ceilings 23,451 / 20,537 PRESERVED and now clear by
+  **10,185 / 8,819**); `reviewedHeadFingerprint head-v1:167198f979ed9d7e` →
+  **`head-v1:65f9f927b29405c7`**, mirrored into `OwnershipAudit.nl`. Every `epoch*` value untouched.
+  **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after**, the manifest `git diff`
+  is exactly 2 changed lines and `OwnershipAudit.nl`'s is exactly 1; neither file carries a BOM
+  afterwards. **VSIX RELOADED**: `./scripts/reload-vscode-extension.sh` rebuilt the language server,
+  repackaged `nsharp-0.6.0.vsix` and reinstalled it — the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is now the post-slice build and
+  SHRANK 832,000 → 828,416 bytes. No computer-use was used.
+
+  The IDE-facing surface this slice OWNS is **every squiggle that depends on where the cursor's
+  statement SITS rather than on what it says**: the "there's no loop to break out of here" pair with
+  their keyword-length underlines; the three NL319 squiggles with their rich explanations, their
+  "would exit the `finally` early to reach {the function | a loop outside the `finally`}" hints and
+  their docs links; and the four return-value squiggles — including the rule that an OMITTED return
+  type underlines the function's NAME rather than the returned expression, because that is where the
+  fix goes.
+
+  **FIVE `.nl` AND HARNESS GOTCHAS, AND FOUR ARE NEW TO THE ARC.**
+  **(1) HOISTING A DECLINED `.ToString()` INTO A LOCAL MOVES THE DECLINE, IT DOES NOT FIX IT.**
+  `returnedType.ToString()` as a static-call argument declines at
+  `emit.call.static-user-argument`; hoisting it to a local re-declines at `emit.local.initializer`.
+  The arc's "read it into a local first" rule does NOT apply to a virtual `ToString` on a `TypeInfo` —
+  only the estate's BOXED spelling (`typeInfo as object`, then `.ToString()`) emits. That helper is
+  now TRIPLICATED (`AnalyzerVariableDeclaration`, `AnalyzerExpressionStatements`,
+  `AnalyzerAmbientContext`) and is a standing candidate for one shared owner.
+  **(2) `BuiltInTypes.Void` AND FRIENDS ARE FACTORY PROPERTIES, NOT SINGLETONS** — each access
+  returns a NEW `SimpleTypeInfo`, so `context.CurrentReturnType == BuiltInTypes.Void` is ALWAYS
+  false and a contract written that way passes for the wrong reason or fails for the right one.
+  `BuiltInTypes.Is(...)` is the only correct comparison.
+  **(3) THE EXPRESSION-BODY SYNTAX IS `=>`, NOT `=`** — three fixtures written as `func F(): T = e`
+  were silently testing a PARSE ERROR, and nothing caught it until the protocol transcript showed the
+  `EXPRBODY` probe at ZERO across 177 fixtures. A probe count of zero on an arm you wrote a fixture
+  for is a bug in the FIXTURE, not evidence of a dead arm.
+  **(4) A `while IFS= read` SWEEP LOOP LEAKS ITS STDIN TO `dotnet`** — the child inherits the loop's
+  redirected input and can consume the remaining targets. `< /dev/null` on the child is the guard.
+  **(5) `nlc build` AND `nlc test` TRANSCRIPTS CARRY WALL-CLOCK DURATIONS** (`[0.4s]`,
+  `Tests completed in 0.5s`), so an un-normalised differential reports 46 "diffs" that are all
+  timings. Normalising them took the same comparison to 0.
+
+  **THE WALKER TERRITORY AFTER FOUR CUTS, AND THE NEXT ONE.** `Analyzer.cs` holds **13,266 lines**;
+  the territory has TWO zero-policy drivers (`DriveLocalDeclaration`, `DriveExpressionStatement`) and
+  now ONE owned ambient context that every remaining arm can read instead of re-deriving.
+  * **NEXT: `AnalyzeReturnStatement` — now 78 lines and nearly free.** Everything it reports is
+    already N#; what remains is the WALK: it re-enters `AnalyzeExpression`, calls
+    `ReportSoaRowEscape` and `ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded`, and asks
+    `_assignability.IsAssignable`. That is `DriveLocalDeclaration`'s kind set almost exactly, with ONE
+    addition — it sets the ambient TARGET-TYPING slot `_currentExpectedType` around the expression
+    walk, which is the **THIRD ambient family (73 refs)** and has not moved. So the honest sequencing
+    is either (a) move `_currentExpectedType` into `AnalyzerAmbientContext` first and then take the
+    return arm on the existing driver, or (b) carry the expected type as a driver kind. (a) is
+    smaller and reuses this slice's owner.
+  * **THEN the `yield` arm** (which reads `CurrentReturnType` and
+    `CurrentFunctionDeclaresGenerator` and needs `TryGetLoopSequenceElementType`, a reflection-heavy
+    predicate two families share), **and `AnalyzeStatement` (the dispatch) STILL FALLS LAST**, exactly
+    as `AnalyzePattern` fell last after slices 25–28 carved its arms out.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl34fixtures` (63, this
+  slice) alongside `/private/tmp/nl33fixtures` (47), `/private/tmp/nl32fixtures` (31) and
+  `/private/tmp/s24fixtures` (36) — **177 total**. Every throwaway artifact was deleted: three
+  worktrees (baseline, instrumented baseline, instrumented work), both build/IL sweep trees, the
+  control tree, both fixture staging trees and every sweep script's output. `git status` is exactly
+  FOUR modified files and TWO untracked.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 33 — THE WALKER TERRITORY'S THIRD CUT:
+  THE ASSERT / EXPRESSION-STATEMENT CLUSTER AND ITS WHOLE PRIVATE CLOSURE.** Target recorded BEFORE
+  any production edit, at `944adad72` (`Analyzer.cs` **13,739** lines, non-blank **12,153**;
   BootstrapServices contracts **2,526**; unit suite **3,194**; ownership audit **18 / 18**; manifest
   **391** lines; `reviewedHeadFingerprint head-v1:90027932675e98c6`).
 
