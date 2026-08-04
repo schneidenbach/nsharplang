@@ -43,19 +43,107 @@ public class AmbientContextFrame {
     }
 }
 
-// WHERE THE WALK CURRENTLY IS — THE TWO AMBIENT FAMILIES, AND EVERYTHING THAT IS A PURE FUNCTION OF
+// THE THREE STEPS A `return` STATEMENT CANNOT TAKE FOR ITSELF.
+//
+// The walk owns what a `return` MEANS: whether there is a function to return from at all, whether the
+// statement leaves a `finally`, what type the returned expression is asked for (the AWAITED result
+// type in an `async` function, the declared type otherwise), which of the two SoA escape reports the
+// returned type selects, whether a generator may return a value, and whether the value fits — plus
+// the bare-`return` arm's "not all code paths return a value" pair. What it cannot do is run the
+// analyzer's own EXPRESSION walk or call the two SoA escape reporters, which belong to other
+// families — so it ASKS.
+//
+// The kinds are `DriveLocalDeclaration`'s 1 / 2 / 3 by MEASUREMENT, not by imitation: resolving every
+// callee of the C# arm against the file's declaration set and subtracting the callees that are
+// already N# leaves EXACTLY those three, with ZERO additions. The one difference is that kind 1 does
+// NOT carry an expected type for the driver to install: this owner IS the ambient context, so it sets
+// its own target-typing slot before emitting the request and restores it when the answer arrives —
+// the transition never leaves N#.
+//
+//   1  analyse the RETURNED expression. ANSWERS a type, and that type decides which of the next two
+//      steps runs, whether the generator report fires and whether the value fits.
+//   2  the SoA row-view escape report. Answers nothing the walk reads.
+//   3  the SoA direct-column escape report. Answers a boolean the walk deliberately DISCARDS — the
+//      C# arm called it in statement position and ignored its result, and later reports are NOT
+//      suppressed by it.
+public class ReturnStatementRequest {
+
+    public Kind: int
+    public Node: Expression?
+    public Text: string?
+
+    constructor(kind: int) {
+        Kind = kind
+        Node = null
+        Text = null
+    }
+}
+
+// THE `return` STATEMENT'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
+//
+// `Phase` is the walk's program counter: 0 decides whether there is a function at all, reports a
+// `return` out of a `finally`, and either finishes the bare form or opens the target type and asks
+// for the value; 1 folds the answer in, closes the target type and chooses ONE escape report; 2
+// applies the generator rule and the assignability rule. 99 is done.
+//
+// The ASSIGNABILITY ORACLE IS CARRIED ON THE STATE rather than held as a field, and that is a
+// lifetime decision: `Analyzer.cs` REBUILDS its assignability whenever the metadata load context is
+// created or disposed, while the ambient context is constructed once and never rebuilt because it
+// holds live walk state that a rebuild would silently reset. Reading the field at `Begin` gets
+// whichever instance is current at the moment the statement is analysed — exactly what the C# call
+// site read — without making this owner rebuildable.
+//
+// `SavedExpectedType` is the caller-held frame of the target-typing slot, kept HERE because the
+// boundary opens in one phase and closes in the next. A throw inside the expression walk abandons it
+// exactly as the C# local was abandoned: `Supply` is never reached, so the slot is not restored, and
+// the analyzer unwinds out of the whole statement either way.
+public class ReturnStatementState {
+
+    statementValue: ReturnStatement
+    assignabilityValue: AnalyzerAssignability
+
+    Statement: ReturnStatement => statementValue
+    Assignability: AnalyzerAssignability => assignabilityValue
+
+    public Phase: int
+    public Pending: int
+    public ValueNode: Expression?
+    public ExpectedReturnValueType: TypeInfo
+    public ReturnedType: TypeInfo
+    public SavedExpectedType: TypeInfo?
+
+    constructor(statement: ReturnStatement, assignability: AnalyzerAssignability) {
+        statementValue = statement
+        assignabilityValue = assignability
+        Phase = 0
+        Pending = 0
+        ValueNode = null
+        ExpectedReturnValueType = BuiltInTypes.Unknown
+        ReturnedType = BuiltInTypes.Unknown
+        SavedExpectedType = null
+    }
+}
+
+// WHERE THE WALK CURRENTLY IS — THE THREE AMBIENT FAMILIES, AND EVERYTHING THAT IS A PURE FUNCTION OF
 // THEM.
 //
 // The FUNCTION family answers "what may a `return` do here": the enclosing function's declaration,
 // the type it returns, whether that type was written down or inferred as `void`, and whether the
 // function is `async`. The CONTROL-FLOW family answers "what may a `break`, a `continue` or a
 // `return` do here": whether a loop is open, how deep inside `finally` handlers the walk is, and the
-// depth at which the innermost `break` and `continue` targets were entered.
+// depth at which the innermost `break` and `continue` targets were entered. The EXPECTED-TYPE family
+// answers "what is this expression being asked for" — the target-typing slot that `default`, `new()`,
+// a collection literal, an integer literal's width, a lambda's parameters and an unbound callable
+// reference all resolve against.
 //
-// The two families are ONE object because they are saved and restored TOGETHER at the two boundaries
-// that matter — a lambda's block body and a local function's body — where a nested body gets a fresh
-// function context AND a zeroed control-flow context in the same breath. Splitting them would make
-// those two sites pay twice and would let the two halves drift out of step.
+// The first two families are ONE object because they are saved and restored TOGETHER at the two
+// boundaries that matter — a lambda's block body and a local function's body — where a nested body
+// gets a fresh function context AND a zeroed control-flow context in the same breath. Splitting them
+// would make those two sites pay twice and would let the two halves drift out of step. The
+// expected-type family joins them because it moves at the SAME KIND of boundary, with the same
+// snapshot-to-caller lifetime — and because the `return` arm is the one place all three meet: the
+// function family says what type the value is asked for, the control-flow family says whether the
+// statement may leave, and the expected-type family carries the answer into the expression walk.
 //
 // The context also OWNS the reports that are pure functions of it and nothing else: `break` and
 // `continue` outside a loop, all three flavours of control leaving a `finally` (NL319), and the
@@ -64,9 +152,14 @@ public class AmbientContextFrame {
 // expression walk, the scope stack or the type resolver — which is exactly why they belong with the
 // state rather than with the statement arms that happen to trigger them.
 //
+// AND IT OWNS THE `return` STATEMENT ITSELF, as a suspendable walk. That arm reads FIVE things this
+// object already answers and reports through TWO members it already owns; hosting it anywhere else
+// would mean exporting all seven. What it does not own it asks for, three kinds at a time.
+//
 // WHAT THIS OBJECT DELIBERATELY DOES NOT DO: it never decides WHEN a boundary opens. The caller
-// still chooses to enter a loop, a nested body or a `finally`; the context only records that it
-// happened, hands back the frame to undo it, and answers questions about where the walk now is.
+// still chooses to enter a loop, a nested body, a `finally` or a target type; the context only
+// records that it happened, hands back the frame to undo it, and answers questions about where the
+// walk now is.
 public class AnalyzerAmbientContext {
 
     diagnosticsValue: AnalyzerDiagnosticSink
@@ -80,6 +173,7 @@ public class AnalyzerAmbientContext {
     finallyDepthValue: int
     breakTargetFinallyDepthValue: int
     continueTargetFinallyDepthValue: int
+    currentExpectedTypeValue: TypeInfo?
 
     // THE ENCLOSING FUNCTION'S RETURN TYPE, and `null` when there is no enclosing function at all —
     // which is the ONLY thing that distinguishes "a `return` is illegal here" from "a `return` must
@@ -128,6 +222,14 @@ public class AnalyzerAmbientContext {
     // finally may only complete via its own end).
     ReturnWouldLeaveFinally: bool => finallyDepthValue > 0
 
+    // WHAT TYPE THE SURROUNDING CODE IS ASKING THIS EXPRESSION FOR, or `null` when nothing is asking.
+    // This is the TARGET-TYPING slot: the whole answer to `default`, `new()`, a collection literal's
+    // element type, an integer literal's width, a negative literal's signedness, a lambda's parameter
+    // types, `Ok`/`Err`'s arms, a generic union case's arguments and whether a bare method name is an
+    // unbound callable reference. Twenty-two sites READ it and sixteen save/set/restore it around a
+    // nested walk.
+    CurrentExpectedType: TypeInfo? => currentExpectedTypeValue
+
     constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans) {
         diagnosticsValue = diagnostics
         spansValue = spans
@@ -139,10 +241,16 @@ public class AnalyzerAmbientContext {
         finallyDepthValue = 0
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
+        currentExpectedTypeValue = null
     }
 
     // One call per analysis, from the same reset block that clears the scope stack and the null-flow
     // state. A compilation unit starts outside every function, every loop and every `finally`.
+    //
+    // THE EXPECTED TYPE IS DELIBERATELY NOT RESET HERE. `Analyzer.cs` reset the other eight fields in
+    // its `Analyze` prologue and left the target-typing slot alone, and that is preserved verbatim: it
+    // is only ever written inside a matched save/restore pair, so it is already `null` at every point
+    // a new analysis can begin, and resetting it would be a write this family never performed.
     public func BeginAnalysis() {
         currentReturnTypeValue = null
         currentFunctionValue = null
@@ -282,6 +390,39 @@ public class AnalyzerAmbientContext {
         finallyDepthValue = finallyDepthValue - 1
     }
 
+    // A NESTED WALK UNDER A TARGET TYPE. The saved value is a bare type rather than a frame, exactly
+    // as the accessor pair's is: the C# this replaces held one local per site too. Sixteen sites open
+    // one of these; THREE of them restore from a `finally` and thirteen restore on the straight line,
+    // and that difference is the caller's to keep — the frame lives in the caller's own local, so the
+    // exception path is whatever the caller writes, unchanged by construction.
+    public func EnterExpectedType(expected: TypeInfo?): TypeInfo? {
+        saved := currentExpectedTypeValue
+        currentExpectedTypeValue = expected
+        return saved
+    }
+
+    // THE SAME BOUNDARY, OPENED ONLY WHEN THERE IS SOMETHING TO ASK FOR. Five sites compute a
+    // candidate expected type that may not exist — a tuple element with no matching element in the
+    // target, a constructor argument that is not the SoA count, an index that is not an integer
+    // index, an initializer element of a non-collection target, an explicit `null` passed to
+    // `AnalyzeExpressionWithExpectedType` — and LEAVE the slot alone when it does not. That is NOT
+    // the same as setting it to `null`: leaving it keeps whatever target typing already surrounds the
+    // walk, and nulling it would change what `default`, `new()`, a lambda and a negative integer
+    // literal resolve to inside it. Restored by `ExitExpectedType` either way, because the saved
+    // value round-trips unchanged when nothing was set.
+    public func EnterExpectedTypeIfProvided(expected: TypeInfo?): TypeInfo? {
+        saved := currentExpectedTypeValue
+        if expected != null {
+            currentExpectedTypeValue = expected
+        }
+
+        return saved
+    }
+
+    public func ExitExpectedType(saved: TypeInfo?) {
+        currentExpectedTypeValue = saved
+    }
+
     // `break`: illegal outside a loop, and illegal when it would leave a `finally` to reach one.
     // The two are exclusive — a `break` with no loop at all is told THAT, not told about handlers.
     public func ReportBreakIfNeeded(line: int, column: int) {
@@ -349,6 +490,223 @@ public class AnalyzerAmbientContext {
             column,
             "Move the `" + keyword + "` outside the `finally` block.",
             keyword.Length)
+    }
+
+    // THE `return` STATEMENT'S ENTRY. The assignability oracle is read from the caller's field HERE,
+    // at the moment the statement is analysed, rather than held — see `ReturnStatementState`.
+    public func BeginReturn(
+        statement: ReturnStatement,
+        assignability: AnalyzerAssignability): ReturnStatementState {
+        return new ReturnStatementState(statement, assignability)
+    }
+
+    // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this `return` is finished. Every phase
+    // either decides something and advances, or emits exactly one request; the walk never advances
+    // past a point whose answer it has not been given.
+    public func NextStep(state: ReturnStatementState): ReturnStatementRequest? {
+        while state.Phase != 99 {
+            request := Advance(state)
+            if request != null {
+                return request
+            }
+        }
+
+        return null
+    }
+
+    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 answers something the walk reads — the returned
+    // expression's type, which is the operand of the escape-report choice, the generator report and
+    // the assignability check. Kind 1 is ALSO where the target-typing slot closes, because the C# it
+    // replaces restored the slot on the line after the expression walk returned.
+    //
+    // `_escaped` is DELIBERATELY discarded, and the underscore says so: the C# arm called the
+    // direct-column reporter in statement position and ignored its result, so — unlike a local
+    // declaration, where a fired escape turns the declared type unknown — nothing later in a `return`
+    // is suppressed by it. The parameter stays so the three drivers keep one `Supply` shape.
+    public func Supply(state: ReturnStatementState, answer: TypeInfo?, _escaped: bool) {
+        pending := state.Pending
+        state.Pending = 0
+
+        if pending == 1 {
+            ExitExpectedType(state.SavedExpectedType)
+            state.SavedExpectedType = null
+            if answer != null {
+                state.ReturnedType = answer
+            }
+        }
+    }
+
+    func Advance(state: ReturnStatementState): ReturnStatementRequest? {
+        phase := state.Phase
+        if phase == 0 {
+            return AdvanceEntry(state)
+        }
+
+        if phase == 1 {
+            return AdvanceEscapeReport(state)
+        }
+
+        if phase == 2 {
+            return AdvanceValueRules(state)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // PHASE 0 — IS THERE A FUNCTION TO RETURN FROM. This is the ONLY question asked before the
+    // out-of-`finally` report, and a `return` with no enclosing function is told THAT and nothing
+    // else: the arm returns immediately, so it never reports leaving a handler and never walks the
+    // value.
+    func AdvanceEntry(state: ReturnStatementState): ReturnStatementRequest? {
+        statement := state.Statement
+        returnType := currentReturnTypeValue
+        if returnType != null {
+            return AdvanceInsideFunction(state, statement, returnType)
+        }
+
+        diagnosticsValue.Report(
+            ErrorCode.InvalidSyntax,
+            "'return' can only be used inside a function — there's no function to return from here",
+            statement.Line,
+            statement.Column,
+            "Move this `return` inside a function, or remove it if there is no function to return from.",
+            6)
+        state.Phase = 99
+        return null
+    }
+
+    // The out-of-`finally` report fires for EVERY `return` inside a handler, with or without a value,
+    // and BEFORE the value is walked — so a `return` that is both illegal here and ill-typed reports
+    // the handler violation first.
+    func AdvanceInsideFunction(
+        state: ReturnStatementState,
+        statement: ReturnStatement,
+        returnType: TypeInfo): ReturnStatementRequest? {
+        ReportReturnOutOfFinallyIfNeeded(statement.Line, statement.Column)
+
+        value := statement.Value
+        if value != null {
+            expected := ReturnValueTargetType(returnType)
+            state.ValueNode = value
+            state.ExpectedReturnValueType = expected
+            state.SavedExpectedType = EnterExpectedType(expected)
+            state.Phase = 1
+            state.Pending = 1
+            request := new ReturnStatementRequest(1)
+            request.Node = value
+            request.Text = "returned"
+            return request
+        }
+
+        ReportMissingReturnValueIfNeeded(statement, returnType)
+        state.Phase = 99
+        return null
+    }
+
+    // WHAT THE RETURNED EXPRESSION IS ASKED FOR. In an `async` function whose return type is a
+    // task-like WITH a result, the value is checked against the AWAITED result rather than the task —
+    // and an `async` function whose return type is not task-like at all (an error the declaration
+    // reports elsewhere) falls back to the declared type, because the unwrap simply does not fire.
+    func ReturnValueTargetType(returnType: TypeInfo): TypeInfo {
+        asyncResultType: TypeInfo = BuiltInTypes.Unknown
+        if isAsyncValue && AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(returnType, out asyncResultType) {
+            return asyncResultType
+        }
+
+        return returnType
+    }
+
+    // PHASE 1 — EXACTLY ONE ESCAPE REPORT, chosen by the answer. A row view is reported as a row
+    // escape; everything else is offered to the direct-column reporter. The two are never both asked,
+    // which is why this is a step and not a pair of steps.
+    func AdvanceEscapeReport(state: ReturnStatementState): ReturnStatementRequest? {
+        state.Phase = 2
+        value := state.ValueNode
+        if value != null {
+            rowView := state.ReturnedType as SoaRowTypeInfo
+            kind := 3
+            if rowView != null {
+                kind = 2
+            }
+
+            state.Pending = kind
+            request := new ReturnStatementRequest(kind)
+            request.Node = value
+            request.Text = "returned"
+            return request
+        }
+
+        return null
+    }
+
+    // PHASE 2 — THE TWO VALUE RULES, IN ORDER. A generator may not return a value at all, and that
+    // report ENDS the arm: the assignability check never runs after it, because a generator's declared
+    // type is the SEQUENCE and comparing the yielded value against it would pile a second, wrong
+    // diagnostic onto the same expression.
+    func AdvanceValueRules(state: ReturnStatementState): ReturnStatementRequest? {
+        state.Phase = 99
+        value := state.ValueNode
+        if value != null {
+            ReportReturnedValue(state, value)
+        }
+
+        return null
+    }
+
+    func ReportReturnedValue(state: ReturnStatementState, value: Expression) {
+        if CurrentFunctionDeclaresGenerator {
+            span := spansValue.GetExpressionDiagnosticSpan(value)
+            diagnosticsValue.Report(
+                ErrorCode.InvalidSyntax,
+                "Generator functions cannot return a value",
+                span.Line,
+                span.Column,
+                "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.",
+                span.Length)
+            return
+        }
+
+        expected := state.ExpectedReturnValueType
+        returnedType := state.ReturnedType
+        if !state.Assignability.IsAssignable(expected, returnedType) {
+            ReportReturnValueMismatch(state.Statement, returnedType, expected)
+        }
+    }
+
+    // A BARE `return` IN A FUNCTION THAT OWES A VALUE. Silent for `void`, and silent for an `async`
+    // function whose return type is a UNIT task-like (`Task`/`ValueTask`), which owes nothing either.
+    // The span is the `return` keyword — six characters — in both shapes.
+    func ReportMissingReturnValueIfNeeded(statement: ReturnStatement, returnType: TypeInfo) {
+        if BuiltInTypes.Is(returnType, BuiltInTypes.Void) {
+            return
+        }
+
+        if isAsyncValue && AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(returnType) {
+            return
+        }
+
+        returnTypeName := TypeText(returnType)
+        sourceSnippet := diagnosticsValue.SourceSnippet(statement.Line)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if sourceSnippet != null && currentFilePath != null {
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.MissingReturn(
+                currentFilePath,
+                statement.Line,
+                statement.Column,
+                sourceSnippet,
+                6,
+                returnTypeName))
+            return
+        }
+
+        diagnosticsValue.Report(
+            ErrorCode.MissingReturn,
+            "This function should return '" + returnTypeName + "', but this 'return' doesn't provide a value",
+            statement.Line,
+            statement.Column,
+            null,
+            0)
     }
 
     // A `return` STATEMENT WHOSE VALUE DOES NOT FIT. Three rich shapes and one detail-only fallback,

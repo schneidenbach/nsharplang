@@ -148,7 +148,6 @@ public class Analyzer : IDisposable
     private string? _currentFilePath;
     private string? _declarationContextFilePath;
     private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
-    private TypeInfo? _currentExpectedType;  // For target-typed expressions
     private string? _sourceText;
     // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
     private NSharpMetadataResolver? _metadataResolver;
@@ -1931,16 +1930,15 @@ public class Analyzer : IDisposable
 
     private void ValidateTableCaseValueType(Expression expression, TypeInfo expectedType, string parameterName)
     {
-        var previousExpectedType = _currentExpectedType;
+        var previousExpectedType = _ambient.EnterExpectedType(expectedType);
         TypeInfo actualType;
         try
         {
-            _currentExpectedType = expectedType;
             actualType = AnalyzeExpression(expression);
         }
         finally
         {
-            _currentExpectedType = previousExpectedType;
+            _ambient.ExitExpectedType(previousExpectedType);
         }
 
         if (BuiltInTypes.IsUnknown(expectedType) || BuiltInTypes.IsUnknown(actualType) || _assignability.IsAssignable(expectedType, actualType))
@@ -2931,10 +2929,9 @@ public class Analyzer : IDisposable
 
             if (field.Initializer != null)
             {
-                var previousExpectedType = _currentExpectedType;
-                _currentExpectedType = fieldType;
+                var previousExpectedType = _ambient.EnterExpectedType(fieldType);
                 var initType = AnalyzeExpression(field.Initializer);
-                _currentExpectedType = previousExpectedType;
+                _ambient.ExitExpectedType(previousExpectedType);
                 var isSoaRowInitializer = ReportSoaRowEscapeIfNeeded(field.Initializer, initType, "stored in a field");
                 var isSoaDirectColumnInitializer = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(field.Initializer, "stored in a field");
                 if (!isSoaRowInitializer && !isSoaDirectColumnInitializer && !_assignability.IsAssignable(fieldType, initType))
@@ -3257,7 +3254,7 @@ public class Analyzer : IDisposable
                 }
                 break;
             case ReturnStatement returnStmt:
-                AnalyzeReturnStatement(returnStmt);
+                DriveReturnStatement(_ambient.BeginReturn(returnStmt, _assignability));
                 break;
             case BreakStatement:
                 _ambient.ReportBreakIfNeeded(stmt.Line, stmt.Column);
@@ -3489,10 +3486,9 @@ public class Analyzer : IDisposable
             {
                 case 1:
                 {
-                    var previousExpectedType = _currentExpectedType;
-                    _currentExpectedType = step.ExpectedType;
+                    var previousExpectedType = _ambient.EnterExpectedType(step.ExpectedType);
                     answer = AnalyzeExpression(step.Node!);
-                    _currentExpectedType = previousExpectedType;
+                    _ambient.ExitExpectedType(previousExpectedType);
                     break;
                 }
                 case 2:
@@ -3944,82 +3940,39 @@ public class Analyzer : IDisposable
         return TryGetLoopSequenceElementType(returnType, isAsyncGenerator, out elementType);
     }
 
-    private void AnalyzeReturnStatement(ReturnStatement returnStmt)
+    /// <summary>
+    /// The steps the N#-owned <c>return</c> walk cannot take for itself. The walk runs in
+    /// <see cref="AnalyzerAmbientContext"/>, which already answers every question the statement asks
+    /// — the enclosing function's return type, its <c>async</c> and generator modifiers, and the
+    /// <c>finally</c> depth — and already owns both of the reports it can raise. Its kind set is
+    /// <see cref="DriveLocalDeclaration"/>'s 1 / 2 / 3 with ZERO additions, but its STATE is not a
+    /// declaration's, and kind 1 carries no expected type because the walk installs its own: the
+    /// context IS the target-typing slot's owner, so the transition never leaves N#. Each walk
+    /// suspends at the expression step and resumes with the answer, because which escape report
+    /// fires, whether the generator report fires and whether the value fits are all functions of it.
+    /// </summary>
+    private void DriveReturnStatement(ReturnStatementState state)
     {
-        var currentReturnType = _ambient.CurrentReturnType;
-        if (currentReturnType == null)
+        for (var step = _ambient.NextStep(state);
+             step != null;
+             step = _ambient.NextStep(state))
         {
-            Error(
-                ErrorCode.InvalidSyntax,
-                "'return' can only be used inside a function — there's no function to return from here",
-                returnStmt.Line,
-                returnStmt.Column,
-                "Move this `return` inside a function, or remove it if there is no function to return from.",
-                "return".Length);
-            return;
-        }
-
-        _ambient.ReportReturnOutOfFinallyIfNeeded(returnStmt.Line, returnStmt.Column);
-
-        if (returnStmt.Value != null)
-        {
-            var previousExpectedType = _currentExpectedType;
-            var expectedReturnValueType = _ambient.CurrentFunctionIsAsync && AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(currentReturnType, out var asyncResultType)
-                ? asyncResultType
-                : currentReturnType;
-            _currentExpectedType = expectedReturnValueType;
-            var returnedType = AnalyzeExpression(returnStmt.Value);
-            _currentExpectedType = previousExpectedType;
-            if (returnedType is SoaRowTypeInfo)
+            TypeInfo? answer = null;
+            var escaped = false;
+            switch (step.Kind)
             {
-                ReportSoaRowEscape(returnStmt.Value, "returned");
-            }
-            else
-            {
-                ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(returnStmt.Value, "returned");
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    ReportSoaRowEscape(step.Node!, step.Text!);
+                    break;
+                case 3:
+                    escaped = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(step.Node!, step.Text!);
+                    break;
             }
 
-            if (_ambient.CurrentFunctionDeclaresGenerator)
-            {
-                var (line, column, length) = _spans.GetExpressionDiagnosticSpan(returnStmt.Value);
-                Error(
-                    ErrorCode.InvalidSyntax,
-                    "Generator functions cannot return a value",
-                    line,
-                    column,
-                    "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.",
-                    length);
-                return;
-            }
-
-            if (!_assignability.IsAssignable(expectedReturnValueType, returnedType))
-            {
-                _ambient.ReportReturnValueMismatch(returnStmt, returnedType, expectedReturnValueType);
-            }
-        }
-        else
-        {
-            if (BuiltInTypes.IsNot(currentReturnType, BuiltInTypes.Void) && !(_ambient.CurrentFunctionIsAsync && AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(currentReturnType)))
-            {
-                var sourceSnippet = GetSourceSnippet(returnStmt.Line);
-
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    var error = ErrorMessageBuilder.MissingReturn(
-                        _currentFilePath,
-                        returnStmt.Line,
-                        returnStmt.Column,
-                        sourceSnippet,
-                        6, // "return" keyword length
-                        currentReturnType.ToString()
-                    );
-                    _errors.Add(error);
-                }
-                else
-                {
-                    Error(ErrorCode.MissingReturn, $"This function should return '{currentReturnType}', but this 'return' doesn't provide a value", returnStmt.Line, returnStmt.Column);
-                }
-            }
+            _ambient.Supply(state, answer, escaped);
         }
     }
 
@@ -4550,7 +4503,7 @@ public class Analyzer : IDisposable
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
             OnSubscriptionExpression on => AnalyzeOnSubscription(on),
-            LambdaExpression lambda => AnalyzeLambda(lambda, _currentExpectedType),
+            LambdaExpression lambda => AnalyzeLambda(lambda, _ambient.CurrentExpectedType),
             TernaryExpression ternary => AnalyzeTernary(ternary),
             TupleExpression tuple => AnalyzeTupleExpression(tuple),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
@@ -4605,7 +4558,7 @@ public class Analyzer : IDisposable
         }
 
         if (!_allowUnboundCallableReference
-            && _reflectionCallReporter.IsUnboundCallableReference(expr, flowType, _currentExpectedType))
+            && _reflectionCallReporter.IsUnboundCallableReference(expr, flowType, _ambient.CurrentExpectedType))
         {
             _reflectionCallReporter.ReportMethodGroupUsedAsValue(expr, flowType);
             return BuiltInTypes.Unknown;
@@ -4702,15 +4655,15 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeDefaultExpression(DefaultExpression defaultExpr)
     {
-        // Target-typed: use _currentExpectedType if available
-        if (_currentExpectedType != null)
+        // Target-typed: use the ambient expected type if available
+        if (_ambient.CurrentExpectedType != null)
         {
-            if (ReportSoaDefaultValueIfNeeded(defaultExpr, _currentExpectedType))
+            if (ReportSoaDefaultValueIfNeeded(defaultExpr, _ambient.CurrentExpectedType))
             {
                 return BuiltInTypes.Unknown;
             }
 
-            return _currentExpectedType;
+            return _ambient.CurrentExpectedType;
         }
 
         // If no expected type context, report an error
@@ -5733,7 +5686,7 @@ public class Analyzer : IDisposable
         }
 
         if (unary.Operand is IntLiteralExpression intLiteral
-            && TryGetExpectedNegativeIntegerLiteralType(_currentExpectedType, intLiteral.Value, out var targetTypedLiteralType))
+            && TryGetExpectedNegativeIntegerLiteralType(_ambient.CurrentExpectedType, intLiteral.Value, out var targetTypedLiteralType))
         {
             return targetTypedLiteralType;
         }
@@ -5904,14 +5857,10 @@ public class Analyzer : IDisposable
         _nullFlow.ReportPossibleNullAccess(index.Object, objectType, index.Line, index.Column, "index", index.IsNullConditional);
 
         var receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(objectType));
-        var previousExpectedIndexType = _currentExpectedType;
-        if (ShouldUseIntExpectedTypeForIndex(receiverType))
-        {
-            _currentExpectedType = BuiltInTypes.Int;
-        }
-
+        var previousExpectedIndexType = _ambient.EnterExpectedTypeIfProvided(
+            ShouldUseIntExpectedTypeForIndex(receiverType) ? BuiltInTypes.Int : null);
         var indexType = AnalyzeExpression(index.Index);
-        _currentExpectedType = previousExpectedIndexType;
+        _ambient.ExitExpectedType(previousExpectedIndexType);
         if (receiverType is SoaRecordTypeInfo && index.IsNullConditional)
         {
             ReportSoaRowEscape(index, "used with null-conditional indexing");
@@ -6974,10 +6923,8 @@ public class Analyzer : IDisposable
         if (expression is LambdaExpression lambda)
             return AnalyzeLambda(lambda, expectedType);
 
-        var previousExpectedType = _currentExpectedType;
+        var previousExpectedType = _ambient.EnterExpectedTypeIfProvided(expectedType);
         var previousAllowUnboundCallableReference = _allowUnboundCallableReference;
-        if (expectedType != null)
-            _currentExpectedType = expectedType;
         if (allowUnboundCallableReference)
             _allowUnboundCallableReference = true;
 
@@ -6987,15 +6934,14 @@ public class Analyzer : IDisposable
         }
         finally
         {
-            _currentExpectedType = previousExpectedType;
+            _ambient.ExitExpectedType(previousExpectedType);
             _allowUnboundCallableReference = previousAllowUnboundCallableReference;
         }
     }
 
     private TypeInfo AnalyzeExpressionWithoutExpectedType(Expression expression)
     {
-        var previousExpectedType = _currentExpectedType;
-        _currentExpectedType = null;
+        var previousExpectedType = _ambient.EnterExpectedType(null);
 
         try
         {
@@ -7003,7 +6949,7 @@ public class Analyzer : IDisposable
         }
         finally
         {
-            _currentExpectedType = previousExpectedType;
+            _ambient.ExitExpectedType(previousExpectedType);
         }
     }
 
@@ -7017,7 +6963,7 @@ public class Analyzer : IDisposable
         // Only meaningful in a Result-typed context; otherwise this is an ordinary call and the
         // factory decision does not apply (leave the annotation null).
         var isOk = identifier.Name == "Ok";
-        if (!TryGetResultArmTypes(_currentExpectedType, out var okType, out var errType))
+        if (!TryGetResultArmTypes(_ambient.CurrentExpectedType, out var okType, out var errType))
             return false;
 
         // In a Result context, `Ok`/`Err` are the compiler-known factory ONLY when the name is not
@@ -7040,7 +6986,7 @@ public class Analyzer : IDisposable
                 call.Line,
                 call.Column,
                 length: identifier.Name.Length);
-            resultType = _currentExpectedType ?? BuiltInTypes.Unknown;
+            resultType = _ambient.CurrentExpectedType ?? BuiltInTypes.Unknown;
             return true;
         }
 
@@ -7055,7 +7001,7 @@ public class Analyzer : IDisposable
                 call.Arguments[0].Value.Column);
         }
 
-        resultType = _currentExpectedType ?? new GenericTypeInfo(
+        resultType = _ambient.CurrentExpectedType ?? new GenericTypeInfo(
             "Result",
             new List<TypeInfo> { okType, errType },
             new ReflectionTypeInfo(typeof(NSharpLang.Runtime.Result<,>)));
@@ -7358,10 +7304,9 @@ public class Analyzer : IDisposable
         if (targetType is SoaRowTypeInfo)
         {
             ReportSoaRowEscape(assignment.Target, "assigned");
-            var previousExpectedTypeForInvalidTarget = _currentExpectedType;
-            _currentExpectedType = targetType;
+            var previousExpectedTypeForInvalidTarget = _ambient.EnterExpectedType(targetType);
             var invalidValueType = AnalyzeExpression(assignment.Value);
-            _currentExpectedType = previousExpectedTypeForInvalidTarget;
+            _ambient.ExitExpectedType(previousExpectedTypeForInvalidTarget);
             if (invalidValueType is SoaRowTypeInfo)
             {
                 ReportSoaRowEscape(assignment.Value, "assigned");
@@ -7386,10 +7331,9 @@ public class Analyzer : IDisposable
 
         if (ReportSoaTableMemberMutationIfNeeded(assignment.Target, targetExpressionTypes, "assigned directly"))
         {
-            var previousExpectedTypeForInvalidTarget = _currentExpectedType;
-            _currentExpectedType = targetType;
+            var previousExpectedTypeForInvalidTarget = _ambient.EnterExpectedType(targetType);
             var invalidValueType = AnalyzeExpression(assignment.Value);
-            _currentExpectedType = previousExpectedTypeForInvalidTarget;
+            _ambient.ExitExpectedType(previousExpectedTypeForInvalidTarget);
             if (invalidValueType is SoaRowTypeInfo)
             {
                 ReportSoaRowEscape(assignment.Value, "assigned");
@@ -7400,10 +7344,9 @@ public class Analyzer : IDisposable
 
         if (ReportUnsupportedBuiltInIndexedMutationIfNeeded(assignment.Target, targetExpressionTypes, "assigned"))
         {
-            var previousExpectedTypeForInvalidTarget = _currentExpectedType;
-            _currentExpectedType = targetType;
+            var previousExpectedTypeForInvalidTarget = _ambient.EnterExpectedType(targetType);
             var invalidValueType = AnalyzeExpression(assignment.Value);
-            _currentExpectedType = previousExpectedTypeForInvalidTarget;
+            _ambient.ExitExpectedType(previousExpectedTypeForInvalidTarget);
             if (invalidValueType is SoaRowTypeInfo)
             {
                 ReportSoaRowEscape(assignment.Value, "assigned");
@@ -7449,10 +7392,9 @@ public class Analyzer : IDisposable
         if (assignment.Target is MemberAccessExpression memberWriteTarget && targetExpressionTypes != null)
             CheckMemberWriteReceiverIsVariable(memberWriteTarget, targetExpressionTypes);
 
-        var previousExpectedType = _currentExpectedType;
-        _currentExpectedType = targetType;
+        var previousExpectedType = _ambient.EnterExpectedType(targetType);
         var valueType = AnalyzeExpression(assignment.Value);
-        _currentExpectedType = previousExpectedType;
+        _ambient.ExitExpectedType(previousExpectedType);
         if (valueType is SoaRowTypeInfo)
         {
             ReportSoaRowEscape(assignment.Value, "assigned");
@@ -9458,7 +9400,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeTernary(TernaryExpression ternary)
     {
-        var expectedResultType = _currentExpectedType;
+        var expectedResultType = _ambient.CurrentExpectedType;
         var condType = AnalyzeExpressionWithExpectedType(ternary.Condition, BuiltInTypes.Bool);
         var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(ternary.Condition, condType, "used as a ternary condition");
         var isSoaDirectColumnCondition = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ternary.Condition, "used as a ternary condition");
@@ -9489,14 +9431,9 @@ public class Analyzer : IDisposable
         {
             var element = tuple.Elements[i];
             var expectedElementType = GetExpectedTupleElementType(tuple, i);
-            var previousExpectedType = _currentExpectedType;
-            if (expectedElementType != null)
-            {
-                _currentExpectedType = expectedElementType;
-            }
-
+            var previousExpectedType = _ambient.EnterExpectedTypeIfProvided(expectedElementType);
             var elementType = AnalyzeExpression(element.Value);
-            _currentExpectedType = previousExpectedType;
+            _ambient.ExitExpectedType(previousExpectedType);
             ReportSoaRowEscapeIfNeeded(element.Value, elementType, "stored in a tuple");
             ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(element.Value, "stored in a tuple");
             elements.Add(new TupleTypeElementInfo(element.Name, elementType));
@@ -9507,12 +9444,12 @@ public class Analyzer : IDisposable
 
     private TypeInfo? GetExpectedTupleElementType(TupleExpression tuple, int elementIndex)
     {
-        if (_currentExpectedType == null)
+        if (_ambient.CurrentExpectedType == null)
         {
             return null;
         }
 
-        if (_declarationContext.ResolveDeclaredAlias(_currentExpectedType) is not TupleTypeInfo expectedTuple
+        if (_declarationContext.ResolveDeclaredAlias(_ambient.CurrentExpectedType) is not TupleTypeInfo expectedTuple
             || elementIndex >= expectedTuple.Elements.Count)
         {
             return null;
@@ -9557,9 +9494,9 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeArrayLiteral(ArrayLiteralExpression array)
     {
-        var expectedElement = GetExpectedElementType(_currentExpectedType);
+        var expectedElement = GetExpectedElementType(_ambient.CurrentExpectedType);
         var expectedElementType = expectedElement?.ElementType;
-        ReportUnsupportedCollectionExpressionTargetIfNeeded(array, _currentExpectedType);
+        ReportUnsupportedCollectionExpressionTargetIfNeeded(array, _ambient.CurrentExpectedType);
         if (array.Elements.Count == 0)
         {
             return new ArrayTypeInfo(expectedElementType ?? BuiltInTypes.Unknown);
@@ -9573,10 +9510,9 @@ public class Analyzer : IDisposable
 
             foreach (var elem in array.Elements)
             {
-                var previousExpectedType = _currentExpectedType;
-                _currentExpectedType = expectedElementType;
+                var previousExpectedType = _ambient.EnterExpectedType(expectedElementType);
                 var elemType = AnalyzeExpression(elem);
-                _currentExpectedType = previousExpectedType;
+                _ambient.ExitExpectedType(previousExpectedType);
 
                 ReportSoaRowEscapeIfNeeded(elem, elemType, storageContext);
                 ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(elem, storageContext);
@@ -9834,13 +9770,13 @@ public class Analyzer : IDisposable
         if (newExpr.Type == null)
         {
             // Try to infer type from context (expected type)
-            // For now, we'll use _currentExpectedType if available, otherwise Unknown
-            if (_currentExpectedType == null && !IsAnonymousObjectCreation(newExpr))
+            // For now, we'll use the ambient expected type if available, otherwise Unknown
+            if (_ambient.CurrentExpectedType == null && !IsAnonymousObjectCreation(newExpr))
             {
                 ReportCannotInferTargetTypedNew(newExpr);
             }
 
-            type = _currentExpectedType ?? BuiltInTypes.Unknown;
+            type = _ambient.CurrentExpectedType ?? BuiltInTypes.Unknown;
 
             // Anonymous object creation is intentionally allowed without an expected type; the
             // backend synthesizes the concrete anonymous shape from the initializer.
@@ -9942,14 +9878,12 @@ public class Analyzer : IDisposable
         for (var i = 0; i < newExpr.ConstructorArguments.Count; i++)
         {
             var arg = newExpr.ConstructorArguments[i];
-            var previousExpectedType = _currentExpectedType;
-            if (soaConstructionType != null && newExpr.ConstructorArguments.Count == 1 && i == 0)
-            {
-                _currentExpectedType = BuiltInTypes.Int;
-            }
-
+            var previousExpectedType = _ambient.EnterExpectedTypeIfProvided(
+                soaConstructionType != null && newExpr.ConstructorArguments.Count == 1 && i == 0
+                    ? BuiltInTypes.Int
+                    : null);
             var argType = AnalyzeExpression(arg.Value);
-            _currentExpectedType = previousExpectedType;
+            _ambient.ExitExpectedType(previousExpectedType);
             constructorArgumentTypes.Add(argType);
             ReportSoaRowEscapeIfNeeded(arg.Value, argType, "passed as a constructor argument");
             ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(arg.Value, "passed as a constructor argument");
@@ -10092,14 +10026,9 @@ public class Analyzer : IDisposable
                 ? GetExpectedElementType(constructedType)
                 : null;
             var expectedElementType = expectedElement?.ElementType;
-            var previousInitializerExpectedType = _currentExpectedType;
-            if (expectedElementType != null)
-            {
-                _currentExpectedType = expectedElementType;
-            }
-
+            var previousInitializerExpectedType = _ambient.EnterExpectedTypeIfProvided(expectedElementType);
             var initializerValueType = AnalyzeExpression(prop.Value);
-            _currentExpectedType = previousInitializerExpectedType;
+            _ambient.ExitExpectedType(previousInitializerExpectedType);
             ReportSoaRowEscapeIfNeeded(prop.Value, initializerValueType, "stored in an initializer");
             ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(prop.Value, "stored in an initializer");
             if (expectedElementType != null && !_assignability.IsAssignable(expectedElementType, initializerValueType))
@@ -10140,10 +10069,9 @@ public class Analyzer : IDisposable
 
         // The member's declared type is the expected type for the value (target-typed
         // new, integer literal sizing, lambda inference, generic union case inference).
-        var previousExpectedType = _currentExpectedType;
-        _currentExpectedType = memberType;
+        var previousExpectedType = _ambient.EnterExpectedType(memberType);
         var valueType = AnalyzeExpression(prop.Value);
-        _currentExpectedType = previousExpectedType;
+        _ambient.ExitExpectedType(previousExpectedType);
         if (valueType is SoaRowTypeInfo)
         {
             ReportSoaRowEscape(prop.Value, "stored in an object initializer");
@@ -10573,7 +10501,7 @@ public class Analyzer : IDisposable
 
         // No explicit type arguments on a generic union case: adopt the expected
         // type's arguments when the context provides a closed instantiation.
-        if (_currentExpectedType is GenericTypeInfo expected
+        if (_ambient.CurrentExpectedType is GenericTypeInfo expected
             && expected.Name == unionName
             && expected.TypeArguments.Count == arity)
         {
@@ -10797,7 +10725,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeCheckedExpression(CheckedExpression checkedExpr)
     {
         // Analyze the inner expression - type is preserved
-        var innerType = AnalyzeExpressionWithExpectedType(checkedExpr.Expression, _currentExpectedType);
+        var innerType = AnalyzeExpressionWithExpectedType(checkedExpr.Expression, _ambient.CurrentExpectedType);
         if (ReportSoaRowEscapeIfNeeded(checkedExpr.Expression, innerType, "used in a checked expression"))
         {
             return BuiltInTypes.Unknown;
@@ -10809,7 +10737,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeUncheckedExpression(UncheckedExpression uncheckedExpr)
     {
         // Analyze the inner expression - type is preserved
-        var innerType = AnalyzeExpressionWithExpectedType(uncheckedExpr.Expression, _currentExpectedType);
+        var innerType = AnalyzeExpressionWithExpectedType(uncheckedExpr.Expression, _ambient.CurrentExpectedType);
         if (ReportSoaRowEscapeIfNeeded(uncheckedExpr.Expression, innerType, "used in an unchecked expression"))
         {
             return BuiltInTypes.Unknown;
@@ -10875,7 +10803,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeMatchExpression(MatchExpression match)
     {
-        var expectedResultType = _currentExpectedType;
+        var expectedResultType = _ambient.CurrentExpectedType;
 
         // Analyze the value being matched
         var valueType = AnalyzeExpressionWithoutExpectedType(match.Value);
@@ -11187,8 +11115,8 @@ public class Analyzer : IDisposable
             return magnitude <= long.MaxValue ? BuiltInTypes.Long : BuiltInTypes.ULong;
         }
 
-        if (_currentExpectedType != null
-            && TryGetExpectedIntegerLiteralType(_currentExpectedType, magnitude, out var targetType))
+        if (_ambient.CurrentExpectedType != null
+            && TryGetExpectedIntegerLiteralType(_ambient.CurrentExpectedType, magnitude, out var targetType))
         {
             return targetType;
         }

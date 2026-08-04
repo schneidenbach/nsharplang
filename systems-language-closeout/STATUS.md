@@ -1,6 +1,61 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-03 (**TASK 017 SLICE 33 LANDED (no commit — mandate) — N# OWNS WHAT AN
+Last updated: 2026-08-04 (**TASK 017 SLICE 35 LANDED (no commit — mandate) — N# OWNS WHAT AN
+EXPRESSION IS BEING ASKED FOR, AND WHAT A `return` MEANS. THE THIRD AMBIENT FAMILY IS GONE AND THE
+WALKER TERRITORY HAS THREE DRIVERS.** `AnalyzerAmbientContext.nl` grows **560 → 918 lines (TWO new
+types, 16 new members)** and becomes the sole authority for the TARGET-TYPING SLOT — the whole answer
+to `default`, `new()`, a collection literal's element type, an integer literal's width, a negative
+literal's signedness, a lambda's parameters, `Ok`/`Err`'s arms, a generic union case's arguments and
+whether a bare method name is an unbound callable reference — and for the `return` statement: whether
+there is a function to return from, the `async` unwrap to the AWAITED result, which of the two SoA
+escape reports the returned type selects, the generator rule that ENDS the arm, the assignability
+check, and both shapes of "not all code paths return a value". **ONE FIELD, SIXTEEN IDIOMS, ONE WHOLE
+MEMBER, 78 SOURCE LINES CUT**: `git diff` **+87 / −159 = net −72**, `Analyzer.cs` **13,266 → 13,194**
+(non-blank 11,718 → **11,654**), declarations **566 → 565**, and the ONE addition is a 34-line
+zero-policy driver of which 10 lines are its doc comment. **THE 73 REFS DECOMPOSE EXACTLY**: 1
+declaration, 2 comments, 22 pure reads and 48 = **16 idioms × 3**, across **12 members** — and the
+idioms split on TWO axes the brief did not name: **three restore from a `finally` and thirteen on the
+straight line**, and **eleven set unconditionally while FIVE leave the slot alone when there is
+nothing to ask for**, which is the slice-32 kind-6 finding generalised and now pinned by contract.
+**TWO FINDINGS**: `Analyze` NEVER resets this field (the other eight are reset in the same prologue),
+so `BeginAnalysis` deliberately does not either; and `_allowUnboundCallableReference` is a COUPLED
+FOURTH family saved in the same `try`/`finally`, left in place, with the two reads reordered and the
+reorder PROVEN row for row rather than argued. **THE RETURN ARM'S KIND SET IS
+`DriveLocalDeclaration`'s 1 / 2 / 3 WITH ZERO ADDITIONS**, re-entry count ≤ 2 and the ORDER
+answer-dependent — yet the slice adds a THIRD driver and says why: sharing would put a `return` inside
+`AnalyzerVariableDeclaration` and couple two families through one request type, the exact argument
+slice 33 used to refuse sharing. **AND THE VOCABULARY SHRANK RATHER THAN GREW** — kind 1 carries no
+expected type at all, because after stage 1 the walk's owner IS the slot's owner. **YIELD IS NOT
+ABSORBED, AND THE MEASUREMENT IS THE REASON**: it would need THREE new kinds, one of them a 5-line
+façade over a **128-line reflection closure with 4 call sites shared with `foreach`/`await foreach`**.
+PROOFS: the semantic-diagnostic oracle over **ALL 71 targets — ORACLE_DIFFS = 0 over 11,630 lines,
+835 diagnostics across 23 codes, ZERO stderr bytes on all 142 runs**, md5 identical, with the
+`checkedFiles` delta ROOT-CAUSED to a git-IGNORED stale `artifacts/` file rather than normalised away;
+an **emission-order protocol differential in which every WRITE to the target-typing slot is a row** —
+**529,643 corpus rows, 0 MISMATCHES** (383,041 slot transitions, 29,196 balanced `return`
+entries/exits, 56,696 steps), **5,407 fixture rows, 0 MISMATCHES**, and a **36-row env-gated
+supplementary run** that reaches SoA kind 2, which the corpus and all 227 fixtures reach ZERO times;
+**227 fixtures (50 new + 177 accumulated), FX_CHECK_DIFFS = 0 over 10,855 lines / 623 diagnostics,
+FX_BUILD_DIFFS = 0 over 8,099 UNSORTED lines, FX_TEST_DIFFS = 0**; **71 / 71 corpus build transcripts,
+TRANSCRIPT_DIFFS = 0 over 1,633 lines**, exits identical; and a corpus IL sweep whose normaliser was
+**RE-DERIVED FROM SCRATCH** (17 differing byte positions — the PE TimeDateStamp and the metadata MVID)
+and whose **CONTROL RAN FIRST AND PASSED 28 / 28**, after which **116 assemblies compared:
+ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, all 62 N#-EMITTED assemblies BYTE-IDENTICAL**, the 54 remaining
+being the COPIED `NSharpLang.Runtime.dll` whose 211-byte residue is ROOT-CAUSED to the
+CLI-location-dependent embedded PDB path with **0 SOURCE files** differing. **SIX GOTCHAS, headed by
+the compiler's own `nlc check` catching an NL012 in the new owner — the SIXTH time this arc's proof
+surface has graded the owner it was meant to prove — and by `nlc check --json` writing diagnostics
+under `"results"`, not `"diagnostics"`, a trap slice 33 recorded that caught this slice anyway.**
+NEXT: the loop-sequence element-type family, THEN the `yield` arm, and `AnalyzeStatement` LAST. Its
+full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-03 (**TASK 017 SLICE 34 LANDED (no commit — mandate) — N# OWNS WHERE THE
+WALK IS**: all EIGHT function-and-loop ambient fields, the seven save/restore idioms that moved them,
+and the four members that are pure functions of them. `Analyzer.cs` **13,536 → 13,266**;
+`AnalyzerAmbientContext.nl` created at 560 lines; contracts **2,607 → 2,648**. Its full record is in
+the Cursor block below — this header entry was not written at the time)
+
+Last updated (prior): 2026-08-03 (**TASK 017 SLICE 33 LANDED (no commit — mandate) — N# OWNS WHAT AN
 EXPRESSION MEANS WHERE A STATEMENT BELONGS, AND THE WALKER TERRITORY NOW HAS TWO DRIVERS.**
 `AnalyzerExpressionStatements.nl` (**925 lines, THREE types, 30 members**) is the sole authority for
 a bare expression statement, a `for` loop's update clause, `assert` and `assert throws`: which
@@ -1412,7 +1467,326 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 34 — THE AMBIENT CONTEXT FAMILIES: THE EIGHT
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 35 — THE EXPECTED-TYPE FAMILY (THE THIRD AMBIENT
+  FAMILY, 73 REFS) AND THE RETURN ARM.** Target recorded BEFORE any production edit, at `6acfe959e`
+  (`Analyzer.cs` **13,266** lines, non-blank **11,718**; BootstrapServices contracts **2,648**; unit
+  suite **3,194**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint
+  head-v1:65f9f927b29405c7`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE.** The 73 refs decompose EXACTLY as: **1 declaration, 2
+  comments, 22 PURE READS and 48 = 16 SAVE/RESTORE IDIOMS × 3**. The field is PRIVATE to
+  `Analyzer.cs` — `grep` over `src`, `tests`, `editors`, `docs`, `memory` finds ZERO code references
+  anywhere else (one doc-comment mention in `AnalyzerVariableDeclaration.nl`). The 16 idioms live in
+  **12 members**: `ValidateTableCaseValueType`, `AnalyzeFieldDeclaration`, `DriveLocalDeclaration`
+  (kind 1), `AnalyzeReturnStatement`, `AnalyzeIndexAccess`, `AnalyzeExpressionWithExpectedType`,
+  `AnalyzeExpressionWithoutExpectedType`, `AnalyzeAssignment` (**FOUR**), `AnalyzeTupleExpression`,
+  `AnalyzeArrayLiteral`, `AnalyzeNewExpression` and `AnalyzeObjectInitializerPropertyValue` (**TWO**).
+
+  **THE IDIOM MAP, AND ITS TWO AXES.** By EXCEPTION PATH: **THREE restore from a `finally`**
+  (`ValidateTableCaseValueType`, `AnalyzeExpressionWithExpectedType`,
+  `AnalyzeExpressionWithoutExpectedType`) and **THIRTEEN restore on the straight line** and are
+  SKIPPED when the walk throws. By SET SHAPE: **ELEVEN set unconditionally** (one of them to `null` —
+  `AnalyzeExpressionWithoutExpectedType`, which is a REAL write, not a no-op) and **FIVE set only
+  when there is something to ask for**, leaving the slot ALONE otherwise — a tuple element with no
+  matching target element, a constructor argument that is not the SoA count, an index that is not an
+  integer index, an initializer element of a non-collection target, and an explicit `null` passed to
+  `AnalyzeExpressionWithExpectedType`. That distinction is SEMANTIC: leaving the slot keeps whatever
+  target typing already surrounds the walk, and nulling it would change what `default`, `new()`, a
+  lambda and a negative integer literal resolve to inside it — which is precisely the slice-32 finding
+  the brief flagged, generalised. `DriveLocalDeclaration`'s kind 6 exists for the same reason and is
+  now PINNED IN THE PROTOCOL by a contract that drives `EnterExpectedTypeIfProvided(null)` and asserts
+  the slot is unchanged.
+
+  **TWO FINDINGS THE BRIEF DID NOT NAME.**
+  **(1) `Analyze` NEVER RESETS THIS FIELD.** The prologue that clears the scope stack, the null-flow
+  state and all EIGHT slice-34 ambient fields leaves the target-typing slot alone, because it is only
+  ever written inside a matched pair. `BeginAnalysis` therefore deliberately does NOT reset it, and a
+  contract pins that a value survives `BeginAnalysis` — adding the reset would have been a write this
+  family never performed.
+  **(2) THERE IS A COUPLED FIELD, AND IT IS A FOURTH FAMILY.**
+  `AnalyzeExpressionWithExpectedType` saves and restores `_allowUnboundCallableReference` (11 refs, 3
+  idioms of its own) in the SAME `try`/`finally`. It is NOT moved this slice; the two SAVES were
+  reordered relative to the target-type SET, which is safe because both are plain reads of independent
+  fields and neither can observe the other's write — and the transition transcript proves it row for
+  row rather than by argument alone. The SAME argument covers `ValidateTableCaseValueType`, whose SET
+  moved from INSIDE its `try` to just before it: a field assignment cannot throw, and if it could the
+  `finally` would restore the value it already holds. Both reorderings are NAMED here rather than
+  hidden, and both are covered by the 529,643-row transcript.
+
+  **STAGE-2 SHAPE, MEASURED.** `AnalyzeReturnStatement` (:3947–:4024, **78 lines**) has exactly
+  **THREE stay-behind re-entries** after subtracting every callee that is already N#
+  (`AnalyzerAmbientContext` for the return type / async flag / generator flag / finally report /
+  mismatch report, `AnalyzerAssignability`, `AnalyzerFunctionTypeFactory`, `AnalyzerDiagnosticSink`,
+  `AnalyzerDiagnosticSpans`, `ErrorMessageBuilder`, `BuiltInTypes`): `AnalyzeExpression`,
+  `ReportSoaRowEscape` and `ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded` — which are
+  `DriveLocalDeclaration`'s kinds **1 / 2 / 3 EXACTLY, with ZERO additions**. Re-entry COUNT is at
+  most **two**, and the ORDER is ANSWER-DEPENDENT: whether step two is kind 2 or kind 3 is decided by
+  whether kind 1's answer is a `SoaRowTypeInfo`. So it needs a resumable driver, and the corpus
+  confirms the shape — **29,196 entries, 28,348 of them valued (97.1 %)**, 56,696 steps, never three.
+
+  **DRIVER DECISION: A THIRD DRIVER — and the measurement says why the kinds coinciding is not
+  enough.** Reusing `DriveLocalDeclaration` requires the walk to hand back a
+  `VariableDeclarationState`, which would put "what a `return` means" inside
+  `AnalyzerVariableDeclaration` and couple two unrelated families through one request type — the
+  EXACT argument slice 33 used to REFUSE sharing, now pointing the other way. The ambient context is
+  the only sensible owner: the arm READS five things it already answers and REPORTS through two
+  members it already owns; hosting it elsewhere would export all seven. So
+  `AnalyzerAmbientContext` gains its own request/state pair and `Analyzer.cs` gains a **34-line**
+  `DriveReturnStatement`. **AND THE KIND VOCABULARY SHRANK RATHER THAN GREW**: kind 1 carries NO
+  expected type, because after stage 1 the owner IS the target-typing slot's owner — it opens the slot
+  before emitting the request and closes it in `Supply`, so the transition never leaves N#.
+
+  **YIELD: NOT ABSORBED, AND THE MEASUREMENT IS THE REASON.** The `yield` arm (:3219–:3255, **37
+  lines**, inline in the dispatch) shares NOTHING with the return arm's kind set. It would need
+  **THREE new kinds**: `ReportSoaRowEscapeIfNeeded(node, type, text) -> bool` — a DIFFERENT member
+  from the return arm's `ReportSoaRowEscape(node, text) -> void`, with **61 call sites** across the
+  file; a no-expected-type expression walk; and `TryGetGeneratorYieldElementType`, a 5-line façade
+  over `TryGetLoopSequenceElementType` (:3721–:3749) whose closure is `NormalizeShapeType` (21) +
+  `TryGetGenericLoopSequenceElementType` (12) + `TryGetSourceLoopSequenceElementType` (17) +
+  `TryGetReflectionLoopSequenceElementType` (44) = **128 lines with 4 call sites shared with `foreach`
+  and `await foreach`**. Absorbing `yield` would therefore add a driver kind whose whole purpose is to
+  reach a family belonging to the loop-sequence arms. It stays, sequenced AFTER that family — exactly
+  as slice 34 planned, now with numbers instead of a guess.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHAT AN EXPRESSION IS BEING ASKED FOR, AND WHAT A
+  `return` MEANS.** `Analyzer.cs` keeps no part of the target-typing slot — not the field, not one of
+  the sixteen save/restore idioms, not the eleven-versus-five conditional-set distinction, not the
+  deliberate NULL set, and not the fact that a new analysis does NOT reset it. And it keeps no part of
+  a `return` statement: not whether there is a function to return from, not the `async` unwrap to the
+  awaited result, not which of the two SoA escape reports the returned type selects, not the
+  generator rule that ENDS the arm, not the assignability check, and not either shape of "not all code
+  paths return a value".
+
+  **THE CUT — ONE FIELD, SIXTEEN IDIOMS, ONE WHOLE MEMBER, 78 SOURCE LINES.** `git diff` on
+  `Analyzer.cs` **+87 / −159 = net −72**; the file goes **13,266 → 13,194** (non-blank 11,718 →
+  **11,654**). Declarations **566 → 565**: the field is GONE, `AnalyzeReturnStatement` (78 lines) is
+  GONE, and `DriveReturnStatement` (34 lines braces included, of which **11 are its doc comment**) is
+  the one addition. The 87 added lines account EXACTLY: **30 are `Enter`/`Exit` call sites** (fifteen
+  idioms, each at least one line SHORTER than the save/set/restore it replaces), **4 are the
+  conditional idioms' ternary operands**, **22 are read sites re-pointed at the accessor**, **1 is the
+  dispatch re-route**, **2 are comment rewrites**, and **28 are the driver**. **NOT ONE OTHER C#
+  MEMBER IS ADDED** — no shell, no bridge, no state — and N# calls nothing back. Compiler warnings are
+  **11 in BOTH trees**: the routing introduced none.
+
+  **N# ADDED — 358 lines, TWO types, 16 members.** `AnalyzerAmbientContext.nl` **560 → 918**:
+  `ReturnStatementRequest` and `ReturnStatementState` (which carries the assignability oracle it is
+  HANDED at `BeginReturn` rather than holding it — the ambient context is constructed once and never
+  rebuilt because it holds live walk state, while `Analyzer.cs` REBUILDS its assignability at metadata
+  load and dispose, so reading the caller's field at `Begin` is the only way to be both current and
+  non-rebuildable); the expected-type field, its accessor and the `EnterExpectedType` /
+  `EnterExpectedTypeIfProvided` / `ExitExpectedType` trio; and the eleven walk members. Contracts:
+  `AnalyzerAmbientContext.tests.nl` **675 → 1,270 lines**, BootstrapServices **2,648 → 2,686 (+38)**.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE.** `nlc check --json`, fresh Release CLIs at baseline
+  `6acfe959e` and at the working tree, across **ALL 71 tracked `project.yml` targets with no
+  exclusion**, both trees given a `Debug` build first because six targets reference
+  `../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll`. **ORACLE_DIFFS = 0 over 11,630 lines,
+  835 diagnostics across 23 codes, exit codes identical (0 × 66, 1 × 5), `stderrBytes = 0` on every
+  one of the 142 runs**, md5 `f9b17c80acee7ace235aa7bbe0a4418c` in BOTH. TWO fields are normalised AND
+  NAMED rather than silently dropped: the absolute `"projectRoot"`, and `"checkedFiles"` (469 vs 470
+  on the ROOT target) — **ROOT-CAUSED, not waved through**, to a git-IGNORED stale
+  `artifacts/smoke-turnkey/20260523-224208/work/MyApp/Program.nl` that exists only in the live
+  checkout and not in the `git worktree` baseline; it contributes **ZERO diagnostics** (520 results on
+  both sides).
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, COMPARED ROW BY ROW.** Both trees were instrumented
+  at the SAME probe points with the SAME line format, and — because the expected type is a PROTOCOL
+  EVENT — every WRITE to the slot is a row carrying its new value and `_errors.Count`. In the baseline
+  the field was turned into a logging PROPERTY so no site could be missed; in the work tree the
+  fifteen C# call sites were wrapped and the two writes the N# walk performs itself were synthesised
+  at the same two moments. The `return` arm logs entry (return type, has-value, slot, error count),
+  every step with its kind and the slot AS THE STEP WAS HANDED OUT, the answer, and exit — plus every
+  diagnostic read back off `_errors` at the end of each `Analyze` (index, code, line, column, length,
+  message, suggestion, explanation, hint, docs URL, expected and actual type). **THE CORPUS RUN over
+  all 71 targets, with BOTH instrumented CLIs pointed at THE SAME source tree — 529,643 rows, 0
+  MISMATCHES**, md5 `325a667879c06b78f3027100249be48a` in BOTH: **383,041 target-type transitions**,
+  29,196 `return` entries and 29,196 exits (balanced), 56,696 steps (**28,348 kind-1 and 28,348
+  kind-3**), 28,348 answers, 979 analysis ends and 675 diagnostics. **THE FIXTURE RUN: 5,407 rows, 0
+  MISMATCHES**, md5 `e9798dd1e11ec4ff917cd5a8aad880b6` — 3,093 transitions, 235 entries/exits, 434
+  steps, 541 diagnostics. **A SUPPLEMENTARY RUN of 36 rows, 0 MISMATCHES**, md5
+  `5f544a66ef16d8fa15731c8eec0525c6`, closes the LAST gap: **kind 2 — the SoA row-view escape from a
+  `return` — is reached ZERO times by the corpus and ZERO times by 227 fixtures**, because
+  `soa record` is gated behind `NSHARP_EXPERIMENTAL_SOA=1` (NL323); three env-gated fixtures reach it
+  twice. **All three kinds and all five report paths are exercised with zero mismatches.** Both
+  instrumented trees were built separately from the sweep trees and neither shipped.
+
+  **PROOF — 227 FIXTURES, CHECK, THE UNSORTED BUILD TRANSCRIPT AND `nlc test`.** 50 new fixtures run
+  TOGETHER WITH the **177 accumulated on disk from slices 24, 32, 33 and 34**. The 22 `return`
+  fixtures reach every silent thing the brief named: a value returned from an OMITTED return type and
+  from a WRITTEN `void`; a bare `return` in a typed function, in `void`, in an omitted-annotation
+  function; a wrong type; a `return` with no enclosing function at all (a constructor body, the only
+  shape in the estate that reaches it); `async` unwrapping to the awaited result, an `async` value
+  that FITS, an `async` bare return in a UNIT task-like (silent) and in one that owes a result (not);
+  a generator returning a value and a generator returning bare; expression-body `=>` from an omitted
+  and from a written `void`; a `return` in a lambda, in a local function, in a property getter, in a
+  `finally` with a bad value; `null` into a non-nullable; a widening `int`→`long`; and two returns
+  where only one is wrong. The 28 expected-type fixtures reach every site that READS the slot:
+  target-typed `default` (and `default` with no target), bare `new()` (and with no target), array
+  literals and their element mismatch, integer-literal width and overflow, a negative literal, a
+  lambda, a tuple and its element mismatch, assignment, field initializer, object-initializer member,
+  index-to-`int`, the `let` annotation, a match value analysed with NO target, a ternary passing the
+  target to both arms, `checked`/`unchecked` passthrough, nested target typing restoring the outer
+  slot, a `return` inside a target-typed initializer, a constructor argument, and a `void` call
+  returned from a typed function. **`nlc check --json`: FX_CHECK_DIFFS = 0 over 10,677 lines, 609
+  diagnostics across 26 codes**, md5 `f47de42e68ced83567f12fdc637033ae` in BOTH — including **42
+  NL202, 10 NL305, 23 NL313, 11 NL319 and 63 NL103**, a mix the 835-diagnostic corpus oracle does not
+  produce, which is the whole reason the fixtures exist; the 50 NEW fixtures contribute **37
+  diagnostics over 7 codes and ZERO parse errors** (see gotcha 7). **`nlc build`, which renders
+  `_errors` in LIST order with NO dedup and NO sort: FX_BUILD_DIFFS = 0 over 8,001 lines**, md5
+  `5b85c80588585be73a859de2ea056ed6`. **`nlc test` over the 14 fixtures that carry a `.tests.nl`:
+  FX_TEST_DIFFS = 0 over 153 lines**, md5 `ce297daa20cb2ad125ef7483aaa12a57`.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED FROM SCRATCH, AND A CONTROL THAT RAN FIRST.** The rule was
+  obeyed rather than the normaliser inherited: two consecutive builds of the same source in the same
+  directory with the same CLI were diffed byte by byte and differ in **exactly 17 byte positions — one
+  at 0x88 inside the PE COFF TimeDateStamp and sixteen at 0x5bc–0x5cb inside the metadata `#GUID`
+  heap's MVID** — independently reproducing slice 34's derivation. A structural normaliser that walks
+  the PE header to the section table to the CLI header to the metadata root to the `#GUID` stream and
+  zeroes those two fields AND NOTHING ELSE (20 byte positions) leaves **0 residual differing
+  positions**. **THE CONTROL THEN RAN BEFORE THE SWEEP — the BASELINE CLI building 14 example targets
+  twice — and PASSED: SAME = 28, DIFFERENT = 0.**
+
+  **PROOF — CORPUS BUILD TRANSCRIPTS AND THE IL SWEEP, FROM ONE PAIR OF SWEEPS OVER IDENTICAL
+  SOURCES.** Both CLIs built **the SAME 71 source directories** (two clean copies of the baseline
+  tree), so the only variable is the compiler. **`nlc build`, which renders `_errors` in LIST order
+  with NO dedup and NO sort: TRANSCRIPT_DIFFS = 0 over 1,633 lines**, md5
+  `9bd01c297c4b4b45db25630f63e48b9b` in BOTH, with **identical exit codes (0 × 54, 1 × 17)**. The same
+  two passes produced the IL: **116 assemblies compared, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, and ALL
+  62 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL** under the normaliser. The 54 that differ are ONE file —
+  the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit, and which has
+  exactly ONE distinct content per tree — and the difference is **ROOT-CAUSED, NOT WAVED THROUGH**:
+  the two CLI directories are **60 and 70 characters** long, the copied DLL carries an embedded PDB
+  path derived from the CLI location (confirmed by `strings` finding `nl35base` in one and
+  `repos/nsharplang` in the other), and that shifts its RVAs and its CodeView / PDB-checksum records —
+  **exactly 211 bytes, spanning 0xa8–0x3808**. `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime`
+  between the trees reports **0 SOURCE files**.
+
+  **EVIDENCE.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` — a FRESH ISOLATED run, no
+  cached whole-gate or per-step result — **ALL TESTS PASSED in 31m 38s**, with **Step 2 Build N#
+  Compiler 3m36s, Step 3 Unit Tests 10m36s (3,194 / 3,194, 0 failed), Step 3a Native N# Tests 5m52s
+  (2,686 / 2,686, 0 failed), Step 3b VS CODE INTEGRATION TESTS 4m20s, Step 4 Pack and Install MSBuild
+  SDK 6m29s, and Step 10b IL VERIFICATION green over all 67 N# assemblies**. The unit count is the
+  `6acfe959e` baseline COUNT
+  with ZERO drift; `./scripts/dev.sh --since` selected the **FULL unit suite** and passed it in
+  **14m 07s** (3,194 / 3,194, 0 failed), so the change-aware filter did not narrow the coverage.
+  BootstrapServices contracts **2,648 → 2,686 (+38)**, 0 failed. Ownership audit **18 / 18** against
+  the freshly written manifest. **THE GATE WAS RUN TWICE, AND THE SECOND RUN IS THE EVIDENCE**: the
+  first (30m 52s, ALL TESTS PASSED) was started before a one-word rename inside a contract's display
+  string (`NL906` → the real `NL305`), so the isolated copy it tested was not byte-identical to the
+  tree being landed. The rename cannot change behaviour, but "provably inert" is not the standard the
+  arc holds itself to — so the gate was re-run against the final tree rather than reasoned about, and
+  BOTH runs passed.
+
+  **RATCHET REPIN** — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 13,266 → **13,194**, currentNonBlankLines 11,718
+  → **11,654**, fingerprint `text-v1:e9911d1bcd9a4a00` → **`text-v1:6831639ad468295d`** (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **10,257 / 8,883**);
+  `reviewedHeadFingerprint head-v1:65f9f927b29405c7` → **`head-v1:a9de8725cd3f9089`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value untouched. The recomputation was VALIDATED before it was
+  applied: the same FNV-1a walk reproduced the OLD `text-v1:e9911d1bcd9a4a00` from the baseline file
+  and the OLD `head-v1:65f9f927b29405c7` from the unmodified manifest exactly, so the new values are
+  derived rather than guessed. **FORMAT DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND
+  after**, the manifest `git diff` is exactly 2 changed lines and `OwnershipAudit.nl`'s is exactly 1;
+  neither file carries a BOM afterwards.
+
+  **NO TOOLSET REPIN WAS NEEDED AND NO WALL WAS CROSSED.** Every member the owner consumes is already
+  published — `AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo` / `IsUnitTaskLikeTypeInfo`,
+  `AnalyzerAssignability.IsAssignable`, `ErrorMessageBuilder.MissingReturn`, `BuiltInTypes.Is`,
+  `SoaRowTypeInfo` — and so is everything the contracts construct (`Assembly`,
+  `AnalyzerProjectTypeDiscovery`, `AnalyzerExternalTypeProbe`, `AnalyzerTypeResolver`,
+  `AnalyzerTypeSubstitution`, `AnalyzerAssignabilityFacts`, `AnalyzerStructuralAssignability`,
+  `AnalyzerClrTypeConversion`, `AnalyzerImplicitConversionGuard`, `SoaRecordDeclarationInfo`,
+  `IntLiteralExpression`, `GenericTypeInfo`). The two emit declines hit were BOTH established
+  spellings, not new surface.
+
+  **VSIX RELOADED**: `./scripts/reload-vscode-extension.sh` rebuilt the language server, repackaged
+  `nsharp-0.6.0.vsix` (289 files, 3.98 MB) and reinstalled it — the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is now the post-slice build and
+  SHRANK **828,416 → 827,904 bytes**. No computer-use was used.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is every squiggle that depends on what the surrounding
+  code is ASKING an expression for — "I can't figure out what type `default` should be here", the
+  cannot-infer-target-typed-`new` report, array and collection element mismatches, integer-literal
+  width errors, the method-group-used-as-a-value report — plus every `return` squiggle: the four
+  return-value wordings (including the rule that an OMITTED return type underlines the function's
+  NAME), "not all code paths return a value" in both its rich and detail-only shapes, "there's no
+  function to return from here", and "Generator functions cannot return a value" underlining the
+  returned EXPRESSION rather than the keyword.
+
+  **SIX GOTCHAS, AND FIVE ARE NEW TO THE ARC.**
+  **(1) THE COMPILER'S OWN `nlc check` GRADED THE NEW OWNER AGAIN — THE SIXTH TIME THIS ARC.** NL012:
+  `Parameter 'escaped' in 'Supply' is never read`. It is genuinely never read, because the C# arm
+  called the direct-column reporter in statement position and IGNORED its result, so — unlike a local
+  declaration, where a fired escape turns the declared type unknown — nothing later in a `return` is
+  suppressed by it. Fixed exactly as the diagnostic prescribed (`_escaped`), with the reason written
+  down rather than the parameter removed, so the three drivers keep one `Supply` shape.
+  **(2) `nlc check --json` PUTS DIAGNOSTICS UNDER `"results"`, NOT `"diagnostics"`** — a filter
+  reading the wrong key reports **0 of 283** and looks like a clean bill of health. Slice 33 recorded
+  this trap and it still caught this slice; it is now the FIRST thing to verify in any filtered check.
+  **(3) A COLLECTION INITIALIZER INSIDE A `test` DECLARATION DECLINES AT `parse.test`.**
+  `new List<TypeInfo>() { BuiltInTypes.Int }` inside a `test` body fails to parse into columnar input
+  and reports at the TEST's first line, not at the initializer. Building the list with `Add` in a
+  helper OUTSIDE the test is the estate's spelling.
+  **(4) A WRONG CONSTRUCTOR ARITY SURFACES AS `parse.function`, NOT AS A RESOLUTION ERROR.**
+  `new SoaRowTypeInfo("Row", record)` (the type takes ONE argument) declined at `parse.function` and
+  named the enclosing FUNCTION's line. A decline site that names a whole function is a signal to check
+  the CALLEE's signature, not the function's syntax.
+  **(5) A ZERO PROBE COUNT ON A REAL ARM CAN BE THE ESTATE, NOT THE FIXTURE.** RET.STEP kind 2 is
+  zero across 529,643 corpus rows AND 227 fixtures — not because the fixtures are wrong but because
+  `soa record` is NL323-gated behind `NSHARP_EXPERIMENTAL_SOA=1`. The env-gated supplementary run is
+  the only way to reach it, and it must be run rather than the arm declared unreachable.
+  **(6) THE ORACLE'S `checkedFiles` COUNTER SEES GIT-IGNORED FILES.** A stale `artifacts/` directory
+  in the live checkout that a `git worktree` baseline does not have shifts the count by one and
+  contributes nothing else. Root-cause it; do not normalise it away unnamed.
+  **(7) FIVE OF FIFTY NEW FIXTURES WERE SILENTLY TESTING PARSE ERRORS — AND THE CHECK THAT FOUND THEM
+  IS NOW A RULE.** Slice 34 found ONE such fixture (`= e` instead of `=> e`) by noticing a probe count
+  of zero. That does not generalise: a fixture whose SOURCE does not parse still produces
+  diagnostics, still differentials cleanly, and still looks like coverage. The rule that DOES
+  generalise is a **PARSE-ERROR CENSUS over your own new fixtures**: counting NL101 / NL102 / NL106
+  across the 50 new ones found **nine parse errors in five fixtures** — a lambda written
+  `func(x) { ... }` instead of `x => ...` / `() => { ... }` (THREE fixtures), `match` cases written
+  without the `,` separator, and a property getter written `{ get => e }` instead of
+  `{ get { return e } }`. All five were rewritten, and the two that then reached the intended arm
+  (`return` in a lambda body and in a property getter) BOTH produce the "this function" wording — a
+  path nothing else in the corpus or the other 222 fixtures reaches. **Census parse-error codes over
+  new fixtures BEFORE trusting any differential that includes them.**
+  **(8) A PROTOCOL SWEEP AND A BUILD SWEEP MUST NOT SHARE A DIRECTORY.** Re-running the fixture
+  protocol differential CONCURRENTLY with the `nlc build` fixture sweep — both pointed at the same
+  staging tree — collapsed the transcript from 5,443 rows to 1,241 and produced 208 spurious
+  mismatches, because the build sweep was writing `bin/`/`obj/` under the very directories the probe
+  runs were checking. Re-running the two probes SERIALLY, each starting from a pristine copy with no
+  `bin`/`obj`, restored **5,443 rows and 0 mismatches**. A protocol differential that suddenly LOSES
+  rows is a harness fault, not a behaviour change — check for a concurrent writer before believing it.
+
+  **THE WALKER TERRITORY AFTER FIVE CUTS, AND THE NEXT ONE.** `Analyzer.cs` holds **13,194 lines**;
+  the territory has THREE zero-policy drivers (`DriveLocalDeclaration`, `DriveExpressionStatement`,
+  `DriveReturnStatement`) and ONE owned ambient context carrying THREE families that every remaining
+  arm reads instead of re-deriving.
+  * **NEXT: the LOOP-SEQUENCE ELEMENT-TYPE FAMILY — `TryGetLoopSequenceElementType` (:3721–:3749) and
+    its closure**, measured this slice at **128 lines**: `NormalizeShapeType` (21, 4 call sites),
+    `TryGetGenericLoopSequenceElementType` (12), `TryGetSourceLoopSequenceElementType` (17, 4 call
+    sites, self-recursive) and `TryGetReflectionLoopSequenceElementType` (44). It answers "what does
+    iterating this produce" for `foreach`, `await foreach` and the generator reader, and it is
+    reflection-heavy — the `IEnumerable`/`IAsyncEnumerable` probe, `MoveNext`/`Current` duck-shape
+    detection and the interface walk. It is a PURE FUNCTION of a type: NO ambient state, NO
+    diagnostics, NO driver — so it should move as a plain owner, not as a walk. Verify at the tree
+    first: this slice measured extents and call sites, not the full caller closure, and every brief in
+    this arc has been wrong about size.
+  * **THEN the `yield` arm** (:3219–:3255, 37 lines, inline in the dispatch), which becomes nearly
+    free once that family is N#: its remaining stay-behind re-entries are a no-expected-type
+    expression walk, `ReportSoaRowEscapeIfNeeded` (the bool/type-taking variant — a THIRD SoA reporter
+    shape, 61 call sites file-wide, and a candidate for its own SoA-family slice) and the existing
+    direct-column kind. It reads `CurrentReturnType` and `CurrentFunctionDeclaresGenerator`, both
+    already N#, and reports two diagnostics that are pure functions of the element type.
+  * **AND `AnalyzeStatement` (the dispatch) STILL FALLS LAST**, exactly as `AnalyzePattern` fell last
+    after slices 25–28 carved its arms out.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl35fixtures` (50, this
+  slice) and `/private/tmp/nl35soafx` (3, env-gated `NSHARP_EXPERIMENTAL_SOA=1`) alongside
+  `/private/tmp/nl34fixtures` (63), `/private/tmp/nl33fixtures` (47), `/private/tmp/nl32fixtures` (31)
+  and `/private/tmp/s24fixtures` (36) — **230 total**.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 34 — THE AMBIENT CONTEXT FAMILIES: THE EIGHT
   FUNCTION-AND-LOOP FIELDS, EVERY SAVE/RESTORE IDIOM THAT MOVES THEM, AND THE FIVE MEMBERS THAT ARE
   PURE FUNCTIONS OF THEM.** Target recorded BEFORE any production edit, at `9f8ae278f`
   (`Analyzer.cs` **13,536** lines, non-blank **11,978**; BootstrapServices contracts **2,607**; unit
