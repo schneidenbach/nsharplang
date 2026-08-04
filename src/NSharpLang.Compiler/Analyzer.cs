@@ -318,6 +318,12 @@ public class Analyzer : IDisposable
     // rebuilt with the SCC: it holds the diagnostic sink, the span reader, the scope stack and the
     // declaration context, none of which the rebuild replaces.
     private readonly AnalyzerSoaEscape _soaEscape;
+    // WHAT IT MEANS FOR A CONDITION TO BE A CONDITION: the whole boolean gate the `if`, `while`,
+    // `for`, ternary and match-guard arms each ran by hand — both SoA escape reports, the boolean
+    // test, the two suppressions, and all three report shapes. NOT rebuilt with the SCC: it holds the
+    // diagnostic sink, the span reader and the SoA escape owner, none of which the rebuild replaces;
+    // the guard's assignability oracle is passed in at the call for exactly that reason.
+    private readonly AnalyzerBooleanConditions _conditions;
     private bool _disposed;
 
     public Analyzer()
@@ -349,6 +355,7 @@ public class Analyzer : IDisposable
         _definiteAssignment = new AnalyzerDefiniteAssignment(_diagnostics, _typeResolver);
         _nullFlow = new AnalyzerNullFlow(_diagnostics, _spans, _scopes, _declarationContext);
         _soaEscape = new AnalyzerSoaEscape(_diagnostics, _spans, _scopes, _declarationContext);
+        _conditions = new AnalyzerBooleanConditions(_diagnostics, _spans, _soaEscape);
         _expressionStatements = new AnalyzerExpressionStatements(
             _diagnostics, _spans, _typeResolver, _soaEscape);
         _ambient = new AnalyzerAmbientContext(_diagnostics, _spans, _soaEscape);
@@ -3211,12 +3218,8 @@ public class Analyzer : IDisposable
             case WhileStatement whileStmt:
                 var condType = AnalyzeExpression(whileStmt.Condition);
                 var whileThenNarrowings = _flowNarrowing.ExtractFlowNarrowings(whileStmt.Condition).Then;
-                var isSoaRowCondition = _soaEscape.ReportSoaRowEscapeIfNeeded(whileStmt.Condition, condType, "used as a 'while' condition");
-                var isSoaDirectColumnCondition = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(whileStmt.Condition, "used as a 'while' condition");
-                if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType))
-                {
-                    ReportBooleanConditionTypeMismatch(whileStmt.Condition, "a 'while' loop", condType);
-                }
+                _conditions.ReportConditionTypeMismatchIfNeeded(
+                    whileStmt.Condition, "a 'while' loop", "used as a 'while' condition", condType);
                 var whileLoopFrame = _ambient.EnterLoop();
                 if (whileThenNarrowings.Count > 0)
                 {
@@ -3341,20 +3344,6 @@ public class Analyzer : IDisposable
 
     private static bool IsDiscardTarget(Expression target)
         => target is IdentifierExpression { Name: "_" };
-
-    private void ReportBooleanConditionTypeMismatch(Expression condition, string owner, TypeInfo actualType)
-    {
-        if (BuiltInTypes.IsUnknown(actualType) || AnalyzerParserErrorPlaceholders.ContainsInExpression(condition))
-            return;
-
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(condition);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"The condition in {owner} must be a boolean, but I found '{actualType}'",
-            diagnosticLine,
-            diagnosticColumn,
-            length: diagnosticLength);
-    }
 
     private void AnalyzeAssertStatement(AssertStatement assertStmt)
         => DriveExpressionStatement(_expressionStatements.BeginAssert(assertStmt));
@@ -3491,34 +3480,7 @@ public class Analyzer : IDisposable
         var conditionNarrowings = _flowNarrowing.ExtractFlowNarrowings(ifStmt.Condition);
         var thenNarrowings = conditionNarrowings.Then;
         var elseNarrowings = conditionNarrowings.Else;
-        var isSoaRowCondition = _soaEscape.ReportSoaRowEscapeIfNeeded(ifStmt.Condition, condType, "used as an 'if' condition");
-        var isSoaDirectColumnCondition = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ifStmt.Condition, "used as an 'if' condition");
-
-        if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !AnalyzerParserErrorPlaceholders.ContainsInExpression(ifStmt.Condition))
-        {
-            // Use ErrorMessageBuilder for better error message
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(ifStmt.Condition);
-            var sourceSnippet = GetSourceSnippet(diagnosticLine);
-
-            if (sourceSnippet != null && _currentFilePath != null)
-            {
-                var error = ErrorMessageBuilder.TypeMismatch(
-                    _currentFilePath,
-                    diagnosticLine,
-                    diagnosticColumn,
-                    sourceSnippet,
-                    diagnosticLength,
-                    condType.ToString(),
-                    "bool"
-                );
-                _errors.Add(error);
-            }
-            else
-            {
-                Error(ErrorCode.TypeMismatch, $"The condition in an 'if' must be a boolean, but I found '{condType}'",
-                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
-            }
-        }
+        _conditions.ReportIfConditionTypeMismatchIfNeeded(ifStmt.Condition, condType);
 
         // Apply then-branch narrowings (null checks, is-patterns, && chains)
         if (thenNarrowings.Count > 0)
@@ -3575,12 +3537,8 @@ public class Analyzer : IDisposable
         if (forStmt.Condition != null)
         {
             var condType = AnalyzeExpression(forStmt.Condition);
-            var isSoaRowCondition = _soaEscape.ReportSoaRowEscapeIfNeeded(forStmt.Condition, condType, "used as a 'for' condition");
-            var isSoaDirectColumnCondition = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(forStmt.Condition, "used as a 'for' condition");
-            if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType))
-            {
-                ReportBooleanConditionTypeMismatch(forStmt.Condition, "a 'for' loop", condType);
-            }
+            _conditions.ReportConditionTypeMismatchIfNeeded(
+                forStmt.Condition, "a 'for' loop", "used as a 'for' condition", condType);
         }
 
         if (forStmt.Iterator != null)
@@ -4736,7 +4694,7 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        if (IsBoolType(left) && IsBoolType(right))
+        if (BuiltInTypes.Is(left, BuiltInTypes.Bool) && BuiltInTypes.Is(right, BuiltInTypes.Bool))
         {
             return BuiltInTypes.Bool;
         }
@@ -5199,10 +5157,10 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        if (!IsBoolType(left) || !IsBoolType(right))
+        if (!BuiltInTypes.Is(left, BuiltInTypes.Bool) || !BuiltInTypes.Is(right, BuiltInTypes.Bool))
         {
-            var leftIsWrong = !IsBoolType(left);
-            var rightIsWrong = !IsBoolType(right);
+            var leftIsWrong = !BuiltInTypes.Is(left, BuiltInTypes.Bool);
+            var rightIsWrong = !BuiltInTypes.Is(right, BuiltInTypes.Bool);
             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                 _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
             var opText = OperatorFacts.GetBinaryText(expr.Operator);
@@ -5339,7 +5297,7 @@ public class Analyzer : IDisposable
             return overloadResult;
         }
 
-        if (IsBoolType(_declarationContext.ResolveDeclaredAlias(operandType)))
+        if (BuiltInTypes.Is(_declarationContext.ResolveDeclaredAlias(operandType), BuiltInTypes.Bool))
         {
             return BuiltInTypes.Bool;
         }
@@ -9034,12 +8992,8 @@ public class Analyzer : IDisposable
     {
         var expectedResultType = _ambient.CurrentExpectedType;
         var condType = AnalyzeExpressionWithExpectedType(ternary.Condition, BuiltInTypes.Bool);
-        var isSoaRowCondition = _soaEscape.ReportSoaRowEscapeIfNeeded(ternary.Condition, condType, "used as a ternary condition");
-        var isSoaDirectColumnCondition = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ternary.Condition, "used as a ternary condition");
-        if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType))
-        {
-            ReportBooleanConditionTypeMismatch(ternary.Condition, "a ternary expression", condType);
-        }
+        _conditions.ReportConditionTypeMismatchIfNeeded(
+            ternary.Condition, "a ternary expression", "used as a ternary condition", condType);
 
         var thenType = AnalyzeExpressionWithExpectedType(ternary.ThenExpression, expectedResultType);
         var elseType = AnalyzeExpressionWithExpectedType(ternary.ElseExpression, expectedResultType);
@@ -10462,14 +10416,7 @@ public class Analyzer : IDisposable
             if (matchCase.Guard != null)
             {
                 var guardType = AnalyzeExpressionWithExpectedType(matchCase.Guard, BuiltInTypes.Bool);
-                var isSoaRowGuard = _soaEscape.ReportSoaRowEscapeIfNeeded(matchCase.Guard, guardType, "used as a match guard");
-                var isSoaDirectColumnGuard = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(matchCase.Guard, "used as a match guard");
-                if (!isSoaRowGuard && !isSoaDirectColumnGuard && !_assignability.IsAssignable(BuiltInTypes.Bool, guardType))
-                {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(matchCase.Guard);
-                    Error(ErrorCode.GuardNotBoolean, $"A match guard must be a boolean, but this expression is '{guardType}'",
-                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                }
+                _conditions.ReportMatchGuardTypeMismatchIfNeeded(matchCase.Guard, guardType, _assignability);
             }
 
             // Analyze the case expression
@@ -11022,11 +10969,6 @@ public class Analyzer : IDisposable
         };
     }
 
-    private bool IsBoolType(TypeInfo type)
-    {
-        return BuiltInTypes.Is(type, BuiltInTypes.Bool);
-    }
-
     private bool IsStringType(TypeInfo type)
     {
         return BuiltInTypes.Is(type, BuiltInTypes.String);
@@ -11121,8 +11063,8 @@ public class Analyzer : IDisposable
         TypeInfo right,
         string requirement)
     {
-        var leftIsWrong = !IsIntegralType(left) && !IsBoolType(left);
-        var rightIsWrong = !IsIntegralType(right) && !IsBoolType(right);
+        var leftIsWrong = !IsIntegralType(left) && !BuiltInTypes.Is(left, BuiltInTypes.Bool);
+        var rightIsWrong = !IsIntegralType(right) && !BuiltInTypes.Is(right, BuiltInTypes.Bool);
         if (expr.Operator is BinaryOperator.LeftShift or BinaryOperator.RightShift)
         {
             leftIsWrong = !IsIntegralType(left);
