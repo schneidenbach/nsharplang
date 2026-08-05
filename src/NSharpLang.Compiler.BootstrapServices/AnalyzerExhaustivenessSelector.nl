@@ -1,8 +1,9 @@
 namespace NSharpLang.Compiler
 
 import System
-import NSharpLang.Compiler.Ast
 import System.Collections.Generic
+import NSharpLang.Compiler.Ast
+
 
 // The PURE FACTS of match exhaustiveness: what a pattern's SHAPE says about coverage, and which of a
 // closed set of alternatives a set of flags leaves uncovered.
@@ -27,13 +28,11 @@ import System.Collections.Generic
 // A qualifier that matches NONE of those is not this union's case at all, and the lookup fails
 // rather than falling back to the bare name — which is what makes `Other.Circle` a reportable
 // mistake instead of a silent hit.
-public class AnalyzerExhaustivenessSelector {
-    public static func SelectMissingEnumMembers(
-        members: IEnumerable<EnumMemberInfo>,
-        coveredMembers: IEnumerable<string>): List<string> {
+class AnalyzerExhaustivenessSelector {
+    static func SelectMissingEnumMembers(members: IEnumerable<EnumMemberInfo>, coveredMembers: IEnumerable<string>): List<string> {
         result := new List<string>()
 
-        foreach member in members {
+        for member in members {
             name := member.Name
             if !AnalyzerExhaustivenessContainsName(coveredMembers, name) {
                 result.Add(name)
@@ -44,7 +43,7 @@ public class AnalyzerExhaustivenessSelector {
     }
 
     static func AnalyzerExhaustivenessContainsName(names: IEnumerable<string>, target: string): bool {
-        foreach name in names {
+        for name in names {
             if name == target {
                 return true
             }
@@ -53,14 +52,7 @@ public class AnalyzerExhaustivenessSelector {
         return false
     }
 
-    public static func SelectMissingUnionCasesFromFlags(
-        cases: IReadOnlyList<UnionCase>,
-        coveredFlags: int[],
-        partialFlags: int[],
-        count: int,
-        out missingCases: List<string>,
-        out partialMissingCases: List<string>,
-        out neverCoveredCases: List<string>) {
+    static func SelectMissingUnionCasesFromFlags(cases: IReadOnlyList<UnionCase>, coveredFlags: int[], partialFlags: int[], count: int, out missingCases: List<string>, out partialMissingCases: List<string>, out neverCoveredCases: List<string>) {
         missingCases = new List<string>()
         partialMissingCases = new List<string>()
         neverCoveredCases = new List<string>()
@@ -85,7 +77,7 @@ public class AnalyzerExhaustivenessSelector {
     // A pattern that matches every value of the scrutinee and binds it. `_` is the explicit form;
     // any UNDOTTED identifier is the same thing under a name. A dotted identifier is a qualified
     // case name, not a binding, so it is NOT a catch-all.
-    public static func IsCatchAllPattern(pattern: Pattern): bool {
+    static func IsCatchAllPattern(pattern: Pattern): bool {
         identifierPattern := pattern as IdentifierPattern
         if identifierPattern == null {
             return false
@@ -96,7 +88,7 @@ public class AnalyzerExhaustivenessSelector {
 
     // A property entry that places no restriction on the value it reads: either it only binds
     // (`{ value }`) or the pattern it applies is itself a catch-all (`{ value: v }`).
-    public static func IsTotalPropertyPattern(propertyPattern: PropertyPattern): bool {
+    static func IsTotalPropertyPattern(propertyPattern: PropertyPattern): bool {
         if propertyPattern.Pattern == null {
             return true
         }
@@ -106,13 +98,13 @@ public class AnalyzerExhaustivenessSelector {
 
     // A union-case arm that covers its case OUTRIGHT: no property list, an empty one, or one whose
     // every entry is total.
-    public static func IsTotalUnionCasePattern(pattern: UnionCasePattern): bool {
+    static func IsTotalUnionCasePattern(pattern: UnionCasePattern): bool {
         properties := pattern.Properties
         if properties == null || properties.Count == 0 {
             return true
         }
 
-        foreach propertyPattern in properties {
+        for propertyPattern in properties {
             if !IsTotalPropertyPattern(propertyPattern) {
                 return false
             }
@@ -124,7 +116,7 @@ public class AnalyzerExhaustivenessSelector {
     // The same question asked of a NESTED pattern, where the alternative spelling is in play: a
     // nested union case may be written either as a case pattern with properties or as a dotted
     // identifier, and the dotted identifier — carrying no property list — is always total.
-    public static func IsTotalNestedUnionPattern(pattern: Pattern): bool {
+    static func IsTotalNestedUnionPattern(pattern: Pattern): bool {
         unionCasePattern := pattern as UnionCasePattern
         if unionCasePattern != null {
             return IsTotalUnionCasePattern(unionCasePattern)
@@ -139,7 +131,7 @@ public class AnalyzerExhaustivenessSelector {
     }
 
     // The case name a possibly-qualified pattern name denotes: everything after the last `.`.
-    public static func GetUnionCaseName(patternName: string): string {
+    static func GetUnionCaseName(patternName: string): string {
         if !patternName.Contains('.') {
             return patternName
         }
@@ -150,7 +142,7 @@ public class AnalyzerExhaustivenessSelector {
     // Whether a pattern name's QUALIFIER — the part before the last `.` — can name this union. An
     // unqualified name is compatible with any union; a qualified one must be the declared name, its
     // last segment, or a suffix-aligned prefix of the declared name.
-    public static func IsUnionCaseQualifierCompatible(unionType: UnionTypeInfo, patternName: string): bool {
+    static func IsUnionCaseQualifierCompatible(unionType: UnionTypeInfo, patternName: string): bool {
         lastDot := patternName.LastIndexOf('.')
         if lastDot < 0 {
             return true
@@ -163,21 +155,19 @@ public class AnalyzerExhaustivenessSelector {
             simpleName = declaredName.Substring(declaredName.LastIndexOf('.') + 1)
         }
 
-        return qualifier == declaredName
-            || qualifier == simpleName
-            || declaredName.EndsWith("." + qualifier, StringComparison.Ordinal)
+        return qualifier == declaredName || qualifier == simpleName || declaredName.EndsWith("." + qualifier, StringComparison.Ordinal)
     }
 
     // The union case a pattern name resolves to, or null when this union has none by that name. The
     // qualifier gate runs FIRST: a name qualified by some OTHER type does not resolve here even when
     // its last segment happens to match a case.
-    public static func FindUnionCaseForPattern(unionType: UnionTypeInfo, patternName: string): UnionCase? {
+    static func FindUnionCaseForPattern(unionType: UnionTypeInfo, patternName: string): UnionCase? {
         if !IsUnionCaseQualifierCompatible(unionType, patternName) {
             return null
         }
 
         caseName := GetUnionCaseName(patternName)
-        foreach candidate in unionType.Declaration.Cases {
+        for candidate in unionType.Declaration.Cases {
             if candidate.Name == caseName {
                 return candidate
             }
@@ -188,7 +178,7 @@ public class AnalyzerExhaustivenessSelector {
 
     // The case a NESTED pattern matches, in either spelling, or null when the pattern is not a case
     // reference at all. An UNDOTTED identifier is a binding rather than a case name and answers null.
-    public static func GetMatchedUnionCaseName(unionType: UnionTypeInfo, pattern: Pattern): string? {
+    static func GetMatchedUnionCaseName(unionType: UnionTypeInfo, pattern: Pattern): string? {
         nestedUnionPattern := pattern as UnionCasePattern
         if nestedUnionPattern != null {
             matchedCase := FindUnionCaseForPattern(unionType, nestedUnionPattern.CaseName)
@@ -212,12 +202,10 @@ public class AnalyzerExhaustivenessSelector {
 
     // The partially-covered half of a non-exhaustive message: each case name, annotated with the
     // FIRST nested arm the walk found missing for it when there is one.
-    public static func FormatPartialCoverageCases(
-        partialMissingCases: List<string>,
-        partialCoverageHints: Dictionary<string, List<string> >): string {
+    static func FormatPartialCoverageCases(partialMissingCases: List<string>, partialCoverageHints: Dictionary<string, List<string>>): string {
         rendered := new List<string>()
 
-        foreach caseName in partialMissingCases {
+        for caseName in partialMissingCases {
             hints := new List<string>()
             if partialCoverageHints.TryGetValue(caseName, out hints) && hints.Count > 0 {
                 rendered.Add(caseName + " (missing nested arm: " + hints[0] + ")")

@@ -5,19 +5,15 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
+
 // Semantic type selection belongs to N#. The C# assembly owner consumes only the exact live
 // handles selected here and never reconstructs imports, aliases, or source-name precedence.
 class ColumnarSemanticTypeRegistryBridge {
-    public static func TypeParametersOwnedByType(
-        visibleTypeParameters: Dictionary<string, Type>,
-        declaringType: TypeBuilder): Dictionary<string, Type>? {
+    static func TypeParametersOwnedByType(visibleTypeParameters: Dictionary<string, Type>, declaringType: TypeBuilder): Dictionary<string, Type>? {
         owned: Dictionary<string, Type>? = null
         for pair in visibleTypeParameters {
             typeParameter := pair.Value
-            if !typeParameter.get_IsGenericParameter()
-                || typeParameter.get_DeclaringMethod() != null
-                || !Object.ReferenceEquals(
-                    typeParameter.get_DeclaringType(), declaringType) {
+            if !typeParameter.get_IsGenericParameter() || typeParameter.get_DeclaringMethod() != null || !Object.ReferenceEquals(typeParameter.get_DeclaringType(), declaringType) {
                 continue
             }
             if owned == null {
@@ -28,52 +24,38 @@ class ColumnarSemanticTypeRegistryBridge {
         return owned
     }
 
-    public static func IsValidSynthesizedMethodSignatureType(
-        valueType: Type,
-        declaringType: TypeBuilder): bool {
+    static func IsValidSynthesizedMethodSignatureType(valueType: Type, declaringType: TypeBuilder): bool {
         if valueType.get_IsGenericParameter() {
-            return valueType.get_DeclaringMethod() == null
-                && Object.ReferenceEquals(
-                    valueType.get_DeclaringType(), declaringType)
+            return valueType.get_DeclaringMethod() == null && Object.ReferenceEquals(valueType.get_DeclaringType(), declaringType)
         }
         if valueType.get_HasElementType() {
             elementType := valueType.GetElementType()
-            return elementType != null
-                && IsValidSynthesizedMethodSignatureType(
-                    elementType, declaringType)
+            return elementType != null && IsValidSynthesizedMethodSignatureType(elementType, declaringType)
         }
         if !valueType.get_IsGenericType() {
             return true
         }
         for argument in valueType.GetGenericArguments() {
-            if !IsValidSynthesizedMethodSignatureType(
-                    argument, declaringType) {
+            if !IsValidSynthesizedMethodSignatureType(argument, declaringType) {
                 return false
             }
         }
         return true
     }
 
-    public static func IsValidSynthesizedMethodSignature(
-        returnType: Type,
-        parameterTypes: Type[],
-        declaringType: TypeBuilder): bool {
-        if !IsValidSynthesizedMethodSignatureType(
-                returnType, declaringType) {
+    static func IsValidSynthesizedMethodSignature(returnType: Type, parameterTypes: Type[], declaringType: TypeBuilder): bool {
+        if !IsValidSynthesizedMethodSignatureType(returnType, declaringType) {
             return false
         }
         for parameterType in parameterTypes {
-            if !IsValidSynthesizedMethodSignatureType(
-                    parameterType, declaringType) {
+            if !IsValidSynthesizedMethodSignatureType(parameterType, declaringType) {
                 return false
             }
         }
         return true
     }
 
-    public static func BindMethodToDeclaringTypeGenericContext(
-        declaringType: TypeBuilder,
-        method: MethodInfo): MethodInfo {
+    static func BindMethodToDeclaringTypeGenericContext(declaringType: TypeBuilder, method: MethodInfo): MethodInfo {
         typeParameters := declaringType.GetGenericArguments()
         if typeParameters.Length == 0 {
             return method
@@ -123,15 +105,7 @@ class ColumnarExactTypeResolver {
 
     ExactSourceTypes: Dictionary<string, Type> => exactSourceTypes
 
-    constructor(
-        program: ColumnarProgramInput,
-        sourceFileId: int,
-        bindings: ColumnarFragmentBindings,
-        sourceDefinitionTypes: List<Type>,
-        exactSourceTypes: Dictionary<string, Type>,
-        typeParameters: Dictionary<string, Type>,
-        blockedTypeParameterNames: IEnumerable<string>?,
-        enclosingSourceDeclarationName: string?) {
+    constructor(program: ColumnarProgramInput, sourceFileId: int, bindings: ColumnarFragmentBindings, sourceDefinitionTypes: List<Type>, exactSourceTypes: Dictionary<string, Type>, typeParameters: Dictionary<string, Type>, blockedTypeParameterNames: IEnumerable<string>?, enclosingSourceDeclarationName: string?) {
         this.program = program
         this.sourceFileId = sourceFileId
         this.bindings = bindings
@@ -145,18 +119,12 @@ class ColumnarExactTypeResolver {
                 this.blockedTypeParameterNames.Add(name)
             }
         }
-        cache = new Dictionary<string, ColumnarExactTypeResolutionCacheEntry>(
-            StringComparer.Ordinal)
-        sourceNameCache = new Dictionary<string, ColumnarSourceNameResolutionCacheEntry>(
-            StringComparer.Ordinal)
+        cache = new Dictionary<string, ColumnarExactTypeResolutionCacheEntry>(StringComparer.Ordinal)
+        sourceNameCache = new Dictionary<string, ColumnarSourceNameResolutionCacheEntry>(StringComparer.Ordinal)
     }
 
-    public func TryResolve(
-        canonical: string,
-        out selectedType: Type,
-        out claimed: bool): bool {
-        cached := new ColumnarExactTypeResolutionCacheEntry(
-            false, false, typeof(object))
+    func TryResolve(canonical: string, out selectedType: Type, out claimed: bool): bool {
+        cached := new ColumnarExactTypeResolutionCacheEntry(false, false, typeof(object))
         if !cache.TryGetValue(canonical, out cached) {
             selected := typeof(object)
             resolved := false
@@ -166,10 +134,7 @@ class ColumnarExactTypeResolver {
                 claimed = true
             } else if canonical.EndsWith("[]", StringComparison.Ordinal) {
                 elementType := typeof(object)
-                resolved = TryResolve(
-                    canonical.Substring(0, canonical.Length - 2),
-                    out elementType,
-                    out claimed)
+                resolved = TryResolve(canonical.Substring(0, canonical.Length - 2), out elementType, out claimed)
                 if resolved {
                     try {
                         selected = elementType.MakeArrayType()
@@ -190,8 +155,7 @@ class ColumnarExactTypeResolver {
                 } else {
                     exactSourceName := ""
                     sourceClaimed := false
-                    if TryResolveSourceDeclarationName(
-                        canonical, out exactSourceName, out sourceClaimed) {
+                    if TryResolveSourceDeclarationName(canonical, out exactSourceName, out sourceClaimed) {
                         claimed = true
                         // Alias expansion owns constructed shapes. The exact live source handle is
                         // the authoritative identity bridge for erased, non-generic source
@@ -199,24 +163,19 @@ class ColumnarExactTypeResolver {
                         // the original spelling; a competing file-level short name must not
                         // replace a lexically selected nested declaration.
                         sourceType := typeof(object)
-                        if exactSourceTypes.TryGetValue(
-                            exactSourceName, out sourceType)
-                            && !sourceType.get_IsGenericTypeDefinition() {
+                        if exactSourceTypes.TryGetValue(exactSourceName, out sourceType) && !sourceType.get_IsGenericTypeDefinition() {
                             selected = sourceType
                             resolved = true
                         } else {
                             ignoredClaim := false
-                            resolved = TryResolveExactExplicitType(
-                                canonical, out selected, out ignoredClaim)
+                            resolved = TryResolveExactExplicitType(canonical, out selected, out ignoredClaim)
                         }
                     } else {
-                        resolved = TryResolveExactExplicitType(
-                            canonical, out selected, out claimed)
+                        resolved = TryResolveExactExplicitType(canonical, out selected, out claimed)
                     }
                 }
             }
-            cached = new ColumnarExactTypeResolutionCacheEntry(
-                resolved, claimed, selected)
+            cached = new ColumnarExactTypeResolutionCacheEntry(resolved, claimed, selected)
             cache[canonical] = cached
         }
 
@@ -225,14 +184,11 @@ class ColumnarExactTypeResolver {
         return cached.Resolved
     }
 
-    public func IsSourceDefinition(valueType: Type): bool {
+    func IsSourceDefinition(valueType: Type): bool {
         if ContainsSourceDefinitionIdentity(valueType) {
             return true
         }
-        return valueType.get_IsGenericType()
-            && !valueType.get_IsGenericTypeDefinition()
-            && ContainsSourceDefinitionIdentity(
-                valueType.GetGenericTypeDefinition())
+        return valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && ContainsSourceDefinitionIdentity(valueType.GetGenericTypeDefinition())
     }
 
     func ContainsSourceDefinitionIdentity(valueType: Type): bool {
@@ -244,10 +200,8 @@ class ColumnarExactTypeResolver {
         return false
     }
 
-    public func ForSynthesizedMethod(
-        declaringType: TypeBuilder): ColumnarExactTypeResolver {
-        owned := ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(
-            typeParameters, declaringType)
+    func ForSynthesizedMethod(declaringType: TypeBuilder): ColumnarExactTypeResolver {
+        owned := ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(typeParameters, declaringType)
         if owned == null {
             owned = new Dictionary<string, Type>(StringComparer.Ordinal)
         }
@@ -260,24 +214,12 @@ class ColumnarExactTypeResolver {
                 blocked.Add(pair.Key)
             }
         }
-        narrowedBindings := ColumnarFragmentBindings.CreateTypeResolutionBindings(
-            bindings.Enums,
-            bindings.SourceTypeDefinitions,
-            bindings.SourceUnionDefinitions,
-            owned)
+        narrowedBindings := ColumnarFragmentBindings.CreateTypeResolutionBindings(bindings.Enums, bindings.SourceTypeDefinitions, bindings.SourceUnionDefinitions, owned)
         narrowedBindings.ExactSourceTypes = exactSourceTypes
-        return new ColumnarExactTypeResolver(
-            program,
-            sourceFileId,
-            narrowedBindings,
-            sourceDefinitionTypes,
-            exactSourceTypes,
-            owned,
-            blocked,
-            enclosingSourceDeclarationName)
+        return new ColumnarExactTypeResolver(program, sourceFileId, narrowedBindings, sourceDefinitionTypes, exactSourceTypes, owned, blocked, enclosingSourceDeclarationName)
     }
 
-    public func ClaimsTypeParameterShape(canonical: string): bool {
+    func ClaimsTypeParameterShape(canonical: string): bool {
         if ContainsBlockedTypeParameter(canonical) {
             return true
         }
@@ -294,29 +236,24 @@ class ColumnarExactTypeResolver {
     // declaration/alias claiming a BCL collection head makes that collection spelling terminally
     // invalid for the retained emitter. Inspect the complete shape so an outer array, nullable,
     // tuple, union, or generic cannot hide either rule from the exact resolver.
-    public func TryClassifySyntaxOwnedShape(
-        canonical: string,
-        out terminalRejection: bool): bool {
+    func TryClassifySyntaxOwnedShape(canonical: string, out terminalRejection: bool): bool {
         terminalRejection = false
         remaining := canonical
         deferToRetainedShape := false
         changed := true
         while changed {
             changed = false
-            while remaining.EndsWith("[]", StringComparison.Ordinal)
-                && remaining.Length > 2 {
+            while remaining.EndsWith("[]", StringComparison.Ordinal) && remaining.Length > 2 {
                 remaining = remaining.Substring(0, remaining.Length - 2)
                 deferToRetainedShape = true
                 changed = true
             }
-            if remaining.EndsWith("?", StringComparison.Ordinal)
-                && remaining.Length > 1 {
+            if remaining.EndsWith("?", StringComparison.Ordinal) && remaining.Length > 1 {
                 remaining = remaining.Substring(0, remaining.Length - 1)
                 deferToRetainedShape = true
                 changed = true
             }
-            if remaining.StartsWith("&", StringComparison.Ordinal)
-                && remaining.Length > 1 {
+            if remaining.StartsWith("&", StringComparison.Ordinal) && remaining.Length > 1 {
                 remaining = remaining.Substring(1)
                 deferToRetainedShape = true
                 changed = true
@@ -327,8 +264,7 @@ class ColumnarExactTypeResolver {
         if unionParts.Count > 0 {
             for part in unionParts {
                 nestedTerminal := false
-                if TryClassifySyntaxOwnedShape(part, out nestedTerminal)
-                    && nestedTerminal {
+                if TryClassifySyntaxOwnedShape(part, out nestedTerminal) && nestedTerminal {
                     terminalRejection = true
                     return true
                 }
@@ -336,16 +272,12 @@ class ColumnarExactTypeResolver {
             return true
         }
 
-        if remaining.Length >= 2 && remaining[0] == '('
-            && remaining[remaining.Length - 1] == ')' {
-            tupleCanonical := ColumnarTypeCanonicalizer
-                .StripTupleElementNames(remaining).Canonical
-            elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-                tupleCanonical.Substring(1, tupleCanonical.Length - 2))
+        if remaining.Length >= 2 && remaining[0] == '(' && remaining[remaining.Length - 1] == ')' {
+            tupleCanonical := ColumnarTypeCanonicalizer.StripTupleElementNames(remaining).Canonical
+            elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(tupleCanonical.Substring(1, tupleCanonical.Length - 2))
             for element in elements {
                 nestedTerminal := false
-                if TryClassifySyntaxOwnedShape(element, out nestedTerminal)
-                    && nestedTerminal {
+                if TryClassifySyntaxOwnedShape(element, out nestedTerminal) && nestedTerminal {
                     terminalRejection = true
                     return true
                 }
@@ -354,20 +286,15 @@ class ColumnarExactTypeResolver {
         }
 
         genericOpen := remaining.IndexOf('<')
-        if genericOpen > 0
-            && remaining.EndsWith(">", StringComparison.Ordinal) {
+        if genericOpen > 0 && remaining.EndsWith(">", StringComparison.Ordinal) {
             head := remaining.Substring(0, genericOpen)
-            arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-                remaining.Substring(
-                    genericOpen + 1,
-                    remaining.Length - genericOpen - 2))
+            arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(remaining.Substring(genericOpen + 1, remaining.Length - genericOpen - 2))
             // A terminal source collision in any argument dominates a retained outer shape.
             // Inspect every argument before accepting a modeled or exact-only runtime family so
             // an earlier non-terminal Func/tuple/union arm cannot hide a later source collection.
             for argument in arguments {
                 nestedTerminal := false
-                if TryClassifySyntaxOwnedShape(argument, out nestedTerminal)
-                    && nestedTerminal {
+                if TryClassifySyntaxOwnedShape(argument, out nestedTerminal) && nestedTerminal {
                     terminalRejection = true
                     return true
                 }
@@ -377,8 +304,7 @@ class ColumnarExactTypeResolver {
             }
             exactHeadName := ""
             sourceClaimed := false
-            sourceResolved := TryResolveSourceDeclarationName(
-                head, out exactHeadName, out sourceClaimed)
+            sourceResolved := TryResolveSourceDeclarationName(head, out exactHeadName, out sourceClaimed)
             if IsCollectionSyntaxHead(head) {
                 if sourceResolved || sourceClaimed {
                     terminalRejection = true
@@ -391,22 +317,18 @@ class ColumnarExactTypeResolver {
             if !sourceResolved {
                 exactRuntimeType := typeof(object)
                 exactRuntimeClaimed := false
-                if TryResolveExactExplicitType(
-                    remaining, out exactRuntimeType, out exactRuntimeClaimed) {
-                    validationCanonical := RuntimeGenericValidationCanonical(
-                        exactRuntimeType)
+                if TryResolveExactExplicitType(remaining, out exactRuntimeType, out exactRuntimeClaimed) {
+                    validationCanonical := RuntimeGenericValidationCanonical(exactRuntimeType)
                     if validationCanonical == "*" {
                         return false
                     }
-                    if validationCanonical != null
-                        && validationCanonical.Length > 0 {
+                    if validationCanonical != null && validationCanonical.Length > 0 {
                         return true
                     }
                     terminalRejection = true
                     return true
                 }
-                if head.IndexOf('.') < 0
-                    && IsModeledRuntimeGenericHeadName(head) {
+                if head.IndexOf('.') < 0 && IsModeledRuntimeGenericHeadName(head) {
                     return true
                 }
                 terminalRejection = true
@@ -427,7 +349,7 @@ class ColumnarExactTypeResolver {
     // open or its arguments cannot be represented and must be rejected; "*" delegates a family
     // to the retained support predicate; every other value is a canonical routed back through
     // the retained resolver's existing family-specific admissibility predicates.
-    public func RuntimeGenericValidationCanonical(valueType: Type): string? {
+    func RuntimeGenericValidationCanonical(valueType: Type): string? {
         if !valueType.get_IsGenericType() || IsSourceDefinition(valueType) {
             return null
         }
@@ -446,8 +368,7 @@ class ColumnarExactTypeResolver {
         i := 0
         while i < arguments.Length {
             argumentCanonical := ""
-            if !TryBuildValidationArgumentCanonical(
-                arguments[i], out argumentCanonical) {
+            if !TryBuildValidationArgumentCanonical(arguments[i], out argumentCanonical) {
                 return ""
             }
             canonicals[i] = argumentCanonical
@@ -459,9 +380,7 @@ class ColumnarExactTypeResolver {
         return head + "<" + string.Join(",", canonicals) + ">"
     }
 
-    func TryBuildValidationArgumentCanonical(
-        valueType: Type,
-        out canonical: string): bool {
+    func TryBuildValidationArgumentCanonical(valueType: Type, out canonical: string): bool {
         canonical = ""
         primitiveCanonical := ValidationPrimitiveCanonical(valueType)
         if primitiveCanonical != null {
@@ -478,8 +397,7 @@ class ColumnarExactTypeResolver {
             if elementType == null {
                 return false
             }
-            if !TryBuildValidationArgumentCanonical(
-                elementType, out elementCanonical) {
+            if !TryBuildValidationArgumentCanonical(elementType, out elementCanonical) {
                 return false
             }
             canonical = elementCanonical + "[]"
@@ -487,9 +405,7 @@ class ColumnarExactTypeResolver {
         }
         sourceType := valueType
         sourceArguments := new Type[](0)
-        if valueType.get_IsGenericType()
-            && !valueType.get_IsGenericTypeDefinition()
-            && IsSourceDefinition(valueType) {
+        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && IsSourceDefinition(valueType) {
             sourceType = valueType.GetGenericTypeDefinition()
             sourceArguments = valueType.GetGenericArguments()
         }
@@ -501,16 +417,14 @@ class ColumnarExactTypeResolver {
                     i := 0
                     while i < sourceArguments.Length {
                         sourceArgumentCanonical := ""
-                        if !TryBuildValidationArgumentCanonical(
-                            sourceArguments[i], out sourceArgumentCanonical) {
+                        if !TryBuildValidationArgumentCanonical(sourceArguments[i], out sourceArgumentCanonical) {
                             canonical = ""
                             return false
                         }
                         argumentCanonicals[i] = sourceArgumentCanonical
                         i += 1
                     }
-                    canonical = canonical + "<"
-                        + string.Join(",", argumentCanonicals) + ">"
+                    canonical = canonical + "<" + string.Join(",", argumentCanonicals) + ">"
                 }
                 return true
             }
@@ -518,8 +432,7 @@ class ColumnarExactTypeResolver {
         nested := RuntimeGenericValidationCanonical(valueType)
         if nested != null {
             if nested == "*" {
-                return TryBuildExactRuntimeGenericCanonical(
-                    valueType, out canonical)
+                return TryBuildExactRuntimeGenericCanonical(valueType, out canonical)
             }
             canonical = nested
             return canonical.Length > 0
@@ -533,30 +446,57 @@ class ColumnarExactTypeResolver {
     }
 
     static func ValidationPrimitiveCanonical(valueType: Type): string? {
-        if valueType == typeof(int) { return "int" }
-        if valueType == typeof(long) { return "long" }
-        if valueType == typeof(ulong) { return "ulong" }
-        if valueType == typeof(uint) { return "uint" }
-        if valueType == typeof(short) { return "short" }
-        if valueType == typeof(ushort) { return "ushort" }
-        if valueType == typeof(byte) { return "byte" }
-        if valueType == typeof(sbyte) { return "sbyte" }
-        if valueType == typeof(bool) { return "bool" }
-        if valueType == typeof(char) { return "char" }
-        if valueType == typeof(double) { return "double" }
-        if valueType == typeof(float) { return "float" }
-        if valueType == typeof(decimal) { return "decimal" }
-        if valueType == typeof(string) { return "string" }
-        if valueType == typeof(object) { return "object" }
+        if valueType == typeof(int) {
+            return "int"
+        }
+        if valueType == typeof(long) {
+            return "long"
+        }
+        if valueType == typeof(ulong) {
+            return "ulong"
+        }
+        if valueType == typeof(uint) {
+            return "uint"
+        }
+        if valueType == typeof(short) {
+            return "short"
+        }
+        if valueType == typeof(ushort) {
+            return "ushort"
+        }
+        if valueType == typeof(byte) {
+            return "byte"
+        }
+        if valueType == typeof(sbyte) {
+            return "sbyte"
+        }
+        if valueType == typeof(bool) {
+            return "bool"
+        }
+        if valueType == typeof(char) {
+            return "char"
+        }
+        if valueType == typeof(double) {
+            return "double"
+        }
+        if valueType == typeof(float) {
+            return "float"
+        }
+        if valueType == typeof(decimal) {
+            return "decimal"
+        }
+        if valueType == typeof(string) {
+            return "string"
+        }
+        if valueType == typeof(object) {
+            return "object"
+        }
         return null
     }
 
-    func TryBuildExactRuntimeGenericCanonical(
-        valueType: Type,
-        out canonical: string): bool {
+    func TryBuildExactRuntimeGenericCanonical(valueType: Type, out canonical: string): bool {
         canonical = ""
-        if !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         definitionName := valueType.GetGenericTypeDefinition().get_FullName()
@@ -573,60 +513,77 @@ class ColumnarExactTypeResolver {
         i := 0
         while i < arguments.Length {
             argumentCanonical := ""
-            if !TryBuildValidationArgumentCanonical(
-                arguments[i], out argumentCanonical) {
+            if !TryBuildValidationArgumentCanonical(arguments[i], out argumentCanonical) {
                 return false
             }
             argumentCanonicals[i] = argumentCanonical
             i += 1
         }
-        canonical = definitionName + "<"
-            + string.Join(",", argumentCanonicals) + ">"
+        canonical = definitionName + "<" + string.Join(",", argumentCanonicals) + ">"
         return true
     }
 
     static func RuntimeGenericValidationHead(definition: Type): string {
         core := "System.Private.CoreLib"
         collections := "System.Collections"
-        if RuntimeDefinitionMatches(definition, "System.Nullable`1", core) { return "Nullable" }
-        if RuntimeDefinitionMatches(definition, "System.Span`1", core) { return "Span" }
-        if RuntimeDefinitionMatches(definition, "System.ReadOnlySpan`1", core) { return "ReadOnlySpan" }
-        if RuntimeDefinitionMatches(definition, "System.ValueTuple`2", core)
-            || RuntimeDefinitionMatches(definition, "System.ValueTuple`3", core)
-            || RuntimeDefinitionMatches(definition, "System.ValueTuple`4", core)
-            || RuntimeDefinitionMatches(definition, "System.ValueTuple`5", core)
-            || RuntimeDefinitionMatches(definition, "System.ValueTuple`6", core)
-            || RuntimeDefinitionMatches(definition, "System.ValueTuple`7", core) {
+        if RuntimeDefinitionMatches(definition, "System.Nullable`1", core) {
+            return "Nullable"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Span`1", core) {
+            return "Span"
+        }
+        if RuntimeDefinitionMatches(definition, "System.ReadOnlySpan`1", core) {
+            return "ReadOnlySpan"
+        }
+        if RuntimeDefinitionMatches(definition, "System.ValueTuple`2", core) || RuntimeDefinitionMatches(definition, "System.ValueTuple`3", core) || RuntimeDefinitionMatches(definition, "System.ValueTuple`4", core) || RuntimeDefinitionMatches(definition, "System.ValueTuple`5", core) || RuntimeDefinitionMatches(definition, "System.ValueTuple`6", core) || RuntimeDefinitionMatches(definition, "System.ValueTuple`7", core) {
             return "ValueTuple"
         }
-        if RuntimeDefinitionMatches(definition, "System.Threading.Tasks.Task`1", core) { return "Task" }
-        if RuntimeDefinitionMatches(definition, "System.Threading.Tasks.ValueTask`1", core) { return "ValueTask" }
-        if RuntimeDefinitionMatches(definition, "NSharpLang.Runtime.Result`2", "NSharpLang.Runtime") { return "Result" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.List`1", core) { return "List" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.HashSet`1", core) { return "HashSet" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.Stack`1", collections) { return "Stack" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IReadOnlyList`1", core) { return "IReadOnlyList" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IReadOnlyCollection`1", core) { return "IReadOnlyCollection" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IReadOnlySet`1", core) { return "IReadOnlySet" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IEnumerable`1", core) { return "IEnumerable" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.Dictionary`2", core) { return "Dictionary" }
-        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.SortedDictionary`2", collections) { return "SortedDictionary" }
-        if RuntimeDefinitionMatches(definition, "System.Action`1", core)
-            || RuntimeDefinitionMatches(definition, "System.Action`2", core)
-            || RuntimeDefinitionMatches(definition, "System.Action`3", core)
-            || RuntimeDefinitionMatches(definition, "System.Action`4", core) { return "Action" }
-        if RuntimeDefinitionMatches(definition, "System.Func`1", core)
-            || RuntimeDefinitionMatches(definition, "System.Func`2", core)
-            || RuntimeDefinitionMatches(definition, "System.Func`3", core)
-            || RuntimeDefinitionMatches(definition, "System.Func`4", core)
-            || RuntimeDefinitionMatches(definition, "System.Func`5", core) { return "Func" }
+        if RuntimeDefinitionMatches(definition, "System.Threading.Tasks.Task`1", core) {
+            return "Task"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Threading.Tasks.ValueTask`1", core) {
+            return "ValueTask"
+        }
+        if RuntimeDefinitionMatches(definition, "NSharpLang.Runtime.Result`2", "NSharpLang.Runtime") {
+            return "Result"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.List`1", core) {
+            return "List"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.HashSet`1", core) {
+            return "HashSet"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.Stack`1", collections) {
+            return "Stack"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IReadOnlyList`1", core) {
+            return "IReadOnlyList"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IReadOnlyCollection`1", core) {
+            return "IReadOnlyCollection"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IReadOnlySet`1", core) {
+            return "IReadOnlySet"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IEnumerable`1", core) {
+            return "IEnumerable"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.Dictionary`2", core) {
+            return "Dictionary"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.SortedDictionary`2", collections) {
+            return "SortedDictionary"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Action`1", core) || RuntimeDefinitionMatches(definition, "System.Action`2", core) || RuntimeDefinitionMatches(definition, "System.Action`3", core) || RuntimeDefinitionMatches(definition, "System.Action`4", core) {
+            return "Action"
+        }
+        if RuntimeDefinitionMatches(definition, "System.Func`1", core) || RuntimeDefinitionMatches(definition, "System.Func`2", core) || RuntimeDefinitionMatches(definition, "System.Func`3", core) || RuntimeDefinitionMatches(definition, "System.Func`4", core) || RuntimeDefinitionMatches(definition, "System.Func`5", core) {
+            return "Func"
+        }
         return ""
     }
 
-    static func RuntimeDefinitionMatches(
-        definition: Type,
-        fullName: string,
-        assemblyName: string): bool {
+    static func RuntimeDefinitionMatches(definition: Type, fullName: string, assemblyName: string): bool {
         if definition.get_FullName() != fullName {
             return false
         }
@@ -636,34 +593,19 @@ class ColumnarExactTypeResolver {
     }
 
     static func IsModeledRuntimeGenericHeadName(name: string): bool {
-        return name == "Nullable" || name == "Span" || name == "ReadOnlySpan"
-            || name == "ValueTuple" || name == "Task" || name == "ValueTask"
-            || name == "Result" || name == "List" || name == "HashSet"
-            || name == "Stack" || name == "IReadOnlyList"
-            || name == "IReadOnlyCollection" || name == "IReadOnlySet"
-            || name == "IEnumerable" || name == "Dictionary"
-            || name == "SortedDictionary" || name == "Action" || name == "Func"
+        return name == "Nullable" || name == "Span" || name == "ReadOnlySpan" || name == "ValueTuple" || name == "Task" || name == "ValueTask" || name == "Result" || name == "List" || name == "HashSet" || name == "Stack" || name == "IReadOnlyList" || name == "IReadOnlyCollection" || name == "IReadOnlySet" || name == "IEnumerable" || name == "Dictionary" || name == "SortedDictionary" || name == "Action" || name == "Func"
     }
 
-    public func TryResolveSourceDeclarationName(
-        canonical: string,
-        out exactName: string,
-        out claimed: bool): bool {
+    func TryResolveSourceDeclarationName(canonical: string, out exactName: string, out claimed: bool): bool {
         cached := new ColumnarSourceNameResolutionCacheEntry(false, false, "")
         if !sourceNameCache.TryGetValue(canonical, out cached) {
             selectedName := ""
-            resolved := TryResolveLexicalSourceDeclarationName(
-                canonical, out selectedName)
+            resolved := TryResolveLexicalSourceDeclarationName(canonical, out selectedName)
             claimed = resolved
             if !resolved {
-                resolved = program.TryResolveExactSourceDeclarationNameForFile(
-                    sourceFileId,
-                    canonical,
-                    out selectedName,
-                    out claimed)
+                resolved = program.TryResolveExactSourceDeclarationNameForFile(sourceFileId, canonical, out selectedName, out claimed)
             }
-            cached = new ColumnarSourceNameResolutionCacheEntry(
-                resolved, claimed, selectedName)
+            cached = new ColumnarSourceNameResolutionCacheEntry(resolved, claimed, selectedName)
             sourceNameCache[canonical] = cached
         }
         exactName = cached.ExactName
@@ -675,21 +617,15 @@ class ColumnarExactTypeResolver {
     // body being emitted. A resolver instance has one immutable owner, so the ordinary spelling
     // caches above remain correct. Only actual source declarations form the parent walk: once the
     // next prefix is a namespace rather than a type, ordinary per-file/import lookup takes over.
-    func TryResolveLexicalSourceDeclarationName(
-        canonical: string,
-        out exactName: string): bool {
+    func TryResolveLexicalSourceDeclarationName(canonical: string, out exactName: string): bool {
         exactName = ""
-        if canonical == null || canonical.Length == 0
-            || enclosingSourceDeclarationName.Length == 0 {
+        if canonical == null || canonical.Length == 0 || enclosingSourceDeclarationName.Length == 0 {
             return false
         }
 
         ownerName := enclosingSourceDeclarationName
         while ownerName.Length > 0 {
-            if (ownerName == canonical
-                    || ownerName.EndsWith(
-                        "." + canonical, StringComparison.Ordinal))
-                && exactSourceTypes.ContainsKey(ownerName) {
+            if (ownerName == canonical || ownerName.EndsWith("." + canonical, StringComparison.Ordinal)) && exactSourceTypes.ContainsKey(ownerName) {
                 exactName = ownerName
                 return true
             }
@@ -716,20 +652,11 @@ class ColumnarExactTypeResolver {
     // Constructed lexical source types still flow through the binding scope's CLR-shape owner.
     // Replace only the source head with its exact dotted identity, then let the existing recursive
     // resolver assemble and validate arguments. File aliases/imports remain unchanged fallbacks.
-    func TryResolveExactExplicitType(
-        canonical: string,
-        out selectedType: Type,
-        out claimed: bool): bool {
+    func TryResolveExactExplicitType(canonical: string, out selectedType: Type, out claimed: bool): bool {
         contextualCanonical := ""
-        if TryBuildLexicalExplicitCanonical(
-                canonical, out contextualCanonical) {
+        if TryBuildLexicalExplicitCanonical(canonical, out contextualCanonical) {
             contextualClaimed := false
-            if program.TryResolveExactExplicitTypeForFile(
-                    sourceFileId,
-                    contextualCanonical,
-                    bindings,
-                    out selectedType,
-                    out contextualClaimed) {
+            if program.TryResolveExactExplicitTypeForFile(sourceFileId, contextualCanonical, bindings, out selectedType, out contextualClaimed) {
                 claimed = true
                 return true
             }
@@ -738,17 +665,10 @@ class ColumnarExactTypeResolver {
                 return false
             }
         }
-        return program.TryResolveExactExplicitTypeForFile(
-            sourceFileId,
-            canonical,
-            bindings,
-            out selectedType,
-            out claimed)
+        return program.TryResolveExactExplicitTypeForFile(sourceFileId, canonical, bindings, out selectedType, out claimed)
     }
 
-    func TryBuildLexicalExplicitCanonical(
-        canonical: string,
-        out contextualCanonical: string): bool {
+    func TryBuildLexicalExplicitCanonical(canonical: string, out contextualCanonical: string): bool {
         contextualCanonical = ""
         if canonical == null || canonical.Length == 0 {
             return false
@@ -756,8 +676,7 @@ class ColumnarExactTypeResolver {
         head := canonical
         suffix := ""
         genericOpen := canonical.IndexOf('<')
-        if genericOpen > 0
-            && canonical.EndsWith(">", StringComparison.Ordinal) {
+        if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
             head = canonical.Substring(0, genericOpen)
             suffix = canonical.Substring(genericOpen)
         }
@@ -771,8 +690,7 @@ class ColumnarExactTypeResolver {
 
     func HasVisibleTypeParameterRoot(canonical: string): bool {
         for pair in typeParameters {
-            if canonical.StartsWith(pair.Key + ".", StringComparison.Ordinal)
-                || canonical.StartsWith(pair.Key + "<", StringComparison.Ordinal) {
+            if canonical.StartsWith(pair.Key + ".", StringComparison.Ordinal) || canonical.StartsWith(pair.Key + "<", StringComparison.Ordinal) {
                 return true
             }
         }
@@ -793,18 +711,15 @@ class ColumnarExactTypeResolver {
         changed := true
         while changed {
             changed = false
-            while remaining.EndsWith("[]", StringComparison.Ordinal)
-                && remaining.Length > 2 {
+            while remaining.EndsWith("[]", StringComparison.Ordinal) && remaining.Length > 2 {
                 remaining = remaining.Substring(0, remaining.Length - 2)
                 changed = true
             }
-            if remaining.EndsWith("?", StringComparison.Ordinal)
-                && remaining.Length > 1 {
+            if remaining.EndsWith("?", StringComparison.Ordinal) && remaining.Length > 1 {
                 remaining = remaining.Substring(0, remaining.Length - 1)
                 changed = true
             }
-            if remaining.StartsWith("&", StringComparison.Ordinal)
-                && remaining.Length > 1 {
+            if remaining.StartsWith("&", StringComparison.Ordinal) && remaining.Length > 1 {
                 remaining = remaining.Substring(1)
                 changed = true
             }
@@ -818,12 +733,9 @@ class ColumnarExactTypeResolver {
             }
             return false
         }
-        if remaining.Length >= 2 && remaining[0] == '('
-            && remaining[remaining.Length - 1] == ')' {
-            tupleCanonical := ColumnarTypeCanonicalizer
-                .StripTupleElementNames(remaining).Canonical
-            elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-                tupleCanonical.Substring(1, tupleCanonical.Length - 2))
+        if remaining.Length >= 2 && remaining[0] == '(' && remaining[remaining.Length - 1] == ')' {
+            tupleCanonical := ColumnarTypeCanonicalizer.StripTupleElementNames(remaining).Canonical
+            elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(tupleCanonical.Substring(1, tupleCanonical.Length - 2))
             for element in elements {
                 if ContainsTypeParameter(element, name) {
                     return true
@@ -832,16 +744,11 @@ class ColumnarExactTypeResolver {
             return false
         }
         genericOpen := remaining.IndexOf('<')
-        if genericOpen > 0
-            && remaining.EndsWith(">", StringComparison.Ordinal) {
-            if IsTypeParameterRoot(
-                remaining.Substring(0, genericOpen), name) {
+        if genericOpen > 0 && remaining.EndsWith(">", StringComparison.Ordinal) {
+            if IsTypeParameterRoot(remaining.Substring(0, genericOpen), name) {
                 return true
             }
-            arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-                remaining.Substring(
-                    genericOpen + 1,
-                    remaining.Length - genericOpen - 2))
+            arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(remaining.Substring(genericOpen + 1, remaining.Length - genericOpen - 2))
             for argument in arguments {
                 if ContainsTypeParameter(argument, name) {
                     return true
@@ -853,9 +760,7 @@ class ColumnarExactTypeResolver {
     }
 
     static func IsCollectionSyntaxHead(name: string): bool {
-        return name == "List" || name == "Dictionary"
-            || name == "SortedDictionary" || name == "HashSet"
-            || name == "Stack"
+        return name == "List" || name == "Dictionary" || name == "SortedDictionary" || name == "HashSet" || name == "Stack"
     }
 
     static func SplitTopLevelPipes(canonical: string): List<string> {
@@ -867,14 +772,19 @@ class ColumnarExactTypeResolver {
         i := 0
         while i < canonical.Length {
             c := canonical[i]
-            if c == '<' { angleDepth += 1 }
-            else if c == '>' && angleDepth > 0 { angleDepth -= 1 }
-            else if c == '(' { parenDepth += 1 }
-            else if c == ')' && parenDepth > 0 { parenDepth -= 1 }
-            else if c == '[' { bracketDepth += 1 }
-            else if c == ']' && bracketDepth > 0 { bracketDepth -= 1 }
-            else if c == '|' && angleDepth == 0
-                && parenDepth == 0 && bracketDepth == 0 {
+            if c == '<' {
+                angleDepth += 1
+            } else if c == '>' && angleDepth > 0 {
+                angleDepth -= 1
+            } else if c == '(' {
+                parenDepth += 1
+            } else if c == ')' && parenDepth > 0 {
+                parenDepth -= 1
+            } else if c == '[' {
+                bracketDepth += 1
+            } else if c == ']' && bracketDepth > 0 {
+                bracketDepth -= 1
+            } else if c == '|' && angleDepth == 0 && parenDepth == 0 && bracketDepth == 0 {
                 parts.Add(canonical.Substring(start, i - start))
                 start = i + 1
             }
@@ -887,14 +797,12 @@ class ColumnarExactTypeResolver {
     }
 
     static func IsTypeParameterRoot(canonical: string, name: string): bool {
-        return canonical == name
-            || canonical.StartsWith(name + ".", StringComparison.Ordinal)
+        return canonical == name || canonical.StartsWith(name + ".", StringComparison.Ordinal)
     }
 }
 
 class ColumnarSemanticDefinitionIndexes {
-    public static func Enums(
-        source: Dictionary<string, ColumnarEnumDef>): ColumnarSemanticDefinitionIndex<ColumnarEnumDef> {
+    static func Enums(source: Dictionary<string, ColumnarEnumDef>): ColumnarSemanticDefinitionIndex<ColumnarEnumDef> {
         definitions := new List<ColumnarEnumDef>()
         names := new List<string>()
         runtimeTypes := new List<Type>()
@@ -908,12 +816,10 @@ class ColumnarSemanticDefinitionIndexes {
             }
             runtimeTypes.Add(runtimeType)
         }
-        return new ColumnarSemanticDefinitionIndex<ColumnarEnumDef>(
-            definitions.ToArray(), names.ToArray(), runtimeTypes.ToArray())
+        return new ColumnarSemanticDefinitionIndex<ColumnarEnumDef>(definitions.ToArray(), names.ToArray(), runtimeTypes.ToArray())
     }
 
-    public static func Structs(
-        source: Dictionary<string, ColumnarStructDef>): ColumnarSemanticDefinitionIndex<ColumnarStructDef> {
+    static func Structs(source: Dictionary<string, ColumnarStructDef>): ColumnarSemanticDefinitionIndex<ColumnarStructDef> {
         definitions := new List<ColumnarStructDef>()
         names := new List<string>()
         runtimeTypes := new List<Type>()
@@ -923,12 +829,10 @@ class ColumnarSemanticDefinitionIndexes {
             names.Add(definition.DeclaredTypeName)
             runtimeTypes.Add(definition.Builder)
         }
-        return new ColumnarSemanticDefinitionIndex<ColumnarStructDef>(
-            definitions.ToArray(), names.ToArray(), runtimeTypes.ToArray())
+        return new ColumnarSemanticDefinitionIndex<ColumnarStructDef>(definitions.ToArray(), names.ToArray(), runtimeTypes.ToArray())
     }
 
-    public static func Unions(
-        source: Dictionary<string, ColumnarUnionDef>): ColumnarSemanticDefinitionIndex<ColumnarUnionDef> {
+    static func Unions(source: Dictionary<string, ColumnarUnionDef>): ColumnarSemanticDefinitionIndex<ColumnarUnionDef> {
         definitions := new List<ColumnarUnionDef>()
         names := new List<string>()
         runtimeTypes := new List<Type>()
@@ -938,8 +842,7 @@ class ColumnarSemanticDefinitionIndexes {
             names.Add(definition.DeclaredTypeName)
             runtimeTypes.Add(definition.Base)
         }
-        return new ColumnarSemanticDefinitionIndex<ColumnarUnionDef>(
-            definitions.ToArray(), names.ToArray(), runtimeTypes.ToArray())
+        return new ColumnarSemanticDefinitionIndex<ColumnarUnionDef>(definitions.ToArray(), names.ToArray(), runtimeTypes.ToArray())
     }
 }
 
@@ -955,14 +858,9 @@ class ColumnarSemanticDefinitionIndex<TDefinition> {
     Count: int => definitions.Count
     ExactPairs: Dictionary<string, TDefinition> => exact
 
-    constructor(
-        sourceDefinitions: TDefinition[],
-        declaredNames: string[],
-        runtimeTypes: Type[]) {
-        if sourceDefinitions.Length != declaredNames.Length
-            || sourceDefinitions.Length != runtimeTypes.Length {
-            throw new InvalidOperationException(
-                "Semantic definition index columns must have identical lengths.")
+    constructor(sourceDefinitions: TDefinition[], declaredNames: string[], runtimeTypes: Type[]) {
+        if sourceDefinitions.Length != declaredNames.Length || sourceDefinitions.Length != runtimeTypes.Length {
+            throw new InvalidOperationException("Semantic definition index columns must have identical lengths.")
         }
         exact = new Dictionary<string, TDefinition>(StringComparer.Ordinal)
         exactNames = new List<string>()
@@ -979,8 +877,7 @@ class ColumnarSemanticDefinitionIndex<TDefinition> {
             }
             definitions.Add(definition)
             exactName := declaredNames[sourceIndex]
-            if !string.IsNullOrEmpty(exactName)
-                && !exact.ContainsKey(exactName) {
+            if !string.IsNullOrEmpty(exactName) && !exact.ContainsKey(exactName) {
                 exact.Add(exactName, definition)
                 exactNames.Add(exactName)
             }
@@ -988,8 +885,7 @@ class ColumnarSemanticDefinitionIndex<TDefinition> {
             emittedType := runtimeTypes[sourceIndex]
             if emittedType != typeof(object) {
                 existing := definition
-                if uniqueRuntimeDefinitions.TryGetValue(
-                    emittedType, out existing) {
+                if uniqueRuntimeDefinitions.TryGetValue(emittedType, out existing) {
                     uniqueRuntimeDefinitions.Remove(emittedType)
                     ambiguousRuntimeTypes.Add(emittedType)
                 } else if !ambiguousRuntimeTypes.Contains(emittedType) {
@@ -1000,60 +896,45 @@ class ColumnarSemanticDefinitionIndex<TDefinition> {
         }
     }
 
-    public func TryGetExact(
-        name: string,
-        out definition: TDefinition): bool {
+    func TryGetExact(name: string, out definition: TDefinition): bool {
         return exact.TryGetValue(name, out definition)
     }
 
-    public func ContainsExact(name: string): bool {
+    func ContainsExact(name: string): bool {
         return exact.ContainsKey(name)
     }
 
-    public func TryGetExactConstructed(
-        name: string,
-        out definition: TDefinition): bool {
+    func TryGetExactConstructed(name: string, out definition: TDefinition): bool {
         if exact.TryGetValue(name, out definition) {
             return true
         }
         genericOpen := name.IndexOf('<')
-        return genericOpen > 0
-            && name.EndsWith(">", StringComparison.Ordinal)
-            && exact.TryGetValue(
-                name.Substring(0, genericOpen), out definition)
+        return genericOpen > 0 && name.EndsWith(">", StringComparison.Ordinal) && exact.TryGetValue(name.Substring(0, genericOpen), out definition)
     }
 
-    public func ContainsExactConstructed(name: string): bool {
+    func ContainsExactConstructed(name: string): bool {
         if exact.ContainsKey(name) {
             return true
         }
         genericOpen := name.IndexOf('<')
-        return genericOpen > 0
-            && name.EndsWith(">", StringComparison.Ordinal)
-            && exact.ContainsKey(name.Substring(0, genericOpen))
+        return genericOpen > 0 && name.EndsWith(">", StringComparison.Ordinal) && exact.ContainsKey(name.Substring(0, genericOpen))
     }
 
-    public func TryGetUniqueRuntime(
-        valueType: Type,
-        out definition: TDefinition): bool {
+    func TryGetUniqueRuntime(valueType: Type, out definition: TDefinition): bool {
         lookupType := valueType
-        if lookupType.get_IsGenericType()
-            && !lookupType.get_IsGenericTypeDefinition() {
+        if lookupType.get_IsGenericType() && !lookupType.get_IsGenericTypeDefinition() {
             lookupType = lookupType.GetGenericTypeDefinition()
         }
-        found := uniqueRuntimeDefinitions.TryGetValue(
-            lookupType, out definition)
+        found := uniqueRuntimeDefinitions.TryGetValue(lookupType, out definition)
         return !ambiguousRuntimeTypes.Contains(lookupType) && found
     }
 
-    public func ContainsUniqueRuntime(valueType: Type): bool {
+    func ContainsUniqueRuntime(valueType: Type): bool {
         lookupType := valueType
-        if lookupType.get_IsGenericType()
-            && !lookupType.get_IsGenericTypeDefinition() {
+        if lookupType.get_IsGenericType() && !lookupType.get_IsGenericTypeDefinition() {
             lookupType = lookupType.GetGenericTypeDefinition()
         }
-        return !ambiguousRuntimeTypes.Contains(lookupType)
-            && uniqueRuntimeDefinitions.ContainsKey(lookupType)
+        return !ambiguousRuntimeTypes.Contains(lookupType) && uniqueRuntimeDefinitions.ContainsKey(lookupType)
     }
 }
 
@@ -1068,38 +949,31 @@ class ColumnarSemanticRegistry<TDefinition> {
     Values: List<TDefinition> => index.Values
     Count: int => index.Count
 
-    constructor(
-        index: ColumnarSemanticDefinitionIndex<TDefinition>,
-        resolver: ColumnarExactTypeResolver) {
+    constructor(index: ColumnarSemanticDefinitionIndex<TDefinition>, resolver: ColumnarExactTypeResolver) {
         this.index = index
         this.resolver = resolver
-        resolvedLookupCache = new Dictionary<string, TDefinition>(
-            StringComparer.Ordinal)
+        resolvedLookupCache = new Dictionary<string, TDefinition>(StringComparer.Ordinal)
         rejectedLookupCache = new HashSet<string>(StringComparer.Ordinal)
     }
 
-    public func ContainsSourceDeclaration(name: string): bool {
+    func ContainsSourceDeclaration(name: string): bool {
         exactSourceName := ""
         claimed := false
-        return resolver.TryResolveSourceDeclarationName(
-                name, out exactSourceName, out claimed)
-            && index.ContainsExactConstructed(exactSourceName)
+        return resolver.TryResolveSourceDeclarationName(name, out exactSourceName, out claimed) && index.ContainsExactConstructed(exactSourceName)
     }
 
-    public func ContainsKey(key: string): bool {
+    func ContainsKey(key: string): bool {
         if resolvedLookupCache.ContainsKey(key) {
             return true
         }
-        if rejectedLookupCache.Contains(key)
-            || resolver.ClaimsTypeParameterShape(key) {
+        if rejectedLookupCache.Contains(key) || resolver.ClaimsTypeParameterShape(key) {
             rejectedLookupCache.Add(key)
             return false
         }
 
         exactSourceName := ""
         sourceClaimed := false
-        if resolver.TryResolveSourceDeclarationName(
-            key, out exactSourceName, out sourceClaimed) {
+        if resolver.TryResolveSourceDeclarationName(key, out exactSourceName, out sourceClaimed) {
             foundSource := index.ContainsExactConstructed(exactSourceName)
             if !foundSource {
                 rejectedLookupCache.Add(key)
@@ -1128,9 +1002,7 @@ class ColumnarSemanticRegistry<TDefinition> {
         return foundExact
     }
 
-    public func TryGetValue(
-        key: string,
-        out value: TDefinition): bool {
+    func TryGetValue(key: string, out value: TDefinition): bool {
         if resolvedLookupCache.TryGetValue(key, out value) {
             return true
         }
@@ -1144,11 +1016,9 @@ class ColumnarSemanticRegistry<TDefinition> {
 
         exactSourceName := ""
         sourceClaimed := false
-        if resolver.TryResolveSourceDeclarationName(
-            key, out exactSourceName, out sourceClaimed) {
+        if resolver.TryResolveSourceDeclarationName(key, out exactSourceName, out sourceClaimed) {
             sourceDefinition := value
-            if index.TryGetExactConstructed(
-                exactSourceName, out sourceDefinition) {
+            if index.TryGetExactConstructed(exactSourceName, out sourceDefinition) {
                 resolvedLookupCache[key] = sourceDefinition
                 value = sourceDefinition
                 return true
@@ -1161,8 +1031,7 @@ class ColumnarSemanticRegistry<TDefinition> {
         claimed := false
         if resolver.TryResolve(key, out selectedType, out claimed) {
             runtimeDefinition := value
-            if index.TryGetUniqueRuntime(
-                selectedType, out runtimeDefinition) {
+            if index.TryGetUniqueRuntime(selectedType, out runtimeDefinition) {
                 resolvedLookupCache[key] = runtimeDefinition
                 value = runtimeDefinition
                 return true
@@ -1185,12 +1054,10 @@ class ColumnarSemanticRegistry<TDefinition> {
         return false
     }
 
-    public func ForSynthesizedMethod(
-        declaringType: TypeBuilder): ColumnarSemanticRegistry<TDefinition> {
+    func ForSynthesizedMethod(declaringType: TypeBuilder): ColumnarSemanticRegistry<TDefinition> {
         selectedIndex := index
         selectedResolver := resolver.ForSynthesizedMethod(declaringType)
-        return new ColumnarSemanticRegistry<TDefinition>(
-            selectedIndex, selectedResolver)
+        return new ColumnarSemanticRegistry<TDefinition>(selectedIndex, selectedResolver)
     }
 }
 
@@ -1199,44 +1066,17 @@ class ColumnarSemanticTypeResolution {
     Structs: ColumnarSemanticRegistry<ColumnarStructDef>
     Unions: ColumnarSemanticRegistry<ColumnarUnionDef>
 
-    constructor(
-        program: ColumnarProgramInput,
-        sourceFileId: int,
-        enums: Dictionary<string, ColumnarEnumDef>,
-        structs: Dictionary<string, ColumnarStructDef>,
-        unions: Dictionary<string, ColumnarUnionDef>,
-        enumIndex: ColumnarSemanticDefinitionIndex<ColumnarEnumDef>,
-        structIndex: ColumnarSemanticDefinitionIndex<ColumnarStructDef>,
-        unionIndex: ColumnarSemanticDefinitionIndex<ColumnarUnionDef>,
-        sourceDefinitionTypes: List<Type>,
-        exactSourceTypes: Dictionary<string, Type>,
-        suppliedTypeParameters: Dictionary<string, Type>?,
-        enclosingSourceDeclarationName: string? = null) {
+    constructor(program: ColumnarProgramInput, sourceFileId: int, enums: Dictionary<string, ColumnarEnumDef>, structs: Dictionary<string, ColumnarStructDef>, unions: Dictionary<string, ColumnarUnionDef>, enumIndex: ColumnarSemanticDefinitionIndex<ColumnarEnumDef>, structIndex: ColumnarSemanticDefinitionIndex<ColumnarStructDef>, unionIndex: ColumnarSemanticDefinitionIndex<ColumnarUnionDef>, sourceDefinitionTypes: List<Type>, exactSourceTypes: Dictionary<string, Type>, suppliedTypeParameters: Dictionary<string, Type>?, enclosingSourceDeclarationName: string? = null) {
         typeParameters := suppliedTypeParameters
         if typeParameters == null {
             typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         }
-        bindings := ColumnarFragmentBindings.CreateTypeResolutionBindings(
-            enums,
-            structs,
-            unions,
-            typeParameters)
+        bindings := ColumnarFragmentBindings.CreateTypeResolutionBindings(enums, structs, unions, typeParameters)
         bindings.ExactSourceTypes = exactSourceTypes
-        exactResolver := new ColumnarExactTypeResolver(
-            program,
-            sourceFileId,
-            bindings,
-            sourceDefinitionTypes,
-            exactSourceTypes,
-            typeParameters,
-            null,
-            enclosingSourceDeclarationName)
-        Enums = new ColumnarSemanticRegistry<ColumnarEnumDef>(
-            enumIndex, exactResolver)
-        Structs = new ColumnarSemanticRegistry<ColumnarStructDef>(
-            structIndex, exactResolver)
-        Unions = new ColumnarSemanticRegistry<ColumnarUnionDef>(
-            unionIndex, exactResolver)
+        exactResolver := new ColumnarExactTypeResolver(program, sourceFileId, bindings, sourceDefinitionTypes, exactSourceTypes, typeParameters, null, enclosingSourceDeclarationName)
+        Enums = new ColumnarSemanticRegistry<ColumnarEnumDef>(enumIndex, exactResolver)
+        Structs = new ColumnarSemanticRegistry<ColumnarStructDef>(structIndex, exactResolver)
+        Unions = new ColumnarSemanticRegistry<ColumnarUnionDef>(unionIndex, exactResolver)
     }
 }
 
@@ -1244,14 +1084,12 @@ class ColumnarSemanticTypeResolutionCatalogEntry {
     TypeParameters: Dictionary<string, Type>
     Resolution: ColumnarSemanticTypeResolution
 
-    constructor(
-        typeParameters: Dictionary<string, Type>,
-        resolution: ColumnarSemanticTypeResolution) {
+    constructor(typeParameters: Dictionary<string, Type>, resolution: ColumnarSemanticTypeResolution) {
         TypeParameters = typeParameters
         Resolution = resolution
     }
 
-    public func Matches(typeParameters: Dictionary<string, Type>): bool {
+    func Matches(typeParameters: Dictionary<string, Type>): bool {
         return Object.ReferenceEquals(TypeParameters, typeParameters)
     }
 }
@@ -1269,14 +1107,10 @@ class ColumnarSemanticTypeResolutionCatalog {
     unionIndex: ColumnarSemanticDefinitionIndex<ColumnarUnionDef>
     sourceDefinitionTypes: List<Type>
     exactSourceTypes: Dictionary<string, Type>
-    nongenericViews: Dictionary<int, Dictionary<string, ColumnarSemanticTypeResolution> >
-    genericViews: Dictionary<int, Dictionary<string, List<ColumnarSemanticTypeResolutionCatalogEntry> > >
+    nongenericViews: Dictionary<int, Dictionary<string, ColumnarSemanticTypeResolution>>
+    genericViews: Dictionary<int, Dictionary<string, List<ColumnarSemanticTypeResolutionCatalogEntry>>>
 
-    constructor(
-        program: ColumnarProgramInput,
-        enums: Dictionary<string, ColumnarEnumDef>,
-        structs: Dictionary<string, ColumnarStructDef>,
-        unions: Dictionary<string, ColumnarUnionDef>) {
+    constructor(program: ColumnarProgramInput, enums: Dictionary<string, ColumnarEnumDef>, structs: Dictionary<string, ColumnarStructDef>, unions: Dictionary<string, ColumnarUnionDef>) {
         this.program = program
         this.enums = enums
         this.structs = structs
@@ -1304,18 +1138,14 @@ class ColumnarSemanticTypeResolutionCatalog {
         for pair in unionIndex.ExactPairs {
             exactSourceTypes[pair.Key] = pair.Value.Base
         }
-        nongenericViews = new Dictionary<int, Dictionary<string, ColumnarSemanticTypeResolution> >()
-        genericViews = new Dictionary<int, Dictionary<string, List<ColumnarSemanticTypeResolutionCatalogEntry> > >()
+        nongenericViews = new Dictionary<int, Dictionary<string, ColumnarSemanticTypeResolution>>()
+        genericViews = new Dictionary<int, Dictionary<string, List<ColumnarSemanticTypeResolutionCatalogEntry>>>()
     }
 
-    public func For(
-        sourceFileId: int,
-        typeParameters: Dictionary<string, Type>? = null,
-        enclosingSourceDeclarationName: string? = null): ColumnarSemanticTypeResolution {
+    func For(sourceFileId: int, typeParameters: Dictionary<string, Type>? = null, enclosingSourceDeclarationName: string? = null): ColumnarSemanticTypeResolution {
         enclosingDeclaration := enclosingSourceDeclarationName ?? ""
         if typeParameters == null {
-            viewsByOwner := new Dictionary<string, ColumnarSemanticTypeResolution>(
-                StringComparer.Ordinal)
+            viewsByOwner := new Dictionary<string, ColumnarSemanticTypeResolution>(StringComparer.Ordinal)
             if nongenericViews.ContainsKey(sourceFileId) {
                 viewsByOwner = nongenericViews[sourceFileId]
             } else {
@@ -1324,14 +1154,12 @@ class ColumnarSemanticTypeResolutionCatalog {
             if viewsByOwner.ContainsKey(enclosingDeclaration) {
                 return viewsByOwner[enclosingDeclaration]
             }
-            created := Create(
-                sourceFileId, null, enclosingDeclaration)
+            created := Create(sourceFileId, null, enclosingDeclaration)
             viewsByOwner[enclosingDeclaration] = created
             return created
         }
 
-        genericViewsByOwner := new Dictionary<string, List<ColumnarSemanticTypeResolutionCatalogEntry>>(
-            StringComparer.Ordinal)
+        genericViewsByOwner := new Dictionary<string, List<ColumnarSemanticTypeResolutionCatalogEntry>>(StringComparer.Ordinal)
         if genericViews.ContainsKey(sourceFileId) {
             genericViewsByOwner = genericViews[sourceFileId]
         } else {
@@ -1348,30 +1176,12 @@ class ColumnarSemanticTypeResolutionCatalog {
                 return entry.Resolution
             }
         }
-        createdGeneric := Create(
-            sourceFileId, typeParameters, enclosingDeclaration)
-        ownerViews.Add(new ColumnarSemanticTypeResolutionCatalogEntry(
-            typeParameters,
-            createdGeneric))
+        createdGeneric := Create(sourceFileId, typeParameters, enclosingDeclaration)
+        ownerViews.Add(new ColumnarSemanticTypeResolutionCatalogEntry(typeParameters, createdGeneric))
         return createdGeneric
     }
 
-    func Create(
-        sourceFileId: int,
-        typeParameters: Dictionary<string, Type>?,
-        enclosingDeclaration: string): ColumnarSemanticTypeResolution {
-        return new ColumnarSemanticTypeResolution(
-            program,
-            sourceFileId,
-            enums,
-            structs,
-            unions,
-            enumIndex,
-            structIndex,
-            unionIndex,
-            sourceDefinitionTypes,
-            exactSourceTypes,
-            typeParameters,
-            enclosingDeclaration)
+    func Create(sourceFileId: int, typeParameters: Dictionary<string, Type>?, enclosingDeclaration: string): ColumnarSemanticTypeResolution {
+        return new ColumnarSemanticTypeResolution(program, sourceFileId, enums, structs, unions, enumIndex, structIndex, unionIndex, sourceDefinitionTypes, exactSourceTypes, typeParameters, enclosingDeclaration)
     }
 }

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // Whether a `match` covers everything its scrutinee can be — and the diagnostic when it does not.
 //
 // THE SCRUTINEE'S TYPE PICKS THE QUESTION, and the five questions are genuinely different rather
@@ -30,18 +31,13 @@ import NSharpLang.Compiler.Ast
 // together cover `Error` when `Kind` has exactly those two cases. The walk computes that, and when
 // it falls short it produces HINTS that name the exact missing nested arm, which is what turns
 // "partially covered: Error" into "Error (missing nested arm: Result.Error { kind: Kind.Parse })".
-public class AnalyzerMatchExhaustiveness {
-
+class AnalyzerMatchExhaustiveness {
     diagnosticsValue: AnalyzerDiagnosticSink
     typeSubstitutionValue: AnalyzerTypeSubstitution
     assignabilityValue: AnalyzerAssignability
     typeResolverValue: AnalyzerTypeResolver
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        typeSubstitution: AnalyzerTypeSubstitution,
-        assignability: AnalyzerAssignability,
-        typeResolver: AnalyzerTypeResolver) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, typeSubstitution: AnalyzerTypeSubstitution, assignability: AnalyzerAssignability, typeResolver: AnalyzerTypeResolver) {
         diagnosticsValue = diagnostics
         typeSubstitutionValue = typeSubstitution
         assignabilityValue = assignability
@@ -52,9 +48,7 @@ public class AnalyzerMatchExhaustiveness {
     // is its own answer under no substitution; a generic instantiation answers the union its
     // definition names, but only when the definition is generic and the argument count agrees —
     // a mismatch is not a union here rather than a partially-bound one.
-    public func ResolveDeclaredUnionType(
-        valueType: TypeInfo,
-        out substitution: Dictionary<string, TypeInfo>?): UnionTypeInfo? {
+    func ResolveDeclaredUnionType(valueType: TypeInfo, out substitution: Dictionary<string, TypeInfo>?): UnionTypeInfo? {
         substitution = null
 
         direct := valueType as UnionTypeInfo
@@ -68,9 +62,7 @@ public class AnalyzerMatchExhaustiveness {
             declared := resolved as UnionTypeInfo
             if declared != null {
                 typeParameters := declared.Declaration.TypeParameters
-                if typeParameters != null
-                    && typeParameters.Count > 0
-                    && typeParameters.Count == generic.TypeArguments.Count {
+                if typeParameters != null && typeParameters.Count > 0 && typeParameters.Count == generic.TypeArguments.Count {
                     bound := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
                     i := 0
                     while i < typeParameters.Count {
@@ -89,7 +81,7 @@ public class AnalyzerMatchExhaustiveness {
 
     // THE DISPATCH. Asked once per match, after every arm has been analysed, with the scrutinee's
     // type. The chain's order is behaviour — see the type note above.
-    public func Check(matchExpression: MatchExpression, valueType: TypeInfo) {
+    func Check(matchExpression: MatchExpression, valueType: TypeInfo) {
         anonymousUnionType := valueType as AnonymousUnionTypeInfo
         if anonymousUnionType != null {
             CheckAnonymousUnion(matchExpression, anonymousUnionType)
@@ -126,7 +118,7 @@ public class AnalyzerMatchExhaustiveness {
 
         // Everything else has no closed set of alternatives to enumerate, so the only thing that can
         // make it exhaustive is an unguarded catch-all. The FIRST one wins and the walk stops.
-        foreach matchCase in matchExpression.Cases {
+        for matchCase in matchExpression.Cases {
             if matchCase.Guard != null {
                 continue
             }
@@ -147,7 +139,7 @@ public class AnalyzerMatchExhaustiveness {
         coversNull := false
         coversPresent := false
 
-        foreach matchCase in matchExpression.Cases {
+        for matchCase in matchExpression.Cases {
             if matchCase.Guard != null {
                 continue
             }
@@ -182,10 +174,7 @@ public class AnalyzerMatchExhaustiveness {
             objectPattern := pattern as ObjectPattern
             positionalPattern := pattern as PositionalPattern
             listPattern := pattern as ListPattern
-            if typePattern != null
-                || objectPattern != null
-                || positionalPattern != null
-                || listPattern != null {
+            if typePattern != null || objectPattern != null || positionalPattern != null || listPattern != null {
                 coversPresent = true
             }
         }
@@ -204,14 +193,7 @@ public class AnalyzerMatchExhaustiveness {
         }
 
         missingText := string.Join(" and ", missing)
-        diagnosticsValue.Report(
-            ErrorCode.NonExhaustiveMatch,
-            "This nullable match doesn't cover " + missingText
-                + " — handle both 'null' and a non-null value arm",
-            matchExpression.Line,
-            matchExpression.Column,
-            "Use `null => ...` for the absent case and `value => ...` to bind the non-null value.",
-            MatchKeywordLength())
+        diagnosticsValue.Report(ErrorCode.NonExhaustiveMatch, "This nullable match doesn't cover " + missingText + " — handle both 'null' and a non-null value arm", matchExpression.Line, matchExpression.Column, "Use `null => ...` for the absent case and `value => ...` to bind the non-null value.", MatchKeywordLength())
     }
 
     // An ANONYMOUS UNION is covered by ASSIGNABILITY rather than by name: one `TypePattern` may
@@ -220,7 +202,7 @@ public class AnalyzerMatchExhaustiveness {
     func CheckAnonymousUnion(matchExpression: MatchExpression, unionType: AnonymousUnionTypeInfo) {
         covered := new bool[](unionType.Arms.Count)
 
-        foreach matchCase in matchExpression.Cases {
+        for matchCase in matchExpression.Cases {
             if matchCase.Guard != null {
                 continue
             }
@@ -264,24 +246,14 @@ public class AnalyzerMatchExhaustiveness {
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.NonExhaustiveMatch,
-            "This match doesn't cover all anonymous union arms — missing: "
-                + string.Join(", ", missingArms),
-            matchExpression.Line,
-            matchExpression.Column,
-            "Add an arm for each missing type, or add a wildcard `_` arm.",
-            MatchKeywordLength())
+        diagnosticsValue.Report(ErrorCode.NonExhaustiveMatch, "This match doesn't cover all anonymous union arms — missing: " + string.Join(", ", missingArms), matchExpression.Line, matchExpression.Column, "Add an arm for each missing type, or add a wildcard `_` arm.", MatchKeywordLength())
     }
 
     // A DECLARED UNION, case by case. Two passes: the first collects the unguarded arms per case
     // (and short-circuits on a catch-all), the second decides each collected case's coverage. A
     // case with NO arm at all is left with its flag clear and is reported as simply missing; a case
     // with arms that all constrain it is flagged PARTIAL, which produces the longer message.
-    func CheckUnion(
-        matchExpression: MatchExpression,
-        unionType: UnionTypeInfo,
-        substitution: Dictionary<string, TypeInfo>?) {
+    func CheckUnion(matchExpression: MatchExpression, unionType: UnionTypeInfo, substitution: Dictionary<string, TypeInfo>?) {
         unionDeclaration := unionType.Declaration
         unionCases := unionDeclaration.Cases
         caseCount := unionCases.Count
@@ -300,10 +272,10 @@ public class AnalyzerMatchExhaustiveness {
             caseIndex = caseIndex + 1
         }
 
-        unionCasePatterns := new Dictionary<string, List<UnionCasePattern> >(StringComparer.Ordinal)
-        partialCoverageHints := new Dictionary<string, List<string> >(StringComparer.Ordinal)
+        unionCasePatterns := new Dictionary<string, List<UnionCasePattern>>(StringComparer.Ordinal)
+        partialCoverageHints := new Dictionary<string, List<string>>(StringComparer.Ordinal)
 
-        foreach matchCase in matchExpression.Cases {
+        for matchCase in matchExpression.Cases {
             // Skip guarded arms — they only partially cover their pattern
             if matchCase.Guard != null {
                 continue
@@ -311,8 +283,7 @@ public class AnalyzerMatchExhaustiveness {
 
             unionPattern := matchCase.Pattern as UnionCasePattern
             if unionPattern != null {
-                matchedCase := AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(
-                    unionType, unionPattern.CaseName)
+                matchedCase := AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionType, unionPattern.CaseName)
                 if matchedCase != null {
                     if !unionCasePatterns.ContainsKey(matchedCase.Name) {
                         unionCasePatterns[matchedCase.Name] = new List<UnionCasePattern>()
@@ -335,11 +306,9 @@ public class AnalyzerMatchExhaustiveness {
 
                 if identPattern.Name.Contains('.') {
                     // Qualified union case name without properties
-                    matchedCase := AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(
-                        unionType, identPattern.Name)
+                    matchedCase := AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionType, identPattern.Name)
                     matchedCaseIndex := 0
-                    if matchedCase != null
-                        && caseIndexByName.TryGetValue(matchedCase.Name, out matchedCaseIndex) {
+                    if matchedCase != null && caseIndexByName.TryGetValue(matchedCase.Name, out matchedCaseIndex) {
                         coveredFlags[matchedCaseIndex] = 1
                     }
                 } else {
@@ -358,13 +327,7 @@ public class AnalyzerMatchExhaustiveness {
             patterns := new List<UnionCasePattern>()
             if unionCasePatterns.TryGetValue(unionCase.Name, out patterns) {
                 hints := new List<string>()
-                if IsUnionCaseCoveredByPatterns(
-                        unionType,
-                        unionDeclaration.Name,
-                        unionCase,
-                        patterns,
-                        substitution,
-                        out hints) {
+                if IsUnionCaseCoveredByPatterns(unionType, unionDeclaration.Name, unionCase, patterns, substitution, out hints) {
                     coveredFlags[caseIndex] = 1
                 } else {
                     partialFlags[caseIndex] = 1
@@ -380,14 +343,7 @@ public class AnalyzerMatchExhaustiveness {
         missingCases := new List<string>()
         partialMissingCases := new List<string>()
         neverCoveredCases := new List<string>()
-        AnalyzerExhaustivenessSelector.SelectMissingUnionCasesFromFlags(
-            unionCases,
-            coveredFlags,
-            partialFlags,
-            caseCount,
-            out missingCases,
-            out partialMissingCases,
-            out neverCoveredCases)
+        AnalyzerExhaustivenessSelector.SelectMissingUnionCasesFromFlags(unionCases, coveredFlags, partialFlags, caseCount, out missingCases, out partialMissingCases, out neverCoveredCases)
 
         if missingCases.Count == 0 {
             // All union cases covered by unguarded arms.
@@ -396,13 +352,7 @@ public class AnalyzerMatchExhaustiveness {
         }
 
         if partialMissingCases.Count > 0 {
-            ReportPartiallyCoveredUnion(
-                matchExpression,
-                unionDeclaration.Name,
-                missingCases,
-                partialMissingCases,
-                neverCoveredCases,
-                partialCoverageHints)
+            ReportPartiallyCoveredUnion(matchExpression, unionDeclaration.Name, missingCases, partialMissingCases, neverCoveredCases, partialCoverageHints)
             return
         }
 
@@ -412,46 +362,25 @@ public class AnalyzerMatchExhaustiveness {
     // The LONGER message, reached only when at least one case is partially covered: what is missing
     // outright, what is partial (with the nested hint where the walk found one), and a suggestion
     // per partial case naming the exact arm that would close it.
-    func ReportPartiallyCoveredUnion(
-        matchExpression: MatchExpression,
-        unionName: string,
-        missingCases: List<string>,
-        partialMissingCases: List<string>,
-        neverCoveredCases: List<string>,
-        partialCoverageHints: Dictionary<string, List<string> >) {
+    func ReportPartiallyCoveredUnion(matchExpression: MatchExpression, unionName: string, missingCases: List<string>, partialMissingCases: List<string>, neverCoveredCases: List<string>, partialCoverageHints: Dictionary<string, List<string>>) {
         messageParts := new List<string>()
         if neverCoveredCases.Count > 0 {
             messageParts.Add("missing: " + string.Join(", ", neverCoveredCases))
         }
 
-        messageParts.Add("partially covered: "
-            + AnalyzerExhaustivenessSelector.FormatPartialCoverageCases(
-                partialMissingCases,
-                partialCoverageHints))
+        messageParts.Add("partially covered: " + AnalyzerExhaustivenessSelector.FormatPartialCoverageCases(partialMissingCases, partialCoverageHints))
 
         hintParts := new List<string>()
-        foreach caseName in partialMissingCases {
+        for caseName in partialMissingCases {
             hints := new List<string>()
             if partialCoverageHints.TryGetValue(caseName, out hints) && hints.Count > 0 {
-                hintParts.Add("add '" + hints[0] + "', an unconstrained '" + unionName + "." + caseName
-                    + "' arm, or a wildcard '_' arm")
+                hintParts.Add("add '" + hints[0] + "', an unconstrained '" + unionName + "." + caseName + "' arm, or a wildcard '_' arm")
             } else {
-                hintParts.Add("add an unconstrained '" + unionName + "." + caseName
-                    + "' arm or a wildcard '_' arm")
+                hintParts.Add("add an unconstrained '" + unionName + "." + caseName + "' arm or a wildcard '_' arm")
             }
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.NonExhaustiveMatch,
-            "This match doesn't cover all cases — " + string.Join("; ", messageParts) + ". "
-                + string.Join("; ", hintParts) + ".",
-            matchExpression.Line,
-            matchExpression.Column,
-            ErrorSuggestions.GetSuggestion(
-                ErrorCode.NonExhaustiveMatch,
-                null,
-                string.Join(", ", missingCases)),
-            MatchKeywordLength())
+        diagnosticsValue.Report(ErrorCode.NonExhaustiveMatch, "This match doesn't cover all cases — " + string.Join("; ", messageParts) + ". " + string.Join("; ", hintParts) + ".", matchExpression.Line, matchExpression.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)), MatchKeywordLength())
     }
 
     // The PLAIN missing-cases message, in its two shapes. The RICH builder is used whenever the
@@ -462,24 +391,12 @@ public class AnalyzerMatchExhaustiveness {
         filePath := diagnosticsValue.CurrentFilePath
 
         if sourceSnippet != null && filePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.NonExhaustiveMatch(
-                filePath,
-                matchExpression.Line,
-                matchExpression.Column,
-                sourceSnippet,
-                MatchKeywordLength(),
-                missingCases))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.NonExhaustiveMatch(filePath, matchExpression.Line, matchExpression.Column, sourceSnippet, MatchKeywordLength(), missingCases))
             return
         }
 
         missingCasesText := string.Join(", ", missingCases)
-        diagnosticsValue.Report(
-            ErrorCode.NonExhaustiveMatch,
-            "This match doesn't cover all cases — missing: " + missingCasesText,
-            matchExpression.Line,
-            matchExpression.Column,
-            ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesText),
-            MatchKeywordLength())
+        diagnosticsValue.Report(ErrorCode.NonExhaustiveMatch, "This match doesn't cover all cases — missing: " + missingCasesText, matchExpression.Line, matchExpression.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesText), MatchKeywordLength())
     }
 
     // AN ENUM, member by member. A member is covered by its QUALIFIED name (whose qualifier must be
@@ -488,7 +405,7 @@ public class AnalyzerMatchExhaustiveness {
     func CheckEnum(matchExpression: MatchExpression, enumType: EnumTypeInfo) {
         coveredMembers := new HashSet<string>()
 
-        foreach matchCase in matchExpression.Cases {
+        for matchCase in matchExpression.Cases {
             // Skip guarded arms
             if matchCase.Guard != null {
                 continue
@@ -498,8 +415,9 @@ public class AnalyzerMatchExhaustiveness {
             if identPattern != null {
                 if identPattern.Name == "_" {
                     matchExpression.IsExhaustive = true
-                    return // Wildcard covers all
+                    return
                 }
+                // Wildcard covers all
 
                 // Check for qualified enum member (e.g., Status.Active)
                 if identPattern.Name.Contains('.') {
@@ -507,8 +425,7 @@ public class AnalyzerMatchExhaustiveness {
                     qualifier := parts[0]
                     memberName := parts[parts.Length - 1]
                     // Only count if the qualifier matches the enum type name
-                    if qualifier == enumType.Declaration.Name
-                        && EnumDeclaresMember(enumType, memberName) {
+                    if qualifier == enumType.Declaration.Name && EnumDeclaresMember(enumType, memberName) {
                         coveredMembers.Add(memberName)
                     }
                 } else {
@@ -523,19 +440,15 @@ public class AnalyzerMatchExhaustiveness {
             literalPattern := matchCase.Pattern as LiteralPattern
             if literalPattern != null {
                 // Check if literal matches an enum member value
-                foreach member in enumType.Declaration.Members {
+                for member in enumType.Declaration.Members {
                     patternStr := literalPattern.Literal as StringLiteralExpression
-                    if member.ValueKind == EnumMemberValueKind.String
-                        && patternStr != null
-                        && member.ValueText == patternStr.Value {
+                    if member.ValueKind == EnumMemberValueKind.String && patternStr != null && member.ValueText == patternStr.Value {
                         coveredMembers.Add(member.Name)
                         continue
                     }
 
                     patternInt := literalPattern.Literal as IntLiteralExpression
-                    if member.ValueKind == EnumMemberValueKind.Integer
-                        && patternInt != null
-                        && member.ValueText == patternInt.Value {
+                    if member.ValueKind == EnumMemberValueKind.Integer && patternInt != null && member.ValueText == patternInt.Value {
                         coveredMembers.Add(member.Name)
                     }
                 }
@@ -544,9 +457,7 @@ public class AnalyzerMatchExhaustiveness {
 
         // Check if all enum members are covered. The missing-member selection is owned by
         // the shared exhaustiveness selector; do not recover with a duplicate.
-        missingMembers := AnalyzerExhaustivenessSelector.SelectMissingEnumMembers(
-            enumType.Declaration.Members,
-            coveredMembers)
+        missingMembers := AnalyzerExhaustivenessSelector.SelectMissingEnumMembers(enumType.Declaration.Members, coveredMembers)
 
         if missingMembers.Count == 0 {
             // All enum members covered by unguarded arms.
@@ -558,28 +469,16 @@ public class AnalyzerMatchExhaustiveness {
         filePath := diagnosticsValue.CurrentFilePath
 
         if sourceSnippet != null && filePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.NonExhaustiveMatch(
-                filePath,
-                matchExpression.Line,
-                matchExpression.Column,
-                sourceSnippet,
-                MatchKeywordLength(),
-                missingMembers))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.NonExhaustiveMatch(filePath, matchExpression.Line, matchExpression.Column, sourceSnippet, MatchKeywordLength(), missingMembers))
             return
         }
 
         missingText := string.Join(", ", missingMembers)
-        diagnosticsValue.Report(
-            ErrorCode.NonExhaustiveMatch,
-            "This match doesn't cover all enum members — missing: " + missingText,
-            matchExpression.Line,
-            matchExpression.Column,
-            ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingText),
-            MatchKeywordLength())
+        diagnosticsValue.Report(ErrorCode.NonExhaustiveMatch, "This match doesn't cover all enum members — missing: " + missingText, matchExpression.Line, matchExpression.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingText), MatchKeywordLength())
     }
 
     static func EnumDeclaresMember(enumType: EnumTypeInfo, memberName: string): bool {
-        foreach member in enumType.Declaration.Members {
+        for member in enumType.Declaration.Members {
             if member.Name == memberName {
                 return true
             }
@@ -592,16 +491,10 @@ public class AnalyzerMatchExhaustiveness {
     // walk looks for the ONE shape that can still be exhaustive: every arm constrains exactly one
     // property, that property's type is itself a union, and the constraints between them name every
     // one of its cases TOTALLY. Anything else produces HINTS naming the nested arms still missing.
-    public func IsUnionCaseCoveredByPatterns(
-        unionType: UnionTypeInfo,
-        unionName: string,
-        unionCase: UnionCase,
-        patterns: List<UnionCasePattern>,
-        substitution: Dictionary<string, TypeInfo>?,
-        out partialCoverageHints: List<string>): bool {
+    func IsUnionCaseCoveredByPatterns(unionType: UnionTypeInfo, unionName: string, unionCase: UnionCase, patterns: List<UnionCasePattern>, substitution: Dictionary<string, TypeInfo>?, out partialCoverageHints: List<string>): bool {
         partialCoverageHints = new List<string>()
 
-        foreach candidate in patterns {
+        for candidate in patterns {
             if AnalyzerExhaustivenessSelector.IsTotalUnionCasePattern(candidate) {
                 return true
             }
@@ -610,7 +503,7 @@ public class AnalyzerMatchExhaustiveness {
         coverageByProperty := new Dictionary<string, AnalyzerNestedUnionCoverage>(StringComparer.Ordinal)
         coverageOrder := new List<string>()
 
-        foreach pattern in patterns {
+        for pattern in patterns {
             properties := pattern.Properties
             if properties == null {
                 continue
@@ -618,7 +511,7 @@ public class AnalyzerMatchExhaustiveness {
 
             constrainedProperty: PropertyPattern? = null
             constrainedCount := 0
-            foreach property in properties {
+            for property in properties {
                 constrainedPattern := property.Pattern
                 if constrainedPattern != null && !AnalyzerExhaustivenessSelector.IsCatchAllPattern(constrainedPattern) {
                     constrainedProperty = property
@@ -646,10 +539,7 @@ public class AnalyzerMatchExhaustiveness {
 
             // Apply the scrutinee's generic substitution so a `value: T` property on a
             // Result<Option<int>> scrutinee resolves to the nested union for coverage.
-            propertyType := typeSubstitutionValue.ResolveTypeForSourceOwner(
-                caseProperty.Type,
-                unionType,
-                substitution)
+            propertyType := typeSubstitutionValue.ResolveTypeForSourceOwner(caseProperty.Type, unionType, substitution)
 
             nestedSubstitution: Dictionary<string, TypeInfo>? = null
             nestedUnionType := ResolveDeclaredUnionType(propertyType, out nestedSubstitution)
@@ -657,19 +547,13 @@ public class AnalyzerMatchExhaustiveness {
                 continue
             }
 
-            nestedCaseName := AnalyzerExhaustivenessSelector.GetMatchedUnionCaseName(
-                nestedUnionType,
-                constrainedPropertyPattern)
+            nestedCaseName := AnalyzerExhaustivenessSelector.GetMatchedUnionCaseName(nestedUnionType, constrainedPropertyPattern)
 
             if nestedCaseName == null {
                 continue
             }
 
-            coverage := EnsureNestedCoverage(
-                coverageByProperty,
-                coverageOrder,
-                constrainedProperty.Name,
-                nestedUnionType)
+            coverage := EnsureNestedCoverage(coverageByProperty, coverageOrder, constrainedProperty.Name, nestedUnionType)
 
             coverage.AddCoveredCase(nestedCaseName)
             if !AnalyzerExhaustivenessSelector.IsTotalNestedUnionPattern(constrainedPropertyPattern) {
@@ -677,16 +561,15 @@ public class AnalyzerMatchExhaustiveness {
             }
         }
 
-        foreach propertyName in coverageOrder {
+        for propertyName in coverageOrder {
             coverage := coverageByProperty[propertyName]
 
             if coverage.AllDeclaredCasesCovered() && coverage.ConstrainedCaseCount() == 0 {
                 return true
             }
 
-            foreach missingNestedCase in coverage.MissingOrConstrainedCases() {
-                partialCoverageHints.Add(unionName + "." + unionCase.Name + " { " + propertyName + ": "
-                    + coverage.UnionName + "." + missingNestedCase + " }")
+            for missingNestedCase in coverage.MissingOrConstrainedCases() {
+                partialCoverageHints.Add(unionName + "." + unionCase.Name + " { " + propertyName + ": " + coverage.UnionName + "." + missingNestedCase + " }")
             }
         }
 
@@ -696,17 +579,13 @@ public class AnalyzerMatchExhaustiveness {
     // The tally for one property, created on first sight with the nested union's cases already
     // enrolled. `coverageOrder` mirrors the dictionary's insertion order, which is the order the
     // hints below are produced in.
-    static func EnsureNestedCoverage(
-        coverageByProperty: Dictionary<string, AnalyzerNestedUnionCoverage>,
-        coverageOrder: List<string>,
-        propertyName: string,
-        nestedUnionType: UnionTypeInfo): AnalyzerNestedUnionCoverage {
+    static func EnsureNestedCoverage(coverageByProperty: Dictionary<string, AnalyzerNestedUnionCoverage>, coverageOrder: List<string>, propertyName: string, nestedUnionType: UnionTypeInfo): AnalyzerNestedUnionCoverage {
         if coverageByProperty.ContainsKey(propertyName) {
             return coverageByProperty[propertyName]
         }
 
         created := new AnalyzerNestedUnionCoverage(nestedUnionType.Declaration.Name)
-        foreach nestedCase in nestedUnionType.Declaration.Cases {
+        for nestedCase in nestedUnionType.Declaration.Cases {
             created.AddDeclaredCase(nestedCase.Name)
         }
 
@@ -715,10 +594,8 @@ public class AnalyzerMatchExhaustiveness {
         return created
     }
 
-    static func OtherPropertiesAreTotal(
-        properties: List<PropertyPattern>,
-        constrainedProperty: PropertyPattern): bool {
-        foreach property in properties {
+    static func OtherPropertiesAreTotal(properties: List<PropertyPattern>, constrainedProperty: PropertyPattern): bool {
+        for property in properties {
             if Object.ReferenceEquals(property, constrainedProperty) {
                 continue
             }
@@ -737,7 +614,7 @@ public class AnalyzerMatchExhaustiveness {
             return null
         }
 
-        foreach property in properties {
+        for property in properties {
             if property.Name == name {
                 return property
             }
@@ -768,7 +645,7 @@ public class AnalyzerMatchExhaustiveness {
 // One property's nested-union coverage tally. The three sets are kept as ORDERED, deduplicated
 // lists because the hint list they produce is user-visible text whose order is the nested union's
 // declaration order followed by the constrained cases in the order the arms introduced them.
-public class AnalyzerNestedUnionCoverage {
+class AnalyzerNestedUnionCoverage {
     unionNameValue: string
     declaredCasesValue: List<string>
     declaredCaseSetValue: HashSet<string>
@@ -787,28 +664,28 @@ public class AnalyzerNestedUnionCoverage {
         constrainedCaseSetValue = new HashSet<string>()
     }
 
-    public func AddDeclaredCase(name: string) {
+    func AddDeclaredCase(name: string) {
         if declaredCaseSetValue.Add(name) {
             declaredCasesValue.Add(name)
         }
     }
 
-    public func AddCoveredCase(name: string) {
+    func AddCoveredCase(name: string) {
         coveredCasesValue.Add(name)
     }
 
-    public func AddConstrainedCase(name: string) {
+    func AddConstrainedCase(name: string) {
         if constrainedCaseSetValue.Add(name) {
             constrainedCasesValue.Add(name)
         }
     }
 
-    public func ConstrainedCaseCount(): int {
+    func ConstrainedCaseCount(): int {
         return constrainedCasesValue.Count
     }
 
-    public func AllDeclaredCasesCovered(): bool {
-        foreach name in declaredCasesValue {
+    func AllDeclaredCasesCovered(): bool {
+        for name in declaredCasesValue {
             if !coveredCasesValue.Contains(name) {
                 return false
             }
@@ -820,16 +697,16 @@ public class AnalyzerNestedUnionCoverage {
     // The declared cases no arm covered, in declaration order, followed by the covered-but-still-
     // constrained ones in arm order. The two are disjoint — a constrained case is by definition a
     // covered one — so no further deduplication is needed.
-    public func MissingOrConstrainedCases(): List<string> {
+    func MissingOrConstrainedCases(): List<string> {
         result := new List<string>()
 
-        foreach name in declaredCasesValue {
+        for name in declaredCasesValue {
             if !coveredCasesValue.Contains(name) {
                 result.Add(name)
             }
         }
 
-        foreach name in constrainedCasesValue {
+        for name in constrainedCasesValue {
             result.Add(name)
         }
 

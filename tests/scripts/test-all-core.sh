@@ -306,16 +306,16 @@ else
 fi
 
 section "Step 2b: Format Contract Gate"
-echo "Checking canonical formatting for examples, templates, and representative fixtures..."
+echo "Checking canonical formatting for examples, templates, fixtures, and the compiler's own N# sources..."
 FORMAT_OUTPUT=$(mktemp)
-# A brace group's exit status is only its LAST command's, which would silently
-# discard a failure from the examples/templates checks. Accumulate every check's
-# exit code so ANY non-zero check fails the gate.
+# A brace group's exit status is only its LAST command's, which would silently discard a
+# failure from earlier checks. Accumulate every exit code so ANY non-zero check fails the gate.
 format_rc=0
 {
     dotnet "$CLI_DLL" format --project examples --check || format_rc=1
     dotnet "$CLI_DLL" format --project templates --check || format_rc=1
     dotnet "$CLI_DLL" format --project tests/fixtures/issue-tracker --check || format_rc=1
+    dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.BootstrapServices --check || format_rc=1
 } > "$FORMAT_OUTPUT" 2>&1
 cat "$FORMAT_OUTPUT"
 if [ "$format_rc" -eq 0 ]; then

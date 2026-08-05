@@ -2,12 +2,13 @@ namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
 import NSharpLang.Compiler
-import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.CodeIntelligence
+
 
 // A diagnostic span (line / column / length) used to anchor recovery diagnostics.
 // A local reference type rather than the C#-owned DiagnosticSpan value struct.
-public class RecoverySpan {
+class RecoverySpan {
     Line: int
     Column: int
     Length: int
@@ -26,7 +27,7 @@ public class RecoverySpan {
 // the expression was a bare identifier (used to decide the `identifier :=` shorthand-declaration
 // path, exactly as Parser.cs's `expr is IdentifierExpression`). A local reference type rather
 // than a value struct.
-public class ExprResult {
+class ExprResult {
     Span: RecoverySpan
     IsBareIdentifier: bool
     // Stage N+1c tranche 7 (BEGIN EXPRESSION MATERIALIZATION): the byte-exact Expression node this tier
@@ -51,7 +52,7 @@ public class ExprResult {
 // Handled mirrors the bool return (the closing-delimiter recovery path was taken — a diagnostic
 // was reported subject to the shared panic, and a synthetic closing token stands in), and
 // RecoveredToken mirrors the out parameter (the synthesized `)` / `]` the caller returns).
-public class ClosingDelimiterRecovery {
+class ClosingDelimiterRecovery {
     Handled: bool
     RecoveredToken: Token
 
@@ -65,7 +66,7 @@ public class ClosingDelimiterRecovery {
 // TryGetPreviousTokenOnLine (Parser.cs :6290) — both `bool Try…(out Token token)`. Carried as an
 // explicit result object for the same reason. When Found is false the Token field carries the
 // Parser.cs fallback (the `previous` token) so callers can read it uniformly.
-public class TokenLookupResult {
+class TokenLookupResult {
     Found: bool
     Token: Token
 
@@ -76,7 +77,7 @@ public class TokenLookupResult {
 }
 
 // Stage 9: the outcome of TryGetDelimiterOwnerSpan (Parser.cs :6237, `bool Try…(out (int,int,int) span)`).
-public class OwnerSpanResult {
+class OwnerSpanResult {
     Found: bool
     Span: RecoverySpan
 
@@ -100,17 +101,13 @@ public class OwnerSpanResult {
 // upstream assembly cannot name (the dependency runs Compiler → BootstrapServices, never the reverse),
 // so it is NOT constructed here; see the STATUS N+1 block record. Errors mirror ParseFilePreamble's
 // position-sorted diagnostics exactly.
-public class PreambleAst {
+class PreambleAst {
     Namespace: NamespaceDeclaration?
     Imports: List<ImportDirective>
     Package: PackageDeclaration?
     Errors: List<CompilerError>
 
-    constructor(
-        namespaceDecl: NamespaceDeclaration?,
-        imports: List<ImportDirective>,
-        packageDecl: PackageDeclaration?,
-        errors: List<CompilerError>) {
+    constructor(namespaceDecl: NamespaceDeclaration?, imports: List<ImportDirective>, packageDecl: PackageDeclaration?, errors: List<CompilerError>) {
         Namespace = namespaceDecl
         Imports = imports
         Package = packageDecl
@@ -124,7 +121,7 @@ public class PreambleAst {
 // because no consumer reads it (verified consumer-by-consumer; see the STATUS N+1 design record).
 // Errors are in Parser.cs's RECORDING order — the raw `_errors` order ParseResult carries, NOT the
 // position-sorted order ParseFilePreamble returns for the CLI-shaped oracle comparison.
-public class FileParseAst {
+class FileParseAst {
     CompilationUnit: CompilationUnit?
     Errors: List<CompilerError>
 
@@ -176,7 +173,7 @@ public class FileParseAst {
 // kernel-side capability + parity proofs (ColumnarParserRecovery.tests.nl). Diagnostic
 // CONSTRUCTION is delegated to the already-live shared owner ParserErrorDiagnostics.Create
 // (the same call Parser.cs uses), so codes / snippets / docs URLs match automatically.
-public class ColumnarParserRecovery {
+class ColumnarParserRecovery {
     Tokens: List<Token>
     FileName: string?
     Source: string
@@ -224,7 +221,7 @@ public class ColumnarParserRecovery {
     // top when non-empty (the enclosing type's Members), else the top-level DeclarationNodes. This places a
     // NESTED type declaration in its enclosing type's Members rather than at the top level. The `> >` space
     // is the standard `>>`-tokenizer workaround for a nested-generic type.
-    TypeMemberStack: List<List<Declaration> >
+    TypeMemberStack: List<List<Declaration>>
     // Stage N+1c tranche 4 (modifiers + primary-ctor params): transient no-stub materialization gates,
     // set by the sub-parsers and captured by the caller into a local IMMEDIATELY. ParamListMaterializable
     // is cleared by ParseParameterListRecovery when a primary-ctor parameter is not byte-exactly
@@ -307,7 +304,7 @@ public class ColumnarParserRecovery {
         DeclarationNodes = new List<Declaration>()
         UnitLine = 0
         UnitColumn = 0
-        TypeMemberStack = new List<List<Declaration> >()
+        TypeMemberStack = new List<List<Declaration>>()
         ParamListMaterializable = true
         AttributesMaterializable = true
         BaseListMaterializable = true
@@ -347,7 +344,7 @@ public class ColumnarParserRecovery {
     // diagnostic before a following outer-expression diagnostic that is positioned earlier
     // (Stage 12 interpolation), so the sort is what the byte-exact oracle comparison needs;
     // it is a stable no-op for every already-in-order family (Stages 1-11).
-    public static func ParseFilePreamble(source: string, fileName: string?): List<CompilerError> {
+    static func ParseFilePreamble(source: string, fileName: string?): List<CompilerError> {
         recovery := new ColumnarParserRecovery(source, fileName)
         recovery.Run()
         return recovery.SortErrorsByPosition(recovery.Errors)
@@ -360,14 +357,10 @@ public class ColumnarParserRecovery {
     // subtree Parser.cs hangs on ParseResult.CompilationUnit, built through the identical grammar and
     // node constructors. The CompilationUnit container + FileImports + Declarations remain downstream
     // C# (see PreambleAst) and are the recorded N+1 block.
-    public static func ParseFilePreambleAst(source: string, fileName: string?): PreambleAst {
+    static func ParseFilePreambleAst(source: string, fileName: string?): PreambleAst {
         recovery := new ColumnarParserRecovery(source, fileName)
         recovery.Run()
-        return new PreambleAst(
-            recovery.NamespaceNode,
-            recovery.ImportNodes,
-            recovery.PackageNode,
-            recovery.SortErrorsByPosition(recovery.Errors))
+        return new PreambleAst(recovery.NamespaceNode, recovery.ImportNodes, recovery.PackageNode, recovery.SortErrorsByPosition(recovery.Errors))
     }
 
     // Stage N+1c (full-tree AST materialization) / Stage N+2 (the PRODUCTION CUTOVER): parse a WHOLE file
@@ -378,19 +371,10 @@ public class ColumnarParserRecovery {
     // Errors are Parser.cs's RECORDING order, not the position-sorted CLI-oracle order. This is now the
     // PRODUCTION parse entry: every consumer that read `ParseResult` reads this instead, and the tokenizing
     // is internal (the consumer no longer builds a Lexer/Parser pair for parsing).
-    public static func ParseFileAst(source: string, fileName: string?): FileParseAst {
+    static func ParseFileAst(source: string, fileName: string?): FileParseAst {
         recovery := new ColumnarParserRecovery(source, fileName)
         recovery.Run()
-        return new FileParseAst(
-            new CompilationUnit(
-                recovery.NamespaceNode,
-                recovery.ImportNodes,
-                recovery.FileImportNodes,
-                recovery.PackageNode,
-                recovery.DeclarationNodes,
-                recovery.UnitLine,
-                recovery.UnitColumn),
-            recovery.Errors)
+        return new FileParseAst(new CompilationUnit(recovery.NamespaceNode, recovery.ImportNodes, recovery.FileImportNodes, recovery.PackageNode, recovery.DeclarationNodes, recovery.UnitLine, recovery.UnitColumn), recovery.Errors)
     }
 
     // Stable insertion sort by (Line, Column), mirroring the CLI's DiagnosticIndexComesAfter (the File
@@ -500,15 +484,7 @@ public class ColumnarParserRecovery {
 
     // ---- shared-panic reporting (mirrors Parser.cs ReportError, :6845) ----
 
-    func Report(
-        code: ErrorCode,
-        message: string,
-        line: int,
-        column: int,
-        humanExplanation: string?,
-        hint: string?,
-        suggestions: List<string>?,
-        length: int) {
+    func Report(code: ErrorCode, message: string, line: int, column: int, humanExplanation: string?, hint: string?, suggestions: List<string>?, length: int) {
         // In panic mode, suppress cascading errors until we synchronize.
         if PanicMode {
             return
@@ -517,19 +493,11 @@ public class ColumnarParserRecovery {
         snippet := GetSourceSnippet(line)
         resolvedLength := length
         if HoleDepth > 0 && resolvedLength <= 0 {
-            resolvedLength = 1          // the no-sourceCode hole sub-parser's span resolution (see HoleDepth)
+            resolvedLength = 1
         }
-        error := ParserErrorDiagnostics.Create(
-            code,
-            message,
-            FileName,
-            line,
-            column,
-            snippet,
-            resolvedLength,
-            humanExplanation,
-            hint,
-            suggestions)
+        // the no-sourceCode hole sub-parser's span resolution (see HoleDepth)
+
+        error := ParserErrorDiagnostics.Create(code, message, FileName, line, column, snippet, resolvedLength, humanExplanation, hint, suggestions)
         Errors.Add(error)
         PanicMode = true
     }
@@ -592,28 +560,12 @@ public class ColumnarParserRecovery {
 
         if IsAtEnd() {
             eofSpan := LastVisibleTokenSpan()
-            Report(
-                ErrorCode.UnexpectedEndOfFile,
-                message + ", but reached the end of the file",
-                eofSpan.Line,
-                eofSpan.Column,
-                DotOrPlainEofExplanation(isDotAccess),
-                DotOrPlainEofHint(isDotAccess),
-                null,
-                eofSpan.Length)
+            Report(ErrorCode.UnexpectedEndOfFile, message + ", but reached the end of the file", eofSpan.Line, eofSpan.Column, DotOrPlainEofExplanation(isDotAccess), DotOrPlainEofHint(isDotAccess), null, eofSpan.Length)
             return "<error>"
         }
 
         span := SpanFromToken(Current())
-        Report(
-            ErrorCode.ExpectedToken,
-            message + ". Got '" + Current().Value + "'",
-            span.Line,
-            span.Column,
-            DotOrPlainFoundExplanation(isDotAccess, Current().Value),
-            DotOrPlainFoundHint(isDotAccess),
-            DotAccessFoundSuggestions(isDotAccess),
-            span.Length)
+        Report(ErrorCode.ExpectedToken, message + ". Got '" + Current().Value + "'", span.Line, span.Column, DotOrPlainFoundExplanation(isDotAccess, Current().Value), DotOrPlainFoundHint(isDotAccess), DotAccessFoundSuggestions(isDotAccess), span.Length)
         return "<error>"
     }
 
@@ -623,15 +575,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Rename it to '" + keyword + "Value' or '_" + keyword + "'")
         suggestions.Add("Pick any name that isn't a reserved N# keyword")
 
-        Report(
-            ErrorCode.ReservedKeywordAsName,
-            contextMessage + ". Got the reserved keyword '" + keyword + "'",
-            span.Line,
-            span.Column,
-            "'" + keyword + "' is a reserved keyword in N#, so it can't be used as a name here.",
-            ReservedKeywordHint(keyword, isDotAccess),
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ReservedKeywordAsName, contextMessage + ". Got the reserved keyword '" + keyword + "'", span.Line, span.Column, "'" + keyword + "' is a reserved keyword in N#, so it can't be used as a name here.", ReservedKeywordHint(keyword, isDotAccess), suggestions, span.Length)
     }
 
     func ReservedKeywordHint(keyword: string, isDotAccess: bool): string {
@@ -704,27 +648,11 @@ public class ColumnarParserRecovery {
         }
 
         if IsAtEnd() {
-            Report(
-                ErrorCode.UnexpectedEndOfFile,
-                message + ", but reached the end of the file",
-                anchor.Line,
-                anchor.Column,
-                DotOrPlainEofExplanation(false),
-                DotOrPlainEofHint(false),
-                null,
-                anchor.Length)
+            Report(ErrorCode.UnexpectedEndOfFile, message + ", but reached the end of the file", anchor.Line, anchor.Column, DotOrPlainEofExplanation(false), DotOrPlainEofHint(false), null, anchor.Length)
             return "<error>"
         }
 
-        Report(
-            ErrorCode.ExpectedToken,
-            message + ". Got '" + Current().Value + "'",
-            anchor.Line,
-            anchor.Column,
-            DotOrPlainFoundExplanation(false, Current().Value),
-            DotOrPlainFoundHint(false),
-            DotAccessFoundSuggestions(false),
-            anchor.Length)
+        Report(ErrorCode.ExpectedToken, message + ". Got '" + Current().Value + "'", anchor.Line, anchor.Column, DotOrPlainFoundExplanation(false, Current().Value), DotOrPlainFoundHint(false), DotAccessFoundSuggestions(false), anchor.Length)
         return "<error>"
     }
 
@@ -816,15 +744,7 @@ public class ColumnarParserRecovery {
         while Check(TokenType.Package) || Check(TokenType.Import) {
             if Check(TokenType.Package) {
                 if packageSeen {
-                    Report(
-                        ErrorCode.InvalidSyntax,
-                        "Only one package declaration is allowed",
-                        Current().Line,
-                        Current().Column,
-                        "A source file can belong to a single package.",
-                        "Remove the extra package declaration.",
-                        null,
-                        MaxInt(1, Current().Value.Length))
+                    Report(ErrorCode.InvalidSyntax, "Only one package declaration is allowed", Current().Line, Current().Column, "A source file can belong to a single package.", "Remove the extra package declaration.", null, MaxInt(1, Current().Value.Length))
                 }
 
                 ParsePackage()
@@ -962,15 +882,7 @@ public class ColumnarParserRecovery {
             return
         }
 
-        Report(
-            ErrorCode.UnexpectedToken,
-            "Unexpected token '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '" + Current().Value + "' instead.",
-            "Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.",
-            null,
-            Current().Value.Length)
+        Report(ErrorCode.UnexpectedToken, "Unexpected token '" + Current().Value + "'", Current().Line, Current().Column, "I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '" + Current().Value + "' instead.", "Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.", null, Current().Value.Length)
         Advance()
         // Stage N+1c tranche 11 (ERROR-NODE MATERIALIZATION): Parser.cs does NOT drop the offending token —
         // it returns a synthetic `<error>`-named ClassDeclaration placeholder (:255-266) which the caller
@@ -979,10 +891,7 @@ public class ColumnarParserRecovery {
         // `class ClassDeclaration` test-helper collision, exactly like the real class site.
         errorTypeParams: List<TypeParameter>? = null
         errorBaseClass: TypeReference? = null
-        AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(
-            "<error>", errorTypeParams, errorBaseClass, new List<TypeReference>(), new List<Declaration>(),
-            NoTableParameters(), Modifiers.None, new List<AttributeNode>(),
-            Current().Line, Current().Column))
+        AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration("<error>", errorTypeParams, errorBaseClass, new List<TypeReference>(), new List<Declaration>(), NoTableParameters(), Modifiers.None, new List<AttributeNode>(), Current().Line, Current().Column))
     }
 
     // Consume leading modifier keywords (Parser.cs ParseModifiers, :298) so a modifier-led declaration
@@ -1021,16 +930,36 @@ public class ColumnarParserRecovery {
     // ParseModifiers maps (Public/Private are handled by the caller since they are checked before
     // IsModifierKeyword in the owner's dispatch order).
     func ModifierFlagOrZero(t: TokenType): int {
-        if t == TokenType.Static { return System.Convert.ToInt32(Modifiers.Static) }
-        if t == TokenType.Internal { return System.Convert.ToInt32(Modifiers.Internal) }
-        if t == TokenType.Protected { return System.Convert.ToInt32(Modifiers.Protected) }
-        if t == TokenType.Virtual { return System.Convert.ToInt32(Modifiers.Virtual) }
-        if t == TokenType.Override { return System.Convert.ToInt32(Modifiers.Override) }
-        if t == TokenType.Abstract { return System.Convert.ToInt32(Modifiers.Abstract) }
-        if t == TokenType.Sealed { return System.Convert.ToInt32(Modifiers.Sealed) }
-        if t == TokenType.Partial { return System.Convert.ToInt32(Modifiers.Partial) }
-        if t == TokenType.Async { return System.Convert.ToInt32(Modifiers.Async) }
-        if t == TokenType.File { return System.Convert.ToInt32(Modifiers.File) }
+        if t == TokenType.Static {
+            return System.Convert.ToInt32(Modifiers.Static)
+        }
+        if t == TokenType.Internal {
+            return System.Convert.ToInt32(Modifiers.Internal)
+        }
+        if t == TokenType.Protected {
+            return System.Convert.ToInt32(Modifiers.Protected)
+        }
+        if t == TokenType.Virtual {
+            return System.Convert.ToInt32(Modifiers.Virtual)
+        }
+        if t == TokenType.Override {
+            return System.Convert.ToInt32(Modifiers.Override)
+        }
+        if t == TokenType.Abstract {
+            return System.Convert.ToInt32(Modifiers.Abstract)
+        }
+        if t == TokenType.Sealed {
+            return System.Convert.ToInt32(Modifiers.Sealed)
+        }
+        if t == TokenType.Partial {
+            return System.Convert.ToInt32(Modifiers.Partial)
+        }
+        if t == TokenType.Async {
+            return System.Convert.ToInt32(Modifiers.Async)
+        }
+        if t == TokenType.File {
+            return System.Convert.ToInt32(Modifiers.File)
+        }
         return 0
     }
 
@@ -1065,22 +994,12 @@ public class ColumnarParserRecovery {
 
     func ReportMalformedStringLiteralIfNeeded(token: Token) {
         if token.Type == TokenType.TripleQuoteStringLiteral {
-            ReportMalformedRawStringLiteralIfNeeded(
-                token,
-                "Unterminated triple-quoted string literal",
-                "This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote.",
-                "Add the closing triple quote `\"\"\"` before the end of the file.",
-                3)
+            ReportMalformedRawStringLiteralIfNeeded(token, "Unterminated triple-quoted string literal", "This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote.", "Add the closing triple quote `\"\"\"` before the end of the file.", 3)
             return
         }
 
         if token.Type == TokenType.InterpolatedRawStringLiteral {
-            ReportMalformedRawStringLiteralIfNeeded(
-                token,
-                "Unterminated interpolated raw string literal",
-                "This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote.",
-                "Add the closing triple quote `\"\"\"` before the end of the file.",
-                4)
+            ReportMalformedRawStringLiteralIfNeeded(token, "Unterminated interpolated raw string literal", "This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote.", "Add the closing triple quote `\"\"\"` before the end of the file.", 4)
             return
         }
 
@@ -1105,23 +1024,10 @@ public class ColumnarParserRecovery {
         suggestions.Add("Add a closing quote")
         suggestions.Add("Use triple quotes for multi-line strings")
 
-        Report(
-            ErrorCode.InvalidLiteral,
-            message,
-            token.Line,
-            token.Column,
-            explanation,
-            "Add the closing quote on this line, or use a triple-quoted string for multi-line text.",
-            suggestions,
-            MaxInt(1, token.Value.Length))
+        Report(ErrorCode.InvalidLiteral, message, token.Line, token.Column, explanation, "Add the closing quote on this line, or use a triple-quoted string for multi-line text.", suggestions, MaxInt(1, token.Value.Length))
     }
 
-    func ReportMalformedRawStringLiteralIfNeeded(
-        token: Token,
-        message: string,
-        humanExplanation: string,
-        hint: string,
-        markerLength: int) {
+    func ReportMalformedRawStringLiteralIfNeeded(token: Token, message: string, humanExplanation: string, hint: string, markerLength: int) {
         if token.IsTerminated {
             return
         }
@@ -1130,15 +1036,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Add the closing triple quote")
         suggestions.Add("Check where the raw string should end")
 
-        Report(
-            ErrorCode.InvalidLiteral,
-            message,
-            token.Line,
-            token.Column,
-            humanExplanation,
-            hint,
-            suggestions,
-            markerLength)
+        Report(ErrorCode.InvalidLiteral, message, token.Line, token.Column, humanExplanation, hint, suggestions, markerLength)
     }
 
     func ReportMalformedCharLiteralIfNeeded(token: Token) {
@@ -1158,15 +1056,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Add the closing quote")
         suggestions.Add("Use double quotes for a string")
 
-        Report(
-            ErrorCode.InvalidLiteral,
-            message,
-            token.Line,
-            token.Column,
-            explanation,
-            "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.",
-            suggestions,
-            MaxInt(1, token.Value.Length))
+        Report(ErrorCode.InvalidLiteral, message, token.Line, token.Column, explanation, "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.", suggestions, MaxInt(1, token.Value.Length))
     }
 
     func StartsWithInterpolatedPrefix(value: string): bool {
@@ -1231,8 +1121,10 @@ public class ColumnarParserRecovery {
                     // iteration (the `(` on the first pass, the `,` on every later one), NOT the list's
                     // opening token, so a same-line continuation after a comma is never a boundary.
                     if IsParameterListRecoveryBoundary(Previous()) {
-                        parsing = false             // Parser.cs :778 break — the partial list is the result
+                        parsing = false
                     } else {
+                        // Parser.cs :778 break — the partial list is the result
+
                         // Per-parameter attributes (Parser.cs :781), before the modifier/name.
                         paramAttrs := ParseAttributes()
                         attrsOk := AttributesMaterializable
@@ -1299,9 +1191,7 @@ public class ColumnarParserRecovery {
                         // Stage N+1c tranche 11: an `<error>` parameter name and an `<error>` parameter TYPE
                         // are Parser.cs's own placeholders — it adds the Parameter unconditionally (:822).
                         if paramType != null && attrsOk && !(hasDefault && defaultValue == null) {
-                            paramNodes.Add(new Parameter(
-                                paramName, paramType, defaultValue, isThis, modifier,
-                                parameterAttributes, paramLine, paramColumn, isScoped, lifetime))
+                            paramNodes.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier, parameterAttributes, paramLine, paramColumn, isScoped, lifetime))
                         } else {
                             ParamListMaterializable = false
                         }
@@ -1353,15 +1243,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add a parameter after the comma")
         suggestions.Add("Remove the trailing comma")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected parameter name. Got '" + Current().Value + "'",
-            span.Line,
-            span.Column,
-            "Parameter lists need another parameter after a comma.",
-            "Add the missing parameter after the comma, or remove the trailing comma.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected parameter name. Got '" + Current().Value + "'", span.Line, span.Column, "Parameter lists need another parameter after a comma.", "Add the missing parameter after the comma, or remove the trailing comma.", suggestions, span.Length)
     }
 
     // Parser.cs ConsumeIdentifier(message, diagnosticSpan?) overload (:6720). A parameter name is
@@ -1385,28 +1267,12 @@ public class ColumnarParserRecovery {
 
         if IsAtEnd() {
             eofSpan := diagnosticSpan ?? LastVisibleTokenSpan()
-            Report(
-                ErrorCode.UnexpectedEndOfFile,
-                message + ", but reached the end of the file",
-                eofSpan.Line,
-                eofSpan.Column,
-                DotOrPlainEofExplanation(isDotAccess),
-                DotOrPlainEofHint(isDotAccess),
-                null,
-                eofSpan.Length)
+            Report(ErrorCode.UnexpectedEndOfFile, message + ", but reached the end of the file", eofSpan.Line, eofSpan.Column, DotOrPlainEofExplanation(isDotAccess), DotOrPlainEofHint(isDotAccess), null, eofSpan.Length)
             return "<error>"
         }
 
         span := diagnosticSpan ?? SpanFromToken(Current())
-        Report(
-            ErrorCode.ExpectedToken,
-            message + ". Got '" + Current().Value + "'",
-            span.Line,
-            span.Column,
-            DotOrPlainFoundExplanation(isDotAccess, Current().Value),
-            DotOrPlainFoundHint(isDotAccess),
-            DotAccessFoundSuggestions(isDotAccess),
-            span.Length)
+        Report(ErrorCode.ExpectedToken, message + ". Got '" + Current().Value + "'", span.Line, span.Column, DotOrPlainFoundExplanation(isDotAccess, Current().Value), DotOrPlainFoundHint(isDotAccess), DotAccessFoundSuggestions(isDotAccess), span.Length)
         return "<error>"
     }
 
@@ -1436,15 +1302,7 @@ public class ColumnarParserRecovery {
             return
         }
         nameLength := MaxInt(1, parameterName.Length)
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected ':' after parameter name. Got '" + Current().Value + "'",
-            parameterLine,
-            parameterColumn,
-            "Parameter '" + parameterName + "' needs a ':' before its type.",
-            "Write this parameter as `" + parameterName + ": Type`.",
-            SingleSuggestion("Add ':' after '" + parameterName + "'"),
-            nameLength)
+        Report(ErrorCode.ExpectedToken, "Expected ':' after parameter name. Got '" + Current().Value + "'", parameterLine, parameterColumn, "Parameter '" + parameterName + "' needs a ':' before its type.", "Write this parameter as `" + parameterName + ": Type`.", SingleSuggestion("Add ':' after '" + parameterName + "'"), nameLength)
     }
 
     // Parser.cs ParseParameterTypeReference (:6504). Consumes a full type reference (Parser.cs :6507
@@ -1466,15 +1324,7 @@ public class ColumnarParserRecovery {
             explanation = "Parameter '" + parameterName + "' needs a type after ':'."
             hint = "Write this parameter as `" + parameterName + ": Type`."
         }
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected type name. Got '" + Current().Value + "'",
-            span.Line,
-            span.Column,
-            explanation,
-            hint,
-            SingleSuggestion("Add a parameter type after ':'"),
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected type name. Got '" + Current().Value + "'", span.Line, span.Column, explanation, hint, SingleSuggestion("Add a parameter type after ':'"), span.Length)
         // Stage N+1c tranche 11 (ERROR-NODE MATERIALIZATION): Parser.cs substitutes a SYNTHETIC
         // `new SimpleTypeReference("<error>", span.Line, span.Column) { Span = SourceSpan.FromStartAndLength(
         // span.Line, span.Column, span.Length) }` here (:6541) — it does not decline.
@@ -1532,7 +1382,8 @@ public class ColumnarParserRecovery {
     // type name, or the declaration keyword for a '<error>' name).
     func ParseMemberList(ownerSpan: RecoverySpan?) {
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
-            PanicMode = false                   // reset at each member boundary (Parser.cs :1365)
+            PanicMode = false
+            // reset at each member boundary (Parser.cs :1365)
             // Parser.cs resets ONLY panic here; the split-`>>` debt survives the member boundary and
             // is cleared exclusively by SynchronizeToNextDeclaration/Statement (:7044/:7088).
             startPosition := Position
@@ -1565,15 +1416,7 @@ public class ColumnarParserRecovery {
             if IsAtEnd() {
                 if ownerSpan != null {
                     span := ownerSpan ?? new RecoverySpan(1, 1, 1)
-                    Report(
-                        ErrorCode.MissingClosingBrace,
-                        "Missing closing '}'",
-                        span.Line,
-                        span.Column,
-                        "The type body that started on line " + IntToString(span.Line) + " is missing its closing brace. I reached the end of the file without finding it.",
-                        "Add a '}' to close this type declaration.",
-                        null,
-                        span.Length)
+                    Report(ErrorCode.MissingClosingBrace, "Missing closing '}'", span.Line, span.Column, "The type body that started on line " + IntToString(span.Line) + " is missing its closing brace. I reached the end of the file without finding it.", "Add a '}' to close this type declaration.", null, span.Length)
                 }
             }
         }
@@ -1603,18 +1446,24 @@ public class ColumnarParserRecovery {
         scanningPropModifiers := true
         while scanningPropModifiers {
             if Check(TokenType.Required) {
-                propertyModifierValue = propertyModifierValue | 1       // PropertyModifier.Required
-                effectiveModifiers = AddModifierFlag(effectiveModifiers, 8192)   // Modifiers.Required
+                propertyModifierValue = propertyModifierValue | 1
+                // PropertyModifier.Required
+                effectiveModifiers = AddModifierFlag(effectiveModifiers, 8192)
+                // Modifiers.Required
                 Advance()
             } else {
                 if Check(TokenType.Init) {
-                    propertyModifierValue = propertyModifierValue | 2   // PropertyModifier.Init
-                    effectiveModifiers = AddModifierFlag(effectiveModifiers, 16384)  // Modifiers.Init
+                    propertyModifierValue = propertyModifierValue | 2
+                    // PropertyModifier.Init
+                    effectiveModifiers = AddModifierFlag(effectiveModifiers, 16384)
+                    // Modifiers.Init
                     Advance()
                 } else {
                     if Check(TokenType.Readonly) {
-                        propertyModifierValue = propertyModifierValue | 4    // PropertyModifier.Readonly
-                        effectiveModifiers = AddModifierFlag(effectiveModifiers, 512)    // Modifiers.Readonly
+                        propertyModifierValue = propertyModifierValue | 4
+                        // PropertyModifier.Readonly
+                        effectiveModifiers = AddModifierFlag(effectiveModifiers, 512)
+                        // Modifiers.Readonly
                         Advance()
                     } else {
                         scanningPropModifiers = false
@@ -1634,9 +1483,7 @@ public class ColumnarParserRecovery {
             Advance()
             inferInit := ParseExprValue().Node
             if !declined && inferInit != null {
-                AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(
-                    name, null, inferInit, effectiveModifiers, propertyModifier,
-                    attributes, line, column))
+                AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(name, null, inferInit, effectiveModifiers, propertyModifier, attributes, line, column))
             }
             return
         }
@@ -1652,16 +1499,15 @@ public class ColumnarParserRecovery {
             Advance()
             propertyExpressionBody := ParseExprValue().Node
             if !declined && fieldType != null && propertyExpressionBody != null {
-                AddDeclaration(new PropertyDeclaration(
-                    name, fieldType, null, null, propertyExpressionBody, effectiveModifiers,
-                    propertyModifier, attributes, line, column))
+                AddDeclaration(new PropertyDeclaration(name, fieldType, null, null, propertyExpressionBody, effectiveModifiers, propertyModifier, attributes, line, column))
             }
             return
         }
 
         // Property with `{ get/set }` accessors (Parser.cs :1702).
         if Check(TokenType.LeftBrace) {
-            Advance()                           // consume '{'
+            Advance()
+            // consume '{'
             getBody: BlockStatement? = null
             setBody: BlockStatement? = null
             while !Check(TokenType.RightBrace) && !IsAtEnd() {
@@ -1694,14 +1540,14 @@ public class ColumnarParserRecovery {
                     }
                 } else {
                     ReportPropertyAccessorExpectedGetSet()
-                    Advance()                   // skip the invalid token (Parser.cs :1763)
+                    Advance()
                 }
             }
+            // skip the invalid token (Parser.cs :1763)
+
             ConsumeToken(TokenType.RightBrace, "Expected '}' after property accessors", "}")
             if !declined && fieldType != null {
-                AddDeclaration(new PropertyDeclaration(
-                    name, fieldType, getBody, setBody, null, effectiveModifiers,
-                    propertyModifier, attributes, line, column))
+                AddDeclaration(new PropertyDeclaration(name, fieldType, getBody, setBody, null, effectiveModifiers, propertyModifier, attributes, line, column))
             }
             return
         }
@@ -1712,9 +1558,7 @@ public class ColumnarParserRecovery {
             initializerToken := Advance()
             initNode := ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This field declaration", null)
             if !declined && fieldType != null && initNode != null {
-                AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(
-                    name, fieldType, initNode, effectiveModifiers, propertyModifier,
-                    attributes, line, column))
+                AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, initNode, effectiveModifiers, propertyModifier, attributes, line, column))
             }
             return
         }
@@ -1723,9 +1567,7 @@ public class ColumnarParserRecovery {
         // start (Parser.cs :1650-1651 capture Current before the name). AddDeclaration routes the field
         // into the enclosing type's Members.
         if !declined && fieldType != null {
-            AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(
-                name, fieldType, null, effectiveModifiers, propertyModifier,
-                attributes, line, column))
+            AddDeclaration(new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, null, effectiveModifiers, propertyModifier, attributes, line, column))
         }
     }
 
@@ -1736,15 +1578,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Example: get { return _value; }")
         suggestions.Add("Example: set { _value = value; }")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected 'get' or 'set' accessor, got '" + accessor + "'",
-            Current().Line,
-            Current().Column,
-            "Property accessors must be either 'get' (for reading) or 'set' (for writing).",
-            "Use 'get' to define how to retrieve the property value, or 'set' to define how to assign a new value.",
-            suggestions,
-            accessor.Length)
+        Report(ErrorCode.ExpectedToken, "Expected 'get' or 'set' accessor, got '" + accessor + "'", Current().Line, Current().Column, "Property accessors must be either 'get' (for reading) or 'set' (for writing).", "Use 'get' to define how to retrieve the property value, or 'set' to define how to assign a new value.", suggestions, accessor.Length)
     }
 
     // Parser.cs ParseFieldDeclaration accessor error (:1738): a non-identifier where an accessor is
@@ -1754,15 +1588,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Add a 'get' accessor to make the property readable")
         suggestions.Add("Add a 'set' accessor to make the property writable")
         suggestions.Add("Example: { get { return _value; } set { _value = value; } }")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected 'get' or 'set' accessor. Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "Inside property declaration braces, I need to see either 'get' or 'set' accessors.",
-            "Properties define how to get and/or set their values using accessor blocks.",
-            suggestions,
-            Current().Value.Length)
+        Report(ErrorCode.ExpectedToken, "Expected 'get' or 'set' accessor. Got '" + Current().Value + "'", Current().Line, Current().Column, "Inside property declaration braces, I need to see either 'get' or 'set' accessors.", "Properties define how to get and/or set their values using accessor blocks.", suggestions, Current().Value.Length)
     }
 
     // ============================================================================
@@ -1867,14 +1693,16 @@ public class ColumnarParserRecovery {
     func ParseConstructorMember(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
         line := Current().Line
         column := Current().Column
-        Advance()                               // consume the 'constructor' identifier (Parser.cs :1488)
+        Advance()
+        // consume the 'constructor' identifier (Parser.cs :1488)
         parameters := ParseParameterListRecovery()
         declined := !attrsOk || !ParamListMaterializable
 
         // Optional initializer `: this(args)` / `: base(args)` (Parser.cs :1493).
         initializer: Expression? = null
         if Check(TokenType.Colon) {
-            Advance()                           // Match(Colon) — advances past ':'
+            Advance()
+            // Match(Colon) — advances past ':'
             if Check(TokenType.This) {
                 thisLine := Current().Line
                 thisColumn := Current().Column
@@ -1906,11 +1734,12 @@ public class ColumnarParserRecovery {
                     errorInitColumn := Current().Column
                     initializer = new CallExpression(new ThisExpression(errorInitLine, errorInitColumn), new List<Argument>(), NoTypeArguments(), errorInitLine, errorInitColumn)
                     if !IsAtEnd() {
-                        Advance()               // skip the invalid token (Parser.cs :1566)
+                        Advance()
                     }
                 }
             }
         }
+        // skip the invalid token (Parser.cs :1566)
 
         // Body (Parser.cs :1559): ParseBlock consumes the '{' first, owner span on the 'constructor' keyword
         // (length 11).
@@ -1926,15 +1755,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Use 'this' to call another constructor in the same class")
         suggestions.Add("Use 'base' to call a parent class constructor")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected 'this' or 'base' after ':'. Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "In constructor initialization, the colon ':' must be followed by either 'this' (to call another constructor) or 'base' (to call parent constructor).",
-            "Constructor chaining syntax: 'constructor(params) : this(args) { }' or 'constructor(params) : base(args) { }'",
-            suggestions,
-            Current().Value.Length)
+        Report(ErrorCode.ExpectedToken, "Expected 'this' or 'base' after ':'. Got '" + Current().Value + "'", Current().Line, Current().Column, "In constructor initialization, the colon ':' must be followed by either 'this' (to call another constructor) or 'base' (to call parent constructor).", "Constructor chaining syntax: 'constructor(params) : this(args) { }' or 'constructor(params) : base(args) { }'", suggestions, Current().Value.Length)
     }
 
     // Parser.cs ParseIndexerDeclaration (:1564): `func this[params]: retType { get/set }`.
@@ -2024,15 +1845,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Example: get { return items[i]; }")
         suggestions.Add("Example: set { items[i] = value; }")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected 'get' or 'set' accessor, got '" + accessor + "'",
-            Current().Line,
-            Current().Column,
-            "Indexer accessors must be either 'get' (for reading) or 'set' (for writing).",
-            "Use 'get' to define how to retrieve a value, or 'set' to define how to assign a value.",
-            suggestions,
-            accessor.Length)
+        Report(ErrorCode.ExpectedToken, "Expected 'get' or 'set' accessor, got '" + accessor + "'", Current().Line, Current().Column, "Indexer accessors must be either 'get' (for reading) or 'set' (for writing).", "Use 'get' to define how to retrieve a value, or 'set' to define how to assign a value.", suggestions, accessor.Length)
     }
 
     // Parser.cs ParseFunctionDeclaration (:373) reached as a MEMBER method: the func / func* generator /
@@ -2068,7 +1881,8 @@ public class ColumnarParserRecovery {
             // Conversion operator (Parser.cs :393): no 'func' keyword; the return type comes BEFORE params.
             isConversionOperator = true
             isImplicitConversion = Check(TokenType.Implicit)
-            Advance()                           // consume 'implicit' / 'explicit'
+            Advance()
+            // consume 'implicit' / 'explicit'
             ConsumeToken(TokenType.Operator, "Expected 'operator' after 'implicit' or 'explicit'", "operator")
             name = "explicit operator"
             if isImplicitConversion {
@@ -2076,16 +1890,21 @@ public class ColumnarParserRecovery {
             }
         } else {
             funcToken := Current()
-            Advance()                           // consume 'func' (Parser.cs :406)
+            Advance()
+            // consume 'func' (Parser.cs :406)
             if Check(TokenType.Star) {
-                Advance()                       // generator func* (Parser.cs :409)
-                effectiveModifiers = AddModifierFlag(effectiveModifiers, 4096)  // Modifiers.Generator
+                Advance()
+                // generator func* (Parser.cs :409)
+                effectiveModifiers = AddModifierFlag(effectiveModifiers, 4096)
             }
+            // Modifiers.Generator
+
             if Check(TokenType.Operator) {
                 // Operator overload (Parser.cs :415): `func operator SYM`. The return-type marker anchors on
                 // the `operator` keyword.
                 isOperatorOverload = true
-                operatorToken := Advance()      // consume 'operator'
+                operatorToken := Advance()
+                // consume 'operator'
                 operatorKeywordSpan = SpanFromTokensSingleLine(operatorToken, operatorToken)
                 markerName = "operator overload"
                 markerLine = operatorToken.Line
@@ -2132,7 +1951,8 @@ public class ColumnarParserRecovery {
                 if Check(TokenType.Colon) {
                     Advance()
                 } else {
-                    Advance()                   // consume '-'
+                    Advance()
+                    // consume '-'
                     ConsumeToken(TokenType.Greater, "Expected '>' after '-' in return type arrow", "greater")
                 }
                 returnType = ParseMaterializedTypeReference()
@@ -2179,10 +1999,7 @@ public class ColumnarParserRecovery {
         if declined {
             return null
         }
-        functionNode := new NSharpLang.Compiler.Ast.FunctionDeclaration(
-            name, parameters, returnType, body, expressionBody, typeParameters, constraints,
-            effectiveModifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator,
-            isImplicitConversion, line, column)
+        functionNode := new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParameters, constraints, effectiveModifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column)
         functionNode.OperatorKeywordSpan = operatorKeywordSpan
         functionNode.OperatorSymbolSpan = operatorSymbolSpan
         functionNode.ReturnLifetime = returnLifetime
@@ -2210,15 +2027,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Comparison: ==, !=, <, >, <=, >=")
         suggestions.Add("Unary: !, ~, ++, --")
         suggestions.Add("Conversion: true, false")
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Invalid operator symbol '" + token.Value + "' for operator overloading",
-            token.Line,
-            token.Column,
-            "This operator cannot be overloaded, or is not a valid operator symbol.",
-            "Only certain operators can be overloaded in operator declarations.",
-            suggestions,
-            token.Value.Length)
+        Report(ErrorCode.InvalidSyntax, "Invalid operator symbol '" + token.Value + "' for operator overloading", token.Line, token.Column, "This operator cannot be overloaded, or is not a valid operator symbol.", "Only certain operators can be overloaded in operator declarations.", suggestions, token.Value.Length)
         Advance()
         // Stage N+1c tranche 11: Parser.cs's switch DEFAULT falls back to the literal symbol "+" (:5854)
         // and still advances — it does not decline.
@@ -2228,28 +2037,72 @@ public class ColumnarParserRecovery {
     // Parser.cs ParseOperatorSymbol's overloadable-operator set (:5757-5843), lowered from the switch to a
     // token predicate; the symbol STRING is the token's own text for every admitted operator.
     func IsOverloadableOperator(t: TokenType): bool {
-        if t == TokenType.Plus { return true }
-        if t == TokenType.Minus { return true }
-        if t == TokenType.Star { return true }
-        if t == TokenType.Slash { return true }
-        if t == TokenType.Percent { return true }
-        if t == TokenType.Equal { return true }
-        if t == TokenType.NotEqual { return true }
-        if t == TokenType.Less { return true }
-        if t == TokenType.LessEqual { return true }
-        if t == TokenType.Greater { return true }
-        if t == TokenType.GreaterEqual { return true }
-        if t == TokenType.Not { return true }
-        if t == TokenType.BitwiseNot { return true }
-        if t == TokenType.BitwiseAnd { return true }
-        if t == TokenType.BitwiseOr { return true }
-        if t == TokenType.BitwiseXor { return true }
-        if t == TokenType.LeftShift { return true }
-        if t == TokenType.RightShift { return true }
-        if t == TokenType.Increment { return true }
-        if t == TokenType.Decrement { return true }
-        if t == TokenType.True { return true }
-        if t == TokenType.False { return true }
+        if t == TokenType.Plus {
+            return true
+        }
+        if t == TokenType.Minus {
+            return true
+        }
+        if t == TokenType.Star {
+            return true
+        }
+        if t == TokenType.Slash {
+            return true
+        }
+        if t == TokenType.Percent {
+            return true
+        }
+        if t == TokenType.Equal {
+            return true
+        }
+        if t == TokenType.NotEqual {
+            return true
+        }
+        if t == TokenType.Less {
+            return true
+        }
+        if t == TokenType.LessEqual {
+            return true
+        }
+        if t == TokenType.Greater {
+            return true
+        }
+        if t == TokenType.GreaterEqual {
+            return true
+        }
+        if t == TokenType.Not {
+            return true
+        }
+        if t == TokenType.BitwiseNot {
+            return true
+        }
+        if t == TokenType.BitwiseAnd {
+            return true
+        }
+        if t == TokenType.BitwiseOr {
+            return true
+        }
+        if t == TokenType.BitwiseXor {
+            return true
+        }
+        if t == TokenType.LeftShift {
+            return true
+        }
+        if t == TokenType.RightShift {
+            return true
+        }
+        if t == TokenType.Increment {
+            return true
+        }
+        if t == TokenType.Decrement {
+            return true
+        }
+        if t == TokenType.True {
+            return true
+        }
+        if t == TokenType.False {
+            return true
+        }
         return false
     }
 
@@ -2264,15 +2117,7 @@ public class ColumnarParserRecovery {
             return Current()
         }
         nameLength := MaxInt(1, fieldName.Length)
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected ':' or ':=' after field name. Got '" + Current().Value + "'",
-            fieldLine,
-            fieldColumn,
-            "Field '" + fieldName + "' needs a ':' before its type, or ':=' before an inferred initializer.",
-            "Write this field as `" + fieldName + ": Type` or `" + fieldName + " := value`.",
-            FieldColonSuggestions(fieldName),
-            nameLength)
+        Report(ErrorCode.ExpectedToken, "Expected ':' or ':=' after field name. Got '" + Current().Value + "'", fieldLine, fieldColumn, "Field '" + fieldName + "' needs a ':' before its type, or ':=' before an inferred initializer.", "Write this field as `" + fieldName + ": Type` or `" + fieldName + " := value`.", FieldColonSuggestions(fieldName), nameLength)
         // Parser.cs returns a synthetic ':' token at (fieldLine, fieldColumn + nameLength) (:6675);
         // its only consumer (LooksLikeNextFieldAfterMissingType) compares only the LINE.
         return new Token(TokenType.Colon, ":", fieldLine, fieldColumn + nameLength, FileName)
@@ -2299,15 +2144,7 @@ public class ColumnarParserRecovery {
             explanation = "Field '" + fieldName + "' needs a type after ':'."
             hint = "Write this field as `" + fieldName + ": Type`."
         }
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected type name. Got '" + Current().Value + "'",
-            span.Line,
-            span.Column,
-            explanation,
-            hint,
-            SingleSuggestion("Add a field type after ':'"),
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected type name. Got '" + Current().Value + "'", span.Line, span.Column, explanation, hint, SingleSuggestion("Add a field type after ':'"), span.Length)
         // Stage N+1c tranche 11 (ERROR-NODE MATERIALIZATION): Parser.cs substitutes a SYNTHETIC
         // `new SimpleTypeReference("<error>", span.Line, span.Column) { Span = SourceSpan.FromStartAndLength(
         // span.Line, span.Column, span.Length) }` here (:6577) — it does not decline.
@@ -2397,7 +2234,8 @@ public class ColumnarParserRecovery {
     func ParseClassName(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
         classToken := Current()
         Advance()
-        nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :937)
+        nameToken := Current()
+        // capture the name position BEFORE it is consumed (Parser.cs :937)
         name := ConsumeDeclarationName("Expected class name", SpanFromToken(classToken))
         // The type-body missing-'}' diagnostic (Stage 9) anchors on the name, or the declaration keyword
         // for a '<error>' name (Parser.cs :940-942, "class".Length == 5).
@@ -2444,15 +2282,9 @@ public class ColumnarParserRecovery {
         canMaterialize := attrsOk && paramsOk && baseListOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(
-                    name, typeParams, baseClass, interfaces, members,
-                    primaryParams, modifiers, attributes,
-                    classToken.Line, classToken.Column))
+                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryParams, modifiers, attributes, classToken.Line, classToken.Column))
             } else {
-                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(
-                    name, typeParams, baseClass, interfaces, members,
-                    null, modifiers, attributes,
-                    classToken.Line, classToken.Column))
+                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, null, modifiers, attributes, classToken.Line, classToken.Column))
             }
         }
     }
@@ -2460,7 +2292,8 @@ public class ColumnarParserRecovery {
     func ParseStructName(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool, isRefStruct: bool) {
         structToken := Current()
         Advance()
-        nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :982)
+        nameToken := Current()
+        // capture the name position BEFORE it is consumed (Parser.cs :982)
         name := ConsumeDeclarationName("Expected struct name", SpanFromToken(structToken))
         // Parser.cs :985-987 ("struct".Length == 6).
         typeBodyDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
@@ -2472,12 +2305,14 @@ public class ColumnarParserRecovery {
         primaryParams := new List<Parameter>()
         paramsOk := true
         if hasParams {
-            primaryParams = ParseParameterListRecovery()        // primary ctor params (Parser.cs :992)
+            primaryParams = ParseParameterListRecovery()
+            // primary ctor params (Parser.cs :992)
             paramsOk = ParamListMaterializable
         }
         // N+1c tranche 6: a struct's `: T, U` is a pure INTERFACE list (Parser.cs :1008-1015 — no BaseClass
         // split); the whole materialized list is Interfaces. Captured BEFORE ParseTypeBody.
-        interfaces := ParseBaseTypeList()       // interface list (Parser.cs :998)
+        interfaces := ParseBaseTypeList()
+        // interface list (Parser.cs :998)
         baseListOk := BaseListMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the StructDeclaration (Parser.cs :1010). Stage N+1c tranche 11
@@ -2489,15 +2324,9 @@ public class ColumnarParserRecovery {
         canMaterialize := attrsOk && paramsOk && baseListOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new StructDeclaration(
-                    name, typeParams, interfaces, members,
-                    primaryParams, modifiers, attributes,
-                    structToken.Line, structToken.Column, isRefStruct))
+                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, primaryParams, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct))
             } else {
-                AddDeclaration(new StructDeclaration(
-                    name, typeParams, interfaces, members,
-                    null, modifiers, attributes,
-                    structToken.Line, structToken.Column, isRefStruct))
+                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, null, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct))
             }
         }
     }
@@ -2511,24 +2340,28 @@ public class ColumnarParserRecovery {
             isStruct = true
             Advance()
         }
-        nameToken := Current()          // capture the name position BEFORE it is consumed (Parser.cs :1027)
+        nameToken := Current()
+        // capture the name position BEFORE it is consumed (Parser.cs :1027)
         name := ConsumeDeclarationName("Expected record name", SpanFromToken(recordToken))
         // Parser.cs :1030-1032 ("record".Length == 6).
         typeBodyDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
         if name == "<error>" {
             typeBodyDiagnosticSpan = new RecoverySpan(recordToken.Line, recordToken.Column, MaxInt(1, 6))
         }
-        typeParams := ParseTypeParameters()                   // Parser.cs :1033
+        typeParams := ParseTypeParameters()
+        // Parser.cs :1033
         hasParams := Check(TokenType.LeftParen)
         primaryParams := new List<Parameter>()
         paramsOk := true
         if hasParams {
-            primaryParams = ParseParameterListRecovery()        // record positional (primary ctor) params (Parser.cs :1039)
+            primaryParams = ParseParameterListRecovery()
+            // record positional (primary ctor) params (Parser.cs :1039)
             paramsOk = ParamListMaterializable
         }
         // N+1c tranche 6: a record's `: T, U` is a pure INTERFACE list (Parser.cs :1053-1061). Captured BEFORE
         // ParseTypeBody.
-        interfaces := ParseBaseTypeList()       // interface list (Parser.cs :1043)
+        interfaces := ParseBaseTypeList()
+        // interface list (Parser.cs :1043)
         baseListOk := BaseListMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the RecordDeclaration (Parser.cs :1055). IsStruct reflects the
@@ -2540,15 +2373,9 @@ public class ColumnarParserRecovery {
         canMaterialize := attrsOk && paramsOk && baseListOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new RecordDeclaration(
-                    name, typeParams, interfaces, members,
-                    primaryParams, isStruct, modifiers, attributes,
-                    recordToken.Line, recordToken.Column))
+                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, primaryParams, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column))
             } else {
-                AddDeclaration(new RecordDeclaration(
-                    name, typeParams, interfaces, members,
-                    null, isStruct, modifiers, attributes,
-                    recordToken.Line, recordToken.Column))
+                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, null, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column))
             }
         }
     }
@@ -2556,10 +2383,13 @@ public class ColumnarParserRecovery {
     func ParseSoaRecordName(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
         soaLine := Current().Line
         soaColumn := Current().Column
-        Advance()                    // contextual 'soa'
-        recordToken := Current()     // the 'record' keyword
         Advance()
-        nameToken := Current()       // capture the name position BEFORE it is consumed (Parser.cs :1065)
+        // contextual 'soa'
+        recordToken := Current()
+        // the 'record' keyword
+        Advance()
+        nameToken := Current()
+        // capture the name position BEFORE it is consumed (Parser.cs :1065)
         name := ConsumeDeclarationName("Expected soa record name", SpanFromToken(recordToken))
         // Parser.cs :1068-1070 ("soa".Length == 3, anchored at the soa keyword for a '<error>' name).
         soaDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
@@ -2581,9 +2411,7 @@ public class ColumnarParserRecovery {
         // Stage N+1c tranche 11: Parser.cs's generic-soa arm REPORTS and then falls through to the same
         // `new SoaRecordDeclaration(...)` (:1136) — the diagnostic does not suppress the node.
         if attrsOk && bodyOk {
-            AddDeclaration(new SoaRecordDeclaration(
-                name, columns, modifiers, attributes,
-                soaLine, soaColumn))
+            AddDeclaration(new SoaRecordDeclaration(name, columns, modifiers, attributes, soaLine, soaColumn))
         }
     }
 
@@ -2593,17 +2421,22 @@ public class ColumnarParserRecovery {
         isDuck := false
         if Check(TokenType.Duck) {
             isDuck = true
-            interfaceLine = Current().Line      // Parser.cs anchors the '<error>' keyword span on 'duck' or 'interface'
+            interfaceLine = Current().Line
+            // Parser.cs anchors the '<error>' keyword span on 'duck' or 'interface'
             interfaceColumn = Current().Column
-            Advance()                // contextual 'duck'
+            Advance()
         }
-        interfaceToken := Current()  // the 'interface' keyword
+        // contextual 'duck'
+
+        interfaceToken := Current()
+        // the 'interface' keyword
         if !isDuck {
             interfaceLine = interfaceToken.Line
             interfaceColumn = interfaceToken.Column
         }
         Advance()
-        nameToken := Current()       // capture the name position BEFORE it is consumed (Parser.cs :1141)
+        nameToken := Current()
+        // capture the name position BEFORE it is consumed (Parser.cs :1141)
         name := ConsumeDeclarationName("Expected interface name", SpanFromToken(interfaceToken))
         // Parser.cs :1144-1146 ("interface".Length == 9, "duck".Length == 4).
         keywordLength := 9
@@ -2614,10 +2447,12 @@ public class ColumnarParserRecovery {
         if name == "<error>" {
             typeBodyDiagnosticSpan = new RecoverySpan(interfaceLine, interfaceColumn, MaxInt(1, keywordLength))
         }
-        typeParams := ParseTypeParameters()                   // Parser.cs :1147
+        typeParams := ParseTypeParameters()
+        // Parser.cs :1147
         // N+1c tranche 6: an interface's `: T, U` is the BASE-INTERFACE list (Parser.cs :1160-1168). Captured
         // BEFORE ParseTypeBody.
-        baseInterfaces := ParseBaseTypeList()   // base interface list (Parser.cs :1150)
+        baseInterfaces := ParseBaseTypeList()
+        // base interface list (Parser.cs :1150)
         baseListOk := BaseListMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the InterfaceDeclaration (Parser.cs :1150-return). Line/Column = the
@@ -2627,10 +2462,7 @@ public class ColumnarParserRecovery {
         // Interfaces have no primary-ctor params.
         canMaterialize := attrsOk && baseListOk
         if canMaterialize {
-            AddDeclaration(new InterfaceDeclaration(
-                name, typeParams, baseInterfaces, members,
-                modifiers, isDuck, attributes,
-                interfaceLine, interfaceColumn))
+            AddDeclaration(new InterfaceDeclaration(name, typeParams, baseInterfaces, members, modifiers, isDuck, attributes, interfaceLine, interfaceColumn))
         }
     }
 
@@ -2639,14 +2471,16 @@ public class ColumnarParserRecovery {
         unionColumn := Current().Column
         unionToken := Current()
         Advance()
-        nameToken := Current()       // capture the name position BEFORE it is consumed (Parser.cs :1171)
+        nameToken := Current()
+        // capture the name position BEFORE it is consumed (Parser.cs :1171)
         name := ConsumeDeclarationName("Expected union name", SpanFromToken(unionToken))
         // Parser.cs :1174-1176 ("union".Length == 5).
         unionDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
         if name == "<error>" {
             unionDiagnosticSpan = new RecoverySpan(unionLine, unionColumn, MaxInt(1, 5))
         }
-        typeParams := ParseTypeParameters()     // Parser.cs :1188
+        typeParams := ParseTypeParameters()
+        // Parser.cs :1188
         cases := ParseUnionBody(unionDiagnosticSpan, unionLine)
         bodyOk := TypeBodyMaterializable
         // N+1c tranche 6: materialize the UnionDeclaration (Parser.cs :1247). TypeParameters is the tranche-6
@@ -2655,9 +2489,7 @@ public class ColumnarParserRecovery {
         // tranche-4 values (an argument-bearing attribute clears attrsOk → decline). AddDeclaration routes it to
         // an enclosing type's Members when nested, else the top level.
         if attrsOk && bodyOk {
-            AddDeclaration(new UnionDeclaration(
-                name, typeParams, cases, modifiers, attributes,
-                unionLine, unionColumn))
+            AddDeclaration(new UnionDeclaration(name, typeParams, cases, modifiers, attributes, unionLine, unionColumn))
         }
     }
 
@@ -2666,7 +2498,8 @@ public class ColumnarParserRecovery {
         enumColumn := Current().Column
         enumToken := Current()
         Advance()
-        nameToken := Current()       // capture the name position BEFORE it is consumed (Parser.cs :1245)
+        nameToken := Current()
+        // capture the name position BEFORE it is consumed (Parser.cs :1245)
         name := ConsumeDeclarationName("Expected enum name", SpanFromToken(enumToken))
         // Parser.cs :1248-1250 ("enum".Length == 4).
         enumDiagnosticSpan := new RecoverySpan(nameToken.Line, nameToken.Column, MaxInt(1, name.Length))
@@ -2704,37 +2537,19 @@ public class ColumnarParserRecovery {
         // (handled above), not a base list — no base-list gate. AddDeclaration routes it to an enclosing type's
         // Members when the enum is nested, else the top level.
         if attrsOk && bodyOk {
-            AddDeclaration(new EnumDeclaration(
-                name, members, enumType, modifiers, attributes,
-                enumLine, enumColumn))
+            AddDeclaration(new EnumDeclaration(name, members, enumType, modifiers, attributes, enumLine, enumColumn))
         }
     }
 
     // Parser.cs ParseSoaRecordDeclaration's generic-soa report (:1074).
     func ReportSoaTypeParametersUnsupported() {
-        Report(
-            ErrorCode.InvalidSyntax,
-            "soa record type parameters are not supported yet",
-            Current().Line,
-            Current().Column,
-            "This parser slice only accepts non-generic soa records. Generic soa tables need an explicit ABI design before they can be accepted.",
-            "Remove the type parameter list for now.",
-            null,
-            MaxInt(1, Current().Value.Length))
+        Report(ErrorCode.InvalidSyntax, "soa record type parameters are not supported yet", Current().Line, Current().Column, "This parser slice only accepts non-generic soa records. Generic soa tables need an explicit ABI design before they can be accepted.", "Remove the type parameter list for now.", null, MaxInt(1, Current().Value.Length))
     }
 
     // Parser.cs ParseEnumDeclaration's unsupported-backing-type report (:1268). ReportError omits the
     // length there, so the default 0 flows through (both paths route through the same Create).
     func ReportEnumBackingTypeUnsupported(typeName: string, typeTokenLine: int, typeTokenColumn: int) {
-        Report(
-            ErrorCode.UnexpectedToken,
-            "Unsupported enum backing type '" + typeName + "'. Only 'int' and 'string' are supported.",
-            typeTokenLine,
-            typeTokenColumn,
-            null,
-            null,
-            null,
-            0)
+        Report(ErrorCode.UnexpectedToken, "Unsupported enum backing type '" + typeName + "'. Only 'int' and 'string' are supported.", typeTokenLine, typeTokenColumn, null, null, null, 0)
     }
 
     // Parser.cs class/struct/record/interface base-type list (:955/:998/:1043/:1150): `: T` then a
@@ -2754,7 +2569,8 @@ public class ColumnarParserRecovery {
         if !Check(TokenType.Colon) {
             return types
         }
-        Advance()                               // consume ':'
+        Advance()
+        // consume ':'
         first := ParseMaterializedTypeReference()
         if first == null {
             BaseListMaterializable = false
@@ -2788,24 +2604,30 @@ public class ColumnarParserRecovery {
         ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
             startPosition := Position
-            caseLine := Current().Line          // Parser.cs :1196 (captured BEFORE the name)
+            caseLine := Current().Line
+            // Parser.cs :1196 (captured BEFORE the name)
             caseColumn := Current().Column
             // Stage N+1c tranche 11: an `<error>` case/property name is Parser.cs's own placeholder and it
             // still builds the UnionCase / UnionCaseProperty around it.
-            caseName := ConsumeIdentifier("Expected union case name")      // Parser.cs :1187
+            caseName := ConsumeIdentifier("Expected union case name")
+            // Parser.cs :1187
             if Check(TokenType.LeftBrace) {
-                Advance()                       // consume the payload '{'
+                Advance()
+                // consume the payload '{'
                 props := new List<UnionCaseProperty>()
                 while !Check(TokenType.RightBrace) && !IsAtEnd() {
                     propStart := Position
-                    propName := ConsumeIdentifier("Expected property name")   // Parser.cs :1198
+                    propName := ConsumeIdentifier("Expected property name")
+                    // Parser.cs :1198
                     ConsumeToken(TokenType.Colon, "Expected ':'", ":")
                     propType := ParseMaterializedTypeReference()
                     if propType == null {
                         TypeBodyMaterializable = false
                     } else {
-                        props.Add(new UnionCaseProperty(propName, propType))   // Parser.cs :1212
+                        props.Add(new UnionCaseProperty(propName, propType))
                     }
+                    // Parser.cs :1212
+
                     if !Check(TokenType.RightBrace) {
                         if Check(TokenType.Comma) {
                             Advance()
@@ -2819,9 +2641,11 @@ public class ColumnarParserRecovery {
                 cases.Add(new UnionCase(caseName, null, caseLine, caseColumn))
             }
             if EnsureProgress(startPosition) {
-                PanicMode = false               // reset for the next case (Parser.cs :1216)
+                PanicMode = false
             }
         }
+        // reset for the next case (Parser.cs :1216)
+
         if Check(TokenType.RightBrace) {
             Advance()
         } else {
@@ -2849,17 +2673,20 @@ public class ColumnarParserRecovery {
             looping := true
             while looping && !Check(TokenType.RightBrace) && !IsAtEnd() {
                 startPosition := Position
-                memberLine := Current().Line        // Parser.cs :1293 (captured BEFORE the name)
+                memberLine := Current().Line
+                // Parser.cs :1293 (captured BEFORE the name)
                 memberColumn := Current().Column
                 // Stage N+1c tranche 11: an `<error>` member name is Parser.cs's own placeholder and it
                 // still builds the EnumMember around it.
-                memberName := ConsumeIdentifier("Expected enum member name")    // Parser.cs :1284
+                memberName := ConsumeIdentifier("Expected enum member name")
+                // Parser.cs :1284
                 // Tranche 7: a value-bearing member `A = <expr>` (Parser.cs :1290) now materializes its Value
                 // when the expression is a leaf/paren atom (ParseExprValue().Node non-null); a composed /
                 // deferred value leaves Node null → the enum declines (no-stub). A valueless member keeps null.
                 if Check(TokenType.Assign) {
                     Advance()
-                    valueResult := ParseExprValue()            // the member value (Parser.cs :1290)
+                    valueResult := ParseExprValue()
+                    // the member value (Parser.cs :1290)
                     if valueResult.Node == null {
                         TypeBodyMaterializable = false
                     }
@@ -2906,19 +2733,24 @@ public class ColumnarParserRecovery {
         columns := new List<SoaColumnDeclaration>()
         ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
-            PanicMode = false                   // reset at each column boundary (Parser.cs :1090)
+            PanicMode = false
+            // reset at each column boundary (Parser.cs :1090)
             startPosition := Position
-            columnLine := Current().Line        // Parser.cs :1103 (captured BEFORE the name)
+            columnLine := Current().Line
+            // Parser.cs :1103 (captured BEFORE the name)
             columnColumn := Current().Column
-            columnName := ConsumeIdentifier("Expected soa column name")         // Parser.cs :1094
+            columnName := ConsumeIdentifier("Expected soa column name")
+            // Parser.cs :1094
             ConsumeToken(TokenType.Colon, "Expected ':'", ":")
             columnType := ParseMaterializedTypeReference()
             // Stage N+1c tranche 11: an `<error>` column name is Parser.cs's own placeholder.
             if columnType == null {
                 TypeBodyMaterializable = false
             } else {
-                columns.Add(new SoaColumnDeclaration(columnName, columnType, columnLine, columnColumn))   // Parser.cs :1108
+                columns.Add(new SoaColumnDeclaration(columnName, columnType, columnLine, columnColumn))
             }
+            // Parser.cs :1108
+
             if Check(TokenType.Comma) || Check(TokenType.Semicolon) {
                 Advance()
             }
@@ -2939,15 +2771,7 @@ public class ColumnarParserRecovery {
     // span, hint suffix ("union declaration" / "enum declaration" / "soa record declaration"), and length
     // mirror the per-kind ReportError exactly.
     func ReportTypeBodyMissingClosingBrace(span: RecoverySpan, openingLine: int, kind: string) {
-        Report(
-            ErrorCode.MissingClosingBrace,
-            "Missing closing '}'",
-            span.Line,
-            span.Column,
-            "The " + kind + " body that started on line " + IntToString(openingLine) + " is missing its closing brace. I reached the end of the file without finding it.",
-            "Add a '}' to close this " + kind + " declaration.",
-            null,
-            span.Length)
+        Report(ErrorCode.MissingClosingBrace, "Missing closing '}'", span.Line, span.Column, "The " + kind + " body that started on line " + IntToString(openingLine) + " is missing its closing brace. I reached the end of the file without finding it.", "Add a '}' to close this " + kind + " declaration.", null, span.Length)
     }
 
     func ParseTypeAliasName() {
@@ -3024,7 +2848,8 @@ public class ColumnarParserRecovery {
         if !Check(TokenType.Less) {
             return null
         }
-        lessToken := Advance()                  // consume '<'
+        lessToken := Advance()
+        // consume '<'
         typeParams := new List<TypeParameter>()
         parsing := true
         while parsing {
@@ -3066,15 +2891,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add a type parameter name")
         suggestions.Add("Remove the trailing comma if the list is complete")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected type parameter name. Got '" + Current().Value + "'",
-            span.Line,
-            span.Column,
-            "Generic parameter lists need a type parameter name after each comma.",
-            "Write generic parameters as `<T>` or `<T, U>`.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected type parameter name. Got '" + Current().Value + "'", span.Line, span.Column, "Generic parameter lists need a type parameter name after each comma.", "Write generic parameters as `<T>` or `<T, U>`.", suggestions, span.Length)
     }
 
     // ---- span helpers for the materialized type grammar (Stage N+1c tranche 5) ----
@@ -3150,8 +2967,10 @@ public class ColumnarParserRecovery {
     // only callers discard the returned node; the field/parameter sites capture it through
     // ParseMaterializedTypeReference above.
     func ParseTypeReferenceRecovery(): TypeReference? {
-        first := ParsePostfixTypeReferenceRecovery()        // first arm (Parser.cs :1781)
-        if !Check(TokenType.BitwiseOr) {                    // Parser.cs :1782 early return
+        first := ParsePostfixTypeReferenceRecovery()
+        // first arm (Parser.cs :1781)
+        if !Check(TokenType.BitwiseOr) {
+            // Parser.cs :1782 early return
             return first
         }
         // Union `A | B | …` (Parser.cs :1785). Arms accumulate; lastToken tracks the last consumed real
@@ -3165,19 +2984,25 @@ public class ColumnarParserRecovery {
         lastToken := Current()
         scanningUnion := true
         while scanningUnion {
-            if Check(TokenType.BitwiseOr) {                 // Parser.cs :1788
-                Advance()                                   // consume '|' (Parser.cs :1790)
-                if IsTypeTerminator(Current().Type) {       // trailing `|` (Parser.cs :1791)
-                    ReportUnionMissingTypeArm()             // NL103 (Parser.cs :1793), then break
+            if Check(TokenType.BitwiseOr) {
+                // Parser.cs :1788
+                Advance()
+                // consume '|' (Parser.cs :1790)
+                if IsTypeTerminator(Current().Type) {
+                    // trailing `|` (Parser.cs :1791)
+                    ReportUnionMissingTypeArm()
+                    // NL103 (Parser.cs :1793), then break
                     scanningUnion = false
                 } else {
-                    arm := ParsePostfixTypeReferenceRecovery()   // next arm (Parser.cs :1804)
+                    arm := ParsePostfixTypeReferenceRecovery()
+                    // next arm (Parser.cs :1804)
                     if arm != null {
                         arms.Add(arm)
                     }
-                    lastToken = Previous()                  // Parser.cs :1805
+                    lastToken = Previous()
                 }
             } else {
+                // Parser.cs :1805
                 scanningUnion = false
             }
         }
@@ -3195,15 +3020,7 @@ public class ColumnarParserRecovery {
     // suggestions (Parser.cs's ReportError omits them). After it the loop breaks — only the FIRST trailing
     // `|` reports (and, being in panic after the report, any later `|` would be suppressed regardless).
     func ReportUnionMissingTypeArm() {
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Expected a type after '|' in anonymous union type",
-            Current().Line,
-            Current().Column,
-            "Anonymous union types use the form `A | B`, so every `|` must be followed by another type.",
-            "Add the missing type arm, or remove the trailing `|`.",
-            null,
-            MaxInt(1, Current().Value.Length))
+        Report(ErrorCode.InvalidSyntax, "Expected a type after '|' in anonymous union type", Current().Line, Current().Column, "Anonymous union types use the form `A | B`, so every `|` must be followed by another type.", "Add the missing type arm, or remove the trailing `|`.", null, MaxInt(1, Current().Value.Length))
     }
 
     // Parser.cs ParsePostfixTypeReference (:1814): a base type plus a loop of `[]` / `?[]` / `?` suffixes.
@@ -3216,25 +3033,36 @@ public class ColumnarParserRecovery {
         suffixLooping := true
         while suffixLooping {
             if Check(TokenType.LeftBracket) && LookAhead(1).Type == TokenType.RightBracket {
-                Advance()                                   // '[' (Parser.cs :1823)
-                rightBracket := Advance()                   // guaranteed ']' (Consume never fails, :1824)
-                baseType = WrapArrayType(baseType, rightBracket)   // Parser.cs :1825
+                Advance()
+                // '[' (Parser.cs :1823)
+                rightBracket := Advance()
+                // guaranteed ']' (Consume never fails, :1824)
+                baseType = WrapArrayType(baseType, rightBracket)
             } else {
+                // Parser.cs :1825
                 if Check(TokenType.QuestionBracket) && LookAhead(1).Type == TokenType.RightBracket {
-                    questionBracket := Advance()            // '?[' (Parser.cs :1834)
-                    baseType = WrapNullableQuestionBracketType(baseType, questionBracket)   // Parser.cs :1835
-                    rightBracket := Advance()               // guaranteed ']' (:1846)
-                    baseType = WrapArrayType(baseType, rightBracket)   // Parser.cs :1847
+                    questionBracket := Advance()
+                    // '?[' (Parser.cs :1834)
+                    baseType = WrapNullableQuestionBracketType(baseType, questionBracket)
+                    // Parser.cs :1835
+                    rightBracket := Advance()
+                    // guaranteed ']' (:1846)
+                    baseType = WrapArrayType(baseType, rightBracket)
                 } else {
+                    // Parser.cs :1847
                     if Check(TokenType.Question) {
-                        question := Advance()               // '?' nullable (Parser.cs :1856)
-                        baseType = WrapNullableType(baseType, question)   // Parser.cs :1857
+                        question := Advance()
+                        // '?' nullable (Parser.cs :1856)
+                        baseType = WrapNullableType(baseType, question)
                     } else {
-                        suffixLooping = false               // Parser.cs :1864 break
+                        // Parser.cs :1857
+                        suffixLooping = false
                     }
                 }
             }
         }
+        // Parser.cs :1864 break
+
         return baseType
     }
 
@@ -3277,39 +3105,49 @@ public class ColumnarParserRecovery {
     // Parser.cs ParseBaseTypeReference (:1884): a byref `&T`, a parenthesized / tuple type `( … )`, a
     // `Func<…>` function type, or the simple / qualified / generic identifier arm (owned since Stage 5).
     func ParseBaseTypeReferenceRecovery(): TypeReference? {
-        if Check(TokenType.BitwiseAnd) {                    // byref &T (Parser.cs :1886)
+        if Check(TokenType.BitwiseAnd) {
+            // byref &T (Parser.cs :1886)
             ampersand := Current()
             Advance()
-            inner := ParsePostfixTypeReferenceRecovery()    // inner is a POSTFIX type (Parser.cs :1889)
+            inner := ParsePostfixTypeReferenceRecovery()
+            // inner is a POSTFIX type (Parser.cs :1889)
             return MakeByRefType(ampersand, inner)
         }
-        if Check(TokenType.LeftParen) {                     // tuple / parenthesized (Parser.cs :1899)
+        if Check(TokenType.LeftParen) {
+            // tuple / parenthesized (Parser.cs :1899)
             return ParseParenthesizedOrTupleTypeReferenceRecovery()
         }
-        if Check(TokenType.Identifier) && Current().Value == "Func" {   // Func<…> (Parser.cs :1905)
+        if Check(TokenType.Identifier) && Current().Value == "Func" {
+            // Func<…> (Parser.cs :1905)
             return ParseFunctionTypeReferenceRecovery()
         }
 
         // simple / qualified / generic (Parser.cs :1910-1962). Capture the accumulated dotted name + the
         // last name token (ExtendSpan's end for a simple type) so a qualified `A.B.C` materializes byte-exact.
         typeNameToken := Current()
-        firstName := ConsumeIdentifier("Expected type name")   // Parser.cs :1914
+        firstName := ConsumeIdentifier("Expected type name")
+        // Parser.cs :1914
         name := firstName
         lastNameToken := typeNameToken
-        while Check(TokenType.Dot) {                         // qualified name A.B (Parser.cs :1918)
+        while Check(TokenType.Dot) {
+            // qualified name A.B (Parser.cs :1918)
             Advance()
-            lastNameToken = Current()                       // Parser.cs :1921 captures Current BEFORE consuming
+            lastNameToken = Current()
+            // Parser.cs :1921 captures Current BEFORE consuming
             segment := ConsumeIdentifier("Expected identifier after '.'")
             name = name + "." + segment
         }
 
         if Check(TokenType.Less) {
-            lessToken := Advance()                          // consume '<'
+            lessToken := Advance()
+            // consume '<'
             typeArgs := new List<TypeReference>()
             if Check(TokenType.Greater) {
-                ReportMissingGenericTypeArgument(typeNameToken, lessToken)  // `Name<>` (Parser.cs :1930)
+                ReportMissingGenericTypeArgument(typeNameToken, lessToken)
             } else {
-                firstArg := ParseTypeReferenceRecovery()    // first type argument (full grammar, Parser.cs :1936)
+                // `Name<>` (Parser.cs :1930)
+                firstArg := ParseTypeReferenceRecovery()
+                // first type argument (full grammar, Parser.cs :1936)
                 if firstArg != null {
                     typeArgs.Add(firstArg)
                 }
@@ -3332,7 +3170,8 @@ public class ColumnarParserRecovery {
                     }
                 }
             }
-            greater := ConsumeGreater("Expected '>'")       // Parser.cs :1950
+            greater := ConsumeGreater("Expected '>'")
+            // Parser.cs :1950
             // Parser.cs :1951 `new GenericTypeReference(name, typeArgs) { Line = typeNameLine, Column =
             // typeNameColumn, Span = SpanFromTokens(typeNameToken, greater) }` — the 4-arg ctor sets Line/Column.
             result := new GenericTypeReference(name, typeArgs, typeNameToken.Line, typeNameToken.Column)
@@ -3372,26 +3211,35 @@ public class ColumnarParserRecovery {
     // diagnostic — so the recovery model just consumes them.
     func ParseParenthesizedOrTupleTypeReferenceRecovery(): TypeReference? {
         leftParen := Current()
-        Advance()                                           // '(' (Consume guarded, Parser.cs :1967)
+        Advance()
+        // '(' (Consume guarded, Parser.cs :1967)
         elements := new List<TupleTypeElement>()
         tupleLooping := true
         while tupleLooping {
             elementName: string? = null
             if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
-                elementName = Advance().Value               // element name (Parser.cs :1977)
-                Advance()                                   // ':' (Parser.cs :1978)
+                elementName = Advance().Value
+                // element name (Parser.cs :1977)
+                Advance()
             }
-            elementType := ParseTypeReferenceRecovery()     // element type (Parser.cs :1981)
+            // ':' (Parser.cs :1978)
+
+            elementType := ParseTypeReferenceRecovery()
+            // element type (Parser.cs :1981)
             if elementType != null {
-                elements.Add(new TupleTypeElement(elementType, elementName))   // Parser.cs :1982
+                elements.Add(new TupleTypeElement(elementType, elementName))
             }
-            if Check(TokenType.Comma) {                     // Parser.cs :1984 `while Match(Comma)`
+            // Parser.cs :1982
+
+            if Check(TokenType.Comma) {
+                // Parser.cs :1984 `while Match(Comma)`
                 Advance()
             } else {
                 tupleLooping = false
             }
         }
-        rightParen := ConsumeToken(TokenType.RightParen, "Expected ')'", ")")   // Parser.cs :1986
+        rightParen := ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
+        // Parser.cs :1986
         tupleSpan := SpanFromTokensSingleLine(leftParen, rightParen)
         // Parser.cs :1988-1992: a single UNNAMED element unwraps to the inner type (its span reset to the
         // whole parenthesized extent), NOT a TupleTypeReference. The inner type is bound to a LOCAL before the
@@ -3418,20 +3266,29 @@ public class ColumnarParserRecovery {
     // `Func<>` / `Func<int,>` reach the ConsumeIdentifier NL102 on the `>` (verified against the oracle).
     func ParseFunctionTypeReferenceRecovery(): TypeReference? {
         funcToken := Current()
-        Advance()                                           // 'Func' (Consume guarded, Parser.cs :2002)
-        ConsumeToken(TokenType.Less, "Expected '<'", "less")   // Parser.cs :2003
+        Advance()
+        // 'Func' (Consume guarded, Parser.cs :2002)
+        ConsumeToken(TokenType.Less, "Expected '<'", "less")
+        // Parser.cs :2003
         // Parser.cs :2005-2012: the LAST parsed type is the return type; the preceding ones are the parameter
         // types. So each comma pushes the CURRENT returnType into paramTypes before the next parse.
         paramTypes := new List<TypeReference>()
-        returnType := ParseTypeReferenceRecovery()          // first type = return (Parser.cs :2006)
-        while Check(TokenType.Comma) {                      // Parser.cs :2008 `while Match(Comma)`
+        returnType := ParseTypeReferenceRecovery()
+        // first type = return (Parser.cs :2006)
+        while Check(TokenType.Comma) {
+            // Parser.cs :2008 `while Match(Comma)`
             Advance()
             if returnType != null {
-                paramTypes.Add(returnType)                  // Parser.cs :2010
+                paramTypes.Add(returnType)
             }
-            returnType = ParseTypeReferenceRecovery()       // Parser.cs :2011
+            // Parser.cs :2010
+
+            returnType = ParseTypeReferenceRecovery()
         }
-        greater := ConsumeGreater("Expected '>'")           // Parser.cs :2014
+        // Parser.cs :2011
+
+        greater := ConsumeGreater("Expected '>'")
+        // Parser.cs :2014
         if returnType == null {
             return null
         }
@@ -3449,15 +3306,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add a type argument")
         suggestions.Add("Remove the empty generic argument list")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected type name. Got '" + Current().Value + "'",
-            span.Line,
-            span.Column,
-            "Generic type '" + typeName + "' needs a type argument between '" + lessToken.Value + "' and '>'.",
-            "Write this type as `" + typeName + "<T>` or remove the generic argument list.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected type name. Got '" + Current().Value + "'", span.Line, span.Column, "Generic type '" + typeName + "' needs a type argument between '" + lessToken.Value + "' and '>'.", "Write this type as `" + typeName + "<T>` or remove the generic argument list.", suggestions, span.Length)
     }
 
     // ---- ConsumeGreater (Parser.cs :2101) — closes a type-ARGUMENT list, splitting `>>` ----
@@ -3476,15 +3325,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Check if you have matching '<' and '>' in your generic type declaration")
         suggestions.Add("Example: List<int> or Dictionary<string, int>")
-        Report(
-            ErrorCode.ExpectedToken,
-            message + ". Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "I was parsing generic type parameters and expected to see a closing '>' here.",
-            GetHintForMissingToken(TokenType.Greater),
-            suggestions,
-            Current().Value.Length)
+        Report(ErrorCode.ExpectedToken, message + ". Got '" + Current().Value + "'", Current().Line, Current().Column, "I was parsing generic type parameters and expected to see a closing '>' here.", GetHintForMissingToken(TokenType.Greater), suggestions, Current().Value.Length)
         return Current()
     }
 
@@ -3506,26 +3347,10 @@ public class ColumnarParserRecovery {
         }
         if IsAtEnd() {
             ownerSpan := LastVisibleTokenSpan()
-            Report(
-                ErrorCode.UnexpectedEndOfFile,
-                "Expected '" + expected + "' but reached the end of the file",
-                ownerSpan.Line,
-                ownerSpan.Column,
-                "I was expecting '" + expected + "' here, but the file ended first.",
-                HintForMissingTokenOrDefault(tokenType, "Finish this construct before the end of the file."),
-                null,
-                ownerSpan.Length)
+            Report(ErrorCode.UnexpectedEndOfFile, "Expected '" + expected + "' but reached the end of the file", ownerSpan.Line, ownerSpan.Column, "I was expecting '" + expected + "' here, but the file ended first.", HintForMissingTokenOrDefault(tokenType, "Finish this construct before the end of the file."), null, ownerSpan.Length)
             return Current()
         }
-        Report(
-            ErrorCode.ExpectedToken,
-            message + ". Expected '" + expected + "', got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "I was expecting " + expected + " here, but I found '" + Current().Value + "' instead.",
-            GetHintForMissingToken(tokenType),
-            null,
-            Current().Value.Length)
+        Report(ErrorCode.ExpectedToken, message + ". Expected '" + expected + "', got '" + Current().Value + "'", Current().Line, Current().Column, "I was expecting " + expected + " here, but I found '" + Current().Value + "' instead.", GetHintForMissingToken(tokenType), null, Current().Value.Length)
         return Current()
     }
 
@@ -3645,15 +3470,7 @@ public class ColumnarParserRecovery {
         suggestions.Add(primarySuggestion)
         suggestions.Add("Check the matching '" + opening + "' in this expression")
 
-        Report(
-            code,
-            "Missing closing '" + expected + "'",
-            span.Line,
-            span.Column,
-            explanation,
-            hint,
-            suggestions,
-            span.Length)
+        Report(code, "Missing closing '" + expected + "'", span.Line, span.Column, explanation, hint, suggestions, span.Length)
 
         recovered := new Token(tokenType, expected, insertionLine, insertionColumn, previous.FileName)
         return new ClosingDelimiterRecovery(true, recovered)
@@ -3841,9 +3658,12 @@ public class ColumnarParserRecovery {
         }
         constraints := new List<GenericConstraint>()
         while Check(TokenType.Where) {
-            Advance()                                       // consume 'where'
-            typeParameterName := ConsumeIdentifier("Expected type parameter")    // Parser.cs :861
-            ConsumeToken(TokenType.Colon, "Expected ':'", ":")  // Parser.cs :862
+            Advance()
+            // consume 'where'
+            typeParameterName := ConsumeIdentifier("Expected type parameter")
+            // Parser.cs :861
+            ConsumeToken(TokenType.Colon, "Expected ':'", ":")
+            // Parser.cs :862
             constraintTypes := new List<TypeReference>()
             specialConstraints := 0
 
@@ -3861,23 +3681,29 @@ public class ColumnarParserRecovery {
                     classToken = Current()
                     Advance()
                     hasClass = true
-                    specialConstraints = specialConstraints | 1     // SpecialConstraintKind.Class
+                    specialConstraints = specialConstraints | 1
                 } else {
+                    // SpecialConstraintKind.Class
                     if Check(TokenType.Struct) {
                         structToken = Current()
                         Advance()
                         hasStruct = true
-                        specialConstraints = specialConstraints | 2 // SpecialConstraintKind.Struct
+                        specialConstraints = specialConstraints | 2
                     } else {
+                        // SpecialConstraintKind.Struct
                         if Check(TokenType.New) && LookAhead(1).Type == TokenType.LeftParen {
                             newStartToken = Current()
-                            Advance()                       // consume 'new'
-                            Advance()                       // consume '('
+                            Advance()
+                            // consume 'new'
+                            Advance()
+                            // consume '('
                             newEndToken = ConsumeToken(TokenType.RightParen, "Expected ')' after 'new('", ")")
                             hasNew = true
-                            specialConstraints = specialConstraints | 4 // SpecialConstraintKind.New
+                            specialConstraints = specialConstraints | 4
                         } else {
-                            constraintType := ParseMaterializedTypeReference()    // Parser.cs :892
+                            // SpecialConstraintKind.New
+                            constraintType := ParseMaterializedTypeReference()
+                            // Parser.cs :892
                             if constraintType == null {
                                 ConstraintsMaterializable = false
                             } else {
@@ -3924,15 +3750,7 @@ public class ColumnarParserRecovery {
             column = resolved.Column
         }
         length = TokenLengthOrFallback(diagnosticToken)
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Cannot have both 'class' and 'struct' constraints on the same type parameter — they are mutually exclusive",
-            line,
-            column,
-            "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time.",
-            null,
-            null,
-            length)
+        Report(ErrorCode.InvalidSyntax, "Cannot have both 'class' and 'struct' constraints on the same type parameter — they are mutually exclusive", line, column, "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time.", null, null, length)
     }
 
     func ReportStructNewRedundancy(newStartToken: Token?, newEndToken: Token?) {
@@ -3943,15 +3761,7 @@ public class ColumnarParserRecovery {
             line = resolved.Line
             column = resolved.Column
         }
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor",
-            line,
-            column,
-            "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in .",
-            null,
-            null,
-            TokenSpanLengthOrFallback(newStartToken, newEndToken))
+        Report(ErrorCode.InvalidSyntax, "Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor", line, column, "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in .", null, null, TokenSpanLengthOrFallback(newStartToken, newEndToken))
     }
 
     // Parser.cs LaterToken (:6010): the token later in source order (higher line, or equal line and
@@ -4039,7 +3849,8 @@ public class ColumnarParserRecovery {
     func ParseBlockBody(ownerSpan: RecoverySpan?): BlockStatement? {
         line := Current().Line
         column := Current().Column
-        Advance()                               // consume '{'
+        Advance()
+        // consume '{'
         diagnosticSpan := ownerSpan ?? new RecoverySpan(line, column, 1)
         statements := ParseBlockStatementsLoop(diagnosticSpan, line)
         if statements == null {
@@ -4091,7 +3902,8 @@ public class ColumnarParserRecovery {
                 return statements
             }
 
-            PanicMode = false                   // reset at each statement boundary (Parser.cs :2172)
+            PanicMode = false
+            // reset at each statement boundary (Parser.cs :2172)
             startPosition := Position
 
             // Track this statement's starting column so IsMissingOperandBoundary can tell a genuine
@@ -4140,30 +3952,14 @@ public class ColumnarParserRecovery {
 
     // Parser.cs ParseBlock's end-of-file missing-'}' report (:2205). Stage 9 exercises it.
     func ReportMissingClosingBrace(diagnosticSpan: RecoverySpan, openingLine: int) {
-        Report(
-            ErrorCode.MissingClosingBrace,
-            "Missing closing '}'",
-            diagnosticSpan.Line,
-            diagnosticSpan.Column,
-            "The block that started on line " + IntToString(openingLine) + " is missing its closing brace. I reached the end of the file without finding it.",
-            "Add a '}' to close this block.",
-            null,
-            diagnosticSpan.Length)
+        Report(ErrorCode.MissingClosingBrace, "Missing closing '}'", diagnosticSpan.Line, diagnosticSpan.Column, "The block that started on line " + IntToString(openingLine) + " is missing its closing brace. I reached the end of the file without finding it.", "Add a '}' to close this block.", null, diagnosticSpan.Length)
     }
 
     // Parser.cs ParseBlock's found-declaration missing-'}' report (:2158). Fired when a type-declaration
     // keyword appears mid-block: the block is presumed unclosed and the offending declaration is left for
     // the outer loop (Stage 9).
     func ReportBlockMissingClosingBraceFoundDeclaration(diagnosticSpan: RecoverySpan, openingLine: int) {
-        Report(
-            ErrorCode.MissingClosingBrace,
-            "Missing closing '}'",
-            diagnosticSpan.Line,
-            diagnosticSpan.Column,
-            "The block that started on line " + IntToString(openingLine) + " appears to be missing its closing brace. I found '" + Current().Value + "' on line " + IntToString(Current().Line) + ", which looks like a new declaration.",
-            "Add a '}' before this declaration to close the previous block.",
-            null,
-            diagnosticSpan.Length)
+        Report(ErrorCode.MissingClosingBrace, "Missing closing '}'", diagnosticSpan.Line, diagnosticSpan.Column, "The block that started on line " + IntToString(openingLine) + " appears to be missing its closing brace. I found '" + Current().Value + "' on line " + IntToString(Current().Line) + ", which looks like a new declaration.", "Add a '}' before this declaration to close the previous block.", null, diagnosticSpan.Length)
     }
 
     // Parser.cs IsBlockClosingDeclarationStart (:6964): a token that begins a top-level type declaration
@@ -4278,7 +4074,8 @@ public class ColumnarParserRecovery {
         if Check(TokenType.Semicolon) {
             emptyLine := Current().Line
             emptyColumn := Current().Column
-            Advance()                           // empty statement (Parser.cs :2228)
+            Advance()
+            // empty statement (Parser.cs :2228)
             return new EmptyStatement(emptyLine, emptyColumn)
         }
 
@@ -4393,15 +4190,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add a block body")
         suggestions.Add("Add a statement body")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected statement body. Got '" + Current().Value + "'",
-            ownerSpan.Line,
-            ownerSpan.Column,
-            "This control-flow keyword needs a statement or block after its condition.",
-            "Add a block like `{ ... }`, or add a single statement after the keyword.",
-            suggestions,
-            ownerSpan.Length)
+        Report(ErrorCode.ExpectedToken, "Expected statement body. Got '" + Current().Value + "'", ownerSpan.Line, ownerSpan.Column, "This control-flow keyword needs a statement or block after its condition.", "Add a block like `{ ... }`, or add a single statement after the keyword.", suggestions, ownerSpan.Length)
     }
 
     // ---- variable declaration (Parser.cs ParseVariableDeclaration :2531) ----
@@ -4416,7 +4205,8 @@ public class ColumnarParserRecovery {
     // VariableDeclarationWasTuple for the using-statement caller.
     func ParseVariableDeclaration(): Statement? {
         kind := VariableKindFor(Current().Type)
-        Advance()                               // consume let / const / readonly
+        Advance()
+        // consume let / const / readonly
         VariableDeclarationWasTuple = false
 
         // Tuple deconstruction `(x, y) := …` (Parser.cs :2536). The paren position anchors it.
@@ -4445,11 +4235,7 @@ public class ColumnarParserRecovery {
         initializerDeclined := false
         if Check(TokenType.Assign) || Check(TokenType.ColonAssign) {
             initializerToken := Advance()
-            initializer = ParseRequiredExpressionAfter(
-                initializerToken,
-                "an initializer expression",
-                "This variable declaration",
-                new RecoverySpan(line, column, MaxInt(1, name.Length)))
+            initializer = ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This variable declaration", new RecoverySpan(line, column, MaxInt(1, name.Length)))
             initializerDeclined = initializer == null
         }
 
@@ -4522,15 +4308,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Add ':=' for new variables: (x, y) := (1, 2)")
         suggestions.Add("Add '=' for existing variables: (x, y) = tuple")
         suggestions.Add("Example: (name, age) := getPerson()")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Tuple deconstruction requires ':=' or '='. Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list.",
-            "Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()",
-            suggestions,
-            Current().Value.Length)
+        Report(ErrorCode.ExpectedToken, "Tuple deconstruction requires ':=' or '='. Got '" + Current().Value + "'", Current().Line, Current().Column, "To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list.", "Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()", suggestions, Current().Value.Length)
     }
 
     // ---- if / while / for / foreach (Parser.cs :2629 / :2806 / :2651 / :2747) ----
@@ -4542,9 +4320,11 @@ public class ColumnarParserRecovery {
         ifToken := Current()
         line := ifToken.Line
         column := ifToken.Column
-        Advance()                               // consume 'if'
+        Advance()
+        // consume 'if'
         condition := ParseRequiredExpressionAfter(ifToken, "a condition expression", "This if statement", null)
-        thenStatement := ParseStatement(SpanFromToken(ifToken))  // then-branch, with the missing-body owner span
+        thenStatement := ParseStatement(SpanFromToken(ifToken))
+        // then-branch, with the missing-body owner span
         elseStatement: Statement? = null
         elseDeclined := false
         if Check(TokenType.Else) {
@@ -4564,7 +4344,8 @@ public class ColumnarParserRecovery {
         whileToken := Current()
         line := whileToken.Line
         column := whileToken.Column
-        Advance()                               // consume 'while'
+        Advance()
+        // consume 'while'
         condition := ParseRequiredExpressionAfter(whileToken, "a condition expression", "This while statement", null)
         body := ParseStatement(SpanFromToken(whileToken))
         if condition == null || body == null {
@@ -4583,10 +4364,12 @@ public class ColumnarParserRecovery {
         forToken := Current()
         line := forToken.Line
         column := forToken.Column
-        Advance()                               // consume 'for'
+        Advance()
+        // consume 'for'
 
         if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.In {
-            loopVariable := Advance().Value      // loop variable
+            loopVariable := Advance().Value
+            // loop variable
             inToken := ConsumeToken(TokenType.In, "Expected 'in'", "in")
             collection := ParseRequiredExpressionAfter(inToken, "a collection expression", "This for-in statement", null)
             body := ParseStatement(SpanFromToken(forToken))
@@ -4598,7 +4381,8 @@ public class ColumnarParserRecovery {
 
         if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier {
             variableToken := Current()
-            Advance()                           // loop variable
+            Advance()
+            // loop variable
             inToken := ReportMissingInKeywordAndRecover(forToken, variableToken, "This for-in statement")
             recoveredCollection := ParseRequiredExpressionAfter(inToken, "a collection expression", "This for-in statement", null)
             recoveredBody := ParseStatement(SpanFromToken(forToken))
@@ -4613,8 +4397,9 @@ public class ColumnarParserRecovery {
         hasParens := false
         if Check(TokenType.LeftParen) {
             hasParens = true
-            Advance()                           // consume '('
+            Advance()
         }
+        // consume '('
 
         // Initializer (a `let` declaration, a `:=` shorthand, or a bare expression statement).
         initializerStatement: Statement? = null
@@ -4654,7 +4439,8 @@ public class ColumnarParserRecovery {
         condition: Expression? = null
         conditionDeclined := false
         if !Check(TokenType.Semicolon) {
-            condition = ParseExprValue().Node   // condition
+            condition = ParseExprValue().Node
+            // condition
             conditionDeclined = condition == null
         }
 
@@ -4670,7 +4456,8 @@ public class ColumnarParserRecovery {
         iterator: Expression? = null
         iteratorDeclined := false
         if needIterator {
-            iterator = ParseExprValue().Node    // iterator
+            iterator = ParseExprValue().Node
+            // iterator
             iteratorDeclined = iterator == null
         }
 
@@ -4693,10 +4480,12 @@ public class ColumnarParserRecovery {
         foreachToken := Current()
         line := foreachToken.Line
         column := foreachToken.Column
-        Advance()                               // consume 'foreach'
+        Advance()
+        // consume 'foreach'
         hasParens := false
         if Check(TokenType.LeftParen) {
-            Advance()                           // optional '('
+            Advance()
+            // optional '('
             hasParens = true
         }
         variableToken := Current()
@@ -4725,18 +4514,11 @@ public class ColumnarParserRecovery {
     // Parser.cs ReportMissingInKeywordAndRecover (:3908): report the missing `in` anchored on the loop
     // keyword and return a synthetic `in` token so the collection expression still parses.
     func ReportMissingInKeywordAndRecover(loopKeywordToken: Token, variableToken: Token, ownerDescription: string): Token {
-        expected := "in"                        // TokenTypeToString(In) = In.ToString().ToLower()
+        expected := "in"
+        // TokenTypeToString(In) = In.ToString().ToLower()
         suggestions := new List<string>()
         suggestions.Add("Add '" + expected + "' after '" + variableToken.Value + "'")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected '" + expected + "' between the loop variable and collection",
-            loopKeywordToken.Line,
-            loopKeywordToken.Column,
-            ownerDescription + " needs the '" + expected + "' keyword between the loop variable and the collection.",
-            "Write `" + loopKeywordToken.Value + " " + variableToken.Value + " " + expected + " ...`.",
-            suggestions,
-            MaxInt(1, loopKeywordToken.Value.Length))
+        Report(ErrorCode.ExpectedToken, "Expected '" + expected + "' between the loop variable and collection", loopKeywordToken.Line, loopKeywordToken.Column, ownerDescription + " needs the '" + expected + "' keyword between the loop variable and the collection.", "Write `" + loopKeywordToken.Value + " " + variableToken.Value + " " + expected + " ...`.", suggestions, MaxInt(1, loopKeywordToken.Value.Length))
         recoveredColumn := variableToken.Column + MaxInt(1, variableToken.Value.Length) + 1
         return new Token(TokenType.In, expected, variableToken.Line, recoveredColumn, variableToken.FileName)
     }
@@ -4748,7 +4530,8 @@ public class ColumnarParserRecovery {
     func ParseReturnStatement(): Statement? {
         line := Current().Line
         column := Current().Column
-        Advance()                               // consume 'return'
+        Advance()
+        // consume 'return'
         if !Check(TokenType.RightBrace) && !IsAtEnd() && ParserTokenFacts.CanStartExpression(Current().Type) {
             value := ParseExprValue().Node
             if value == null {
@@ -4764,7 +4547,8 @@ public class ColumnarParserRecovery {
         printToken := Current()
         line := printToken.Line
         column := printToken.Column
-        Advance()                               // consume 'print'
+        Advance()
+        // consume 'print'
         value := ParseRequiredExpressionAfter(printToken, "an expression to print", "This print statement", null)
         if value == null {
             return null
@@ -4790,7 +4574,8 @@ public class ColumnarParserRecovery {
         yieldToken := Current()
         line := yieldToken.Line
         column := yieldToken.Column
-        Advance()                               // consume 'yield'
+        Advance()
+        // consume 'yield'
         if !Check(TokenType.Break) {
             value := ParseRequiredExpressionAfter(yieldToken, "a value to yield", "This yield statement", null)
             if value == null {
@@ -4798,7 +4583,8 @@ public class ColumnarParserRecovery {
             }
             return new YieldStatement(value, line, column)
         }
-        Advance()                               // consume 'break' (yield break)
+        Advance()
+        // consume 'break' (yield break)
         return new YieldStatement(null, line, column)
     }
 
@@ -4809,14 +4595,16 @@ public class ColumnarParserRecovery {
     func ParseBreakStatement(): Statement? {
         line := Current().Line
         column := Current().Column
-        Advance()                               // consume 'break'
+        Advance()
+        // consume 'break'
         return new BreakStatement(line, column)
     }
 
     func ParseContinueStatement(): Statement? {
         line := Current().Line
         column := Current().Column
-        Advance()                               // consume 'continue'
+        Advance()
+        // consume 'continue'
         return new ContinueStatement(line, column)
     }
 
@@ -4826,7 +4614,8 @@ public class ColumnarParserRecovery {
         throwToken := Current()
         line := throwToken.Line
         column := throwToken.Column
-        Advance()                               // consume 'throw'
+        Advance()
+        // consume 'throw'
         thrown := ParseRequiredExpressionAfter(throwToken, "an exception expression", "This throw statement", null)
         if thrown == null {
             return null
@@ -4842,7 +4631,8 @@ public class ColumnarParserRecovery {
         line := Current().Line
         column := Current().Column
         directive := Current().Value
-        Advance()                               // consume the directive
+        Advance()
+        // consume the directive
         return new PreprocessorDirective(directive, line, column)
     }
 
@@ -4852,12 +4642,15 @@ public class ColumnarParserRecovery {
     func ParseAwaitForeachStatement(): Statement? {
         line := Current().Line
         column := Current().Column
-        Advance()                               // consume 'await'
+        Advance()
+        // consume 'await'
         foreachToken := Current()
-        Advance()                               // consume 'foreach'
+        Advance()
+        // consume 'foreach'
         hasParens := false
         if Check(TokenType.LeftParen) {
-            Advance()                           // optional '('
+            Advance()
+            // optional '('
             hasParens = true
         }
         variableToken := Current()
@@ -4890,7 +4683,8 @@ public class ColumnarParserRecovery {
         line := Current().Line
         column := Current().Column
         unsafeToken := Current()
-        Advance()                               // consume 'unsafe'
+        Advance()
+        // consume 'unsafe'
         body := ParseBlock(new RecoverySpan(line, column, MaxInt(1, unsafeToken.Value.Length)))
         if body == null {
             return null
@@ -4904,7 +4698,8 @@ public class ColumnarParserRecovery {
         line := Current().Line
         column := Current().Column
         allocToken := Current()
-        Advance()                               // consume 'alloc'
+        Advance()
+        // consume 'alloc'
         body := ParseBlock(new RecoverySpan(line, column, MaxInt(1, allocToken.Value.Length)))
         if body == null {
             return null
@@ -4921,9 +4716,11 @@ public class ColumnarParserRecovery {
         assertToken := Current()
         line := assertToken.Line
         column := assertToken.Column
-        Advance()                               // consume 'assert'
+        Advance()
+        // consume 'assert'
         if Check(TokenType.Identifier) && Current().Value == "throws" {
-            Advance()                           // consume 'throws'
+            Advance()
+            // consume 'throws'
             exceptionType := ParseMaterializedTypeReference()
             throwsBody := ParseBlock(SpanFromToken(assertToken))
             if exceptionType == null || throwsBody == null {
@@ -4935,8 +4732,10 @@ public class ColumnarParserRecovery {
         message: Expression? = null
         messageDeclined := false
         if Check(TokenType.Comma) {
-            Advance()                           // consume ','
-            message = ParseExprValue().Node     // the optional message expression
+            Advance()
+            // consume ','
+            message = ParseExprValue().Node
+            // the optional message expression
             messageDeclined = message == null
         }
         if condition == null || messageDeclined {
@@ -4954,7 +4753,8 @@ public class ColumnarParserRecovery {
         lockToken := Current()
         line := lockToken.Line
         column := lockToken.Column
-        Advance()                               // consume 'lock'
+        Advance()
+        // consume 'lock'
         hasParens := Check(TokenType.LeftParen)
         expressionAnchor := lockToken
         if hasParens {
@@ -4980,20 +4780,25 @@ public class ColumnarParserRecovery {
         tryToken := Current()
         line := tryToken.Line
         column := tryToken.Column
-        Advance()                               // consume 'try'
+        Advance()
+        // consume 'try'
         tryBlock := ParseBlock(SpanFromToken(tryToken))
         declined := tryBlock == null
         catchClauses := new List<CatchClause>()
         while Check(TokenType.Catch) {
-            catchToken := Advance()             // consume 'catch'
+            catchToken := Advance()
+            // consume 'catch'
             exceptionType: TypeReference? = null
             variableName: string? = null
             if Check(TokenType.LeftParen) {
-                Advance()                       // consume '('
+                Advance()
+                // consume '('
                 if !Check(TokenType.RightParen) {
                     if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
-                        variableName = Advance().Value      // catch variable name
-                        Advance()               // consume ':'
+                        variableName = Advance().Value
+                        // catch variable name
+                        Advance()
+                        // consume ':'
                         exceptionType = ParseMaterializedTypeReference()
                         if exceptionType == null {
                             declined = true
@@ -5004,15 +4809,19 @@ public class ColumnarParserRecovery {
                             declined = true
                         }
                         if Check(TokenType.Identifier) {
-                            variableName = Advance().Value  // catch variable name
+                            variableName = Advance().Value
                         }
                     }
                 }
+                // catch variable name
+
                 ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
             } else {
                 if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
-                    variableName = Advance().Value          // catch variable name
-                    Advance()                   // consume ':'
+                    variableName = Advance().Value
+                    // catch variable name
+                    Advance()
+                    // consume ':'
                     exceptionType = ParseMaterializedTypeReference()
                     if exceptionType == null {
                         declined = true
@@ -5028,7 +4837,8 @@ public class ColumnarParserRecovery {
         }
         finallyBlock: BlockStatement? = null
         if Check(TokenType.Finally) {
-            finallyToken := Advance()           // consume 'finally'
+            finallyToken := Advance()
+            // consume 'finally'
             finallyBlock = ParseBlock(SpanFromToken(finallyToken))
             if finallyBlock == null {
                 declined = true
@@ -5054,7 +4864,8 @@ public class ColumnarParserRecovery {
         usingToken := Current()
         line := usingToken.Line
         column := usingToken.Column
-        Advance()                               // consume 'using'
+        Advance()
+        // consume 'using'
         if Check(TokenType.Identifier) || Check(TokenType.Let) {
             declaration: VariableDeclarationStatement? = null
             invalidUsingExpression: Expression? = null
@@ -5129,15 +4940,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Change from tuple deconstruction to single variable")
         suggestions.Add("Example: using let file := File.Open(path) { ... }")
         suggestions.Add("Note: The variable will be automatically disposed when the block ends")
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Using statement requires a variable declaration, not tuple deconstruction",
-            span.Line,
-            span.Column,
-            "The 'using' statement can only work with single variable declarations, not tuple deconstruction.",
-            "Use a single variable: using let resource := getResource() { ... }",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.InvalidSyntax, "Using statement requires a variable declaration, not tuple deconstruction", span.Line, span.Column, "The 'using' statement can only work with single variable declarations, not tuple deconstruction.", "Use a single variable: using let resource := getResource() { ... }", suggestions, span.Length)
     }
 
     // Parser.cs TryGetSingleLineDelimiterSpanAt (:5968): the span of a balanced `(…)` starting at
@@ -5188,7 +4991,8 @@ public class ColumnarParserRecovery {
         switchLine := Current().Line
         switchColumn := Current().Column
         switchToken := Current()
-        Advance()                               // consume 'switch'
+        Advance()
+        // consume 'switch'
         value := ParseRequiredExpressionAfter(switchToken, "a value expression", "This switch statement", null)
         ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
 
@@ -5203,13 +5007,15 @@ public class ColumnarParserRecovery {
             casePattern: Pattern? = null
             patternDeclined := false
             if Check(TokenType.Case) {
-                Advance()                       // consume 'case'
+                Advance()
+                // consume 'case'
                 casePattern = ParsePattern()
                 patternDeclined = casePattern == null
                 matchedLabel = true
             } else {
                 if Check(TokenType.Default) {
-                    Advance()                   // consume 'default'
+                    Advance()
+                    // consume 'default'
                     matchedLabel = true
                 } else {
                     ReportSwitchExpectedCaseOrDefault()
@@ -5218,11 +5024,14 @@ public class ColumnarParserRecovery {
                         Advance()
                     }
                     if Check(TokenType.RightBrace) {
-                        caseLoopActive = false  // Parser.cs :3221 break
+                        caseLoopActive = false
                     }
-                    // else: fall through with matchedLabel = false — Parser.cs :3223 continue
                 }
             }
+            // Parser.cs :3221 break
+
+            // else: fall through with matchedLabel = false — Parser.cs :3223 continue
+
             if matchedLabel {
                 ConsumeToken(TokenType.Arrow, "Expected '=>'", "arrow")
                 caseStatements := new List<Statement>()
@@ -5270,30 +5079,14 @@ public class ColumnarParserRecovery {
         suggestions.Add("Add a case: case 1 => { ... }")
         suggestions.Add("Add a default: default => { ... }")
         suggestions.Add("Example: case > 0 => Console.WriteLine(\"positive\")")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected 'case' or 'default'. Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "Switch statements must contain 'case' patterns or a 'default' case.",
-            "Each branch in a switch must start with 'case pattern =>' or 'default =>'",
-            suggestions,
-            Current().Value.Length)
+        Report(ErrorCode.ExpectedToken, "Expected 'case' or 'default'. Got '" + Current().Value + "'", Current().Line, Current().Column, "Switch statements must contain 'case' patterns or a 'default' case.", "Each branch in a switch must start with 'case pattern =>' or 'default =>'", suggestions, Current().Value.Length)
     }
 
     // Parser.cs's switch-specific missing-'}' report (:3249) — DISTINCT from the block NL106 (its
     // message names the switch body and its line).
     func ReportSwitchMissingClosingBrace(switchToken: Token, switchLine: int) {
         span := SpanFromToken(switchToken)
-        Report(
-            ErrorCode.MissingClosingBrace,
-            "Missing closing '}'",
-            span.Line,
-            span.Column,
-            "The switch body that started on line " + IntToString(switchLine) + " is missing its closing brace. I reached the end of the file without finding it.",
-            "Add a '}' to close this switch statement.",
-            null,
-            span.Length)
+        Report(ErrorCode.MissingClosingBrace, "Missing closing '}'", span.Line, span.Column, "The switch body that started on line " + IntToString(switchLine) + " is missing its closing brace. I reached the end of the file without finding it.", "Add a '}' to close this switch statement.", null, span.Length)
     }
 
     // ---- allow (Parser.cs ParseAllowStatement :2310) ----
@@ -5308,7 +5101,8 @@ public class ColumnarParserRecovery {
         line := Current().Line
         column := Current().Column
         allowToken := Current()
-        Advance()                               // consume 'allow'
+        Advance()
+        // consume 'allow'
         ConsumeToken(TokenType.LeftParen, "Expected '(' after 'allow'", "(")
         effects := new List<string>()
         reason: string? = null
@@ -5318,7 +5112,8 @@ public class ColumnarParserRecovery {
             loopStartPosition := Position
             name := ConsumeSystemsIdentifier("Expected allow effect or named argument")
             if Check(TokenType.Colon) {
-                Advance()                       // consume ':'
+                Advance()
+                // consume ':'
                 // `reason`/`owner` take a string expression; every other effect takes an effect value.
                 // Both parse a diagnostic-free value for the corpus, so the OrdinalIgnoreCase in
                 // Parser.cs is byte-exact here with a plain compare.
@@ -5354,10 +5149,12 @@ public class ColumnarParserRecovery {
             }
             if Position == loopStartPosition {
                 if !IsAtEnd() {
-                    Advance()                   // force progress (Parser.cs :2351)
+                    Advance()
                 }
             }
         }
+        // force progress (Parser.cs :2351)
+
         ConsumeToken(TokenType.RightParen, "Expected ')' after allow arguments", ")")
         body := ParseBlock(new RecoverySpan(line, column, MaxInt(1, allowToken.Value.Length)))
         if declined || body == null {
@@ -5404,15 +5201,7 @@ public class ColumnarParserRecovery {
         if IsSystemsIdentifierToken() {
             return Advance().Value
         }
-        Report(
-            ErrorCode.ExpectedToken,
-            message + ". Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "Systems policy lists use effect names such as alloc, trap, dispatch, delegate, closure, or a named argument such as reason.",
-            "Write allow(alloc, reason: \"...\") { ... } or remove this allow block.",
-            null,
-            TokenLengthOrFallback(Current()))
+        Report(ErrorCode.ExpectedToken, message + ". Got '" + Current().Value + "'", Current().Line, Current().Column, "Systems policy lists use effect names such as alloc, trap, dispatch, delegate, closure, or a named argument such as reason.", "Write allow(alloc, reason: \"...\") { ... } or remove this allow block.", null, TokenLengthOrFallback(Current()))
         return "<error>"
     }
 
@@ -5476,11 +5265,13 @@ public class ColumnarParserRecovery {
         scanningModifiers := true
         while scanningModifiers {
             if Check(TokenType.Static) {
-                modifierValue = modifierValue | 16          // Modifiers.Static
+                modifierValue = modifierValue | 16
+                // Modifiers.Static
                 Advance()
             } else {
                 if Check(TokenType.Async) {
-                    modifierValue = modifierValue | 2048    // Modifiers.Async
+                    modifierValue = modifierValue | 2048
+                    // Modifiers.Async
                     Advance()
                 } else {
                     scanningModifiers = false
@@ -5489,9 +5280,12 @@ public class ColumnarParserRecovery {
         }
         ConsumeToken(TokenType.Func, "Expected 'func'", "func")
         if Check(TokenType.Star) {
-            modifierValue = modifierValue | 4096            // Modifiers.Generator
-            Advance()                           // generator func*
+            modifierValue = modifierValue | 4096
+            // Modifiers.Generator
+            Advance()
         }
+        // generator func*
+
         nameLine := Current().Line
         nameColumn := Current().Column
         name := ConsumeIdentifier("Expected function name")
@@ -5507,7 +5301,8 @@ public class ColumnarParserRecovery {
             if Check(TokenType.Colon) {
                 Advance()
             } else {
-                Advance()                       // consume '-'
+                Advance()
+                // consume '-'
                 ConsumeToken(TokenType.Greater, "Expected '>' after '-' in return type arrow", "greater")
             }
             returnType = ParseMaterializedTypeReference()
@@ -5524,8 +5319,10 @@ public class ColumnarParserRecovery {
                     markerName = "local function"
                     markerLine = line
                     markerColumn = column
-                    markerLength = MaxInt(1, 4) // "func".Length
+                    markerLength = MaxInt(1, 4)
                 }
+                // "func".Length
+
                 ReportMissingReturnTypeMarker(markerName, markerLine, markerColumn, markerLength)
                 returnType = ParseMaterializedTypeReference()
                 if returnType == null {
@@ -5542,8 +5339,10 @@ public class ColumnarParserRecovery {
         body: BlockStatement? = null
         expressionBody: Expression? = null
         if Check(TokenType.Arrow) {
-            Advance()                           // consume '=>'
-            expressionBody = ParseExprValue().Node          // expression body
+            Advance()
+            // consume '=>'
+            expressionBody = ParseExprValue().Node
+            // expression body
             if expressionBody == null {
                 declined = true
             }
@@ -5567,9 +5366,7 @@ public class ColumnarParserRecovery {
         if declined {
             return null
         }
-        localFunction := new NSharpLang.Compiler.Ast.FunctionDeclaration(
-            name, parameters, returnType, body, expressionBody, typeParameters, constraints,
-            (Modifiers)modifierValue, new List<AttributeNode>(), false, null, false, false, line, column)
+        localFunction := new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParameters, constraints, (Modifiers)modifierValue, new List<AttributeNode>(), false, null, false, false, line, column)
         localFunction.ReturnLifetime = returnLifetime
         return new LocalFunctionStatement(localFunction, line, column)
     }
@@ -5590,15 +5387,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add ':' before '" + Current().Value + "'")
         suggestions.Add("Remove the return type if this function does not return a value")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected ':' before return type. Got '" + Current().Value + "'",
-            declarationLine,
-            declarationColumn,
-            "Function '" + declarationName + "' needs a ':' before its return type.",
-            "Write the return type as `func name(...): Type { ... }`.",
-            suggestions,
-            MaxInt(1, declarationLength))
+        Report(ErrorCode.ExpectedToken, "Expected ':' before return type. Got '" + Current().Value + "'", declarationLine, declarationColumn, "Function '" + declarationName + "' needs a ':' before its return type.", "Write the return type as `func name(...): Type { ... }`.", suggestions, MaxInt(1, declarationLength))
     }
 
     // Parser.cs ParseLocalFunction's no-body report (:2504).
@@ -5607,15 +5396,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Add a block: { return value; }")
         suggestions.Add("Use arrow syntax: => value")
         suggestions.Add("Example: func add(x: int, y: int): int => x + y")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected function body or '=>' for expression-bodied function. Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "A function needs a body - either a block with braces { } or an expression after '=>'.",
-            "Use '{ ... }' for a block body or '=> expression' for a single expression.",
-            suggestions,
-            Current().Value.Length)
+        Report(ErrorCode.ExpectedToken, "Expected function body or '=>' for expression-bodied function. Got '" + Current().Value + "'", Current().Line, Current().Column, "A function needs a body - either a block with braces { } or an expression after '=>'.", "Use '{ ... }' for a block body or '=> expression' for a single expression.", suggestions, Current().Value.Length)
     }
 
     // Parser.cs ParseReturnLifetimeAnnotation (:511): the optional Systems `returns 'a` /
@@ -5629,7 +5410,8 @@ public class ColumnarParserRecovery {
         if !(Check(TokenType.Identifier) && Current().Value == "returns") {
             return
         }
-        Advance()                               // consume 'returns'
+        Advance()
+        // consume 'returns'
         if Check(TokenType.Lifetime) {
             ReturnLifetimeValue = Advance().Value
             return
@@ -5652,15 +5434,7 @@ public class ColumnarParserRecovery {
         }
         // Stage N+1c tranche 11: the terminal arm reports and returns a NULL lifetime (:517) — the
         // declaration still materializes with ReturnLifetime null.
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected lifetime label after 'returns'. Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "Systems lifetime annotations use `returns 'a`, `returns param(name)`, or `returns heap(owner)` to describe a ref-like return.",
-            "Write a lifetime such as `returns 'a`, `returns heap(owner)`, or remove the `returns` annotation.",
-            null,
-            TokenLengthOrFallback(Current()))
+        Report(ErrorCode.ExpectedToken, "Expected lifetime label after 'returns'. Got '" + Current().Value + "'", Current().Line, Current().Column, "Systems lifetime annotations use `returns 'a`, `returns param(name)`, or `returns heap(owner)` to describe a ref-like return.", "Write a lifetime such as `returns 'a`, `returns heap(owner)`, or remove the `returns` annotation.", null, TokenLengthOrFallback(Current()))
     }
 
     // ---- off (Parser.cs ParseOffStatement :2957) ----
@@ -5673,8 +5447,10 @@ public class ColumnarParserRecovery {
     func ParseOffStatement(): Statement? {
         line := Current().Line
         column := Current().Column
-        Advance()                               // consume contextual 'off'
-        handle := ParseExprValue().Node         // the handle expression
+        Advance()
+        // consume contextual 'off'
+        handle := ParseExprValue().Node
+        // the handle expression
         if handle == null {
             return null
         }
@@ -5701,7 +5477,8 @@ public class ColumnarParserRecovery {
     func ParseOnSubscription(): ExprResult {
         onLine := Current().Line
         onColumn := Current().Column
-        Advance()                               // consume contextual 'on'
+        Advance()
+        // consume contextual 'on'
         target := ParseEventTarget()
 
         // The handler position + whether it is a lambda (Parser.cs parses then checks
@@ -5709,7 +5486,8 @@ public class ColumnarParserRecovery {
         handlerLine := Current().Line
         handlerColumn := Current().Column
         handlerIsLambda := IsLambdaExpression() || (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow)
-        handlerNode := ParseExprValue().Node    // the handler (ParseLambdaOrAssignmentExpression)
+        handlerNode := ParseExprValue().Node
+        // the handler (ParseLambdaOrAssignmentExpression)
         if !handlerIsLambda {
             // Parser.cs anchors this report on the PARSED handler expression's OWN Line/Column
             // (:2926-2929), which is not the handler's first token for every node shape — a binary
@@ -5745,7 +5523,8 @@ public class ColumnarParserRecovery {
         while scanning {
             if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
                 isNullConditional := Check(TokenType.QuestionDot)
-                dotToken := Advance()           // consume '.' / '?.'
+                dotToken := Advance()
+                // consume '.' / '?.'
                 memberName := ConsumeIdentifier("Expected event or member name after '.'")
                 // Stage N+1c tranche 11: an `<error>` member name is Parser.cs's own placeholder.
                 if target == null {
@@ -5756,8 +5535,10 @@ public class ColumnarParserRecovery {
             } else {
                 if Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket) {
                     isNullConditionalIndex := Check(TokenType.QuestionBracket)
-                    bracketToken := Advance()   // consume '[' / '?['
-                    indexNode := ParseExprValue().Node      // the index
+                    bracketToken := Advance()
+                    // consume '[' / '?['
+                    indexNode := ParseExprValue().Node
+                    // the index
                     ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
                     if target == null || indexNode == null {
                         target = null
@@ -5773,15 +5554,7 @@ public class ColumnarParserRecovery {
     }
 
     func ReportExpectedEventHandlerLambda(handlerLine: int, handlerColumn: int) {
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Expected an event handler lambda after the event",
-            handlerLine,
-            handlerColumn,
-            "`on` subscribes a handler to a .NET event, so it needs a lambda to run when the event fires.",
-            "Write the handler inline, e.g. `on widget.Clicked (sender, args) => { ... }`.",
-            null,
-            1)
+        Report(ErrorCode.InvalidSyntax, "Expected an event handler lambda after the event", handlerLine, handlerColumn, "`on` subscribes a handler to a .NET event, so it needs a lambda to run when the event fires.", "Write the handler inline, e.g. `on widget.Clicked (sender, args) => { ... }`.", null, 1)
     }
 
     // ---- expression statement (Parser.cs ParseExpressionStatement :3498) ----
@@ -5802,23 +5575,24 @@ public class ColumnarParserRecovery {
         // if the `= value` is absent, rewind and parse as a normal expression statement.
         if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon && LookAhead(2).Type == TokenType.Identifier {
             saved := Position
-            name := Advance().Value             // the declared name
-            Advance()                           // consume ':'
-            declaredType := ParseMaterializedTypeReference()    // the type
+            name := Advance().Value
+            // the declared name
+            Advance()
+            // consume ':'
+            declaredType := ParseMaterializedTypeReference()
+            // the type
             if Check(TokenType.Assign) {
-                Advance()                       // consume '='
-                typedInitializer := ParseRequiredExpressionAfter(
-                    Previous(),
-                    "an initializer expression",
-                    "This typed variable declaration",
-                    new RecoverySpan(line, column, MaxInt(1, name.Length)))
+                Advance()
+                // consume '='
+                typedInitializer := ParseRequiredExpressionAfter(Previous(), "an initializer expression", "This typed variable declaration", new RecoverySpan(line, column, MaxInt(1, name.Length)))
                 if declaredType == null || typedInitializer == null {
                     return null
                 }
                 return new VariableDeclarationStatement(name, declaredType, typedInitializer, VariableKind.Let, line, column)
             }
-            Position = saved                    // not a declaration — rewind
+            Position = saved
         }
+        // not a declaration — rewind
 
         // Tuple deconstruction without parens (Parser.cs :3533): `x, y := expr`.
         if Check(TokenType.Identifier) && Position + 1 < Tokens.Count && Tokens[Position + 1].Type == TokenType.Comma {
@@ -5850,12 +5624,9 @@ public class ColumnarParserRecovery {
                         namesScanning = false
                     }
                 }
-                initializerToken := Advance()   // consume := or =
-                tupleInitializer := ParseRequiredExpressionAfter(
-                    initializerToken,
-                    "an initializer expression",
-                    "This tuple deconstruction",
-                    new RecoverySpan(line, column, MaxInt(1, initializerToken.Column - column)))
+                initializerToken := Advance()
+                // consume := or =
+                tupleInitializer := ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This tuple deconstruction", new RecoverySpan(line, column, MaxInt(1, initializerToken.Column - column)))
                 if tupleInitializer == null {
                     return null
                 }
@@ -5898,11 +5669,7 @@ public class ColumnarParserRecovery {
         if result.IsBareIdentifier {
             if Check(TokenType.ColonAssign) {
                 initializerToken := Advance()
-                shorthandValue := ParseRequiredExpressionAfter(
-                    initializerToken,
-                    "an initializer expression",
-                    "This shorthand variable declaration",
-                    result.Span)
+                shorthandValue := ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This shorthand variable declaration", result.Span)
                 // Parser.cs :3640: anchored on the IDENTIFIER expression, not the statement start.
                 shorthandTarget := result.Node as IdentifierExpression
                 if shorthandValue == null || shorthandTarget == null {
@@ -5972,8 +5739,10 @@ public class ColumnarParserRecovery {
         // Single-parameter lambda `x => expr` (Parser.cs :3652). A LambdaExpression is anchored on this start
         // position, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default (:5960).
         if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow {
-            paramToken := Advance()                         // the parameter name
-            arrowToken := Advance()                         // consume '=>'
+            paramToken := Advance()
+            // the parameter name
+            arrowToken := Advance()
+            // consume '=>'
             lambdaBody: Expression? = null
             lambdaBlockBody: BlockStatement? = null
             hasBlockBody := false
@@ -5981,11 +5750,7 @@ public class ColumnarParserRecovery {
                 hasBlockBody = true
                 lambdaBlockBody = ParseBlockBody(new RecoverySpan(paramToken.Line, paramToken.Column, MaxInt(1, paramToken.Value.Length)))
             } else {
-                lambdaBody = ParseRequiredExpressionAfter(
-                    arrowToken,
-                    "a lambda body expression",
-                    "This lambda expression",
-                    DiagnosticSpanFromTokenRange(paramToken, arrowToken))
+                lambdaBody = ParseRequiredExpressionAfter(arrowToken, "a lambda body expression", "This lambda expression", DiagnosticSpanFromTokenRange(paramToken, arrowToken))
             }
             lambdaResult := new ExprResult(new RecoverySpan(line, column, 1), false)
             // Stage N+1c tranche 9c: `new LambdaExpression(new List<Parameter> { new Parameter(param,
@@ -6079,7 +5844,8 @@ public class ColumnarParserRecovery {
     // parameter list, ParseMultiParameterLambda's ConsumeIdentifier / Consume(RightParen) / Consume(Arrow)
     // sites never report — the reachable error is only the missing lambda body.
     func IsLambdaExpression(): bool {
-        pos := Position + 1                                 // skip the '(' at Current
+        pos := Position + 1
+        // skip the '(' at Current
         // Empty lambda `() =>` (Parser.cs :5543).
         if pos < Tokens.Count && Tokens[pos].Type == TokenType.RightParen {
             return pos + 1 < Tokens.Count && Tokens[pos + 1].Type == TokenType.Arrow
@@ -6152,11 +5918,7 @@ public class ColumnarParserRecovery {
             }
             multiLambdaBlockBody = ParseBlockBody(lambdaSpan)
         } else {
-            multiLambdaBody = ParseRequiredExpressionAfter(
-                arrowToken,
-                "a lambda body expression",
-                "This lambda expression",
-                DiagnosticSpanFromTokenRange(leftParenToken, arrowToken))
+            multiLambdaBody = ParseRequiredExpressionAfter(arrowToken, "a lambda body expression", "This lambda expression", DiagnosticSpanFromTokenRange(leftParenToken, arrowToken))
         }
         multiLambdaResult := new ExprResult(new RecoverySpan(line, column, 1), false)
         // Stage N+1c tranche 9c: `new LambdaExpression(parameters, exprBody, null, line, column)` (:5542),
@@ -6179,17 +5941,9 @@ public class ColumnarParserRecovery {
         expr := ParseNullCoalescing()
         if Check(TokenType.Question) {
             questionToken := Advance()
-            thenNode := ParseRequiredExpressionAfter(
-                questionToken,
-                "a then expression",
-                "This ternary expression",
-                DiagnosticSpanFromExpressionThroughToken(expr.Span, questionToken))
+            thenNode := ParseRequiredExpressionAfter(questionToken, "a then expression", "This ternary expression", DiagnosticSpanFromExpressionThroughToken(expr.Span, questionToken))
             colonToken := ConsumeToken(TokenType.Colon, "Expected ':' in ternary expression", ":")
-            elseNode := ParseRequiredExpressionAfter(
-                colonToken,
-                "an else expression",
-                "This ternary expression",
-                DiagnosticSpanFromExpressionThroughToken(expr.Span, colonToken))
+            elseNode := ParseRequiredExpressionAfter(colonToken, "an else expression", "This ternary expression", DiagnosticSpanFromExpressionThroughToken(expr.Span, colonToken))
             // A TernaryExpression is anchored on the `?` token and is never a bare identifier.
             ternaryResult := new ExprResult(new RecoverySpan(questionToken.Line, questionToken.Column, 1), false)
             // Stage N+1c tranche 8: `new TernaryExpression(cond, then, else, questionToken.Line,
@@ -6578,15 +6332,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add an expression after '" + opValue + "'")
         suggestions.Add("Remove the trailing '" + opValue + "'")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected expression after '" + opValue + "'",
-            span.Line,
-            span.Column,
-            "The '" + opValue + "' operator needs an expression on its right side.",
-            "Finish the expression after the operator, or remove the operator if the expression is already complete.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected expression after '" + opValue + "'", span.Line, span.Column, "The '" + opValue + "' operator needs an expression on its right side.", "Finish the expression after the operator, or remove the operator if the expression is already complete.", suggestions, span.Length)
     }
 
     // Parser.cs DiagnosticSpanFromExpressionThroughToken (:3842). The startSpan is the left operand's
@@ -6689,15 +6435,7 @@ public class ColumnarParserRecovery {
         }
         suggestions := new List<string>()
         suggestions.Add("Remove the leading '+'")
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Prefix '+' is not supported",
-            span.Line,
-            span.Column,
-            "A leading '+' does not change the value in N#, so it is not part of the expression grammar.",
-            "Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.InvalidSyntax, "Prefix '+' is not supported", span.Line, span.Column, "A leading '+' does not change the value in N#, so it is not part of the expression grammar.", "Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them.", suggestions, span.Length)
 
         if !IsMissingOperandBoundary(plusToken) && ParserTokenFacts.CanStartExpression(Current().Type) {
             ParseUnary()
@@ -6723,15 +6461,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add " + expectedDescription + " after '" + operatorToken.Value + "'")
         suggestions.Add("Remove '" + operatorToken.Value + "' until the expression is ready")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected " + expectedDescription + " after '" + operatorToken.Value + "'",
-            span.Line,
-            span.Column,
-            ownerDescription + " needs " + expectedDescription + " after '" + operatorToken.Value + "'.",
-            "Add " + expectedDescription + " after '" + operatorToken.Value + "', or remove '" + operatorToken.Value + "'.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected " + expectedDescription + " after '" + operatorToken.Value + "'", span.Line, span.Column, ownerDescription + " needs " + expectedDescription + " after '" + operatorToken.Value + "'.", "Add " + expectedDescription + " after '" + operatorToken.Value + "', or remove '" + operatorToken.Value + "'.", suggestions, span.Length)
         return new IdentifierExpression("<error>", operatorToken.Line, operatorToken.Column + MaxInt(1, operatorToken.Value.Length))
     }
 
@@ -6856,16 +6586,19 @@ public class ColumnarParserRecovery {
     // :5960). The property loop's EnsureProgress (:4518) does NOT reset panic (unlike the new-object /
     // match-case reset), so a property error cascade-suppresses the rest of the `with` block.
     func ParseWithExpression(receiver: ExprResult): ExprResult {
-        withToken := Advance()                              // consume 'with'
+        withToken := Advance()
+        // consume 'with'
         ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
         properties := new List<PropertyInitializer>()
         propertiesDeclined := false
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
             startPosition := Position
             propertyToken := Current()
-            propertyName := ConsumeIdentifier("Expected property name")   // Parser.cs :4510
+            propertyName := ConsumeIdentifier("Expected property name")
+            // Parser.cs :4510
             ConsumeToken(TokenType.Colon, "Expected ':'", ":")
-            propertyValue := ParseExprValue().Node          // the property value (Parser.cs :4512)
+            propertyValue := ParseExprValue().Node
+            // the property value (Parser.cs :4512)
             // Stage N+1c tranche 9b: `new PropertyInitializer(propName, null, propValue, propNameToken.Line,
             // propNameToken.Column)` (Parser.cs :4524). Stage N+1c tranche 11: an `<error>` property name is
             // Parser.cs's own placeholder and it still builds the PropertyInitializer around it.
@@ -6874,13 +6607,16 @@ public class ColumnarParserRecovery {
             } else {
                 properties.Add(new PropertyInitializer(propertyName, null, propertyValue, propertyToken.Line, propertyToken.Column))
             }
-            if !Check(TokenType.RightBrace) {               // optional comma separator (Parser.cs :4515)
+            if !Check(TokenType.RightBrace) {
+                // optional comma separator (Parser.cs :4515)
                 if Check(TokenType.Comma) {
                     Advance()
                 }
             }
-            EnsureProgress(startPosition)                   // Parser.cs :4518 — NO panic reset
+            EnsureProgress(startPosition)
         }
+        // Parser.cs :4518 — NO panic reset
+
         ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
         withResult := new ExprResult(new RecoverySpan(withToken.Line, withToken.Column, 1), false)
         // `new WithExpression(expr, props, withToken.Line, withToken.Column)` (Parser.cs :4533).
@@ -6919,7 +6655,8 @@ public class ColumnarParserRecovery {
                     } else {
                         arguments.Add(argument)
                     }
-                    if Check(TokenType.Comma) {             // Parser.cs do/while Match(Comma) (:4608)
+                    if Check(TokenType.Comma) {
+                        // Parser.cs do/while Match(Comma) (:4608)
                         Advance()
                     } else {
                         argsLooping = false
@@ -6966,9 +6703,11 @@ public class ColumnarParserRecovery {
         // Named argument `name:` (Parser.cs :4579).
         argumentName: string? = null
         if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
-            argumentName = Advance().Value                  // the name
-            Advance()                                       // the colon
+            argumentName = Advance().Value
+            // the name
+            Advance()
         }
+        // the colon
 
         // Spread `...expr` (Parser.cs :4587): `new SpreadExpression(spreadExpr, spreadLine, spreadColumn)`
         // (:4604) anchored on the `...`, then wrapped in the Argument (the name/modifier still apply).
@@ -7010,28 +6749,19 @@ public class ColumnarParserRecovery {
         return null
     }
 
-    func NoTableCases(): List<List<Expression> >? {
+    func NoTableCases(): List<List<Expression>>? {
         return null
     }
 
-    func NewTableCases(): List<List<Expression> > {
-        return new List<List<Expression> >()
+    func NewTableCases(): List<List<Expression>> {
+        return new List<List<Expression>>()
     }
-
 
     // Parser.cs's inline-out diagnostic (:4561, NL103 InvalidSyntax). The span runs from the first
     // identifier through the end of the second.
     func ReportInlineOutDeclaration(first: Token, second: Token) {
         length := MaxInt(1, second.Column + second.Value.Length - first.Column)
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Inline out declarations are not supported",
-            first.Line,
-            first.Column,
-            "N# out arguments must refer to a variable that already exists.",
-            "Declare '" + second.Value + "' before the call, then pass 'out " + second.Value + "'.",
-            null,
-            length)
+        Report(ErrorCode.InvalidSyntax, "Inline out declarations are not supported", first.Line, first.Column, "N# out arguments must refer to a variable that already exists.", "Declare '" + second.Value + "' before the call, then pass 'out " + second.Value + "'.", null, length)
     }
 
     // Parser.cs IsArgumentListRecoveryBoundary() (:4615) — the unconditional boundary tokens.
@@ -7125,7 +6855,8 @@ public class ColumnarParserRecovery {
     // Stage N+1c tranche 9b: RETURNS the byte-exact `List<TypeReference>` (:2100/:2104), or null when any
     // argument routes through the shared ParseMaterializedTypeReference gate and declines.
     func ParseCallTypeArguments(): List<TypeReference>? {
-        Advance()                                           // consume '<' (Parser.cs Consume(Less) :2088)
+        Advance()
+        // consume '<' (Parser.cs Consume(Less) :2088)
         typeArguments := new List<TypeReference>()
         typeArgumentsDeclined := false
         firstTypeArgument := ParseMaterializedTypeReference()
@@ -7158,15 +6889,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Add parentheses: Method<int>()")
         suggestions.Add("With arguments: Method<int>(arg1, arg2)")
         suggestions.Add("Example: List.Create<string>(\"hello\")")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected '(' after generic type arguments. Got '" + Current().Value + "'",
-            Current().Line,
-            Current().Column,
-            "Generic method calls need parentheses for the arguments, even if there are no arguments.",
-            "After the generic type parameters, you need to provide the method arguments in parentheses.",
-            suggestions,
-            Current().Value.Length)
+        Report(ErrorCode.ExpectedToken, "Expected '(' after generic type arguments. Got '" + Current().Value + "'", Current().Line, Current().Column, "Generic method calls need parentheses for the arguments, even if there are no arguments.", "After the generic type parameters, you need to provide the method arguments in parentheses.", suggestions, Current().Value.Length)
     }
 
     // Parser.cs's `.` / `?.` member-access arm (:4418). Returns the MemberAccessExpression's
@@ -7223,15 +6946,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Check if you forgot to finish this line")
         suggestions.Add("Common members: Length, Count, ToString(), GetHashCode()")
         suggestions.Add("If this is end of statement, remove the trailing '" + operatorText + "'")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected member name. Got '" + Current().Value + "'",
-            receiverSpan.Line,
-            receiverSpan.Column,
-            "I see a " + operatorDescription + " operator but no member name after it.",
-            "After " + operatorDescription + ", I need to see a property or method name.",
-            suggestions,
-            receiverSpan.Length)
+        Report(ErrorCode.ExpectedToken, "Expected member name. Got '" + Current().Value + "'", receiverSpan.Line, receiverSpan.Column, "I see a " + operatorDescription + " operator but no member name after it.", "After " + operatorDescription + ", I need to see a property or method name.", suggestions, receiverSpan.Length)
     }
 
     // ---- primary (Parser.cs ParsePrimaryExpression :4626) ----
@@ -7408,7 +7123,8 @@ public class ColumnarParserRecovery {
         // anchored on the `alloc` keyword, so its DiagnosticSpanFromExpression falls to the (line, column, 1)
         // default (:5960).
         if Check(TokenType.Alloc) {
-            Advance()                                       // consume 'alloc'
+            Advance()
+            // consume 'alloc'
             allocOperand: Expression? = null
             if Check(TokenType.New) {
                 allocOperand = ParseNewExpression().Node
@@ -7417,12 +7133,15 @@ public class ColumnarParserRecovery {
                     allocOperand = ParseArrayLiteral(false).Node
                 } else {
                     if Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) {
-                        allocOperand = ParsePrimaryExprValue().Node   // Parser.cs :5190 routes a string through ParsePrimaryExpression
+                        allocOperand = ParsePrimaryExprValue().Node
                     } else {
-                        allocOperand = ParseUnary().Node    // Parser.cs :5193 the general unary operand
+                        // Parser.cs :5190 routes a string through ParsePrimaryExpression
+                        allocOperand = ParseUnary().Node
                     }
                 }
             }
+            // Parser.cs :5193 the general unary operand
+
             allocResult := new ExprResult(new RecoverySpan(line, column, 1), false)
             // Stage N+1c tranche 9b: `new AllocExpression(<inner>, line, column)` (Parser.cs :5196/:5199/
             // :5202/:5205) when the wrapped sub-expression materialized.
@@ -7438,10 +7157,13 @@ public class ColumnarParserRecovery {
         // else the distinct "Expected ']' after stackalloc length" NL102). A StackAllocExpression is anchored on
         // the `stackalloc` keyword, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default.
         if Check(TokenType.Stackalloc) {
-            Advance()                                       // consume 'stackalloc'
-            elementTypeNode := ParseMaterializedTypeReference()  // the element type (Parser.cs :5202)
+            Advance()
+            // consume 'stackalloc'
+            elementTypeNode := ParseMaterializedTypeReference()
+            // the element type (Parser.cs :5202)
             ConsumeToken(TokenType.LeftBracket, "Expected '[' after stackalloc element type", "[")
-            stackAllocLength := ParseExprValue().Node       // the length (Parser.cs :5204)
+            stackAllocLength := ParseExprValue().Node
+            // the length (Parser.cs :5204)
             ConsumeToken(TokenType.RightBracket, "Expected ']' after stackalloc length", "]")
             stackAllocResult := new ExprResult(new RecoverySpan(line, column, 1), false)
             // Stage N+1c tranche 9b: `new StackAllocExpression(elementType, length, line, column)` (:5217).
@@ -7464,9 +7186,11 @@ public class ColumnarParserRecovery {
 
         // Immutable array literal `immutable [ … ]` (Parser.cs :4770).
         if Check(TokenType.Immutable) && LookAhead(1).Type == TokenType.LeftBracket {
-            Advance()                                       // consume 'immutable'
-            return ParseArrayLiteral(true)                  // Parser.cs :4784 `isImmutable: true`
+            Advance()
+            // consume 'immutable'
+            return ParseArrayLiteral(true)
         }
+        // Parser.cs :4784 `isImmutable: true`
 
         // Array literal `[ … ]` (Parser.cs :4777). The RightBracket close routes through the Stage-9 recovery.
         if Check(TokenType.LeftBracket) {
@@ -7477,10 +7201,13 @@ public class ColumnarParserRecovery {
         // (Parser.cs :4783). A CastExpression's DiagnosticSpanFromExpression falls to the (line, column, 1)
         // default (:5960).
         if Check(TokenType.LeftParen) && IsCastExpression() {
-            Advance()                                       // consume '('
-            castTypeNode := ParseMaterializedTypeReference()  // the cast type
+            Advance()
+            // consume '('
+            castTypeNode := ParseMaterializedTypeReference()
+            // the cast type
             ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            castOperandNode := ParseUnary().Node            // the cast operand (Parser.cs ParseUnaryExpression :4799)
+            castOperandNode := ParseUnary().Node
+            // the cast operand (Parser.cs ParseUnaryExpression :4799)
             castResult := new ExprResult(new RecoverySpan(line, column, 1), false)
             // Stage N+1c tranche 9a: `new CastExpression(castExpr, castType, CastKind.Hard, line, column)`
             // (Parser.cs :4800) when the cast type + operand both materialized (a deferred operand or an
@@ -7519,15 +7246,7 @@ public class ColumnarParserRecovery {
         }
 
         // Terminal: an unexpected token where an expression was required (Parser.cs :4813).
-        Report(
-            ErrorCode.UnexpectedToken,
-            "Unexpected token '" + Current().Value + "' in expression",
-            line,
-            column,
-            "I was parsing an expression and found '" + Current().Value + "', which I don't know how to handle here.",
-            "Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.",
-            null,
-            Current().Value.Length)
+        Report(ErrorCode.UnexpectedToken, "Unexpected token '" + Current().Value + "' in expression", line, column, "I was parsing an expression and found '" + Current().Value + "', which I don't know how to handle here.", "Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.", null, Current().Value.Length)
 
         if ShouldSkipUnexpectedExpressionToken() {
             Advance()
@@ -7558,15 +7277,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add a receiver before '" + operatorText + "'")
         suggestions.Add("Remove the member access until the receiver is known")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected expression before '" + operatorText + "'",
-            span.Line,
-            span.Column,
-            "I see a " + operatorDescription + " operator, but there is no receiver expression before it.",
-            "Put an expression before '" + operatorText + "', or remove the member access.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected expression before '" + operatorText + "'", span.Line, span.Column, "I see a " + operatorDescription + " operator, but there is no receiver expression before it.", "Put an expression before '" + operatorText + "', or remove the member access.", suggestions, span.Length)
         // Stage N+1c tranche 11: Parser.cs returns `new IdentifierExpression("<error>", dotToken.Line,
         // dotToken.Column)` (:6447).
         leadingDotResult := new ExprResult(new RecoverySpan(dotToken.Line, dotToken.Column, 1), true)
@@ -7761,7 +7472,8 @@ public class ColumnarParserRecovery {
                     ch = value[i]
                     if inNestedString {
                         if ch == '\\' && i + 1 < end {
-                            currentCol = currentCol + 1     // AdvancePosition('\\'); a backslash is never '\n'
+                            currentCol = currentCol + 1
+                            // AdvancePosition('\\'); a backslash is never '\n'
                             i = i + 1
                             ch = value[i]
                         } else {
@@ -7922,15 +7634,7 @@ public class ColumnarParserRecovery {
         // The lone explicit ReportError (Parser.cs :5141): extra syntax after the hole expression. Routed through
         // the SUB-parser's Report, so a hole-expression error that already tripped the sub-panic suppresses this.
         if !IsAtEnd() {
-            Report(
-                ErrorCode.UnexpectedToken,
-                "Unexpected token '" + Current().Value + "' after interpolated string expression",
-                Current().Line,
-                Current().Column,
-                "I parsed a valid expression at the start of this interpolation hole, but there was extra syntax after it.",
-                "Keep exactly one expression inside each interpolation hole, or split additional text outside the braces.",
-                null,
-                MaxInt(1, Current().Value.Length))
+            Report(ErrorCode.UnexpectedToken, "Unexpected token '" + Current().Value + "' after interpolated string expression", Current().Line, Current().Column, "I parsed a valid expression at the start of this interpolation hole, but there was extra syntax after it.", "Keep exactly one expression inside each interpolation hole, or split additional text outside the braces.", null, MaxInt(1, Current().Value.Length))
         }
 
         HoleDepth = HoleDepth - 1
@@ -8008,7 +7712,8 @@ public class ColumnarParserRecovery {
     // `new Type[len]?(args)?{ init }?`. A NewExpression's DiagnosticSpanFromExpression is (newLine,
     // newColumn, "new".Length) (:5958).
     func ParseNewExpression(): ExprResult {
-        newToken := Advance()                               // consume 'new'
+        newToken := Advance()
+        // consume 'new'
         line := newToken.Line
         column := newToken.Column
         hasArrayLength := false
@@ -8031,14 +7736,16 @@ public class ColumnarParserRecovery {
             }
         } else {
             if Check(TokenType.LeftBrace) {
-                // Target-typed new with initializer only: `new { … }` (Parser.cs :5226) — parsed below.
             } else {
+                // Target-typed new with initializer only: `new { … }` (Parser.cs :5226) — parsed below.
+
                 // Traditional new: `new TypeName …` (Parser.cs :5233).
                 newType = ParseNewTypeReference(newToken)
                 if newType == null || !TypeReferenceMaterialized {
                     typeDeclined = true
                 }
-                if Check(TokenType.LeftBracket) {           // sized array `new Type[len]` (Parser.cs :5237)
+                if Check(TokenType.LeftBracket) {
+                    // sized array `new Type[len]` (Parser.cs :5237)
                     Advance()
                     arrayLength = ParseExprValue().Node
                     ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
@@ -8047,7 +7754,8 @@ public class ColumnarParserRecovery {
                     // KEEPS the element type's span (unlike the postfix `[]` wrapper, which extends through `]`).
                     newType = WrapNewArrayType(newType)
                 }
-                if Check(TokenType.LeftParen) {             // constructor args (Parser.cs :5248)
+                if Check(TokenType.LeftParen) {
+                    // constructor args (Parser.cs :5248)
                     Advance()
                     typedArguments := ParseArgumentList()
                     if typedArguments == null {
@@ -8081,9 +7789,11 @@ public class ColumnarParserRecovery {
                                 }
                             }
                             if !EnsureProgress(startPosition) {
-                                PanicMode = false           // Parser.cs :5268-5269
+                                PanicMode = false
                             }
                         }
+                        // Parser.cs :5268-5269
+
                         ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
                     }
                     sizedResult := new ExprResult(new RecoverySpan(line, column, 3), false)
@@ -8150,15 +7860,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add a type name after `new`")
         suggestions.Add("Use `new()` for target-typed construction")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected type name. Got '" + Current().Value + "'",
-            span.Line,
-            span.Column,
-            "The `new` expression needs a type name, `()`, or an initializer after it.",
-            "Write `new TypeName(...)`, `new()`, or `new { Name: value }`.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected type name. Got '" + Current().Value + "'", span.Line, span.Column, "The `new` expression needs a type name, `()`, or an initializer after it.", "Write `new TypeName(...)`, `new()`, or `new { Name: value }`.", suggestions, span.Length)
         TypeReferenceMaterialized = true
         // Stage N+1c tranche 11 (ERROR-NODE MATERIALIZATION): Parser.cs substitutes a SYNTHETIC
         // `new SimpleTypeReference("<error>", span.Line, span.Column) { Span = SourceSpan.FromStartAndLength(
@@ -8180,7 +7882,8 @@ public class ColumnarParserRecovery {
         isCollectionInit := newType is ArrayTypeReference
         properties := new List<PropertyInitializer>()
         propertiesDeclined := false
-        Advance()                                           // consume '{'
+        Advance()
+        // consume '{'
         while !Check(TokenType.RightBrace) && !IsAtEnd() {
             startPosition := Position
             if isCollectionInit {
@@ -8234,9 +7937,11 @@ public class ColumnarParserRecovery {
                 }
             }
             if !EnsureProgress(startPosition) {
-                PanicMode = false                           // Parser.cs :5334-5335
+                PanicMode = false
             }
         }
+        // Parser.cs :5334-5335
+
         ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
         if propertiesDeclined {
             return null
@@ -8254,15 +7959,7 @@ public class ColumnarParserRecovery {
         propertyLength := MaxInt(1, propertyName.Length)
         suggestions := new List<string>()
         suggestions.Add("Add a value after '" + propertyName + ":'")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected a value for object initializer member '" + propertyName + "'",
-            propertyToken.Line,
-            propertyToken.Column,
-            "Object initializer member '" + propertyName + "' needs a value after ':'.",
-            "Write '" + propertyName + ": value'.",
-            suggestions,
-            propertyLength)
+        Report(ErrorCode.ExpectedToken, "Expected a value for object initializer member '" + propertyName + "'", propertyToken.Line, propertyToken.Column, "Object initializer member '" + propertyName + "' needs a value after ':'.", "Write '" + propertyName + ": value'.", suggestions, propertyLength)
         // Stage N+1c tranche 11: Parser.cs returns the synthetic `new IdentifierExpression("<error>",
         // separatorToken.Line, separatorToken.Column + Max(1, separatorToken.Value.Length))` (:5376). The
         // separator is the `:` the caller just consumed, i.e. Previous().
@@ -8279,15 +7976,7 @@ public class ColumnarParserRecovery {
         }
         suggestions := new List<string>()
         suggestions.Add("Add ':' after '" + propertyName + "'")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected ':' after object initializer member '" + propertyName + "'",
-            span.Line,
-            span.Column,
-            "Object initializer member '" + propertyName + "' needs ':' before its value.",
-            "Write '" + propertyName + ": value'.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected ':' after object initializer member '" + propertyName + "'", span.Line, span.Column, "Object initializer member '" + propertyName + "' needs ':' before its value.", "Write '" + propertyName + ": value'.", suggestions, span.Length)
     }
 
     // Parser.cs ParseArrayLiteral (:5407). `[ e, e, … ]`; the RightBracket close routes through the Stage-9
@@ -8366,7 +8055,8 @@ public class ColumnarParserRecovery {
             Advance()
             namedElements := new List<TupleElement>()
             namedDeclined := false
-            firstValue := ParseExprValue().Node             // the first value
+            firstValue := ParseExprValue().Node
+            // the first value
             firstIdentifier := firstExpr.Node as IdentifierExpression
             // Stage N+1c tranche 9b: `new TupleElement(firstIdent.Name, firstValue)` (:5471). The `<error>`
             // terminal primary is ALSO a bare identifier in the owner but carries no node → declines.
@@ -8377,7 +8067,8 @@ public class ColumnarParserRecovery {
             }
             while Check(TokenType.Comma) {
                 Advance()
-                elementName := ConsumeIdentifier("Expected identifier")    // Parser.cs :5465
+                elementName := ConsumeIdentifier("Expected identifier")
+                // Parser.cs :5465
                 ConsumeToken(TokenType.Colon, "Expected ':'", ":")
                 elementValue := ParseExprValue().Node
                 // Stage N+1c tranche 11: an `<error>` element name is Parser.cs's own placeholder (:5476).
@@ -8442,7 +8133,8 @@ public class ColumnarParserRecovery {
     // scan closures are lowered to methods over two explicit scan-state fields (ScanPosition, ScanSplit).
     // No cursor mutation, no diagnostics.
     func IsCastExpression(): bool {
-        ScanPosition = Position + 1                         // skip '(' without mutating the parser cursor
+        ScanPosition = Position + 1
+        // skip '(' without mutating the parser cursor
         ScanSplit = 0
         if !ScanTypeReference() {
             return false
@@ -8624,9 +8316,11 @@ public class ColumnarParserRecovery {
         matchToken := Current()
         line := matchToken.Line
         column := matchToken.Column
-        Advance()                                   // consume 'match'
+        Advance()
+        // consume 'match'
 
-        matchValue := ParseExprValue().Node         // the match value (Parser.cs ParseExpression :5374)
+        matchValue := ParseExprValue().Node
+        // the match value (Parser.cs ParseExpression :5374)
         ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
 
         cases := new List<MatchCase>()
@@ -8637,14 +8331,16 @@ public class ColumnarParserRecovery {
 
             caseGuard: Expression? = null
             hasGuard := false
-            if Check(TokenType.When) {              // optional guard clause (Parser.cs :5386)
+            if Check(TokenType.When) {
+                // optional guard clause (Parser.cs :5386)
                 Advance()
                 hasGuard = true
                 caseGuard = ParseExprValue().Node
             }
 
             ConsumeToken(TokenType.Arrow, "Expected '=>'", "arrow")
-            caseBody := ParseExprValue().Node       // the case body (Parser.cs :5392)
+            caseBody := ParseExprValue().Node
+            // the case body (Parser.cs :5392)
 
             // `new MatchCase(pattern, guard, caseExpr)` (Parser.cs :5404). A PRESENT guard must materialize.
             if casePattern == null || caseBody == null {
@@ -8657,12 +8353,14 @@ public class ColumnarParserRecovery {
                 }
             }
 
-            if !Check(TokenType.RightBrace) {       // require a comma between cases (Parser.cs :5396)
+            if !Check(TokenType.RightBrace) {
+                // require a comma between cases (Parser.cs :5396)
                 ConsumeToken(TokenType.Comma, "Expected ',' between match cases", ",")
             }
 
-            EnsureProgress(startPosition)           // Parser.cs :5399 — NO panic reset per case
+            EnsureProgress(startPosition)
         }
+        // Parser.cs :5399 — NO panic reset per case
 
         ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
         // A MatchExpression's DiagnosticSpanFromExpression falls to the (line, column, 1) default (Parser.cs
@@ -8740,7 +8438,8 @@ public class ColumnarParserRecovery {
             notLine := Current().Line
             notColumn := Current().Column
             Advance()
-            inner := ParseNotPattern()              // recursive for multiple `not` (Parser.cs :3308)
+            inner := ParseNotPattern()
+            // recursive for multiple `not` (Parser.cs :3308)
             // `new NotPattern(pattern, line, column)` (Parser.cs :3320).
             if inner == null {
                 return null
@@ -8757,8 +8456,10 @@ public class ColumnarParserRecovery {
         line := Current().Line
         column := Current().Column
         if Check(TokenType.Less) || Check(TokenType.Greater) || Check(TokenType.LessEqual) || Check(TokenType.GreaterEqual) || Check(TokenType.Equal) || Check(TokenType.NotEqual) {
-            operatorText := Advance().Value         // the comparison operator
-            comparedValue := ParsePrimaryExprValue().Node  // the compared value (Parser.cs ParsePrimaryExpression)
+            operatorText := Advance().Value
+            // the comparison operator
+            comparedValue := ParsePrimaryExprValue().Node
+            // the compared value (Parser.cs ParsePrimaryExpression)
             // `new RelationalPattern(op, value, line, column)` (Parser.cs :3340) — the operator is the raw
             // token TEXT, and the anchor is the tier's entry position (the operator token).
             if comparedValue == null {
@@ -8787,7 +8488,8 @@ public class ColumnarParserRecovery {
                 listParsing := true
                 while listParsing {
                     if Check(TokenType.DotDot) {
-                        Advance()                   // slice `..` (optionally `.. name`)
+                        Advance()
+                        // slice `..` (optionally `.. name`)
                         sliceBinding: string? = null
                         if Check(TokenType.Identifier) {
                             sliceBinding = Advance().Value
@@ -8871,13 +8573,16 @@ public class ColumnarParserRecovery {
         if Check(TokenType.Identifier) {
             // Stage N+1c tranche 11: an `<error>` segment is Parser.cs's own placeholder — the dotted name
             // simply carries it (:3414-3417), no decline.
-            patternName := Advance().Value          // first name segment
-            while Check(TokenType.Dot) {            // qualified name `A.B.C` (Parser.cs :3414)
+            patternName := Advance().Value
+            // first name segment
+            while Check(TokenType.Dot) {
+                // qualified name `A.B.C` (Parser.cs :3414)
                 Advance()
                 segment := ConsumeIdentifier("Expected identifier after '.'")
                 patternName = patternName + "." + segment
             }
-            if Check(TokenType.LeftBrace) {         // union-case pattern with properties (Parser.cs :3421)
+            if Check(TokenType.LeftBrace) {
+                // union-case pattern with properties (Parser.cs :3421)
                 caseProperties := ParsePropertyPatterns()
                 // `new UnionCasePattern(name, props, line, column)` (Parser.cs :3435).
                 if caseProperties == null {
@@ -8885,7 +8590,8 @@ public class ColumnarParserRecovery {
                 }
                 return new UnionCasePattern(patternName, caseProperties, line, column)
             }
-            if Check(TokenType.Identifier) {        // type pattern `TypeName binding` (Parser.cs :3429)
+            if Check(TokenType.Identifier) {
+                // type pattern `TypeName binding` (Parser.cs :3429)
                 bindingName := Advance().Value
                 // `new TypePattern(new SimpleTypeReference(name), bindingName, line, column)` (:3444) — the
                 // type reference carries NO position (the ctor's Line/Column defaults) and an invalid Span.
@@ -8902,15 +8608,7 @@ public class ColumnarParserRecovery {
         suggestions.Add("Identifier pattern: case x => ...")
         suggestions.Add("Type pattern: case int x => ...")
         suggestions.Add("Object pattern: case { Name: \"John\" } => ...")
-        Report(
-            ErrorCode.InvalidSyntax,
-            "Invalid pattern. Got '" + Current().Value + "'",
-            line,
-            column,
-            "I couldn't recognize this as a valid pattern for matching.",
-            "Patterns can be literals, identifiers, types, or destructuring patterns.",
-            suggestions,
-            Current().Value.Length)
+        Report(ErrorCode.InvalidSyntax, "Invalid pattern. Got '" + Current().Value + "'", line, column, "I couldn't recognize this as a valid pattern for matching.", "Patterns can be literals, identifiers, types, or destructuring patterns.", suggestions, Current().Value.Length)
         // Stage N+1c tranche 11: Parser.cs returns the synthetic `new IdentifierPattern("<error>", line,
         // column)` placeholder (:3467).
         return new IdentifierPattern("<error>", line, column)
@@ -8944,7 +8642,8 @@ public class ColumnarParserRecovery {
                 properties.Add(new PropertyPattern(propertyName, null, null, propertyToken.Line, propertyToken.Column))
             }
             if !Check(TokenType.RightBrace) {
-                if Check(TokenType.Comma) {         // Parser.cs Match(Comma) :3489 — optional separator
+                if Check(TokenType.Comma) {
+                    // Parser.cs Match(Comma) :3489 — optional separator
                     Advance()
                 }
             }
@@ -8973,7 +8672,8 @@ public class ColumnarParserRecovery {
 
         markerColumn := anchorToken.Column + MaxInt(1, anchorToken.Value.Length)
         underlineAnchor := ShouldUnderlineAnchorForMissingRequiredExpression(anchorToken)
-        fallback := SpanFromToken(anchorToken)          // DiagnosticSpanFromToken(anchorToken)
+        fallback := SpanFromToken(anchorToken)
+        // DiagnosticSpanFromToken(anchorToken)
         if !underlineAnchor {
             fallback = new RecoverySpan(anchorToken.Line, markerColumn, 1)
         }
@@ -8982,15 +8682,7 @@ public class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Add " + expectedDescription + " after '" + anchorToken.Value + "'")
         suggestions.Add("Remove '" + anchorToken.Value + "' until the expression is ready")
-        Report(
-            ErrorCode.ExpectedToken,
-            "Expected " + expectedDescription + " after '" + anchorToken.Value + "'",
-            span.Line,
-            span.Column,
-            ownerDescription + " needs " + expectedDescription + " after '" + anchorToken.Value + "'.",
-            "Finish the expression before starting the next statement.",
-            suggestions,
-            span.Length)
+        Report(ErrorCode.ExpectedToken, "Expected " + expectedDescription + " after '" + anchorToken.Value + "'", span.Line, span.Column, ownerDescription + " needs " + expectedDescription + " after '" + anchorToken.Value + "'.", "Finish the expression before starting the next statement.", suggestions, span.Length)
         // Stage N+1c tranche 11: Parser.cs returns `new IdentifierExpression("<error>", anchorToken.Line,
         // markerColumn)` (:3895).
         return new IdentifierExpression("<error>", anchorToken.Line, markerColumn)
@@ -9233,21 +8925,15 @@ public class ColumnarParserRecovery {
             descSuggestions := new List<string>()
             descSuggestions.Add("Example: test \"should calculate sum correctly\" { ... }")
             descSuggestions.Add("Example: test \"validates user input\" { ... }")
-            Report(
-                ErrorCode.ExpectedToken,
-                "Expected string literal for test description. Got '" + Current().Value + "'",
-                Current().Line,
-                Current().Column,
-                "Test declarations require a string literal describing what the test does.",
-                "A test should start with the 'test' keyword followed by a string in quotes.",
-                descSuggestions,
-                Current().Value.Length)
+            Report(ErrorCode.ExpectedToken, "Expected string literal for test description. Got '" + Current().Value + "'", Current().Line, Current().Column, "Test declarations require a string literal describing what the test does.", "A test should start with the 'test' keyword followed by a string in quotes.", descSuggestions, Current().Value.Length)
             // Stage N+1c tranche 11: Parser.cs stores the synthetic "<error>" description (:569) and still
             // builds the TestDeclaration around it — no decline.
             if !IsAtEnd() {
-                Advance()                               // skip the invalid token (Parser.cs :570)
+                Advance()
             }
         } else {
+            // skip the invalid token (Parser.cs :570)
+
             // Parser.cs :574 uses `Current.Value.Trim('"')`, which strips EVERY leading and trailing quote
             // — not a paired-quote unwrap. On an UNTERMINATED literal (a file being edited) the two differ,
             // so this routes through the shared StripSurroundingQuotes helper (the import-path idiom).
@@ -9263,7 +8949,8 @@ public class ColumnarParserRecovery {
         tableCases := NewTableCases()
         if Check(TokenType.With) {
             hasTable = true
-            Advance()                                   // consume 'with'
+            Advance()
+            // consume 'with'
             tableParameters = ParseParameterListRecovery()
             if !ParamListMaterializable {
                 declined = true
@@ -9277,14 +8964,16 @@ public class ColumnarParserRecovery {
                 row := new List<Expression>()
                 while !Check(TokenType.RightParen) && !IsAtEnd() {
                     itemStartPosition := Position
-                    rowItem := ParseExprValue().Node    // Parser.cs ParseExpression (:596)
+                    rowItem := ParseExprValue().Node
+                    // Parser.cs ParseExpression (:596)
                     if rowItem == null {
                         declined = true
                     } else {
                         row.Add(rowItem)
                     }
                     if !Check(TokenType.RightParen) {
-                        if Check(TokenType.Comma) {     // Parser.cs Match(Comma) (:598)
+                        if Check(TokenType.Comma) {
+                            // Parser.cs Match(Comma) (:598)
                             Advance()
                         }
                     }
@@ -9298,7 +8987,8 @@ public class ColumnarParserRecovery {
                 ConsumeToken(TokenType.RightParen, "Expected ')' to end test case row", ")")
                 rows.Add(row)
                 if !Check(TokenType.RightBracket) {
-                    if Check(TokenType.Comma) {         // Parser.cs Match(Comma) (:603)
+                    if Check(TokenType.Comma) {
+                        // Parser.cs Match(Comma) (:603)
                         Advance()
                     }
                 }
@@ -9316,19 +9006,12 @@ public class ColumnarParserRecovery {
         // offender (matching Parser.cs), so a following block/EOF continues from that token.
         skipReason: string? = null
         if Current().Type == TokenType.Identifier && Current().Value == "skip" {
-            Advance()                                   // consume 'skip'
+            Advance()
+            // consume 'skip'
             if Current().Type != TokenType.StringLiteral {
                 skipSuggestions := new List<string>()
                 skipSuggestions.Add("Example: test \"my test\" skip \"needs network\" { ... }")
-                Report(
-                    ErrorCode.ExpectedToken,
-                    "Expected string literal for skip reason. Got '" + Current().Value + "'",
-                    Current().Line,
-                    Current().Column,
-                    "The 'skip' modifier requires a string explaining why the test is skipped.",
-                    "Add a reason string after 'skip'.",
-                    skipSuggestions,
-                    Current().Value.Length)
+                Report(ErrorCode.ExpectedToken, "Expected string literal for skip reason. Got '" + Current().Value + "'", Current().Line, Current().Column, "The 'skip' modifier requires a string explaining why the test is skipped.", "Add a reason string after 'skip'.", skipSuggestions, Current().Value.Length)
             } else {
                 // Parser.cs :642 `Current.Value.Trim('"')` — same all-quote strip as the description.
                 skipReason = StripSurroundingQuotes(Current().Value)
@@ -9355,7 +9038,8 @@ public class ColumnarParserRecovery {
     func ParseSetupDeclaration() {
         line := Current().Line
         column := Current().Column
-        Advance()                                       // consume 'setup'
+        Advance()
+        // consume 'setup'
         body := ParseBlock(new RecoverySpan(line, column, MaxInt(1, 5)))
         if body != null {
             AddDeclaration(new SetupDeclaration(body, line, column))
@@ -9368,7 +9052,8 @@ public class ColumnarParserRecovery {
     func ParseTeardownDeclaration() {
         line := Current().Line
         column := Current().Column
-        Advance()                                       // consume 'teardown'
+        Advance()
+        // consume 'teardown'
         body := ParseBlock(new RecoverySpan(line, column, MaxInt(1, 8)))
         if body != null {
             AddDeclaration(new TeardownDeclaration(body, line, column))
@@ -9392,17 +9077,21 @@ public class ColumnarParserRecovery {
         attributes := new List<AttributeNode>()
         while Check(TokenType.LeftBracket) {
             attrLine := Current().Line
-            attrColumn := Current().Column + 1          // Parser.cs :275
-            Advance()                                   // consume '['
+            attrColumn := Current().Column + 1
+            // Parser.cs :275
+            Advance()
+            // consume '['
             name := ConsumeAttributeIdentifier("Expected attribute name")
             while Check(TokenType.Dot) {
-                Advance()                               // consume '.'
+                Advance()
+                // consume '.'
                 name = name + "." + ConsumeAttributeIdentifier("Expected identifier after '.'")
             }
             attributeArguments := new List<Argument>()
             argumentsDeclined := false
             if Check(TokenType.LeftParen) {
-                Advance()                               // consume '('
+                Advance()
+                // consume '('
                 parsedArguments := ParseArgumentList()
                 if parsedArguments == null {
                     argumentsDeclined = true
@@ -9412,8 +9101,10 @@ public class ColumnarParserRecovery {
             }
             ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
             if argumentsDeclined {
-                AttributesMaterializable = false        // declined-argument attribute → decline the declaration
+                AttributesMaterializable = false
             } else {
+                // declined-argument attribute → decline the declaration
+
                 // Stage N+1c tranche 11: an `<error>` attribute NAME is Parser.cs's own placeholder and it
                 // still builds the AttributeNode around it (:5292).
                 attributes.Add(new AttributeNode(name, attributeArguments, attrLine, attrColumn))

@@ -4,12 +4,12 @@ import System
 import System.Collections.Generic
 import System.IO
 
-public enum ImportVisitState {
+enum ImportVisitState {
     Visiting,
     Visited
 }
 
-public class ImportEdge {
+class ImportEdge {
     SourceFile: string
     TargetFile: string
     ImportPath: string
@@ -27,7 +27,7 @@ public class ImportEdge {
     }
 }
 
-public class FileImportGraphEntry {
+class FileImportGraphEntry {
     SourceFile: string
     ImportPath: string
     Line: int
@@ -43,22 +43,19 @@ public class FileImportGraphEntry {
     }
 }
 
-public class ImportGraphBuildResult {
-    EdgesByFile: Dictionary<string, List<ImportEdge> >
+class ImportGraphBuildResult {
+    EdgesByFile: Dictionary<string, List<ImportEdge>>
     ResolvedDiagnosticKeys: List<string>
 
-    constructor(edgesByFile: Dictionary<string, List<ImportEdge> >, resolvedDiagnosticKeys: List<string>) {
+    constructor(edgesByFile: Dictionary<string, List<ImportEdge>>, resolvedDiagnosticKeys: List<string>) {
         this.EdgesByFile = edgesByFile
         this.ResolvedDiagnosticKeys = resolvedDiagnosticKeys
     }
 }
 
-public class ImportGraphBuilder {
-    public static func Build(
-        sourceFiles: List<string>,
-        fileImports: List<FileImportGraphEntry>,
-        projectRoot: string): ImportGraphBuildResult {
-        graph := new Dictionary<string, List<ImportEdge> >(StringComparer.OrdinalIgnoreCase)
+class ImportGraphBuilder {
+    static func Build(sourceFiles: List<string>, fileImports: List<FileImportGraphEntry>, projectRoot: string): ImportGraphBuildResult {
+        graph := new Dictionary<string, List<ImportEdge>>(StringComparer.OrdinalIgnoreCase)
         resolvedDiagnosticKeys := new List<string>()
         sourceFileByFullPath := BuildSourceFileMap(sourceFiles)
 
@@ -75,13 +72,7 @@ public class ImportGraphBuilder {
                 }
 
                 resolvedDiagnosticKeys.Add(BuildFileImportDiagnosticKey(fileImport.SourceFile, fileImport.Line, fileImport.Column))
-                edges.Add(new ImportEdge(
-                    fileImport.SourceFile,
-                    resolvedPath,
-                    fileImport.ImportPath,
-                    fileImport.Line,
-                    fileImport.Column,
-                    fileImport.Length))
+                edges.Add(new ImportEdge(fileImport.SourceFile, resolvedPath, fileImport.ImportPath, fileImport.Line, fileImport.Column, fileImport.Length))
             }
 
             i = i + 1
@@ -107,10 +98,7 @@ public class ImportGraphBuilder {
         return sourceFileByFullPath
     }
 
-    static func ResolveImportedCompilationUnitPath(
-        resolver: FileResolver,
-        importPath: string,
-        sourceFileByFullPath: Dictionary<string, string>): string? {
+    static func ResolveImportedCompilationUnitPath(resolver: FileResolver, importPath: string, sourceFileByFullPath: Dictionary<string, string>): string? {
         resolvedPath := Path.GetFullPath(resolver.ResolveFilePath(importPath))
         sourceFile := ""
         if sourceFileByFullPath.TryGetValue(resolvedPath, out sourceFile) {
@@ -120,25 +108,18 @@ public class ImportGraphBuilder {
         return null
     }
 
-    public static func BuildFileImportDiagnosticKey(filePath: string, line: int, column: int): string {
+    static func BuildFileImportDiagnosticKey(filePath: string, line: int, column: int): string {
         return Path.GetFullPath(filePath) + ":" + line.ToString() + ":" + column.ToString()
     }
 }
 
-public class ImportGraphDiagnosticSuppressor {
-    public static func ShouldSuppressAnalyzerDiagnostic(
-        error: CompilerError,
-        filesInReportedImportCycles: HashSet<string>,
-        resolvedFileImportDiagnosticKeys: HashSet<string>): bool {
-        if error.Code == ErrorCode.CircularImport &&
-            error.FileName != null &&
-            filesInReportedImportCycles.Contains(Path.GetFullPath(error.FileName)) {
+class ImportGraphDiagnosticSuppressor {
+    static func ShouldSuppressAnalyzerDiagnostic(error: CompilerError, filesInReportedImportCycles: HashSet<string>, resolvedFileImportDiagnosticKeys: HashSet<string>): bool {
+        if error.Code == ErrorCode.CircularImport && error.FileName != null && filesInReportedImportCycles.Contains(Path.GetFullPath(error.FileName)) {
             return true
         }
 
-        if error.Code == ErrorCode.ImportNotFound &&
-            error.FileName != null &&
-            resolvedFileImportDiagnosticKeys.Contains(ImportGraphBuilder.BuildFileImportDiagnosticKey(error.FileName, error.Line, error.Column)) {
+        if error.Code == ErrorCode.ImportNotFound && error.FileName != null && resolvedFileImportDiagnosticKeys.Contains(ImportGraphBuilder.BuildFileImportDiagnosticKey(error.FileName, error.Line, error.Column)) {
             return true
         }
 
@@ -146,14 +127,8 @@ public class ImportGraphDiagnosticSuppressor {
     }
 }
 
-public class ImportCycleDiagnosticReporter {
-    public static func Report(
-        cycle: ImportCycle,
-        reportedImportCycles: HashSet<string>,
-        filesInReportedImportCycles: HashSet<string>,
-        errors: List<CompilerError>,
-        maxReportedImportCycles: int,
-        sourceSnippet: string?) {
+class ImportCycleDiagnosticReporter {
+    static func Report(cycle: ImportCycle, reportedImportCycles: HashSet<string>, filesInReportedImportCycles: HashSet<string>, errors: List<CompilerError>, maxReportedImportCycles: int, sourceSnippet: string?) {
         if !reportedImportCycles.Add(cycle.CanonicalKey) {
             return
         }
@@ -170,19 +145,12 @@ public class ImportCycleDiagnosticReporter {
         }
 
         edge := cycle.Edge
-        errors.Add(new CompilerError(
-            ErrorCode.CircularImport,
-            "Circular import detected: " + cycle.DisplayPath,
-            edge.Line,
-            edge.Column,
-            ErrorSeverity.Error) {
+        errors.Add(new CompilerError(ErrorCode.CircularImport, "Circular import detected: " + cycle.DisplayPath, edge.Line, edge.Column, ErrorSeverity.Error) {
             FileName: edge.SourceFile,
             SourceSnippet: TrimTrailingCarriageReturn(sourceSnippet),
             Length: Math.Max(1, edge.Length),
             HumanExplanation: "File imports form a cycle: " + cycle.DisplayPath,
-            ContextualHint:
-                "Circular imports are not allowed because they make symbol resolution order ambiguous.\n" +
-                "Import path: " + cycle.DisplayPath,
+            ContextualHint: "Circular imports are not allowed because they make symbol resolution order ambiguous.\n" + "Import path: " + cycle.DisplayPath,
             Suggestion: "Move shared types or functions into a separate file/package that every file can import without importing back, or invert one dependency so imports flow in one direction.",
             DocsUrl: "https://docs.n-sharp.dev/errors/NL703"
         })
@@ -219,7 +187,7 @@ public class ImportCycleDiagnosticReporter {
     }
 }
 
-public class ImportTraversalFrame {
+class ImportTraversalFrame {
     SourceFile: string
     Edges: List<ImportEdge>
     NextEdgeIndex: int
@@ -231,7 +199,7 @@ public class ImportTraversalFrame {
     }
 }
 
-public class ImportCycle {
+class ImportCycle {
     Edge: ImportEdge
     Path: List<string>
     DisplayPath: string
@@ -245,12 +213,8 @@ public class ImportCycle {
     }
 }
 
-public class ImportGraphCycleDetector {
-    public static func Detect(
-        sourceFiles: List<string>,
-        edgesByFile: Dictionary<string, List<ImportEdge> >,
-        projectRoot: string,
-        maxDisplayedNodes: int): List<ImportCycle> {
+class ImportGraphCycleDetector {
+    static func Detect(sourceFiles: List<string>, edgesByFile: Dictionary<string, List<ImportEdge>>, projectRoot: string, maxDisplayedNodes: int): List<ImportCycle> {
         orderedSourceFiles := CopySortedStrings(sourceFiles)
         visitState := new Dictionary<string, ImportVisitState>(StringComparer.OrdinalIgnoreCase)
         cycles := new List<ImportCycle>()
@@ -258,28 +222,14 @@ public class ImportGraphCycleDetector {
 
         i := 0
         while i < orderedSourceFiles.Count {
-            VisitImportGraph(
-                orderedSourceFiles[i],
-                edgesByFile,
-                projectRoot,
-                maxDisplayedNodes,
-                visitState,
-                cycles,
-                reportedCycleKeys)
+            VisitImportGraph(orderedSourceFiles[i], edgesByFile, projectRoot, maxDisplayedNodes, visitState, cycles, reportedCycleKeys)
             i = i + 1
         }
 
         return cycles
     }
 
-    static func VisitImportGraph(
-        sourceFile: string,
-        edgesByFile: Dictionary<string, List<ImportEdge> >,
-        projectRoot: string,
-        maxDisplayedNodes: int,
-        visitState: Dictionary<string, ImportVisitState>,
-        cycles: List<ImportCycle>,
-        reportedCycleKeys: HashSet<string>) {
+    static func VisitImportGraph(sourceFile: string, edgesByFile: Dictionary<string, List<ImportEdge>>, projectRoot: string, maxDisplayedNodes: int, visitState: Dictionary<string, ImportVisitState>, cycles: List<ImportCycle>, reportedCycleKeys: HashSet<string>) {
         existingState := ImportVisitState.Visiting
         if visitState.TryGetValue(sourceFile, out existingState) && existingState == ImportVisitState.Visited {
             return
@@ -310,11 +260,7 @@ public class ImportGraphCycleDetector {
                     cyclePath := CopyCyclePath(pathStack, cycleStartIndex, edge.TargetFile)
                     canonicalKey := CanonicalizeCycle(cyclePath)
                     if reportedCycleKeys.Add(canonicalKey) {
-                        cycles.Add(new ImportCycle(
-                            edge,
-                            cyclePath,
-                            FormatCyclePath(cyclePath, projectRoot, maxDisplayedNodes),
-                            canonicalKey))
+                        cycles.Add(new ImportCycle(edge, cyclePath, FormatCyclePath(cyclePath, projectRoot, maxDisplayedNodes), canonicalKey))
                     }
                 } else {
                     targetState := ImportVisitState.Visiting
@@ -330,9 +276,7 @@ public class ImportGraphCycleDetector {
         }
     }
 
-    static func GetSortedImportEdges(
-        sourceFile: string,
-        edgesByFile: Dictionary<string, List<ImportEdge> >): List<ImportEdge> {
+    static func GetSortedImportEdges(sourceFile: string, edgesByFile: Dictionary<string, List<ImportEdge>>): List<ImportEdge> {
         sourceEdges := new List<ImportEdge>()
         if !edgesByFile.TryGetValue(sourceFile, out sourceEdges) {
             return new List<ImportEdge>()

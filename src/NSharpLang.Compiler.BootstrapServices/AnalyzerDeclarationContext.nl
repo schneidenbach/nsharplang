@@ -8,7 +8,7 @@ import System.Reflection
 import System.Runtime.CompilerServices
 import NSharpLang.Compiler.Ast
 
-public class AnalyzerSourceTypeSelection {
+class AnalyzerSourceTypeSelection {
     Type: TypeInfo
     Declaration: object?
     FilePath: string?
@@ -22,7 +22,7 @@ public class AnalyzerSourceTypeSelection {
     }
 }
 
-public class AnalyzerMemberSelection {
+class AnalyzerMemberSelection {
     Owner: TypeInfo
     Member: DeclaredMemberInfo?
     FilePath: string?
@@ -41,14 +41,7 @@ public class AnalyzerMemberSelection {
         IsExported = false
     }
 
-    constructor(
-        owner: TypeInfo,
-        member: DeclaredMemberInfo?,
-        filePath: string?,
-        line: int,
-        column: int,
-        kindName: string,
-        isExported: bool) {
+    constructor(owner: TypeInfo, member: DeclaredMemberInfo?, filePath: string?, line: int, column: int, kindName: string, isExported: bool) {
         Owner = owner
         Member = member
         FilePath = filePath
@@ -59,7 +52,7 @@ public class AnalyzerMemberSelection {
     }
 }
 
-public class AnalyzerSourceMemberShape {
+class AnalyzerSourceMemberShape {
     Owner: TypeInfo
     DeclaredMembers: DeclaredMemberInfo[]
     PrimaryParameters: ParameterDeclarationInfo[]
@@ -78,14 +71,7 @@ public class AnalyzerSourceMemberShape {
         SupportsObjectMembers = false
     }
 
-    constructor(
-        owner: TypeInfo,
-        declaredMembers: DeclaredMemberInfo[],
-        primaryParameters: ParameterDeclarationInfo[],
-        nestedTypes: NestedTypeInfo[],
-        baseType: TypeInfo?,
-        supportsPrimaryParameters: bool,
-        supportsObjectMembers: bool) {
+    constructor(owner: TypeInfo, declaredMembers: DeclaredMemberInfo[], primaryParameters: ParameterDeclarationInfo[], nestedTypes: NestedTypeInfo[], baseType: TypeInfo?, supportsPrimaryParameters: bool, supportsObjectMembers: bool) {
         Owner = owner
         DeclaredMembers = declaredMembers
         PrimaryParameters = primaryParameters
@@ -163,15 +149,9 @@ class AnalyzerDeclarationFileFacts {
         while index < imports.Count {
             importValue := imports[index]
             if importValue != null {
-                namespaceName := TypeInfoFactoryReflection.GetRequiredString(
-                    importValue,
-                    "Namespace")
-                aliasValue := TypeInfoFactoryReflection.GetOptionalProperty(
-                    importValue,
-                    "Alias")
-                result.Add(new AnalyzerNamespaceImportFacts(
-                    namespaceName,
-                    aliasValue as string))
+                namespaceName := TypeInfoFactoryReflection.GetRequiredString(importValue, "Namespace")
+                aliasValue := TypeInfoFactoryReflection.GetOptionalProperty(importValue, "Alias")
+                result.Add(new AnalyzerNamespaceImportFacts(namespaceName, aliasValue as string))
             }
             index = index + 1
         }
@@ -197,7 +177,7 @@ class AnalyzerDeclarationFileFacts {
 
 // Canonical source declaration and declaration-context type resolution. The C# analyzer supplies
 // already parsed units as opaque objects; all source binding policy and identity caches live here.
-public class AnalyzerDeclarationContext {
+class AnalyzerDeclarationContext {
     projectRoot: string
     assemblies: List<Assembly>
     files: List<AnalyzerDeclarationFileFacts>
@@ -213,10 +193,8 @@ public class AnalyzerDeclarationContext {
         projectRoot = Path.GetFullPath(".")
         assemblies = new List<Assembly>()
         files = new List<AnalyzerDeclarationFileFacts>()
-        filesByPath = new Dictionary<string, AnalyzerDeclarationFileFacts>(
-            StringComparer.OrdinalIgnoreCase)
-        typesByFile = new Dictionary<string, Dictionary<string, TypeInfo>>(
-            StringComparer.OrdinalIgnoreCase)
+        filesByPath = new Dictionary<string, AnalyzerDeclarationFileFacts>(StringComparer.OrdinalIgnoreCase)
+        typesByFile = new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.OrdinalIgnoreCase)
         filesByType = new Dictionary<object, string>()
         containingTypes = new Dictionary<object, TypeInfo>()
         soaTypesByDeclaration = new Dictionary<object, SoaRecordTypeInfo>()
@@ -224,7 +202,7 @@ public class AnalyzerDeclarationContext {
         missingExternalTypes = new HashSet<string>(StringComparer.Ordinal)
     }
 
-    public func Reset(projectRootValue: string, assemblyValues: List<Assembly>) {
+    func Reset(projectRootValue: string, assemblyValues: List<Assembly>) {
         projectRoot = Path.GetFullPath(projectRootValue)
         assemblies = assemblyValues
         files.Clear()
@@ -237,7 +215,7 @@ public class AnalyzerDeclarationContext {
         missingExternalTypes.Clear()
     }
 
-    public func AddCompilationUnit(filePath: string, unit: object) {
+    func AddCompilationUnit(filePath: string, unit: object) {
         fullPath := Path.GetFullPath(filePath)
         if filesByPath.ContainsKey(fullPath) {
             return
@@ -245,47 +223,26 @@ public class AnalyzerDeclarationContext {
         facts := new AnalyzerDeclarationFileFacts(fullPath, unit)
         files.Add(facts)
         filesByPath.Add(fullPath, facts)
-        typesByFile.Add(
-            fullPath,
-            new Dictionary<string, TypeInfo>(StringComparer.Ordinal))
+        typesByFile.Add(fullPath, new Dictionary<string, TypeInfo>(StringComparer.Ordinal))
     }
 
-    public func ResolveTypeReference(
-        typeReference: TypeReference,
-        declarationFile: string,
-        substitution: Dictionary<string, TypeInfo>? = null,
-        lexicalOwner: TypeInfo? = null): TypeInfo {
+    func ResolveTypeReference(typeReference: TypeReference, declarationFile: string, substitution: Dictionary<string, TypeInfo>? = null, lexicalOwner: TypeInfo? = null): TypeInfo {
         facts := FindFile(declarationFile)
         if facts == null {
             return BuiltInTypes.Unknown
         }
         activeAliases := new HashSet<string>(StringComparer.Ordinal)
-        return ResolveTypeReferenceCore(
-            typeReference,
-            facts,
-            activeAliases,
-            substitution,
-            lexicalOwner)
+        return ResolveTypeReferenceCore(typeReference, facts, activeAliases, substitution, lexicalOwner)
     }
 
-    public func TryResolveTypeForOwner(
-        typeReference: TypeReference,
-        declarationOwner: TypeInfo,
-        substitution: Dictionary<string, TypeInfo>?,
-        out resolved: TypeInfo): bool {
+    func TryResolveTypeForOwner(typeReference: TypeReference, declarationOwner: TypeInfo, substitution: Dictionary<string, TypeInfo>?, out resolved: TypeInfo): bool {
         declarationFile := ""
         if !filesByType.TryGetValue(declarationOwner, out declarationFile) {
             resolved = BuiltInTypes.Unknown
             return false
         }
-        effectiveSubstitution := CreateOwnerOpenSubstitution(
-            declarationOwner,
-            substitution)
-        resolved = ResolveTypeReference(
-            typeReference,
-            declarationFile,
-            effectiveSubstitution,
-            declarationOwner)
+        effectiveSubstitution := CreateOwnerOpenSubstitution(declarationOwner, substitution)
+        resolved = ResolveTypeReference(typeReference, declarationFile, effectiveSubstitution, declarationOwner)
         return true
     }
 
@@ -298,13 +255,11 @@ public class AnalyzerDeclarationContext {
     // The alias arm is a pure declaration-context fact because the analyzer registers the
     // AliasTypeInfo instance it builds (RegisterDeclaredAlias); an alias this context does not
     // own is transparent to it and is returned unchanged.
-    public func ResolveDeclaredAlias(candidate: TypeInfo): TypeInfo {
+    func ResolveDeclaredAlias(candidate: TypeInfo): TypeInfo {
         return ResolveDeclaredAliasCore(candidate, new HashSet<object>())
     }
 
-    func ResolveDeclaredAliasCore(
-        candidate: TypeInfo,
-        activeAliases: HashSet<object>): TypeInfo {
+    func ResolveDeclaredAliasCore(candidate: TypeInfo, activeAliases: HashSet<object>): TypeInfo {
         alias := candidate as AliasTypeInfo
         if alias != null {
             if !activeAliases.Add(alias) {
@@ -323,21 +278,15 @@ public class AnalyzerDeclarationContext {
         return candidate
     }
 
-    public func ResolveDeclarationType(declaration: object, filePath: string): TypeInfo {
+    func ResolveDeclarationType(declaration: object, filePath: string): TypeInfo {
         facts := FindFile(filePath)
         if facts == null {
             return BuiltInTypes.Unknown
         }
-        return ResolveDeclarationTypeCore(
-            declaration,
-            facts,
-            new HashSet<string>(StringComparer.Ordinal))
+        return ResolveDeclarationTypeCore(declaration, facts, new HashSet<string>(StringComparer.Ordinal))
     }
 
-    public func TryResolveName(
-        declarationFile: string,
-        name: string,
-        out selection: AnalyzerSourceTypeSelection): bool {
+    func TryResolveName(declarationFile: string, name: string, out selection: AnalyzerSourceTypeSelection): bool {
         facts := FindFile(declarationFile)
         if facts == null {
             selection = MissingSelection(false)
@@ -356,76 +305,45 @@ public class AnalyzerDeclarationContext {
         if filesByType.TryGetValue(typeInfo, out declarationFileValue) {
             fileValue = declarationFileValue
         }
-        selection = new AnalyzerSourceTypeSelection(
-            typeInfo,
-            declaration,
-            fileValue,
-            claimed)
+        selection = new AnalyzerSourceTypeSelection(typeInfo, declaration, fileValue, claimed)
         return true
     }
 
-    public func TryResolveProjectTypeInNamespace(
-        name: string,
-        namespaceName: string?,
-        requireExported: bool,
-        out selection: AnalyzerSourceTypeSelection): bool {
+    func TryResolveProjectTypeInNamespace(name: string, namespaceName: string?, requireExported: bool, out selection: AnalyzerSourceTypeSelection): bool {
         activeAliases := new HashSet<string>(StringComparer.Ordinal)
         typeInfo := BuiltInTypes.Unknown as TypeInfo
         claimed := false
-        if TryResolveDeclarationInNamespace(
-                name,
-                namespaceName,
-                requireExported,
-                activeAliases,
-                out typeInfo,
-                out claimed) {
-            selection = SelectionForNamedDeclaration(
-                typeInfo,
-                name,
-                namespaceName,
-                true,
-                requireExported,
-                claimed)
+        if TryResolveDeclarationInNamespace(name, namespaceName, requireExported, activeAliases, out typeInfo, out claimed) {
+            selection = SelectionForNamedDeclaration(typeInfo, name, namespaceName, true, requireExported, claimed)
             return true
         }
         selection = MissingSelection(claimed)
         return false
     }
 
-    public func TryResolveUniqueExportedType(
-        name: string,
-        out selection: AnalyzerSourceTypeSelection): bool {
+    func TryResolveUniqueExportedType(name: string, out selection: AnalyzerSourceTypeSelection): bool {
         activeAliases := new HashSet<string>(StringComparer.Ordinal)
         typeInfo := BuiltInTypes.Unknown as TypeInfo
         claimed := false
-        if TryResolveUniqueExported(
-                name,
-                activeAliases,
-                out typeInfo,
-                out claimed) {
-            selection = SelectionForNamedDeclaration(
-                typeInfo, name, null, false, true, true)
+        if TryResolveUniqueExported(name, activeAliases, out typeInfo, out claimed) {
+            selection = SelectionForNamedDeclaration(typeInfo, name, null, false, true, true)
             return true
         }
         selection = MissingSelection(claimed)
         return false
     }
 
-    public func TryGetCanonicalType(
-        filePath: string,
-        name: string,
-        out typeInfo: TypeInfo): bool {
+    func TryGetCanonicalType(filePath: string, name: string, out typeInfo: TypeInfo): bool {
         fullPath := Path.GetFullPath(filePath)
         byName := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
-        if typesByFile.TryGetValue(fullPath, out byName)
-            && byName.TryGetValue(name, out typeInfo) {
+        if typesByFile.TryGetValue(fullPath, out byName) && byName.TryGetValue(name, out typeInfo) {
             return true
         }
         typeInfo = BuiltInTypes.Unknown
         return false
     }
 
-    public func RegisterCanonicalType(filePath: string, name: string, typeInfo: TypeInfo) {
+    func RegisterCanonicalType(filePath: string, name: string, typeInfo: TypeInfo) {
         fullPath := Path.GetFullPath(filePath)
         byName := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
         if !typesByFile.TryGetValue(fullPath, out byName) {
@@ -441,15 +359,15 @@ public class AnalyzerDeclarationContext {
     // alias resolution is a declaration-context fact rather than a scope-stack walk. The
     // canonical `typesByFile` entry for an alias NAME stays the RESOLVED target type that
     // ResolveDeclarationTypeCore computes, so name lookup is unchanged.
-    public func RegisterDeclaredAlias(filePath: string, alias: AliasTypeInfo) {
+    func RegisterDeclaredAlias(filePath: string, alias: AliasTypeInfo) {
         filesByType[alias] = Path.GetFullPath(filePath)
     }
 
-    public func ContainsSourceType(typeInfo: TypeInfo): bool {
+    func ContainsSourceType(typeInfo: TypeInfo): bool {
         return filesByType.ContainsKey(typeInfo)
     }
 
-    public func GetDeclarationFile(typeInfo: TypeInfo): string? {
+    func GetDeclarationFile(typeInfo: TypeInfo): string? {
         filePath := ""
         if filesByType.TryGetValue(typeInfo, out filePath) {
             return filePath
@@ -457,7 +375,7 @@ public class AnalyzerDeclarationContext {
         return null
     }
 
-    public func GetContainingType(typeInfo: TypeInfo): TypeInfo? {
+    func GetContainingType(typeInfo: TypeInfo): TypeInfo? {
         containing := new TypeInfo()
         if containingTypes.TryGetValue(typeInfo, out containing) {
             return containing
@@ -465,13 +383,11 @@ public class AnalyzerDeclarationContext {
         return null
     }
 
-    public func TryGetSoaType(
-        declaration: SoaRecordDeclarationInfo,
-        out typeInfo: SoaRecordTypeInfo): bool {
+    func TryGetSoaType(declaration: SoaRecordDeclarationInfo, out typeInfo: SoaRecordTypeInfo): bool {
         return soaTypesByDeclaration.TryGetValue(declaration, out typeInfo)
     }
 
-    public func GetNamespaceForFile(filePath: string?): string? {
+    func GetNamespaceForFile(filePath: string?): string? {
         if filePath == null {
             return null
         }
@@ -482,18 +398,10 @@ public class AnalyzerDeclarationContext {
         return facts.NamespaceName
     }
 
-    public func TryResolveNestedType(
-        owner: TypeInfo,
-        name: string,
-        requireExported: bool,
-        out nestedType: TypeInfo): bool {
+    func TryResolveNestedType(owner: TypeInfo, name: string, requireExported: bool, out nestedType: TypeInfo): bool {
         activeAliases := new HashSet<string>(StringComparer.Ordinal)
         resolvedOwner := ResolveAlias(owner, activeAliases)
-        if TryResolveNestedMember(
-                resolvedOwner,
-                name,
-                requireExported,
-                out nestedType) {
+        if TryResolveNestedMember(resolvedOwner, name, requireExported, out nestedType) {
             nestedType = ResolveAlias(nestedType, activeAliases)
             return !BuiltInTypes.IsUnknown(nestedType)
         }
@@ -501,10 +409,7 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
-    public func TryFindMember(
-        owner: TypeInfo,
-        name: string,
-        out selection: AnalyzerMemberSelection): bool {
+    func TryFindMember(owner: TypeInfo, name: string, out selection: AnalyzerMemberSelection): bool {
         visited := new HashSet<object>()
         return TryFindMemberCore(owner, name, null, visited, out selection)
     }
@@ -513,12 +418,7 @@ public class AnalyzerDeclarationContext {
     // inherited members reached through closed generic base substitutions. Return `claimed` when
     // a source member with this name exists so the mechanical analyzer bridge cannot fall through
     // to reflection and reinterpret a non-field or writable/static source member.
-    public func TryFindReadonlyField(
-        owner: TypeInfo,
-        name: string,
-        requireStatic: bool,
-        out resolvedFieldName: string,
-        out claimed: bool): bool {
+    func TryFindReadonlyField(owner: TypeInfo, name: string, requireStatic: bool, out resolvedFieldName: string, out claimed: bool): bool {
         resolvedFieldName = ""
         selection := new AnalyzerMemberSelection()
         if !TryFindMember(owner, name, out selection) {
@@ -527,10 +427,7 @@ public class AnalyzerDeclarationContext {
         }
         claimed = true
         member := selection.Member
-        if member == null
-            || member.Kind != DeclaredMemberKind.Field
-            || member.IsStatic != requireStatic
-            || !member.IsReadonly {
+        if member == null || member.Kind != DeclaredMemberKind.Field || member.IsStatic != requireStatic || !member.IsReadonly {
             return false
         }
         resolvedFieldName = member.Name
@@ -540,14 +437,7 @@ public class AnalyzerDeclarationContext {
     // File-import aliases have their own terminal type namespace. Keep the dotted-name split,
     // declaration-kind validation, alias expansion, nested visibility, and claimed semantics in
     // N#; Analyzer only records the returned canonical SymbolDeclaration in its binding map.
-    public func TryResolveFileImportAliasType(
-        name: string,
-        currentFilePath: string?,
-        importedSymbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo> >,
-        importedDeclarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration> >,
-        out typeInfo: TypeInfo,
-        out declaration: SymbolDeclaration?,
-        out claimed: bool): bool {
+    func TryResolveFileImportAliasType(name: string, currentFilePath: string?, importedSymbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo>>, importedDeclarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration>>, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?, out claimed: bool): bool {
         typeInfo = BuiltInTypes.Unknown
         declaration = null
         claimed = false
@@ -575,11 +465,7 @@ public class AnalyzerDeclarationContext {
 
         declarations := new Dictionary<string, SymbolDeclaration>(StringComparer.Ordinal)
         selectedDeclaration: SymbolDeclaration? = null
-        if !importedDeclarationsByAlias.TryGetValue(alias, out declarations)
-            || !declarations.TryGetValue(importedName, out selectedDeclaration)
-            || selectedDeclaration == null
-            || !AnalyzerBindingFacts.IsTypeDeclarationKind(
-                selectedDeclaration.Kind) {
+        if !importedDeclarationsByAlias.TryGetValue(alias, out declarations) || !declarations.TryGetValue(importedName, out selectedDeclaration) || selectedDeclaration == null || !AnalyzerBindingFacts.IsTypeDeclarationKind(selectedDeclaration.Kind) {
             return false
         }
         declaration = selectedDeclaration
@@ -588,171 +474,95 @@ public class AnalyzerDeclarationContext {
             return true
         }
 
-        resolved := ResolveAlias(
-            importedType,
-            new HashSet<string>(StringComparer.Ordinal))
-        requireNestedExport := RequiresNestedExport(
-            currentFilePath, selectedDeclaration.File)
+        resolved := ResolveAlias(importedType, new HashSet<string>(StringComparer.Ordinal))
+        requireNestedExport := RequiresNestedExport(currentFilePath, selectedDeclaration.File)
         nestedPath := remainder.Substring(nestedSeparator + 1).Split('.')
         nestedIndex := 0
         while nestedIndex < nestedPath.Length {
             nested := BuiltInTypes.Unknown as TypeInfo
-            if !TryResolveNestedMember(
-                    resolved,
-                    nestedPath[nestedIndex],
-                    requireNestedExport,
-                    out nested) {
+            if !TryResolveNestedMember(resolved, nestedPath[nestedIndex], requireNestedExport, out nested) {
                 typeInfo = BuiltInTypes.Unknown
                 declaration = null
                 return false
             }
-            resolved = ResolveAlias(
-                nested,
-                new HashSet<string>(StringComparer.Ordinal))
+            resolved = ResolveAlias(nested, new HashSet<string>(StringComparer.Ordinal))
             nestedIndex = nestedIndex + 1
         }
         typeInfo = resolved
         return true
     }
 
-    public func TryGetSourceMemberShape(
-        owner: TypeInfo,
-        substitution: Dictionary<string, TypeInfo>?,
-        out shape: AnalyzerSourceMemberShape): bool {
+    func TryGetSourceMemberShape(owner: TypeInfo, substitution: Dictionary<string, TypeInfo>?, out shape: AnalyzerSourceMemberShape): bool {
         classType := owner as ClassTypeInfo
         if classType != null {
             baseType: TypeInfo? = null
             resolvedBase := BuiltInTypes.Unknown as TypeInfo
-            if classType.BaseClass != null
-                && TryResolveTypeForOwner(
-                    classType.BaseClass,
-                    classType,
-                    substitution,
-                    out resolvedBase) {
+            if classType.BaseClass != null && TryResolveTypeForOwner(classType.BaseClass, classType, substitution, out resolvedBase) {
                 baseType = resolvedBase
             }
-            shape = new AnalyzerSourceMemberShape(
-                classType,
-                classType.DeclaredMembers,
-                classType.PrimaryConstructorParameters,
-                classType.NestedTypes,
-                baseType,
-                true,
-                true)
+            shape = new AnalyzerSourceMemberShape(classType, classType.DeclaredMembers, classType.PrimaryConstructorParameters, classType.NestedTypes, baseType, true, true)
             return true
         }
         structType := owner as StructTypeInfo
         if structType != null {
-            shape = new AnalyzerSourceMemberShape(
-                structType,
-                structType.DeclaredMembers,
-                structType.PrimaryConstructorParameters,
-                structType.NestedTypes,
-                null,
-                true,
-                true)
+            shape = new AnalyzerSourceMemberShape(structType, structType.DeclaredMembers, structType.PrimaryConstructorParameters, structType.NestedTypes, null, true, true)
             return true
         }
         recordType := owner as RecordTypeInfo
         if recordType != null {
-            shape = new AnalyzerSourceMemberShape(
-                recordType,
-                recordType.DeclaredMembers,
-                recordType.PrimaryConstructorParameters,
-                recordType.NestedTypes,
-                null,
-                true,
-                true)
+            shape = new AnalyzerSourceMemberShape(recordType, recordType.DeclaredMembers, recordType.PrimaryConstructorParameters, recordType.NestedTypes, null, true, true)
             return true
         }
         interfaceType := owner as InterfaceTypeInfo
         if interfaceType != null {
-            shape = new AnalyzerSourceMemberShape(
-                interfaceType,
-                interfaceType.DeclaredMembers,
-                new ParameterDeclarationInfo[](0),
-                interfaceType.NestedTypes,
-                null,
-                false,
-                true)
+            shape = new AnalyzerSourceMemberShape(interfaceType, interfaceType.DeclaredMembers, new ParameterDeclarationInfo[](0), interfaceType.NestedTypes, null, false, true)
             return true
         }
         shape = new AnalyzerSourceMemberShape()
         return false
     }
 
-    func RequiresNestedExport(
-        currentFilePath: string?,
-        declarationFilePath: string?): bool {
-        if currentFilePath == null || currentFilePath.Length == 0
-            || declarationFilePath == null || declarationFilePath.Length == 0 {
+    func RequiresNestedExport(currentFilePath: string?, declarationFilePath: string?): bool {
+        if currentFilePath == null || currentFilePath.Length == 0 || declarationFilePath == null || declarationFilePath.Length == 0 {
             return false
         }
         currentPath := Path.GetFullPath(currentFilePath)
         declarationPath := Path.GetFullPath(declarationFilePath)
-        if string.Equals(
-                currentPath,
-                declarationPath,
-                StringComparison.OrdinalIgnoreCase) {
+        if string.Equals(currentPath, declarationPath, StringComparison.OrdinalIgnoreCase) {
             return false
         }
         return true
     }
 
-    public func GetAvailableSourceMemberNames(
-        owner: TypeInfo,
-        includeStaticMembers: bool): List<string> {
+    func GetAvailableSourceMemberNames(owner: TypeInfo, includeStaticMembers: bool): List<string> {
         result := new List<string>()
         visited := new HashSet<object>()
-        CollectAvailableSourceMemberNames(
-            owner,
-            includeStaticMembers,
-            null,
-            visited,
-            result)
+        CollectAvailableSourceMemberNames(owner, includeStaticMembers, null, visited, result)
         return result
     }
 
-    public func SourceObjectMembersApply(owner: TypeInfo): bool {
+    func SourceObjectMembersApply(owner: TypeInfo): bool {
         generic := owner as GenericTypeInfo
         if generic != null && generic.GenericDefinition != null {
             owner = generic.GenericDefinition
         }
-        return owner as ClassTypeInfo != null
-            || owner as StructTypeInfo != null
-            || owner as RecordTypeInfo != null
-            || owner as InterfaceTypeInfo != null
-            || owner as EnumTypeInfo != null
-            || owner as TupleTypeInfo != null
+        return owner as ClassTypeInfo != null || owner as StructTypeInfo != null || owner as RecordTypeInfo != null || owner as InterfaceTypeInfo != null || owner as EnumTypeInfo != null || owner as TupleTypeInfo != null
     }
 
-    public func CreateGenericSubstitution(
-        definition: TypeInfo,
-        arguments: List<TypeInfo>): Dictionary<string, TypeInfo>? {
+    func CreateGenericSubstitution(definition: TypeInfo, arguments: List<TypeInfo>): Dictionary<string, TypeInfo>? {
         return CreateSourceGenericSubstitution(definition, arguments)
     }
 
-    public func TryResolveDeclaredValueMember(
-        owner: TypeInfo,
-        members: DeclaredMemberInfo[],
-        name: string,
-        substitution: Dictionary<string, TypeInfo>?,
-        out memberType: TypeInfo): bool {
+    func TryResolveDeclaredValueMember(owner: TypeInfo, members: DeclaredMemberInfo[], name: string, substitution: Dictionary<string, TypeInfo>?, out memberType: TypeInfo): bool {
         index := 0
         while index < members.Length {
             member := members[index]
-            if member.Name == name
-                && (member.Kind == DeclaredMemberKind.Field
-                    || member.Kind == DeclaredMemberKind.Property) {
+            if member.Name == name && (member.Kind == DeclaredMemberKind.Field || member.Kind == DeclaredMemberKind.Property) {
                 if member.Type == null {
                     memberType = BuiltInTypes.Unknown
                     return true
                 }
-                if TryResolveTypeForOwner(
-                        member.Type,
-                        owner,
-                        substitution,
-                        out memberType) {
+                if TryResolveTypeForOwner(member.Type, owner, substitution, out memberType) {
                     return true
                 }
                 memberType = BuiltInTypes.Unknown
@@ -764,21 +574,12 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
-    public func TryResolvePrimaryParameter(
-        owner: TypeInfo,
-        parameters: ParameterDeclarationInfo[],
-        name: string,
-        substitution: Dictionary<string, TypeInfo>?,
-        out memberType: TypeInfo): bool {
+    func TryResolvePrimaryParameter(owner: TypeInfo, parameters: ParameterDeclarationInfo[], name: string, substitution: Dictionary<string, TypeInfo>?, out memberType: TypeInfo): bool {
         index := 0
         while index < parameters.Length {
             parameter := parameters[index]
             if parameter.Name == name {
-                if TryResolveTypeForOwner(
-                        parameter.Type,
-                        owner,
-                        substitution,
-                        out memberType) {
+                if TryResolveTypeForOwner(parameter.Type, owner, substitution, out memberType) {
                     return true
                 }
                 memberType = BuiltInTypes.Unknown
@@ -790,10 +591,7 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
-    public func TryResolveTupleMember(
-        tupleType: TupleTypeInfo,
-        name: string,
-        out memberType: TypeInfo): bool {
+    func TryResolveTupleMember(tupleType: TupleTypeInfo, name: string, out memberType: TypeInfo): bool {
         index := 0
         while index < tupleType.Elements.Count {
             element := tupleType.Elements[index]
@@ -807,14 +605,9 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
-    public func TryResolveKnownGenericStructuralMember(
-        typeInfo: TypeInfo,
-        name: string,
-        out memberType: TypeInfo): bool {
+    func TryResolveKnownGenericStructuralMember(typeInfo: TypeInfo, name: string, out memberType: TypeInfo): bool {
         generic := typeInfo as GenericTypeInfo
-        if generic != null
-            && generic.TypeArguments.Count == 2
-            && IsRuntimeResultDefinition(generic) {
+        if generic != null && generic.TypeArguments.Count == 2 && IsRuntimeResultDefinition(generic) {
             if name == "IsOk" || name == "IsErr" {
                 memberType = BuiltInTypes.Bool
                 return true
@@ -828,9 +621,7 @@ public class AnalyzerDeclarationContext {
                 return true
             }
         }
-        if generic != null
-            && generic.TypeArguments.Count == 1
-            && IsRuntimeSpanDefinition(generic) {
+        if generic != null && generic.TypeArguments.Count == 1 && IsRuntimeSpanDefinition(generic) {
             if name == "Length" {
                 memberType = BuiltInTypes.Int
                 return true
@@ -843,11 +634,9 @@ public class AnalyzerDeclarationContext {
             // Both Span<T>.ptr and ReadOnlySpan<T>.ptr lower from the exact element address,
             // while the analyzer models the public Buffer.MemoryCopy boundary as void*.
             if name == "ptr" {
-                invoke := typeof(Action).GetMethod(
-                    "Invoke", new Type[](0))
+                invoke := typeof(Action).GetMethod("Invoke", new Type[](0))
                 if invoke == null {
-                    throw new InvalidOperationException(
-                        "System.Action.Invoke has no canonical void return type.")
+                    throw new InvalidOperationException("System.Action.Invoke has no canonical void return type.")
                 }
                 voidType := invoke.get_ReturnType()
                 pointerType := voidType.MakePointerType()
@@ -855,16 +644,11 @@ public class AnalyzerDeclarationContext {
                 return true
             }
         }
-        if generic != null
-            && generic.TypeArguments.Count == 1
-            && IsRuntimeReadOnlyCollectionDefinition(generic)
-            && name == "Count" {
+        if generic != null && generic.TypeArguments.Count == 1 && IsRuntimeReadOnlyCollectionDefinition(generic) && name == "Count" {
             memberType = BuiltInTypes.Int
             return true
         }
-        if generic != null
-            && UnqualifiedGenericTypeName(generic.Name) == "KeyValuePair"
-            && generic.TypeArguments.Count == 2 {
+        if generic != null && UnqualifiedGenericTypeName(generic.Name) == "KeyValuePair" && generic.TypeArguments.Count == 2 {
             if name == "Key" {
                 memberType = generic.TypeArguments[0]
                 return true
@@ -881,11 +665,7 @@ public class AnalyzerDeclarationContext {
     // MemoryExtensions.AsSpan<T>(T[]) is a real BCL extension whose receiver contains an open
     // generic parameter. MetadataLoadContext cannot compare that T[] shell to a runtime array by
     // Type identity, so project the exact System import surface without mixing reflection worlds.
-    public func TryResolveKnownArrayExtensionMember(
-        typeInfo: TypeInfo,
-        name: string,
-        systemNamespaceImported: bool,
-        out memberType: TypeInfo): bool {
+    func TryResolveKnownArrayExtensionMember(typeInfo: TypeInfo, name: string, systemNamespaceImported: bool, out memberType: TypeInfo): bool {
         array := typeInfo as ArrayTypeInfo
         if array == null || name != "AsSpan" || !systemNamespaceImported {
             memberType = BuiltInTypes.Unknown
@@ -894,11 +674,7 @@ public class AnalyzerDeclarationContext {
 
         arguments := new List<TypeInfo>()
         arguments.Add(array.ElementType)
-        spanType := new GenericTypeInfo(
-            "Span",
-            arguments,
-            new ReflectionTypeInfo(
-                typeof(Span<int>).GetGenericTypeDefinition()))
+        spanType := new GenericTypeInfo("Span", arguments, new ReflectionTypeInfo(typeof(Span<int>).GetGenericTypeDefinition()))
 
         zeroParameters := new FunctionTypeInfo()
         zeroParameters.SyntheticName = "AsSpan"
@@ -926,11 +702,7 @@ public class AnalyzerDeclarationContext {
     // Reflection does not surface inherited interface methods from Type.GetMethods.
     // Assemble the effective method surface explicitly so metadata and runtime
     // reflection types behave the same way.
-    public func TryResolveRuntimeInterfaceMethodMember(
-        interfaceType: Type,
-        name: string,
-        includeStaticMembers: bool,
-        out memberType: TypeInfo): bool {
+    func TryResolveRuntimeInterfaceMethodMember(interfaceType: Type, name: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
         if !interfaceType.get_IsInterface() {
             memberType = BuiltInTypes.Unknown
             return false
@@ -939,26 +711,14 @@ public class AnalyzerDeclarationContext {
         inheritedInterfaces := interfaceType.GetInterfaces()
         methods := new List<MethodInfo>()
         seenMethods := new HashSet<MethodInfo>()
-        AddRuntimeInterfaceMethods(
-            interfaceType.GetMethods(),
-            name,
-            includeStaticMembers,
-            seenMethods,
-            methods)
+        AddRuntimeInterfaceMethods(interfaceType.GetMethods(), name, includeStaticMembers, seenMethods, methods)
         interfaceIndex := 0
         while interfaceIndex < inheritedInterfaces.Length {
-            AddRuntimeInterfaceMethods(
-                inheritedInterfaces[interfaceIndex].GetMethods(),
-                name,
-                false,
-                seenMethods,
-                methods)
+            AddRuntimeInterfaceMethods(inheritedInterfaces[interfaceIndex].GetMethods(), name, false, seenMethods, methods)
             interfaceIndex = interfaceIndex + 1
         }
         if methods.Count > 0 {
-            memberType = new ReflectionMethodGroupInfo(
-                methods.ToArray(),
-                methods[0].get_Name() + "(...)")
+            memberType = new ReflectionMethodGroupInfo(methods.ToArray(), methods[0].get_Name() + "(...)")
             return true
         }
 
@@ -978,7 +738,7 @@ public class AnalyzerDeclarationContext {
     //
     // Interfaces need their inherited surface walked explicitly, for the same reason
     // `TryResolveRuntimeInterfaceMethodMember` walks it: `Type.GetMethods` does not include it.
-    public func HasRuntimeInstanceMethod(receiverType: Type, name: string): bool {
+    func HasRuntimeInstanceMethod(receiverType: Type, name: string): bool {
         if DeclaresRuntimeInstanceMethod(receiverType, name) {
             return true
         }
@@ -1012,12 +772,7 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
-    static func AddRuntimeInterfaceMethods(
-        candidates: MethodInfo[],
-        name: string,
-        includeStaticMembers: bool,
-        seenMethods: HashSet<MethodInfo>,
-        methods: List<MethodInfo>) {
+    static func AddRuntimeInterfaceMethods(candidates: MethodInfo[], name: string, includeStaticMembers: bool, seenMethods: HashSet<MethodInfo>, methods: List<MethodInfo>) {
         candidateIndex := 0
         while candidateIndex < candidates.Length {
             candidate := candidates[candidateIndex]
@@ -1037,45 +792,18 @@ public class AnalyzerDeclarationContext {
     }
 
     static func IsRuntimeResultDefinition(generic: GenericTypeInfo): bool {
-        return IsRuntimeGenericDefinition(
-            generic,
-            "NSharpLang.Runtime.Result`2",
-            "NSharpLang.Runtime",
-            2)
+        return IsRuntimeGenericDefinition(generic, "NSharpLang.Runtime.Result`2", "NSharpLang.Runtime", 2)
     }
 
     static func IsRuntimeSpanDefinition(generic: GenericTypeInfo): bool {
-        return IsRuntimeGenericDefinition(
-                generic,
-                "System.Span`1",
-                "System.Private.CoreLib",
-                1)
-            || IsRuntimeGenericDefinition(
-                generic,
-                "System.ReadOnlySpan`1",
-                "System.Private.CoreLib",
-                1)
+        return IsRuntimeGenericDefinition(generic, "System.Span`1", "System.Private.CoreLib", 1) || IsRuntimeGenericDefinition(generic, "System.ReadOnlySpan`1", "System.Private.CoreLib", 1)
     }
 
-    static func IsRuntimeReadOnlyCollectionDefinition(
-        generic: GenericTypeInfo): bool {
-        return IsRuntimeGenericDefinition(
-                generic,
-                "System.Collections.Generic.IReadOnlyCollection`1",
-                "System.Private.CoreLib",
-                1)
-            || IsRuntimeGenericDefinition(
-                generic,
-                "System.Collections.Generic.IReadOnlyList`1",
-                "System.Private.CoreLib",
-                1)
+    static func IsRuntimeReadOnlyCollectionDefinition(generic: GenericTypeInfo): bool {
+        return IsRuntimeGenericDefinition(generic, "System.Collections.Generic.IReadOnlyCollection`1", "System.Private.CoreLib", 1) || IsRuntimeGenericDefinition(generic, "System.Collections.Generic.IReadOnlyList`1", "System.Private.CoreLib", 1)
     }
 
-    static func IsRuntimeGenericDefinition(
-        generic: GenericTypeInfo,
-        fullName: string,
-        assemblyName: string,
-        arity: int): bool {
+    static func IsRuntimeGenericDefinition(generic: GenericTypeInfo, fullName: string, assemblyName: string, arity: int): bool {
         reflection := generic.GenericDefinition as ReflectionTypeInfo
         if reflection == null {
             return false
@@ -1087,20 +815,13 @@ public class AnalyzerDeclarationContext {
         if !definition.get_IsGenericTypeDefinition() {
             definition = definition.GetGenericTypeDefinition()
         }
-        if definition.get_FullName() != fullName
-            || definition.GetGenericArguments().Length != arity {
+        if definition.get_FullName() != fullName || definition.GetGenericArguments().Length != arity {
             return false
         }
-        return definition.get_Assembly().GetName().get_Name()
-            == assemblyName
+        return definition.get_Assembly().GetName().get_Name() == assemblyName
     }
 
-    func ResolveTypeReferenceCore(
-        typeReference: TypeReference,
-        facts: AnalyzerDeclarationFileFacts,
-        activeAliases: HashSet<string>,
-        substitution: Dictionary<string, TypeInfo>?,
-        lexicalOwner: TypeInfo?): TypeInfo {
+    func ResolveTypeReferenceCore(typeReference: TypeReference, facts: AnalyzerDeclarationFileFacts, activeAliases: HashSet<string>, substitution: Dictionary<string, TypeInfo>?, lexicalOwner: TypeInfo?): TypeInfo {
         simple := typeReference as SimpleTypeReference
         if simple != null {
             bound := new TypeInfo()
@@ -1117,32 +838,17 @@ public class AnalyzerDeclarationContext {
 
         generic := typeReference as GenericTypeReference
         if generic != null {
-            return ResolveGenericType(
-                generic,
-                facts,
-                activeAliases,
-                substitution,
-                lexicalOwner)
+            return ResolveGenericType(generic, facts, activeAliases, substitution, lexicalOwner)
         }
 
         array := typeReference as ArrayTypeReference
         if array != null {
-            return new ArrayTypeInfo(ResolveTypeReferenceCore(
-                array.ElementType,
-                facts,
-                activeAliases,
-                substitution,
-                lexicalOwner))
+            return new ArrayTypeInfo(ResolveTypeReferenceCore(array.ElementType, facts, activeAliases, substitution, lexicalOwner))
         }
 
         nullable := typeReference as NullableTypeReference
         if nullable != null {
-            return new NullableTypeInfo(ResolveTypeReferenceCore(
-                nullable.InnerType,
-                facts,
-                activeAliases,
-                substitution,
-                lexicalOwner))
+            return new NullableTypeInfo(ResolveTypeReferenceCore(nullable.InnerType, facts, activeAliases, substitution, lexicalOwner))
         }
 
         unionReference := typeReference as UnionTypeReference
@@ -1150,12 +856,7 @@ public class AnalyzerDeclarationContext {
             arms := new List<TypeInfo>()
             armIndex := 0
             while armIndex < unionReference.Arms.Count {
-                arms.Add(ResolveTypeReferenceCore(
-                    unionReference.Arms[armIndex],
-                    facts,
-                    activeAliases,
-                    substitution,
-                    lexicalOwner))
+                arms.Add(ResolveTypeReferenceCore(unionReference.Arms[armIndex], facts, activeAliases, substitution, lexicalOwner))
                 armIndex = armIndex + 1
             }
             return new AnonymousUnionTypeInfo(arms)
@@ -1167,14 +868,7 @@ public class AnalyzerDeclarationContext {
             elementIndex := 0
             while elementIndex < tuple.Elements.Count {
                 element := tuple.Elements[elementIndex]
-                elements.Add(new TupleTypeElementInfo(
-                    element.Name,
-                    ResolveTypeReferenceCore(
-                        element.Type,
-                        facts,
-                        activeAliases,
-                        substitution,
-                        lexicalOwner)))
+                elements.Add(new TupleTypeElementInfo(element.Name, ResolveTypeReferenceCore(element.Type, facts, activeAliases, substitution, lexicalOwner)))
                 elementIndex = elementIndex + 1
             }
             return new TupleTypeInfo(elements)
@@ -1185,108 +879,61 @@ public class AnalyzerDeclarationContext {
             parameters := new List<TypeInfo>()
             parameterIndex := 0
             while parameterIndex < function.ParameterTypes.Count {
-                parameters.Add(ResolveTypeReferenceCore(
-                    function.ParameterTypes[parameterIndex],
-                    facts,
-                    activeAliases,
-                    substitution,
-                    lexicalOwner))
+                parameters.Add(ResolveTypeReferenceCore(function.ParameterTypes[parameterIndex], facts, activeAliases, substitution, lexicalOwner))
                 parameterIndex = parameterIndex + 1
             }
             result := new FunctionTypeInfo()
             result.ParameterTypes = parameters
-            result.ReturnType = ResolveTypeReferenceCore(
-                function.ReturnType,
-                facts,
-                activeAliases,
-                substitution,
-                lexicalOwner)
+            result.ReturnType = ResolveTypeReferenceCore(function.ReturnType, facts, activeAliases, substitution, lexicalOwner)
             return result
         }
 
         byRef := typeReference as ByRefTypeReference
         if byRef != null {
-            return new ByRefTypeInfo(ResolveTypeReferenceCore(
-                byRef.InnerType,
-                facts,
-                activeAliases,
-                substitution,
-                lexicalOwner))
+            return new ByRefTypeInfo(ResolveTypeReferenceCore(byRef.InnerType, facts, activeAliases, substitution, lexicalOwner))
         }
         return BuiltInTypes.Unknown
     }
 
-    func ResolveGenericType(
-        generic: GenericTypeReference,
-        facts: AnalyzerDeclarationFileFacts,
-        activeAliases: HashSet<string>,
-        substitution: Dictionary<string, TypeInfo>?,
-        lexicalOwner: TypeInfo?): TypeInfo {
+    func ResolveGenericType(generic: GenericTypeReference, facts: AnalyzerDeclarationFileFacts, activeAliases: HashSet<string>, substitution: Dictionary<string, TypeInfo>?, lexicalOwner: TypeInfo?): TypeInfo {
         arguments := new List<TypeInfo>()
         argumentIndex := 0
         while argumentIndex < generic.TypeArguments.Count {
-            arguments.Add(ResolveTypeReferenceCore(
-                generic.TypeArguments[argumentIndex],
-                facts,
-                activeAliases,
-                substitution,
-                lexicalOwner))
+            arguments.Add(ResolveTypeReferenceCore(generic.TypeArguments[argumentIndex], facts, activeAliases, substitution, lexicalOwner))
             argumentIndex = argumentIndex + 1
         }
 
         definition := BuiltInTypes.Unknown as TypeInfo
         definitionClaimed := false
         nestedDefinition := BuiltInTypes.Unknown as TypeInfo
-        if TryResolveLexicalNestedType(
-                lexicalOwner,
-                generic.Name,
-                out nestedDefinition) {
+        if TryResolveLexicalNestedType(lexicalOwner, generic.Name, out nestedDefinition) {
             definition = ResolveAlias(nestedDefinition, activeAliases)
             definitionClaimed = true
         } else {
-            definition = ResolveTypeName(
-                facts,
-                generic.Name,
-                activeAliases,
-                out definitionClaimed)
+            definition = ResolveTypeName(facts, generic.Name, activeAliases, out definitionClaimed)
         }
 
         separator := generic.Name.IndexOf(".", StringComparison.Ordinal)
-        namespaceAliasedHead := separator > 0
-            && HasNamespaceAlias(facts, generic.Name.Substring(0, separator))
-        if (!definitionClaimed || namespaceAliasedHead)
-            && BuiltInTypes.IsUnknown(definition) {
+        namespaceAliasedHead := separator > 0 && HasNamespaceAlias(facts, generic.Name.Substring(0, separator))
+        if (!definitionClaimed || namespaceAliasedHead) && BuiltInTypes.IsUnknown(definition) {
             ignoredClaim := false
-            definition = ResolveTypeName(
-                facts,
-                generic.Name + "`" + arguments.Count.ToString(),
-                activeAliases,
-                out ignoredClaim)
+            definition = ResolveTypeName(facts, generic.Name + "`" + arguments.Count.ToString(), activeAliases, out ignoredClaim)
         }
         if !definitionClaimed && BuiltInTypes.IsUnknown(definition) {
             knownDefinition := typeof(object)
-            if TryResolveKnownOpenGeneric(
-                    generic.Name,
-                    arguments.Count,
-                    out knownDefinition) {
+            if TryResolveKnownOpenGeneric(generic.Name, arguments.Count, out knownDefinition) {
                 definition = new ReflectionTypeInfo(knownDefinition)
             }
         }
         reflectionDefinition := definition as ReflectionTypeInfo
-        if reflectionDefinition != null
-            && GenericHeadArity(definition) != arguments.Count {
+        if reflectionDefinition != null && GenericHeadArity(definition) != arguments.Count {
             arityClaimed := false
-            arityDefinition := ResolveTypeName(
-                facts,
-                generic.Name + "`" + arguments.Count.ToString(),
-                activeAliases,
-                out arityClaimed)
+            arityDefinition := ResolveTypeName(facts, generic.Name + "`" + arguments.Count.ToString(), activeAliases, out arityClaimed)
             if !BuiltInTypes.IsUnknown(arityDefinition) {
                 definition = arityDefinition
             }
         }
-        if !BuiltInTypes.IsUnknown(definition)
-            && GenericHeadArity(definition) != arguments.Count {
+        if !BuiltInTypes.IsUnknown(definition) && GenericHeadArity(definition) != arguments.Count {
             definition = BuiltInTypes.Unknown
         }
         genericDefinition: TypeInfo? = null
@@ -1296,11 +943,7 @@ public class AnalyzerDeclarationContext {
         return new GenericTypeInfo(generic.Name, arguments, genericDefinition)
     }
 
-    func ResolveTypeName(
-        facts: AnalyzerDeclarationFileFacts,
-        name: string,
-        activeAliases: HashSet<string>,
-        out claimed: bool): TypeInfo {
+    func ResolveTypeName(facts: AnalyzerDeclarationFileFacts, name: string, activeAliases: HashSet<string>, out claimed: bool): TypeInfo {
         builtIn := BuiltInTypes.Unknown as TypeInfo
         if TryGetBuiltIn(name, out builtIn) {
             claimed = true
@@ -1311,14 +954,7 @@ public class AnalyzerDeclarationContext {
             local := BuiltInTypes.Unknown as TypeInfo
             localDeclaration: object? = null
             localClaimed := false
-            if TryResolveDeclarationInFile(
-                    facts,
-                    name,
-                    false,
-                    activeAliases,
-                    out local,
-                    out localDeclaration,
-                    out localClaimed) {
+            if TryResolveDeclarationInFile(facts, name, false, activeAliases, out local, out localDeclaration, out localClaimed) {
                 claimed = true
                 return local
             }
@@ -1329,13 +965,7 @@ public class AnalyzerDeclarationContext {
 
             packageType := BuiltInTypes.Unknown as TypeInfo
             packageClaimed := false
-            if TryResolveDeclarationInNamespace(
-                    name,
-                    facts.NamespaceName,
-                    false,
-                    activeAliases,
-                    out packageType,
-                    out packageClaimed) {
+            if TryResolveDeclarationInNamespace(name, facts.NamespaceName, false, activeAliases, out packageType, out packageClaimed) {
                 claimed = true
                 return packageType
             }
@@ -1352,17 +982,7 @@ public class AnalyzerDeclarationContext {
                     importedType := BuiltInTypes.Unknown as TypeInfo
                     importedDeclaration: object? = null
                     importedClaimed := false
-                    if TryResolveDeclarationInFile(
-                            importedFacts,
-                            name,
-                            !string.Equals(
-                                importedFacts.NamespaceName,
-                                facts.NamespaceName,
-                                StringComparison.Ordinal),
-                            activeAliases,
-                            out importedType,
-                            out importedDeclaration,
-                            out importedClaimed) {
+                    if TryResolveDeclarationInFile(importedFacts, name, !string.Equals(importedFacts.NamespaceName, facts.NamespaceName, StringComparison.Ordinal), activeAliases, out importedType, out importedDeclaration, out importedClaimed) {
                         claimed = true
                         return importedType
                     }
@@ -1376,12 +996,7 @@ public class AnalyzerDeclarationContext {
 
             importedProjectType := BuiltInTypes.Unknown as TypeInfo
             importedProjectClaimed := false
-            if TryResolveImportedProjectType(
-                    facts,
-                    name,
-                    activeAliases,
-                    out importedProjectType,
-                    out importedProjectClaimed) {
+            if TryResolveImportedProjectType(facts, name, activeAliases, out importedProjectType, out importedProjectClaimed) {
                 claimed = true
                 return importedProjectType
             }
@@ -1392,11 +1007,7 @@ public class AnalyzerDeclarationContext {
 
             uniqueType := BuiltInTypes.Unknown as TypeInfo
             uniqueClaimed := false
-            if TryResolveUniqueExported(
-                    name,
-                    activeAliases,
-                    out uniqueType,
-                    out uniqueClaimed) {
+            if TryResolveUniqueExported(name, activeAliases, out uniqueType, out uniqueClaimed) {
                 claimed = true
                 return uniqueType
             }
@@ -1410,9 +1021,7 @@ public class AnalyzerDeclarationContext {
                 importFacts := facts.NamespaceImports[importIndex]
                 if importFacts.Alias == null {
                     runtimeType := BuiltInTypes.Unknown as TypeInfo
-                    if TryResolveExternal(
-                            importFacts.Namespace + "." + name,
-                            out runtimeType) {
+                    if TryResolveExternal(importFacts.Namespace + "." + name, out runtimeType) {
                         claimed = true
                         return runtimeType
                     }
@@ -1437,12 +1046,7 @@ public class AnalyzerDeclarationContext {
             expanded := namespaceImport.Namespace + "." + tail
             projectType := BuiltInTypes.Unknown as TypeInfo
             projectClaimed := false
-            if TryResolveQualifiedProjectType(
-                    expanded,
-                    facts.NamespaceName,
-                    activeAliases,
-                    out projectType,
-                    out projectClaimed) {
+            if TryResolveQualifiedProjectType(expanded, facts.NamespaceName, activeAliases, out projectType, out projectClaimed) {
                 claimed = true
                 return projectType
             }
@@ -1470,18 +1074,8 @@ public class AnalyzerDeclarationContext {
             importedType := BuiltInTypes.Unknown as TypeInfo
             importedDeclaration: object? = null
             importedClaimed := false
-            requireExported := !string.Equals(
-                importedFacts.NamespaceName,
-                facts.NamespaceName,
-                StringComparison.Ordinal)
-            if !TryResolveDeclarationInFile(
-                    importedFacts,
-                    importedName,
-                    requireExported,
-                    activeAliases,
-                    out importedType,
-                    out importedDeclaration,
-                    out importedClaimed) {
+            requireExported := !string.Equals(importedFacts.NamespaceName, facts.NamespaceName, StringComparison.Ordinal)
+            if !TryResolveDeclarationInFile(importedFacts, importedName, requireExported, activeAliases, out importedType, out importedDeclaration, out importedClaimed) {
                 claimed = true
                 return BuiltInTypes.Unknown
             }
@@ -1490,11 +1084,7 @@ public class AnalyzerDeclarationContext {
                 return importedType
             }
             claimed = true
-            return ResolveNestedPath(
-                importedType,
-                tail.Substring(nestedSeparator + 1),
-                requireExported,
-                activeAliases)
+            return ResolveNestedPath(importedType, tail.Substring(nestedSeparator + 1), requireExported, activeAliases)
         }
 
         rootClaimed := false
@@ -1504,17 +1094,9 @@ public class AnalyzerDeclarationContext {
             rootFile := ""
             if filesByType.TryGetValue(rootType, out rootFile) {
                 rootFacts := FindFile(rootFile)
-                requireNestedExport = rootFacts == null
-                    || !string.Equals(
-                        rootFacts.NamespaceName,
-                        facts.NamespaceName,
-                        StringComparison.Ordinal)
+                requireNestedExport = rootFacts == null || !string.Equals(rootFacts.NamespaceName, facts.NamespaceName, StringComparison.Ordinal)
             }
-            nested := ResolveNestedPath(
-                rootType,
-                tail,
-                requireNestedExport,
-                activeAliases)
+            nested := ResolveNestedPath(rootType, tail, requireNestedExport, activeAliases)
             if !BuiltInTypes.IsUnknown(nested) {
                 claimed = true
                 return nested
@@ -1530,12 +1112,7 @@ public class AnalyzerDeclarationContext {
 
         qualifiedType := BuiltInTypes.Unknown as TypeInfo
         qualifiedClaimed := false
-        if TryResolveQualifiedProjectType(
-                name,
-                facts.NamespaceName,
-                activeAliases,
-                out qualifiedType,
-                out qualifiedClaimed) {
+        if TryResolveQualifiedProjectType(name, facts.NamespaceName, activeAliases, out qualifiedType, out qualifiedClaimed) {
             claimed = true
             return qualifiedType
         }
@@ -1552,25 +1129,16 @@ public class AnalyzerDeclarationContext {
         return BuiltInTypes.Unknown
     }
 
-    func TryResolveDeclarationInFile(
-        facts: AnalyzerDeclarationFileFacts,
-        name: string,
-        requireExported: bool,
-        activeAliases: HashSet<string>,
-        out typeInfo: TypeInfo,
-        out declaration: object?,
-        out claimed: bool): bool {
+    func TryResolveDeclarationInFile(facts: AnalyzerDeclarationFileFacts, name: string, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out declaration: object?, out claimed: bool): bool {
         index := 0
         while index < facts.Declarations.Count {
             candidate := facts.Declarations[index]
             if candidate != null && IsTopLevelTypeDeclaration(candidate) {
                 candidateName := DeclarationFacts.GetDeclarationName(candidate)
-                if candidateName != null
-                    && string.Equals(candidateName, name, StringComparison.Ordinal) {
+                if candidateName != null && string.Equals(candidateName, name, StringComparison.Ordinal) {
                     claimed = true
                     declaration = candidate
-                    if requireExported
-                        && !DeclarationFacts.IsExportedDeclaration(candidate, name) {
+                    if requireExported && !DeclarationFacts.IsExportedDeclaration(candidate, name) {
                         typeInfo = BuiltInTypes.Unknown
                         return false
                     }
@@ -1586,13 +1154,7 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
-    func TryResolveDeclarationInNamespace(
-        name: string,
-        namespaceName: string?,
-        requireExported: bool,
-        activeAliases: HashSet<string>,
-        out typeInfo: TypeInfo,
-        out claimed: bool): bool {
+    func TryResolveDeclarationInNamespace(name: string, namespaceName: string?, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
         claimed = false
         fileIndex := 0
@@ -1602,14 +1164,7 @@ public class AnalyzerDeclarationContext {
                 candidate := BuiltInTypes.Unknown as TypeInfo
                 declaration: object? = null
                 unitClaimed := false
-                resolved := TryResolveDeclarationInFile(
-                    facts,
-                    name,
-                    requireExported,
-                    activeAliases,
-                    out candidate,
-                    out declaration,
-                    out unitClaimed)
+                resolved := TryResolveDeclarationInFile(facts, name, requireExported, activeAliases, out candidate, out declaration, out unitClaimed)
                 if unitClaimed {
                     claimed = true
                     if !resolved || matchedType != null {
@@ -1629,32 +1184,17 @@ public class AnalyzerDeclarationContext {
         return true
     }
 
-    func TryResolveImportedProjectType(
-        facts: AnalyzerDeclarationFileFacts,
-        name: string,
-        activeAliases: HashSet<string>,
-        out typeInfo: TypeInfo,
-        out claimed: bool): bool {
+    func TryResolveImportedProjectType(facts: AnalyzerDeclarationFileFacts, name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
         sawClaim := false
         visitedNamespaces := new HashSet<string>(StringComparer.Ordinal)
         importIndex := 0
         while importIndex < facts.NamespaceImports.Count {
             importFacts := facts.NamespaceImports[importIndex]
-            if importFacts.Alias == null
-                && visitedNamespaces.Add(importFacts.Namespace) {
+            if importFacts.Alias == null && visitedNamespaces.Add(importFacts.Namespace) {
                 candidate := BuiltInTypes.Unknown as TypeInfo
                 unitClaimed := false
-                if TryResolveDeclarationInNamespace(
-                        name,
-                        importFacts.Namespace,
-                        !string.Equals(
-                            importFacts.Namespace,
-                            facts.NamespaceName,
-                            StringComparison.Ordinal),
-                        activeAliases,
-                        out candidate,
-                        out unitClaimed) {
+                if TryResolveDeclarationInNamespace(name, importFacts.Namespace, !string.Equals(importFacts.Namespace, facts.NamespaceName, StringComparison.Ordinal), activeAliases, out candidate, out unitClaimed) {
                     if matchedType != null {
                         typeInfo = BuiltInTypes.Unknown
                         claimed = true
@@ -1677,11 +1217,7 @@ public class AnalyzerDeclarationContext {
         return true
     }
 
-    func TryResolveUniqueExported(
-        name: string,
-        activeAliases: HashSet<string>,
-        out typeInfo: TypeInfo,
-        out claimed: bool): bool {
+    func TryResolveUniqueExported(name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
         claimed = false
         fileIndex := 0
@@ -1689,22 +1225,14 @@ public class AnalyzerDeclarationContext {
             candidate := BuiltInTypes.Unknown as TypeInfo
             declaration: object? = null
             unitClaimed := false
-            if TryResolveDeclarationInFile(
-                    files[fileIndex],
-                    name,
-                    true,
-                    activeAliases,
-                    out candidate,
-                    out declaration,
-                    out unitClaimed) {
+            if TryResolveDeclarationInFile(files[fileIndex], name, true, activeAliases, out candidate, out declaration, out unitClaimed) {
                 claimed = true
                 if matchedType != null {
                     typeInfo = BuiltInTypes.Unknown
                     return false
                 }
                 matchedType = candidate
-            } else if unitClaimed && declaration != null
-                && DeclarationFacts.IsExportedDeclaration(declaration, name) {
+            } else if unitClaimed && declaration != null && DeclarationFacts.IsExportedDeclaration(declaration, name) {
                 claimed = true
                 typeInfo = BuiltInTypes.Unknown
                 return false
@@ -1721,22 +1249,12 @@ public class AnalyzerDeclarationContext {
         return true
     }
 
-    func TryResolveQualifiedProjectType(
-        qualifiedName: string,
-        declarationNamespace: string?,
-        activeAliases: HashSet<string>,
-        out typeInfo: TypeInfo,
-        out claimed: bool): bool {
+    func TryResolveQualifiedProjectType(qualifiedName: string, declarationNamespace: string?, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         selectedNamespace: string? = null
         fileIndex := 0
         while fileIndex < files.Count {
             namespaceName := files[fileIndex].NamespaceName
-            if namespaceName != null
-                && qualifiedName.StartsWith(
-                    namespaceName + ".",
-                    StringComparison.Ordinal)
-                && (selectedNamespace == null
-                    || namespaceName.Length > selectedNamespace.Length) {
+            if namespaceName != null && qualifiedName.StartsWith(namespaceName + ".", StringComparison.Ordinal) && (selectedNamespace == null || namespaceName.Length > selectedNamespace.Length) {
                 selectedNamespace = namespaceName
             }
             fileIndex = fileIndex + 1
@@ -1752,18 +1270,9 @@ public class AnalyzerDeclarationContext {
         if separator >= 0 {
             topLevelName = remainder.Substring(0, separator)
         }
-        requireExported := !string.Equals(
-            selectedNamespace,
-            declarationNamespace,
-            StringComparison.Ordinal)
+        requireExported := !string.Equals(selectedNamespace, declarationNamespace, StringComparison.Ordinal)
         owner := BuiltInTypes.Unknown as TypeInfo
-        if !TryResolveDeclarationInNamespace(
-                topLevelName,
-                selectedNamespace,
-                requireExported,
-                activeAliases,
-                out owner,
-                out claimed) {
+        if !TryResolveDeclarationInNamespace(topLevelName, selectedNamespace, requireExported, activeAliases, out owner, out claimed) {
             typeInfo = BuiltInTypes.Unknown
             return false
         }
@@ -1771,18 +1280,11 @@ public class AnalyzerDeclarationContext {
             typeInfo = owner
             return true
         }
-        typeInfo = ResolveNestedPath(
-            owner,
-            remainder.Substring(separator + 1),
-            requireExported,
-            activeAliases)
+        typeInfo = ResolveNestedPath(owner, remainder.Substring(separator + 1), requireExported, activeAliases)
         return !BuiltInTypes.IsUnknown(typeInfo)
     }
 
-    func ResolveDeclarationTypeCore(
-        declaration: object,
-        facts: AnalyzerDeclarationFileFacts,
-        activeAliases: HashSet<string>): TypeInfo {
+    func ResolveDeclarationTypeCore(declaration: object, facts: AnalyzerDeclarationFileFacts, activeAliases: HashSet<string>): TypeInfo {
         name := DeclarationFacts.GetDeclarationName(declaration)
         if name == null {
             return BuiltInTypes.Unknown
@@ -1791,8 +1293,7 @@ public class AnalyzerDeclarationContext {
         byName := typesByFile[facts.FilePath]
         cached := new TypeInfo()
         if byName.TryGetValue(name, out cached) {
-            if declarationKind != "TypeAliasDeclaration"
-                && !BuiltInTypes.IsUnknown(cached) {
+            if declarationKind != "TypeAliasDeclaration" && !BuiltInTypes.IsUnknown(cached) {
                 RegisterSourceType(cached, facts.FilePath, null)
             }
             return cached
@@ -1807,12 +1308,7 @@ public class AnalyzerDeclarationContext {
             aliasValue := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Type")
             aliasType := aliasValue as TypeReference
             if aliasType != null {
-                typeInfo = ResolveTypeReferenceCore(
-                    aliasType,
-                    facts,
-                    activeAliases,
-                    null,
-                    null)
+                typeInfo = ResolveTypeReferenceCore(aliasType, facts, activeAliases, null, null)
                 if ContainsUnknown(typeInfo) {
                     typeInfo = BuiltInTypes.Unknown
                 }
@@ -1833,26 +1329,20 @@ public class AnalyzerDeclarationContext {
         } else if declarationKind == "EnumDeclaration" {
             typeInfo = EnumTypeInfoFactory.FromDeclaration(declaration)
         } else if declarationKind == "NewtypeDeclaration" {
-            underlyingValue := TypeInfoFactoryReflection.GetOptionalProperty(
-                declaration,
-                "UnderlyingType")
+            underlyingValue := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "UnderlyingType")
             underlyingType := underlyingValue as TypeReference
             if underlyingType != null {
                 typeInfo = new NewtypeInfo(name, underlyingType)
             }
         }
         byName[name] = typeInfo
-        if declarationKind != "TypeAliasDeclaration"
-            && !BuiltInTypes.IsUnknown(typeInfo) {
+        if declarationKind != "TypeAliasDeclaration" && !BuiltInTypes.IsUnknown(typeInfo) {
             RegisterSourceType(typeInfo, facts.FilePath, null)
         }
         return typeInfo
     }
 
-    func RegisterSourceType(
-        typeInfo: TypeInfo,
-        filePath: string,
-        containingType: TypeInfo?) {
+    func RegisterSourceType(typeInfo: TypeInfo, filePath: string, containingType: TypeInfo?) {
         filesByType[typeInfo] = filePath
         if containingType != null {
             containingTypes[typeInfo] = containingType
@@ -1883,18 +1373,12 @@ public class AnalyzerDeclarationContext {
         }
         nestedIndex := 0
         while nestedIndex < nestedTypes.Length {
-            RegisterSourceType(
-                nestedTypes[nestedIndex].Type,
-                filePath,
-                typeInfo)
+            RegisterSourceType(nestedTypes[nestedIndex].Type, filePath, typeInfo)
             nestedIndex = nestedIndex + 1
         }
     }
 
-    func TryResolveLexicalNestedType(
-        lexicalOwner: TypeInfo?,
-        name: string,
-        out nestedType: TypeInfo): bool {
+    func TryResolveLexicalNestedType(lexicalOwner: TypeInfo?, name: string, out nestedType: TypeInfo): bool {
         owner := lexicalOwner
         while owner != null {
             if TryResolveNestedMember(owner, name, false, out nestedType) {
@@ -1911,21 +1395,13 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
-    func ResolveNestedPath(
-        owner: TypeInfo,
-        path: string,
-        requireExported: bool,
-        activeAliases: HashSet<string>): TypeInfo {
+    func ResolveNestedPath(owner: TypeInfo, path: string, requireExported: bool, activeAliases: HashSet<string>): TypeInfo {
         resolved := ResolveAlias(owner, activeAliases)
         segments := path.Split('.')
         segmentIndex := 0
         while segmentIndex < segments.Length {
             nested := BuiltInTypes.Unknown as TypeInfo
-            if !TryResolveNestedMember(
-                    resolved,
-                    segments[segmentIndex],
-                    requireExported,
-                    out nested) {
+            if !TryResolveNestedMember(resolved, segments[segmentIndex], requireExported, out nested) {
                 return BuiltInTypes.Unknown
             }
             resolved = ResolveAlias(nested, activeAliases)
@@ -1934,11 +1410,7 @@ public class AnalyzerDeclarationContext {
         return resolved
     }
 
-    func TryResolveNestedMember(
-        owner: TypeInfo,
-        name: string,
-        requireExported: bool,
-        out nestedType: TypeInfo): bool {
+    func TryResolveNestedMember(owner: TypeInfo, name: string, requireExported: bool, out nestedType: TypeInfo): bool {
         reflection := owner as ReflectionTypeInfo
         if reflection != null {
             nested := reflection.Type.GetNestedType(name)
@@ -1949,13 +1421,21 @@ public class AnalyzerDeclarationContext {
         }
         nestedTypes: NestedTypeInfo[]? = null
         classType := owner as ClassTypeInfo
-        if classType != null { nestedTypes = classType.NestedTypes }
+        if classType != null {
+            nestedTypes = classType.NestedTypes
+        }
         structType := owner as StructTypeInfo
-        if structType != null { nestedTypes = structType.NestedTypes }
+        if structType != null {
+            nestedTypes = structType.NestedTypes
+        }
         recordType := owner as RecordTypeInfo
-        if recordType != null { nestedTypes = recordType.NestedTypes }
+        if recordType != null {
+            nestedTypes = recordType.NestedTypes
+        }
         interfaceType := owner as InterfaceTypeInfo
-        if interfaceType != null { nestedTypes = interfaceType.NestedTypes }
+        if interfaceType != null {
+            nestedTypes = interfaceType.NestedTypes
+        }
         if nestedTypes != null {
             index := 0
             while index < nestedTypes.Length {
@@ -1992,19 +1472,12 @@ public class AnalyzerDeclarationContext {
         if !activeAliases.Add(key) {
             return BuiltInTypes.Unknown
         }
-        result := ResolveTypeReferenceCore(
-            alias.AliasedType,
-            facts,
-            activeAliases,
-            null,
-            GetContainingType(alias))
+        result := ResolveTypeReferenceCore(alias.AliasedType, facts, activeAliases, null, GetContainingType(alias))
         activeAliases.Remove(key)
         return ResolveAlias(result, activeAliases)
     }
 
-    func ResolveImportedFile(
-        containing: AnalyzerDeclarationFileFacts,
-        importFacts: AnalyzerFileImportFacts): AnalyzerDeclarationFileFacts? {
+    func ResolveImportedFile(containing: AnalyzerDeclarationFileFacts, importFacts: AnalyzerFileImportFacts): AnalyzerDeclarationFileFacts? {
         resolver := new FileResolver(projectRoot, containing.FilePath)
         resolvedPath := Path.GetFullPath(resolver.ResolveFilePath(importFacts.Path))
         result := new AnalyzerDeclarationFileFacts()
@@ -2014,14 +1487,11 @@ public class AnalyzerDeclarationContext {
         return null
     }
 
-    func FindNamespaceAlias(
-        facts: AnalyzerDeclarationFileFacts,
-        alias: string): AnalyzerNamespaceImportFacts? {
+    func FindNamespaceAlias(facts: AnalyzerDeclarationFileFacts, alias: string): AnalyzerNamespaceImportFacts? {
         index := 0
         while index < facts.NamespaceImports.Count {
             candidate := facts.NamespaceImports[index]
-            if candidate.Alias != null
-                && string.Equals(candidate.Alias, alias, StringComparison.Ordinal) {
+            if candidate.Alias != null && string.Equals(candidate.Alias, alias, StringComparison.Ordinal) {
                 return candidate
             }
             index = index + 1
@@ -2033,14 +1503,11 @@ public class AnalyzerDeclarationContext {
         return FindNamespaceAlias(facts, alias) != null
     }
 
-    func FindFileAlias(
-        facts: AnalyzerDeclarationFileFacts,
-        alias: string): AnalyzerFileImportFacts? {
+    func FindFileAlias(facts: AnalyzerDeclarationFileFacts, alias: string): AnalyzerFileImportFacts? {
         index := 0
         while index < facts.FileImports.Count {
             candidate := facts.FileImports[index]
-            if candidate.Alias != null
-                && string.Equals(candidate.Alias, alias, StringComparison.Ordinal) {
+            if candidate.Alias != null && string.Equals(candidate.Alias, alias, StringComparison.Ordinal) {
                 return candidate
             }
             index = index + 1
@@ -2070,11 +1537,7 @@ public class AnalyzerDeclarationContext {
         index := 0
         while index < facts.Declarations.Count {
             declaration := facts.Declarations[index]
-            if declaration != null
-                && string.Equals(
-                    DeclarationFacts.GetDeclarationName(declaration),
-                    name,
-                    StringComparison.Ordinal) {
+            if declaration != null && string.Equals(DeclarationFacts.GetDeclarationName(declaration), name, StringComparison.Ordinal) {
                 return declaration
             }
             index = index + 1
@@ -2082,12 +1545,7 @@ public class AnalyzerDeclarationContext {
         return null
     }
 
-    func TryFindMemberCore(
-        owner: TypeInfo,
-        name: string,
-        substitution: Dictionary<string, TypeInfo>?,
-        visited: HashSet<object>,
-        out selection: AnalyzerMemberSelection): bool {
+    func TryFindMemberCore(owner: TypeInfo, name: string, substitution: Dictionary<string, TypeInfo>?, visited: HashSet<object>, out selection: AnalyzerMemberSelection): bool {
         if !visited.Add(owner) {
             selection = new AnalyzerMemberSelection()
             return false
@@ -2095,48 +1553,24 @@ public class AnalyzerDeclarationContext {
 
         generic := owner as GenericTypeInfo
         if generic != null && generic.GenericDefinition != null {
-            genericSubstitution := CreateSourceGenericSubstitution(
-                generic.GenericDefinition,
-                generic.TypeArguments)
-            return TryFindMemberCore(
-                generic.GenericDefinition,
-                name,
-                genericSubstitution,
-                visited,
-                out selection)
+            genericSubstitution := CreateSourceGenericSubstitution(generic.GenericDefinition, generic.TypeArguments)
+            return TryFindMemberCore(generic.GenericDefinition, name, genericSubstitution, visited, out selection)
         }
 
         alias := owner as AliasTypeInfo
         if alias != null {
-            resolvedAlias := ResolveAlias(
-                alias,
-                new HashSet<string>(StringComparer.Ordinal))
+            resolvedAlias := ResolveAlias(alias, new HashSet<string>(StringComparer.Ordinal))
             if resolvedAlias != owner {
-                return TryFindMemberCore(
-                    resolvedAlias,
-                    name,
-                    substitution,
-                    visited,
-                    out selection)
+                return TryFindMemberCore(resolvedAlias, name, substitution, visited, out selection)
             }
         }
         nullable := owner as NullableTypeInfo
         if nullable != null {
-            return TryFindMemberCore(
-                nullable.InnerType,
-                name,
-                substitution,
-                visited,
-                out selection)
+            return TryFindMemberCore(nullable.InnerType, name, substitution, visited, out selection)
         }
         oblivious := owner as ObliviousTypeInfo
         if oblivious != null {
-            return TryFindMemberCore(
-                oblivious.InnerType,
-                name,
-                substitution,
-                visited,
-                out selection)
+            return TryFindMemberCore(oblivious.InnerType, name, substitution, visited, out selection)
         }
 
         shape := new AnalyzerSourceMemberShape()
@@ -2145,25 +1579,13 @@ public class AnalyzerDeclarationContext {
             while memberIndex < shape.DeclaredMembers.Length {
                 member := shape.DeclaredMembers[memberIndex]
                 if member.Name == name {
-                    selection = new AnalyzerMemberSelection(
-                        shape.Owner,
-                        member,
-                        GetDeclarationFile(shape.Owner),
-                        member.Line,
-                        member.Column,
-                        member.KindName,
-                        member.IsExported)
+                    selection = new AnalyzerMemberSelection(shape.Owner, member, GetDeclarationFile(shape.Owner), member.Line, member.Column, member.KindName, member.IsExported)
                     return true
                 }
                 memberIndex = memberIndex + 1
             }
             if shape.BaseType != null {
-                return TryFindMemberCore(
-                    shape.BaseType,
-                    name,
-                    substitution,
-                    visited,
-                    out selection)
+                return TryFindMemberCore(shape.BaseType, name, substitution, visited, out selection)
             }
         }
 
@@ -2173,14 +1595,7 @@ public class AnalyzerDeclarationContext {
             while enumIndex < enumType.Declaration.Members.Count {
                 enumMember := enumType.Declaration.Members[enumIndex]
                 if enumMember.Name == name {
-                    selection = new AnalyzerMemberSelection(
-                        enumType,
-                        null,
-                        GetDeclarationFile(enumType),
-                        enumMember.Line,
-                        enumMember.Column,
-                        "enumMember",
-                        true)
+                    selection = new AnalyzerMemberSelection(enumType, null, GetDeclarationFile(enumType), enumMember.Line, enumMember.Column, "enumMember", true)
                     return true
                 }
                 enumIndex = enumIndex + 1
@@ -2192,14 +1607,7 @@ public class AnalyzerDeclarationContext {
             while caseIndex < unionType.Declaration.Cases.Count {
                 unionCase := unionType.Declaration.Cases[caseIndex]
                 if unionCase.Name == name {
-                    selection = new AnalyzerMemberSelection(
-                        unionType,
-                        null,
-                        GetDeclarationFile(unionType),
-                        unionCase.Line,
-                        unionCase.Column,
-                        "unionCase",
-                        VisibilityConventions.IsExportedIdentifier(name))
+                    selection = new AnalyzerMemberSelection(unionType, null, GetDeclarationFile(unionType), unionCase.Line, unionCase.Column, "unionCase", VisibilityConventions.IsExportedIdentifier(name))
                     return true
                 }
                 caseIndex = caseIndex + 1
@@ -2210,18 +1618,24 @@ public class AnalyzerDeclarationContext {
         return false
     }
 
-    func CreateSourceGenericSubstitution(
-        definition: TypeInfo,
-        arguments: List<TypeInfo>): Dictionary<string, TypeInfo>? {
+    func CreateSourceGenericSubstitution(definition: TypeInfo, arguments: List<TypeInfo>): Dictionary<string, TypeInfo>? {
         parameters: TypeParameter[]? = null
         classType := definition as ClassTypeInfo
-        if classType != null { parameters = classType.TypeParameters }
+        if classType != null {
+            parameters = classType.TypeParameters
+        }
         structType := definition as StructTypeInfo
-        if structType != null { parameters = structType.TypeParameters }
+        if structType != null {
+            parameters = structType.TypeParameters
+        }
         recordType := definition as RecordTypeInfo
-        if recordType != null { parameters = recordType.TypeParameters }
+        if recordType != null {
+            parameters = recordType.TypeParameters
+        }
         interfaceType := definition as InterfaceTypeInfo
-        if interfaceType != null { parameters = interfaceType.TypeParameters }
+        if interfaceType != null {
+            parameters = interfaceType.TypeParameters
+        }
         unionType := definition as UnionTypeInfo
         if unionType != null && unionType.Declaration.TypeParameters != null {
             unionParameters := unionType.Declaration.TypeParameters
@@ -2245,12 +1659,10 @@ public class AnalyzerDeclarationContext {
         return result
     }
 
-    func CreateOwnerOpenSubstitution(
-        declarationOwner: TypeInfo,
-        substitution: Dictionary<string, TypeInfo>?): Dictionary<string, TypeInfo> {
+    func CreateOwnerOpenSubstitution(declarationOwner: TypeInfo, substitution: Dictionary<string, TypeInfo>?): Dictionary<string, TypeInfo> {
         result := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
         if substitution != null {
-            foreach entry in substitution {
+            for entry in substitution {
                 result[entry.Key] = entry.Value
             }
         }
@@ -2268,18 +1680,24 @@ public class AnalyzerDeclarationContext {
         return result
     }
 
-    static func AddOpenTypeParameters(
-        owner: TypeInfo,
-        substitution: Dictionary<string, TypeInfo>) {
+    static func AddOpenTypeParameters(owner: TypeInfo, substitution: Dictionary<string, TypeInfo>) {
         parameters: TypeParameter[]? = null
         classType := owner as ClassTypeInfo
-        if classType != null { parameters = classType.TypeParameters }
+        if classType != null {
+            parameters = classType.TypeParameters
+        }
         structType := owner as StructTypeInfo
-        if structType != null { parameters = structType.TypeParameters }
+        if structType != null {
+            parameters = structType.TypeParameters
+        }
         recordType := owner as RecordTypeInfo
-        if recordType != null { parameters = recordType.TypeParameters }
+        if recordType != null {
+            parameters = recordType.TypeParameters
+        }
         interfaceType := owner as InterfaceTypeInfo
-        if interfaceType != null { parameters = interfaceType.TypeParameters }
+        if interfaceType != null {
+            parameters = interfaceType.TypeParameters
+        }
         if parameters != null {
             index := 0
             while index < parameters.Length {
@@ -2305,39 +1723,20 @@ public class AnalyzerDeclarationContext {
         }
     }
 
-    func CollectAvailableSourceMemberNames(
-        owner: TypeInfo,
-        includeStaticMembers: bool,
-        substitution: Dictionary<string, TypeInfo>?,
-        visited: HashSet<object>,
-        result: List<string>) {
+    func CollectAvailableSourceMemberNames(owner: TypeInfo, includeStaticMembers: bool, substitution: Dictionary<string, TypeInfo>?, visited: HashSet<object>, result: List<string>) {
         if !visited.Add(owner) {
             return
         }
         generic := owner as GenericTypeInfo
         if generic != null && generic.GenericDefinition != null {
-            CollectAvailableSourceMemberNames(
-                generic.GenericDefinition,
-                includeStaticMembers,
-                CreateSourceGenericSubstitution(
-                    generic.GenericDefinition,
-                    generic.TypeArguments),
-                visited,
-                result)
+            CollectAvailableSourceMemberNames(generic.GenericDefinition, includeStaticMembers, CreateSourceGenericSubstitution(generic.GenericDefinition, generic.TypeArguments), visited, result)
             return
         }
         alias := owner as AliasTypeInfo
         if alias != null {
-            resolvedAlias := ResolveAlias(
-                alias,
-                new HashSet<string>(StringComparer.Ordinal))
+            resolvedAlias := ResolveAlias(alias, new HashSet<string>(StringComparer.Ordinal))
             if resolvedAlias != owner {
-                CollectAvailableSourceMemberNames(
-                    resolvedAlias,
-                    includeStaticMembers,
-                    substitution,
-                    visited,
-                    result)
+                CollectAvailableSourceMemberNames(resolvedAlias, includeStaticMembers, substitution, visited, result)
             }
             return
         }
@@ -2345,22 +1744,12 @@ public class AnalyzerDeclarationContext {
         if nullable != null {
             result.Add("HasValue")
             result.Add("Value")
-            CollectAvailableSourceMemberNames(
-                nullable.InnerType,
-                includeStaticMembers,
-                substitution,
-                visited,
-                result)
+            CollectAvailableSourceMemberNames(nullable.InnerType, includeStaticMembers, substitution, visited, result)
             return
         }
         oblivious := owner as ObliviousTypeInfo
         if oblivious != null {
-            CollectAvailableSourceMemberNames(
-                oblivious.InnerType,
-                includeStaticMembers,
-                substitution,
-                visited,
-                result)
+            CollectAvailableSourceMemberNames(oblivious.InnerType, includeStaticMembers, substitution, visited, result)
             return
         }
 
@@ -2382,12 +1771,7 @@ public class AnalyzerDeclarationContext {
                 }
             }
             if shape.BaseType != null {
-                CollectAvailableSourceMemberNames(
-                    shape.BaseType,
-                    includeStaticMembers,
-                    substitution,
-                    visited,
-                    result)
+                CollectAvailableSourceMemberNames(shape.BaseType, includeStaticMembers, substitution, visited, result)
             }
             return
         }
@@ -2470,45 +1854,19 @@ public class AnalyzerDeclarationContext {
         if filesByType.TryGetValue(typeInfo, out filePath) {
             resultFile = filePath
         }
-        return new AnalyzerSourceTypeSelection(
-            typeInfo,
-            FindDeclarationForType(typeInfo),
-            resultFile,
-            claimed)
+        return new AnalyzerSourceTypeSelection(typeInfo, FindDeclarationForType(typeInfo), resultFile, claimed)
     }
 
-    func SelectionForNamedDeclaration(
-        typeInfo: TypeInfo,
-        name: string,
-        namespaceName: string?,
-        filterNamespace: bool,
-        requireExported: bool,
-        claimed: bool): AnalyzerSourceTypeSelection {
+    func SelectionForNamedDeclaration(typeInfo: TypeInfo, name: string, namespaceName: string?, filterNamespace: bool, requireExported: bool, claimed: bool): AnalyzerSourceTypeSelection {
         fileIndex := 0
         while fileIndex < files.Count {
             facts := files[fileIndex]
-            if !filterNamespace
-                || string.Equals(
-                    facts.NamespaceName,
-                    namespaceName,
-                    StringComparison.Ordinal) {
+            if !filterNamespace || string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
                 declarationIndex := 0
                 while declarationIndex < facts.Declarations.Count {
                     declaration := facts.Declarations[declarationIndex]
-                    if declaration != null
-                        && string.Equals(
-                            DeclarationFacts.GetDeclarationName(declaration),
-                            name,
-                            StringComparison.Ordinal)
-                        && (!requireExported
-                            || DeclarationFacts.IsExportedDeclaration(
-                                declaration,
-                                name)) {
-                        return new AnalyzerSourceTypeSelection(
-                            typeInfo,
-                            declaration,
-                            facts.FilePath,
-                            claimed)
+                    if declaration != null && string.Equals(DeclarationFacts.GetDeclarationName(declaration), name, StringComparison.Ordinal) && (!requireExported || DeclarationFacts.IsExportedDeclaration(declaration, name)) {
+                        return new AnalyzerSourceTypeSelection(typeInfo, declaration, facts.FilePath, claimed)
                     }
                     declarationIndex = declarationIndex + 1
                 }
@@ -2519,11 +1877,7 @@ public class AnalyzerDeclarationContext {
     }
 
     static func MissingSelection(claimed: bool): AnalyzerSourceTypeSelection {
-        return new AnalyzerSourceTypeSelection(
-            BuiltInTypes.Unknown,
-            null,
-            null,
-            claimed)
+        return new AnalyzerSourceTypeSelection(BuiltInTypes.Unknown, null, null, claimed)
     }
 
     func TryResolveExternal(fullName: string, out typeInfo: TypeInfo): bool {
@@ -2549,20 +1903,35 @@ public class AnalyzerDeclarationContext {
 
     func TryResolveKnownOpenGeneric(name: string, arity: int, out typeInfo: Type): bool {
         fullName := ""
-        if name == "List" && arity == 1 { fullName = "System.Collections.Generic.List`1" }
-        else if name == "IEnumerable" && arity == 1 { fullName = "System.Collections.Generic.IEnumerable`1" }
-        else if name == "IQueryable" && arity == 1 { fullName = "System.Linq.IQueryable`1" }
-        else if name == "ICollection" && arity == 1 { fullName = "System.Collections.Generic.ICollection`1" }
-        else if name == "IList" && arity == 1 { fullName = "System.Collections.Generic.IList`1" }
-        else if name == "Dictionary" && arity == 2 { fullName = "System.Collections.Generic.Dictionary`2" }
-        else if name == "IDictionary" && arity == 2 { fullName = "System.Collections.Generic.IDictionary`2" }
-        else if name == "Task" && arity == 1 { fullName = "System.Threading.Tasks.Task`1" }
-        else if name == "ValueTask" && arity == 1 { fullName = "System.Threading.Tasks.ValueTask`1" }
-        else if name == "ValueTuple" && arity >= 1 && arity <= 8 { fullName = "System.ValueTuple`" + arity.ToString() }
-        else if (name == "Result" || name == "NSharpLang.Runtime.Result") && arity == 2 { fullName = "NSharpLang.Runtime.Result`2" }
-        else if (name == "JsonTypeInfo" || name == "System.Text.Json.Serialization.Metadata.JsonTypeInfo") && arity == 1 { fullName = "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1" }
-        else if name == "Func" && arity >= 1 && arity <= 5 { fullName = "System.Func`" + arity.ToString() }
-        else if name == "Action" && arity >= 1 && arity <= 4 { fullName = "System.Action`" + arity.ToString() }
+        if name == "List" && arity == 1 {
+            fullName = "System.Collections.Generic.List`1"
+        } else if name == "IEnumerable" && arity == 1 {
+            fullName = "System.Collections.Generic.IEnumerable`1"
+        } else if name == "IQueryable" && arity == 1 {
+            fullName = "System.Linq.IQueryable`1"
+        } else if name == "ICollection" && arity == 1 {
+            fullName = "System.Collections.Generic.ICollection`1"
+        } else if name == "IList" && arity == 1 {
+            fullName = "System.Collections.Generic.IList`1"
+        } else if name == "Dictionary" && arity == 2 {
+            fullName = "System.Collections.Generic.Dictionary`2"
+        } else if name == "IDictionary" && arity == 2 {
+            fullName = "System.Collections.Generic.IDictionary`2"
+        } else if name == "Task" && arity == 1 {
+            fullName = "System.Threading.Tasks.Task`1"
+        } else if name == "ValueTask" && arity == 1 {
+            fullName = "System.Threading.Tasks.ValueTask`1"
+        } else if name == "ValueTuple" && arity >= 1 && arity <= 8 {
+            fullName = "System.ValueTuple`" + arity.ToString()
+        } else if (name == "Result" || name == "NSharpLang.Runtime.Result") && arity == 2 {
+            fullName = "NSharpLang.Runtime.Result`2"
+        } else if (name == "JsonTypeInfo" || name == "System.Text.Json.Serialization.Metadata.JsonTypeInfo") && arity == 1 {
+            fullName = "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"
+        } else if name == "Func" && arity >= 1 && arity <= 5 {
+            fullName = "System.Func`" + arity.ToString()
+        } else if name == "Action" && arity >= 1 && arity <= 4 {
+            fullName = "System.Action`" + arity.ToString()
+        }
         if fullName.Length > 0 {
             resolved := new TypeInfo()
             if TryResolveExternal(fullName, out resolved) {
@@ -2648,40 +2017,46 @@ public class AnalyzerDeclarationContext {
 
     static func IsTopLevelTypeDeclaration(declaration: object): bool {
         kind := declaration.GetType().Name
-        return kind == "ClassDeclaration"
-            || kind == "StructDeclaration"
-            || kind == "RecordDeclaration"
-            || kind == "SoaRecordDeclaration"
-            || kind == "InterfaceDeclaration"
-            || kind == "UnionDeclaration"
-            || kind == "EnumDeclaration"
-            || kind == "TypeAliasDeclaration"
-            || kind == "NewtypeDeclaration"
+        return kind == "ClassDeclaration" || kind == "StructDeclaration" || kind == "RecordDeclaration" || kind == "SoaRecordDeclaration" || kind == "InterfaceDeclaration" || kind == "UnionDeclaration" || kind == "EnumDeclaration" || kind == "TypeAliasDeclaration" || kind == "NewtypeDeclaration"
     }
 
     static func ContainsUnknown(typeInfo: TypeInfo): bool {
-        if typeInfo as UnknownTypeInfo != null { return true }
+        if typeInfo as UnknownTypeInfo != null {
+            return true
+        }
         generic := typeInfo as GenericTypeInfo
         if generic != null {
-            if generic.GenericDefinition == null { return true }
+            if generic.GenericDefinition == null {
+                return true
+            }
             index := 0
             while index < generic.TypeArguments.Count {
-                if ContainsUnknown(generic.TypeArguments[index]) { return true }
+                if ContainsUnknown(generic.TypeArguments[index]) {
+                    return true
+                }
                 index = index + 1
             }
             return false
         }
         array := typeInfo as ArrayTypeInfo
-        if array != null { return ContainsUnknown(array.ElementType) }
+        if array != null {
+            return ContainsUnknown(array.ElementType)
+        }
         nullable := typeInfo as NullableTypeInfo
-        if nullable != null { return ContainsUnknown(nullable.InnerType) }
+        if nullable != null {
+            return ContainsUnknown(nullable.InnerType)
+        }
         oblivious := typeInfo as ObliviousTypeInfo
-        if oblivious != null { return ContainsUnknown(oblivious.InnerType) }
+        if oblivious != null {
+            return ContainsUnknown(oblivious.InnerType)
+        }
         unionType := typeInfo as AnonymousUnionTypeInfo
         if unionType != null {
             index := 0
             while index < unionType.Arms.Count {
-                if ContainsUnknown(unionType.Arms[index]) { return true }
+                if ContainsUnknown(unionType.Arms[index]) {
+                    return true
+                }
                 index = index + 1
             }
         }
@@ -2689,16 +2064,22 @@ public class AnalyzerDeclarationContext {
         if tuple != null {
             index := 0
             while index < tuple.Elements.Count {
-                if ContainsUnknown(tuple.Elements[index].Type) { return true }
+                if ContainsUnknown(tuple.Elements[index].Type) {
+                    return true
+                }
                 index = index + 1
             }
         }
         function := typeInfo as FunctionTypeInfo
         if function != null {
-            if function.ParameterTypes == null || function.ReturnType == null { return true }
+            if function.ParameterTypes == null || function.ReturnType == null {
+                return true
+            }
             index := 0
             while index < function.ParameterTypes.Count {
-                if ContainsUnknown(function.ParameterTypes[index]) { return true }
+                if ContainsUnknown(function.ParameterTypes[index]) {
+                    return true
+                }
                 index = index + 1
             }
             return ContainsUnknown(function.ReturnType)
@@ -2709,13 +2090,21 @@ public class AnalyzerDeclarationContext {
 
     static func GenericHeadArity(typeInfo: TypeInfo): int {
         classType := typeInfo as ClassTypeInfo
-        if classType != null { return classType.TypeParameters.Length }
+        if classType != null {
+            return classType.TypeParameters.Length
+        }
         structType := typeInfo as StructTypeInfo
-        if structType != null { return structType.TypeParameters.Length }
+        if structType != null {
+            return structType.TypeParameters.Length
+        }
         recordType := typeInfo as RecordTypeInfo
-        if recordType != null { return recordType.TypeParameters.Length }
+        if recordType != null {
+            return recordType.TypeParameters.Length
+        }
         interfaceType := typeInfo as InterfaceTypeInfo
-        if interfaceType != null { return interfaceType.TypeParameters.Length }
+        if interfaceType != null {
+            return interfaceType.TypeParameters.Length
+        }
         unionType := typeInfo as UnionTypeInfo
         if unionType != null {
             parameters := unionType.Declaration.TypeParameters
@@ -2731,11 +2120,7 @@ public class AnalyzerDeclarationContext {
             }
             return 0
         }
-        if typeInfo as SimpleTypeInfo != null
-            || typeInfo as SoaRecordTypeInfo != null
-            || typeInfo as EnumTypeInfo != null
-            || typeInfo as AliasTypeInfo != null
-            || typeInfo as NewtypeInfo != null {
+        if typeInfo as SimpleTypeInfo != null || typeInfo as SoaRecordTypeInfo != null || typeInfo as EnumTypeInfo != null || typeInfo as AliasTypeInfo != null || typeInfo as NewtypeInfo != null {
             return 0
         }
         return -1
@@ -2755,21 +2140,37 @@ public class AnalyzerDeclarationContext {
 
     static func TypeName(typeInfo: TypeInfo): string {
         classType := typeInfo as ClassTypeInfo
-        if classType != null { return classType.Name }
+        if classType != null {
+            return classType.Name
+        }
         structType := typeInfo as StructTypeInfo
-        if structType != null { return structType.Name }
+        if structType != null {
+            return structType.Name
+        }
         recordType := typeInfo as RecordTypeInfo
-        if recordType != null { return recordType.Name }
+        if recordType != null {
+            return recordType.Name
+        }
         interfaceType := typeInfo as InterfaceTypeInfo
-        if interfaceType != null { return interfaceType.Name }
+        if interfaceType != null {
+            return interfaceType.Name
+        }
         unionType := typeInfo as UnionTypeInfo
-        if unionType != null { return unionType.Declaration.Name }
+        if unionType != null {
+            return unionType.Declaration.Name
+        }
         enumType := typeInfo as EnumTypeInfo
-        if enumType != null { return enumType.Declaration.Name }
+        if enumType != null {
+            return enumType.Declaration.Name
+        }
         soaType := typeInfo as SoaRecordTypeInfo
-        if soaType != null { return soaType.Declaration.Name }
+        if soaType != null {
+            return soaType.Declaration.Name
+        }
         newtypeInfo := typeInfo as NewtypeInfo
-        if newtypeInfo != null { return newtypeInfo.Name }
+        if newtypeInfo != null {
+            return newtypeInfo.Name
+        }
         return ""
     }
 }
