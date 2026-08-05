@@ -344,8 +344,7 @@ class AnalyzerClrTypeConversion {
             }
         }
 
-        rehomed := NormalizeOpenDefinition(AnalyzerWellKnownTypeFacts.KnownOpenGenericType(
-            wellKnownTypes, genericName, arguments.Length))
+        rehomed := NormalizeOpenDefinition(AnalyzerWellKnownTypeFacts.KnownOpenGenericType(wellKnownTypes, genericName, arguments.Length))
         if rehomed == null {
             return null
         }

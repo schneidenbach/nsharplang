@@ -301,8 +301,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         reflected := reflection.Type
-        return IsCoreTaskFamilyType(reflected, "System.Threading.Tasks.Task")
-            || IsCoreTaskFamilyType(reflected, "System.Threading.Tasks.ValueTask")
+        return IsCoreTaskFamilyType(reflected, "System.Threading.Tasks.Task") || IsCoreTaskFamilyType(reflected, "System.Threading.Tasks.ValueTask")
     }
 
     // The awaited result of a task-like type: the source-declared arm first, then the reflected
@@ -327,8 +326,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         definition := reflected.GetGenericTypeDefinition()
-        if !IsCoreTaskFamilyType(definition, "System.Threading.Tasks.Task`1")
-            && !IsCoreTaskFamilyType(definition, "System.Threading.Tasks.ValueTask`1") {
+        if !IsCoreTaskFamilyType(definition, "System.Threading.Tasks.Task`1") && !IsCoreTaskFamilyType(definition, "System.Threading.Tasks.ValueTask`1") {
             return false
         }
 
@@ -635,10 +633,7 @@ class AnalyzerFunctionTypeFactory {
         assembly := candidate.get_Assembly()
         identity := assembly.GetName()
         assemblyName := identity.get_Name()
-        return assemblyName == "System.Private.CoreLib"
-            || assemblyName == "System.Runtime"
-            || assemblyName == "netstandard"
-            || assemblyName == "mscorlib"
+        return assemblyName == "System.Private.CoreLib" || assemblyName == "System.Runtime" || assemblyName == "netstandard" || assemblyName == "mscorlib"
     }
 
     // The two task families live in the core library. They are read by NAME rather than through
