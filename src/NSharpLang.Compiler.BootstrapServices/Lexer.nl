@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.Text
 
-public class Lexer {
+class Lexer {
     sourceText: string
     fileNameValue: string?
     position: int
@@ -23,11 +23,11 @@ public class Lexer {
         comments = new List<CommentTrivia>()
     }
 
-    public static func IsReservedKeyword(tokenType: TokenType): bool {
+    static func IsReservedKeyword(tokenType: TokenType): bool {
         return KeywordTextForType(tokenType).Length > 0
     }
 
-    public func Tokenize(): List<Token> {
+    func Tokenize(): List<Token> {
         tokens := new List<Token>()
 
         while !IsAtEnd() {
@@ -67,7 +67,7 @@ public class Lexer {
         hasBaseIndent := false
         baseIndent := 0
 
-        foreach token in tokens {
+        for token in tokens {
             if token.Type == TokenType.Newline {
                 output.Add(token)
                 atLineStart = true
@@ -991,180 +991,520 @@ public class Lexer {
     }
 
     static func KeywordTypeForText(value: string): TokenType {
-        if value == "func" { return TokenType.Func }
-        if value == "class" { return TokenType.Class }
-        if value == "struct" { return TokenType.Struct }
-        if value == "interface" { return TokenType.Interface }
-        if value == "duck" { return TokenType.Duck }
-        if value == "union" { return TokenType.Union }
-        if value == "record" { return TokenType.Record }
-        if value == "enum" { return TokenType.Enum }
-        if value == "namespace" { return TokenType.Namespace }
-        if value == "using" { return TokenType.Using }
-        if value == "import" { return TokenType.Import }
-        if value == "package" { return TokenType.Package }
-        if value == "let" { return TokenType.Let }
-        if value == "must" { return TokenType.Must }
-        if value == "const" { return TokenType.Const }
-        if value == "readonly" { return TokenType.Readonly }
-        if value == "if" { return TokenType.If }
-        if value == "else" { return TokenType.Else }
-        if value == "for" { return TokenType.For }
-        if value == "foreach" { return TokenType.Foreach }
-        if value == "while" { return TokenType.While }
-        if value == "in" { return TokenType.In }
-        if value == "return" { return TokenType.Return }
-        if value == "yield" { return TokenType.Yield }
-        if value == "match" { return TokenType.Match }
-        if value == "switch" { return TokenType.Switch }
-        if value == "case" { return TokenType.Case }
-        if value == "default" { return TokenType.Default }
-        if value == "break" { return TokenType.Break }
-        if value == "continue" { return TokenType.Continue }
-        if value == "throw" { return TokenType.Throw }
-        if value == "try" { return TokenType.Try }
-        if value == "catch" { return TokenType.Catch }
-        if value == "finally" { return TokenType.Finally }
-        if value == "new" { return TokenType.New }
-        if value == "this" { return TokenType.This }
-        if value == "base" { return TokenType.Base }
-        if value == "true" { return TokenType.True }
-        if value == "false" { return TokenType.False }
-        if value == "null" { return TokenType.Null }
-        if value == "is" { return TokenType.Is }
-        if value == "as" { return TokenType.As }
-        if value == "typeof" { return TokenType.Typeof }
-        if value == "nameof" { return TokenType.Nameof }
-        if value == "sizeof" { return TokenType.Sizeof }
-        if value == "print" { return TokenType.Print }
-        if value == "where" { return TokenType.Where }
-        if value == "when" { return TokenType.When }
-        if value == "and" { return TokenType.AndKeyword }
-        if value == "or" { return TokenType.OrKeyword }
-        if value == "not" { return TokenType.NotKeyword }
-        if value == "virtual" { return TokenType.Virtual }
-        if value == "override" { return TokenType.Override }
-        if value == "abstract" { return TokenType.Abstract }
-        if value == "sealed" { return TokenType.Sealed }
-        if value == "partial" { return TokenType.Partial }
-        if value == "static" { return TokenType.Static }
-        if value == "public" { return TokenType.Public }
-        if value == "private" { return TokenType.Private }
-        if value == "internal" { return TokenType.Internal }
-        if value == "protected" { return TokenType.Protected }
-        if value == "async" { return TokenType.Async }
-        if value == "await" { return TokenType.Await }
-        if value == "immutable" { return TokenType.Immutable }
-        if value == "with" { return TokenType.With }
-        if value == "type" { return TokenType.Type }
-        if value == "assert" { return TokenType.Assert }
-        if value == "operator" { return TokenType.Operator }
-        if value == "required" { return TokenType.Required }
-        if value == "init" { return TokenType.Init }
-        if value == "ref" { return TokenType.Ref }
-        if value == "out" { return TokenType.Out }
-        if value == "lock" { return TokenType.Lock }
-        if value == "file" { return TokenType.File }
-        if value == "params" { return TokenType.Params }
-        if value == "checked" { return TokenType.Checked }
-        if value == "unchecked" { return TokenType.Unchecked }
-        if value == "implicit" { return TokenType.Implicit }
-        if value == "explicit" { return TokenType.Explicit }
-        if value == "newtype" { return TokenType.Newtype }
-        if value == "alloc" { return TokenType.Alloc }
-        if value == "allow" { return TokenType.Allow }
-        if value == "stackalloc" { return TokenType.Stackalloc }
-        if value == "unsafe" { return TokenType.Unsafe }
-        if value == "scoped" { return TokenType.Scoped }
+        if value == "func" {
+            return TokenType.Func
+        }
+        if value == "class" {
+            return TokenType.Class
+        }
+        if value == "struct" {
+            return TokenType.Struct
+        }
+        if value == "interface" {
+            return TokenType.Interface
+        }
+        if value == "duck" {
+            return TokenType.Duck
+        }
+        if value == "union" {
+            return TokenType.Union
+        }
+        if value == "record" {
+            return TokenType.Record
+        }
+        if value == "enum" {
+            return TokenType.Enum
+        }
+        if value == "namespace" {
+            return TokenType.Namespace
+        }
+        if value == "using" {
+            return TokenType.Using
+        }
+        if value == "import" {
+            return TokenType.Import
+        }
+        if value == "package" {
+            return TokenType.Package
+        }
+        if value == "let" {
+            return TokenType.Let
+        }
+        if value == "must" {
+            return TokenType.Must
+        }
+        if value == "const" {
+            return TokenType.Const
+        }
+        if value == "readonly" {
+            return TokenType.Readonly
+        }
+        if value == "if" {
+            return TokenType.If
+        }
+        if value == "else" {
+            return TokenType.Else
+        }
+        if value == "for" {
+            return TokenType.For
+        }
+        if value == "foreach" {
+            return TokenType.Foreach
+        }
+        if value == "while" {
+            return TokenType.While
+        }
+        if value == "in" {
+            return TokenType.In
+        }
+        if value == "return" {
+            return TokenType.Return
+        }
+        if value == "yield" {
+            return TokenType.Yield
+        }
+        if value == "match" {
+            return TokenType.Match
+        }
+        if value == "switch" {
+            return TokenType.Switch
+        }
+        if value == "case" {
+            return TokenType.Case
+        }
+        if value == "default" {
+            return TokenType.Default
+        }
+        if value == "break" {
+            return TokenType.Break
+        }
+        if value == "continue" {
+            return TokenType.Continue
+        }
+        if value == "throw" {
+            return TokenType.Throw
+        }
+        if value == "try" {
+            return TokenType.Try
+        }
+        if value == "catch" {
+            return TokenType.Catch
+        }
+        if value == "finally" {
+            return TokenType.Finally
+        }
+        if value == "new" {
+            return TokenType.New
+        }
+        if value == "this" {
+            return TokenType.This
+        }
+        if value == "base" {
+            return TokenType.Base
+        }
+        if value == "true" {
+            return TokenType.True
+        }
+        if value == "false" {
+            return TokenType.False
+        }
+        if value == "null" {
+            return TokenType.Null
+        }
+        if value == "is" {
+            return TokenType.Is
+        }
+        if value == "as" {
+            return TokenType.As
+        }
+        if value == "typeof" {
+            return TokenType.Typeof
+        }
+        if value == "nameof" {
+            return TokenType.Nameof
+        }
+        if value == "sizeof" {
+            return TokenType.Sizeof
+        }
+        if value == "print" {
+            return TokenType.Print
+        }
+        if value == "where" {
+            return TokenType.Where
+        }
+        if value == "when" {
+            return TokenType.When
+        }
+        if value == "and" {
+            return TokenType.AndKeyword
+        }
+        if value == "or" {
+            return TokenType.OrKeyword
+        }
+        if value == "not" {
+            return TokenType.NotKeyword
+        }
+        if value == "virtual" {
+            return TokenType.Virtual
+        }
+        if value == "override" {
+            return TokenType.Override
+        }
+        if value == "abstract" {
+            return TokenType.Abstract
+        }
+        if value == "sealed" {
+            return TokenType.Sealed
+        }
+        if value == "partial" {
+            return TokenType.Partial
+        }
+        if value == "static" {
+            return TokenType.Static
+        }
+        if value == "public" {
+            return TokenType.Public
+        }
+        if value == "private" {
+            return TokenType.Private
+        }
+        if value == "internal" {
+            return TokenType.Internal
+        }
+        if value == "protected" {
+            return TokenType.Protected
+        }
+        if value == "async" {
+            return TokenType.Async
+        }
+        if value == "await" {
+            return TokenType.Await
+        }
+        if value == "immutable" {
+            return TokenType.Immutable
+        }
+        if value == "with" {
+            return TokenType.With
+        }
+        if value == "type" {
+            return TokenType.Type
+        }
+        if value == "assert" {
+            return TokenType.Assert
+        }
+        if value == "operator" {
+            return TokenType.Operator
+        }
+        if value == "required" {
+            return TokenType.Required
+        }
+        if value == "init" {
+            return TokenType.Init
+        }
+        if value == "ref" {
+            return TokenType.Ref
+        }
+        if value == "out" {
+            return TokenType.Out
+        }
+        if value == "lock" {
+            return TokenType.Lock
+        }
+        if value == "file" {
+            return TokenType.File
+        }
+        if value == "params" {
+            return TokenType.Params
+        }
+        if value == "checked" {
+            return TokenType.Checked
+        }
+        if value == "unchecked" {
+            return TokenType.Unchecked
+        }
+        if value == "implicit" {
+            return TokenType.Implicit
+        }
+        if value == "explicit" {
+            return TokenType.Explicit
+        }
+        if value == "newtype" {
+            return TokenType.Newtype
+        }
+        if value == "alloc" {
+            return TokenType.Alloc
+        }
+        if value == "allow" {
+            return TokenType.Allow
+        }
+        if value == "stackalloc" {
+            return TokenType.Stackalloc
+        }
+        if value == "unsafe" {
+            return TokenType.Unsafe
+        }
+        if value == "scoped" {
+            return TokenType.Scoped
+        }
         return TokenType.Identifier
     }
 
     static func KeywordTextForType(tokenType: TokenType): string {
-        if tokenType == TokenType.Func { return "func" }
-        if tokenType == TokenType.Class { return "class" }
-        if tokenType == TokenType.Struct { return "struct" }
-        if tokenType == TokenType.Interface { return "interface" }
-        if tokenType == TokenType.Duck { return "duck" }
-        if tokenType == TokenType.Union { return "union" }
-        if tokenType == TokenType.Record { return "record" }
-        if tokenType == TokenType.Enum { return "enum" }
-        if tokenType == TokenType.Namespace { return "namespace" }
-        if tokenType == TokenType.Using { return "using" }
-        if tokenType == TokenType.Import { return "import" }
-        if tokenType == TokenType.Package { return "package" }
-        if tokenType == TokenType.Let { return "let" }
-        if tokenType == TokenType.Must { return "must" }
-        if tokenType == TokenType.Const { return "const" }
-        if tokenType == TokenType.Readonly { return "readonly" }
-        if tokenType == TokenType.If { return "if" }
-        if tokenType == TokenType.Else { return "else" }
-        if tokenType == TokenType.For { return "for" }
-        if tokenType == TokenType.Foreach { return "foreach" }
-        if tokenType == TokenType.While { return "while" }
-        if tokenType == TokenType.In { return "in" }
-        if tokenType == TokenType.Return { return "return" }
-        if tokenType == TokenType.Yield { return "yield" }
-        if tokenType == TokenType.Match { return "match" }
-        if tokenType == TokenType.Switch { return "switch" }
-        if tokenType == TokenType.Case { return "case" }
-        if tokenType == TokenType.Default { return "default" }
-        if tokenType == TokenType.Break { return "break" }
-        if tokenType == TokenType.Continue { return "continue" }
-        if tokenType == TokenType.Throw { return "throw" }
-        if tokenType == TokenType.Try { return "try" }
-        if tokenType == TokenType.Catch { return "catch" }
-        if tokenType == TokenType.Finally { return "finally" }
-        if tokenType == TokenType.New { return "new" }
-        if tokenType == TokenType.This { return "this" }
-        if tokenType == TokenType.Base { return "base" }
-        if tokenType == TokenType.True { return "true" }
-        if tokenType == TokenType.False { return "false" }
-        if tokenType == TokenType.Null { return "null" }
-        if tokenType == TokenType.Is { return "is" }
-        if tokenType == TokenType.As { return "as" }
-        if tokenType == TokenType.Typeof { return "typeof" }
-        if tokenType == TokenType.Nameof { return "nameof" }
-        if tokenType == TokenType.Sizeof { return "sizeof" }
-        if tokenType == TokenType.Print { return "print" }
-        if tokenType == TokenType.Where { return "where" }
-        if tokenType == TokenType.When { return "when" }
-        if tokenType == TokenType.AndKeyword { return "and" }
-        if tokenType == TokenType.OrKeyword { return "or" }
-        if tokenType == TokenType.NotKeyword { return "not" }
-        if tokenType == TokenType.Virtual { return "virtual" }
-        if tokenType == TokenType.Override { return "override" }
-        if tokenType == TokenType.Abstract { return "abstract" }
-        if tokenType == TokenType.Sealed { return "sealed" }
-        if tokenType == TokenType.Partial { return "partial" }
-        if tokenType == TokenType.Static { return "static" }
-        if tokenType == TokenType.Public { return "public" }
-        if tokenType == TokenType.Private { return "private" }
-        if tokenType == TokenType.Internal { return "internal" }
-        if tokenType == TokenType.Protected { return "protected" }
-        if tokenType == TokenType.Async { return "async" }
-        if tokenType == TokenType.Await { return "await" }
-        if tokenType == TokenType.Immutable { return "immutable" }
-        if tokenType == TokenType.With { return "with" }
-        if tokenType == TokenType.Type { return "type" }
-        if tokenType == TokenType.Assert { return "assert" }
-        if tokenType == TokenType.Operator { return "operator" }
-        if tokenType == TokenType.Required { return "required" }
-        if tokenType == TokenType.Init { return "init" }
-        if tokenType == TokenType.Ref { return "ref" }
-        if tokenType == TokenType.Out { return "out" }
-        if tokenType == TokenType.Lock { return "lock" }
-        if tokenType == TokenType.File { return "file" }
-        if tokenType == TokenType.Params { return "params" }
-        if tokenType == TokenType.Checked { return "checked" }
-        if tokenType == TokenType.Unchecked { return "unchecked" }
-        if tokenType == TokenType.Implicit { return "implicit" }
-        if tokenType == TokenType.Explicit { return "explicit" }
-        if tokenType == TokenType.Newtype { return "newtype" }
-        if tokenType == TokenType.Alloc { return "alloc" }
-        if tokenType == TokenType.Allow { return "allow" }
-        if tokenType == TokenType.Stackalloc { return "stackalloc" }
-        if tokenType == TokenType.Unsafe { return "unsafe" }
-        if tokenType == TokenType.Scoped { return "scoped" }
+        if tokenType == TokenType.Func {
+            return "func"
+        }
+        if tokenType == TokenType.Class {
+            return "class"
+        }
+        if tokenType == TokenType.Struct {
+            return "struct"
+        }
+        if tokenType == TokenType.Interface {
+            return "interface"
+        }
+        if tokenType == TokenType.Duck {
+            return "duck"
+        }
+        if tokenType == TokenType.Union {
+            return "union"
+        }
+        if tokenType == TokenType.Record {
+            return "record"
+        }
+        if tokenType == TokenType.Enum {
+            return "enum"
+        }
+        if tokenType == TokenType.Namespace {
+            return "namespace"
+        }
+        if tokenType == TokenType.Using {
+            return "using"
+        }
+        if tokenType == TokenType.Import {
+            return "import"
+        }
+        if tokenType == TokenType.Package {
+            return "package"
+        }
+        if tokenType == TokenType.Let {
+            return "let"
+        }
+        if tokenType == TokenType.Must {
+            return "must"
+        }
+        if tokenType == TokenType.Const {
+            return "const"
+        }
+        if tokenType == TokenType.Readonly {
+            return "readonly"
+        }
+        if tokenType == TokenType.If {
+            return "if"
+        }
+        if tokenType == TokenType.Else {
+            return "else"
+        }
+        if tokenType == TokenType.For {
+            return "for"
+        }
+        if tokenType == TokenType.Foreach {
+            return "foreach"
+        }
+        if tokenType == TokenType.While {
+            return "while"
+        }
+        if tokenType == TokenType.In {
+            return "in"
+        }
+        if tokenType == TokenType.Return {
+            return "return"
+        }
+        if tokenType == TokenType.Yield {
+            return "yield"
+        }
+        if tokenType == TokenType.Match {
+            return "match"
+        }
+        if tokenType == TokenType.Switch {
+            return "switch"
+        }
+        if tokenType == TokenType.Case {
+            return "case"
+        }
+        if tokenType == TokenType.Default {
+            return "default"
+        }
+        if tokenType == TokenType.Break {
+            return "break"
+        }
+        if tokenType == TokenType.Continue {
+            return "continue"
+        }
+        if tokenType == TokenType.Throw {
+            return "throw"
+        }
+        if tokenType == TokenType.Try {
+            return "try"
+        }
+        if tokenType == TokenType.Catch {
+            return "catch"
+        }
+        if tokenType == TokenType.Finally {
+            return "finally"
+        }
+        if tokenType == TokenType.New {
+            return "new"
+        }
+        if tokenType == TokenType.This {
+            return "this"
+        }
+        if tokenType == TokenType.Base {
+            return "base"
+        }
+        if tokenType == TokenType.True {
+            return "true"
+        }
+        if tokenType == TokenType.False {
+            return "false"
+        }
+        if tokenType == TokenType.Null {
+            return "null"
+        }
+        if tokenType == TokenType.Is {
+            return "is"
+        }
+        if tokenType == TokenType.As {
+            return "as"
+        }
+        if tokenType == TokenType.Typeof {
+            return "typeof"
+        }
+        if tokenType == TokenType.Nameof {
+            return "nameof"
+        }
+        if tokenType == TokenType.Sizeof {
+            return "sizeof"
+        }
+        if tokenType == TokenType.Print {
+            return "print"
+        }
+        if tokenType == TokenType.Where {
+            return "where"
+        }
+        if tokenType == TokenType.When {
+            return "when"
+        }
+        if tokenType == TokenType.AndKeyword {
+            return "and"
+        }
+        if tokenType == TokenType.OrKeyword {
+            return "or"
+        }
+        if tokenType == TokenType.NotKeyword {
+            return "not"
+        }
+        if tokenType == TokenType.Virtual {
+            return "virtual"
+        }
+        if tokenType == TokenType.Override {
+            return "override"
+        }
+        if tokenType == TokenType.Abstract {
+            return "abstract"
+        }
+        if tokenType == TokenType.Sealed {
+            return "sealed"
+        }
+        if tokenType == TokenType.Partial {
+            return "partial"
+        }
+        if tokenType == TokenType.Static {
+            return "static"
+        }
+        if tokenType == TokenType.Public {
+            return "public"
+        }
+        if tokenType == TokenType.Private {
+            return "private"
+        }
+        if tokenType == TokenType.Internal {
+            return "internal"
+        }
+        if tokenType == TokenType.Protected {
+            return "protected"
+        }
+        if tokenType == TokenType.Async {
+            return "async"
+        }
+        if tokenType == TokenType.Await {
+            return "await"
+        }
+        if tokenType == TokenType.Immutable {
+            return "immutable"
+        }
+        if tokenType == TokenType.With {
+            return "with"
+        }
+        if tokenType == TokenType.Type {
+            return "type"
+        }
+        if tokenType == TokenType.Assert {
+            return "assert"
+        }
+        if tokenType == TokenType.Operator {
+            return "operator"
+        }
+        if tokenType == TokenType.Required {
+            return "required"
+        }
+        if tokenType == TokenType.Init {
+            return "init"
+        }
+        if tokenType == TokenType.Ref {
+            return "ref"
+        }
+        if tokenType == TokenType.Out {
+            return "out"
+        }
+        if tokenType == TokenType.Lock {
+            return "lock"
+        }
+        if tokenType == TokenType.File {
+            return "file"
+        }
+        if tokenType == TokenType.Params {
+            return "params"
+        }
+        if tokenType == TokenType.Checked {
+            return "checked"
+        }
+        if tokenType == TokenType.Unchecked {
+            return "unchecked"
+        }
+        if tokenType == TokenType.Implicit {
+            return "implicit"
+        }
+        if tokenType == TokenType.Explicit {
+            return "explicit"
+        }
+        if tokenType == TokenType.Newtype {
+            return "newtype"
+        }
+        if tokenType == TokenType.Alloc {
+            return "alloc"
+        }
+        if tokenType == TokenType.Allow {
+            return "allow"
+        }
+        if tokenType == TokenType.Stackalloc {
+            return "stackalloc"
+        }
+        if tokenType == TokenType.Unsafe {
+            return "unsafe"
+        }
+        if tokenType == TokenType.Scoped {
+            return "scoped"
+        }
         return ""
     }
 }

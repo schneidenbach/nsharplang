@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
 
-public class DiagnosticCluster {
+class DiagnosticCluster {
     idValue: string
     categoryValue: string
     recipeValue: string
@@ -19,90 +19,132 @@ public class DiagnosticCluster {
     examplesValue: DiagnosticClusterExample[]
 
     Id: string {
-        get { return idValue }
-        set { idValue = value }
+        get {
+            return idValue
+        }
+        set {
+            idValue = value
+        }
     }
 
     Category: string {
-        get { return categoryValue }
-        set { categoryValue = value }
+        get {
+            return categoryValue
+        }
+        set {
+            categoryValue = value
+        }
     }
 
     Recipe: string {
-        get { return recipeValue }
-        set { recipeValue = value }
+        get {
+            return recipeValue
+        }
+        set {
+            recipeValue = value
+        }
     }
 
     Risk: string {
-        get { return riskValue }
-        set { riskValue = value }
+        get {
+            return riskValue
+        }
+        set {
+            riskValue = value
+        }
     }
 
     Count: int {
-        get { return countValue }
-        set { countValue = value }
+        get {
+            return countValue
+        }
+        set {
+            countValue = value
+        }
     }
 
     Severity: string {
-        get { return severityValue }
-        set { severityValue = value }
+        get {
+            return severityValue
+        }
+        set {
+            severityValue = value
+        }
     }
 
     Files: string[] {
-        get { return filesValue }
-        set { filesValue = value }
+        get {
+            return filesValue
+        }
+        set {
+            filesValue = value
+        }
     }
 
     RelatedDiagnostics: DiagnosticClusterRelatedDiagnostic[] {
-        get { return relatedDiagnosticsValue }
-        set { relatedDiagnosticsValue = value }
+        get {
+            return relatedDiagnosticsValue
+        }
+        set {
+            relatedDiagnosticsValue = value
+        }
     }
 
     NextCommand: string {
-        get { return nextCommandValue }
-        set { nextCommandValue = value }
+        get {
+            return nextCommandValue
+        }
+        set {
+            nextCommandValue = value
+        }
     }
 
     RootLocation: DiagnosticClusterLocation {
-        get { return rootLocationValue }
-        set { rootLocationValue = value }
+        get {
+            return rootLocationValue
+        }
+        set {
+            rootLocationValue = value
+        }
     }
 
     MessagePattern: string {
-        get { return messagePatternValue }
-        set { messagePatternValue = value }
+        get {
+            return messagePatternValue
+        }
+        set {
+            messagePatternValue = value
+        }
     }
 
     SourceConstruct: string {
-        get { return sourceConstructValue }
-        set { sourceConstructValue = value }
+        get {
+            return sourceConstructValue
+        }
+        set {
+            sourceConstructValue = value
+        }
     }
 
     SuggestedNextActions: string[] {
-        get { return suggestedNextActionsValue }
-        set { suggestedNextActionsValue = value }
+        get {
+            return suggestedNextActionsValue
+        }
+        set {
+            suggestedNextActionsValue = value
+        }
     }
 
     Examples: DiagnosticClusterExample[] {
-        get { return examplesValue }
-        set { examplesValue = value }
+        get {
+            return examplesValue
+        }
+        set {
+            examplesValue = value
+        }
     }
 
-    constructor(
-        Id: string,
-        Category: string,
-        Recipe: string,
-        Risk: string,
-        Count: int,
-        Severity: string,
-        Files: string[],
-        RelatedDiagnostics: DiagnosticClusterRelatedDiagnostic[],
-        NextCommand: string,
-        RootLocation: DiagnosticClusterLocation,
-        MessagePattern: string,
-        SourceConstruct: string,
-        SuggestedNextActions: string[],
-        Examples: DiagnosticClusterExample[]) {
+    constructor(Id: string, Category: string, Recipe: string, Risk: string, Count: int, Severity: string, Files: string[], RelatedDiagnostics: DiagnosticClusterRelatedDiagnostic[], NextCommand: string, RootLocation: DiagnosticClusterLocation, MessagePattern: string, SourceConstruct: string, SuggestedNextActions: string[], Examples: DiagnosticClusterExample[]) {
         idValue = Id
         categoryValue = Category
         recipeValue = Recipe
@@ -120,24 +162,36 @@ public class DiagnosticCluster {
     }
 }
 
-public class DiagnosticClusterLocation {
+class DiagnosticClusterLocation {
     fileValue: string
     lineValue: int
     columnValue: int
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     constructor(File: string, Line: int, Column: int) {
@@ -147,7 +201,7 @@ public class DiagnosticClusterLocation {
     }
 }
 
-public class DiagnosticClusterRelatedDiagnostic {
+class DiagnosticClusterRelatedDiagnostic {
     codeValue: string
     severityValue: string
     fileValue: string
@@ -156,33 +210,57 @@ public class DiagnosticClusterRelatedDiagnostic {
     messageValue: string
 
     Code: string {
-        get { return codeValue }
-        set { codeValue = value }
+        get {
+            return codeValue
+        }
+        set {
+            codeValue = value
+        }
     }
 
     Severity: string {
-        get { return severityValue }
-        set { severityValue = value }
+        get {
+            return severityValue
+        }
+        set {
+            severityValue = value
+        }
     }
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     Message: string {
-        get { return messageValue }
-        set { messageValue = value }
+        get {
+            return messageValue
+        }
+        set {
+            messageValue = value
+        }
     }
 
     constructor(Code: string, Severity: string, File: string, Line: int, Column: int, Message: string) {
@@ -195,7 +273,7 @@ public class DiagnosticClusterRelatedDiagnostic {
     }
 }
 
-public class DiagnosticClusterExample {
+class DiagnosticClusterExample {
     fileValue: string
     lineValue: int
     columnValue: int
@@ -204,33 +282,57 @@ public class DiagnosticClusterExample {
     suggestionValue: string?
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     Message: string {
-        get { return messageValue }
-        set { messageValue = value }
+        get {
+            return messageValue
+        }
+        set {
+            messageValue = value
+        }
     }
 
     SourceSnippet: string? {
-        get { return sourceSnippetValue }
-        set { sourceSnippetValue = value }
+        get {
+            return sourceSnippetValue
+        }
+        set {
+            sourceSnippetValue = value
+        }
     }
 
     Suggestion: string? {
-        get { return suggestionValue }
-        set { suggestionValue = value }
+        get {
+            return suggestionValue
+        }
+        set {
+            suggestionValue = value
+        }
     }
 
     constructor(File: string, Line: int, Column: int, Message: string, SourceSnippet: string?, Suggestion: string?) {
@@ -243,18 +345,26 @@ public class DiagnosticClusterExample {
     }
 }
 
-public class ClassifiedDiagnostic {
+class ClassifiedDiagnostic {
     diagnosticValue: DiagnosticResult
     traitsValue: DiagnosticClusterTraits
 
     Diagnostic: DiagnosticResult {
-        get { return diagnosticValue }
-        set { diagnosticValue = value }
+        get {
+            return diagnosticValue
+        }
+        set {
+            diagnosticValue = value
+        }
     }
 
     Traits: DiagnosticClusterTraits {
-        get { return traitsValue }
-        set { traitsValue = value }
+        get {
+            return traitsValue
+        }
+        set {
+            traitsValue = value
+        }
     }
 
     constructor(Diagnostic: DiagnosticResult, Traits: DiagnosticClusterTraits) {
@@ -263,7 +373,7 @@ public class ClassifiedDiagnostic {
     }
 }
 
-public class ClassifiedDiagnosticSet {
+class ClassifiedDiagnosticSet {
     itemsValue: List<ClassifiedDiagnostic>
     diagnosticsValue: DiagnosticResult[]
     categoryIdsValue: int[]
@@ -271,36 +381,51 @@ public class ClassifiedDiagnosticSet {
     messagePatternsValue: string[]
 
     Items: List<ClassifiedDiagnostic> {
-        get { return itemsValue }
-        set { itemsValue = value }
+        get {
+            return itemsValue
+        }
+        set {
+            itemsValue = value
+        }
     }
 
     Diagnostics: DiagnosticResult[] {
-        get { return diagnosticsValue }
-        set { diagnosticsValue = value }
+        get {
+            return diagnosticsValue
+        }
+        set {
+            diagnosticsValue = value
+        }
     }
 
     CategoryIds: int[] {
-        get { return categoryIdsValue }
-        set { categoryIdsValue = value }
+        get {
+            return categoryIdsValue
+        }
+        set {
+            categoryIdsValue = value
+        }
     }
 
     SourceConstructIds: int[] {
-        get { return sourceConstructIdsValue }
-        set { sourceConstructIdsValue = value }
+        get {
+            return sourceConstructIdsValue
+        }
+        set {
+            sourceConstructIdsValue = value
+        }
     }
 
     MessagePatterns: string[] {
-        get { return messagePatternsValue }
-        set { messagePatternsValue = value }
+        get {
+            return messagePatternsValue
+        }
+        set {
+            messagePatternsValue = value
+        }
     }
 
-    constructor(
-        Items: List<ClassifiedDiagnostic>,
-        Diagnostics: DiagnosticResult[],
-        CategoryIds: int[],
-        SourceConstructIds: int[],
-        MessagePatterns: string[]) {
+    constructor(Items: List<ClassifiedDiagnostic>, Diagnostics: DiagnosticResult[], CategoryIds: int[], SourceConstructIds: int[], MessagePatterns: string[]) {
         itemsValue = Items
         diagnosticsValue = Diagnostics
         categoryIdsValue = CategoryIds
@@ -309,7 +434,7 @@ public class ClassifiedDiagnosticSet {
     }
 }
 
-public class DiagnosticClusterTraits {
+class DiagnosticClusterTraits {
     categoryValue: string
     sourceConstructValue: string
     recipeValue: string
@@ -318,42 +443,60 @@ public class DiagnosticClusterTraits {
     suggestedNextActionsValue: string[]
 
     Category: string {
-        get { return categoryValue }
-        set { categoryValue = value }
+        get {
+            return categoryValue
+        }
+        set {
+            categoryValue = value
+        }
     }
 
     SourceConstruct: string {
-        get { return sourceConstructValue }
-        set { sourceConstructValue = value }
+        get {
+            return sourceConstructValue
+        }
+        set {
+            sourceConstructValue = value
+        }
     }
 
     Recipe: string {
-        get { return recipeValue }
-        set { recipeValue = value }
+        get {
+            return recipeValue
+        }
+        set {
+            recipeValue = value
+        }
     }
 
     Risk: string {
-        get { return riskValue }
-        set { riskValue = value }
+        get {
+            return riskValue
+        }
+        set {
+            riskValue = value
+        }
     }
 
     MessagePattern: string {
-        get { return messagePatternValue }
-        set { messagePatternValue = value }
+        get {
+            return messagePatternValue
+        }
+        set {
+            messagePatternValue = value
+        }
     }
 
     SuggestedNextActions: string[] {
-        get { return suggestedNextActionsValue }
-        set { suggestedNextActionsValue = value }
+        get {
+            return suggestedNextActionsValue
+        }
+        set {
+            suggestedNextActionsValue = value
+        }
     }
 
-    constructor(
-        Category: string,
-        SourceConstruct: string,
-        Recipe: string,
-        Risk: string,
-        MessagePattern: string,
-        SuggestedNextActions: string[]) {
+    constructor(Category: string, SourceConstruct: string, Recipe: string, Risk: string, MessagePattern: string, SuggestedNextActions: string[]) {
         categoryValue = Category
         sourceConstructValue = SourceConstruct
         recipeValue = Recipe
@@ -363,18 +506,14 @@ public class DiagnosticClusterTraits {
     }
 }
 
-public class OutputFormatterDiagnosticClusterBuilder {
-    public static func BuildDiagnosticClusters(results: IReadOnlyList<DiagnosticResult>): List<DiagnosticCluster> {
+class OutputFormatterDiagnosticClusterBuilder {
+    static func BuildDiagnosticClusters(results: IReadOnlyList<DiagnosticResult>): List<DiagnosticCluster> {
         classified := BuildClassifiedDiagnostics(results)
         return BuildDiagnosticClustersFromDogfoodGroups(classified)
     }
 
     static func BuildDiagnosticClustersFromDogfoodGroups(classified: ClassifiedDiagnosticSet): List<DiagnosticCluster> {
-        grouping := OutputFormatterDiagnosticClusterKernels.GroupDiagnosticClusters(
-            classified.Diagnostics,
-            classified.CategoryIds,
-            classified.SourceConstructIds,
-            classified.MessagePatterns)
+        grouping := OutputFormatterDiagnosticClusterKernels.GroupDiagnosticClusters(classified.Diagnostics, classified.CategoryIds, classified.SourceConstructIds, classified.MessagePatterns)
 
         clusters := new List<DiagnosticCluster>(grouping.GroupCount)
         ordered := new List<DiagnosticResult>()
@@ -400,33 +539,11 @@ public class OutputFormatterDiagnosticClusterBuilder {
         return clusters
     }
 
-    static func CreateDiagnosticCluster(
-        ordered: List<DiagnosticResult>,
-        traits: DiagnosticClusterTraits): DiagnosticCluster {
+    static func CreateDiagnosticCluster(ordered: List<DiagnosticResult>, traits: DiagnosticClusterTraits): DiagnosticCluster {
         root := ordered[0]
         files := BuildDiagnosticClusterFiles(ordered)
 
-        return new DiagnosticCluster(
-            OutputFormatterDiagnosticClusterKernels.CreateDiagnosticClusterId(
-                root.Code,
-                root.Severity,
-                traits.Category,
-                traits.SourceConstruct,
-                traits.Recipe,
-                traits.MessagePattern),
-            traits.Category,
-            traits.Recipe,
-            traits.Risk,
-            ordered.Count,
-            root.Severity,
-            files,
-            BuildRelatedDiagnostics(ordered),
-            OutputFormatterDiagnosticClusterKernels.BuildDiagnosticClusterNextCommand(root),
-            new DiagnosticClusterLocation(root.File, root.Line, root.Column),
-            traits.MessagePattern,
-            traits.SourceConstruct,
-            traits.SuggestedNextActions,
-            BuildExamples(ordered))
+        return new DiagnosticCluster(OutputFormatterDiagnosticClusterKernels.CreateDiagnosticClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern), traits.Category, traits.Recipe, traits.Risk, ordered.Count, root.Severity, files, BuildRelatedDiagnostics(ordered), OutputFormatterDiagnosticClusterKernels.BuildDiagnosticClusterNextCommand(root), new DiagnosticClusterLocation(root.File, root.Line, root.Column), traits.MessagePattern, traits.SourceConstruct, traits.SuggestedNextActions, BuildExamples(ordered))
     }
 
     static func BuildClassifiedDiagnostics(results: IReadOnlyList<DiagnosticResult>): ClassifiedDiagnosticSet {
@@ -445,12 +562,7 @@ public class OutputFormatterDiagnosticClusterBuilder {
             normalized := OutputFormatterNormalizationKernels.NormalizeDiagnostic(diagnostic)
             messagePatterns[i] = messagePattern
             diagnostics[i] = normalized
-            classified.Add(new ClassifiedDiagnostic(
-                normalized,
-                CreateDiagnosticClusterTraits(
-                    categories[i],
-                    sourceConstructs[i],
-                    messagePattern)))
+            classified.Add(new ClassifiedDiagnostic(normalized, CreateDiagnosticClusterTraits(categories[i], sourceConstructs[i], messagePattern)))
             i = i + 1
         }
 
@@ -462,13 +574,7 @@ public class OutputFormatterDiagnosticClusterBuilder {
         i := 0
         while i < ordered.Count {
             diagnostic := ordered[i]
-            related[i] = new DiagnosticClusterRelatedDiagnostic(
-                diagnostic.Code,
-                diagnostic.Severity,
-                diagnostic.File,
-                diagnostic.Line,
-                diagnostic.Column,
-                diagnostic.Message)
+            related[i] = new DiagnosticClusterRelatedDiagnostic(diagnostic.Code, diagnostic.Severity, diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message)
             i = i + 1
         }
 
@@ -485,13 +591,7 @@ public class OutputFormatterDiagnosticClusterBuilder {
         i := 0
         while i < count {
             diagnostic := ordered[i]
-            examples[i] = new DiagnosticClusterExample(
-                diagnostic.File,
-                diagnostic.Line,
-                diagnostic.Column,
-                diagnostic.Message,
-                TrimOptional(diagnostic.SourceSnippet),
-                TrimOptional(diagnostic.Suggestion))
+            examples[i] = new DiagnosticClusterExample(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, TrimOptional(diagnostic.SourceSnippet), TrimOptional(diagnostic.Suggestion))
             i = i + 1
         }
 
@@ -509,89 +609,38 @@ public class OutputFormatterDiagnosticClusterBuilder {
         return OutputFormatterReferenceFileKernels.BuildDiagnosticClusterFiles(values)
     }
 
-    static func CreateDiagnosticClusterTraits(
-        category: int,
-        sourceConstruct: int,
-        messagePattern: string): DiagnosticClusterTraits {
+    static func CreateDiagnosticClusterTraits(category: int, sourceConstruct: int, messagePattern: string): DiagnosticClusterTraits {
         sourceConstructText := DiagnosticSourceConstructName(sourceConstruct)
 
         if category == 0 {
-            return new DiagnosticClusterTraits(
-                "syntax-missing-terminator",
-                sourceConstructText,
-                "syntax:statement-boundary",
-                "high",
-                messagePattern,
-                SyntaxDelimiterActions())
+            return new DiagnosticClusterTraits("syntax-missing-terminator", sourceConstructText, "syntax:statement-boundary", "high", messagePattern, SyntaxDelimiterActions())
         }
 
         if category == 1 {
-            return new DiagnosticClusterTraits(
-                "syntax-missing-delimiter",
-                sourceConstructText,
-                "syntax:delimiter-balancing",
-                "high",
-                messagePattern,
-                SyntaxDelimiterActions())
+            return new DiagnosticClusterTraits("syntax-missing-delimiter", sourceConstructText, "syntax:delimiter-balancing", "high", messagePattern, SyntaxDelimiterActions())
         }
 
         if category == 2 {
-            return new DiagnosticClusterTraits(
-                "import-cycle",
-                "import",
-                "architecture:extract-shared-module-or-invert-dependency",
-                "high",
-                messagePattern,
-                ImportCycleActions())
+            return new DiagnosticClusterTraits("import-cycle", "import", "architecture:extract-shared-module-or-invert-dependency", "high", messagePattern, ImportCycleActions())
         }
 
         if category == 3 {
-            return new DiagnosticClusterTraits(
-                "identifier-resolution",
-                sourceConstructText,
-                "symbols:missing-import-or-qualification",
-                "medium",
-                messagePattern,
-                IdentifierResolutionActions())
+            return new DiagnosticClusterTraits("identifier-resolution", sourceConstructText, "symbols:missing-import-or-qualification", "medium", messagePattern, IdentifierResolutionActions())
         }
 
         if category == 4 {
-            return new DiagnosticClusterTraits(
-                "type-resolution",
-                sourceConstructText,
-                "types:resolve-type-or-import",
-                "medium",
-                messagePattern,
-                TypeResolutionActions())
+            return new DiagnosticClusterTraits("type-resolution", sourceConstructText, "types:resolve-type-or-import", "medium", messagePattern, TypeResolutionActions())
         }
 
         if category == 5 {
-            return new DiagnosticClusterTraits(
-                "type-mismatch",
-                sourceConstructText,
-                "refactor:signature-or-expression-shape",
-                "medium",
-                messagePattern,
-                TypeMismatchActions())
+            return new DiagnosticClusterTraits("type-mismatch", sourceConstructText, "refactor:signature-or-expression-shape", "medium", messagePattern, TypeMismatchActions())
         }
 
         if category == 6 {
-            return new DiagnosticClusterTraits(
-                "member-resolution",
-                sourceConstructText,
-                "members:api-rename-or-extension-import",
-                "medium",
-                messagePattern,
-                MemberResolutionActions())
+            return new DiagnosticClusterTraits("member-resolution", sourceConstructText, "members:api-rename-or-extension-import", "medium", messagePattern, MemberResolutionActions())
         }
 
-        return new DiagnosticClusterTraits(
-            "diagnostic-message-shape",
-            sourceConstructText,
-            "manual-triage:inspect-root-diagnostic",
-            "low",
-            messagePattern,
-            ManualTriageActions())
+        return new DiagnosticClusterTraits("diagnostic-message-shape", sourceConstructText, "manual-triage:inspect-root-diagnostic", "low", messagePattern, ManualTriageActions())
     }
 
     static func DiagnosticSourceConstructName(sourceConstruct: int): string {
@@ -690,7 +739,7 @@ public class OutputFormatterDiagnosticClusterBuilder {
 
     static func DiagnosticList(diagnostics: IReadOnlyList<DiagnosticResult>): List<DiagnosticResult> {
         items := new List<DiagnosticResult>()
-        foreach diagnosticValue in diagnostics {
+        for diagnosticValue in diagnostics {
             items.Add((DiagnosticResult)diagnosticValue)
         }
 

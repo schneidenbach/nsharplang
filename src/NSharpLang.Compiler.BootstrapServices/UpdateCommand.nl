@@ -1,12 +1,12 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Compiler
 import System
 import System.IO
 import System.Text
+import NSharpLang.Compiler
 
-public class UpdateCommand {
-    public static func Execute(args: string[]): int {
+class UpdateCommand {
+    static func Execute(args: string[]): int {
         arguments := UpdateCommandKernels.GetArgumentSummary(args)
         if arguments.ShowHelp {
             print UpdateCommandKernels.GetHelpText()
@@ -98,8 +98,7 @@ public class UpdateCommand {
             trimmed := lines[i].Trim()
             shorthandNeedle := packageName + "@"
 
-            if trimmed.StartsWith("- ", StringComparison.Ordinal)
-                && ContainsIgnoreCase(trimmed, shorthandNeedle) {
+            if trimmed.StartsWith("- ", StringComparison.Ordinal) && ContainsIgnoreCase(trimmed, shorthandNeedle) {
                 atIndex := lines[i].IndexOf('@')
                 if atIndex > 0 {
                     lines[i] = lines[i].Substring(0, atIndex + 1) + latest

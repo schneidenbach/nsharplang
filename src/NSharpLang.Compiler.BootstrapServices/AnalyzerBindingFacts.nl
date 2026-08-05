@@ -1,11 +1,7 @@
 namespace NSharpLang.Compiler
 
-public class AnalyzerBindingFacts {
-    public static func GetParameterDeclarationPosition(
-        parameterLine: int,
-        parameterColumn: int,
-        fallbackLine: int,
-        fallbackColumn: int): ValueTuple<int, int> {
+class AnalyzerBindingFacts {
+    static func GetParameterDeclarationPosition(parameterLine: int, parameterColumn: int, fallbackLine: int, fallbackColumn: int): ValueTuple<int, int> {
         line := fallbackLine
         if parameterLine > 0 {
             line = parameterLine
@@ -19,7 +15,7 @@ public class AnalyzerBindingFacts {
         return new ValueTuple<int, int>(line, column)
     }
 
-    public static func IsValueBinding(name: string, typeInfo: TypeInfo, hasTypeBinding: bool): bool {
+    static func IsValueBinding(name: string, typeInfo: TypeInfo, hasTypeBinding: bool): bool {
         if name == "this" || name == "value" {
             return false
         }
@@ -41,7 +37,7 @@ public class AnalyzerBindingFacts {
         return true
     }
 
-    public static func TypeInfoToDeclarationKind(typeInfo: TypeInfo): string {
+    static func TypeInfoToDeclarationKind(typeInfo: TypeInfo): string {
         classType := typeInfo as ClassTypeInfo
         if classType != null {
             return "class"
@@ -95,16 +91,34 @@ public class AnalyzerBindingFacts {
         return "variable"
     }
 
-    public static func IsTypeDeclarationKind(kind: string): bool {
-        if kind == "class" { return true }
-        if kind == "struct" { return true }
-        if kind == "record" { return true }
-        if kind == "soaRecord" { return true }
-        if kind == "interface" { return true }
-        if kind == "enum" { return true }
-        if kind == "union" { return true }
-        if kind == "typeAlias" { return true }
-        if kind == "newtype" { return true }
+    static func IsTypeDeclarationKind(kind: string): bool {
+        if kind == "class" {
+            return true
+        }
+        if kind == "struct" {
+            return true
+        }
+        if kind == "record" {
+            return true
+        }
+        if kind == "soaRecord" {
+            return true
+        }
+        if kind == "interface" {
+            return true
+        }
+        if kind == "enum" {
+            return true
+        }
+        if kind == "union" {
+            return true
+        }
+        if kind == "typeAlias" {
+            return true
+        }
+        if kind == "newtype" {
+            return true
+        }
         return false
     }
 }

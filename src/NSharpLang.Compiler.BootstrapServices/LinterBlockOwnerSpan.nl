@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public class LinterBlockOwnerSpan {
+class LinterBlockOwnerSpan {
     lineValue: int
     columnValue: int
     lengthValue: int
@@ -16,8 +16,8 @@ public class LinterBlockOwnerSpan {
     }
 }
 
-public class LinterBlockOwnerSpanResolver {
-    public static func Resolve(blockLine: int, blockColumn: int, sourceLine: string): LinterBlockOwnerSpan {
+class LinterBlockOwnerSpanResolver {
+    static func Resolve(blockLine: int, blockColumn: int, sourceLine: string): LinterBlockOwnerSpan {
         if string.IsNullOrEmpty(sourceLine) {
             return new LinterBlockOwnerSpan(blockLine, blockColumn, 1)
         }

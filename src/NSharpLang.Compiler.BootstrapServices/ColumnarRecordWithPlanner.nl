@@ -4,6 +4,7 @@ import System
 import System.Reflection
 import System.Reflection.Emit
 
+
 // A record `with` expression is non-destructive mutation: it yields a fresh instance that copies the
 // receiver and replaces the named members. The CLR shape of that copy is a semantic decision that turns
 // entirely on whether the record is a reference type or a value type, and N# owns it here:
@@ -42,14 +43,9 @@ class ColumnarRecordWithPlan {
     // nodes.
     Fields: FieldBuilder[]
 
-    constructor(
-        strategy: ColumnarRecordWithStrategy,
-        cloneMethod: MethodBuilder?,
-        resultType: Type,
-        fields: FieldBuilder[]) {
+    constructor(strategy: ColumnarRecordWithStrategy, cloneMethod: MethodBuilder?, resultType: Type, fields: FieldBuilder[]) {
         if resultType == null || fields == null {
-            throw new InvalidOperationException(
-                "A record-with plan requires a result type and its resolved replacement fields.")
+            throw new InvalidOperationException("A record-with plan requires a result type and its resolved replacement fields.")
         }
         Strategy = strategy
         CloneMethod = cloneMethod
@@ -59,6 +55,7 @@ class ColumnarRecordWithPlan {
 }
 
 class ColumnarRecordWithPlanner {
+
     // Select the clone/copy strategy, receiver shape, ordered replacement set, and result type for one
     // record `with` expression. Returns null to decline — so the mechanical host reports the standard
     // with-expression decline — when the receiver is not a modelled record, when a reference record is
@@ -66,12 +63,9 @@ class ColumnarRecordWithPlanner {
     // target field is initonly (a readonly member cannot be rewritten by stfld outside its declaring
     // constructor, so that shape routes to the residual). fieldNames are the replacement member names in
     // source order, already validated as syntactic identifiers by the host.
-    public static func PlanRecordWith(
-        receiverDef: ColumnarStructDef?,
-        fieldNames: string[]): ColumnarRecordWithPlan? {
+    static func PlanRecordWith(receiverDef: ColumnarStructDef?, fieldNames: string[]): ColumnarRecordWithPlan? {
         if fieldNames == null {
-            throw new InvalidOperationException(
-                "Record-with planning requires the replacement member names.")
+            throw new InvalidOperationException("Record-with planning requires the replacement member names.")
         }
         if receiverDef == null || !receiverDef.IsRecord {
             return null
@@ -107,7 +101,6 @@ class ColumnarRecordWithPlanner {
             index = index + 1
         }
 
-        return new ColumnarRecordWithPlan(
-            strategy, cloneMethod, receiverDef.Builder, fields)
+        return new ColumnarRecordWithPlan(strategy, cloneMethod, receiverDef.Builder, fields)
     }
 }

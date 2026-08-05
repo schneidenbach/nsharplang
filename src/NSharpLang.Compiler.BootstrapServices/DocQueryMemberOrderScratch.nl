@@ -3,7 +3,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 
-public class DocQueryMemberOrderScratch {
+class DocQueryMemberOrderScratch {
     NameRanksByValue: Dictionary<string, int>
 
     KindCounts: int[]
@@ -17,7 +17,7 @@ public class DocQueryMemberOrderScratch {
     UniqueNames: string[]
     UniqueNameCount: int
 
-    public func EnsureCapacity(memberCount: int) {
+    func EnsureCapacity(memberCount: int) {
         EnsureInitialized()
         if KindRanks.Length != memberCount {
             KindRanks = new int[](memberCount)
@@ -39,7 +39,7 @@ public class DocQueryMemberOrderScratch {
         }
     }
 
-    public func AddName(name: string) {
+    func AddName(name: string) {
         EnsureInitialized()
         if NameRanksByValue.ContainsKey(name) {
             return
@@ -50,7 +50,7 @@ public class DocQueryMemberOrderScratch {
         UniqueNameCount = UniqueNameCount + 1
     }
 
-    public func BuildSortedNameRanks() {
+    func BuildSortedNameRanks() {
         EnsureInitialized()
         Array.Sort(UniqueNames, 0, UniqueNameCount, StringComparer.OrdinalIgnoreCase)
 
@@ -61,12 +61,12 @@ public class DocQueryMemberOrderScratch {
         }
     }
 
-    public func GetNameRank(name: string): int {
+    func GetNameRank(name: string): int {
         EnsureInitialized()
         return NameRanksByValue[name]
     }
 
-    public func ResetNames() {
+    func ResetNames() {
         EnsureInitialized()
         NameRanksByValue.Clear()
         if UniqueNameCount > 0 {

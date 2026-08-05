@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // Type-reference resolution AS SEEN FROM A DECLARING TYPE: the analyzer's substitution-aware half of
 // the resolution surface.
 //
@@ -30,16 +31,12 @@ import NSharpLang.Compiler.Ast
 // forms below (generic, array, nullable) have inner references worth rewriting. A generic head keeps
 // the DEFINITION the plain walk found for it while its arguments are rewritten one by one, so the
 // rewritten instantiation is still nominally the same type.
-public class AnalyzerTypeSubstitution {
-
+class AnalyzerTypeSubstitution {
     scopesValue: AnalyzerScopeStack
     declarationContextValue: AnalyzerDeclarationContext
     typeResolverValue: AnalyzerTypeResolver
 
-    constructor(
-        scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext,
-        typeResolver: AnalyzerTypeResolver) {
+    constructor(scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver) {
         scopesValue = scopes
         declarationContextValue = declarationContext
         typeResolverValue = typeResolver
@@ -47,7 +44,7 @@ public class AnalyzerTypeSubstitution {
 
     // The open definition behind a generic instantiation: the one it carries, or — for an
     // instantiation built without one — the declaration its bare name resolves to in scope.
-    public func ResolveGenericDefinition(generic: GenericTypeInfo): TypeInfo? {
+    func ResolveGenericDefinition(generic: GenericTypeInfo): TypeInfo? {
         carried := generic.GenericDefinition
         if carried != null {
             return carried
@@ -60,9 +57,7 @@ public class AnalyzerTypeSubstitution {
     // An alias answers for the type it names. A generic instantiation over an N#-declared definition
     // answers the DEFINITION and hands back the argument binding; every other type — including a
     // generic instantiation over a CLR definition — is its own owner under no substitution.
-    public func GetSourceDeclarationOwner(
-        candidate: TypeInfo,
-        out substitution: Dictionary<string, TypeInfo>?): TypeInfo {
+    func GetSourceDeclarationOwner(candidate: TypeInfo, out substitution: Dictionary<string, TypeInfo>?): TypeInfo {
         substitution = null
         resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
         generic := resolved as GenericTypeInfo
@@ -71,9 +66,7 @@ public class AnalyzerTypeSubstitution {
             if definition != null {
                 reflectionDefinition := definition as ReflectionTypeInfo
                 if reflectionDefinition == null {
-                    substitution = declarationContextValue.CreateGenericSubstitution(
-                        definition,
-                        generic.TypeArguments)
+                    substitution = declarationContextValue.CreateGenericSubstitution(definition, generic.TypeArguments)
                     return definition
                 }
             }
@@ -85,16 +78,9 @@ public class AnalyzerTypeSubstitution {
     // A reference read AGAINST a declaring type. The declaration context answers whenever it owns the
     // declaring file — which is every live case measured — and the substitution walk is the fallback
     // for a reference whose owner the context does not know.
-    public func ResolveTypeForSourceOwner(
-        typeReference: TypeReference,
-        declarationOwner: TypeInfo,
-        substitution: Dictionary<string, TypeInfo>?): TypeInfo {
+    func ResolveTypeForSourceOwner(typeReference: TypeReference, declarationOwner: TypeInfo, substitution: Dictionary<string, TypeInfo>?): TypeInfo {
         resolved: TypeInfo = BuiltInTypes.Unknown
-        if declarationContextValue.TryResolveTypeForOwner(
-                typeReference,
-                declarationOwner,
-                substitution,
-                out resolved) {
+        if declarationContextValue.TryResolveTypeForOwner(typeReference, declarationOwner, substitution, out resolved) {
             return resolved
         }
 
@@ -104,9 +90,7 @@ public class AnalyzerTypeSubstitution {
     // A reference read under a type-parameter binding. With no binding this is exactly the plain
     // walk; with one, the four rewritable forms are handled here and everything else — a tuple, a
     // function type, a union, a by-ref — is left to the plain walk unchanged.
-    public func ResolveTypeWithSubstitution(
-        typeReference: TypeReference,
-        substitution: Dictionary<string, TypeInfo>?): TypeInfo {
+    func ResolveTypeWithSubstitution(typeReference: TypeReference, substitution: Dictionary<string, TypeInfo>?): TypeInfo {
         if substitution == null {
             return typeResolverValue.ResolveType(typeReference)
         }
@@ -142,9 +126,7 @@ public class AnalyzerTypeSubstitution {
     // A generic head under a binding. The head itself is resolved by the PLAIN walk — that is what
     // records the reference and finds the open definition — and only the arguments are rewritten, so
     // the result keeps the head's nominal identity while its arguments carry the binding.
-    func ResolveGenericTypeWithSubstitution(
-        generic: GenericTypeReference,
-        substitution: Dictionary<string, TypeInfo>): TypeInfo {
+    func ResolveGenericTypeWithSubstitution(generic: GenericTypeReference, substitution: Dictionary<string, TypeInfo>): TypeInfo {
         resolved := typeResolverValue.ResolveType(generic) as GenericTypeInfo
         genericDefinition: TypeInfo? = null
         if resolved != null {

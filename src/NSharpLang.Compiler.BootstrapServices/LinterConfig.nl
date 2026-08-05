@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 
-public class LinterConfig {
+class LinterConfig {
     RuleSeverities: Dictionary<string, object>
     DisabledRules: List<string>
 
@@ -13,11 +13,11 @@ public class LinterConfig {
         DisabledRules = new List<string>()
     }
 
-    public static func Default(): LinterConfig {
+    static func Default(): LinterConfig {
         config := new LinterConfig()
         descriptors := DiagnosticCatalog.LinterDescriptors
 
-        foreach descriptorValue in descriptors {
+        for descriptorValue in descriptors {
             descriptor := descriptorValue as DiagnosticDescriptor
             if descriptor != null {
                 config.RuleSeverities[descriptor.Code] = SeverityObject(descriptor.DefaultSeverity)
@@ -27,7 +27,7 @@ public class LinterConfig {
         return config
     }
 
-    public static func FromEditorConfig(directoryPath: string): LinterConfig {
+    static func FromEditorConfig(directoryPath: string): LinterConfig {
         config := Default()
 
         current: string? = directoryPath
@@ -58,13 +58,12 @@ public class LinterConfig {
         lines := File.ReadAllLines(path)
         inNSharpSection := false
 
-        foreach line in lines {
+        for line in lines {
             trimmed := line.Trim()
 
             if trimmed.StartsWith("[") && trimmed.EndsWith("]") {
                 pattern := trimmed.Substring(1, trimmed.Length - 2)
-                inNSharpSection = pattern.IndexOf("*.nl", StringComparison.Ordinal) >= 0
-                    || pattern.IndexOf(".nl", StringComparison.Ordinal) >= 0
+                inNSharpSection = pattern.IndexOf("*.nl", StringComparison.Ordinal) >= 0 || pattern.IndexOf(".nl", StringComparison.Ordinal) >= 0
                 continue
             }
 
@@ -147,10 +146,9 @@ public class LinterConfig {
     static func IsEditorConfigRoot(path: string): bool {
         lines := File.ReadAllLines(path)
 
-        foreach line in lines {
+        for line in lines {
             trimmed := line.Trim()
-            if String.Compare(trimmed, "root=true", StringComparison.OrdinalIgnoreCase) == 0
-                || String.Compare(trimmed, "root = true", StringComparison.OrdinalIgnoreCase) == 0 {
+            if String.Compare(trimmed, "root=true", StringComparison.OrdinalIgnoreCase) == 0 || String.Compare(trimmed, "root = true", StringComparison.OrdinalIgnoreCase) == 0 {
                 return true
             }
         }
@@ -158,7 +156,7 @@ public class LinterConfig {
         return false
     }
 
-    public func GetSeverity(ruleCode: string): DiagnosticSeverity {
+    func GetSeverity(ruleCode: string): DiagnosticSeverity {
         severity: object = SeverityObject(DiagnosticSeverity.Warning)
         normalizedRuleCode := NormalizeRuleCode(ruleCode)
         if RuleSeverities.TryGetValue(normalizedRuleCode, out severity) {
@@ -168,7 +166,7 @@ public class LinterConfig {
         return DiagnosticCatalog.GetDefaultSeverity(normalizedRuleCode)
     }
 
-    public func IsRuleEnabled(ruleCode: string): bool {
+    func IsRuleEnabled(ruleCode: string): bool {
         return !HasDisabledRule(ruleCode)
     }
 

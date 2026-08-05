@@ -4,35 +4,23 @@ import System
 import System.Reflection
 import System.Runtime.CompilerServices
 
+
 // The exact CLR member owner for range/index plans. Callers receive already-selected handles;
 // no C# seed, reflection-order lookup, or overload scoring participates in planning.
 class ColumnarRangeIndexHandles {
-    public IndexConstructor: ConstructorInfo
-    public IndexGetOffset: MethodInfo
-    public RangeConstructor: ConstructorInfo
-    public RangeGetOffsetAndLength: MethodInfo
-    public GetSubArrayDefinition: MethodInfo
-    public StringLengthGetter: MethodInfo
-    public StringCharsGetter: MethodInfo
-    public StringSubstring: MethodInfo
-    public TupleItem1: FieldInfo
-    public TupleItem2: FieldInfo
+    IndexConstructor: ConstructorInfo
+    IndexGetOffset: MethodInfo
+    RangeConstructor: ConstructorInfo
+    RangeGetOffsetAndLength: MethodInfo
+    GetSubArrayDefinition: MethodInfo
+    StringLengthGetter: MethodInfo
+    StringCharsGetter: MethodInfo
+    StringSubstring: MethodInfo
+    TupleItem1: FieldInfo
+    TupleItem2: FieldInfo
 
-    constructor(
-        indexConstructor: ConstructorInfo,
-        indexGetOffset: MethodInfo,
-        rangeConstructor: ConstructorInfo,
-        rangeGetOffsetAndLength: MethodInfo,
-        getSubArrayDefinition: MethodInfo,
-        stringLengthGetter: MethodInfo,
-        stringCharsGetter: MethodInfo,
-        stringSubstring: MethodInfo,
-        tupleItem1: FieldInfo,
-        tupleItem2: FieldInfo) {
-        if indexConstructor == null || indexGetOffset == null || rangeConstructor == null
-            || rangeGetOffsetAndLength == null || getSubArrayDefinition == null
-            || stringLengthGetter == null || stringCharsGetter == null
-            || stringSubstring == null || tupleItem1 == null || tupleItem2 == null {
+    constructor(indexConstructor: ConstructorInfo, indexGetOffset: MethodInfo, rangeConstructor: ConstructorInfo, rangeGetOffsetAndLength: MethodInfo, getSubArrayDefinition: MethodInfo, stringLengthGetter: MethodInfo, stringCharsGetter: MethodInfo, stringSubstring: MethodInfo, tupleItem1: FieldInfo, tupleItem2: FieldInfo) {
+        if indexConstructor == null || indexGetOffset == null || rangeConstructor == null || rangeGetOffsetAndLength == null || getSubArrayDefinition == null || stringLengthGetter == null || stringCharsGetter == null || stringSubstring == null || tupleItem1 == null || tupleItem2 == null {
             throw new InvalidOperationException("Range/index CLR handles cannot be null.")
         }
 
@@ -49,7 +37,7 @@ class ColumnarRangeIndexHandles {
         ValidateGetSubArrayDefinition(GetSubArrayDefinition)
     }
 
-    public static func Resolve(): ColumnarRangeIndexHandles {
+    static func Resolve(): ColumnarRangeIndexHandles {
         intBool := new Type[](2)
         intBool[0] = typeof(int)
         intBool[1] = typeof(bool)
@@ -79,20 +67,10 @@ class ColumnarRangeIndexHandles {
 
         getSubArrayDefinition := RequiredGetSubArrayDefinition()
 
-        return new ColumnarRangeIndexHandles(
-            indexConstructor,
-            indexGetOffset,
-            rangeConstructor,
-            rangeGetOffsetAndLength,
-            getSubArrayDefinition,
-            stringLengthGetter,
-            stringCharsGetter,
-            stringSubstring,
-            tupleItem1,
-            tupleItem2)
+        return new ColumnarRangeIndexHandles(indexConstructor, indexGetOffset, rangeConstructor, rangeGetOffsetAndLength, getSubArrayDefinition, stringLengthGetter, stringCharsGetter, stringSubstring, tupleItem1, tupleItem2)
     }
 
-    public func CloseGetSubArray(elementType: Type): MethodInfo {
+    func CloseGetSubArray(elementType: Type): MethodInfo {
         if elementType == null {
             throw new InvalidOperationException("GetSubArray element type cannot be null.")
         }
@@ -107,8 +85,7 @@ class ColumnarRangeIndexHandles {
     static func RequiredGetSubArrayDefinition(): MethodInfo {
         definition := typeof(RuntimeHelpers).GetMethod("GetSubArray")
         if definition == null {
-            throw new InvalidOperationException(
-                "Required CLR method RuntimeHelpers.GetSubArray<T>(T[],Range) was not found uniquely.")
+            throw new InvalidOperationException("Required CLR method RuntimeHelpers.GetSubArray<T>(T[],Range) was not found uniquely.")
         }
         ValidateGetSubArrayDefinition(definition)
         return definition
@@ -116,8 +93,7 @@ class ColumnarRangeIndexHandles {
 
     static func ValidateGetSubArrayDefinition(definition: MethodInfo) {
         if definition.get_DeclaringType() != typeof(RuntimeHelpers) {
-            throw new InvalidOperationException(
-                "GetSubArray definition must be declared by RuntimeHelpers.")
+            throw new InvalidOperationException("GetSubArray definition must be declared by RuntimeHelpers.")
         }
         if !definition.get_IsStatic() {
             throw new InvalidOperationException("GetSubArray definition must be static.")
@@ -138,8 +114,7 @@ class ColumnarRangeIndexHandles {
             throw new InvalidOperationException("GetSubArray first parameter must be an SZ array.")
         }
         if parameters[1].get_ParameterType() != typeof(Range) {
-            throw new InvalidOperationException(
-                "GetSubArray second parameter must be System.Range.")
+            throw new InvalidOperationException("GetSubArray second parameter must be System.Range.")
         }
 
         returnElement := returnType.GetElementType()
@@ -151,8 +126,7 @@ class ColumnarRangeIndexHandles {
             throw new InvalidOperationException("GetSubArray return element must be a generic parameter.")
         }
         if parameterElement != returnElement {
-            throw new InvalidOperationException(
-                "RuntimeHelpers.GetSubArray definition does not preserve its generic array element.")
+            throw new InvalidOperationException("RuntimeHelpers.GetSubArray definition does not preserve its generic array element.")
         }
     }
 
@@ -170,11 +144,7 @@ class ColumnarRangeIndexHandles {
             throw new InvalidOperationException("Constructed GetSubArray generic argument is invalid.")
         }
         returnElement := returnType.GetElementType()
-        if !returnType.get_IsSZArray()
-            || returnElement == null
-            || (elementType.get_IsGenericParameter()
-                ? !returnElement.get_IsGenericParameter()
-                : returnElement != elementType) {
+        if !returnType.get_IsSZArray() || returnElement == null || (elementType.get_IsGenericParameter() ? !returnElement.get_IsGenericParameter() : returnElement != elementType) {
             throw new InvalidOperationException("Constructed GetSubArray return type is invalid.")
         }
         if parameters.Length != 2 {
@@ -182,11 +152,7 @@ class ColumnarRangeIndexHandles {
         }
         arrayParameterType := parameters[0].get_ParameterType()
         parameterElement := arrayParameterType.GetElementType()
-        if !arrayParameterType.get_IsSZArray()
-            || parameterElement == null
-            || (elementType.get_IsGenericParameter()
-                ? !parameterElement.get_IsGenericParameter()
-                : parameterElement != elementType) {
+        if !arrayParameterType.get_IsSZArray() || parameterElement == null || (elementType.get_IsGenericParameter() ? !parameterElement.get_IsGenericParameter() : parameterElement != elementType) {
             throw new InvalidOperationException("Constructed GetSubArray array parameter is invalid.")
         }
         if parameters[1].get_ParameterType() != typeof(Range) {
@@ -205,8 +171,7 @@ class ColumnarRangeIndexHandles {
     static func RequiredMethod(owner: Type, name: string, parameters: Type[]): MethodInfo {
         method := owner.GetMethod(name, parameters)
         if method == null {
-            throw new InvalidOperationException(
-                "Required CLR method " + name + " was not found on its exact owner.")
+            throw new InvalidOperationException("Required CLR method " + name + " was not found on its exact owner.")
         }
         return method
     }
@@ -214,8 +179,7 @@ class ColumnarRangeIndexHandles {
     static func RequiredField(owner: Type, name: string): FieldInfo {
         field := owner.GetField(name)
         if field == null {
-            throw new InvalidOperationException(
-                "Required CLR field " + name + " was not found on its exact owner.")
+            throw new InvalidOperationException("Required CLR field " + name + " was not found on its exact owner.")
         }
         return field
     }

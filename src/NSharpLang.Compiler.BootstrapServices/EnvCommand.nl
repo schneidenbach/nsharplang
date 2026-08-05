@@ -1,11 +1,11 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Compiler
 import System
 import System.IO
 import System.Text
+import NSharpLang.Compiler
 
-public class EnvProjectInfo {
+class EnvProjectInfo {
     Name: string?
     TargetFramework: string?
     OutputType: string?
@@ -19,8 +19,8 @@ public class EnvProjectInfo {
     }
 }
 
-public class EnvCommand {
-    public static func Execute(args: string[]): int {
+class EnvCommand {
+    static func Execute(args: string[]): int {
         options := EnvCommandKernels.GetOptionSummary(args)
         if options.ShowHelp {
             print EnvCommandKernels.GetHelpText()
@@ -57,27 +57,9 @@ public class EnvCommand {
         projectInfo := GetProjectInfo(Environment.CurrentDirectory)
 
         if outputMode == 1 {
-            print BuildJson(
-                nlcVersion,
-                dotnetVersion,
-                runtime,
-                os,
-                arch,
-                nugetCachePath ?? "",
-                nsharpBinPath,
-                nsharpPackageCachePath,
-                projectInfo)
+            print BuildJson(nlcVersion, dotnetVersion, runtime, os, arch, nugetCachePath ?? "", nsharpBinPath, nsharpPackageCachePath, projectInfo)
         } else {
-            PrintText(
-                nlcVersion,
-                dotnetVersion,
-                runtime,
-                os,
-                arch,
-                nugetCachePath ?? "",
-                nsharpBinPath,
-                nsharpPackageCachePath,
-                projectInfo)
+            PrintText(nlcVersion, dotnetVersion, runtime, os, arch, nugetCachePath ?? "", nsharpBinPath, nsharpPackageCachePath, projectInfo)
         }
 
         return 0
@@ -157,16 +139,7 @@ public class EnvCommand {
         return null
     }
 
-    static func PrintText(
-        nlcVersion: string,
-        dotnetVersion: string,
-        runtime: string,
-        os: string,
-        arch: string,
-        nugetCachePath: string,
-        nsharpBinPath: string,
-        nsharpPackageCachePath: string,
-        projectInfo: EnvProjectInfo?) {
+    static func PrintText(nlcVersion: string, dotnetVersion: string, runtime: string, os: string, arch: string, nugetCachePath: string, nsharpBinPath: string, nsharpPackageCachePath: string, projectInfo: EnvProjectInfo?) {
         print EnvCommandKernels.GetTextLine(1, nlcVersion)
         print EnvCommandKernels.GetTextLine(2, dotnetVersion)
         print EnvCommandKernels.GetTextLine(3, runtime)
@@ -186,16 +159,7 @@ public class EnvCommand {
         }
     }
 
-    static func BuildJson(
-        nlcVersion: string,
-        dotnetVersion: string,
-        runtime: string,
-        os: string,
-        arch: string,
-        nugetCachePath: string,
-        nsharpBinPath: string,
-        nsharpPackageCachePath: string,
-        projectInfo: EnvProjectInfo?): string {
+    static func BuildJson(nlcVersion: string, dotnetVersion: string, runtime: string, os: string, arch: string, nugetCachePath: string, nsharpBinPath: string, nsharpPackageCachePath: string, projectInfo: EnvProjectInfo?): string {
         builder := new StringBuilder()
         builder.Append("{\"schemaVersion\":2,\"command\":\"env\",\"ok\":true")
         builder.Append(",\"nlcVersion\":")

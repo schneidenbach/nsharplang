@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // The two assignability arms that have to LOOK SOMETHING UP, and are therefore not pure shape facts.
 //
 // `AnalyzerAssignabilityFacts` holds the arms that are decidable from the two types alone — it
@@ -34,20 +35,17 @@ import NSharpLang.Compiler.Ast
 // `func F()` on the interface. The resolution ORDER is load-bearing and preserved: parameters are
 // resolved in pairs, left to right, and the first mismatch stops the walk, so a later parameter of a
 // member that already failed is never resolved and never recorded.
-public class AnalyzerStructuralAssignability {
-
+class AnalyzerStructuralAssignability {
     typeResolverValue: AnalyzerTypeResolver
     externalTypeProbeValue: AnalyzerExternalTypeProbe
 
-    constructor(
-        typeResolver: AnalyzerTypeResolver,
-        externalTypeProbe: AnalyzerExternalTypeProbe) {
+    constructor(typeResolver: AnalyzerTypeResolver, externalTypeProbe: AnalyzerExternalTypeProbe) {
         typeResolverValue = typeResolver
         externalTypeProbeValue = externalTypeProbe
     }
 
     // True when `source` declares a matching function for every function the duck interface demands.
-    public func ImplementsDuckInterface(source: TypeInfo, duckInterface: InterfaceTypeInfo): bool {
+    func ImplementsDuckInterface(source: TypeInfo, duckInterface: InterfaceTypeInfo): bool {
         sourceMembers := GetDeclaredMembers(source)
         if sourceMembers == null {
             return false
@@ -84,7 +82,7 @@ public class AnalyzerStructuralAssignability {
     // Name, arity, parameter types and return type — every one of them compared by the RESOLVED
     // type's display form, and resolved in the original left-to-right order so the effects of the
     // resolution walk land exactly where they did before.
-    public func MethodSignaturesMatch(method1: DeclaredMemberInfo, method2: DeclaredMemberInfo): bool {
+    func MethodSignaturesMatch(method1: DeclaredMemberInfo, method2: DeclaredMemberInfo): bool {
         if method1.Name != method2.Name {
             return false
         }
@@ -116,7 +114,7 @@ public class AnalyzerStructuralAssignability {
     // ASP.NET Core's `ActionResult<T>` accepts any value the non-generic `ActionResult` accepts. The
     // arm is a no-op unless the target is a one-argument `ActionResult` spelling, the source is a CLR
     // type, and the referenced assemblies actually carry `ActionResult`.
-    public func IsAspNetActionResultGenericAssignable(target: TypeInfo, source: TypeInfo): bool {
+    func IsAspNetActionResultGenericAssignable(target: TypeInfo, source: TypeInfo): bool {
         targetGeneric := target as GenericTypeInfo
         if targetGeneric == null {
             return false

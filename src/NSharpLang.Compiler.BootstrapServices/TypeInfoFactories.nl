@@ -5,77 +5,35 @@ import System.Collections
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
-public class ReflectionTypeInfoFactory {
-    public static func FromConstructedGeneric(
-        name: string,
-        arguments: List<TypeInfo>,
-        constructedType: Type): GenericTypeInfo {
-        return new GenericTypeInfo(
-            name,
-            arguments,
-            new ReflectionTypeInfo(constructedType.GetGenericTypeDefinition()))
+class ReflectionTypeInfoFactory {
+    static func FromConstructedGeneric(name: string, arguments: List<TypeInfo>, constructedType: Type): GenericTypeInfo {
+        return new GenericTypeInfo(name, arguments, new ReflectionTypeInfo(constructedType.GetGenericTypeDefinition()))
     }
 }
 
-public class NominalTypeInfoFactory {
-    public static func FromClassDeclaration(declaration: object): ClassTypeInfo {
+class NominalTypeInfoFactory {
+    static func FromClassDeclaration(declaration: object): ClassTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
         nestedTypes := GetNestedTypeArray(declaration)
-        return new ClassTypeInfo(
-            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
-            HasModifier(declaration, 128),
-            GetOptionalTypeReference(declaration, "BaseClass"),
-            GetTypeReferenceArray(declaration, "Interfaces"),
-            GetTypeParameterArray(declaration),
-            primaryConstructorParameters,
-            declaredMembers,
-            nestedTypes,
-            HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers))
+        return new ClassTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), HasModifier(declaration, 128), GetOptionalTypeReference(declaration, "BaseClass"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, nestedTypes, HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers))
     }
 
-    public static func FromStructDeclaration(declaration: object): StructTypeInfo {
+    static func FromStructDeclaration(declaration: object): StructTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new StructTypeInfo(
-            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
-            GetTypeReferenceArray(declaration, "Interfaces"),
-            GetTypeParameterArray(declaration),
-            primaryConstructorParameters,
-            declaredMembers,
-            GetNestedTypeArray(declaration))
+        return new StructTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration))
     }
 
-    public static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
+    static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new RecordTypeInfo(
-            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
-            TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"),
-            GetTypeReferenceArray(declaration, "Interfaces"),
-            GetTypeParameterArray(declaration),
-            primaryConstructorParameters,
-            declaredMembers,
-            GetNestedTypeArray(declaration))
+        return new RecordTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration))
     }
 
-    public static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
+    static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new InterfaceTypeInfo(
-            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"),
-            TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"),
-            GetTypeReferenceArray(declaration, "BaseInterfaces"),
-            GetTypeParameterArray(declaration),
-            declaredMembers,
-            GetNestedTypeArray(declaration))
+        return new InterfaceTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"), GetTypeReferenceArray(declaration, "BaseInterfaces"), GetTypeParameterArray(declaration), declaredMembers, GetNestedTypeArray(declaration))
     }
 
     static func HasModifier(declaration: object, flag: int): bool {
@@ -169,11 +127,7 @@ public class NominalTypeInfoFactory {
                 throw new InvalidOperationException("Expected '" + item.GetType().Name + ".Type' to be a type reference.")
             }
 
-            result[index] = new ParameterDeclarationInfo(
-                TypeInfoFactoryReflection.GetRequiredString(item, "Name"),
-                parameterType,
-                TypeInfoFactoryReflection.GetRequiredInt(item, "Line"),
-                TypeInfoFactoryReflection.GetRequiredInt(item, "Column"))
+            result[index] = new ParameterDeclarationInfo(TypeInfoFactoryReflection.GetRequiredString(item, "Name"), parameterType, TypeInfoFactoryReflection.GetRequiredInt(item, "Line"), TypeInfoFactoryReflection.GetRequiredInt(item, "Column"))
             index = index + 1
         }
 
@@ -235,37 +189,7 @@ public class NominalTypeInfoFactory {
         kind := GetDeclaredMemberKind(typeName)
         typeParameters := GetTypeParameterArray(member)
         genericConstraints := GetGenericConstraintArray(member)
-        return new DeclaredMemberInfo(
-            name,
-            containingType,
-            kind,
-            GetDeclaredMemberKindName(kind),
-            GetDeclaredMemberTypeReference(member, kind),
-            HasOptionalModifier(member, 16),
-            HasOptionalModifier(member, 512),
-            HasOptionalPropertyValue(member, "SetBody"),
-            IsExportedMember(member, name),
-            GetOptionalListCount(member, "Parameters"),
-            GetParameterNameArray(member),
-            GetParameterTypeArray(member),
-            GetParameterModifierArray(member),
-            GetRequiredParameterCount(member),
-            HasParamsParameter(member),
-            HasReceiverParameter(member),
-            GetOptionalTypeReference(member, "ReturnType"),
-            typeParameters.Length,
-            typeParameters,
-            genericConstraints,
-            GetOptionalListCount(member, "Attributes"),
-            HasMustUseAttribute(member),
-            HasOptionalModifier(member, 2048),
-            HasOptionalModifier(member, 4096),
-            GetOptionalBool(member, "IsOperatorOverload"),
-            GetOptionalString(member, "OperatorSymbol"),
-            GetOptionalBool(member, "IsConversionOperator"),
-            GetOptionalBool(member, "IsImplicitConversion"),
-            TypeInfoFactoryReflection.GetRequiredInt(member, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
+        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16), HasOptionalModifier(member, 512), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
     }
 
     static func GetGenericConstraintArray(owner: object): GenericConstraint[] {
@@ -296,9 +220,7 @@ public class NominalTypeInfoFactory {
     }
 
     static func GetDeclaredMemberTypeReference(member: object, kind: DeclaredMemberKind): TypeReference? {
-        if kind == DeclaredMemberKind.Field
-            || kind == DeclaredMemberKind.Property
-            || kind == DeclaredMemberKind.TypeAlias {
+        if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property || kind == DeclaredMemberKind.TypeAlias {
             return GetOptionalTypeReference(member, "Type")
         }
 
@@ -450,8 +372,7 @@ public class NominalTypeInfoFactory {
                 throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
             }
 
-            if GetParameterModifier(item) != ParameterModifier.Params
-                && TypeInfoFactoryReflection.GetOptionalProperty(item, "DefaultValue") == null {
+            if GetParameterModifier(item) != ParameterModifier.Params && TypeInfoFactoryReflection.GetOptionalProperty(item, "DefaultValue") == null {
                 count = count + 1
             }
 
@@ -544,11 +465,8 @@ public class NominalTypeInfoFactory {
     // Public because the analyzer's function-type factory answers the same question for a
     // DECLARED attribute list and the analyzer's reflection arm for a CLR attribute name; the rule
     // is stated once, here.
-    public static func IsMustUseAttributeName(name: string): bool {
-        return AttributeNameEquals(name, "MustUse")
-            || AttributeNameEquals(name, "MustUseAttribute")
-            || AttributeNameEndsWith(name, ".MustUse")
-            || AttributeNameEndsWith(name, ".MustUseAttribute")
+    static func IsMustUseAttributeName(name: string): bool {
+        return AttributeNameEquals(name, "MustUse") || AttributeNameEquals(name, "MustUseAttribute") || AttributeNameEndsWith(name, ".MustUse") || AttributeNameEndsWith(name, ".MustUseAttribute")
     }
 
     static func AttributeNameEquals(name: string, expected: string): bool {
@@ -652,15 +570,7 @@ public class NominalTypeInfoFactory {
     }
 
     static func IsNestedTypeDeclarationName(typeName: string): bool {
-        return typeName == "ClassDeclaration"
-            || typeName == "StructDeclaration"
-            || typeName == "RecordDeclaration"
-            || typeName == "SoaRecordDeclaration"
-            || typeName == "InterfaceDeclaration"
-            || typeName == "EnumDeclaration"
-            || typeName == "UnionDeclaration"
-            || typeName == "TypeAliasDeclaration"
-            || typeName == "NewtypeDeclaration"
+        return typeName == "ClassDeclaration" || typeName == "StructDeclaration" || typeName == "RecordDeclaration" || typeName == "SoaRecordDeclaration" || typeName == "InterfaceDeclaration" || typeName == "EnumDeclaration" || typeName == "UnionDeclaration" || typeName == "TypeAliasDeclaration" || typeName == "NewtypeDeclaration"
     }
 
     static func CreateNestedTypeInfo(declaration: object): NestedTypeInfo {
@@ -753,9 +663,7 @@ public class NominalTypeInfoFactory {
         return "variable"
     }
 
-    static func HasParameterlessClassConstructor(
-        primaryConstructorParameters: ParameterDeclarationInfo[],
-        members: DeclaredMemberInfo[]): bool {
+    static func HasParameterlessClassConstructor(primaryConstructorParameters: ParameterDeclarationInfo[], members: DeclaredMemberInfo[]): bool {
         if primaryConstructorParameters.Length > 0 {
             return false
         }
@@ -778,12 +686,12 @@ public class NominalTypeInfoFactory {
     }
 }
 
-public class SoaTypeInfoFactory {
-    public static func FromDeclaration(declaration: object): SoaRecordTypeInfo {
+class SoaTypeInfoFactory {
+    static func FromDeclaration(declaration: object): SoaRecordTypeInfo {
         return new SoaRecordTypeInfo(CreateDeclarationInfo(declaration))
     }
 
-    public static func CreateDeclarationInfo(declaration: object): SoaRecordDeclarationInfo {
+    static func CreateDeclarationInfo(declaration: object): SoaRecordDeclarationInfo {
         columns := new List<SoaColumnInfo>()
         sourceColumns := GetRequiredList(declaration, "Columns")
 
@@ -791,21 +699,13 @@ public class SoaTypeInfoFactory {
         while index < sourceColumns.Count {
             column := sourceColumns[index]
             if column != null {
-                columns.Add(new SoaColumnInfo(
-                    GetRequiredString(column, "Name"),
-                    GetRequiredTypeReference(column, "Type"),
-                    GetRequiredInt(column, "Line"),
-                    GetRequiredInt(column, "Column")))
+                columns.Add(new SoaColumnInfo(GetRequiredString(column, "Name"), GetRequiredTypeReference(column, "Type"), GetRequiredInt(column, "Line"), GetRequiredInt(column, "Column")))
             }
 
             index = index + 1
         }
 
-        return new SoaRecordDeclarationInfo(
-            GetRequiredString(declaration, "Name"),
-            columns,
-            GetRequiredInt(declaration, "Line"),
-            GetRequiredInt(declaration, "Column"))
+        return new SoaRecordDeclarationInfo(GetRequiredString(declaration, "Name"), columns, GetRequiredInt(declaration, "Line"), GetRequiredInt(declaration, "Column"))
     }
 
     static func GetRequiredTypeReference(owner: object, propertyName: string): TypeReference {
@@ -831,18 +731,13 @@ public class SoaTypeInfoFactory {
     }
 }
 
-public class UnionTypeInfoFactory {
-    public static func FromDeclaration(declaration: object): UnionTypeInfo {
+class UnionTypeInfoFactory {
+    static func FromDeclaration(declaration: object): UnionTypeInfo {
         typeParametersValue := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "TypeParameters")
         typeParameters := CreateTypeParameterList(typeParametersValue)
         cases := CreateUnionCaseList(TypeInfoFactoryReflection.GetRequiredList(declaration, "Cases"))
 
-        return new UnionTypeInfo(new UnionDeclarationInfo(
-            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-            typeParameters,
-            cases,
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column")))
+        return new UnionTypeInfo(new UnionDeclarationInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), typeParameters, cases, TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column")))
     }
 
     static func CreateTypeParameterList(value: object?): List<TypeParameter>? {
@@ -889,8 +784,8 @@ public class UnionTypeInfoFactory {
     }
 }
 
-public class EnumTypeInfoFactory {
-    public static func FromDeclaration(declaration: object): EnumTypeInfo {
+class EnumTypeInfoFactory {
+    static func FromDeclaration(declaration: object): EnumTypeInfo {
         members := new List<EnumMemberInfo>()
         sourceMembers := TypeInfoFactoryReflection.GetRequiredList(declaration, "Members")
 
@@ -904,12 +799,7 @@ public class EnumTypeInfoFactory {
             index = index + 1
         }
 
-        return new EnumTypeInfo(new EnumDeclarationInfo(
-            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-            members,
-            GetRequiredEnumType(declaration, "Type"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column")))
+        return new EnumTypeInfo(new EnumDeclarationInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), members, GetRequiredEnumType(declaration, "Type"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column")))
     }
 
     static func CreateMemberInfo(member: object): EnumMemberInfo {
@@ -928,12 +818,7 @@ public class EnumTypeInfoFactory {
             }
         }
 
-        return new EnumMemberInfo(
-            TypeInfoFactoryReflection.GetRequiredString(member, "Name"),
-            TypeInfoFactoryReflection.GetRequiredInt(member, "Line"),
-            TypeInfoFactoryReflection.GetRequiredInt(member, "Column"),
-            valueKind,
-            valueText)
+        return new EnumMemberInfo(TypeInfoFactoryReflection.GetRequiredString(member, "Name"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), valueKind, valueText)
     }
 
     static func GetRequiredEnumType(owner: object, propertyName: string): EnumType {
@@ -943,7 +828,7 @@ public class EnumTypeInfoFactory {
 }
 
 class TypeInfoFactoryReflection {
-    public static func GetRequiredProperty(owner: object, propertyName: string): object {
+    static func GetRequiredProperty(owner: object, propertyName: string): object {
         value := GetOptionalProperty(owner, propertyName)
         if value == null {
             throw new InvalidOperationException("Expected '" + owner.GetType().Name + "." + propertyName + "' to be present.")
@@ -952,7 +837,7 @@ class TypeInfoFactoryReflection {
         return value
     }
 
-    public static func GetOptionalProperty(owner: object, propertyName: string): object? {
+    static func GetOptionalProperty(owner: object, propertyName: string): object? {
         property := owner.GetType().GetProperty(propertyName)
         if property != null {
             return property.GetValue(owner)
@@ -966,7 +851,7 @@ class TypeInfoFactoryReflection {
         return null
     }
 
-    public static func GetRequiredList(owner: object, propertyName: string): IList {
+    static func GetRequiredList(owner: object, propertyName: string): IList {
         value := GetRequiredProperty(owner, propertyName)
         list := value as IList
         if list == null {
@@ -976,7 +861,7 @@ class TypeInfoFactoryReflection {
         return list
     }
 
-    public static func GetRequiredString(owner: object, propertyName: string): string {
+    static func GetRequiredString(owner: object, propertyName: string): string {
         value := GetRequiredProperty(owner, propertyName)
         text := value as string
         if text == null {
@@ -986,12 +871,12 @@ class TypeInfoFactoryReflection {
         return text
     }
 
-    public static func GetRequiredInt(owner: object, propertyName: string): int {
+    static func GetRequiredInt(owner: object, propertyName: string): int {
         value := GetRequiredProperty(owner, propertyName)
         return Convert.ToInt32(value)
     }
 
-    public static func GetRequiredBool(owner: object, propertyName: string): bool {
+    static func GetRequiredBool(owner: object, propertyName: string): bool {
         value := GetRequiredProperty(owner, propertyName)
         return Convert.ToInt32(value) != 0
     }

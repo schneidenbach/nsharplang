@@ -5,8 +5,8 @@ import System.Collections.Generic
 import System.IO
 import System.Text.Json
 
-public class CompilationArtifacts {
-    public static func WriteRuntimeConfig(config: ProjectConfig, assemblyPath: string) {
+class CompilationArtifacts {
+    static func WriteRuntimeConfig(config: ProjectConfig, assemblyPath: string) {
         ArgumentNullException.ThrowIfNull(config)
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath)
 
@@ -29,7 +29,7 @@ public class CompilationArtifacts {
         File.WriteAllText(runtimeConfigPath, json + Environment.NewLine)
     }
 
-    public static func GetRuntimeFrameworkVersion(targetFramework: string): string {
+    static func GetRuntimeFrameworkVersion(targetFramework: string): string {
         if string.IsNullOrWhiteSpace(targetFramework) || !targetFramework.StartsWith("net", StringComparison.OrdinalIgnoreCase) {
             return "9.0.0"
         }
@@ -71,8 +71,7 @@ public class CompilationArtifacts {
         i := 0
         while !requiresAspNetCore && i < config.Dependencies.Count {
             dependency := config.Dependencies[i]
-            if dependency.Type == ReferenceType.Framework
-                && String.Compare(dependency.Framework ?? "", "Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase) == 0 {
+            if dependency.Type == ReferenceType.Framework && String.Compare(dependency.Framework ?? "", "Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase) == 0 {
                 requiresAspNetCore = true
             }
 

@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System.Collections.Generic
 
-public class AnalysisResult {
+class AnalysisResult {
     errorsValue: List<CompilerError>
     semanticModelValue: SemanticModel
     bindingsValue: BindingMap?

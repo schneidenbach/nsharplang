@@ -385,6 +385,7 @@ test "ownership policy rejects noncanonical paths and unknown product code" {
 
     assert OwnershipPolicy.ShouldSkipDirectory("editors/vscode/out")
     assert OwnershipPolicy.ShouldSkipDirectory("examples/demo/.nsharp")
+    assert OwnershipPolicy.ShouldSkipDirectory(".claude")
     assert !OwnershipPolicy.ShouldSkipDirectory("src/NSharpLang.Compiler/out")
     assert !OwnershipPolicy.ShouldSkipDirectory("src/NSharpLang.Compiler/server")
 }

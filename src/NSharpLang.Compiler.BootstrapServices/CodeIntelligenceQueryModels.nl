@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
 
-public class InspectSummarySymbolResult {
+class InspectSummarySymbolResult {
     nameValue: string
     kindValue: string
 
@@ -15,7 +15,7 @@ public class InspectSummarySymbolResult {
     }
 }
 
-public class InspectSummaryTypeResult {
+class InspectSummaryTypeResult {
     nameValue: string
     resolvedTypeValue: string
     kindValue: string
@@ -34,7 +34,7 @@ public class InspectSummaryTypeResult {
     }
 }
 
-public class InspectSummaryCompletionsResult {
+class InspectSummaryCompletionsResult {
     contextValue: string
     receiverValue: string?
     receiverTypeValue: string?
@@ -49,13 +49,7 @@ public class InspectSummaryCompletionsResult {
     GroupCounts: Dictionary<string, int> => groupCountsValue
     Groups: Dictionary<string, string[]> => groupsValue
 
-    constructor(
-        Context: string,
-        Receiver: string?,
-        ReceiverType: string?,
-        TotalCount: int,
-        GroupCounts: Dictionary<string, int>,
-        Groups: Dictionary<string, string[]>) {
+    constructor(Context: string, Receiver: string?, ReceiverType: string?, TotalCount: int, GroupCounts: Dictionary<string, int>, Groups: Dictionary<string, string[]>) {
         contextValue = Context
         receiverValue = Receiver
         receiverTypeValue = ReceiverType
@@ -65,7 +59,7 @@ public class InspectSummaryCompletionsResult {
     }
 }
 
-public class HoverResult {
+class HoverResult {
     signatureValue: string
     documentationValue: string?
     definedInValue: string?

@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System.Collections.Generic
 
-public class SymbolDeclaration {
+class SymbolDeclaration {
     nameValue: string
     fileValue: string?
     lineValue: int
@@ -29,11 +29,7 @@ public class SymbolDeclaration {
             return false
         }
 
-        return nameValue == other.Name
-            && fileValue == other.File
-            && lineValue == other.Line
-            && columnValue == other.Column
-            && kindValue == other.Kind
+        return nameValue == other.Name && fileValue == other.File && lineValue == other.Line && columnValue == other.Column && kindValue == other.Kind
     }
 
     override func GetHashCode(): int {
@@ -62,7 +58,7 @@ public class SymbolDeclaration {
     }
 }
 
-public class SymbolUsage {
+class SymbolUsage {
     fileValue: string?
     lineValue: int
     columnValue: int
@@ -86,10 +82,7 @@ public class SymbolUsage {
             return false
         }
 
-        return fileValue == other.File
-            && lineValue == other.Line
-            && columnValue == other.Column
-            && lengthValue == other.Length
+        return fileValue == other.File && lineValue == other.Line && columnValue == other.Column && lengthValue == other.Length
     }
 
     override func GetHashCode(): int {
@@ -113,7 +106,7 @@ public class SymbolUsage {
     }
 }
 
-public class BindingPositionKey {
+class BindingPositionKey {
     fileValue: string?
     lineValue: int
     colValue: int
@@ -134,9 +127,7 @@ public class BindingPositionKey {
             return false
         }
 
-        return fileValue == other.File
-            && lineValue == other.Line
-            && colValue == other.Col
+        return fileValue == other.File && lineValue == other.Line && colValue == other.Col
     }
 
     override func GetHashCode(): int {
@@ -150,7 +141,7 @@ public class BindingPositionKey {
     }
 }
 
-public class SymbolUsageBucket {
+class SymbolUsageBucket {
     Items: List<SymbolUsage>
 
     constructor() {
@@ -158,7 +149,7 @@ public class SymbolUsageBucket {
     }
 }
 
-public class BindingEntry {
+class BindingEntry {
     keyValue: BindingPositionKey
     declarationValue: SymbolDeclaration
 
@@ -170,13 +161,13 @@ public class BindingEntry {
         declarationValue = Value
     }
 
-    public func Deconstruct(out key: BindingPositionKey, out declaration: SymbolDeclaration) {
+    func Deconstruct(out key: BindingPositionKey, out declaration: SymbolDeclaration) {
         key = keyValue
         declaration = declarationValue
     }
 }
 
-public class BindingEntryEnumerator {
+class BindingEntryEnumerator {
     keys: List<BindingPositionKey>
     values: List<SymbolDeclaration>
     indexValue: int
@@ -189,13 +180,13 @@ public class BindingEntryEnumerator {
         indexValue = -1
     }
 
-    public func MoveNext(): bool {
+    func MoveNext(): bool {
         indexValue = indexValue + 1
         return indexValue < keys.Count
     }
 }
 
-public class BindingEntryCollection {
+class BindingEntryCollection {
     keys: List<BindingPositionKey>
     values: List<SymbolDeclaration>
 
@@ -213,12 +204,12 @@ public class BindingEntryCollection {
         }
     }
 
-    public func GetEnumerator(): BindingEntryEnumerator {
+    func GetEnumerator(): BindingEntryEnumerator {
         return new BindingEntryEnumerator(keys, values)
     }
 }
 
-public class BindingDeclarationEntryCollection {
+class BindingDeclarationEntryCollection {
     values: List<SymbolDeclaration>
 
     Count: int => values.Count
@@ -235,7 +226,7 @@ public class BindingDeclarationEntryCollection {
     }
 }
 
-public class BindingReferenceResult {
+class BindingReferenceResult {
     declarationValue: SymbolDeclaration?
     usagesValue: List<SymbolUsage>
 
@@ -247,13 +238,13 @@ public class BindingReferenceResult {
         usagesValue = Usages
     }
 
-    public func Deconstruct(out declaration: SymbolDeclaration?, out usages: List<SymbolUsage>) {
+    func Deconstruct(out declaration: SymbolDeclaration?, out usages: List<SymbolUsage>) {
         declaration = declarationValue
         usages = usagesValue
     }
 }
 
-public class BindingMap {
+class BindingMap {
     bindingIndexByKey: Dictionary<string, int>
     bindingKeys: List<BindingPositionKey>
     bindingDeclarations: List<SymbolDeclaration>
@@ -297,7 +288,7 @@ public class BindingMap {
         }
     }
 
-    public func RecordBinding(usageFile: string?, usageLine: int, usageCol: int, usageLength: int, declaration: SymbolDeclaration) {
+    func RecordBinding(usageFile: string?, usageLine: int, usageCol: int, usageLength: int, declaration: SymbolDeclaration) {
         EnsureInitialized()
         usageKey := MakeBindingKey(usageFile, usageLine, usageCol)
         usageText := KeyText(usageKey)
@@ -330,7 +321,7 @@ public class BindingMap {
         versionValue = versionValue + 1
     }
 
-    public func RecordDeclaration(declaration: SymbolDeclaration) {
+    func RecordDeclaration(declaration: SymbolDeclaration) {
         EnsureInitialized()
         key := MakeBindingKey(declaration.File, declaration.Line, declaration.Column)
         text := KeyText(key)
@@ -347,7 +338,7 @@ public class BindingMap {
         versionValue = versionValue + 1
     }
 
-    public func GetBindingAt(filePath: string?, line: int, col: int): SymbolDeclaration? {
+    func GetBindingAt(filePath: string?, line: int, col: int): SymbolDeclaration? {
         EnsureInitialized()
         key := MakeBindingKey(filePath, line, col)
         text := KeyText(key)
@@ -376,7 +367,7 @@ public class BindingMap {
         return null
     }
 
-    public func GetReferences(declaration: SymbolDeclaration?): List<SymbolUsage> {
+    func GetReferences(declaration: SymbolDeclaration?): List<SymbolUsage> {
         EnsureInitialized()
         if declaration == null {
             return new List<SymbolUsage>()
@@ -399,7 +390,7 @@ public class BindingMap {
         return bucket.Items
     }
 
-    public func FindAllReferences(filePath: string?, line: int, col: int): BindingReferenceResult {
+    func FindAllReferences(filePath: string?, line: int, col: int): BindingReferenceResult {
         EnsureInitialized()
         declaration := GetBindingAt(filePath, line, col)
         if declaration == null {
@@ -458,10 +449,7 @@ public class BindingMap {
         i := 0
         while i < declarations.Count {
             candidate := declarations[i]
-            if candidate.Name == declaration.Name
-                && candidate.Line == declaration.Line
-                && candidate.Column == declaration.Column
-                && FilesMatch(candidate.File, declaration.File) {
+            if candidate.Name == declaration.Name && candidate.Line == declaration.Line && candidate.Column == declaration.Column && FilesMatch(candidate.File, declaration.File) {
                 return candidate
             }
 
@@ -471,7 +459,7 @@ public class BindingMap {
         return null
     }
 
-    public func Merge(other: BindingMap) {
+    func Merge(other: BindingMap) {
         EnsureInitialized()
         other.EnsureInitialized()
         i := 0
@@ -610,13 +598,7 @@ public class BindingMap {
     }
 
     static func IsTypeDeclaration(kind: string): bool {
-        return kind == "class"
-            || kind == "struct"
-            || kind == "record"
-            || kind == "soaRecord"
-            || kind == "interface"
-            || kind == "enum"
-            || kind == "union"
+        return kind == "class" || kind == "struct" || kind == "record" || kind == "soaRecord" || kind == "interface" || kind == "enum" || kind == "union"
     }
 
     static func IsInternalDeclaration(name: string): bool {
@@ -640,7 +622,7 @@ public class BindingMap {
     }
 }
 
-public class ProjectIndex {
+class ProjectIndex {
     bindingsValue: BindingMap
     typeDeclarationFilesValue: Dictionary<string, string>
 

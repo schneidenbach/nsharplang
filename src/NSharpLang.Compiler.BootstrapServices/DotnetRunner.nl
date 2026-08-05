@@ -4,10 +4,10 @@ import System
 import System.Diagnostics
 import System.IO
 
-public class DotnetRunResult {
-    public ExitCode: int
-    public Stdout: string
-    public Stderr: string
+class DotnetRunResult {
+    ExitCode: int
+    Stdout: string
+    Stderr: string
 
     constructor(exitCode: int, stdout: string, stderr: string) {
         ExitCode = exitCode
@@ -16,21 +16,14 @@ public class DotnetRunResult {
     }
 }
 
-public class DotnetRunner {
-    public static DefaultTimeout: TimeSpan => TimeSpan.FromMinutes(5)
+class DotnetRunner {
+    static DefaultTimeout: TimeSpan => TimeSpan.FromMinutes(5)
 
-    public static func Run(
-        arguments: string,
-        workingDirectory: string? = null,
-        captureOutput: bool = true,
-        timeout: TimeSpan? = null): DotnetRunResult {
+    static func Run(arguments: string, workingDirectory: string? = null, captureOutput: bool = true, timeout: TimeSpan? = null): DotnetRunResult {
         return RunProcessCore("dotnet", arguments, workingDirectory, captureOutput, timeout)
     }
 
-    public static func RunPassthrough(
-        arguments: string,
-        workingDirectory: string? = null,
-        verbose: bool = false): int {
+    static func RunPassthrough(arguments: string, workingDirectory: string? = null, verbose: bool = false): int {
         psi := BuildPsi("dotnet", arguments, workingDirectory)
         psi.RedirectStandardOutput = false
         psi.RedirectStandardError = false
@@ -44,20 +37,11 @@ public class DotnetRunner {
         return exitCode
     }
 
-    public static func RunProcess(
-        fileName: string,
-        arguments: string,
-        workingDirectory: string? = null,
-        timeout: TimeSpan? = null): DotnetRunResult {
+    static func RunProcess(fileName: string, arguments: string, workingDirectory: string? = null, timeout: TimeSpan? = null): DotnetRunResult {
         return RunProcessCore(fileName, arguments, workingDirectory, true, timeout)
     }
 
-    static func RunProcessCore(
-        fileName: string,
-        arguments: string,
-        workingDirectory: string?,
-        captureOutput: bool,
-        timeout: TimeSpan?): DotnetRunResult {
+    static func RunProcessCore(fileName: string, arguments: string, workingDirectory: string?, captureOutput: bool, timeout: TimeSpan?): DotnetRunResult {
         psi := BuildPsi(fileName, arguments, workingDirectory)
         psi.RedirectStandardOutput = captureOutput
         psi.RedirectStandardError = captureOutput
@@ -94,22 +78,13 @@ public class DotnetRunner {
 
         process.WaitForExit()
 
-        result := new DotnetRunResult(
-            process.ExitCode,
-            stdoutTask.Result,
-            stderrTask.Result)
+        result := new DotnetRunResult(process.ExitCode, stdoutTask.Result, stderrTask.Result)
         process.Dispose()
         return result
     }
 
-    static func BuildPsi(
-        fileName: string,
-        arguments: string,
-        workingDirectory: string?): ProcessStartInfo {
-        psi := new ProcessStartInfo {
-            FileName: fileName,
-            Arguments: arguments
-        }
+    static func BuildPsi(fileName: string, arguments: string, workingDirectory: string?): ProcessStartInfo {
+        psi := new ProcessStartInfo { FileName: fileName, Arguments: arguments }
 
         if workingDirectory != null {
             psi.WorkingDirectory = Path.GetFullPath(workingDirectory ?? "")

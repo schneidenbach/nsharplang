@@ -6,50 +6,44 @@ import System.Text
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
-public class CompletionDeclarationFacts {
-    public static func ToCompletionItem(declaration: object): CompletionItem? {
+class CompletionDeclarationFacts {
+    static func ToCompletionItem(declaration: object): CompletionItem? {
         typeName := declaration.GetType().Name
 
         if typeName == "FunctionDeclaration" {
             returnType := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "ReturnType") as TypeReference
-            return new CompletionItem(
-                TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-                "function",
-                TypeReferenceFacts.GetDisplayNameOrVoid(returnType),
-                FormatParameters(TypeInfoFactoryReflection.GetRequiredList(declaration, "Parameters")),
-                null,
-                HasStaticModifier(DeclarationFacts.GetDeclarationModifiers(declaration)))
+            return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), "function", TypeReferenceFacts.GetDisplayNameOrVoid(returnType), FormatParameters(TypeInfoFactoryReflection.GetRequiredList(declaration, "Parameters")), null, HasStaticModifier(DeclarationFacts.GetDeclarationModifiers(declaration)))
         }
 
-        if typeName == "ClassDeclaration" { return TypeItem(declaration, "class") }
-        if typeName == "StructDeclaration" { return TypeItem(declaration, "struct") }
-        if typeName == "RecordDeclaration" { return TypeItem(declaration, "record") }
-        if typeName == "InterfaceDeclaration" { return TypeItem(declaration, "interface") }
-        if typeName == "EnumDeclaration" { return TypeItem(declaration, "enum") }
-        if typeName == "UnionDeclaration" { return TypeItem(declaration, "union") }
+        if typeName == "ClassDeclaration" {
+            return TypeItem(declaration, "class")
+        }
+        if typeName == "StructDeclaration" {
+            return TypeItem(declaration, "struct")
+        }
+        if typeName == "RecordDeclaration" {
+            return TypeItem(declaration, "record")
+        }
+        if typeName == "InterfaceDeclaration" {
+            return TypeItem(declaration, "interface")
+        }
+        if typeName == "EnumDeclaration" {
+            return TypeItem(declaration, "enum")
+        }
+        if typeName == "UnionDeclaration" {
+            return TypeItem(declaration, "union")
+        }
 
         if typeName == "FieldDeclaration" || typeName == "PropertyDeclaration" {
             memberType := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Type") as TypeReference
-            return new CompletionItem(
-                TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-                "property",
-                TypeReferenceFacts.GetDisplayNameOrVoid(memberType),
-                null,
-                null,
-                false)
+            return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), "property", TypeReferenceFacts.GetDisplayNameOrVoid(memberType), null, null, false)
         }
 
         return null
     }
 
     static func TypeItem(declaration: object, kind: string): CompletionItem {
-        return new CompletionItem(
-            TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
-            kind,
-            null,
-            null,
-            null,
-            false)
+        return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), kind, null, null, null, false)
     }
 
     static func FormatParameters(parameters: IList): string {

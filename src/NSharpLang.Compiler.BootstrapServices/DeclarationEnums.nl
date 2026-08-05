@@ -1,32 +1,32 @@
 namespace NSharpLang.Compiler.Ast
 
-public enum ParameterModifier {
+enum ParameterModifier {
     None,
     Ref,
     Out,
     Params
 }
 
-public enum EnumType {
+enum EnumType {
     Int,
     String
 }
 
-public enum SpecialConstraintKind {
+enum SpecialConstraintKind {
     None = 0,
     Class = 1,
     Struct = 2,
     New = 4
 }
 
-public enum PropertyModifier {
+enum PropertyModifier {
     None = 0,
     Required = 1,
     Init = 2,
     Readonly = 4
 }
 
-public enum Modifiers {
+enum Modifiers {
     None = 0,
     Public = 1,
     Private = 2,

@@ -5,7 +5,7 @@ import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
 
-public enum DeclaredMemberKind {
+enum DeclaredMemberKind {
     Unknown,
     Field,
     Property,
@@ -22,7 +22,7 @@ public enum DeclaredMemberKind {
     Constructor
 }
 
-public class DeclaredMemberInfo {
+class DeclaredMemberInfo {
     nameValue: string
     containingTypeValue: string
     kindValue: DeclaredMemberKind
@@ -85,37 +85,7 @@ public class DeclaredMemberInfo {
     Line: int => lineValue
     Column: int => columnValue
 
-    constructor(
-        name: string,
-        containingType: string,
-        kind: DeclaredMemberKind,
-        kindName: string,
-        typeReference: TypeReference?,
-        isStatic: bool,
-        isReadonly: bool,
-        hasSetter: bool,
-        isExported: bool,
-        parameterCount: int,
-        parameterNames: string[],
-        parameterTypes: TypeReference[],
-        parameterModifiers: ParameterModifier[],
-        requiredParameterCount: int,
-        hasParamsParameter: bool,
-        hasReceiverParameter: bool,
-        returnType: TypeReference?,
-        typeParameterCount: int,
-        typeParameters: TypeParameter[],
-        genericConstraints: GenericConstraint[],
-        attributeCount: int,
-        hasMustUseAttribute: bool,
-        isAsync: bool,
-        isGenerator: bool,
-        isOperatorOverload: bool,
-        operatorSymbol: string,
-        isConversionOperator: bool,
-        isImplicitConversion: bool,
-        line: int,
-        column: int) {
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int) {
         nameValue = name
         containingTypeValue = containingType
         kindValue = kind
@@ -149,7 +119,7 @@ public class DeclaredMemberInfo {
     }
 }
 
-public class ParameterDeclarationInfo {
+class ParameterDeclarationInfo {
     nameValue: string
     typeValue: TypeReference
     lineValue: int
@@ -168,7 +138,7 @@ public class ParameterDeclarationInfo {
     }
 }
 
-public class NestedTypeInfo {
+class NestedTypeInfo {
     nameValue: string
     typeValue: TypeInfo
     isExportedValue: bool
@@ -190,10 +160,10 @@ public class NestedTypeInfo {
     }
 }
 
-public class TypeInfo {
+class TypeInfo {
 }
 
-public class ClassTypeInfo: TypeInfo {
+class ClassTypeInfo: TypeInfo {
     nameValue: string
     lineValue: int
     columnValue: int
@@ -218,18 +188,7 @@ public class ClassTypeInfo: TypeInfo {
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
     HasParameterlessConstructor: bool => hasParameterlessConstructorValue
 
-    constructor(
-        name: string,
-        line: int,
-        column: int,
-        isSealed: bool,
-        baseClass: TypeReference?,
-        interfaces: TypeReference[],
-        typeParameters: TypeParameter[],
-        primaryConstructorParameters: ParameterDeclarationInfo[],
-        declaredMembers: DeclaredMemberInfo[],
-        nestedTypes: NestedTypeInfo[],
-        hasParameterlessConstructor: bool) {
+    constructor(name: string, line: int, column: int, isSealed: bool, baseClass: TypeReference?, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], hasParameterlessConstructor: bool) {
         nameValue = name
         lineValue = line
         columnValue = column
@@ -248,7 +207,7 @@ public class ClassTypeInfo: TypeInfo {
     }
 }
 
-public class StructTypeInfo: TypeInfo {
+class StructTypeInfo: TypeInfo {
     nameValue: string
     lineValue: int
     columnValue: int
@@ -267,15 +226,7 @@ public class StructTypeInfo: TypeInfo {
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
-    constructor(
-        name: string,
-        line: int,
-        column: int,
-        interfaces: TypeReference[],
-        typeParameters: TypeParameter[],
-        primaryConstructorParameters: ParameterDeclarationInfo[],
-        declaredMembers: DeclaredMemberInfo[],
-        nestedTypes: NestedTypeInfo[]) {
+    constructor(name: string, line: int, column: int, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[]) {
         nameValue = name
         lineValue = line
         columnValue = column
@@ -291,7 +242,7 @@ public class StructTypeInfo: TypeInfo {
     }
 }
 
-public class RecordTypeInfo: TypeInfo {
+class RecordTypeInfo: TypeInfo {
     nameValue: string
     lineValue: int
     columnValue: int
@@ -312,16 +263,7 @@ public class RecordTypeInfo: TypeInfo {
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
-    constructor(
-        name: string,
-        line: int,
-        column: int,
-        isStruct: bool,
-        interfaces: TypeReference[],
-        typeParameters: TypeParameter[],
-        primaryConstructorParameters: ParameterDeclarationInfo[],
-        declaredMembers: DeclaredMemberInfo[],
-        nestedTypes: NestedTypeInfo[]) {
+    constructor(name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[]) {
         nameValue = name
         lineValue = line
         columnValue = column
@@ -338,7 +280,7 @@ public class RecordTypeInfo: TypeInfo {
     }
 }
 
-public class InterfaceTypeInfo: TypeInfo {
+class InterfaceTypeInfo: TypeInfo {
     nameValue: string
     lineValue: int
     columnValue: int
@@ -357,15 +299,7 @@ public class InterfaceTypeInfo: TypeInfo {
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
-    constructor(
-        name: string,
-        line: int,
-        column: int,
-        isDuckInterface: bool,
-        baseInterfaces: TypeReference[],
-        typeParameters: TypeParameter[],
-        declaredMembers: DeclaredMemberInfo[],
-        nestedTypes: NestedTypeInfo[]) {
+    constructor(name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[], typeParameters: TypeParameter[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[]) {
         nameValue = name
         lineValue = line
         columnValue = column
@@ -381,7 +315,7 @@ public class InterfaceTypeInfo: TypeInfo {
     }
 }
 
-public class SimpleTypeInfo: TypeInfo {
+class SimpleTypeInfo: TypeInfo {
     nameValue: string
 
     Name: string => nameValue
@@ -408,7 +342,7 @@ public class SimpleTypeInfo: TypeInfo {
     }
 }
 
-public class UnknownTypeInfo: TypeInfo {
+class UnknownTypeInfo: TypeInfo {
     kindValue: UnknownKind
 
     Kind: UnknownKind => kindValue
@@ -435,7 +369,7 @@ public class UnknownTypeInfo: TypeInfo {
     }
 }
 
-public class NewtypeInfo: TypeInfo {
+class NewtypeInfo: TypeInfo {
     nameValue: string
     underlyingTypeValue: TypeReference
 
@@ -452,7 +386,7 @@ public class NewtypeInfo: TypeInfo {
     }
 }
 
-public class ExternalTypeInfo: TypeInfo {
+class ExternalTypeInfo: TypeInfo {
     nameValue: string
 
     Name: string => nameValue
@@ -479,7 +413,7 @@ public class ExternalTypeInfo: TypeInfo {
     }
 }
 
-public class ReflectionTypeInfo: TypeInfo {
+class ReflectionTypeInfo: TypeInfo {
     clrTypeValue: Type
 
     Type: Type => clrTypeValue
@@ -493,30 +427,30 @@ public class ReflectionTypeInfo: TypeInfo {
     }
 }
 
-public class BuiltInTypes {
-    public static Int: SimpleTypeInfo => new SimpleTypeInfo("int")
-    public static Long: SimpleTypeInfo => new SimpleTypeInfo("long")
-    public static Float: SimpleTypeInfo => new SimpleTypeInfo("float")
-    public static Double: SimpleTypeInfo => new SimpleTypeInfo("double")
-    public static Decimal: SimpleTypeInfo => new SimpleTypeInfo("decimal")
-    public static Byte: SimpleTypeInfo => new SimpleTypeInfo("byte")
-    public static SByte: SimpleTypeInfo => new SimpleTypeInfo("sbyte")
-    public static Short: SimpleTypeInfo => new SimpleTypeInfo("short")
-    public static UShort: SimpleTypeInfo => new SimpleTypeInfo("ushort")
-    public static UInt: SimpleTypeInfo => new SimpleTypeInfo("uint")
-    public static ULong: SimpleTypeInfo => new SimpleTypeInfo("ulong")
-    public static Char: SimpleTypeInfo => new SimpleTypeInfo("char")
-    public static Bool: SimpleTypeInfo => new SimpleTypeInfo("bool")
-    public static String: SimpleTypeInfo => new SimpleTypeInfo("string")
-    public static Void: SimpleTypeInfo => new SimpleTypeInfo("void")
-    public static Object: SimpleTypeInfo => new SimpleTypeInfo("object")
-    public static Null: SimpleTypeInfo => new SimpleTypeInfo("null")
-    public static Never: SimpleTypeInfo => new SimpleTypeInfo("never")
-    public static Unknown: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.ErrorRecovery)
-    public static InferenceHole: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.InferenceHole)
-    public static DeferredExternal: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.DeferredExternal)
+class BuiltInTypes {
+    static Int: SimpleTypeInfo => new SimpleTypeInfo("int")
+    static Long: SimpleTypeInfo => new SimpleTypeInfo("long")
+    static Float: SimpleTypeInfo => new SimpleTypeInfo("float")
+    static Double: SimpleTypeInfo => new SimpleTypeInfo("double")
+    static Decimal: SimpleTypeInfo => new SimpleTypeInfo("decimal")
+    static Byte: SimpleTypeInfo => new SimpleTypeInfo("byte")
+    static SByte: SimpleTypeInfo => new SimpleTypeInfo("sbyte")
+    static Short: SimpleTypeInfo => new SimpleTypeInfo("short")
+    static UShort: SimpleTypeInfo => new SimpleTypeInfo("ushort")
+    static UInt: SimpleTypeInfo => new SimpleTypeInfo("uint")
+    static ULong: SimpleTypeInfo => new SimpleTypeInfo("ulong")
+    static Char: SimpleTypeInfo => new SimpleTypeInfo("char")
+    static Bool: SimpleTypeInfo => new SimpleTypeInfo("bool")
+    static String: SimpleTypeInfo => new SimpleTypeInfo("string")
+    static Void: SimpleTypeInfo => new SimpleTypeInfo("void")
+    static Object: SimpleTypeInfo => new SimpleTypeInfo("object")
+    static Null: SimpleTypeInfo => new SimpleTypeInfo("null")
+    static Never: SimpleTypeInfo => new SimpleTypeInfo("never")
+    static Unknown: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.ErrorRecovery)
+    static InferenceHole: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.InferenceHole)
+    static DeferredExternal: UnknownTypeInfo => new UnknownTypeInfo(UnknownKind.DeferredExternal)
 
-    public static func Is(typeInfo: TypeInfo?, builtIn: SimpleTypeInfo): bool {
+    static func Is(typeInfo: TypeInfo?, builtIn: SimpleTypeInfo): bool {
         if typeInfo == null {
             return false
         }
@@ -529,17 +463,17 @@ public class BuiltInTypes {
         return simple.Equals(builtIn)
     }
 
-    public static func IsNot(typeInfo: TypeInfo?, builtIn: SimpleTypeInfo): bool {
+    static func IsNot(typeInfo: TypeInfo?, builtIn: SimpleTypeInfo): bool {
         return !Is(typeInfo, builtIn)
     }
 
-    public static func IsUnknown(typeInfo: TypeInfo): bool {
+    static func IsUnknown(typeInfo: TypeInfo): bool {
         unknown := typeInfo as UnknownTypeInfo
         return unknown != null
     }
 }
 
-public class TupleTypeElementInfo {
+class TupleTypeElementInfo {
     Name: string?
     Type: TypeInfo
 
@@ -548,13 +482,13 @@ public class TupleTypeElementInfo {
         Type = elementType
     }
 
-    public func Deconstruct(out name: string?, out elementType: TypeInfo) {
+    func Deconstruct(out name: string?, out elementType: TypeInfo) {
         name = Name
         elementType = Type
     }
 }
 
-public class TupleTypeInfo: TypeInfo {
+class TupleTypeInfo: TypeInfo {
     Elements: List<TupleTypeElementInfo>
 
     constructor(elements: List<TupleTypeElementInfo>) {
@@ -562,7 +496,7 @@ public class TupleTypeInfo: TypeInfo {
     }
 }
 
-public class AnonymousUnionTypeInfo: TypeInfo {
+class AnonymousUnionTypeInfo: TypeInfo {
     Arms: List<TypeInfo>
 
     constructor(arms: List<TypeInfo>) {
@@ -587,7 +521,7 @@ public class AnonymousUnionTypeInfo: TypeInfo {
     }
 }
 
-public class AliasTypeInfo: TypeInfo {
+class AliasTypeInfo: TypeInfo {
     aliasedTypeValue: TypeReference
 
     AliasedType: TypeReference => aliasedTypeValue
@@ -597,7 +531,7 @@ public class AliasTypeInfo: TypeInfo {
     }
 }
 
-public class GenericTypeInfo: TypeInfo {
+class GenericTypeInfo: TypeInfo {
     nameValue: string
     typeArgumentsValue: List<TypeInfo>
     genericDefinitionValue: TypeInfo?
@@ -639,7 +573,7 @@ public class GenericTypeInfo: TypeInfo {
     }
 }
 
-public class ArrayTypeInfo: TypeInfo {
+class ArrayTypeInfo: TypeInfo {
     elementTypeValue: TypeInfo
 
     ElementType: TypeInfo => elementTypeValue
@@ -654,7 +588,7 @@ public class ArrayTypeInfo: TypeInfo {
     }
 }
 
-public class NullableTypeInfo: TypeInfo {
+class NullableTypeInfo: TypeInfo {
     innerTypeValue: TypeInfo
 
     InnerType: TypeInfo => innerTypeValue
@@ -669,7 +603,7 @@ public class NullableTypeInfo: TypeInfo {
     }
 }
 
-public class FunctionTypeInfo: TypeInfo {
+class FunctionTypeInfo: TypeInfo {
     SyntheticName: string?
     SourceName: string?
     SourceContainingType: string?
@@ -700,7 +634,7 @@ public class FunctionTypeInfo: TypeInfo {
     }
 }
 
-public class NSharpMethodGroupInfo: TypeInfo {
+class NSharpMethodGroupInfo: TypeInfo {
     Functions: List<FunctionTypeInfo>
 
     constructor(functions: List<FunctionTypeInfo>) {
@@ -712,7 +646,7 @@ public class NSharpMethodGroupInfo: TypeInfo {
     }
 }
 
-public class ObliviousTypeInfo: TypeInfo {
+class ObliviousTypeInfo: TypeInfo {
     innerTypeValue: TypeInfo
 
     InnerType: TypeInfo => innerTypeValue
@@ -727,7 +661,7 @@ public class ObliviousTypeInfo: TypeInfo {
     }
 }
 
-public class ByRefTypeInfo: TypeInfo {
+class ByRefTypeInfo: TypeInfo {
     innerTypeValue: TypeInfo
 
     InnerType: TypeInfo => innerTypeValue
@@ -742,7 +676,7 @@ public class ByRefTypeInfo: TypeInfo {
     }
 }
 
-public class SoaColumnInfo {
+class SoaColumnInfo {
     Name: string
     Type: TypeReference
     Line: int
@@ -756,7 +690,7 @@ public class SoaColumnInfo {
     }
 }
 
-public class SoaRecordDeclarationInfo {
+class SoaRecordDeclarationInfo {
     Name: string
     Columns: List<SoaColumnInfo>
     Line: int
@@ -770,7 +704,7 @@ public class SoaRecordDeclarationInfo {
     }
 }
 
-public class SoaRecordTypeInfo: TypeInfo {
+class SoaRecordTypeInfo: TypeInfo {
     declarationValue: SoaRecordDeclarationInfo
 
     Declaration: SoaRecordDeclarationInfo => declarationValue
@@ -784,7 +718,7 @@ public class SoaRecordTypeInfo: TypeInfo {
     }
 }
 
-public class SoaRowTypeInfo: TypeInfo {
+class SoaRowTypeInfo: TypeInfo {
     declarationValue: SoaRecordDeclarationInfo
 
     Declaration: SoaRecordDeclarationInfo => declarationValue
@@ -798,19 +732,14 @@ public class SoaRowTypeInfo: TypeInfo {
     }
 }
 
-public class UnionDeclarationInfo {
+class UnionDeclarationInfo {
     Name: string
     TypeParameters: List<TypeParameter>?
     Cases: List<UnionCase>
     Line: int
     Column: int
 
-    constructor(
-        name: string,
-        typeParameters: List<TypeParameter>?,
-        cases: List<UnionCase>,
-        line: int = 0,
-        column: int = 0) {
+    constructor(name: string, typeParameters: List<TypeParameter>?, cases: List<UnionCase>, line: int = 0, column: int = 0) {
         Name = name
         TypeParameters = typeParameters
         Cases = cases
@@ -819,7 +748,7 @@ public class UnionDeclarationInfo {
     }
 }
 
-public class UnionTypeInfo: TypeInfo {
+class UnionTypeInfo: TypeInfo {
     declarationValue: UnionDeclarationInfo
 
     Declaration: UnionDeclarationInfo => declarationValue
@@ -833,25 +762,20 @@ public class UnionTypeInfo: TypeInfo {
     }
 }
 
-public enum EnumMemberValueKind {
+enum EnumMemberValueKind {
     None,
     String,
     Integer
 }
 
-public class EnumMemberInfo {
+class EnumMemberInfo {
     Name: string
     Line: int
     Column: int
     ValueKind: EnumMemberValueKind
     ValueText: string?
 
-    constructor(
-        name: string,
-        line: int = 0,
-        column: int = 0,
-        valueKind: EnumMemberValueKind = 0,
-        valueText: string? = null) {
+    constructor(name: string, line: int = 0, column: int = 0, valueKind: EnumMemberValueKind = 0, valueText: string? = null) {
         Name = name
         Line = line
         Column = column
@@ -860,7 +784,7 @@ public class EnumMemberInfo {
     }
 }
 
-public class EnumDeclarationInfo {
+class EnumDeclarationInfo {
     Name: string
     Members: List<EnumMemberInfo>
     Type: EnumType
@@ -876,7 +800,7 @@ public class EnumDeclarationInfo {
     }
 }
 
-public class EnumTypeInfo: TypeInfo {
+class EnumTypeInfo: TypeInfo {
     declarationValue: EnumDeclarationInfo
 
     Declaration: EnumDeclarationInfo => declarationValue

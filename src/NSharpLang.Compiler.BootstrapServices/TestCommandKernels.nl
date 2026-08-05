@@ -8,19 +8,14 @@ import System.Text
 import System.Text.Json
 import NSharpLang.Compiler.CodeIntelligence
 
-public class NativeTestCase {
+class NativeTestCase {
     DisplayName: string
     FullyQualifiedName: string
     Method: MethodInfo
     Arguments: object?[]
     SkipReason: string?
 
-    constructor(
-        displayName: string,
-        fullyQualifiedName: string,
-        method: MethodInfo,
-        arguments: object?[],
-        skipReason: string?) {
+    constructor(displayName: string, fullyQualifiedName: string, method: MethodInfo, arguments: object?[], skipReason: string?) {
         DisplayName = displayName
         FullyQualifiedName = fullyQualifiedName
         Method = method
@@ -29,7 +24,7 @@ public class NativeTestCase {
     }
 }
 
-public class NativeTestResult {
+class NativeTestResult {
     Name: string
     DisplayName: string
     Outcome: string
@@ -37,13 +32,7 @@ public class NativeTestResult {
     ErrorMessage: string?
     NsharpDescription: string?
 
-    constructor(
-        name: string,
-        displayName: string,
-        outcome: string,
-        duration: string,
-        errorMessage: string?,
-        nsharpDescription: string?) {
+    constructor(name: string, displayName: string, outcome: string, duration: string, errorMessage: string?, nsharpDescription: string?) {
         Name = name
         DisplayName = displayName
         Outcome = outcome
@@ -53,7 +42,7 @@ public class NativeTestResult {
     }
 }
 
-public class NativeTestRun {
+class NativeTestRun {
     Results: IReadOnlyList<NativeTestResult>
     OutcomeRanks: int[]
     OutcomeCount: int
@@ -65,7 +54,7 @@ public class NativeTestRun {
     }
 }
 
-public class TestOutcomeSummary {
+class TestOutcomeSummary {
     okValue: bool
     passedValue: int
     failedValue: int
@@ -84,7 +73,7 @@ public class TestOutcomeSummary {
     }
 }
 
-public class NativeTestSummary {
+class NativeTestSummary {
     okValue: bool
     totalValue: int
     passedValue: int
@@ -97,7 +86,7 @@ public class NativeTestSummary {
     Failed: int => failedValue
     Skipped: int => skippedValue
 
-    public static EmptyFailure: NativeTestSummary => new NativeTestSummary(false, 0, 0, 0, 0)
+    static EmptyFailure: NativeTestSummary => new NativeTestSummary(false, 0, 0, 0, 0)
 
     constructor(ok: bool, total: int, passed: int, failed: int, skipped: int) {
         okValue = ok
@@ -108,7 +97,7 @@ public class NativeTestSummary {
     }
 }
 
-public class TestOptionSummary {
+class TestOptionSummary {
     projectOptionValue: string?
     backendOptionValue: string?
     filterValue: string?
@@ -131,17 +120,7 @@ public class TestOptionSummary {
     NoCache: bool => noCacheValue
     ShowHelp: bool => showHelpValue
 
-    constructor(
-        projectOption: string?,
-        backendOption: string?,
-        filter: string?,
-        timeout: string?,
-        verbose: bool,
-        jsonOutput: bool,
-        coverageReport: bool,
-        collectCoverage: bool,
-        noCache: bool,
-        showHelp: bool) {
+    constructor(projectOption: string?, backendOption: string?, filter: string?, timeout: string?, verbose: bool, jsonOutput: bool, coverageReport: bool, collectCoverage: bool, noCache: bool, showHelp: bool) {
         projectOptionValue = projectOption
         backendOptionValue = backendOption
         filterValue = filter
@@ -155,76 +134,68 @@ public class TestOptionSummary {
     }
 }
 
-public class TestCommandKernels {
-    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+class TestCommandKernels {
+    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
         return Path.GetFullPath(projectOption ?? currentDirectory)
     }
 
-    public static func GetProjectYmlPath(projectRoot: string): string {
+    static func GetProjectYmlPath(projectRoot: string): string {
         return Path.Combine(projectRoot, "project.yml")
     }
 
-    public static func GetTestOutputDirectory(projectRoot: string, targetFramework: string): string {
+    static func GetTestOutputDirectory(projectRoot: string, targetFramework: string): string {
         return Path.Combine(Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), "Debug"), targetFramework), "tests")
     }
 
-    public static func GetAssemblyDirectory(assemblyPath: string): string? {
+    static func GetAssemblyDirectory(assemblyPath: string): string? {
         return Path.GetDirectoryName(assemblyPath)
     }
 
-    public static func GetAssemblyCandidatePath(assemblyDirectory: string, assemblyName: string?): string {
+    static func GetAssemblyCandidatePath(assemblyDirectory: string, assemblyName: string?): string {
         return Path.Combine(assemblyDirectory, (assemblyName ?? "") + ".dll")
     }
 
-    public static func ShouldRunNUnit(testFramework: string?): bool {
+    static func ShouldRunNUnit(testFramework: string?): bool {
         return string.Equals(testFramework ?? "", "nunit", StringComparison.OrdinalIgnoreCase)
     }
 
-    public static func IsNSharpTestsTypeName(typeName: string?): bool {
+    static func IsNSharpTestsTypeName(typeName: string?): bool {
         return string.Equals(typeName ?? "", "NSharpTests", StringComparison.Ordinal)
     }
 
-    public static func IsLifecycleMethodName(methodName: string): bool {
-        return methodName == "Setup"
-            || methodName == "Teardown"
-            || methodName == "InitializeAsync"
-            || methodName == "DisposeAsync"
-            || methodName == "Dispose"
+    static func IsLifecycleMethodName(methodName: string): bool {
+        return methodName == "Setup" || methodName == "Teardown" || methodName == "InitializeAsync" || methodName == "DisposeAsync" || methodName == "Dispose"
     }
 
-    public static func IsTestMethodAttributeName(attributeFullName: string?): bool {
-        return attributeFullName == "Xunit.FactAttribute"
-            || attributeFullName == "Xunit.TheoryAttribute"
-            || attributeFullName == "NUnit.Framework.TestAttribute"
-            || attributeFullName == "NUnit.Framework.TestCaseAttribute"
+    static func IsTestMethodAttributeName(attributeFullName: string?): bool {
+        return attributeFullName == "Xunit.FactAttribute" || attributeFullName == "Xunit.TheoryAttribute" || attributeFullName == "NUnit.Framework.TestAttribute" || attributeFullName == "NUnit.Framework.TestCaseAttribute"
     }
 
-    public static func IsXunitTraitAttributeName(attributeFullName: string?): bool {
+    static func IsXunitTraitAttributeName(attributeFullName: string?): bool {
         return attributeFullName == "Xunit.TraitAttribute"
     }
 
-    public static func IsNSharpDescriptionTraitName(traitName: string?): bool {
+    static func IsNSharpDescriptionTraitName(traitName: string?): bool {
         return string.Equals(traitName ?? "", "NSharpDescription", StringComparison.Ordinal)
     }
 
-    public static func GetNSharpDescriptionTraitKey(): string {
+    static func GetNSharpDescriptionTraitKey(): string {
         return "NSharpDescription"
     }
 
-    public static func IsNUnitIgnoreAttributeName(attributeFullName: string?): bool {
+    static func IsNUnitIgnoreAttributeName(attributeFullName: string?): bool {
         return attributeFullName == "NUnit.Framework.IgnoreAttribute"
     }
 
-    public static func IsSkipNamedArgument(memberName: string): bool {
+    static func IsSkipNamedArgument(memberName: string): bool {
         return memberName == "Skip"
     }
 
-    public static func IsInlineDataAttributeName(attributeFullName: string?): bool {
-        return attributeFullName == "Xunit.InlineDataAttribute"
-            || attributeFullName == "NUnit.Framework.TestCaseAttribute"
+    static func IsInlineDataAttributeName(attributeFullName: string?): bool {
+        return attributeFullName == "Xunit.InlineDataAttribute" || attributeFullName == "NUnit.Framework.TestCaseAttribute"
     }
 
-    public static func GetExitCode(ok: bool): int {
+    static func GetExitCode(ok: bool): int {
         if ok {
             return 0
         }
@@ -232,7 +203,7 @@ public class TestCommandKernels {
         return 1
     }
 
-    public static func GetNativeTestOutcomeRank(outcome: string): int {
+    static func GetNativeTestOutcomeRank(outcome: string): int {
         if outcome == "passed" {
             return 1
         }
@@ -248,7 +219,7 @@ public class TestCommandKernels {
         return 0
     }
 
-    public static func SummarizeOutcomeRanks(outcomeRanks: int[], outcomeCount: int): TestOutcomeSummary {
+    static func SummarizeOutcomeRanks(outcomeRanks: int[], outcomeCount: int): TestOutcomeSummary {
         if outcomeCount < 0 || outcomeCount > outcomeRanks.Length {
             throw new InvalidOperationException("N# test outcome summary kernel rejected the native test results.")
         }
@@ -277,22 +248,12 @@ public class TestCommandKernels {
         return new TestOutcomeSummary(nonOk == 0, passed, failed, skipped)
     }
 
-    public static func SummarizeNativeTestRun(testRun: NativeTestRun): NativeTestSummary {
+    static func SummarizeNativeTestRun(testRun: NativeTestRun): NativeTestSummary {
         outcomeSummary := SummarizeOutcomeRanks(testRun.OutcomeRanks, testRun.OutcomeCount)
-        return new NativeTestSummary(
-            outcomeSummary.Ok && testRun.OutcomeCount > 0,
-            testRun.OutcomeCount,
-            outcomeSummary.Passed,
-            outcomeSummary.Failed,
-            outcomeSummary.Skipped)
+        return new NativeTestSummary(outcomeSummary.Ok && testRun.OutcomeCount > 0, testRun.OutcomeCount, outcomeSummary.Passed, outcomeSummary.Failed, outcomeSummary.Skipped)
     }
 
-    public static func NativeTestJson(
-        projectRoot: string,
-        ok: bool,
-        testResults: IReadOnlyList<NativeTestResult>,
-        errorMessage: string?,
-        summary: NativeTestSummary): string {
+    static func NativeTestJson(projectRoot: string, ok: bool, testResults: IReadOnlyList<NativeTestResult>, errorMessage: string?, summary: NativeTestSummary): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "test"
@@ -347,7 +308,7 @@ public class TestCommandKernels {
         return payload
     }
 
-    public static func GetOptionSummary(args: string[]): TestOptionSummary {
+    static func GetOptionSummary(args: string[]): TestOptionSummary {
         project: string? = null
         filter: string? = null
         timeout: string? = null
@@ -406,20 +367,10 @@ public class TestCommandKernels {
 
         collectCoverage = collectCoverage || coverageReport
 
-        return new TestOptionSummary(
-            project,
-            backend,
-            filter,
-            timeout,
-            verbose,
-            json,
-            coverageReport,
-            collectCoverage,
-            noCache,
-            showHelp)
+        return new TestOptionSummary(project, backend, filter, timeout, verbose, json, coverageReport, collectCoverage, noCache, showHelp)
     }
 
-    public static func GetOutputMode(json: bool): int {
+    static func GetOutputMode(json: bool): int {
         if json {
             return 1
         }
@@ -427,7 +378,7 @@ public class TestCommandKernels {
         return 2
     }
 
-    public static func GetDurationMilliseconds(duration: string): int? {
+    static func GetDurationMilliseconds(duration: string): int? {
         value := DurationMilliseconds(duration)
         if value < 0 {
             return null
@@ -436,11 +387,7 @@ public class TestCommandKernels {
         return value
     }
 
-    public static func MatchesFilter(
-        filter: string,
-        displayName: string,
-        alternateDisplayName: string,
-        fullyQualifiedName: string): bool {
+    static func MatchesFilter(filter: string, displayName: string, alternateDisplayName: string, fullyQualifiedName: string): bool {
         segmentStart := 0
         while segmentStart <= filter.Length {
             segmentEnd := segmentStart
@@ -504,7 +451,7 @@ public class TestCommandKernels {
         return false
     }
 
-    public static func GetHelpText(): string {
+    static func GetHelpText(): string {
         builder := new StringBuilder()
         AppendLine(builder, "N# Test")
         AppendLine(builder, "")
@@ -544,64 +491,59 @@ public class TestCommandKernels {
         return builder.ToString()
     }
 
-    public static func GetMissingProjectFileMessage(): string {
+    static func GetMissingProjectFileMessage(): string {
         return "IL-backed test runs require a project.yml file."
     }
 
-    public static func GetCoverageUnsupportedMessage(): string {
-        return "Coverage collection is not available in nlc test yet. "
-            + "The current runner executes IL-backed xUnit/NUnit tests without instrumentation. "
-            + "Omit --coverage/--coverage-report until native coverage support lands."
+    static func GetCoverageUnsupportedMessage(): string {
+        return "Coverage collection is not available in nlc test yet. " + "The current runner executes IL-backed xUnit/NUnit tests without instrumentation. " + "Omit --coverage/--coverage-report until native coverage support lands."
     }
 
-    public static func GetBuildFailedMessage(): string {
+    static func GetBuildFailedMessage(): string {
         return "Test build failed."
     }
 
-    public static func GetInvalidTimeoutMessage(timeout: string): string {
+    static func GetInvalidTimeoutMessage(timeout: string): string {
         return "Invalid timeout format '" + timeout + "'. Expected a duration like 30s, 5m, or 1h."
     }
 
-    public static func GetProjectStartMessage(projectRoot: string): string {
+    static func GetProjectStartMessage(projectRoot: string): string {
         return "Testing project in " + projectRoot + "..."
     }
 
-    public static func GetNoTestFilesMessage(): string {
+    static func GetNoTestFilesMessage(): string {
         return "No test files (*.tests.nl) found."
     }
 
-    public static func GetFoundTestFilesMessage(testFileCount: int): string {
+    static func GetFoundTestFilesMessage(testFileCount: int): string {
         return "Found " + testFileCount.ToString() + " test file(s)"
     }
 
-    public static func GetSummaryMessage(passed: int, failed: int, skipped: int, total: int): string {
-        return "Passed: " + passed.ToString()
-            + ", Failed: " + failed.ToString()
-            + ", Skipped: " + skipped.ToString()
-            + ", Total: " + total.ToString()
+    static func GetSummaryMessage(passed: int, failed: int, skipped: int, total: int): string {
+        return "Passed: " + passed.ToString() + ", Failed: " + failed.ToString() + ", Skipped: " + skipped.ToString() + ", Total: " + total.ToString()
     }
 
-    public static func GetCompletedElapsedMessage(elapsedText: string): string {
+    static func GetCompletedElapsedMessage(elapsedText: string): string {
         return "  Tests completed in " + elapsedText
     }
 
-    public static func GetFailedElapsedMessage(elapsedText: string): string {
+    static func GetFailedElapsedMessage(elapsedText: string): string {
         return "  Tests failed in " + elapsedText
     }
 
-    public static func GetFailedMessage(message: string): string {
+    static func GetFailedMessage(message: string): string {
         return "Test failed: " + message
     }
 
-    public static func GetVerbosePassedMessage(displayName: string, elapsedMillisecondsText: string): string {
+    static func GetVerbosePassedMessage(displayName: string, elapsedMillisecondsText: string): string {
         return "Passed " + displayName + " [" + elapsedMillisecondsText + " ms]"
     }
 
-    public static func GetVerboseSkippedMessage(displayName: string, reason: string): string {
+    static func GetVerboseSkippedMessage(displayName: string, reason: string): string {
         return "Skipped " + displayName + ": " + reason
     }
 
-    public static func GetVerboseFailedMessage(displayName: string, message: string): string {
+    static func GetVerboseFailedMessage(displayName: string, message: string): string {
         return "Failed " + displayName + ": " + message
     }
 

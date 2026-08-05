@@ -2,14 +2,15 @@ namespace NSharpLang.Compiler.Ast
 
 import System.Collections.Generic
 
+
 // Base class for all statements
-public class Statement: AstNode {
+class Statement: AstNode {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Expression statement
-public class ExpressionStatement: Statement {
+class ExpressionStatement: Statement {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -18,7 +19,7 @@ public class ExpressionStatement: Statement {
 }
 
 // Variable declaration
-public class VariableDeclarationStatement: Statement {
+class VariableDeclarationStatement: Statement {
     Name: string
     Type: TypeReference?
     Initializer: Expression?
@@ -33,7 +34,7 @@ public class VariableDeclarationStatement: Statement {
 }
 
 // Tuple deconstruction: (x, y) := GetPair()
-public class TupleDeconstructionStatement: Statement {
+class TupleDeconstructionStatement: Statement {
     Names: List<string>
     Initializer: Expression
     Kind: VariableKind
@@ -46,7 +47,7 @@ public class TupleDeconstructionStatement: Statement {
 }
 
 // Block statement
-public class BlockStatement: Statement {
+class BlockStatement: Statement {
     Statements: List<Statement>
 
     constructor(Statements: List<Statement>, Line: int, Column: int): base(Line, Column) {
@@ -55,7 +56,7 @@ public class BlockStatement: Statement {
 }
 
 // Explicit systems allocation zone: alloc { ... }
-public class AllocBlockStatement: Statement {
+class AllocBlockStatement: Statement {
     Body: BlockStatement
 
     constructor(Body: BlockStatement, Line: int, Column: int): base(Line, Column) {
@@ -64,7 +65,7 @@ public class AllocBlockStatement: Statement {
 }
 
 // Systems policy escape zone: allow(alloc, reason: "...") { ... }
-public class AllowStatement: Statement {
+class AllowStatement: Statement {
     Effects: List<string>
     Reason: string?
     Owner: string?
@@ -79,7 +80,7 @@ public class AllowStatement: Statement {
 }
 
 // Restricted unsafe zone for systems code.
-public class UnsafeBlockStatement: Statement {
+class UnsafeBlockStatement: Statement {
     Body: BlockStatement
 
     constructor(Body: BlockStatement, Line: int, Column: int): base(Line, Column) {
@@ -88,7 +89,7 @@ public class UnsafeBlockStatement: Statement {
 }
 
 // If statement
-public class IfStatement: Statement {
+class IfStatement: Statement {
     Condition: Expression
     ThenStatement: Statement
     ElseStatement: Statement?
@@ -101,7 +102,7 @@ public class IfStatement: Statement {
 }
 
 // For loop
-public class ForStatement: Statement {
+class ForStatement: Statement {
     Initializer: Statement?
     Condition: Expression?
     Iterator: Expression?
@@ -116,7 +117,7 @@ public class ForStatement: Statement {
 }
 
 // Foreach loop
-public class ForeachStatement: Statement {
+class ForeachStatement: Statement {
     VariableName: string
     Collection: Expression
     Body: Statement
@@ -129,7 +130,7 @@ public class ForeachStatement: Statement {
 }
 
 // Await foreach loop (async iteration - C# 8+)
-public class AwaitForEachStatement: Statement {
+class AwaitForEachStatement: Statement {
     VariableName: string
     Collection: Expression
     Body: Statement
@@ -142,7 +143,7 @@ public class AwaitForEachStatement: Statement {
 }
 
 // While loop
-public class WhileStatement: Statement {
+class WhileStatement: Statement {
     Condition: Expression
     Body: Statement
 
@@ -153,7 +154,7 @@ public class WhileStatement: Statement {
 }
 
 // Return statement
-public class ReturnStatement: Statement {
+class ReturnStatement: Statement {
     Value: Expression?
 
     constructor(Value: Expression?, Line: int, Column: int): base(Line, Column) {
@@ -162,7 +163,7 @@ public class ReturnStatement: Statement {
 }
 
 // Yield statement (Value is null for "yield break")
-public class YieldStatement: Statement {
+class YieldStatement: Statement {
     Value: Expression?
 
     constructor(Value: Expression?, Line: int, Column: int): base(Line, Column) {
@@ -171,19 +172,19 @@ public class YieldStatement: Statement {
 }
 
 // Break statement
-public class BreakStatement: Statement {
+class BreakStatement: Statement {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Continue statement
-public class ContinueStatement: Statement {
+class ContinueStatement: Statement {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Throw statement
-public class ThrowStatement: Statement {
+class ThrowStatement: Statement {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -192,7 +193,7 @@ public class ThrowStatement: Statement {
 }
 
 // Try-catch-finally statement
-public class TryStatement: Statement {
+class TryStatement: Statement {
     TryBlock: BlockStatement
     CatchClauses: List<CatchClause>
     FinallyBlock: BlockStatement?
@@ -204,7 +205,7 @@ public class TryStatement: Statement {
     }
 }
 
-public class CatchClause {
+class CatchClause {
     ExceptionType: TypeReference?
     VariableName: string?
     Block: BlockStatement
@@ -217,7 +218,7 @@ public class CatchClause {
 }
 
 // Using statement
-public class UsingStatement: Statement {
+class UsingStatement: Statement {
     Declaration: VariableDeclarationStatement?
     Expression: Expression?
     Body: Statement?
@@ -230,7 +231,7 @@ public class UsingStatement: Statement {
 }
 
 // Lock statement for thread synchronization
-public class LockStatement: Statement {
+class LockStatement: Statement {
     LockObject: Expression
     Body: BlockStatement
 
@@ -241,7 +242,7 @@ public class LockStatement: Statement {
 }
 
 // Switch statement (non-exhaustive)
-public class SwitchStatement: Statement {
+class SwitchStatement: Statement {
     Value: Expression
     Cases: List<SwitchCase>
 
@@ -251,7 +252,7 @@ public class SwitchStatement: Statement {
     }
 }
 
-public class SwitchCase {
+class SwitchCase {
     Pattern: Pattern?
     Statements: List<Statement>
     Line: int
@@ -266,13 +267,13 @@ public class SwitchCase {
 }
 
 // Empty statement
-public class EmptyStatement: Statement {
+class EmptyStatement: Statement {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Print statement
-public class PrintStatement: Statement {
+class PrintStatement: Statement {
     Value: Expression
 
     constructor(Value: Expression, Line: int, Column: int): base(Line, Column) {
@@ -281,7 +282,7 @@ public class PrintStatement: Statement {
 }
 
 // Event unsubscription: `off subscription`
-public class OffStatement: Statement {
+class OffStatement: Statement {
     Handle: Expression
 
     constructor(Handle: Expression, Line: int, Column: int): base(Line, Column) {
@@ -290,7 +291,7 @@ public class OffStatement: Statement {
 }
 
 // Preprocessor directive (pass-through to C#)
-public class PreprocessorDirective: Statement {
+class PreprocessorDirective: Statement {
     Directive: string
 
     constructor(Directive: string, Line: int, Column: int): base(Line, Column) {
@@ -299,7 +300,7 @@ public class PreprocessorDirective: Statement {
 }
 
 // File-based import: import "path/to/file" [as Alias]
-public class FileImport: Statement {
+class FileImport: Statement {
     Path: string
     Alias: string?
     PathColumn: int
@@ -315,7 +316,7 @@ public class FileImport: Statement {
 }
 
 // Namespace import: import System.Collections.Generic [as Alias]
-public class NamespaceImport: Statement {
+class NamespaceImport: Statement {
     Namespace: string
     Alias: string?
 
@@ -326,7 +327,7 @@ public class NamespaceImport: Statement {
 }
 
 // Assert statement (for test files)
-public class AssertStatement: Statement {
+class AssertStatement: Statement {
     Condition: Expression
     Message: Expression?
 
@@ -337,7 +338,7 @@ public class AssertStatement: Statement {
 }
 
 // Assert throws statement (for test files) - assert throws ExceptionType { body }
-public class AssertThrowsStatement: Statement {
+class AssertThrowsStatement: Statement {
     ExceptionType: TypeReference
     Body: BlockStatement
 
@@ -348,7 +349,7 @@ public class AssertThrowsStatement: Statement {
 }
 
 // Local function statement (C# 7) - function declared inside another function
-public class LocalFunctionStatement: Statement {
+class LocalFunctionStatement: Statement {
     Function: FunctionDeclaration
 
     constructor(Function: FunctionDeclaration, Line: int, Column: int): base(Line, Column) {

@@ -238,7 +238,7 @@ public class OwnershipPolicy {
     public static EpochFileCount: int => 381
     public static EpochPathFingerprint: string => "pathset-v1:8a26e1529863444b"
     public static EpochFactFingerprint: string => "epochfacts-v1:1b3090747e517fc1"
-    public static ReviewedHeadFingerprint: string => "head-v1:ae795f420a927788"
+    public static ReviewedHeadFingerprint: string => "head-v1:bd624153e9645528"
 
     public static func Classify(path: string): OwnershipClassification {
         normalized := NormalizeRelativePath(path)
@@ -409,7 +409,7 @@ public class OwnershipPolicy {
             return true
         }
 
-        return normalized == "artifacts" || normalized == ".context"
+        return normalized == "artifacts" || normalized == ".context" || normalized == ".claude"
             || normalized == "editors/vscode/out" || normalized == "editors/vscode/server"
             || normalized == "website/static/playground/wasm/_framework"
     }

@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // WHETHER A TYPE TEST CAN EVER SUCCEED — the analyzer's one reachability judgement — and its two
 // diagnostics.
 //
@@ -32,18 +33,13 @@ import NSharpLang.Compiler.Ast
 // guard blocked ZERO of them, while `int is Shape` took the INTERFACE arm. The guards are preserved
 // verbatim because this is an ownership move, not a simplification; a later slice may delete them
 // with its own evidence.
-public class AnalyzerPatternReachability {
-
+class AnalyzerPatternReachability {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     declarationContextValue: AnalyzerDeclarationContext
     assignabilityValue: AnalyzerAssignability
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        declarationContext: AnalyzerDeclarationContext,
-        assignability: AnalyzerAssignability) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, declarationContext: AnalyzerDeclarationContext, assignability: AnalyzerAssignability) {
         diagnosticsValue = diagnostics
         spansValue = spans
         declarationContextValue = declarationContext
@@ -52,7 +48,7 @@ public class AnalyzerPatternReachability {
 
     // A `match` arm's type pattern. The span is the pattern's own name; the message names the
     // PATTERN, because that is what the reader wrote.
-    public func CheckTypePattern(pattern: TypePattern, valueType: TypeInfo, targetType: TypeInfo) {
+    func CheckTypePattern(pattern: TypePattern, valueType: TypeInfo, targetType: TypeInfo) {
         if IsPatternPossible(valueType, targetType) {
             return
         }
@@ -62,19 +58,12 @@ public class AnalyzerPatternReachability {
         valueText := valueObject.ToString()
         targetText := targetObject.ToString()
         span := spansValue.GetPatternNameDiagnosticSpan(pattern)
-        diagnosticsValue.Report(
-            ErrorCode.ImpossiblePattern,
-            "This '" + targetText + "' pattern can never match — a '" + valueText + "' is never a '"
-                + targetText + "'",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.ImpossiblePattern, "This '" + targetText + "' pattern can never match — a '" + valueText + "' is never a '" + targetText + "'", span.Line, span.Column, null, span.Length)
     }
 
     // An `is` expression. The span is `is` through the tested type name; the message names the TEST
     // and says it is always false, which is the useful reading of a condition that cannot hold.
-    public func CheckIsExpression(isExpr: IsExpression, sourceType: TypeInfo, targetType: TypeInfo) {
+    func CheckIsExpression(isExpr: IsExpression, sourceType: TypeInfo, targetType: TypeInfo) {
         if IsPatternPossible(sourceType, targetType) {
             return
         }
@@ -84,19 +73,12 @@ public class AnalyzerPatternReachability {
         sourceText := sourceObject.ToString()
         targetText := targetObject.ToString()
         span := spansValue.GetIsExpressionDiagnosticSpan(isExpr)
-        diagnosticsValue.Report(
-            ErrorCode.ImpossiblePattern,
-            "This 'is " + targetText + "' check is always false — a '" + sourceText + "' is never a '"
-                + targetText + "'",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.ImpossiblePattern, "This 'is " + targetText + "' check is always false — a '" + sourceText + "' is never a '" + targetText + "'", span.Line, span.Column, null, span.Length)
     }
 
     // THE JUDGEMENT. True means "a value of `sourceType` might be a `targetType` at run time"; false
     // means the analyzer can PROVE it never is.
-    public func IsPatternPossible(sourceType: TypeInfo, targetType: TypeInfo): bool {
+    func IsPatternPossible(sourceType: TypeInfo, targetType: TypeInfo): bool {
         resolvedSource := declarationContextValue.ResolveDeclaredAlias(sourceType)
         resolvedTarget := declarationContextValue.ResolveDeclaredAlias(targetType)
 
@@ -140,8 +122,7 @@ public class AnalyzerPatternReachability {
             return true
         }
 
-        if BuiltInTypes.Is(resolvedSource, BuiltInTypes.Object)
-            || BuiltInTypes.Is(resolvedTarget, BuiltInTypes.Object) {
+        if BuiltInTypes.Is(resolvedSource, BuiltInTypes.Object) || BuiltInTypes.Is(resolvedTarget, BuiltInTypes.Object) {
             return true
         }
 
@@ -155,8 +136,7 @@ public class AnalyzerPatternReachability {
         unionTarget := resolvedTarget as UnionTypeInfo
         anonymousUnionSource := resolvedSource as AnonymousUnionTypeInfo
         anonymousUnionTarget := resolvedTarget as AnonymousUnionTypeInfo
-        if unionSource != null || unionTarget != null
-            || anonymousUnionSource != null || anonymousUnionTarget != null {
+        if unionSource != null || unionTarget != null || anonymousUnionSource != null || anonymousUnionTarget != null {
             return true
         }
 
@@ -227,14 +207,14 @@ public class AnalyzerPatternReachability {
 // pattern can hold expressions (a literal pattern's literal, a relational pattern's bound), so the
 // expression walk descends into patterns and the pattern walk descends back into expressions. The
 // three entry points are one mutually recursive function with three argument shapes.
-public class AnalyzerParserErrorPlaceholders {
+class AnalyzerParserErrorPlaceholders {
 
     // The name the recovery parser mints for a token it could not read.
-    public static func PlaceholderName(): string {
+    static func PlaceholderName(): string {
         return "<error>"
     }
 
-    public static func ContainsInExpression(expression: Expression): bool {
+    static func ContainsInExpression(expression: Expression): bool {
         identifier := expression as IdentifierExpression
         if identifier != null {
             return identifier.Name == PlaceholderName()
@@ -364,8 +344,7 @@ public class AnalyzerParserErrorPlaceholders {
 
         ternary := expression as TernaryExpression
         if ternary != null {
-            return ContainsInExpression(ternary.Condition) || ContainsInExpression(ternary.ThenExpression)
-                || ContainsInExpression(ternary.ElseExpression)
+            return ContainsInExpression(ternary.Condition) || ContainsInExpression(ternary.ThenExpression) || ContainsInExpression(ternary.ElseExpression)
         }
 
         array := expression as ArrayLiteralExpression
@@ -474,7 +453,7 @@ public class AnalyzerParserErrorPlaceholders {
     // The pattern entry point. A pattern kind with no expression and no sub-pattern — an identifier,
     // a slice, a type pattern — carries no artifact of its own; the parser records ITS failures in
     // the name, which the pattern's own diagnostics read.
-    public static func ContainsInPattern(pattern: Pattern): bool {
+    static func ContainsInPattern(pattern: Pattern): bool {
         literal := pattern as LiteralPattern
         if literal != null {
             return ContainsInExpression(literal.Literal)
@@ -551,7 +530,7 @@ public class AnalyzerParserErrorPlaceholders {
     }
 
     // A property pattern with no nested pattern — `{ Name: n }`, a pure binding — carries nothing.
-    public static func ContainsInPropertyPattern(property: PropertyPattern): bool {
+    static func ContainsInPropertyPattern(property: PropertyPattern): bool {
         nested := property.Pattern
         return nested != null && ContainsInPattern(nested)
     }

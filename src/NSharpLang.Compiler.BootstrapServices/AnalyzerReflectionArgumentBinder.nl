@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // THE REFLECTION BINDER'S ARGUMENT MODEL.
 //
 // A reflected candidate is bound in TWO passes and this is the value that carries the first pass's
@@ -18,8 +19,7 @@ import NSharpLang.Compiler.Ast
 // the ELEMENT type rather than the declared array. That difference is the only evidence a later
 // pass has that the tail was expanded (`AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument`
 // asks exactly this question), which is why the field is on the base rather than on one arm.
-public class ReflectionBoundArgument {
-
+class ReflectionBoundArgument {
     parameterIndexValue: int
     openParameterTypeValue: Type
 
@@ -34,19 +34,14 @@ public class ReflectionBoundArgument {
 
 // A position filled by a written argument. `ArgumentIndex` indexes the CALL's argument list, not
 // the parameter list — named arguments and an expanded params tail both break that correspondence.
-public class SuppliedReflectionBoundArgument: ReflectionBoundArgument {
-
+class SuppliedReflectionBoundArgument: ReflectionBoundArgument {
     argumentValue: Argument
     argumentIndexValue: int
 
     Argument: Argument => argumentValue
     ArgumentIndex: int => argumentIndexValue
 
-    constructor(
-        parameterIndex: int,
-        openParameterType: Type,
-        argument: Argument,
-        argumentIndex: int): base(parameterIndex, openParameterType) {
+    constructor(parameterIndex: int, openParameterType: Type, argument: Argument, argumentIndex: int): base(parameterIndex, openParameterType) {
         argumentValue = argument
         argumentIndexValue = argumentIndex
     }
@@ -54,16 +49,12 @@ public class SuppliedReflectionBoundArgument: ReflectionBoundArgument {
 
 // A position filled by the declaration's own default. The `ParameterInfo` is kept because the
 // default's TYPE is read from the parameter, not from any argument.
-public class DefaultReflectionBoundArgument: ReflectionBoundArgument {
-
+class DefaultReflectionBoundArgument: ReflectionBoundArgument {
     parameterValue: ParameterInfo
 
     Parameter: ParameterInfo => parameterValue
 
-    constructor(
-        parameterIndex: int,
-        openParameterType: Type,
-        parameter: ParameterInfo): base(parameterIndex, openParameterType) {
+    constructor(parameterIndex: int, openParameterType: Type, parameter: ParameterInfo): base(parameterIndex, openParameterType) {
         parameterValue = parameter
     }
 }
@@ -71,19 +62,14 @@ public class DefaultReflectionBoundArgument: ReflectionBoundArgument {
 // An EXPANDED params tail: one parameter position, zero or more arguments. The elements are
 // MATERIALIZED here, each already carrying the element type as its own open parameter type, so
 // every later pass reads one shape instead of re-expanding the tail itself.
-public class ParamsReflectionBoundArgument: ReflectionBoundArgument {
-
+class ParamsReflectionBoundArgument: ReflectionBoundArgument {
     openElementTypeValue: Type
     argumentsValue: List<SuppliedReflectionBoundArgument>
 
     OpenElementType: Type => openElementTypeValue
     Arguments: List<SuppliedReflectionBoundArgument> => argumentsValue
 
-    constructor(
-        parameterIndex: int,
-        openParameterType: Type,
-        openElementType: Type,
-        arguments: List<SuppliedReflectionBoundArgument>): base(parameterIndex, openParameterType) {
+    constructor(parameterIndex: int, openParameterType: Type, openElementType: Type, arguments: List<SuppliedReflectionBoundArgument>): base(parameterIndex, openParameterType) {
         openElementTypeValue = openElementType
         argumentsValue = arguments
     }
@@ -100,8 +86,7 @@ public class ParamsReflectionBoundArgument: ReflectionBoundArgument {
 // THE TIE-BREAK FIELDS ARE PART OF THE ANSWER, not bookkeeping: candidates are ordered by `Score`
 // descending, then by NOT using a params tail, then by using fewer defaults, so a candidate that
 // matches exactly beats one that matched by expanding or by defaulting.
-public class ReflectionPreBoundCandidate {
-
+class ReflectionPreBoundCandidate {
     runtimeMethodValue: MethodInfo
     signatureMethodValue: MethodInfo
     bindingsValue: Dictionary<Type, Type>
@@ -122,16 +107,7 @@ public class ReflectionPreBoundCandidate {
     UsesParams: bool => usesParamsValue
     DefaultsUsed: int => defaultsUsedValue
 
-    constructor(
-        runtimeMethod: MethodInfo,
-        signatureMethod: MethodInfo,
-        bindings: Dictionary<Type, Type>,
-        typeInfoBindings: Dictionary<Type, TypeInfo>,
-        methodGroupArguments: Dictionary<int, FunctionTypeInfo>,
-        boundArguments: List<ReflectionBoundArgument>,
-        score: int,
-        usesParams: bool,
-        defaultsUsed: int) {
+    constructor(runtimeMethod: MethodInfo, signatureMethod: MethodInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, boundArguments: List<ReflectionBoundArgument>, score: int, usesParams: bool, defaultsUsed: int) {
         runtimeMethodValue = runtimeMethod
         signatureMethodValue = signatureMethod
         bindingsValue = bindings
@@ -176,8 +152,7 @@ public class ReflectionPreBoundCandidate {
 // choice depended on the delegate's bound signature.
 //
 // Do not reintroduce any of this in C#.
-public class AnalyzerReflectionArgumentBinder {
-
+class AnalyzerReflectionArgumentBinder {
     clrTypeConversion: AnalyzerClrTypeConversion
     assignability: AnalyzerAssignability
     assignabilityFacts: AnalyzerAssignabilityFacts
@@ -187,12 +162,7 @@ public class AnalyzerReflectionArgumentBinder {
     // conversion beside it, holding it as a field cannot go stale.
     typeResolver: AnalyzerTypeResolver
 
-    constructor(
-        conversion: AnalyzerClrTypeConversion,
-        assignabilityOwner: AnalyzerAssignability,
-        facts: AnalyzerAssignabilityFacts,
-        scoring: AnalyzerOverloadScoring,
-        resolver: AnalyzerTypeResolver) {
+    constructor(conversion: AnalyzerClrTypeConversion, assignabilityOwner: AnalyzerAssignability, facts: AnalyzerAssignabilityFacts, scoring: AnalyzerOverloadScoring, resolver: AnalyzerTypeResolver) {
         clrTypeConversion = conversion
         assignability = assignabilityOwner
         assignabilityFacts = facts
@@ -202,25 +172,13 @@ public class AnalyzerReflectionArgumentBinder {
 
     // Phase one and two: PLACE every written argument, then FILL the rest from defaults. Phase
     // three scores. A false answer means this candidate does not accept this call at all.
-    public func TryBindReflectionArguments(
-        parameters: ParameterInfo[],
-        parameterOffset: int,
-        call: CallExpression,
-        bindings: Dictionary<Type, Type>,
-        typeInfoBindings: Dictionary<Type, TypeInfo>,
-        methodGroupArguments: Dictionary<int, FunctionTypeInfo>,
-        analyzedNonLambdaArguments: TypeInfo?[],
-        out boundArguments: List<ReflectionBoundArgument>,
-        out score: int,
-        out usesParams: bool,
-        out defaultsUsed: int): bool {
+    func TryBindReflectionArguments(parameters: ParameterInfo[], parameterOffset: int, call: CallExpression, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, analyzedNonLambdaArguments: TypeInfo?[], out boundArguments: List<ReflectionBoundArgument>, out score: int, out usesParams: bool, out defaultsUsed: int): bool {
         boundArguments = new List<ReflectionBoundArgument>()
         score = 0
         defaultsUsed = 0
 
         bound := new ReflectionBoundArgument?[](parameters.Length)
-        usesParams = parameters.Length > parameterOffset
-            && AnalyzerOverloadFacts.IsParamsParameter(parameters[parameters.Length - 1])
+        usesParams = parameters.Length > parameterOffset && AnalyzerOverloadFacts.IsParamsParameter(parameters[parameters.Length - 1])
         paramsParameterIndex := -1
         if usesParams {
             paramsParameterIndex = parameters.Length - 1
@@ -234,35 +192,27 @@ public class AnalyzerReflectionArgumentBinder {
         while argumentIndex < call.Arguments.Count {
             argument := call.Arguments[argumentIndex]
             if argument.Name != null {
-                namedIndex := FindNamedParameterIndex(
-                    parameters, parameterOffset, argument.Name)
-                if namedIndex < parameterOffset || namedIndex >= parameters.Length
-                    || bound[namedIndex] != null {
+                namedIndex := FindNamedParameterIndex(parameters, parameterOffset, argument.Name)
+                if namedIndex < parameterOffset || namedIndex >= parameters.Length || bound[namedIndex] != null {
                     return false
                 }
 
                 namedParameterType := parameters[namedIndex].get_ParameterType()
                 namedOpenType := AnalyzerOverloadFacts.GetByRefElementType(namedParameterType)
-                namedBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(
-                    namedIndex, namedOpenType, argument, argumentIndex)
+                namedBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(namedIndex, namedOpenType, argument, argumentIndex)
                 bound[namedIndex] = namedBinding
                 argumentIndex = argumentIndex + 1
                 continue
             }
 
-            while nextPositionalParameter < parameters.Length
-                && nextPositionalParameter != paramsParameterIndex
-                && bound[nextPositionalParameter] != null {
+            while nextPositionalParameter < parameters.Length && nextPositionalParameter != paramsParameterIndex && bound[nextPositionalParameter] != null {
                 nextPositionalParameter = nextPositionalParameter + 1
             }
 
-            if nextPositionalParameter < parameters.Length
-                && nextPositionalParameter != paramsParameterIndex {
+            if nextPositionalParameter < parameters.Length && nextPositionalParameter != paramsParameterIndex {
                 positionalParameterType := parameters[nextPositionalParameter].get_ParameterType()
-                positionalOpenType := AnalyzerOverloadFacts.GetByRefElementType(
-                    positionalParameterType)
-                positionalBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(
-                    nextPositionalParameter, positionalOpenType, argument, argumentIndex)
+                positionalOpenType := AnalyzerOverloadFacts.GetByRefElementType(positionalParameterType)
+                positionalBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(nextPositionalParameter, positionalOpenType, argument, argumentIndex)
                 bound[nextPositionalParameter] = positionalBinding
                 nextPositionalParameter = nextPositionalParameter + 1
                 argumentIndex = argumentIndex + 1
@@ -293,8 +243,7 @@ public class AnalyzerReflectionArgumentBinder {
                 defaultParameter := parameters[parameterIndex]
                 defaultParameterType := defaultParameter.get_ParameterType()
                 defaultOpenType := AnalyzerOverloadFacts.GetByRefElementType(defaultParameterType)
-                defaultBinding: ReflectionBoundArgument? = new DefaultReflectionBoundArgument(
-                    parameterIndex, defaultOpenType, defaultParameter)
+                defaultBinding: ReflectionBoundArgument? = new DefaultReflectionBoundArgument(parameterIndex, defaultOpenType, defaultParameter)
                 bound[parameterIndex] = defaultBinding
                 defaultsUsed = defaultsUsed + 1
             }
@@ -309,45 +258,25 @@ public class AnalyzerReflectionArgumentBinder {
 
             if bound[paramsParameterIndex] == null {
                 declaredParamsType := parameters[paramsParameterIndex].get_ParameterType()
-                paramsParameterType := AnalyzerOverloadFacts.GetByRefElementType(
-                    declaredParamsType)
+                paramsParameterType := AnalyzerOverloadFacts.GetByRefElementType(declaredParamsType)
                 elementType: Type = typeof(object)
-                if !AnalyzerOverloadFacts.TryGetReflectionParamsElementType(
-                        paramsParameterType, out elementType) {
+                if !AnalyzerOverloadFacts.TryGetReflectionParamsElementType(paramsParameterType, out elementType) {
                     return false
                 }
 
-                if paramsArguments.Count == 1
-                    && ShouldPassReflectionParamsArgumentDirectly(
-                        paramsArguments[0],
-                        paramsArgumentIndexes[0],
-                        paramsParameterType,
-                        bindings,
-                        analyzedNonLambdaArguments) {
-                    directBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(
-                        paramsParameterIndex,
-                        paramsParameterType,
-                        paramsArguments[0],
-                        paramsArgumentIndexes[0])
+                if paramsArguments.Count == 1 && ShouldPassReflectionParamsArgumentDirectly(paramsArguments[0], paramsArgumentIndexes[0], paramsParameterType, bindings, analyzedNonLambdaArguments) {
+                    directBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(paramsParameterIndex, paramsParameterType, paramsArguments[0], paramsArgumentIndexes[0])
                     bound[paramsParameterIndex] = directBinding
                 } else {
                     elements := new List<SuppliedReflectionBoundArgument>()
                     elementIndex := 0
                     while elementIndex < paramsArguments.Count {
-                        element := new SuppliedReflectionBoundArgument(
-                            paramsParameterIndex,
-                            elementType,
-                            paramsArguments[elementIndex],
-                            paramsArgumentIndexes[elementIndex])
+                        element := new SuppliedReflectionBoundArgument(paramsParameterIndex, elementType, paramsArguments[elementIndex], paramsArgumentIndexes[elementIndex])
                         elements.Add(element)
                         elementIndex = elementIndex + 1
                     }
 
-                    expandedBinding: ReflectionBoundArgument? = new ParamsReflectionBoundArgument(
-                        paramsParameterIndex,
-                        paramsParameterType,
-                        elementType,
-                        elements)
+                    expandedBinding: ReflectionBoundArgument? = new ParamsReflectionBoundArgument(paramsParameterIndex, paramsParameterType, elementType, elements)
                     bound[paramsParameterIndex] = expandedBinding
                 }
             }
@@ -362,15 +291,7 @@ public class AnalyzerReflectionArgumentBinder {
                 paramsBound := boundArgument as ParamsReflectionBoundArgument
                 if supplied != null {
                     suppliedScore := 0
-                    if !TryScoreReflectionSuppliedArgument(
-                            supplied,
-                            parameters[supplied.ParameterIndex],
-                            bindings,
-                            typeInfoBindings,
-                            methodGroupArguments,
-                            analyzedNonLambdaArguments,
-                            false,
-                            out suppliedScore) {
+                    if !TryScoreReflectionSuppliedArgument(supplied, parameters[supplied.ParameterIndex], bindings, typeInfoBindings, methodGroupArguments, analyzedNonLambdaArguments, false, out suppliedScore) {
                         return false
                     }
 
@@ -380,15 +301,7 @@ public class AnalyzerReflectionArgumentBinder {
                     elementIndex := 0
                     while elementIndex < elements.Count {
                         elementScore := 0
-                        if !TryScoreReflectionSuppliedArgument(
-                                elements[elementIndex],
-                                parameters[paramsBound.ParameterIndex],
-                                bindings,
-                                typeInfoBindings,
-                                methodGroupArguments,
-                                analyzedNonLambdaArguments,
-                                true,
-                                out elementScore) {
+                        if !TryScoreReflectionSuppliedArgument(elements[elementIndex], parameters[paramsBound.ParameterIndex], bindings, typeInfoBindings, methodGroupArguments, analyzedNonLambdaArguments, true, out elementScore) {
                             return false
                         }
 
@@ -419,21 +332,12 @@ public class AnalyzerReflectionArgumentBinder {
     // BY-REF DIRECTION IS AN EQUALITY, NOT AN IMPLICATION: a `ref`/`out` argument for a by-value
     // parameter and a by-value argument for a by-ref parameter are BOTH non-bindings. A params
     // ELEMENT is exempt, because the element of a by-ref params array is not itself by-ref.
-    public func TryScoreReflectionSuppliedArgument(
-        supplied: SuppliedReflectionBoundArgument,
-        parameter: ParameterInfo,
-        bindings: Dictionary<Type, Type>,
-        typeInfoBindings: Dictionary<Type, TypeInfo>,
-        methodGroupArguments: Dictionary<int, FunctionTypeInfo>,
-        analyzedNonLambdaArguments: TypeInfo?[],
-        expectsParamsElement: bool,
-        out score: int): bool {
+    func TryScoreReflectionSuppliedArgument(supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, analyzedNonLambdaArguments: TypeInfo?[], expectsParamsElement: bool, out score: int): bool {
         score = 0
 
         expectsByRef := !expectsParamsElement && parameter.get_ParameterType().get_IsByRef()
         argumentModifier := supplied.Argument.Modifier
-        suppliedByRef := argumentModifier == ArgumentModifier.Ref
-            || argumentModifier == ArgumentModifier.Out
+        suppliedByRef := argumentModifier == ArgumentModifier.Ref || argumentModifier == ArgumentModifier.Out
         if expectsByRef != suppliedByRef {
             return false
         }
@@ -448,14 +352,10 @@ public class AnalyzerReflectionArgumentBinder {
 
         lambda := argumentValue as LambdaExpression
         if lambda != null {
-            expectedSignature := CreateDelegateSignatureFromOpenType(
-                openParameterType,
-                typeInfoBindings,
-                bindings)
+            expectedSignature := CreateDelegateSignatureFromOpenType(openParameterType, typeInfoBindings, bindings)
 
             if expectedSignature == null || expectedSignature.ParameterTypes == null {
-                if !overloadScoring.CanInferBroadDelegateLambda(
-                        openParameterType, bindings, lambda) {
+                if !overloadScoring.CanInferBroadDelegateLambda(openParameterType, bindings, lambda) {
                     return false
                 }
 
@@ -464,8 +364,7 @@ public class AnalyzerReflectionArgumentBinder {
             }
 
             expectedParameterTypes := expectedSignature.ParameterTypes
-            if expectedParameterTypes == null
-                || expectedParameterTypes.Count != lambda.Parameters.Count {
+            if expectedParameterTypes == null || expectedParameterTypes.Count != lambda.Parameters.Count {
                 return false
             }
 
@@ -480,18 +379,8 @@ public class AnalyzerReflectionArgumentBinder {
 
         selectedMethodGroup: FunctionTypeInfo? = null
         methodGroupScore := 0
-        if TryBindMethodGroupToReflectionDelegate(
-                openParameterType,
-                argumentType,
-                bindings,
-                out selectedMethodGroup,
-                out methodGroupScore) {
-            if selectedMethodGroup == null
-                || !TryPopulateReflectionBindingsFromMethodGroupDelegate(
-                    openParameterType,
-                    selectedMethodGroup,
-                    bindings,
-                    typeInfoBindings) {
+        if TryBindMethodGroupToReflectionDelegate(openParameterType, argumentType, bindings, out selectedMethodGroup, out methodGroupScore) {
+            if selectedMethodGroup == null || !TryPopulateReflectionBindingsFromMethodGroupDelegate(openParameterType, selectedMethodGroup, bindings, typeInfoBindings) {
                 return false
             }
 
@@ -506,22 +395,17 @@ public class AnalyzerReflectionArgumentBinder {
         }
 
         if argumentClrType != null {
-            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(
-                    openParameterType, argumentClrType, bindings) {
+            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameterType, argumentClrType, bindings) {
                 return false
             }
 
             PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings)
 
-            score = AnalyzerOverloadFacts.GetReflectionMatchScore(
-                AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
-                    openParameterType, bindings),
-                argumentClrType)
+            score = AnalyzerOverloadFacts.GetReflectionMatchScore(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openParameterType, bindings), argumentClrType)
             return true
         }
 
-        boundParameterType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
-            openParameterType, bindings)
+        boundParameterType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openParameterType, bindings)
         expectedType := AnalyzerReflectionTypeConversion.ConvertReflectionType(boundParameterType)
         if !assignability.IsAssignable(expectedType, argumentType) {
             return false
@@ -538,12 +422,7 @@ public class AnalyzerReflectionArgumentBinder {
     // denotes the null array. Everything else is a type question, asked on a TRIAL COPY of the
     // bindings so that a refused direct pass leaves no generic inference behind for the expansion
     // that follows it.
-    public func ShouldPassReflectionParamsArgumentDirectly(
-        argument: Argument,
-        argumentIndex: int,
-        paramsParameterType: Type,
-        bindings: Dictionary<Type, Type>,
-        analyzedNonLambdaArguments: TypeInfo?[]): bool {
+    func ShouldPassReflectionParamsArgumentDirectly(argument: Argument, argumentIndex: int, paramsParameterType: Type, bindings: Dictionary<Type, Type>, analyzedNonLambdaArguments: TypeInfo?[]): bool {
         argumentValue := argument.Value
         if argumentValue is SpreadExpression {
             return false
@@ -569,13 +448,10 @@ public class AnalyzerReflectionArgumentBinder {
 
         if argumentClrType != null {
             trialBindings := CopyBindings(bindings)
-            return AnalyzerOverloadFacts.TryMatchReflectionParameter(
-                paramsParameterType, argumentClrType, trialBindings)
+            return AnalyzerOverloadFacts.TryMatchReflectionParameter(paramsParameterType, argumentClrType, trialBindings)
         }
 
-        expectedType := AnalyzerReflectionTypeConversion.ConvertReflectionType(
-            AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
-                paramsParameterType, bindings))
+        expectedType := AnalyzerReflectionTypeConversion.ConvertReflectionType(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(paramsParameterType, bindings))
         return assignability.IsAssignable(expectedType, argumentType)
     }
 
@@ -586,17 +462,11 @@ public class AnalyzerReflectionArgumentBinder {
     // a reflected delegate value is not a method group — and a method group picks its BEST
     // overload, with a tie being a non-binding rather than an arbitrary choice. The +4 is the
     // method-group conversion itself, so a resolved group outranks a plain assignable argument.
-    public func TryBindMethodGroupToReflectionDelegate(
-        parameterType: Type,
-        argumentType: TypeInfo,
-        bindings: Dictionary<Type, Type>,
-        out selectedMethodGroup: FunctionTypeInfo?,
-        out score: int): bool {
+    func TryBindMethodGroupToReflectionDelegate(parameterType: Type, argumentType: TypeInfo, bindings: Dictionary<Type, Type>, out selectedMethodGroup: FunctionTypeInfo?, out score: int): bool {
         selectedMethodGroup = null
         score = 0
 
-        delegateType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
-            parameterType, bindings)
+        delegateType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(parameterType, bindings)
         if !assignabilityFacts.IsDelegateType(delegateType) {
             return false
         }
@@ -628,8 +498,7 @@ public class AnalyzerReflectionArgumentBinder {
             while candidateIndex < candidates.Count {
                 candidateType := candidates[candidateIndex]
                 candidateScore := 0
-                if TryGetMethodGroupMatchScore(
-                        candidateType, expectedSignature, out candidateScore) {
+                if TryGetMethodGroupMatchScore(candidateType, expectedSignature, out candidateScore) {
                     scoreWithConversion := 4 + candidateScore
                     if scoreWithConversion > bestScore {
                         bestScore = scoreWithConversion
@@ -657,23 +526,18 @@ public class AnalyzerReflectionArgumentBinder {
 
     // A candidate binds to a delegate only when it is a SOURCE function; a reflected delegate value
     // has no method group to select from.
-    func TryGetMethodGroupMatchScore(
-        functionType: FunctionTypeInfo,
-        expectedSignature: FunctionTypeInfo,
-        out candidateScore: int): bool {
+    func TryGetMethodGroupMatchScore(functionType: FunctionTypeInfo, expectedSignature: FunctionTypeInfo, out candidateScore: int): bool {
         candidateScore = 0
         if !AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType) {
             return false
         }
 
-        return assignability.TryGetRuntimeDelegateMethodGroupMatchScore(
-            functionType, expectedSignature, out candidateScore)
+        return assignability.TryGetRuntimeDelegateMethodGroupMatchScore(functionType, expectedSignature, out candidateScore)
     }
 
     // Every supplied argument the binding produced, with an expanded params tail flattened into its
     // elements. The elements were materialized when the tail was bound, so this is a read.
-    public func EnumerateSuppliedReflectionArguments(
-        boundArguments: List<ReflectionBoundArgument>): List<SuppliedReflectionBoundArgument> {
+    func EnumerateSuppliedReflectionArguments(boundArguments: List<ReflectionBoundArgument>): List<SuppliedReflectionBoundArgument> {
         flattened := new List<SuppliedReflectionBoundArgument>()
         index := 0
         while index < boundArguments.Count {
@@ -707,19 +571,13 @@ public class AnalyzerReflectionArgumentBinder {
     //
     // A NULL answer means "not a delegate at all". A delegate with no `Invoke` answers with an
     // unknown-returning signature instead, so a caller can tell "no signature" from "not callable".
-    public func CreateDelegateSignatureFromOpenType(
-        openDelegateType: Type,
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>): FunctionTypeInfo? {
+    func CreateDelegateSignatureFromOpenType(openDelegateType: Type, typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>): FunctionTypeInfo? {
         effectiveOpenType := openDelegateType
-        resolvedType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
-            openDelegateType, clrBindings)
+        resolvedType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openDelegateType, clrBindings)
         expressionDelegateType: Type = typeof(object)
-        if AnalyzerFunctionTypeFactory.TryGetExpressionTreeDelegateType(
-                resolvedType, out expressionDelegateType) {
+        if AnalyzerFunctionTypeFactory.TryGetExpressionTreeDelegateType(resolvedType, out expressionDelegateType) {
             resolvedType = expressionDelegateType
-            effectiveOpenType = AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(
-                openDelegateType)
+            effectiveOpenType = AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openDelegateType)
         }
 
         if !assignabilityFacts.IsDelegateType(resolvedType) {
@@ -738,17 +596,14 @@ public class AnalyzerReflectionArgumentBinder {
             typeArguments := new List<TypeInfo>()
             argumentIndex := 0
             while argumentIndex < openTypeArguments.Length {
-                typeArguments.Add(
-                    AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-                        openTypeArguments[argumentIndex], typeInfoOverrides, clrBindings))
+                typeArguments.Add(AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(openTypeArguments[argumentIndex], typeInfoOverrides, clrBindings))
                 argumentIndex = argumentIndex + 1
             }
 
             if AnalyzerFunctionTypeFactory.IsActionDefinitionName(definitionName) {
                 action := new FunctionTypeInfo()
                 action.ParameterTypes = typeArguments
-                action.ParameterModifiers = AnalyzerFunctionTypeFactory.RepeatNoModifier(
-                    typeArguments.Count)
+                action.ParameterModifiers = AnalyzerFunctionTypeFactory.RepeatNoModifier(typeArguments.Count)
                 action.ReturnType = BuiltInTypes.Void
                 return action
             }
@@ -769,8 +624,7 @@ public class AnalyzerReflectionArgumentBinder {
 
                 function := new FunctionTypeInfo()
                 function.ParameterTypes = parameterTypes
-                function.ParameterModifiers = AnalyzerFunctionTypeFactory.RepeatNoModifier(
-                    modifierCount)
+                function.ParameterModifiers = AnalyzerFunctionTypeFactory.RepeatNoModifier(modifierCount)
                 function.ReturnType = typeArguments[typeArguments.Count - 1]
                 return function
             }
@@ -789,19 +643,15 @@ public class AnalyzerReflectionArgumentBinder {
         invokeIndex := 0
         while invokeIndex < invokeParameters.Length {
             invokeParameter := invokeParameters[invokeIndex]
-            parameterTypeList.Add(
-                AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(
-                    invokeParameter, typeInfoOverrides, clrBindings))
-            parameterModifierList.Add(
-                AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(invokeParameter))
+            parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(invokeParameter, typeInfoOverrides, clrBindings))
+            parameterModifierList.Add(AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(invokeParameter))
             invokeIndex = invokeIndex + 1
         }
 
         signature := new FunctionTypeInfo()
         signature.ParameterTypes = parameterTypeList
         signature.ParameterModifiers = parameterModifierList
-        signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(
-            invokeMethod, typeInfoOverrides, clrBindings)
+        signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(invokeMethod, typeInfoOverrides, clrBindings)
         return signature
     }
 
@@ -819,12 +669,7 @@ public class AnalyzerReflectionArgumentBinder {
     // THE EXTENSION PENALTY IS NOT COSMETIC. A candidate reached as an extension scores one lower
     // than the same match reached as an instance member, which is what makes a real instance method
     // win against an extension of the same name and shape.
-    public func PreBindReflectionMethod(
-        method: MethodInfo,
-        call: CallExpression,
-        receiverClrType: Type?,
-        receiverTypeInfo: TypeInfo?,
-        analyzedNonLambdaArguments: TypeInfo?[]): ReflectionPreBoundCandidate? {
+    func PreBindReflectionMethod(method: MethodInfo, call: CallExpression, receiverClrType: Type?, receiverTypeInfo: TypeInfo?, analyzedNonLambdaArguments: TypeInfo?[]): ReflectionPreBoundCandidate? {
         bindings := new Dictionary<Type, Type>()
         typeInfoBindings := new Dictionary<Type, TypeInfo>()
         methodGroupArguments := new Dictionary<int, FunctionTypeInfo>()
@@ -840,29 +685,19 @@ public class AnalyzerReflectionArgumentBinder {
             if receiverClrType == null {
                 return null
             }
-            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(
-                    parameters[0].get_ParameterType(), receiverClrType, bindings) {
+            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(parameters[0].get_ParameterType(), receiverClrType, bindings) {
                 return null
             }
 
             // Track N# TypeInfo bindings from the receiver type.
             if receiverTypeInfo != null {
-                PopulateTypeInfoBindingsFromType(
-                    parameters[0].get_ParameterType(), receiverTypeInfo, typeInfoBindings)
+                PopulateTypeInfoBindingsFromType(parameters[0].get_ParameterType(), receiverTypeInfo, typeInfoBindings)
             }
 
-            receiverScore = AnalyzerOverloadFacts.GetReflectionMatchScore(
-                AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
-                    parameters[0].get_ParameterType(), bindings),
-                receiverClrType)
+            receiverScore = AnalyzerOverloadFacts.GetReflectionMatchScore(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(parameters[0].get_ParameterType(), bindings), receiverClrType)
         } else {
             if receiverClrType != null && receiverTypeInfo != null {
-                if !TryPopulateReceiverGenericTypeBindings(
-                        openMethod.get_DeclaringType(),
-                        receiverClrType,
-                        receiverTypeInfo,
-                        bindings,
-                        typeInfoBindings) {
+                if !TryPopulateReceiverGenericTypeBindings(openMethod.get_DeclaringType(), receiverClrType, receiverTypeInfo, bindings, typeInfoBindings) {
                     return null
                 }
             }
@@ -892,8 +727,7 @@ public class AnalyzerReflectionArgumentBinder {
             }
         }
 
-        if !AnalyzerOverloadFacts.HasCompatibleReflectionArity(
-                parameters, parameterOffset, call.Arguments.Count) {
+        if !AnalyzerOverloadFacts.HasCompatibleReflectionArity(parameters, parameterOffset, call.Arguments.Count) {
             return null
         }
 
@@ -907,32 +741,12 @@ public class AnalyzerReflectionArgumentBinder {
         argumentScore := 0
         usesParams := false
         defaultsUsed := 0
-        if !TryBindReflectionArguments(
-                parameters,
-                parameterOffset,
-                call,
-                bindings,
-                typeInfoBindings,
-                methodGroupArguments,
-                analyzedNonLambdaArguments,
-                out boundArguments,
-                out argumentScore,
-                out usesParams,
-                out defaultsUsed) {
+        if !TryBindReflectionArguments(parameters, parameterOffset, call, bindings, typeInfoBindings, methodGroupArguments, analyzedNonLambdaArguments, out boundArguments, out argumentScore, out usesParams, out defaultsUsed) {
             return null
         }
 
         score = score + argumentScore
-        return new ReflectionPreBoundCandidate(
-            method,
-            openMethod,
-            bindings,
-            typeInfoBindings,
-            methodGroupArguments,
-            boundArguments,
-            score,
-            usesParams,
-            defaultsUsed)
+        return new ReflectionPreBoundCandidate(method, openMethod, bindings, typeInfoBindings, methodGroupArguments, boundArguments, score, usesParams, defaultsUsed)
     }
 
     // A WRITTEN type argument's CLR form. An N# type has no CLR form of its own, so `object` stands
@@ -969,7 +783,7 @@ public class AnalyzerReflectionArgumentBinder {
     // A method already declared on a definition, or on a non-generic type, is already open. If the
     // re-find fails the substituted method is returned unchanged rather than treated as an error:
     // a candidate is never rejected for the shape of its declaring type.
-    public static func GetOpenReflectionSignatureMethod(method: MethodInfo): MethodInfo {
+    static func GetOpenReflectionSignatureMethod(method: MethodInfo): MethodInfo {
         signatureMethod := method
         if method.get_IsGenericMethod() {
             signatureMethod = method.GetGenericMethodDefinition()
@@ -984,11 +798,7 @@ public class AnalyzerReflectionArgumentBinder {
         }
 
         genericDefinition := declaringType.GetGenericTypeDefinition()
-        candidates := genericDefinition.GetMethods(
-            BindingFlags.Public
-                | BindingFlags.NonPublic
-                | BindingFlags.Instance
-                | BindingFlags.Static)
+        candidates := genericDefinition.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
         i := 0
         while i < candidates.Length {
             candidate := candidates[i]
@@ -1003,15 +813,8 @@ public class AnalyzerReflectionArgumentBinder {
 
     // The RECEIVER's contribution to generic inference, for a call on a generic type. A declaring
     // type that mentions no type parameter contributes nothing and is not a failure.
-    public func TryPopulateReceiverGenericTypeBindings(
-        declaringType: Type?,
-        receiverClrType: Type,
-        receiverTypeInfo: TypeInfo,
-        bindings: Dictionary<Type, Type>,
-        typeInfoBindings: Dictionary<Type, TypeInfo>): bool {
-        if declaringType == null
-            || !declaringType.get_IsGenericType()
-            || !declaringType.get_ContainsGenericParameters() {
+    func TryPopulateReceiverGenericTypeBindings(declaringType: Type?, receiverClrType: Type, receiverTypeInfo: TypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>): bool {
+        if declaringType == null || !declaringType.get_IsGenericType() || !declaringType.get_ContainsGenericParameters() {
             return true
         }
 
@@ -1020,13 +823,11 @@ public class AnalyzerReflectionArgumentBinder {
             receiverSignatureType = declaringType.GetGenericTypeDefinition()
         }
 
-        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(
-                receiverSignatureType, receiverClrType, bindings) {
+        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(receiverSignatureType, receiverClrType, bindings) {
             return false
         }
 
-        PopulateTypeInfoBindingsFromType(
-            receiverSignatureType, receiverTypeInfo, typeInfoBindings)
+        PopulateTypeInfoBindingsFromType(receiverSignatureType, receiverTypeInfo, typeInfoBindings)
         return true
     }
 
@@ -1041,10 +842,7 @@ public class AnalyzerReflectionArgumentBinder {
     // its ELEMENT type, and a generic argument that does not match the parameter's own definition
     // is traced through the CLR hierarchy — `List<int>` against `IEnumerable<T>` binds `T` to `int`
     // by mapping the interface's type arguments back to the argument definition's own.
-    public func PopulateTypeInfoBindingsFromType(
-        openParameterType: Type,
-        argumentTypeInfo: TypeInfo,
-        typeInfoBindings: Dictionary<Type, TypeInfo>) {
+    func PopulateTypeInfoBindingsFromType(openParameterType: Type, argumentTypeInfo: TypeInfo, typeInfoBindings: Dictionary<Type, TypeInfo>) {
         if openParameterType.get_IsGenericParameter() {
             if !typeInfoBindings.ContainsKey(openParameterType) {
                 typeInfoBindings[openParameterType] = argumentTypeInfo
@@ -1055,11 +853,9 @@ public class AnalyzerReflectionArgumentBinder {
 
         arrayTypeInfo := argumentTypeInfo as ArrayTypeInfo
         if arrayTypeInfo != null {
-            enumerableElementParameter := TryGetReflectionEnumerableElementParameter(
-                openParameterType)
+            enumerableElementParameter := TryGetReflectionEnumerableElementParameter(openParameterType)
             if enumerableElementParameter != null {
-                PopulateTypeInfoBindingsFromType(
-                    enumerableElementParameter, arrayTypeInfo.ElementType, typeInfoBindings)
+                PopulateTypeInfoBindingsFromType(enumerableElementParameter, arrayTypeInfo.ElementType, typeInfoBindings)
                 return
             }
         }
@@ -1076,10 +872,7 @@ public class AnalyzerReflectionArgumentBinder {
         if argGeneric.Name == paramName && openParamArgs.Length == argGeneric.TypeArguments.Count {
             directIndex := 0
             while directIndex < openParamArgs.Length {
-                PopulateTypeInfoBindingsFromType(
-                    openParamArgs[directIndex],
-                    argGeneric.TypeArguments[directIndex],
-                    typeInfoBindings)
+                PopulateTypeInfoBindingsFromType(openParamArgs[directIndex], argGeneric.TypeArguments[directIndex], typeInfoBindings)
                 directIndex = directIndex + 1
             }
 
@@ -1105,12 +898,8 @@ public class AnalyzerReflectionArgumentBinder {
             if implArgs[implIndex].get_IsGenericParameter() {
                 definitionIndex := 0
                 while definitionIndex < argDefGenArgs.Length {
-                    if implArgs[implIndex] == argDefGenArgs[definitionIndex]
-                        && definitionIndex < argGeneric.TypeArguments.Count {
-                        PopulateTypeInfoBindingsFromType(
-                            openParamArgs[implIndex],
-                            argGeneric.TypeArguments[definitionIndex],
-                            typeInfoBindings)
+                    if implArgs[implIndex] == argDefGenArgs[definitionIndex] && definitionIndex < argGeneric.TypeArguments.Count {
+                        PopulateTypeInfoBindingsFromType(openParamArgs[implIndex], argGeneric.TypeArguments[definitionIndex], typeInfoBindings)
                         definitionIndex = argDefGenArgs.Length
                     } else {
                         definitionIndex = definitionIndex + 1
@@ -1125,11 +914,7 @@ public class AnalyzerReflectionArgumentBinder {
     // Both halves of inference, driven from a SOURCE signature rather than from a CLR argument. This
     // is how a selected method group's own parameter and return types flow back into the reflected
     // method's type parameters.
-    public func PopulateReflectionBindingsFromTypeInfo(
-        openType: Type,
-        sourceType: TypeInfo,
-        bindings: Dictionary<Type, Type>,
-        typeInfoBindings: Dictionary<Type, TypeInfo>) {
+    func PopulateReflectionBindingsFromTypeInfo(openType: Type, sourceType: TypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>) {
         effectiveOpenType := openType
         if openType.get_IsByRef() {
             element := openType.GetElementType()
@@ -1162,8 +947,7 @@ public class AnalyzerReflectionArgumentBinder {
             if sourceArray != null {
                 elementType := effectiveOpenType.GetElementType()
                 if elementType != null {
-                    PopulateReflectionBindingsFromTypeInfo(
-                        elementType, sourceArray.ElementType, bindings, typeInfoBindings)
+                    PopulateReflectionBindingsFromTypeInfo(elementType, sourceArray.ElementType, bindings, typeInfoBindings)
                 }
             }
 
@@ -1183,15 +967,10 @@ public class AnalyzerReflectionArgumentBinder {
 
         openName := StripGenericArity(effectiveOpenType.get_Name())
         openArguments := effectiveOpenType.GetGenericArguments()
-        if AnalyzerOverloadFacts.GenericNamesMatch(openName, sourceGeneric.Name)
-            && openArguments.Length == sourceGeneric.TypeArguments.Count {
+        if AnalyzerOverloadFacts.GenericNamesMatch(openName, sourceGeneric.Name) && openArguments.Length == sourceGeneric.TypeArguments.Count {
             index := 0
             while index < openArguments.Length {
-                PopulateReflectionBindingsFromTypeInfo(
-                    openArguments[index],
-                    sourceGeneric.TypeArguments[index],
-                    bindings,
-                    typeInfoBindings)
+                PopulateReflectionBindingsFromTypeInfo(openArguments[index], sourceGeneric.TypeArguments[index], bindings, typeInfoBindings)
                 index = index + 1
             }
         }
@@ -1199,11 +978,7 @@ public class AnalyzerReflectionArgumentBinder {
 
     // A selected method group's SIGNATURE, matched position by position against the delegate's own
     // `Invoke`. An arity disagreement is a non-binding; a `void` return contributes nothing.
-    public func TryPopulateReflectionBindingsFromMethodGroupDelegate(
-        openDelegateType: Type,
-        sourceFunctionType: FunctionTypeInfo,
-        bindings: Dictionary<Type, Type>,
-        typeInfoBindings: Dictionary<Type, TypeInfo>): bool {
+    func TryPopulateReflectionBindingsFromMethodGroupDelegate(openDelegateType: Type, sourceFunctionType: FunctionTypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>): bool {
         invokeMethod := openDelegateType.GetMethod("Invoke")
         if invokeMethod == null {
             return false
@@ -1221,21 +996,13 @@ public class AnalyzerReflectionArgumentBinder {
 
         index := 0
         while index < invokeParameters.Length {
-            PopulateReflectionBindingsFromTypeInfo(
-                invokeParameters[index].get_ParameterType(),
-                sourceParameterTypes[index],
-                bindings,
-                typeInfoBindings)
+            PopulateReflectionBindingsFromTypeInfo(invokeParameters[index].get_ParameterType(), sourceParameterTypes[index], bindings, typeInfoBindings)
             index = index + 1
         }
 
         returnType := sourceFunctionType.ReturnType
         if invokeMethod.get_ReturnType() != LiveVoidType() && returnType != null {
-            PopulateReflectionBindingsFromTypeInfo(
-                invokeMethod.get_ReturnType(),
-                returnType,
-                bindings,
-                typeInfoBindings)
+            PopulateReflectionBindingsFromTypeInfo(invokeMethod.get_ReturnType(), returnType, bindings, typeInfoBindings)
         }
 
         return true
@@ -1255,11 +1022,7 @@ public class AnalyzerReflectionArgumentBinder {
         }
 
         definitionName := effectiveType.GetGenericTypeDefinition().get_FullName()
-        if definitionName == "System.Collections.Generic.IEnumerable`1"
-            || definitionName == "System.Collections.Generic.IReadOnlyList`1"
-            || definitionName == "System.Collections.Generic.IReadOnlyCollection`1"
-            || definitionName == "System.Collections.Generic.ICollection`1"
-            || definitionName == "System.Collections.Generic.IList`1" {
+        if definitionName == "System.Collections.Generic.IEnumerable`1" || definitionName == "System.Collections.Generic.IReadOnlyList`1" || definitionName == "System.Collections.Generic.IReadOnlyCollection`1" || definitionName == "System.Collections.Generic.ICollection`1" || definitionName == "System.Collections.Generic.IList`1" {
             return effectiveType.GetGenericArguments()[0]
         }
 
@@ -1273,8 +1036,7 @@ public class AnalyzerReflectionArgumentBinder {
         index := 0
         while index < interfaces.Length {
             candidate := interfaces[index]
-            if candidate.get_IsGenericType()
-                && candidate.GetGenericTypeDefinition() == openDefinition {
+            if candidate.get_IsGenericType() && candidate.GetGenericTypeDefinition() == openDefinition {
                 return candidate
             }
 
@@ -1283,8 +1045,7 @@ public class AnalyzerReflectionArgumentBinder {
 
         baseType := definition.get_BaseType()
         while baseType != null {
-            if baseType.get_IsGenericType()
-                && baseType.GetGenericTypeDefinition() == openDefinition {
+            if baseType.get_IsGenericType() && baseType.GetGenericTypeDefinition() == openDefinition {
                 return baseType
             }
 
@@ -1331,7 +1092,7 @@ public class AnalyzerReflectionArgumentBinder {
     // follows it.
     static func CopyBindings(bindings: Dictionary<Type, Type>): Dictionary<Type, Type> {
         copy := new Dictionary<Type, Type>()
-        foreach entry in bindings {
+        for entry in bindings {
             copy[entry.Key] = entry.Value
         }
 
@@ -1340,10 +1101,7 @@ public class AnalyzerReflectionArgumentBinder {
 
     // The named-argument lookup, over the SUPPLIABLE positions only: a receiver position is never
     // addressable by name.
-    static func FindNamedParameterIndex(
-        parameters: ParameterInfo[],
-        parameterOffset: int,
-        name: string): int {
+    static func FindNamedParameterIndex(parameters: ParameterInfo[], parameterOffset: int, name: string): int {
         index := parameterOffset
         while index < parameters.Length {
             if String.Equals(parameters[index].get_Name(), name, StringComparison.Ordinal) {
@@ -1363,25 +1121,15 @@ public class AnalyzerReflectionArgumentBinder {
     // own dictionaries are COPIED first, exactly as the walk this replaces did: a finalisation that
     // fails must leave the candidate's recorded inference untouched, because the caller may retry a
     // different candidate that shares nothing but them.
-    public func BeginFinalizeReflectionCall(
-        candidate: ReflectionPreBoundCandidate): ReflectionCallFinalizeState {
-        return new ReflectionCallFinalizeState(
-            candidate.RuntimeMethod,
-            candidate.SignatureMethod,
-            candidate.SignatureMethod.GetParameters(),
-            candidate.BoundArguments,
-            EnumerateSuppliedReflectionArguments(candidate.BoundArguments),
-            candidate.MethodGroupArguments,
-            CopyBindings(candidate.Bindings),
-            CopyTypeInfoBindings(candidate.TypeInfoBindings))
+    func BeginFinalizeReflectionCall(candidate: ReflectionPreBoundCandidate): ReflectionCallFinalizeState {
+        return new ReflectionCallFinalizeState(candidate.RuntimeMethod, candidate.SignatureMethod, candidate.SignatureMethod.GetParameters(), candidate.BoundArguments, EnumerateSuppliedReflectionArguments(candidate.BoundArguments), candidate.MethodGroupArguments, CopyBindings(candidate.Bindings), CopyTypeInfoBindings(candidate.TypeInfoBindings))
     }
 
     // Run the walk until it needs an expression analysed, or until it ends. A null answer means the
     // walk is over — read `state.Result` for the verdict, which is null when it failed. Every
     // decision the walk makes between two analyses is taken HERE; the caller performs the analysis
     // the request names and hands the answer back, and nothing else.
-    public func NextReflectionAnalysis(
-        state: ReflectionCallFinalizeState): ReflectionAnalysisRequest? {
+    func NextReflectionAnalysis(state: ReflectionCallFinalizeState): ReflectionAnalysisRequest? {
         if state.Failed || state.Phase == 2 {
             return null
         }
@@ -1403,11 +1151,7 @@ public class AnalyzerReflectionArgumentBinder {
 
                 state.PendingKind = 1
                 state.PendingOpenParameterType = supplied.OpenParameterType
-                return new ReflectionAnalysisRequest(
-                    lambda,
-                    lambda,
-                    expectedSignature,
-                    AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
+                return new ReflectionAnalysisRequest(lambda, lambda, expectedSignature, AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
             }
 
             if !CloseGenericRuntimeMethod(state) {
@@ -1425,11 +1169,7 @@ public class AnalyzerReflectionArgumentBinder {
             boundArgument := state.BoundArguments[state.MainIndex]
             defaultArgument := boundArgument as DefaultReflectionBoundArgument
             if defaultArgument != null {
-                state.ParameterTypes.Add(
-                    AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(
-                        defaultArgument.Parameter,
-                        state.WorkingTypeInfoBindings,
-                        state.WorkingBindings))
+                state.ParameterTypes.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(defaultArgument.Parameter, state.WorkingTypeInfoBindings, state.WorkingBindings))
                 state.MainIndex = state.MainIndex + 1
                 continue
             }
@@ -1437,8 +1177,7 @@ public class AnalyzerReflectionArgumentBinder {
             supplied := boundArgument as SuppliedReflectionBoundArgument
             if supplied != null {
                 state.MainIndex = state.MainIndex + 1
-                request := PrepareReflectionArgument(
-                    state, supplied, state.OpenParameters[supplied.ParameterIndex])
+                request := PrepareReflectionArgument(state, supplied, state.OpenParameters[supplied.ParameterIndex])
                 if state.Failed {
                     return null
                 }
@@ -1454,8 +1193,7 @@ public class AnalyzerReflectionArgumentBinder {
                 if state.ParamsIndex < paramsBound.Arguments.Count {
                     element := paramsBound.Arguments[state.ParamsIndex]
                     state.ParamsIndex = state.ParamsIndex + 1
-                    request := PrepareReflectionArgument(
-                        state, element, state.OpenParameters[paramsBound.ParameterIndex])
+                    request := PrepareReflectionArgument(state, element, state.OpenParameters[paramsBound.ParameterIndex])
                     if state.Failed {
                         return null
                     }
@@ -1476,11 +1214,7 @@ public class AnalyzerReflectionArgumentBinder {
 
         finalized := new FunctionTypeInfo()
         finalized.ParameterTypes = state.ParameterTypes
-        finalized.ReturnType = AnalyzerReflectionTypeConversion.ConvertBoundReturn(
-            state.OpenMethod,
-            state.WorkingTypeInfoBindings,
-            state.WorkingBindings,
-            state.HasTypeInfoOverrides)
+        finalized.ReturnType = AnalyzerReflectionTypeConversion.ConvertBoundReturn(state.OpenMethod, state.WorkingTypeInfoBindings, state.WorkingBindings, state.HasTypeInfoOverrides)
         state.Result = finalized
         state.Phase = 2
         return null
@@ -1491,8 +1225,7 @@ public class AnalyzerReflectionArgumentBinder {
     // is still unbound, takes the lambda's return type for it. A phase-two expression answer is
     // JUDGED against the expected type and a refusal ends the finalisation. A phase-two lambda
     // answer is neither: the walk this replaces stored it in a list nothing read.
-    public func SupplyReflectionAnalysis(
-        state: ReflectionCallFinalizeState, analyzedType: TypeInfo) {
+    func SupplyReflectionAnalysis(state: ReflectionCallFinalizeState, analyzedType: TypeInfo) {
         if state.PendingKind == 1 {
             lambdaType := analyzedType as FunctionTypeInfo
             if lambdaType != null {
@@ -1500,8 +1233,7 @@ public class AnalyzerReflectionArgumentBinder {
             }
         } else if state.PendingKind == 3 {
             expectedType := state.PendingExpectedType
-            if expectedType == null
-                || !overloadScoring.IsAssignableReflectionArgument(expectedType, analyzedType) {
+            if expectedType == null || !overloadScoring.IsAssignableReflectionArgument(expectedType, analyzedType) {
                 state.Failed = true
             }
         }
@@ -1514,18 +1246,13 @@ public class AnalyzerReflectionArgumentBinder {
     // The lambda-target signature, with the BROAD fallback behind it. The fallback is not a
     // synonym: the first answer is read off the open delegate type and answers null when the type is
     // not a delegate at all, and only then may the lambda's own written parameters supply one.
-    func CreateLambdaTargetSignature(
-        state: ReflectionCallFinalizeState,
-        openParameterType: Type,
-        lambda: LambdaExpression): FunctionTypeInfo? {
-        expectedSignature := CreateDelegateSignatureFromOpenType(
-            openParameterType, state.WorkingTypeInfoBindings, state.WorkingBindings)
+    func CreateLambdaTargetSignature(state: ReflectionCallFinalizeState, openParameterType: Type, lambda: LambdaExpression): FunctionTypeInfo? {
+        expectedSignature := CreateDelegateSignatureFromOpenType(openParameterType, state.WorkingTypeInfoBindings, state.WorkingBindings)
         if expectedSignature != null {
             return expectedSignature
         }
 
-        return overloadScoring.CreateBroadDelegateSignatureForLambda(
-            openParameterType, state.WorkingBindings, lambda)
+        return overloadScoring.CreateBroadDelegateSignatureForLambda(openParameterType, state.WorkingBindings, lambda)
     }
 
     // Close the runtime method over the inference, if it is still open. A type parameter the whole
@@ -1560,10 +1287,7 @@ public class AnalyzerReflectionArgumentBinder {
         openParameterType := state.PendingOpenParameterType
         lambdaDelegateType := clrTypeConversion.TryConstructDelegateType(lambdaType)
         if lambdaDelegateType != null && openParameterType != null {
-            AnalyzerOverloadFacts.TryMatchReflectionParameter(
-                AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openParameterType),
-                lambdaDelegateType,
-                state.WorkingBindings)
+            AnalyzerOverloadFacts.TryMatchReflectionParameter(AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openParameterType), lambdaDelegateType, state.WorkingBindings)
         }
 
         lambdaReturnType := lambdaType.ReturnType
@@ -1602,10 +1326,7 @@ public class AnalyzerReflectionArgumentBinder {
     // One phase-two position: record the type the parameter EXPECTS, then say whether an analysis is
     // still needed. A method-group position is settled here and needs none — the selection was made
     // when the candidate bound, and all that is left is whether it fits the now-bound signature.
-    func PrepareReflectionArgument(
-        state: ReflectionCallFinalizeState,
-        supplied: SuppliedReflectionBoundArgument,
-        parameter: ParameterInfo): ReflectionAnalysisRequest? {
+    func PrepareReflectionArgument(state: ReflectionCallFinalizeState, supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo): ReflectionAnalysisRequest? {
         lambda := supplied.Argument.Value as LambdaExpression
         if lambda != null {
             expectedSignature := CreateLambdaTargetSignature(state, supplied.OpenParameterType, lambda)
@@ -1619,30 +1340,16 @@ public class AnalyzerReflectionArgumentBinder {
 
             state.ParameterTypes.Add(expectedSignature)
             state.PendingKind = 2
-            return new ReflectionAnalysisRequest(
-                lambda,
-                lambda,
-                expectedSignature,
-                AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
+            return new ReflectionAnalysisRequest(lambda, lambda, expectedSignature, AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
         }
 
-        expectedType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
-            supplied,
-            parameter,
-            state.WorkingBindings,
-            state.WorkingTypeInfoBindings,
-            state.HasTypeInfoOverrides)
+        expectedType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(supplied, parameter, state.WorkingBindings, state.WorkingTypeInfoBindings, state.HasTypeInfoOverrides)
         state.ParameterTypes.Add(expectedType)
 
         selectedMethodGroup: FunctionTypeInfo? = null
         if state.MethodGroupArguments.TryGetValue(supplied.ArgumentIndex, out selectedMethodGroup) {
-            expectedSignature := CreateDelegateSignatureFromOpenType(
-                supplied.OpenParameterType, state.WorkingTypeInfoBindings, state.WorkingBindings)
-            if selectedMethodGroup == null
-                || expectedSignature == null
-                || expectedSignature.ParameterTypes == null
-                || !assignability.IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(
-                        selectedMethodGroup, expectedSignature) {
+            expectedSignature := CreateDelegateSignatureFromOpenType(supplied.OpenParameterType, state.WorkingTypeInfoBindings, state.WorkingBindings)
+            if selectedMethodGroup == null || expectedSignature == null || expectedSignature.ParameterTypes == null || !assignability.IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(selectedMethodGroup, expectedSignature) {
                 state.Failed = true
             }
 
@@ -1654,10 +1361,9 @@ public class AnalyzerReflectionArgumentBinder {
         return new ReflectionAnalysisRequest(supplied.Argument.Value, null, expectedType, false)
     }
 
-    static func CopyTypeInfoBindings(
-        bindings: Dictionary<Type, TypeInfo>): Dictionary<Type, TypeInfo> {
+    static func CopyTypeInfoBindings(bindings: Dictionary<Type, TypeInfo>): Dictionary<Type, TypeInfo> {
         copy := new Dictionary<Type, TypeInfo>()
-        foreach entry in bindings {
+        for entry in bindings {
             copy[entry.Key] = entry.Value
         }
 

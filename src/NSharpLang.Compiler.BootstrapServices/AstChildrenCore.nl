@@ -4,8 +4,8 @@ import System
 import System.Collections
 import System.Collections.Generic
 
-public class AstChildrenCore {
-    public static func Of(expression: object): List<object> {
+class AstChildrenCore {
+    static func Of(expression: object): List<object> {
         if expression == null {
             throw new ArgumentNullException("expression")
         }
@@ -183,23 +183,11 @@ public class AstChildrenCore {
             return result
         }
 
-        throw new InvalidOperationException(
-            "AstChildren.Of has no case for expression node '" + typeName + "'. Add it so AST walkers enumerate its children.")
+        throw new InvalidOperationException("AstChildren.Of has no case for expression node '" + typeName + "'. Add it so AST walkers enumerate its children.")
     }
 
     static func IsLeafExpression(typeName: string): bool {
-        return typeName == "IntLiteralExpression"
-            || typeName == "FloatLiteralExpression"
-            || typeName == "CharLiteralExpression"
-            || typeName == "StringLiteralExpression"
-            || typeName == "BoolLiteralExpression"
-            || typeName == "NullLiteralExpression"
-            || typeName == "IdentifierExpression"
-            || typeName == "ThisExpression"
-            || typeName == "BaseExpression"
-            || typeName == "DefaultExpression"
-            || typeName == "TypeOfExpression"
-            || typeName == "SizeOfExpression"
+        return typeName == "IntLiteralExpression" || typeName == "FloatLiteralExpression" || typeName == "CharLiteralExpression" || typeName == "StringLiteralExpression" || typeName == "BoolLiteralExpression" || typeName == "NullLiteralExpression" || typeName == "IdentifierExpression" || typeName == "ThisExpression" || typeName == "BaseExpression" || typeName == "DefaultExpression" || typeName == "TypeOfExpression" || typeName == "SizeOfExpression"
     }
 
     static func AddArgumentValues(result: List<object>, arguments: IList) {
@@ -267,8 +255,7 @@ public class AstChildrenCore {
     static func AddRequiredProperty(result: List<object>, owner: object, propertyName: string) {
         value := GetPropertyValue(owner, propertyName)
         if value == null {
-            throw new InvalidOperationException(
-                "AstChildren.Of expected '" + owner.GetType().Name + "." + propertyName + "' to contain an expression.")
+            throw new InvalidOperationException("AstChildren.Of expected '" + owner.GetType().Name + "." + propertyName + "' to contain an expression.")
         }
 
         result.Add(value)
@@ -285,8 +272,7 @@ public class AstChildrenCore {
         value := GetPropertyValue(owner, propertyName)
         list := value as IList
         if list == null {
-            throw new InvalidOperationException(
-                "AstChildren.Of expected '" + owner.GetType().Name + "." + propertyName + "' to contain child expressions.")
+            throw new InvalidOperationException("AstChildren.Of expected '" + owner.GetType().Name + "." + propertyName + "' to contain child expressions.")
         }
 
         return list

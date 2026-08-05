@@ -86,14 +86,7 @@ class ColumnarExternalStaticMemberPlanner {
         try {
             scope := nodes.BindingScope
             declaringType := typeof(object)
-            if nodes.HasAdditionalRootBinding(rootName) || scope == null
-                || !scope.TryResolveExternalStaticOwner(
-                    nodes.EnclosingTypeName,
-                    nodes.VisibleTypeParameterNames,
-                    rootName,
-                    ownerName,
-                    selection.DeclaringTypeName,
-                    out declaringType) {
+            if nodes.HasAdditionalRootBinding(rootName) || scope == null || !scope.TryResolveExternalStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, selection.DeclaringTypeName, out declaringType) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -111,8 +104,7 @@ class ColumnarExternalStaticMemberPlanner {
                 }
 
                 if field.get_IsLiteral() {
-                    if !TryAppendLiteralField(
-                            plan, field, fieldType, selection.MemberName) {
+                    if !TryAppendLiteralField(plan, field, fieldType, selection.MemberName) {
                         plan.Rollback(checkpoint)
                         return false
                     }
@@ -158,11 +150,7 @@ class ColumnarExternalStaticMemberPlanner {
         return false
     }
 
-    static func TryAppendLiteralField(
-        plan: ColumnarCodePlan,
-        field: FieldInfo,
-        fieldType: Type,
-        memberName: string): bool {
+    static func TryAppendLiteralField(plan: ColumnarCodePlan, field: FieldInfo, fieldType: Type, memberName: string): bool {
         value := field.GetValue(null)
         if value == null {
             return false
@@ -178,31 +166,42 @@ class ColumnarExternalStaticMemberPlanner {
         isMaximum := memberName == "MaxValue"
         if fieldType == typeof(int) {
             intValue := -2147483648
-            if isMaximum { intValue = 2147483647 }
+            if isMaximum {
+                intValue = 2147483647
+            }
             valueIndex := plan.AddInt32(intValue)
             plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
             return true
         }
         if fieldType == typeof(uint) {
             intValue := 0
-            if isMaximum { intValue = -1 }
+            if isMaximum {
+                intValue = -1
+            }
             valueIndex := plan.AddInt32(intValue)
             plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
             return true
         }
-        if fieldType == typeof(short) || fieldType == typeof(ushort)
-            || fieldType == typeof(byte) || fieldType == typeof(sbyte) {
+        if fieldType == typeof(short) || fieldType == typeof(ushort) || fieldType == typeof(byte) || fieldType == typeof(sbyte) {
             intValue := 0
             if fieldType == typeof(short) {
                 intValue = -32768
-                if isMaximum { intValue = 32767 }
+                if isMaximum {
+                    intValue = 32767
+                }
             } else if fieldType == typeof(ushort) {
-                if isMaximum { intValue = 65535 }
+                if isMaximum {
+                    intValue = 65535
+                }
             } else if fieldType == typeof(byte) {
-                if isMaximum { intValue = 255 }
+                if isMaximum {
+                    intValue = 255
+                }
             } else {
                 intValue = -128
-                if isMaximum { intValue = 127 }
+                if isMaximum {
+                    intValue = 127
+                }
             }
             valueIndex := plan.AddInt32(intValue)
             plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
@@ -221,7 +220,9 @@ class ColumnarExternalStaticMemberPlanner {
         }
         if fieldType == typeof(ulong) {
             longValue := 0L
-            if isMaximum { longValue = -1L }
+            if isMaximum {
+                longValue = -1L
+            }
             valueIndex := plan.AddInt64(longValue)
             plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
             return true

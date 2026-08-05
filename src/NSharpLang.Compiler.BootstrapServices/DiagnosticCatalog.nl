@@ -4,12 +4,12 @@ import System
 import System.Collections.Generic
 import System.Text
 
-public class DiagnosticCatalog {
-    public static Descriptors: IReadOnlyCollection<DiagnosticDescriptor> => BuildDescriptors()
+class DiagnosticCatalog {
+    static Descriptors: IReadOnlyCollection<DiagnosticDescriptor> => BuildDescriptors()
 
-    public static LinterDescriptors: IReadOnlyCollection<DiagnosticDescriptor> => BuildLinterDescriptors()
+    static LinterDescriptors: IReadOnlyCollection<DiagnosticDescriptor> => BuildLinterDescriptors()
 
-    public static func TryGetDescriptor(code: string, out descriptor: DiagnosticDescriptor): bool {
+    static func TryGetDescriptor(code: string, out descriptor: DiagnosticDescriptor): bool {
         descriptor = EmptyDescriptor()
 
         descriptors := BuildDescriptors()
@@ -27,11 +27,11 @@ public class DiagnosticCatalog {
         return false
     }
 
-    public static func GetDefaultSeverity(code: string): DiagnosticSeverity {
+    static func GetDefaultSeverity(code: string): DiagnosticSeverity {
         return GetDefaultSeverity(code, DiagnosticSeverity.Warning)
     }
 
-    public static func GetDefaultSeverity(code: string, fallback: DiagnosticSeverity = DiagnosticSeverity.Warning): DiagnosticSeverity {
+    static func GetDefaultSeverity(code: string, fallback: DiagnosticSeverity = DiagnosticSeverity.Warning): DiagnosticSeverity {
         descriptor := EmptyDescriptor()
         if TryGetDescriptor(code, out descriptor) {
             return descriptor.DefaultSeverity
@@ -40,7 +40,7 @@ public class DiagnosticCatalog {
         return fallback
     }
 
-    public static func DocsUrlFor(code: string): string {
+    static func DocsUrlFor(code: string): string {
         descriptor := EmptyDescriptor()
         if TryGetDescriptor(code, out descriptor) {
             docsUrl := descriptor.DocsUrl
@@ -190,16 +190,7 @@ public class DiagnosticCatalog {
             severity = DiagnosticSeverity.Warning
         }
 
-        AddDescriptor(
-            descriptors,
-            new DiagnosticDescriptor(
-                FormatDiagnosticCode(code),
-                ToTitle(ErrorCodeName(code)),
-                DiagnosticSource.Compiler,
-                category,
-                severity,
-                severity == DiagnosticSeverity.Error,
-                false))
+        AddDescriptor(descriptors, new DiagnosticDescriptor(FormatDiagnosticCode(code), ToTitle(ErrorCodeName(code)), DiagnosticSource.Compiler, category, severity, severity == DiagnosticSeverity.Error, false))
     }
 
     static func GetCompilerCategory(code: ErrorCode): DiagnosticCategory {
@@ -264,116 +255,39 @@ public class DiagnosticCatalog {
         AddDescriptor(descriptors, Linter("NL020", "Shadowed variable", DiagnosticCategory.Hygiene, DiagnosticSeverity.Error, true))
     }
 
-    static func Linter(
-        code: string,
-        title: string,
-        category: DiagnosticCategory,
-        severity: DiagnosticSeverity,
-        blocksBuild: bool): DiagnosticDescriptor {
+    static func Linter(code: string, title: string, category: DiagnosticCategory, severity: DiagnosticSeverity, blocksBuild: bool): DiagnosticDescriptor {
         return new DiagnosticDescriptor(code, title, DiagnosticSource.Linter, category, severity, blocksBuild)
     }
 
     static func AddPerformanceDescriptors(descriptors: List<DiagnosticDescriptor>) {
-        AddDescriptor(
-            descriptors,
-            Performance(
-                ErrorCode.AllocationHere,
-                "Allocation here",
-                DiagnosticSeverity.Info,
-                "Allocates here because the value escapes its enclosing scope, so it cannot live on the stack."))
+        AddDescriptor(descriptors, Performance(ErrorCode.AllocationHere, "Allocation here", DiagnosticSeverity.Info, "Allocates here because the value escapes its enclosing scope, so it cannot live on the stack."))
 
-        AddDescriptor(
-            descriptors,
-            Performance(
-                ErrorCode.BoxingHere,
-                "Boxing here",
-                DiagnosticSeverity.Warning,
-                "Boxes here because a value type is used through an interface or object, forcing a heap allocation."))
+        AddDescriptor(descriptors, Performance(ErrorCode.BoxingHere, "Boxing here", DiagnosticSeverity.Warning, "Boxes here because a value type is used through an interface or object, forcing a heap allocation."))
 
-        AddDescriptor(
-            descriptors,
-            Performance(
-                ErrorCode.VirtualDispatchNotDevirtualized,
-                "Virtual dispatch not devirtualized",
-                DiagnosticSeverity.Info,
-                "Uses callvirt here because the receiver type is not proven exact, so the call cannot be devirtualized or inlined."))
+        AddDescriptor(descriptors, Performance(ErrorCode.VirtualDispatchNotDevirtualized, "Virtual dispatch not devirtualized", DiagnosticSeverity.Info, "Uses callvirt here because the receiver type is not proven exact, so the call cannot be devirtualized or inlined."))
 
-        AddDescriptor(
-            descriptors,
-            Performance(
-                ErrorCode.ClosureAllocation,
-                "Closure allocation",
-                DiagnosticSeverity.Warning,
-                "Allocates a closure here because the lambda captures variables from its enclosing scope."))
+        AddDescriptor(descriptors, Performance(ErrorCode.ClosureAllocation, "Closure allocation", DiagnosticSeverity.Warning, "Allocates a closure here because the lambda captures variables from its enclosing scope."))
 
-        AddDescriptor(
-            descriptors,
-            Performance(
-                ErrorCode.DelegateAllocation,
-                "Delegate allocation",
-                DiagnosticSeverity.Warning,
-                "Allocates a delegate here because a method group or lambda is converted to a delegate instance."))
+        AddDescriptor(descriptors, Performance(ErrorCode.DelegateAllocation, "Delegate allocation", DiagnosticSeverity.Warning, "Allocates a delegate here because a method group or lambda is converted to a delegate instance."))
     }
 
-    static func Performance(
-        code: ErrorCode,
-        title: string,
-        severity: DiagnosticSeverity,
-        explanation: string): DiagnosticDescriptor {
-        return new DiagnosticDescriptor(
-            FormatDiagnosticCode(code),
-            title,
-            DiagnosticSource.Compiler,
-            DiagnosticCategory.Performance,
-            severity,
-            false,
-            true,
-            null,
-            explanation)
+    static func Performance(code: ErrorCode, title: string, severity: DiagnosticSeverity, explanation: string): DiagnosticDescriptor {
+        return new DiagnosticDescriptor(FormatDiagnosticCode(code), title, DiagnosticSource.Compiler, DiagnosticCategory.Performance, severity, false, true, null, explanation)
     }
 
     static func AddAotDescriptors(descriptors: List<DiagnosticDescriptor>) {
-        AddDescriptor(
-            descriptors,
-            Aot(
-                ErrorCode.AotReflectionUse,
-                "Reflection blocks AOT",
-                "Uses runtime reflection here. The trimmer cannot see which members are accessed reflectively, so they may be removed, and Native AOT cannot resolve them ahead of time."))
+        AddDescriptor(descriptors, Aot(ErrorCode.AotReflectionUse, "Reflection blocks AOT", "Uses runtime reflection here. The trimmer cannot see which members are accessed reflectively, so they may be removed, and Native AOT cannot resolve them ahead of time."))
 
-        AddDescriptor(
-            descriptors,
-            Aot(
-                ErrorCode.AotDynamicCode,
-                "Dynamic code blocks AOT",
-                "Generates or invokes code at runtime here (e.g. Reflection.Emit, Activator.CreateInstance, or dynamic dispatch). Native AOT has no JIT, so dynamically generated code cannot run."))
+        AddDescriptor(descriptors, Aot(ErrorCode.AotDynamicCode, "Dynamic code blocks AOT", "Generates or invokes code at runtime here (e.g. Reflection.Emit, Activator.CreateInstance, or dynamic dispatch). Native AOT has no JIT, so dynamically generated code cannot run."))
 
-        AddDescriptor(
-            descriptors,
-            Aot(
-                ErrorCode.AotMakeGenericType,
-                "Runtime generic instantiation blocks AOT",
-                "Constructs a generic type or method at runtime here (MakeGenericType / MakeGenericMethod). Native AOT only instantiates the generic combinations it can see at compile time."))
+        AddDescriptor(descriptors, Aot(ErrorCode.AotMakeGenericType, "Runtime generic instantiation blocks AOT", "Constructs a generic type or method at runtime here (MakeGenericType / MakeGenericMethod). Native AOT only instantiates the generic combinations it can see at compile time."))
 
-        AddDescriptor(
-            descriptors,
-            Aot(
-                ErrorCode.AotExpressionTree,
-                "Expression tree blocks AOT",
-                "Builds or compiles a LINQ expression tree here. Compiling an expression tree emits IL at runtime, which Native AOT cannot do."))
+        AddDescriptor(descriptors, Aot(ErrorCode.AotExpressionTree, "Expression tree blocks AOT", "Builds or compiles a LINQ expression tree here. Compiling an expression tree emits IL at runtime, which Native AOT cannot do."))
     }
 
     static func Aot(code: ErrorCode, title: string, explanation: string): DiagnosticDescriptor {
         codeText := FormatDiagnosticCode(code)
-        return new DiagnosticDescriptor(
-            codeText,
-            title,
-            DiagnosticSource.Compiler,
-            DiagnosticCategory.Aot,
-            DiagnosticSeverity.Info,
-            false,
-            true,
-            "https://docs.n-sharp.dev/errors/" + codeText,
-            explanation)
+        return new DiagnosticDescriptor(codeText, title, DiagnosticSource.Compiler, DiagnosticCategory.Aot, DiagnosticSeverity.Info, false, true, "https://docs.n-sharp.dev/errors/" + codeText, explanation)
     }
 
     static func FormatDiagnosticCode(code: ErrorCode): string {
@@ -427,13 +341,6 @@ public class DiagnosticCatalog {
     }
 
     static func EmptyDescriptor(): DiagnosticDescriptor {
-        return new DiagnosticDescriptor(
-            "",
-            "",
-            DiagnosticSource.Compiler,
-            DiagnosticCategory.Semantic,
-            DiagnosticSeverity.Warning,
-            false,
-            false)
+        return new DiagnosticDescriptor("", "", DiagnosticSource.Compiler, DiagnosticCategory.Semantic, DiagnosticSeverity.Warning, false, false)
     }
 }

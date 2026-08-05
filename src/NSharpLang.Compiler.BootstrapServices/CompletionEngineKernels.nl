@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.Text
 
-public class CompletionReceiverClassification {
+class CompletionReceiverClassification {
     isMemberAccessValue: bool
     receiverValue: string?
 
@@ -17,8 +17,8 @@ public class CompletionReceiverClassification {
     }
 }
 
-public class CompletionEngineKernels {
-    public static func ClassifyCompletionReceiver(beforeCursor: string): CompletionReceiverClassification {
+class CompletionEngineKernels {
+    static func ClassifyCompletionReceiver(beforeCursor: string): CompletionReceiverClassification {
         if !IsCompletionMemberAccessContext(beforeCursor) {
             return new CompletionReceiverClassification(false, null)
         }
@@ -31,9 +31,7 @@ public class CompletionEngineKernels {
         return new CompletionReceiverClassification(true, receiver)
     }
 
-    public static func AddGroupedCompletionItemsByKind(
-        items: List<CompletionItem>,
-        completions: Dictionary<string, List<CompletionItem>>) {
+    static func AddGroupedCompletionItemsByKind(items: List<CompletionItem>, completions: Dictionary<string, List<CompletionItem>>) {
         if items.Count == 0 {
             return
         }
@@ -70,11 +68,7 @@ public class CompletionEngineKernels {
         }
     }
 
-    public static func BuildMemberItemsFromRows(
-        names: string[],
-        kinds: string[],
-        typeTexts: string[],
-        isStaticValues: bool[]): List<CompletionItem> {
+    static func BuildMemberItemsFromRows(names: string[], kinds: string[], typeTexts: string[], isStaticValues: bool[]): List<CompletionItem> {
         items := new List<CompletionItem>()
         count := names.Length
         if kinds.Length < count {
@@ -96,13 +90,7 @@ public class CompletionEngineKernels {
                 typeText = typeTexts[i]
             }
 
-            items.Add(new CompletionItem(
-                names[i],
-                kinds[i],
-                typeText,
-                null,
-                null,
-                isStaticValues[i]))
+            items.Add(new CompletionItem(names[i], kinds[i], typeText, null, null, isStaticValues[i]))
             i = i + 1
         }
 
@@ -215,16 +203,14 @@ public class CompletionEngineKernels {
 
         if EndsCompletionReceiverWith(text, end, "true") {
             start := end - 4
-            if IsCompletionReceiverTokenBoundary(text, start)
-                && !HasCompletionLineCommentBefore(text, start) {
+            if IsCompletionReceiverTokenBoundary(text, start) && !HasCompletionLineCommentBefore(text, start) {
                 return text.Substring(start, 4)
             }
         }
 
         if EndsCompletionReceiverWith(text, end, "false") {
             start := end - 5
-            if IsCompletionReceiverTokenBoundary(text, start)
-                && !HasCompletionLineCommentBefore(text, start) {
+            if IsCompletionReceiverTokenBoundary(text, start) && !HasCompletionLineCommentBefore(text, start) {
                 return text.Substring(start, 5)
             }
         }
@@ -288,10 +274,7 @@ public class CompletionEngineKernels {
     }
 
     static func FindCompletionRawStringStart(text: string, end: int): int {
-        if end < 6
-            || text[end - 1] != '"'
-            || text[end - 2] != '"'
-            || text[end - 3] != '"' {
+        if end < 6 || text[end - 1] != '"' || text[end - 2] != '"' || text[end - 3] != '"' {
             return -1
         }
 
@@ -359,9 +342,7 @@ public class CompletionEngineKernels {
         position := end - 1
 
         while position >= 0 {
-            if IsCompletionDigit(text[position])
-                && IsCompletionNumericStartBoundary(text, position)
-                && ScanCompletionNumber(text, position, end) == end {
+            if IsCompletionDigit(text[position]) && IsCompletionNumericStartBoundary(text, position) && ScanCompletionNumber(text, position, end) == end {
                 return position
             }
 
@@ -372,9 +353,7 @@ public class CompletionEngineKernels {
     }
 
     static func ScanCompletionNumber(text: string, position: int, end: int): int {
-        if text[position] == '0'
-            && position + 1 < end
-            && (text[position + 1] == 'x' || text[position + 1] == 'X') {
+        if text[position] == '0' && position + 1 < end && (text[position + 1] == 'x' || text[position + 1] == 'X') {
             position = position + 2
             while position < end && (IsCompletionHexDigit(text[position]) || text[position] == '_') {
                 position = position + 1
@@ -383,9 +362,7 @@ public class CompletionEngineKernels {
             return ConsumeCompletionIntegerSuffix(text, position, end)
         }
 
-        if text[position] == '0'
-            && position + 1 < end
-            && (text[position + 1] == 'b' || text[position + 1] == 'B') {
+        if text[position] == '0' && position + 1 < end && (text[position + 1] == 'b' || text[position + 1] == 'B') {
             position = position + 2
             while position < end && (text[position] == '0' || text[position] == '1' || text[position] == '_') {
                 position = position + 1
@@ -395,8 +372,7 @@ public class CompletionEngineKernels {
         }
 
         isFloat := false
-        while position < end
-            && (IsCompletionDigit(text[position]) || text[position] == '.' || text[position] == '_') {
+        while position < end && (IsCompletionDigit(text[position]) || text[position] == '.' || text[position] == '_') {
             if text[position] == '.' {
                 if position + 1 < end && text[position + 1] == '.' {
                     break
@@ -460,13 +436,7 @@ public class CompletionEngineKernels {
     }
 
     static func ConsumeCompletionFloatSuffix(text: string, position: int, end: int): int {
-        if position < end
-            && (text[position] == 'f'
-                || text[position] == 'F'
-                || text[position] == 'd'
-                || text[position] == 'D'
-                || text[position] == 'm'
-                || text[position] == 'M') {
+        if position < end && (text[position] == 'f' || text[position] == 'F' || text[position] == 'd' || text[position] == 'D' || text[position] == 'm' || text[position] == 'M') {
             return position + 1
         }
 
@@ -586,9 +556,7 @@ public class CompletionEngineKernels {
         }
 
         if ch <= '~' {
-            return ch == '_'
-                || (ch >= 'A' && ch <= 'Z')
-                || (ch >= '0' && ch <= '9')
+            return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
         }
 
         if ch >= 'A' && ch <= 'Z' {
@@ -619,8 +587,6 @@ public class CompletionEngineKernels {
     }
 
     static func IsCompletionHexDigit(ch: char): bool {
-        return (ch >= '0' && ch <= '9')
-            || (ch >= 'a' && ch <= 'f')
-            || (ch >= 'A' && ch <= 'F')
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
     }
 }

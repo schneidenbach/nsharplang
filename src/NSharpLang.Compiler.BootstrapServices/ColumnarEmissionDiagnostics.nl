@@ -1,19 +1,8 @@
 namespace NSharpLang.Compiler
 
-public class ColumnarEmissionDiagnostics {
-    public static func RequiredAotEmissionError(
-        assemblyName: string,
-        detail: string? = null,
-        fileName: string? = null,
-        line: int = 0,
-        column: int = 0,
-        spanLength: int = 1): CompilerError {
-        return new CompilerError(
-            ErrorCode.InvalidSyntax,
-            AddDetail("Columnar AOT emission is required for '" + assemblyName + "', but the columnar backend declined.", detail),
-            line,
-            column,
-            ErrorSeverity.Error) {
+class ColumnarEmissionDiagnostics {
+    static func RequiredAotEmissionError(assemblyName: string, detail: string? = null, fileName: string? = null, line: int = 0, column: int = 0, spanLength: int = 1): CompilerError {
+        return new CompilerError(ErrorCode.InvalidSyntax, AddDetail("Columnar AOT emission is required for '" + assemblyName + "', but the columnar backend declined.", detail), line, column, ErrorSeverity.Error) {
             FileName: fileName,
             Length: spanLength,
             HumanExplanation: "AOT builds require successful N# columnar emission after analysis passes.",
@@ -21,19 +10,8 @@ public class ColumnarEmissionDiagnostics {
         }
     }
 
-    public static func RequiredEmissionError(
-        assemblyName: string,
-        detail: string? = null,
-        fileName: string? = null,
-        line: int = 0,
-        column: int = 0,
-        spanLength: int = 1): CompilerError {
-        return new CompilerError(
-            ErrorCode.InvalidSyntax,
-            AddDetail("Columnar emission is required for '" + assemblyName + "', but the columnar backend declined.", detail),
-            line,
-            column,
-            ErrorSeverity.Error) {
+    static func RequiredEmissionError(assemblyName: string, detail: string? = null, fileName: string? = null, line: int = 0, column: int = 0, spanLength: int = 1): CompilerError {
+        return new CompilerError(ErrorCode.InvalidSyntax, AddDetail("Columnar emission is required for '" + assemblyName + "', but the columnar backend declined.", detail), line, column, ErrorSeverity.Error) {
             FileName: fileName,
             Length: spanLength,
             HumanExplanation: "This product path requires successful N# columnar emission after analysis passes.",
@@ -41,19 +19,8 @@ public class ColumnarEmissionDiagnostics {
         }
     }
 
-    public static func RequiredEmitOnlyEmissionError(
-        assemblyName: string,
-        detail: string? = null,
-        fileName: string? = null,
-        line: int = 0,
-        column: int = 0,
-        spanLength: int = 1): CompilerError {
-        return new CompilerError(
-            ErrorCode.InvalidSyntax,
-            AddDetail("Columnar emission is required for '" + assemblyName + "', but the columnar backend declined.", detail),
-            line,
-            column,
-            ErrorSeverity.Error) {
+    static func RequiredEmitOnlyEmissionError(assemblyName: string, detail: string? = null, fileName: string? = null, line: int = 0, column: int = 0, spanLength: int = 1): CompilerError {
+        return new CompilerError(ErrorCode.InvalidSyntax, AddDetail("Columnar emission is required for '" + assemblyName + "', but the columnar backend declined.", detail), line, column, ErrorSeverity.Error) {
             FileName: fileName,
             Length: spanLength,
             HumanExplanation: "This emit-only path bypasses the legacy C# AST/Analyzer and requires successful N# columnar emission.",
@@ -61,19 +28,8 @@ public class ColumnarEmissionDiagnostics {
         }
     }
 
-    public static func RequiredSoaEmissionError(
-        assemblyName: string,
-        detail: string? = null,
-        fileName: string? = null,
-        line: int = 0,
-        column: int = 0,
-        spanLength: int = 1): CompilerError {
-        return new CompilerError(
-            ErrorCode.InvalidSyntax,
-            AddDetail("Columnar SoA emission is required for '" + assemblyName + "', but the columnar backend declined.", detail),
-            line,
-            column,
-            ErrorSeverity.Error) {
+    static func RequiredSoaEmissionError(assemblyName: string, detail: string? = null, fileName: string? = null, line: int = 0, column: int = 0, spanLength: int = 1): CompilerError {
+        return new CompilerError(ErrorCode.InvalidSyntax, AddDetail("Columnar SoA emission is required for '" + assemblyName + "', but the columnar backend declined.", detail), line, column, ErrorSeverity.Error) {
             FileName: fileName,
             Length: spanLength,
             HumanExplanation: "Experimental SoA records are the compiler table migration path and require successful N# columnar emission.",
@@ -81,16 +37,7 @@ public class ColumnarEmissionDiagnostics {
         }
     }
 
-    public static func RequiredEmissionErrorFor(
-        assemblyName: string,
-        aotMode: bool,
-        requiresSoaEmission: bool,
-        emitOnly: bool,
-        detail: string? = null,
-        fileName: string? = null,
-        line: int = 0,
-        column: int = 0,
-        spanLength: int = 1): CompilerError {
+    static func RequiredEmissionErrorFor(assemblyName: string, aotMode: bool, requiresSoaEmission: bool, emitOnly: bool, detail: string? = null, fileName: string? = null, line: int = 0, column: int = 0, spanLength: int = 1): CompilerError {
         if emitOnly {
             return RequiredEmitOnlyEmissionError(assemblyName, detail, fileName, line, column, spanLength)
         }

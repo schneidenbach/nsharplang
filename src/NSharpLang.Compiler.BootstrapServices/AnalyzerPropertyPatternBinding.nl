@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // ONE STEP THE PROPERTY-PATTERN WALK CANNOT TAKE FOR ITSELF, AND EVERYTHING THAT STEP NEEDS.
 //
 // The walk owns what an object pattern's property list MEANS — which owner the properties are looked
@@ -16,14 +17,13 @@ import NSharpLang.Compiler.Ast
 // The two kinds:
 //   1  analyse a NESTED pattern against the property's resolved type
 //   2  declare the implicit binding for a property with no nested pattern
-public class PropertyPatternBindingRequest {
-
-    public Kind: int
-    public Pattern: Pattern?
-    public Name: string?
-    public CarriedType: TypeInfo
-    public Line: int
-    public Column: int
+class PropertyPatternBindingRequest {
+    Kind: int
+    Pattern: Pattern?
+    Name: string?
+    CarriedType: TypeInfo
+    Line: int
+    Column: int
 
     constructor(kind: int, carriedType: TypeInfo) {
         Kind = kind
@@ -40,8 +40,7 @@ public class PropertyPatternBindingRequest {
 // `Index` is the walk's program counter over the property list. The owner and the substitution are
 // derived ONCE at `Begin` from the scrutinee, exactly as the C# member derived them once above its
 // loop, because they are properties of the scrutinee rather than of any one property pattern.
-public class PropertyPatternBindingState {
-
+class PropertyPatternBindingState {
     propertiesValue: List<PropertyPattern>
     valueTypeValue: TypeInfo
     declarationOwnerValue: TypeInfo
@@ -56,15 +55,9 @@ public class PropertyPatternBindingState {
     Line: int => lineValue
     Column: int => columnValue
 
-    public Index: int
+    Index: int
 
-    constructor(
-        properties: List<PropertyPattern>,
-        valueType: TypeInfo,
-        declarationOwner: TypeInfo,
-        substitution: Dictionary<string, TypeInfo>?,
-        line: int,
-        column: int) {
+    constructor(properties: List<PropertyPattern>, valueType: TypeInfo, declarationOwner: TypeInfo, substitution: Dictionary<string, TypeInfo>?, line: int, column: int) {
         propertiesValue = properties
         valueTypeValue = valueType
         declarationOwnerValue = declarationOwner
@@ -125,18 +118,13 @@ public class PropertyPatternBindingState {
 // `{ value }` form alike — so `BindingName ?? Name` always takes the fallback in production. The
 // explicit arm is live code a later parser change can reach; it is pinned by construction in the
 // contracts, exactly as slice 27 pinned its two unreachable walk arms.
-public class AnalyzerPropertyPatternBinding {
-
+class AnalyzerPropertyPatternBinding {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     declarationContextValue: AnalyzerDeclarationContext
     typeSubstitutionValue: AnalyzerTypeSubstitution
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        declarationContext: AnalyzerDeclarationContext,
-        typeSubstitution: AnalyzerTypeSubstitution) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, declarationContext: AnalyzerDeclarationContext, typeSubstitution: AnalyzerTypeSubstitution) {
         diagnosticsValue = diagnostics
         spansValue = spans
         declarationContextValue = declarationContext
@@ -145,11 +133,7 @@ public class AnalyzerPropertyPatternBinding {
 
     // The owner and the substitution are the scrutinee's, and they are settled here so that no
     // property pattern can observe a different owner than its neighbours.
-    public func Begin(
-        properties: List<PropertyPattern>,
-        valueType: TypeInfo,
-        line: int,
-        column: int): PropertyPatternBindingState {
+    func Begin(properties: List<PropertyPattern>, valueType: TypeInfo, line: int, column: int): PropertyPatternBindingState {
         declarationOwner := valueType
         substitution: Dictionary<string, TypeInfo>? = null
         genericValue := valueType as GenericTypeInfo
@@ -157,24 +141,16 @@ public class AnalyzerPropertyPatternBinding {
             genericDefinition := typeSubstitutionValue.ResolveGenericDefinition(genericValue)
             if genericDefinition != null {
                 declarationOwner = genericDefinition
-                substitution = declarationContextValue.CreateGenericSubstitution(
-                    genericDefinition,
-                    genericValue.TypeArguments)
+                substitution = declarationContextValue.CreateGenericSubstitution(genericDefinition, genericValue.TypeArguments)
             }
         }
 
-        return new PropertyPatternBindingState(
-            properties,
-            valueType,
-            declarationOwner,
-            substitution,
-            line,
-            column)
+        return new PropertyPatternBindingState(properties, valueType, declarationOwner, substitution, line, column)
     }
 
     // Advances over the property list until it has a step for the driver, reporting the properties
     // that are not there as it passes them. A null answer means the list is finished.
-    public func NextStep(state: PropertyPatternBindingState): PropertyPatternBindingRequest? {
+    func NextStep(state: PropertyPatternBindingState): PropertyPatternBindingRequest? {
         while state.Index < state.Properties.Count {
             property := state.Properties[state.Index]
             state.Index = state.Index + 1
@@ -197,10 +173,7 @@ public class AnalyzerPropertyPatternBinding {
                 bindingName = property.Name
             }
 
-            span := spansValue.GetPropertyPatternNameDiagnosticSpan(
-                property,
-                state.Line,
-                state.Column)
+            span := spansValue.GetPropertyPatternNameDiagnosticSpan(property, state.Line, state.Column)
             request := new PropertyPatternBindingRequest(2, resolved)
             request.Name = bindingName
             request.Line = span.Line
@@ -215,15 +188,9 @@ public class AnalyzerPropertyPatternBinding {
     // property", which is the only thing that reports.
     func FindPropertyType(state: PropertyPatternBindingState, name: string): TypeInfo? {
         sourceShape := new AnalyzerSourceMemberShape()
-        if declarationContextValue.TryGetSourceMemberShape(
-                state.DeclarationOwner, state.Substitution, out sourceShape) {
+        if declarationContextValue.TryGetSourceMemberShape(state.DeclarationOwner, state.Substitution, out sourceShape) {
             declaredMember: TypeInfo = BuiltInTypes.Unknown
-            if declarationContextValue.TryResolveDeclaredValueMember(
-                    sourceShape.Owner,
-                    sourceShape.DeclaredMembers,
-                    name,
-                    state.Substitution,
-                    out declaredMember) {
+            if declarationContextValue.TryResolveDeclaredValueMember(sourceShape.Owner, sourceShape.DeclaredMembers, name, state.Substitution, out declaredMember) {
                 return declaredMember
             }
         }
@@ -244,17 +211,8 @@ public class AnalyzerPropertyPatternBinding {
     // `Box?` — which is the honest message, because a nullable really has no declared members until
     // it is narrowed.
     func ReportMissingProperty(state: PropertyPatternBindingState, property: PropertyPattern) {
-        span := spansValue.GetPropertyPatternNameDiagnosticSpan(
-            property,
-            state.Line,
-            state.Column)
+        span := spansValue.GetPropertyPatternNameDiagnosticSpan(property, state.Line, state.Column)
         valueObject := state.ValueType as object
-        diagnosticsValue.Report(
-            ErrorCode.InvalidPattern,
-            "'" + valueObject.ToString() + "' doesn't have a property named '" + property.Name + "'",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidPattern, "'" + valueObject.ToString() + "' doesn't have a property named '" + property.Name + "'", span.Line, span.Column, null, span.Length)
     }
 }

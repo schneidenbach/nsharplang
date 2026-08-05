@@ -6,7 +6,7 @@ import System.IO
 import System.Text.Json
 import NSharpLang.Compiler
 
-public class HotSummaryDocument {
+class HotSummaryDocument {
     schemaVersionValue: int
     schemaVersionAssignedValue: bool
     entriesValue: List<HotSummaryEntry>?
@@ -39,7 +39,7 @@ public class HotSummaryDocument {
     }
 }
 
-public class HotSummaryEntry {
+class HotSummaryEntry {
     schemaVersionValue: int
     schemaVersionAssignedValue: bool
     assemblyIdentityValue: string?
@@ -57,7 +57,7 @@ public class HotSummaryEntry {
     hotReadinessRequirementsValue: List<string>?
     sourceValue: string?
 
-    public static None: HotSummaryEntry => new HotSummaryEntry()
+    static None: HotSummaryEntry => new HotSummaryEntry()
 
     SchemaVersion: int {
         get {
@@ -233,7 +233,7 @@ public class HotSummaryEntry {
 
     IsSidecar: bool => string.Equals(Source, HotSummarySource.Sidecar, StringComparison.OrdinalIgnoreCase)
 
-    public func IsAotSafeFor(target: string): bool {
+    func IsAotSafeFor(target: string): bool {
         if !Effects.AotSafe {
             return false
         }
@@ -256,7 +256,7 @@ public class HotSummaryEntry {
     }
 }
 
-public class HotSummaryEffects {
+class HotSummaryEffects {
     allocatesValue: bool
     boxesValue: bool
     constructsDelegateValue: bool
@@ -445,8 +445,8 @@ public class HotSummaryEffects {
     }
 }
 
-public class BclHotSummaryPack {
-    public static func Create(targetFramework: string): List<HotSummaryEntry> {
+class BclHotSummaryPack {
+    static func Create(targetFramework: string): List<HotSummaryEntry> {
         entries := new List<HotSummaryEntry>()
 
         Add(entries, targetFramework, "BinaryPrimitives.*")
@@ -523,18 +523,11 @@ public class BclHotSummaryPack {
         Add(entries, targetFramework, method, effects)
     }
 
-    static func Add(
-        entries: List<HotSummaryEntry>,
-        targetFramework: string,
-        method: string) {
+    static func Add(entries: List<HotSummaryEntry>, targetFramework: string, method: string) {
         Add(entries, targetFramework, method, null)
     }
 
-    static func Add(
-        entries: List<HotSummaryEntry>,
-        targetFramework: string,
-        method: string,
-        effects: HotSummaryEffects? = null) {
+    static func Add(entries: List<HotSummaryEntry>, targetFramework: string, method: string, effects: HotSummaryEffects? = null) {
         entry := new HotSummaryEntry()
         entry.SchemaVersion = 1
         entry.AssemblyIdentity = "System.Private.CoreLib"
@@ -551,14 +544,14 @@ public class BclHotSummaryPack {
     }
 }
 
-public class HotSummaryCatalog {
+class HotSummaryCatalog {
     entriesValue: List<HotSummaryEntry>
 
     constructor(entries: List<HotSummaryEntry>) {
         entriesValue = entries
     }
 
-    public static func Load(projectRoot: string, config: ProjectConfig): HotSummaryCatalog {
+    static func Load(projectRoot: string, config: ProjectConfig): HotSummaryCatalog {
         entries := new List<HotSummaryEntry>()
         bclEntries := BclHotSummaryPack.Create(config.TargetFramework)
         i := 0
@@ -588,7 +581,7 @@ public class HotSummaryCatalog {
         return new HotSummaryCatalog(entries)
     }
 
-    public func TryResolve(target: string, targetFramework: string, out entry: HotSummaryEntry): bool {
+    func TryResolve(target: string, targetFramework: string, out entry: HotSummaryEntry): bool {
         i := 0
         while i < entriesValue.Count {
             candidate := entriesValue[i]
@@ -606,7 +599,7 @@ public class HotSummaryCatalog {
         return false
     }
 
-    public func HasReceiverSummary(receiver: string, targetFramework: string): bool {
+    func HasReceiverSummary(receiver: string, targetFramework: string): bool {
         i := 0
         while i < entriesValue.Count {
             entry := entriesValue[i]

@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
 
-public class CompletionItem {
+class CompletionItem {
     nameValue: string
     kindValue: string
     typeValue: string?
@@ -27,7 +27,7 @@ public class CompletionItem {
     }
 }
 
-public class CompletionResult {
+class CompletionResult {
     contextValue: CompletionContext
     receiverValue: string?
     receiverTypeValue: string?
@@ -38,11 +38,7 @@ public class CompletionResult {
     ReceiverType: string? => receiverTypeValue
     Completions: Dictionary<string, List<CompletionItem>> => completionsValue
 
-    constructor(
-        Context: CompletionContext,
-        Receiver: string?,
-        ReceiverType: string?,
-        Completions: Dictionary<string, List<CompletionItem>>) {
+    constructor(Context: CompletionContext, Receiver: string?, ReceiverType: string?, Completions: Dictionary<string, List<CompletionItem>>) {
         contextValue = Context
         receiverValue = Receiver
         receiverTypeValue = ReceiverType

@@ -3,8 +3,8 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections
 
-public class AstNodeFinderCore {
-    public static func FindExpressionAtPosition(ast: object, line: int, column: int): object? {
+class AstNodeFinderCore {
+    static func FindExpressionAtPosition(ast: object, line: int, column: int): object? {
         visitor := new AstPositionVisitor(line, column)
         visitor.VisitCompilationUnit(ast)
         return visitor.FoundExpression
@@ -23,7 +23,7 @@ class AstPositionVisitor {
         targetColumn = column
     }
 
-    public func VisitCompilationUnit(unit: object) {
+    func VisitCompilationUnit(unit: object) {
         declarations := GetOptionalList(unit, "Declarations")
         if declarations == null {
             return
@@ -230,9 +230,7 @@ class AstPositionVisitor {
         }
 
         if typeName == "MemberAccessExpression" {
-            return ChooseBestExpression(
-                FindExpression(GetRequiredProperty(expression, "Object")),
-                currentMatch)
+            return ChooseBestExpression(FindExpression(GetRequiredProperty(expression, "Object")), currentMatch)
         }
 
         if typeName == "IndexAccessExpression" {

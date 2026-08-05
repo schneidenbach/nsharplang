@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // The two SHAPE questions a pattern asks about the value it is matched against — "does this value
 // have a list shape, and what does one element of it hold?" and "can these two values be COMPARED
 // before IL emission?" — together with the single diagnostic each one produces when the answer is
@@ -43,18 +44,13 @@ import NSharpLang.Compiler.Ast
 // numeric — the lowering has no decimal comparison — and `bool` is admitted ONLY under `==` and
 // `!=`, which is what `allowBool` carries. An UNKNOWN on either side returns before any of that, so
 // a pattern whose value failed to analyse reports once, not twice.
-public class AnalyzerPatternShapes {
-
+class AnalyzerPatternShapes {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     declarationContextValue: AnalyzerDeclarationContext
     assignabilityValue: AnalyzerAssignability
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        declarationContext: AnalyzerDeclarationContext,
-        assignability: AnalyzerAssignability) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, declarationContext: AnalyzerDeclarationContext, assignability: AnalyzerAssignability) {
         diagnosticsValue = diagnostics
         spansValue = spans
         declarationContextValue = declarationContext
@@ -64,7 +60,7 @@ public class AnalyzerPatternShapes {
     // THE LIST PATTERN'S ELEMENT TYPE, reported and total. A value with no list shape reports NL505
     // and answers `unknown` rather than failing, so the element patterns are still analysed and a
     // single bad scrutinee does not cascade into one report per element.
-    public func ResolveListPatternElementType(listPattern: ListPattern, valueType: TypeInfo): TypeInfo {
+    func ResolveListPatternElementType(listPattern: ListPattern, valueType: TypeInfo): TypeInfo {
         elementType := FindListPatternElementType(valueType)
         if elementType != null {
             return elementType
@@ -72,19 +68,12 @@ public class AnalyzerPatternShapes {
 
         valueObject := valueType as object
         span := spansValue.GetListPatternDiagnosticSpan(listPattern)
-        diagnosticsValue.Report(
-            ErrorCode.PatternTypeMismatch,
-            "A list pattern can only match arrays or indexable collections, but this value is '"
-                + valueObject.ToString() + "'",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.PatternTypeMismatch, "A list pattern can only match arrays or indexable collections, but this value is '" + valueObject.ToString() + "'", span.Line, span.Column, null, span.Length)
         return BuiltInTypes.Unknown
     }
 
     // The element type a list-shaped value holds, or null when the value has no list shape at all.
-    public func FindListPatternElementType(valueType: TypeInfo): TypeInfo? {
+    func FindListPatternElementType(valueType: TypeInfo): TypeInfo? {
         resolved := declarationContextValue.ResolveDeclaredAlias(valueType)
 
         arrayType := resolved as ArrayTypeInfo
@@ -111,7 +100,7 @@ public class AnalyzerPatternShapes {
     }
 
     // The three instantiations whose lowering knows an int indexer.
-    public static func IsIndexableGenericListPatternType(name: string): bool {
+    static func IsIndexableGenericListPatternType(name: string): bool {
         return name == "List" || name == "IList" || name == "IReadOnlyList"
     }
 
@@ -119,7 +108,7 @@ public class AnalyzerPatternShapes {
     // taking exactly one `int`. Both are searched across the type itself and — for an interface —
     // its inherited interfaces, because the two members are declared on different interfaces of the
     // same family.
-    public static func FindReflectionListPatternElementType(clrType: Type): TypeInfo? {
+    static func FindReflectionListPatternElementType(clrType: Type): TypeInfo? {
         if clrType.get_IsArray() {
             arrayElementType := clrType.GetElementType()
             if arrayElementType == null {
@@ -157,9 +146,7 @@ public class AnalyzerPatternShapes {
                 lengthProperty = shapeType.GetProperty("Length", bindingFlags)
             }
 
-            if lengthProperty != null
-                && lengthProperty.get_GetMethod() != null
-                && lengthProperty.get_PropertyType() == typeof(int) {
+            if lengthProperty != null && lengthProperty.get_GetMethod() != null && lengthProperty.get_PropertyType() == typeof(int) {
                 return true
             }
 
@@ -171,9 +158,7 @@ public class AnalyzerPatternShapes {
 
     // The FIRST readable single-`int`-parameter indexer over the shape types, in declaration order
     // within each type and shape order across them.
-    static func FindReflectionListIndexerProperty(
-        shapeTypes: List<Type>,
-        bindingFlags: BindingFlags): PropertyInfo? {
+    static func FindReflectionListIndexerProperty(shapeTypes: List<Type>, bindingFlags: BindingFlags): PropertyInfo? {
         index := 0
         while index < shapeTypes.Count {
             shapeType := shapeTypes[index]
@@ -202,7 +187,7 @@ public class AnalyzerPatternShapes {
 
     // The type itself, plus — for an INTERFACE only — every interface it inherits. A class already
     // exposes its base members through its own metadata; an interface does not.
-    public static func GetListPatternShapeTypes(clrType: Type): List<Type> {
+    static func GetListPatternShapeTypes(clrType: Type): List<Type> {
         shapeTypes := new List<Type>()
         shapeTypes.Add(clrType)
 
@@ -222,34 +207,26 @@ public class AnalyzerPatternShapes {
 
     // THE RELATIONAL PATTERN'S ONE JUDGEMENT. Asked with the scrutinee's type and the type of the
     // pattern's own value expression, after the SoA escape gates have declined to report.
-    public func ValidateRelationalPattern(
-        pattern: RelationalPattern,
-        valueType: TypeInfo,
-        patternValueType: TypeInfo) {
+    func ValidateRelationalPattern(pattern: RelationalPattern, valueType: TypeInfo, patternValueType: TypeInfo) {
         resolvedValueType := declarationContextValue.ResolveDeclaredAlias(GetNonNullableType(valueType))
-        resolvedPatternValueType := declarationContextValue.ResolveDeclaredAlias(
-            GetNonNullableType(patternValueType))
+        resolvedPatternValueType := declarationContextValue.ResolveDeclaredAlias(GetNonNullableType(patternValueType))
         if BuiltInTypes.IsUnknown(resolvedValueType) || BuiltInTypes.IsUnknown(resolvedPatternValueType) {
             return
         }
 
         allowBool := IsEqualityPatternOperator(pattern.Operator)
-        if IsNullableRelationalPatternType(valueType)
-            || IsNullableRelationalPatternType(patternValueType)
-            || !IsRelationalPatternComparableType(resolvedValueType, allowBool)
-            || !IsRelationalPatternComparableType(resolvedPatternValueType, allowBool)
-            || !assignabilityValue.IsAssignable(valueType, patternValueType) {
+        if IsNullableRelationalPatternType(valueType) || IsNullableRelationalPatternType(patternValueType) || !IsRelationalPatternComparableType(resolvedValueType, allowBool) || !IsRelationalPatternComparableType(resolvedPatternValueType, allowBool) || !assignabilityValue.IsAssignable(valueType, patternValueType) {
             ReportRelationalPatternTypeMismatch(pattern, valueType, patternValueType)
         }
     }
 
     // `==` and `!=` are the only two operators a `bool` can take part in.
-    public static func IsEqualityPatternOperator(operatorText: string): bool {
+    static func IsEqualityPatternOperator(operatorText: string): bool {
         return operatorText == "==" || operatorText == "!="
     }
 
     // Nullable on EITHER spelling: the N# `T?` and a reflected `System.Nullable<T>`.
-    public func IsNullableRelationalPatternType(candidate: TypeInfo): bool {
+    func IsNullableRelationalPatternType(candidate: TypeInfo): bool {
         resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
         nullable := resolved as NullableTypeInfo
         if nullable != null {
@@ -266,7 +243,7 @@ public class AnalyzerPatternShapes {
 
     // The ordered primitives, in both vocabularies. `decimal` is excluded from BOTH arms because the
     // lowering has no decimal comparison, and `bool` is admitted only under equality.
-    public func IsRelationalPatternComparableType(candidate: TypeInfo, allowBool: bool): bool {
+    func IsRelationalPatternComparableType(candidate: TypeInfo, allowBool: bool): bool {
         resolved := declarationContextValue.ResolveDeclaredAlias(GetNonNullableType(candidate))
         if allowBool && BuiltInTypes.Is(resolved, BuiltInTypes.Bool) {
             return true
@@ -295,17 +272,7 @@ public class AnalyzerPatternShapes {
                 return false
             }
 
-            return runtimeType == typeof(byte)
-                || runtimeType == typeof(sbyte)
-                || runtimeType == typeof(short)
-                || runtimeType == typeof(ushort)
-                || runtimeType == typeof(int)
-                || runtimeType == typeof(uint)
-                || runtimeType == typeof(long)
-                || runtimeType == typeof(ulong)
-                || runtimeType == typeof(float)
-                || runtimeType == typeof(double)
-                || runtimeType == typeof(char)
+            return runtimeType == typeof(byte) || runtimeType == typeof(sbyte) || runtimeType == typeof(short) || runtimeType == typeof(ushort) || runtimeType == typeof(int) || runtimeType == typeof(uint) || runtimeType == typeof(long) || runtimeType == typeof(ulong) || runtimeType == typeof(float) || runtimeType == typeof(double) || runtimeType == typeof(char)
         }
 
         return false
@@ -315,18 +282,7 @@ public class AnalyzerPatternShapes {
     // excluded it, and the inclusion is what makes `decimal` reach the exclusion rather than fall
     // through to the reflected arm.
     static func IsSimpleNumericPatternType(candidate: TypeInfo): bool {
-        return BuiltInTypes.Is(candidate, BuiltInTypes.Int)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.Long)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.Float)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.Double)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.Decimal)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.Byte)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.SByte)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.Short)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.UShort)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.UInt)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.ULong)
-            || BuiltInTypes.Is(candidate, BuiltInTypes.Char)
+        return BuiltInTypes.Is(candidate, BuiltInTypes.Int) || BuiltInTypes.Is(candidate, BuiltInTypes.Long) || BuiltInTypes.Is(candidate, BuiltInTypes.Float) || BuiltInTypes.Is(candidate, BuiltInTypes.Double) || BuiltInTypes.Is(candidate, BuiltInTypes.Decimal) || BuiltInTypes.Is(candidate, BuiltInTypes.Byte) || BuiltInTypes.Is(candidate, BuiltInTypes.SByte) || BuiltInTypes.Is(candidate, BuiltInTypes.Short) || BuiltInTypes.Is(candidate, BuiltInTypes.UShort) || BuiltInTypes.Is(candidate, BuiltInTypes.UInt) || BuiltInTypes.Is(candidate, BuiltInTypes.ULong) || BuiltInTypes.Is(candidate, BuiltInTypes.Char)
     }
 
     // The alias-resolving non-nullable projection the analyzer uses everywhere: an alias that
@@ -343,19 +299,9 @@ public class AnalyzerPatternShapes {
 
     // NL202 with the relational vocabulary. The span is the OPERATOR, which is the only token the
     // pattern owns that is always written.
-    func ReportRelationalPatternTypeMismatch(
-        pattern: RelationalPattern,
-        valueType: TypeInfo,
-        patternValueType: TypeInfo) {
+    func ReportRelationalPatternTypeMismatch(pattern: RelationalPattern, valueType: TypeInfo, patternValueType: TypeInfo) {
         valueObject := valueType as object
         patternValueObject := patternValueType as object
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            "Relational pattern '" + pattern.Operator + "' can't compare '" + valueObject.ToString()
-                + "' with '" + patternValueObject.ToString() + "' before IL emission",
-            pattern.Line,
-            pattern.Column,
-            "Use numeric operands with a supported common type, use a literal pattern for string equality, or move custom comparisons into a match guard.",
-            Math.Max(1, pattern.Operator.Length))
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "Relational pattern '" + pattern.Operator + "' can't compare '" + valueObject.ToString() + "' with '" + patternValueObject.ToString() + "' before IL emission", pattern.Line, pattern.Column, "Use numeric operands with a supported common type, use a literal pattern for string equality, or move custom comparisons into a match guard.", Math.Max(1, pattern.Operator.Length))
     }
 }

@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum ErrorCode {
+enum ErrorCode {
     UnexpectedToken = 101,
     ExpectedToken = 102,
     InvalidSyntax = 103,
@@ -11,7 +11,6 @@ public enum ErrorCode {
     MissingClosingBracket = 108,
     ReservedKeywordAsName = 109,
     InvalidPreprocessorDirective = 110,
-
     TypeNotFound = 201,
     TypeMismatch = 202,
     CannotInferType = 203,
@@ -20,7 +19,6 @@ public enum ErrorCode {
     CannotResolveType = 206,
     InvalidTypeArgument = 207,
     GenericConstraintViolation = 208,
-
     UndefinedVariable = 301,
     UndefinedType = 302,
     UndefinedMember = 303,
@@ -44,7 +42,6 @@ public enum ErrorCode {
     InvalidSizedArrayConstructorArguments = 321,
     MemberWriteThroughValueCopy = 322,
     FeatureNotImplemented = 323,
-
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     MissingRequiredParameter = 403,
@@ -57,31 +54,26 @@ public enum ErrorCode {
     InvalidDefaultParameterValue = 410,
     MethodGroupUsedAsValue = 411,
     UndefinedFunction = 412,
-
     NonExhaustiveMatch = 501,
     UnreachablePattern = 502,
     InvalidPattern = 503,
     PatternTypeMismatch = 504,
     GuardNotBoolean = 505,
     ImpossiblePattern = 506,
-
     InvalidOperatorOverload = 601,
     OperatorParameterCount = 602,
     ComparisonOperatorPair = 603,
     ConversionOperatorInvalid = 604,
-
     ImportNotFound = 701,
     ImportCollision = 702,
     CircularImport = 703,
     NamespaceNotFound = 704,
-
     MultipleInheritance = 801,
     SealedInheritance = 802,
     AbstractInstantiation = 803,
     InterfaceImplementationMissing = 804,
     DuckInterfaceMismatch = 805,
     ConstructorError = 806,
-
     UnusedVariable = 901,
     UnreachableCode = 902,
     VisibilityConventionWarning = 903,
@@ -89,15 +81,13 @@ public enum ErrorCode {
     PossibleNullAccess = 905,
     NullabilityWarning = 907,
     ReferenceLoadFailure = 923,
-
     AllocationHere = 950,
     BoxingHere = 951,
     VirtualDispatchNotDevirtualized = 952,
     ClosureAllocation = 953,
     DelegateAllocation = 954,
-
     AotReflectionUse = 960,
     AotDynamicCode = 961,
     AotMakeGenericType = 962,
-    AotExpressionTree = 963,
+    AotExpressionTree = 963
 }

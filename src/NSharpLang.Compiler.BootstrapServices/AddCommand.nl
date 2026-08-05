@@ -1,15 +1,15 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Cli
-import NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
 import System.Text
 import System.Text.Json
+import NSharpLang.Cli
+import NSharpLang.Compiler
 
-public class AddCommand {
-    public static func Execute(args: string[]): int {
+class AddCommand {
+    static func Execute(args: string[]): int {
         arguments := AddCommandKernels.GetArgumentSummary(args)
         if arguments.ShowHelp {
             print AddCommandKernels.GetHelpText()
@@ -105,7 +105,7 @@ public class AddCommand {
         return 0
     }
 
-    public static func ResolveLatestVersion(packageName: string, includePrerelease: bool = false): string? {
+    static func ResolveLatestVersion(packageName: string, includePrerelease: bool = false): string? {
         try {
             searchArgs := "package search " + packageName + " --exact-match --take 1 --format json"
             if includePrerelease {

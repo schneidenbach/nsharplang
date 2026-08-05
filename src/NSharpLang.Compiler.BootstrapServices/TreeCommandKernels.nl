@@ -3,7 +3,7 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.Collections.Generic
 
-public class TreeDependency {
+class TreeDependency {
     nameValue: string
     kindValue: string
     versionValue: string?
@@ -18,13 +18,7 @@ public class TreeDependency {
     Transitive: bool => transitiveValue
     Dependencies: IReadOnlyList<TreeDependency> => dependenciesValue
 
-    constructor(
-        Name: string,
-        Kind: string,
-        Version: string?,
-        Scope: string,
-        Transitive: bool,
-        Dependencies: IReadOnlyList<TreeDependency>) {
+    constructor(Name: string, Kind: string, Version: string?, Scope: string, Transitive: bool, Dependencies: IReadOnlyList<TreeDependency>) {
         nameValue = Name
         kindValue = Kind
         versionValue = Version
@@ -34,7 +28,7 @@ public class TreeDependency {
     }
 }
 
-public class TreeOptionSummary {
+class TreeOptionSummary {
     ProjectOption: string?
     DepthOption: string?
     Json: bool
@@ -48,11 +42,11 @@ public class TreeOptionSummary {
     }
 }
 
-public class TreeCommandKernels {
-    public static func DeduplicateDependencies(dependencies: IReadOnlyList<TreeDependency>): TreeDependency[] {
+class TreeCommandKernels {
+    static func DeduplicateDependencies(dependencies: IReadOnlyList<TreeDependency>): TreeDependency[] {
         selected := new List<TreeDependency>()
 
-        foreach dependency in dependencies {
+        for dependency in dependencies {
             if !ContainsDependency(selected, dependency) {
                 InsertDependencySorted(selected, dependency)
             }
@@ -61,10 +55,10 @@ public class TreeCommandKernels {
         return selected.ToArray()
     }
 
-    public static func DeduplicateTargetFrameworks(targetFrameworks: IReadOnlyList<string>): string[] {
+    static func DeduplicateTargetFrameworks(targetFrameworks: IReadOnlyList<string>): string[] {
         selected := new List<string>()
 
-        foreach targetFramework in targetFrameworks {
+        for targetFramework in targetFrameworks {
             if !ContainsTargetFramework(selected, targetFramework) {
                 selected.Add(targetFramework)
             }
@@ -73,7 +67,7 @@ public class TreeCommandKernels {
         return selected.ToArray()
     }
 
-    public static func GetOptionSummary(args: string[]): TreeOptionSummary {
+    static func GetOptionSummary(args: string[]): TreeOptionSummary {
         projectOption: string? = null
         depthOption: string? = null
         json := false
@@ -109,7 +103,7 @@ public class TreeCommandKernels {
         return new TreeOptionSummary(projectOption, depthOption, json, showHelp)
     }
 
-    public static func GetMaxDepth(args: string[], defaultDepth: int): int {
+    static func GetMaxDepth(args: string[], defaultDepth: int): int {
         i := 0
         while i < args.Length - 1 {
             if args[i] == "--depth" {
@@ -125,7 +119,7 @@ public class TreeCommandKernels {
         return defaultDepth
     }
 
-    public static func GetOutputMode(json: bool): int {
+    static func GetOutputMode(json: bool): int {
         if json {
             return 1
         }
@@ -133,70 +127,47 @@ public class TreeCommandKernels {
         return 2
     }
 
-    public static func GetHelpText(): string {
-        return "N# Dependency Tree\n"
-            + "\n"
-            + "Usage: nlc tree [options]\n"
-            + "\n"
-            + "Show the project's dependencies and transitive NuGet packages when available.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --project <dir>   Project root directory (default: current directory)\n"
-            + "  --depth <n>       Maximum tree depth to display\n"
-            + "  --json            Output as JSON envelope\n"
-            + "  --help, -h        Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc tree\n"
-            + "  nlc tree --depth 1\n"
-            + "  nlc tree --json\n"
-            + "\n"
-            + "Behavior:\n"
-            + "  project.yml projects list direct runtime dependencies without requiring .csproj files.\n"
-            + "  Transitive NuGet dependencies are included when an MSBuild project file is present.\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Tree displayed successfully\n"
-            + "  1  Failed to display tree"
+    static func GetHelpText(): string {
+        return "N# Dependency Tree\n" + "\n" + "Usage: nlc tree [options]\n" + "\n" + "Show the project's dependencies and transitive NuGet packages when available.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --depth <n>       Maximum tree depth to display\n" + "  --json            Output as JSON envelope\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc tree\n" + "  nlc tree --depth 1\n" + "  nlc tree --json\n" + "\n" + "Behavior:\n" + "  project.yml projects list direct runtime dependencies without requiring .csproj files.\n" + "  Transitive NuGet dependencies are included when an MSBuild project file is present.\n" + "\n" + "Exit codes:\n" + "  0  Tree displayed successfully\n" + "  1  Failed to display tree"
     }
 
-    public static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
         return "Project directory not found: " + projectRoot
     }
 
-    public static func GetTreeFailedMessage(message: string): string {
+    static func GetTreeFailedMessage(message: string): string {
         return "Tree failed: " + message
     }
 
-    public static func GetNoProjectFileMessage(): string {
+    static func GetNoProjectFileMessage(): string {
         return "No project.yml or .csproj found. nlc tree reads direct dependencies from project.yml; transitive NuGet dependency output requires an MSBuild project file."
     }
 
-    public static func GetProjectYmlLimitationMessage(): string {
+    static func GetProjectYmlLimitationMessage(): string {
         return "project.yml output lists direct runtime dependencies only. Transitive NuGet dependencies require an MSBuild project file so dotnet can resolve the package graph."
     }
 
-    public static func GetTransitiveResolutionFailedLimitation(detail: string): string {
+    static func GetTransitiveResolutionFailedLimitation(detail: string): string {
         return "Transitive NuGet dependency resolution through MSBuild failed: " + detail
     }
 
-    public static func GetDotnetRestoreRetryMessage(detail: string): string {
+    static func GetDotnetRestoreRetryMessage(detail: string): string {
         return detail + " Run 'dotnet restore' and retry."
     }
 
-    public static func GetDotnetListFailedMessage(): string {
+    static func GetDotnetListFailedMessage(): string {
         return "dotnet list package failed."
     }
 
-    public static func GetProjectHeader(name: string, targetFramework: string): string {
+    static func GetProjectHeader(name: string, targetFramework: string): string {
         return name + " (" + targetFramework + ")"
     }
 
-    public static func GetNoDependenciesLine(): string {
+    static func GetNoDependenciesLine(): string {
         return "  (no dependencies)"
     }
 
-    public static func GetDependencyText(name: string, version: string?, kind: string): string {
+    static func GetDependencyText(name: string, version: string?, kind: string): string {
         versionText := version ?? ""
         if versionText.Length == 0 {
             return name + " [" + kind + "]"
@@ -205,7 +176,7 @@ public class TreeCommandKernels {
         return name + "@" + versionText + " [" + kind + "]"
     }
 
-    public static func GetDependencyLine(isLast: bool, dependencyText: string): string {
+    static func GetDependencyLine(isLast: bool, dependencyText: string): string {
         if isLast {
             return "└── " + dependencyText
         }
@@ -213,19 +184,19 @@ public class TreeCommandKernels {
         return "├── " + dependencyText
     }
 
-    public static func GetTransitiveHeader(count: int): string {
+    static func GetTransitiveHeader(count: int): string {
         return "  transitive (" + count.ToString() + " packages):"
     }
 
-    public static func GetTransitiveDependencyLine(dependencyText: string): string {
+    static func GetTransitiveDependencyLine(dependencyText: string): string {
         return "    " + dependencyText
     }
 
-    public static func GetLimitationsHeader(): string {
+    static func GetLimitationsHeader(): string {
         return "Limitations:"
     }
 
-    public static func GetLimitationLine(limitation: string): string {
+    static func GetLimitationLine(limitation: string): string {
         return "  - " + limitation
     }
 
@@ -304,8 +275,7 @@ public class TreeCommandKernels {
         i := 0
         while i < dependencies.Count {
             current := dependencies[i]
-            if String.Compare(current.Kind, dependency.Kind, StringComparison.Ordinal) == 0
-                && String.Compare(current.Name, dependency.Name, StringComparison.OrdinalIgnoreCase) == 0 {
+            if String.Compare(current.Kind, dependency.Kind, StringComparison.Ordinal) == 0 && String.Compare(current.Name, dependency.Name, StringComparison.OrdinalIgnoreCase) == 0 {
                 return true
             }
 

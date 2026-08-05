@@ -1,14 +1,14 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Cli
-import NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.IO
 import System.Text
+import NSharpLang.Cli
+import NSharpLang.Compiler.CodeIntelligence
 
-public class CleanCommand {
-    public static func Execute(args: string[]): int {
+class CleanCommand {
+    static func Execute(args: string[]): int {
         options := CleanCommandKernels.GetOptionSummary(args)
         if options.ShowHelp {
             print CleanCommandKernels.GetHelpText()

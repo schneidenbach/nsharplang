@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System.Collections.Generic
 
-public class FormatResult {
+class FormatResult {
     Text: string
     Success: bool
     warningsValue: List<string>?

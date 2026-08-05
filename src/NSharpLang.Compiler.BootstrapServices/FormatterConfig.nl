@@ -3,7 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.IO
 
-public class FormatterConfig {
+class FormatterConfig {
     indentSizeValue: int
     indentSizeAssignedValue: bool
     useSpacesValue: bool
@@ -53,7 +53,7 @@ public class FormatterConfig {
         }
     }
 
-    public static func FromEditorConfig(directory: string): FormatterConfig {
+    static func FromEditorConfig(directory: string): FormatterConfig {
         config := new FormatterConfig()
         editorConfigPath := FindEditorConfig(directory)
 
@@ -65,7 +65,7 @@ public class FormatterConfig {
         lines := File.ReadAllLines(editorConfigPathValue)
         inNSharpSection := false
 
-        foreach line in lines {
+        for line in lines {
             trimmed := line.Trim()
 
             if trimmed.StartsWith("[*.nl]") {
@@ -127,7 +127,7 @@ public class FormatterConfig {
         return null
     }
 
-    public func GetIndentString(): string {
+    func GetIndentString(): string {
         if UseSpaces {
             return new string(' ', IndentSize)
         }

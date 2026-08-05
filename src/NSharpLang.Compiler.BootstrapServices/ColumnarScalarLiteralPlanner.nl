@@ -8,17 +8,12 @@ import System.Reflection.Emit
 import System.Text
 import NSharpLang.Compiler
 
+
 // N# owner for the reflection-free scalar literals admitted by schema v3. Root planning owns
 // lifecycle/fragment sealing; recursive owners call TryAppendLiteral only after opening the
 // literal's fragment, so one parser and one opcode/type decision serve every expression context.
-public class ColumnarScalarLiteralPlanner {
-    public static func TryEmit(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        il: ILGenerator,
-        out resultType: Type): bool {
+class ColumnarScalarLiteralPlanner {
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, il: ILGenerator, out resultType: Type): bool {
         if Plan(nodes, source, node, plan) != ColumnarFragmentPlanStatus.Planned {
             resultType = typeof(int)
             return false
@@ -29,12 +24,7 @@ public class ColumnarScalarLiteralPlanner {
         return true
     }
 
-    public static func TryGetType(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         if Plan(nodes, source, node, plan) != ColumnarFragmentPlanStatus.Planned {
             resultType = typeof(int)
             return false
@@ -44,11 +34,7 @@ public class ColumnarScalarLiteralPlanner {
         return true
     }
 
-    public static func Plan(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
+    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         ValidateRootInputs(nodes, source, node, plan)
         plan.PrepareV3()
         kind := nodes.Kind(node)
@@ -71,12 +57,7 @@ public class ColumnarScalarLiteralPlanner {
 
     // Append exactly one literal value to an already-open schema-v3 fragment. Every decline is
     // mutation-free; the enclosing recursive owner remains responsible for its fragment rollback.
-    public static func TryAppendLiteral(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryAppendLiteral(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         ValidateAppendInputs(nodes, source, node, plan)
         resultType = typeof(int)
         text := ""
@@ -88,10 +69,7 @@ public class ColumnarScalarLiteralPlanner {
         // Decimal literals (`5m`, `2.5m`) arrive as an Int or Float literal token whose text carries
         // the `m`/`M` suffix. They lower to the System.Decimal(int,int,int,bool,byte) constructor,
         // exactly like the legacy TryEmitDecimalLiteral path, rather than an ldc numeric constant.
-        if (kind == ColumnarExpressionNodeKind.IntLiteralExpression()
-                || kind == ColumnarExpressionNodeKind.FloatLiteralExpression())
-            && text.Length > 0
-            && (text[text.Length - 1] == 'm' || text[text.Length - 1] == 'M') {
+        if (kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression()) && text.Length > 0 && (text[text.Length - 1] == 'm' || text[text.Length - 1] == 'M') {
             return TryAppendDecimal(text.Substring(0, text.Length - 1), plan, out resultType)
         }
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression() {
@@ -109,10 +87,7 @@ public class ColumnarScalarLiteralPlanner {
         return false
     }
 
-    static func TryAppendInteger(
-        text: string,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryAppendInteger(text: string, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
         literalKind := 0
         magnitude := 0UL
@@ -155,9 +130,7 @@ public class ColumnarScalarLiteralPlanner {
     // Contextual call binding may retain the syntax fact that an otherwise-Int32 literal can
     // adopt a declaration's integral parameter type. Match the legacy columnar rule exactly:
     // only unsuffixed decimal digits within Int32's positive magnitude participate.
-    public static func TryGetTargetTypedIntegerMagnitude(
-        text: string,
-        out magnitude: int): bool {
+    static func TryGetTargetTypedIntegerMagnitude(text: string, out magnitude: int): bool {
         magnitude = 0
         if text == null || text.Length == 0 {
             return false
@@ -173,9 +146,7 @@ public class ColumnarScalarLiteralPlanner {
 
         literalKind := 0
         parsedMagnitude := 0UL
-        if !TryParseIntegerLiteral(text, out literalKind, out parsedMagnitude)
-            || literalKind != 0
-            || parsedMagnitude > 2147483647UL {
+        if !TryParseIntegerLiteral(text, out literalKind, out parsedMagnitude) || literalKind != 0 || parsedMagnitude > 2147483647UL {
             return false
         }
 
@@ -183,10 +154,7 @@ public class ColumnarScalarLiteralPlanner {
         return true
     }
 
-    static func TryAppendFloatingPoint(
-        text: string,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryAppendFloatingPoint(text: string, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(double)
         if text.Length == 0 {
             return false
@@ -224,10 +192,7 @@ public class ColumnarScalarLiteralPlanner {
     // culture's Number style, then push the three GetBits magnitude words plus the sign flag and
     // scale and construct through the canonical System.Decimal(int, int, int, bool, byte)
     // constructor. Malformed text declines mutation-free.
-    static func TryAppendDecimal(
-        body: string,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryAppendDecimal(body: string, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(decimal)
         parsed := (decimal)0
         if !Decimal.TryParse(body.Replace("_", ""), CultureInfo.InvariantCulture, out parsed) {
@@ -273,17 +238,13 @@ public class ColumnarScalarLiteralPlanner {
         parameterTypes[4] = typeof(byte)
         constructor := typeof(decimal).GetConstructor(parameterTypes)
         if constructor == null {
-            throw new InvalidOperationException(
-                "Required System.Decimal(int, int, int, bool, byte) constructor was not found.")
+            throw new InvalidOperationException("Required System.Decimal(int, int, int, bool, byte) constructor was not found.")
         }
         return constructor
     }
 
     // kind 0 = unsuffixed Int32, 1 = signed Int64 (L), 2 = UInt64 (UL/LU).
-    static func TryParseIntegerLiteral(
-        text: string,
-        out literalKind: int,
-        out magnitude: ulong): bool {
+    static func TryParseIntegerLiteral(text: string, out literalKind: int, out magnitude: ulong): bool {
         literalKind = 0
         magnitude = 0UL
         if text.Length == 0 {
@@ -297,16 +258,22 @@ public class ColumnarScalarLiteralPlanner {
         while end > 0 {
             last := text[end - 1]
             if last == 'u' || last == 'U' {
-                if hasUnsigned { return false }
+                if hasUnsigned {
+                    return false
+                }
                 hasUnsigned = true
             } else if last == 'l' || last == 'L' {
-                if hasLong { return false }
+                if hasLong {
+                    return false
+                }
                 hasLong = true
             } else {
                 break
             }
             suffixLength = suffixLength + 1
-            if suffixLength > 2 { return false }
+            if suffixLength > 2 {
+                return false
+            }
             end = end - 1
         }
 
@@ -384,10 +351,7 @@ public class ColumnarScalarLiteralPlanner {
         return -1
     }
 
-    static func TryAppendCharacter(
-        text: string,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryAppendCharacter(text: string, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(char)
         if text.Length < 2 || text[0] != '\'' || text[text.Length - 1] != '\'' {
             return false
@@ -403,10 +367,7 @@ public class ColumnarScalarLiteralPlanner {
         return true
     }
 
-    static func TryAppendString(
-        text: string,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryAppendString(text: string, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(string)
         if text.Length > 0 && text[0] == '$' {
             return TryAppendZeroHoleInterpolatedString(text, plan)
@@ -424,9 +385,7 @@ public class ColumnarScalarLiteralPlanner {
     // Interpolation holes remain with the later expression-owner slices. The complete zero-hole
     // family is a scalar constant: split and decode every normal/raw literal segment before any
     // plan mutation, then persist the same single ldstr shape as an ordinary string literal.
-    static func TryAppendZeroHoleInterpolatedString(
-        text: string,
-        plan: ColumnarCodePlan): bool {
+    static func TryAppendZeroHoleInterpolatedString(text: string, plan: ColumnarCodePlan): bool {
         parts := new List<ColumnarInterpolationPart>()
         if !ColumnarInterpolationSplitter.TrySplit(text, parts) {
             return false
@@ -456,33 +415,21 @@ public class ColumnarScalarLiteralPlanner {
     }
 
     static func IsOwnedLiteralKind(kind: int): bool {
-        return kind == ColumnarExpressionNodeKind.IntLiteralExpression()
-            || kind == ColumnarExpressionNodeKind.FloatLiteralExpression()
-            || kind == ColumnarExpressionNodeKind.CharLiteralExpression()
-            || kind == ColumnarExpressionNodeKind.StringLiteralExpression()
+        return kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression()
     }
 
-    static func TryGetNodeText(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        out text: string): bool {
+    static func TryGetNodeText(nodes: ColumnarNodeTable, source: string, node: int, out text: string): bool {
         text = ""
         start := nodes.ValueStart(node)
         length := nodes.ValueLengths[node]
-        if start < 0 || length <= 0 || length > source.Length
-            || start > source.Length - length {
+        if start < 0 || length <= 0 || length > source.Length || start > source.Length - length {
             return false
         }
         text = source.Substring(start, length)
         return true
     }
 
-    static func ValidateRootInputs(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan) {
+    static func ValidateRootInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
         if nodes == null || source == null || plan == null {
             throw new InvalidOperationException("Scalar-literal planning inputs cannot be null.")
         }
@@ -491,22 +438,13 @@ public class ColumnarScalarLiteralPlanner {
         }
     }
 
-    static func ValidateAppendInputs(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan) {
+    static func ValidateAppendInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
         ValidateRootInputs(nodes, source, node, plan)
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
-            || plan.Status != ColumnarFragmentPlanStatus.NotOwned
-            || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException(
-                "Scalar literals can only append to an open schema-v3 plan.")
+        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Scalar literals can only append to an open schema-v3 plan.")
         }
-        if plan.FragmentCount <= 0 || plan.FragmentCompleted == null
-            || plan.FragmentCompleted.Length < plan.FragmentCount {
-            throw new InvalidOperationException(
-                "Scalar literals require an open expression fragment.")
+        if plan.FragmentCount <= 0 || plan.FragmentCompleted == null || plan.FragmentCompleted.Length < plan.FragmentCount {
+            throw new InvalidOperationException("Scalar literals require an open expression fragment.")
         }
         hasOpenFragment := false
         i := 0
@@ -517,8 +455,7 @@ public class ColumnarScalarLiteralPlanner {
             i = i + 1
         }
         if !hasOpenFragment {
-            throw new InvalidOperationException(
-                "Scalar literals require an open expression fragment.")
+            throw new InvalidOperationException("Scalar literals require an open expression fragment.")
         }
     }
 

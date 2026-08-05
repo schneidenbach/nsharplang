@@ -19,8 +19,7 @@ class ColumnarEnumDef {
 
     constructor(enumType: Type, constants: Dictionary<string, int>, stringConstants: Dictionary<string, string>? = null, declaredTypeName: string = "") {
         if enumType == null || constants == null || declaredTypeName == null {
-            throw new InvalidOperationException(
-                "Source enum definition facts cannot be null.")
+            throw new InvalidOperationException("Source enum definition facts cannot be null.")
         }
         enumTypeValue = enumType
         constantsValue = constants
@@ -39,8 +38,7 @@ class ColumnarUnionDef {
 
     constructor(baseBuilder: TypeBuilder, typeParamCount: int = 0, declaredTypeName: string = "") {
         if baseBuilder == null || declaredTypeName == null {
-            throw new InvalidOperationException(
-                "Source union definition facts cannot be null.")
+            throw new InvalidOperationException("Source union definition facts cannot be null.")
         }
         Base = baseBuilder
         DeclaredTypeName = declaredTypeName
@@ -203,11 +201,9 @@ class ColumnarPropertyDef {
         // invariant even when a synthetic fixture supplies only its visibility flags.
         // ECMA-335 MethodAttributes.SpecialName is the stable 0x0800 metadata bit.
         specialNameFlag := 0x0800
-        exactGetterAttributes := (MethodAttributes)(
-            (int)getterAttributes | specialNameFlag)
+        exactGetterAttributes := (MethodAttributes)((int)getterAttributes | specialNameFlag)
         getterParameters := new Type[](0)
-        getter := owner.DefineMethod(
-            getterName, exactGetterAttributes, propertyType, getterParameters)
+        getter := owner.DefineMethod(getterName, exactGetterAttributes, propertyType, getterParameters)
 
         setter: MethodBuilder? = null
         if setterName != null {
@@ -218,10 +214,8 @@ class ColumnarPropertyDef {
 
             setterParameters := new Type[](1)
             setterParameters[0] = propertyType
-            exactSetterAttributes := (MethodAttributes)(
-                (int)setterAttributes | specialNameFlag)
-            setter = owner.DefineMethod(
-                setterName, exactSetterAttributes, voidType, setterParameters)
+            exactSetterAttributes := (MethodAttributes)((int)setterAttributes | specialNameFlag)
+            setter = owner.DefineMethod(setterName, exactSetterAttributes, voidType, setterParameters)
         }
 
         return new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken())
@@ -254,17 +248,10 @@ class ColumnarConstructorDef {
 // imports. Runtime enum reflection remains a mechanical host concern; this binder claims only
 // source enum owners or source enum parameter types.
 class ColumnarConstructorDefaultBinder {
-    public static func TryCanonicalizeSourceEnumMember(
-        parameterType: Type,
-        defaultText: string,
-        owner: ColumnarEnumDef?,
-        parameter: ColumnarEnumDef?,
-        out canonicalText: string,
-        out claimed: bool): bool {
+    static func TryCanonicalizeSourceEnumMember(parameterType: Type, defaultText: string, owner: ColumnarEnumDef?, parameter: ColumnarEnumDef?, out canonicalText: string, out claimed: bool): bool {
         canonicalText = defaultText
         claimed = false
-        if parameterType == null
-            || defaultText == null {
+        if parameterType == null || defaultText == null {
             return false
         }
 
@@ -279,16 +266,11 @@ class ColumnarConstructorDefaultBinder {
         }
 
         claimed = true
-        if owner == null
-            || parameter == null
-            || !Object.ReferenceEquals(owner, parameter)
-            || !Object.ReferenceEquals(owner.EnumType, parameterType)
-            || owner.DeclaredTypeName.Length == 0 {
+        if owner == null || parameter == null || !Object.ReferenceEquals(owner, parameter) || !Object.ReferenceEquals(owner.EnumType, parameterType) || owner.DeclaredTypeName.Length == 0 {
             return false
         }
         if owner.IsStringBacked {
-            if owner.StringConstants == null
-                || !owner.StringConstants.ContainsKey(memberName) {
+            if owner.StringConstants == null || !owner.StringConstants.ContainsKey(memberName) {
                 return false
             }
         } else if !owner.Constants.ContainsKey(memberName) {
@@ -299,20 +281,12 @@ class ColumnarConstructorDefaultBinder {
         return true
     }
 
-    public static func TryCanonicalizeDefaults(
-        parameterTypes: Type[],
-        parameterCanonicals: string[],
-        defaultKinds: int[],
-        defaultTexts: string[],
-        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
-        out canonicalDefaultTexts: string[]): bool {
+    static func TryCanonicalizeDefaults(parameterTypes: Type[], parameterCanonicals: string[], defaultKinds: int[], defaultTexts: string[], enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>, out canonicalDefaultTexts: string[]): bool {
         canonicalDefaultTexts = new string[](0)
         if defaultKinds.Length == 0 && defaultTexts.Length == 0 {
             return true
         }
-        if parameterCanonicals.Length != parameterTypes.Length
-            || defaultKinds.Length != parameterTypes.Length
-            || defaultTexts.Length != parameterTypes.Length {
+        if parameterCanonicals.Length != parameterTypes.Length || defaultKinds.Length != parameterTypes.Length || defaultTexts.Length != parameterTypes.Length {
             return false
         }
 
@@ -338,17 +312,10 @@ class ColumnarConstructorDefaultBinder {
             sourceOwner: ColumnarEnumDef? = null
             sourceParameter: ColumnarEnumDef? = null
             enumRegistry.TryGetValue(ownerName, out sourceOwner)
-            enumRegistry.TryGetValue(
-                parameterCanonicals[index], out sourceParameter)
+            enumRegistry.TryGetValue(parameterCanonicals[index], out sourceParameter)
             sourceCanonical := ""
             sourceClaimed := false
-            if TryCanonicalizeSourceEnumMember(
-                    parameterTypes[index],
-                    defaultText,
-                    sourceOwner,
-                    sourceParameter,
-                    out sourceCanonical,
-                    out sourceClaimed) {
+            if TryCanonicalizeSourceEnumMember(parameterTypes[index], defaultText, sourceOwner, sourceParameter, out sourceCanonical, out sourceClaimed) {
                 canonicalDefaultTexts[index] = sourceCanonical
                 index += 1
                 continue
@@ -359,16 +326,7 @@ class ColumnarConstructorDefaultBinder {
 
             runtimeEnum := typeof(object)
             runtimeClaimed := false
-            if !enumRegistry.Resolver.TryResolve(
-                    ownerName, out runtimeEnum, out runtimeClaimed)
-                || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-                    runtimeEnum, parameterTypes[index])
-                || runtimeEnum is TypeBuilder
-                || runtimeEnum is EnumBuilder
-                || !runtimeEnum.get_IsEnum()
-                || Enum.GetUnderlyingType(runtimeEnum).FullName
-                    != "System.Int32"
-                || !Enum.IsDefined(runtimeEnum, memberName) {
+            if !enumRegistry.Resolver.TryResolve(ownerName, out runtimeEnum, out runtimeClaimed) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(runtimeEnum, parameterTypes[index]) || runtimeEnum is TypeBuilder || runtimeEnum is EnumBuilder || !runtimeEnum.get_IsEnum() || Enum.GetUnderlyingType(runtimeEnum).FullName != "System.Int32" || !Enum.IsDefined(runtimeEnum, memberName) {
                 return false
             }
             fullName := runtimeEnum.FullName
@@ -467,38 +425,28 @@ class ColumnarStructDef {
     // Define the exact user-constructor handle and its planner-visible signature as one N#
     // operation. The temporary C# assembly owner may attach parameter metadata and emit the body,
     // but it cannot construct or partially register semantic constructor facts.
-    func DefineUserConstructor(
-        parameterTypes: Type[],
-        defaultKinds: int[],
-        defaultTexts: string[]): ConstructorBuilder {
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[]): ConstructorBuilder {
         if parameterTypes == null || defaultKinds == null || defaultTexts == null {
-            throw new InvalidOperationException(
-                "Source constructor definition facts cannot be null.")
+            throw new InvalidOperationException("Source constructor definition facts cannot be null.")
         }
 
         exactParameterTypes := new Type[](parameterTypes.Length)
         exactDefaultKinds := new int[](parameterTypes.Length)
         exactDefaultTexts := new string[](parameterTypes.Length)
-        hasExplicitDefaultColumns := defaultKinds.Length != 0
-            || defaultTexts.Length != 0
-        if hasExplicitDefaultColumns
-            && (defaultKinds.Length != parameterTypes.Length
-                || defaultTexts.Length != parameterTypes.Length) {
-            throw new InvalidOperationException(
-                "Source constructor default facts must match the parameter count.")
+        hasExplicitDefaultColumns := defaultKinds.Length != 0 || defaultTexts.Length != 0
+        if hasExplicitDefaultColumns && (defaultKinds.Length != parameterTypes.Length || defaultTexts.Length != parameterTypes.Length) {
+            throw new InvalidOperationException("Source constructor default facts must match the parameter count.")
         }
 
         index := 0
         while index < parameterTypes.Length {
             if parameterTypes[index] == null {
-                throw new InvalidOperationException(
-                    "Source constructor parameter types cannot contain null values.")
+                throw new InvalidOperationException("Source constructor parameter types cannot contain null values.")
             }
             exactParameterTypes[index] = parameterTypes[index]
             if hasExplicitDefaultColumns {
                 if defaultTexts[index] == null {
-                    throw new InvalidOperationException(
-                        "Source constructor default texts cannot contain null values.")
+                    throw new InvalidOperationException("Source constructor default texts cannot contain null values.")
                 }
                 exactDefaultKinds[index] = defaultKinds[index]
                 exactDefaultTexts[index] = defaultTexts[index]
@@ -509,15 +457,8 @@ class ColumnarStructDef {
             index = index + 1
         }
 
-        builder := Builder.DefineConstructor(
-            MethodAttributes.Public,
-            CallingConventions.Standard,
-            exactParameterTypes)
-        Constructors.Add(new ColumnarConstructorDef(
-            builder,
-            exactParameterTypes,
-            exactDefaultKinds,
-            exactDefaultTexts))
+        builder := Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, exactParameterTypes)
+        Constructors.Add(new ColumnarConstructorDef(builder, exactParameterTypes, exactDefaultKinds, exactDefaultTexts))
         return builder
     }
 

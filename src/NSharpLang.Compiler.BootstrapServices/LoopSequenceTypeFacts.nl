@@ -4,8 +4,7 @@ import System.Collections.Generic
 
 class LoopSequenceTypeFacts {
     static func GetGenericLoopSequenceElementType(genericType: GenericTypeInfo, requireAsync: bool): TypeInfo? {
-        if genericType.GenericDefinition != null
-            && genericType.GenericDefinition as ReflectionTypeInfo == null {
+        if genericType.GenericDefinition != null && genericType.GenericDefinition as ReflectionTypeInfo == null {
             return null
         }
         name := StripGenericArity(UnqualifiedTypeName(genericType.Name))
@@ -22,17 +21,12 @@ class LoopSequenceTypeFacts {
             arguments := new List<TypeInfo>()
             arguments.Add(genericType.TypeArguments[0])
             arguments.Add(genericType.TypeArguments[1])
-            definition := Type.GetType(
-                "System.Collections.Generic.KeyValuePair`2")
+            definition := Type.GetType("System.Collections.Generic.KeyValuePair`2")
             if definition == null {
-                throw new InvalidOperationException(
-                    "Required KeyValuePair generic definition was not found.")
+                throw new InvalidOperationException("Required KeyValuePair generic definition was not found.")
             }
             definitionInfo := new ReflectionTypeInfo(definition)
-            return new GenericTypeInfo(
-                "KeyValuePair",
-                arguments,
-                definitionInfo)
+            return new GenericTypeInfo("KeyValuePair", arguments, definitionInfo)
         }
 
         if genericType.TypeArguments.Count != 1 {
@@ -47,11 +41,7 @@ class LoopSequenceTypeFacts {
     }
 
     static func IsDictionaryTypeName(name: string): bool {
-        return name == "Dictionary"
-            || name == "IDictionary"
-            || name == "IReadOnlyDictionary"
-            || name == "SortedDictionary"
-            || name == "SortedList"
+        return name == "Dictionary" || name == "IDictionary" || name == "IReadOnlyDictionary" || name == "SortedDictionary" || name == "SortedList"
     }
 
     static func IsSpanTypeName(name: string): bool {
@@ -59,21 +49,7 @@ class LoopSequenceTypeFacts {
     }
 
     static func IsCollectionTypeName(name: string): bool {
-        return name == "List"
-            || name == "HashSet"
-            || name == "IList"
-            || name == "ICollection"
-            || name == "IEnumerable"
-            || name == "IQueryable"
-            || name == "ISet"
-            || name == "Queue"
-            || name == "Stack"
-            || name == "LinkedList"
-            || name == "Collection"
-            || name == "ObservableCollection"
-            || name == "SortedSet"
-            || name == "IReadOnlyList"
-            || name == "IReadOnlyCollection"
+        return name == "List" || name == "HashSet" || name == "IList" || name == "ICollection" || name == "IEnumerable" || name == "IQueryable" || name == "ISet" || name == "Queue" || name == "Stack" || name == "LinkedList" || name == "Collection" || name == "ObservableCollection" || name == "SortedSet" || name == "IReadOnlyList" || name == "IReadOnlyCollection"
     }
 
     static func UnqualifiedTypeName(value: string): string {

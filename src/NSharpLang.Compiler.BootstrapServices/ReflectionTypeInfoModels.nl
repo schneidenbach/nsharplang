@@ -3,7 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Reflection
 
-public class ReflectionMethodInfo: TypeInfo {
+class ReflectionMethodInfo: TypeInfo {
     Method: MethodInfo
     displayValue: string
 
@@ -22,7 +22,7 @@ public class ReflectionMethodInfo: TypeInfo {
     }
 }
 
-public class ReflectionMethodGroupInfo: TypeInfo {
+class ReflectionMethodGroupInfo: TypeInfo {
     Methods: MethodInfo[]
     displayValue: string
 
@@ -41,7 +41,7 @@ public class ReflectionMethodGroupInfo: TypeInfo {
     }
 }
 
-public class ReflectionEventInfo: TypeInfo {
+class ReflectionEventInfo: TypeInfo {
     Name: string
     AddMethod: MethodInfo?
     RemoveMethod: MethodInfo?
@@ -49,13 +49,7 @@ public class ReflectionEventInfo: TypeInfo {
     DeclaringType: Type?
     displayValue: string
 
-    constructor(
-        name: string,
-        addMethod: MethodInfo?,
-        removeMethod: MethodInfo?,
-        handlerDelegateType: Type?,
-        declaringType: Type?,
-        displayText: string) {
+    constructor(name: string, addMethod: MethodInfo?, removeMethod: MethodInfo?, handlerDelegateType: Type?, declaringType: Type?, displayText: string) {
         Name = name
         AddMethod = addMethod
         RemoveMethod = removeMethod

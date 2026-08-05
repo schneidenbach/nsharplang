@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum FixSafety {
+enum FixSafety {
     Safe,
     ReviewNeeded,
     SuggestionOnly

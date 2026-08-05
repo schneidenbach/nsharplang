@@ -3,7 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 
-public class DefiniteAssignmentState {
+class DefiniteAssignmentState {
     Candidates: HashSet<string>
     Assigned: HashSet<string>
     Reported: HashSet<ValueTuple<string, int, int>>

@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-public enum CompletionContext {
+enum CompletionContext {
     MemberAccess,
     Identifier,
     Namespace,

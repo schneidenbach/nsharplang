@@ -3,12 +3,12 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Text
 
-public class OutputFormatterTextKernels {
-    public static func GetNoSymbolsText(): string {
+class OutputFormatterTextKernels {
+    static func GetNoSymbolsText(): string {
         return "No symbols found."
     }
 
-    public static func GetSymbolLineText(symbol: SymbolResult, indent: int): string {
+    static func GetSymbolLineText(symbol: SymbolResult, indent: int): string {
         modifiers: string[] = new string[](0)
         rawModifiers := symbol.Modifiers
         if rawModifiers != null {
@@ -20,13 +20,10 @@ public class OutputFormatterTextKernels {
             typeText = ": " + (symbol.TypeName ?? "")
         }
 
-        return QuerySymbolIndentText(indent) +
-            QuerySymbolModifierText(modifiers, modifiers.Length) +
-            SymbolKindText(symbol.Kind) + " " + symbol.Name + typeText +
-            "  (" + symbol.File + ":" + symbol.Line.ToString() + ")"
+        return QuerySymbolIndentText(indent) + QuerySymbolModifierText(modifiers, modifiers.Length) + SymbolKindText(symbol.Kind) + " " + symbol.Name + typeText + "  (" + symbol.File + ":" + symbol.Line.ToString() + ")"
     }
 
-    public static func GetSymbolParametersLineText(parameters: ParameterResult[], indent: int): string {
+    static func GetSymbolParametersLineText(parameters: ParameterResult[], indent: int): string {
         count := parameters.Length
         names := new string[](count)
         types := new string[](count)
@@ -50,52 +47,45 @@ public class OutputFormatterTextKernels {
         return QuerySymbolParametersLineText(indent, names, types, hasDefaults, defaultValues, count)
     }
 
-    public static func GetOutlineFileLineText(fileName: string): string {
+    static func GetOutlineFileLineText(fileName: string): string {
         return "File: " + fileName
     }
 
-    public static func GetOutlineImportsLineText(imports: string[]): string {
+    static func GetOutlineImportsLineText(imports: string[]): string {
         return QueryOutlineImportsLineText(imports, imports.Length)
     }
 
-    public static func GetOutlineEntryLineText(entry: OutlineEntry, indent: int): string {
+    static func GetOutlineEntryLineText(entry: OutlineEntry, indent: int): string {
         returnType := entry.ReturnType ?? ""
         hasReturnType := 0
         if entry.ReturnType != null {
             hasReturnType = 1
         }
 
-        return QueryOutlineEntryLineText(
-            indent,
-            SymbolKindText(entry.Kind),
-            entry.Name,
-            returnType,
-            hasReturnType,
-            entry.Line,
-            entry.EndLine)
+        return QueryOutlineEntryLineText(indent, SymbolKindText(entry.Kind), entry.Name, returnType, hasReturnType, entry.Line, entry.EndLine)
     }
 
-    public static func GetTypeLocationHeaderText(fileName: string, line: int, column: int): string {
+    static func GetTypeLocationHeaderText(fileName: string, line: int, column: int): string {
         return "At " + fileName + ":" + line.ToString() + ":" + column.ToString() + ":"
     }
 
-    public static func GetTypeResultLineText(result: TypeResult): string {
+    static func GetTypeResultLineText(result: TypeResult): string {
         return "  " + result.Name + ": " + result.ResolvedType + " (" + result.Kind + ")"
     }
 
-    public static func GetTypeNullabilityLineText(nullability: string): string {
+    static func GetTypeNullabilityLineText(nullability: string): string {
         return "  Nullability: " + nullability
     }
 
-    public static func GetTypeDefinedAtLineText(definition: LocationResult): string {
+    static func GetTypeDefinedAtLineText(definition: LocationResult): string {
         return "  Defined at: " + definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
     }
 
-    public static func GetCompletionsHeaderText(fileName: string, line: int, column: int, contextText: string): string {
+    static func GetCompletionsHeaderText(fileName: string, line: int, column: int, contextText: string): string {
         return "Completions at " + fileName + ":" + line.ToString() + ":" + column.ToString() + " (context: " + contextText + ")"
     }
 
-    public static func GetCompletionReceiverLineText(receiver: string, receiverType: string?): string {
+    static func GetCompletionReceiverLineText(receiver: string, receiverType: string?): string {
         typeText := ""
         if receiverType != null {
             typeText = " (" + (receiverType ?? "") + ")"
@@ -104,11 +94,11 @@ public class OutputFormatterTextKernels {
         return "Receiver: " + receiver + typeText
     }
 
-    public static func GetCompletionCategoryLineText(category: string, count: int): string {
+    static func GetCompletionCategoryLineText(category: string, count: int): string {
         return "  " + category + " (" + count.ToString() + "):"
     }
 
-    public static func GetCompletionItemLineText(item: CompletionItem): string {
+    static func GetCompletionItemLineText(item: CompletionItem): string {
         parameterText := ""
         if item.Parameters != null {
             parameterText = " " + (item.Parameters ?? "")
@@ -122,120 +112,119 @@ public class OutputFormatterTextKernels {
         return "    " + item.Name + parameterText + typeText
     }
 
-    public static func GetCompletionOverflowLineText(remaining: int): string {
+    static func GetCompletionOverflowLineText(remaining: int): string {
         return "    ... and " + remaining.ToString() + " more"
     }
 
-    public static func GetInspectHeaderText(fileName: string, line: int, column: int): string {
+    static func GetInspectHeaderText(fileName: string, line: int, column: int): string {
         return "Inspect " + fileName + ":" + line.ToString() + ":" + column.ToString()
     }
 
-    public static func GetInspectSymbolLineText(symbol: InspectSymbolResult): string {
+    static func GetInspectSymbolLineText(symbol: InspectSymbolResult): string {
         return "Symbol: " + symbol.Name + " (" + symbol.Kind + ")"
     }
 
-    public static func GetInspectNoSymbolText(): string {
+    static func GetInspectNoSymbolText(): string {
         return "Symbol: none"
     }
 
-    public static func GetInspectTypeLineText(typeResult: TypeResult): string {
+    static func GetInspectTypeLineText(typeResult: TypeResult): string {
         return "Type: " + typeResult.ResolvedType + " (" + typeResult.Kind + ")"
     }
 
-    public static func GetInspectUnknownTypeText(): string {
+    static func GetInspectUnknownTypeText(): string {
         return "Type: unknown"
     }
 
-    public static func GetInspectDefinitionLineText(definition: DefinitionResult): string {
-        return "Definition: " + definition.Kind + " " + definition.Name + " at " +
-            definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
+    static func GetInspectDefinitionLineText(definition: DefinitionResult): string {
+        return "Definition: " + definition.Kind + " " + definition.Name + " at " + definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
     }
 
-    public static func GetInspectNoDefinitionText(): string {
+    static func GetInspectNoDefinitionText(): string {
         return "Definition: none"
     }
 
-    public static func GetInspectReferencesHeaderText(count: int, definitionCount: int): string {
+    static func GetInspectReferencesHeaderText(count: int, definitionCount: int): string {
         return "References: " + count.ToString() + " total (" + definitionCount.ToString() + " definitions)"
     }
 
-    public static func GetInspectReferencesOverflowLineText(remaining: int): string {
+    static func GetInspectReferencesOverflowLineText(remaining: int): string {
         return "  ... and " + remaining.ToString() + " more"
     }
 
-    public static func GetHoverHeaderText(fileName: string, line: int, column: int): string {
+    static func GetHoverHeaderText(fileName: string, line: int, column: int): string {
         return "Hover " + fileName + ":" + line.ToString() + ":" + column.ToString()
     }
 
-    public static func GetHoverSignatureLineText(signature: string): string {
+    static func GetHoverSignatureLineText(signature: string): string {
         return "Signature:  " + signature
     }
 
-    public static func GetHoverKindLineText(kindText: string): string {
+    static func GetHoverKindLineText(kindText: string): string {
         return "Kind:       " + kindText
     }
 
-    public static func GetHoverDefinedInLineText(definedIn: string): string {
+    static func GetHoverDefinedInLineText(definedIn: string): string {
         return "Defined in: " + definedIn
     }
 
-    public static func GetHoverDocumentationHeaderText(): string {
+    static func GetHoverDocumentationHeaderText(): string {
         return "Documentation:"
     }
 
-    public static func GetHoverDocumentationLineText(docLine: string): string {
+    static func GetHoverDocumentationLineText(docLine: string): string {
         return "  " + docLine
     }
 
-    public static func GetCallGraphFunctionHeaderText(functionName: string): string {
+    static func GetCallGraphFunctionHeaderText(functionName: string): string {
         return "Call graph for: " + functionName
     }
 
-    public static func GetCallGraphFullHeaderText(): string {
+    static func GetCallGraphFullHeaderText(): string {
         return "Call graph (full project)"
     }
 
-    public static func GetCallGraphSectionHeaderText(label: string, count: int): string {
+    static func GetCallGraphSectionHeaderText(label: string, count: int): string {
         return label + " (" + count.ToString() + "):"
     }
 
-    public static func GetCallGraphEdgeLineText(callSite: CallSiteResult): string {
+    static func GetCallGraphEdgeLineText(callSite: CallSiteResult): string {
         return "  " + callSite.Name + "  (" + (callSite.File ?? "") + ":" + callSite.Line.ToString() + ")"
     }
 
-    public static func GetCallGraphTruncatedLineText(): string {
+    static func GetCallGraphTruncatedLineText(): string {
         return "(results truncated " + QueryTextSeparator() + " use --limit to increase)"
     }
 
-    public static func GetImplementorsHeaderText(interfaceName: string, count: int): string {
+    static func GetImplementorsHeaderText(interfaceName: string, count: int): string {
         return "Implementors of " + interfaceName + " (" + count.ToString() + "):"
     }
 
-    public static func GetImplementorLineText(result: ImplementorResult): string {
+    static func GetImplementorLineText(result: ImplementorResult): string {
         return "  " + result.Kind + " " + result.TypeName + "  (" + (result.File ?? "") + ":" + result.Line.ToString() + ")"
     }
 
-    public static func GetDocHeaderText(result: DocResult): string {
+    static func GetDocHeaderText(result: DocResult): string {
         return result.Kind + " " + result.FullName
     }
 
-    public static func GetDocNamespaceLineText(namespaceName: string): string {
+    static func GetDocNamespaceLineText(namespaceName: string): string {
         return "  Namespace: " + namespaceName
     }
 
-    public static func GetDocSummaryLineText(summary: string): string {
+    static func GetDocSummaryLineText(summary: string): string {
         return "  " + summary
     }
 
-    public static func GetDocImplementsLineText(baseTypes: string[]): string {
+    static func GetDocImplementsLineText(baseTypes: string[]): string {
         return QueryDocImplementsLineText(baseTypes, baseTypes.Length)
     }
 
-    public static func GetDocParametersHeaderText(): string {
+    static func GetDocParametersHeaderText(): string {
         return "  Parameters:"
     }
 
-    public static func GetDocParameterLineText(parameter: DocParameterResult): string {
+    static func GetDocParameterLineText(parameter: DocParameterResult): string {
         summaryText := parameter.Summary ?? ""
         hasSummary := 0
         if parameter.Summary != null {
@@ -245,7 +234,7 @@ public class OutputFormatterTextKernels {
         return QueryDocParameterLineText(parameter.Name, parameter.Type, summaryText, hasSummary)
     }
 
-    public static func GetDocReturnsLineText(returnType: string, returnDoc: string?): string {
+    static func GetDocReturnsLineText(returnType: string, returnDoc: string?): string {
         docText := returnDoc ?? ""
         hasReturnDoc := 0
         if returnDoc != null {
@@ -255,7 +244,7 @@ public class OutputFormatterTextKernels {
         return QueryDocReturnsLineText(returnType, docText, hasReturnDoc)
     }
 
-    public static func GetDocMembersHeaderText(kindText: string): string {
+    static func GetDocMembersHeaderText(kindText: string): string {
         label := "Members:"
         if kindText.IndexOf("overload", StringComparison.Ordinal) >= 0 {
             label = "Overloads:"
@@ -264,7 +253,7 @@ public class OutputFormatterTextKernels {
         return "  " + label
     }
 
-    public static func GetDocMemberLineText(member: DocMemberResult): string {
+    static func GetDocMemberLineText(member: DocMemberResult): string {
         parameters := member.Parameters ?? ""
         hasParameters := 0
         if member.Parameters != null {
@@ -283,30 +272,22 @@ public class OutputFormatterTextKernels {
             hasSummary = 1
         }
 
-        return QueryDocMemberLineText(
-            member.Kind,
-            member.Name,
-            parameters,
-            hasParameters,
-            typeName,
-            hasType,
-            summary,
-            hasSummary)
+        return QueryDocMemberLineText(member.Kind, member.Name, parameters, hasParameters, typeName, hasType, summary, hasSummary)
     }
 
-    public static func GetDocOverflowLineText(remaining: int): string {
+    static func GetDocOverflowLineText(remaining: int): string {
         return "    ... and " + remaining.ToString() + " more"
     }
 
-    public static func GetNoReferencesText(symbolName: string): string {
+    static func GetNoReferencesText(symbolName: string): string {
         return "No references found for '" + symbolName + "'."
     }
 
-    public static func GetReferencesHeaderText(symbolName: string, count: int): string {
+    static func GetReferencesHeaderText(symbolName: string, count: int): string {
         return "References to '" + symbolName + "' (" + count.ToString() + " found):"
     }
 
-    public static func GetReferenceLineText(reference: ReferenceResult): string {
+    static func GetReferenceLineText(reference: ReferenceResult): string {
         definitionFlag := 0
         if reference.IsDefinition {
             definitionFlag = 1
@@ -318,32 +299,18 @@ public class OutputFormatterTextKernels {
             hasContext = 1
         }
 
-        return QueryReferenceLineText(
-            reference.File,
-            reference.Line,
-            reference.Column,
-            definitionFlag,
-            context,
-            hasContext)
+        return QueryReferenceLineText(reference.File, reference.Line, reference.Column, definitionFlag, context, hasContext)
     }
 
-    public static func GetDefinitionLineText(definition: DefinitionResult): string {
-        return definition.Kind + " " + definition.Name + " at " +
-            definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
+    static func GetDefinitionLineText(definition: DefinitionResult): string {
+        return definition.Kind + " " + definition.Name + " at " + definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
     }
 
-    public static func GetDefinitionSearchResultLineText(definition: DefinitionResult): string {
-        return "  " + definition.Kind + " " + definition.Name + " at " +
-            definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
+    static func GetDefinitionSearchResultLineText(definition: DefinitionResult): string {
+        return "  " + definition.Kind + " " + definition.Name + " at " + definition.File + ":" + definition.Line.ToString() + ":" + definition.Column.ToString()
     }
 
-    static func QuerySymbolParametersLineText(
-        indent: int,
-        names: string[],
-        types: string[],
-        hasDefaults: int[],
-        defaultValues: string[],
-        requestedCount: int): string {
+    static func QuerySymbolParametersLineText(indent: int, names: string[], types: string[], hasDefaults: int[], defaultValues: string[], requestedCount: int): string {
         count := QuerySymbolMinInt(requestedCount, names.Length)
         count = QuerySymbolMinInt(count, types.Length)
         count = QuerySymbolMinInt(count, hasDefaults.Length)
@@ -392,14 +359,7 @@ public class OutputFormatterTextKernels {
         return builder.ToString()
     }
 
-    static func QueryOutlineEntryLineText(
-        indent: int,
-        kindText: string,
-        name: string,
-        returnType: string,
-        hasReturnType: int,
-        line: int,
-        endLine: int): string {
+    static func QueryOutlineEntryLineText(indent: int, kindText: string, name: string, returnType: string, hasReturnType: int, line: int, endLine: int): string {
         prefix := QuerySymbolIndentText(indent)
         typeText := ""
         if hasReturnType != 0 {
@@ -432,11 +392,7 @@ public class OutputFormatterTextKernels {
         return builder.ToString()
     }
 
-    static func QueryDocParameterLineText(
-        name: string,
-        typeName: string,
-        summary: string,
-        hasSummary: int): string {
+    static func QueryDocParameterLineText(name: string, typeName: string, summary: string, hasSummary: int): string {
         docText := ""
         if hasSummary != 0 {
             docText = " " + QueryTextSeparator() + " " + summary
@@ -445,10 +401,7 @@ public class OutputFormatterTextKernels {
         return "    " + name + ": " + typeName + docText
     }
 
-    static func QueryDocReturnsLineText(
-        returnType: string,
-        returnDoc: string,
-        hasReturnDoc: int): string {
+    static func QueryDocReturnsLineText(returnType: string, returnDoc: string, hasReturnDoc: int): string {
         docText := ""
         if hasReturnDoc != 0 {
             docText = " " + QueryTextSeparator() + " " + returnDoc
@@ -457,15 +410,7 @@ public class OutputFormatterTextKernels {
         return "  Returns: " + returnType + docText
     }
 
-    static func QueryDocMemberLineText(
-        kindText: string,
-        name: string,
-        parameters: string,
-        hasParameters: int,
-        typeName: string,
-        hasType: int,
-        summary: string,
-        hasSummary: int): string {
+    static func QueryDocMemberLineText(kindText: string, name: string, parameters: string, hasParameters: int, typeName: string, hasType: int, summary: string, hasSummary: int): string {
         parameterText := ""
         if hasParameters != 0 {
             parameterText = " " + parameters
@@ -484,13 +429,7 @@ public class OutputFormatterTextKernels {
         return "    " + kindText + " " + name + parameterText + typeText + docText
     }
 
-    static func QueryReferenceLineText(
-        fileName: string,
-        line: int,
-        column: int,
-        isDefinition: int,
-        context: string,
-        hasContext: int): string {
+    static func QueryReferenceLineText(fileName: string, line: int, column: int, isDefinition: int, context: string, hasContext: int): string {
         definitionMarker := ""
         if isDefinition != 0 {
             definitionMarker = " [definition]"

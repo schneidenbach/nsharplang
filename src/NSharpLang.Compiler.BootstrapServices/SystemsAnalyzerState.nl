@@ -1,12 +1,12 @@
 namespace NSharpLang.Compiler.Performance
 
-public enum GuardKind {
+enum GuardKind {
     MinLength,
     IndexWithin,
     NonZero
 }
 
-public class Guard {
+class Guard {
     Kind: GuardKind
     Target: string
     Value: int
@@ -19,14 +19,14 @@ public class Guard {
         this.Secondary = Secondary
     }
 
-    public static func MinLength(target: string, value: int): Guard => new Guard(GuardKind.MinLength, target, value)
+    static func MinLength(target: string, value: int): Guard => new Guard(GuardKind.MinLength, target, value)
 
-    public static func IndexWithin(target: string, index: string): Guard => new Guard(GuardKind.IndexWithin, target, 0, index)
+    static func IndexWithin(target: string, index: string): Guard => new Guard(GuardKind.IndexWithin, target, 0, index)
 
-    public static func NonZero(target: string): Guard => new Guard(GuardKind.NonZero, target)
+    static func NonZero(target: string): Guard => new Guard(GuardKind.NonZero, target)
 }
 
-public class PoolRent {
+class PoolRent {
     VariableName: string
     Line: int
     Column: int
@@ -40,7 +40,7 @@ public class PoolRent {
     }
 }
 
-public class ResourceLocal {
+class ResourceLocal {
     VariableName: string
     Kind: string
     Line: int

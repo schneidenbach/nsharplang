@@ -671,6 +671,32 @@ test "struct parser leaves namespace ownership with the file binding scope" {
     assert probe.StructNameTexts[0] == "Widget"
 }
 
+test "struct parser accepts a method parameter whose nested generic closes with a split >>" {
+    // Owed-`>` discipline regression: while a split `>>` close owes a `>`, the type kernel's
+    // argument/postfix/union loops must treat the owed `>` as the effective current token. Before
+    // the fix, the argument loop read the raw cursor and consumed the PARAMETER comma after
+    // `Dictionary<string, Dictionary<string, int>>` as another type argument, so the struct scan
+    // declined at parse.struct (real corpus site: AnalyzerDeclarationContext.TryResolveFileImportAliasType).
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Holder { func Route(name: string, table: Dictionary<string, Dictionary<string, int>>, out claimed: bool): bool { claimed = true\nreturn true } }")
+
+    assert probe.FieldCount == 0
+    assert probe.StructNameTexts[0] == "Holder"
+    assert probe.Result[2] == 1
+}
+
+test "struct parser binds a '?' after a split >> close to the OUTER generic parameter type" {
+    // The postfix half of the same discipline: with a `>` still owed, `Dictionary<string, List<int>>?`
+    // must not wrap the INNER List nullable — the suffix belongs to the enclosing type after its
+    // close consumes the owed `>`. A desync here mis-scans the signature and declines the scan.
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Holder { func Find(map: Dictionary<string, List<int>>?): bool { return map != null } }")
+
+    assert probe.FieldCount == 0
+    assert probe.StructNameTexts[0] == "Holder"
+    assert probe.Result[2] == 1
+}
+
 test "program declaration scanner appends nested lexical owner paths and declaration kinds" {
     probe := new ColumnarNestedStructDeclarationProbe(
         "class Outer { public class Sibling {} class Middle { record struct Value {} class Inner {} } func Run() { value := typeof(string) } }")

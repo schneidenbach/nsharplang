@@ -21,8 +21,8 @@ class UnifiedDiffHunkRangeTable {
     Count: int
 }
 
-public class UnifiedDiff {
-    public static func Create(before: string, after: string, beforeLabel: string, afterLabel: string, contextLines: int = 3): string {
+class UnifiedDiff {
+    static func Create(before: string, after: string, beforeLabel: string, afterLabel: string, contextLines: int = 3): string {
         if String.Compare(before, after, StringComparison.Ordinal) == 0 {
             return ""
         }
@@ -234,11 +234,7 @@ public class UnifiedDiff {
     static func AppendHunks(builder: StringBuilder, lines: UnifiedDiffLineTable, ranges: UnifiedDiffHunkRangeTable) {
         hunkIndex := 0
         while hunkIndex < ranges.Count {
-            builder.AppendLine(HunkHeaderText(
-                ranges.OldStarts[hunkIndex],
-                ranges.OldCounts[hunkIndex],
-                ranges.NewStarts[hunkIndex],
-                ranges.NewCounts[hunkIndex]))
+            builder.AppendLine(HunkHeaderText(ranges.OldStarts[hunkIndex], ranges.OldCounts[hunkIndex], ranges.NewStarts[hunkIndex], ranges.NewCounts[hunkIndex]))
 
             start := ranges.Starts[hunkIndex]
             end := start + ranges.Lengths[hunkIndex]
@@ -293,11 +289,7 @@ public class UnifiedDiff {
     }
 
     static func HunkHeaderText(oldStart: int, oldCount: int, newStart: int, newCount: int): string {
-        return "@@ -" + oldStart.ToString()
-            + "," + oldCount.ToString()
-            + " +" + newStart.ToString()
-            + "," + newCount.ToString()
-            + " @@"
+        return "@@ -" + oldStart.ToString() + "," + oldCount.ToString() + " +" + newStart.ToString() + "," + newCount.ToString() + " @@"
     }
 
     static func LinePrefixText(kind: int): string {

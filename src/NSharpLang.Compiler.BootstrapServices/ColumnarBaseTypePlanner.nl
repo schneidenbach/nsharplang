@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
+
 // Base/interface classification is a semantic decision, not an emission mechanic: given a resolved
 // base handle for a source type, N# decides whether it is a directly-implemented interface (source
 // or runtime), a source base class, or an external runtime base class, applies the CLR-shape
@@ -25,12 +26,9 @@ class ColumnarBaseTypePlanner {
     // One planner instance owns the whole colon-list of one source type. Cross-base state (the single
     // permitted class parent, and the transitively implemented interface builders already emitted)
     // therefore persists across every base name in declaration order.
-    constructor(
-        def: ColumnarStructDef,
-        userStructDefs: IReadOnlyList<ColumnarStructDef>) {
+    constructor(def: ColumnarStructDef, userStructDefs: IReadOnlyList<ColumnarStructDef>) {
         if def == null || userStructDefs == null {
-            throw new InvalidOperationException(
-                "Base-type planning requires a definition and its sibling source definitions.")
+            throw new InvalidOperationException("Base-type planning requires a definition and its sibling source definitions.")
         }
         this.def = def
         this.userStructDefs = userStructDefs
@@ -41,7 +39,7 @@ class ColumnarBaseTypePlanner {
     // builder; Reject is a terminal invalid-inheritance shape (the C# owner returns false, matching
     // the historical silent declines); Unresolvable means the handle resolved but is not an
     // admissible base or interface (the C# owner emits emit.declaration.base-type).
-    public func Apply(resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
+    func Apply(resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
         if resolvedBaseType == null {
             return ColumnarBaseTypeApplyOutcome.Unresolvable
         }
@@ -61,14 +59,11 @@ class ColumnarBaseTypePlanner {
         return ApplyExternalBase(resolvedBaseType)
     }
 
-    func ApplyUserInterface(
-        implementedInterfaceDef: ColumnarStructDef,
-        resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
+    func ApplyUserInterface(implementedInterfaceDef: ColumnarStructDef, resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
         duplicateInterface := false
         interfaceIndex := 0
         while interfaceIndex < def.ImplementedInterfaceTypes.Count {
-            if SameInterfaceType(
-                def.ImplementedInterfaceTypes[interfaceIndex], resolvedBaseType) {
+            if SameInterfaceType(def.ImplementedInterfaceTypes[interfaceIndex], resolvedBaseType) {
                 duplicateInterface = true
             }
             interfaceIndex = interfaceIndex + 1
@@ -91,8 +86,7 @@ class ColumnarBaseTypePlanner {
             transitiveIndex := 0
             while transitiveIndex < transitive.Count {
                 implemented := transitive[transitiveIndex]
-                if !Object.ReferenceEquals(implemented, implementedInterfaceDef)
-                    && seenImplementedInterfaces.Add(implemented.Builder) {
+                if !Object.ReferenceEquals(implemented, implementedInterfaceDef) && seenImplementedInterfaces.Add(implemented.Builder) {
                     def.Builder.AddInterfaceImplementation(implemented.Builder)
                 }
                 transitiveIndex = transitiveIndex + 1
@@ -101,9 +95,7 @@ class ColumnarBaseTypePlanner {
         return ColumnarBaseTypeApplyOutcome.Applied
     }
 
-    func ApplyUserBase(
-        baseDef: ColumnarStructDef,
-        resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
+    func ApplyUserBase(baseDef: ColumnarStructDef, resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
         if !def.IsReference {
             return ColumnarBaseTypeApplyOutcome.Reject
         }
@@ -162,9 +154,10 @@ class ColumnarBaseTypePlanner {
                     return FindDefByBuilder(definition)
                 }
             } catch {
-                // A builder-backed instantiation may expose only a narrow reflection surface.
             }
         }
+        // A builder-backed instantiation may expose only a narrow reflection surface.
+
         return null
     }
 
@@ -190,9 +183,7 @@ class ColumnarBaseTypePlanner {
         }
     }
 
-    static func EnumerateInterfaceAndBases(
-        interfaceDef: ColumnarStructDef,
-        output: List<ColumnarStructDef>) {
+    static func EnumerateInterfaceAndBases(interfaceDef: ColumnarStructDef, output: List<ColumnarStructDef>) {
         output.Add(interfaceDef)
         index := 0
         while index < interfaceDef.InterfaceBases.Count {
@@ -213,12 +204,10 @@ class ColumnarBaseTypePlanner {
         if a is TypeBuilder || b is TypeBuilder {
             return false
         }
-        if !a.get_IsGenericType() || !b.get_IsGenericType()
-            || a.get_IsGenericTypeDefinition() || b.get_IsGenericTypeDefinition() {
+        if !a.get_IsGenericType() || !b.get_IsGenericType() || a.get_IsGenericTypeDefinition() || b.get_IsGenericTypeDefinition() {
             return false
         }
-        if !SameInterfaceType(
-            a.GetGenericTypeDefinition(), b.GetGenericTypeDefinition()) {
+        if !SameInterfaceType(a.GetGenericTypeDefinition(), b.GetGenericTypeDefinition()) {
             return false
         }
         aArgs := a.GetGenericArguments()
@@ -247,14 +236,7 @@ class ColumnarBaseTypePlanner {
         }
         classShape := false
         try {
-            classShape = valueType.get_IsClass()
-                && !valueType.get_IsInterface()
-                && !valueType.get_IsValueType()
-                && !valueType.get_IsSealed()
-                && !valueType.get_IsPointer()
-                && !valueType.get_IsByRef()
-                && !valueType.get_IsArray()
-                && valueType.get_IsVisible()
+            classShape = valueType.get_IsClass() && !valueType.get_IsInterface() && !valueType.get_IsValueType() && !valueType.get_IsSealed() && !valueType.get_IsPointer() && !valueType.get_IsByRef() && !valueType.get_IsArray() && valueType.get_IsVisible()
         } catch {
             return false
         }
@@ -262,11 +244,7 @@ class ColumnarBaseTypePlanner {
             return false
         }
         fullName := valueType.get_FullName()
-        if fullName == "System.ValueType"
-            || fullName == "System.Enum"
-            || fullName == "System.Delegate"
-            || fullName == "System.MulticastDelegate"
-            || fullName == "System.Array" {
+        if fullName == "System.ValueType" || fullName == "System.Enum" || fullName == "System.Delegate" || fullName == "System.MulticastDelegate" || fullName == "System.Array" {
             return false
         }
         return true

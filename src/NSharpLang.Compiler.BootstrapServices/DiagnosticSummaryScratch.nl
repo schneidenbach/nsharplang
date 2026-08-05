@@ -1,10 +1,10 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-public class DiagnosticSummaryScratch {
+class DiagnosticSummaryScratch {
     Counts: int[]
     Severities: string[]
 
-    public func EnsureCapacity(count: int) {
+    func EnsureCapacity(count: int) {
         EnsureInitialized()
         if Severities.Length < count {
             Severities = new string[](count)

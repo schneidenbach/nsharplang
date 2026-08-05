@@ -4,14 +4,14 @@ import System
 import System.Collections.Generic
 import System.Text
 
-public class ColumnarInterpolationPart {
-    public IsHole: bool
-    public Text: string
-    public Format: string?
+class ColumnarInterpolationPart {
+    IsHole: bool
+    Text: string
+    Format: string?
 }
 
-public class ColumnarInterpolationSplitter {
-    public static func TrySplit(literal: string, parts: List<ColumnarInterpolationPart>): bool {
+class ColumnarInterpolationSplitter {
+    static func TrySplit(literal: string, parts: List<ColumnarInterpolationPart>): bool {
         capacity := literal.Length + 1
         kinds := new int[](capacity)
         texts := new string[](capacity)
@@ -42,12 +42,7 @@ public class ColumnarInterpolationSplitter {
         return true
     }
 
-    static func ColumnarInterpolatedStringParts(
-        literal: string,
-        outKinds: int[],
-        outTexts: string[],
-        outFormats: string[],
-        outFormatFlags: int[]): int {
+    static func ColumnarInterpolatedStringParts(literal: string, outKinds: int[], outTexts: string[], outFormats: string[], outFormatFlags: int[]): int {
         if literal.Length < 3 {
             return -1
         }
@@ -60,13 +55,7 @@ public class ColumnarInterpolationSplitter {
         text := new StringBuilder(literal.Length)
         i := 2
         end := literal.Length - 1
-        if literal.Length >= 7 &&
-            literal[1] == '"' &&
-            literal[2] == '"' &&
-            literal[3] == '"' &&
-            literal[literal.Length - 1] == '"' &&
-            literal[literal.Length - 2] == '"' &&
-            literal[literal.Length - 3] == '"' {
+        if literal.Length >= 7 && literal[1] == '"' && literal[2] == '"' && literal[3] == '"' && literal[literal.Length - 1] == '"' && literal[literal.Length - 2] == '"' && literal[literal.Length - 3] == '"' {
             i = 4
             end = literal.Length - 3
         } else {
@@ -184,16 +173,7 @@ public class ColumnarInterpolationSplitter {
         return partCount
     }
 
-    static func EmitColumnarInterpolatedStringPart(
-        outKinds: int[],
-        outTexts: string[],
-        outFormats: string[],
-        outFormatFlags: int[],
-        partCount: int,
-        kind: int,
-        text: string,
-        format: string,
-        hasFormat: int): int {
+    static func EmitColumnarInterpolatedStringPart(outKinds: int[], outTexts: string[], outFormats: string[], outFormatFlags: int[], partCount: int, kind: int, text: string, format: string, hasFormat: int): int {
         if partCount < 0 {
             return -1
         }
@@ -343,8 +323,7 @@ public class ColumnarInterpolationSplitter {
                     argLength = argLength - 1
                 }
 
-                return ColumnarInterpolatedStringIsIdentifierChain(literal, start, openParen)
-                    && ColumnarInterpolatedStringIsSupportedCallArgument(literal, argStart, argLength)
+                return ColumnarInterpolatedStringIsIdentifierChain(literal, start, openParen) && ColumnarInterpolatedStringIsSupportedCallArgument(literal, argStart, argLength)
             }
         }
 
@@ -515,8 +494,7 @@ public class ColumnarInterpolationSplitter {
                 rightLength = rightLength - 1
             }
 
-            return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength)
-                && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
+            return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength) && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
         }
 
         coalesce := ColumnarInterpolatedStringFindCoalesceOperator(literal, start, length)
@@ -546,8 +524,7 @@ public class ColumnarInterpolationSplitter {
             rightLength = rightLength - 1
         }
 
-        return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength)
-            && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
+        return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength) && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
     }
 
     // A call hole with TWO OR MORE top-level arguments (`{String.Join(separator, numbers)}`): an
@@ -717,8 +694,7 @@ public class ColumnarInterpolationSplitter {
             operandLength = operandLength - 1
         }
 
-        return ColumnarInterpolatedStringIsIdentifierChain(literal, typeStart, typeLength)
-            && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, operandStart, operandLength)
+        return ColumnarInterpolatedStringIsIdentifierChain(literal, typeStart, typeLength) && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, operandStart, operandLength)
     }
 
     static func ColumnarInterpolatedStringFindEqualityOperator(literal: string, start: int, length: int): int {
@@ -818,7 +794,7 @@ public class ColumnarInterpolationSplitter {
     // whitespace, and a trimmed non-empty operand are all required, so the C# cast tier resolves the
     // target type, plans the operand chain, and emits the numeric conversion mechanically over these two
     // strings. Any other shape returns false so the hole rides the equality/chain/parsed-expression path.
-    public static func TrySplitCast(text: string, out targetName: string, out operandText: string): bool {
+    static func TrySplitCast(text: string, out targetName: string, out operandText: string): bool {
         targetName = ""
         operandText = ""
         length := text.Length
@@ -857,7 +833,7 @@ public class ColumnarInterpolationSplitter {
     // operator (both decline in the former C# splitter too), and both trimmed sides must be non-empty, so
     // the C# equality tier resolves each side and the operand type mechanically. Any other shape returns
     // false so the hole rides the chain/parsed-expression path unchanged.
-    public static func TrySplitEquality(text: string, out left: string, out op: string, out right: string): bool {
+    static func TrySplitEquality(text: string, out left: string, out op: string, out right: string): bool {
         left = ""
         op = ""
         right = ""
@@ -878,7 +854,7 @@ public class ColumnarInterpolationSplitter {
     // and both trimmed sides must be non-empty, so the C# coalesce tier resolves each side and enforces the
     // reference-type/type-equivalence guard mechanically over these two strings. Any other shape returns
     // false so the hole rides the chain/base-call/parsed-expression path unchanged.
-    public static func TrySplitCoalesce(text: string, out left: string, out right: string): bool {
+    static func TrySplitCoalesce(text: string, out left: string, out right: string): bool {
         left = ""
         right = ""
         found := ColumnarInterpolatedStringFindCoalesceOperator(text, 0, text.Length)
@@ -897,7 +873,7 @@ public class ColumnarInterpolationSplitter {
     // (all Ordinal, matching the former C# StartsWith/EndsWith); the C# base-call tier then resolves the
     // method on the reflected base chain and enforces the return-type guards mechanically over this name.
     // Any other shape returns false so the hole rides the chain/parsed-expression path unchanged.
-    public static func TrySplitBaseCall(text: string, out methodName: string): bool {
+    static func TrySplitBaseCall(text: string, out methodName: string): bool {
         methodName = ""
         prefix := "base."
         if !text.StartsWith(prefix, StringComparison.Ordinal) {
@@ -933,7 +909,7 @@ public class ColumnarInterpolationSplitter {
     // digit run must itself fit in Int32 and every +/- step must stay in Int32 range, mirroring the
     // emitter's former per-step checked semantics; a run or step that would overflow, or any non-additive
     // shape, returns false so the hole rides the parsed-expression hole path unchanged.
-    public static func TryEvaluateIntegerAdditive(text: string, out value: int): bool {
+    static func TryEvaluateIntegerAdditive(text: string, out value: int): bool {
         value = 0
         length := text.Length
         nextPos := 0

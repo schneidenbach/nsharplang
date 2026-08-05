@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.Text
 
-public class DiagnosticClusterTraitClassification {
+class DiagnosticClusterTraitClassification {
     categoriesValue: int[]
     sourceConstructsValue: int[]
 
@@ -16,15 +16,14 @@ public class DiagnosticClusterTraitClassification {
         sourceConstructsValue = SourceConstructs
     }
 
-    public func Deconstruct(out Categories: int[], out SourceConstructs: int[]) {
+    func Deconstruct(out Categories: int[], out SourceConstructs: int[]) {
         Categories = categoriesValue
         SourceConstructs = sourceConstructsValue
     }
 }
 
-public class OutputFormatterDiagnosticClusterKernels {
-    public static func ClassifyDiagnosticClusterTraits(
-        diagnostics: IReadOnlyList<DiagnosticResult>): DiagnosticClusterTraitClassification {
+class OutputFormatterDiagnosticClusterKernels {
+    static func ClassifyDiagnosticClusterTraits(diagnostics: IReadOnlyList<DiagnosticResult>): DiagnosticClusterTraitClassification {
         items := DiagnosticList(diagnostics)
         count := items.Count
         categories := new int[](count)
@@ -33,9 +32,7 @@ public class OutputFormatterDiagnosticClusterKernels {
         i := 0
         while i < count {
             diagnostic := items[i]
-            category := ClassifyDiagnosticCategory(
-                TextOrEmpty(diagnostic.Code),
-                TextOrEmpty(diagnostic.Message))
+            category := ClassifyDiagnosticCategory(TextOrEmpty(diagnostic.Code), TextOrEmpty(diagnostic.Message))
             sourceConstruct := 8
 
             if category == 2 {
@@ -52,11 +49,7 @@ public class OutputFormatterDiagnosticClusterKernels {
         return new DiagnosticClusterTraitClassification(categories, sourceConstructs)
     }
 
-    public static func GroupDiagnosticClusters(
-        diagnostics: IReadOnlyList<DiagnosticResult>,
-        categoryIds: int[],
-        sourceConstructIds: int[],
-        messagePatterns: string[]): DiagnosticClusterGrouping {
+    static func GroupDiagnosticClusters(diagnostics: IReadOnlyList<DiagnosticResult>, categoryIds: int[], sourceConstructIds: int[], messagePatterns: string[]): DiagnosticClusterGrouping {
         items := DiagnosticList(diagnostics)
         count := items.Count
         if categoryIds.Length < count || sourceConstructIds.Length < count || messagePatterns.Length < count {
@@ -92,15 +85,10 @@ public class OutputFormatterDiagnosticClusterKernels {
             throw new InvalidOperationException("N# diagnostic cluster grouping kernel failed to compact group members.")
         }
 
-        return new DiagnosticClusterGrouping(
-            groupCount,
-            scratch.RootIndices,
-            scratch.Counts,
-            scratch.MemberStarts,
-            scratch.MemberIndices)
+        return new DiagnosticClusterGrouping(groupCount, scratch.RootIndices, scratch.Counts, scratch.MemberStarts, scratch.MemberIndices)
     }
 
-    public static func NormalizeMessagePattern(message: string): string {
+    static func NormalizeMessagePattern(message: string): string {
         if string.IsNullOrWhiteSpace(message) {
             return "unknown-message"
         }
@@ -134,13 +122,7 @@ public class OutputFormatterDiagnosticClusterKernels {
         return builder.ToString().Trim()
     }
 
-    public static func CreateDiagnosticClusterId(
-        code: string,
-        severity: string,
-        category: string,
-        sourceConstruct: string,
-        recipe: string,
-        messagePattern: string): string {
+    static func CreateDiagnosticClusterId(code: string, severity: string, category: string, sourceConstruct: string, recipe: string, messagePattern: string): string {
         key := code + "|" + severity + "|" + category + "|" + sourceConstruct + "|" + recipe + "|" + messagePattern
         hash := 17
         index := 0
@@ -156,14 +138,14 @@ public class OutputFormatterDiagnosticClusterKernels {
         return "diag-" + PositiveIntToLowerHex(hash)
     }
 
-    public static func BuildDiagnosticClusterNextCommand(root: DiagnosticResult): string {
+    static func BuildDiagnosticClusterNextCommand(root: DiagnosticResult): string {
         fileText := EscapeCommandArgument(root.File)
         return "nlc query inspect --file " + fileText + " --pos " + root.Line.ToString() + ":" + root.Column.ToString()
     }
 
     static func DiagnosticList(diagnostics: IReadOnlyList<DiagnosticResult>): List<DiagnosticResult> {
         items := new List<DiagnosticResult>()
-        foreach diagnosticValue in diagnostics {
+        for diagnosticValue in diagnostics {
             items.Add((DiagnosticResult)diagnosticValue)
         }
 
@@ -237,10 +219,7 @@ public class OutputFormatterDiagnosticClusterKernels {
         return groupCount
     }
 
-    static func CompactDiagnosticClusterGroupMembers(
-        scratch: DiagnosticClusterGroupingScratch,
-        count: int,
-        groupCount: int): int {
+    static func CompactDiagnosticClusterGroupMembers(scratch: DiagnosticClusterGroupingScratch, count: int, groupCount: int): int {
         groupLimit := MinInt(groupCount, scratch.RootIndices.Length)
         groupLimit = MinInt(groupLimit, scratch.Counts.Length)
         groupLimit = MinInt(groupLimit, scratch.MemberStarts.Length)
@@ -432,12 +411,7 @@ public class OutputFormatterDiagnosticClusterKernels {
         }
     }
 
-    static func IsDiagnosticClusterGroupBefore(
-        leftRoot: int,
-        leftCount: int,
-        rightRoot: int,
-        rightCount: int,
-        scratch: DiagnosticClusterGroupingScratch): bool {
+    static func IsDiagnosticClusterGroupBefore(leftRoot: int, leftCount: int, rightRoot: int, rightCount: int, scratch: DiagnosticClusterGroupingScratch): bool {
         if leftCount != rightCount {
             return leftCount > rightCount
         }
@@ -454,10 +428,7 @@ public class OutputFormatterDiagnosticClusterKernels {
         return scratch.Columns[leftRoot] < scratch.Columns[rightRoot]
     }
 
-    static func IsDiagnosticClusterRootBefore(
-        left: int,
-        right: int,
-        scratch: DiagnosticClusterGroupingScratch): bool {
+    static func IsDiagnosticClusterRootBefore(left: int, right: int, scratch: DiagnosticClusterGroupingScratch): bool {
         if scratch.Lines[left] != scratch.Lines[right] {
             return scratch.Lines[left] < scratch.Lines[right]
         }
@@ -469,38 +440,15 @@ public class OutputFormatterDiagnosticClusterKernels {
         return String.Compare(scratch.Files[left], scratch.Files[right], StringComparison.OrdinalIgnoreCase) < 0
     }
 
-    static func DiagnosticClusterCompactGroupingKeysEqual(
-        left: int,
-        right: int,
-        scratch: DiagnosticClusterGroupingScratch): bool {
-        return scratch.SeverityIds[left] == scratch.SeverityIds[right]
-            && scratch.CodeIds[left] == scratch.CodeIds[right]
-            && scratch.CategoryIds[left] == scratch.CategoryIds[right]
-            && scratch.SourceConstructIds[left] == scratch.SourceConstructIds[right]
-            && scratch.RecipeIds[left] == scratch.RecipeIds[right]
-            && scratch.RiskIds[left] == scratch.RiskIds[right]
-            && scratch.MessagePatternIds[left] == scratch.MessagePatternIds[right]
+    static func DiagnosticClusterCompactGroupingKeysEqual(left: int, right: int, scratch: DiagnosticClusterGroupingScratch): bool {
+        return scratch.SeverityIds[left] == scratch.SeverityIds[right] && scratch.CodeIds[left] == scratch.CodeIds[right] && scratch.CategoryIds[left] == scratch.CategoryIds[right] && scratch.SourceConstructIds[left] == scratch.SourceConstructIds[right] && scratch.RecipeIds[left] == scratch.RecipeIds[right] && scratch.RiskIds[left] == scratch.RiskIds[right] && scratch.MessagePatternIds[left] == scratch.MessagePatternIds[right]
     }
 
     static func HashDiagnosticClusterCompactGroupingKeyAt(index: int, scratch: DiagnosticClusterGroupingScratch): int {
-        return HashDiagnosticClusterCompactGroupingKey(
-            scratch.SeverityIds[index],
-            scratch.CodeIds[index],
-            scratch.CategoryIds[index],
-            scratch.SourceConstructIds[index],
-            scratch.RecipeIds[index],
-            scratch.RiskIds[index],
-            scratch.MessagePatternIds[index])
+        return HashDiagnosticClusterCompactGroupingKey(scratch.SeverityIds[index], scratch.CodeIds[index], scratch.CategoryIds[index], scratch.SourceConstructIds[index], scratch.RecipeIds[index], scratch.RiskIds[index], scratch.MessagePatternIds[index])
     }
 
-    static func HashDiagnosticClusterCompactGroupingKey(
-        severityId: int,
-        codeId: int,
-        categoryId: int,
-        sourceConstructId: int,
-        recipeId: int,
-        riskId: int,
-        messagePatternId: int): int {
+    static func HashDiagnosticClusterCompactGroupingKey(severityId: int, codeId: int, categoryId: int, sourceConstructId: int, recipeId: int, riskId: int, messagePatternId: int): int {
         hash := 17
         hash = hash * 31 + severityId
         hash = hash * 31 + codeId

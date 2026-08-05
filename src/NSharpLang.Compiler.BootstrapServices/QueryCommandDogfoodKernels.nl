@@ -1,12 +1,12 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Cli.Daemon
-import NSharpLang.Compiler.CodeIntelligence
 import System
 import System.IO
 import System.Text.Json
+import NSharpLang.Cli.Daemon
+import NSharpLang.Compiler.CodeIntelligence
 
-public enum QuerySubcommandKind {
+enum QuerySubcommandKind {
     Unknown = 0,
     Batch = 1,
     Symbols = 2,
@@ -27,7 +27,7 @@ public enum QuerySubcommandKind {
     Help = 17
 }
 
-public class QueryDaemonParameterPlan {
+class QueryDaemonParameterPlan {
     File: string?
     Pos: string?
     Name: string?
@@ -37,15 +37,7 @@ public class QueryDaemonParameterPlan {
     Summary: bool
     Clusters: bool
 
-    constructor(
-        filePath: string?,
-        pos: string?,
-        name: string?,
-        kind: string?,
-        severity: string?,
-        includeKeywords: bool,
-        summary: bool,
-        clusters: bool) {
+    constructor(filePath: string?, pos: string?, name: string?, kind: string?, severity: string?, includeKeywords: bool, summary: bool, clusters: bool) {
         File = filePath
         Pos = pos
         Name = name
@@ -57,13 +49,12 @@ public class QueryDaemonParameterPlan {
     }
 }
 
-public class QueryCommandDogfoodKernels {
-    public static func ShouldUseDaemon(useText: bool, noDaemon: bool, methodKind: DaemonMethodKind): bool {
-        return QueryCommandKernels.ShouldUseDaemon(useText, noDaemon)
-            && DaemonProtocolKernels.IsQueryMethod(methodKind)
+class QueryCommandDogfoodKernels {
+    static func ShouldUseDaemon(useText: bool, noDaemon: bool, methodKind: DaemonMethodKind): bool {
+        return QueryCommandKernels.ShouldUseDaemon(useText, noDaemon) && DaemonProtocolKernels.IsQueryMethod(methodKind)
     }
 
-    public static func GetDaemonJsonExitCode(hasOk: bool, ok: bool): int {
+    static func GetDaemonJsonExitCode(hasOk: bool, ok: bool): int {
         if !hasOk {
             return 0
         }
@@ -75,7 +66,7 @@ public class QueryCommandDogfoodKernels {
         return 1
     }
 
-    public static func GetDaemonJsonExitCodeFromJson(json: string): int {
+    static func GetDaemonJsonExitCodeFromJson(json: string): int {
         try {
             document := JsonDocument.Parse(json)
             okElement := new JsonElement()
@@ -92,21 +83,13 @@ public class QueryCommandDogfoodKernels {
         return GetDaemonJsonExitCode(false, false)
     }
 
-    public static func GetDaemonParameterPlan(args: string[], options: QueryOptions): QueryDaemonParameterPlan {
+    static func GetDaemonParameterPlan(args: string[], options: QueryOptions): QueryDaemonParameterPlan {
         parameterSummary := QueryCommandKernels.GetDaemonParameterSummary(args)
 
-        return new QueryDaemonParameterPlan(
-            SelectDaemonString(parameterSummary.File, options.File),
-            SelectDaemonString(parameterSummary.Pos, options.Pos),
-            SelectDaemonString(parameterSummary.Name, null),
-            SelectDaemonString(parameterSummary.Kind, null),
-            SelectDaemonString(parameterSummary.Severity, null),
-            parameterSummary.IncludeKeywords,
-            options.InspectCompact,
-            parameterSummary.Clusters)
+        return new QueryDaemonParameterPlan(SelectDaemonString(parameterSummary.File, options.File), SelectDaemonString(parameterSummary.Pos, options.Pos), SelectDaemonString(parameterSummary.Name, null), SelectDaemonString(parameterSummary.Kind, null), SelectDaemonString(parameterSummary.Severity, null), parameterSummary.IncludeKeywords, options.InspectCompact, parameterSummary.Clusters)
     }
 
-    public static func GetCallGraphLimit(limitText: string?): int {
+    static func GetCallGraphLimit(limitText: string?): int {
         defaultLimit := 100
         if limitText != null {
             parsedLimit := 0
@@ -118,7 +101,7 @@ public class QueryCommandDogfoodKernels {
         return defaultLimit
     }
 
-    public static func GetSubcommandKind(subcommand: string): QuerySubcommandKind {
+    static func GetSubcommandKind(subcommand: string): QuerySubcommandKind {
         if subcommand == "batch" {
             return QuerySubcommandKind.Batch
         }
@@ -190,40 +173,36 @@ public class QueryCommandDogfoodKernels {
         return QuerySubcommandKind.Unknown
     }
 
-    public static func MatchesFile(candidate: string?, query: string): bool {
+    static func MatchesFile(candidate: string?, query: string): bool {
         if string.IsNullOrWhiteSpace(candidate ?? "") {
             return false
         }
 
         normalizedCandidate := NormalizePath(candidate ?? "")
         normalizedQuery := NormalizePath(query)
-        return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase)
-            || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase)
-            || normalizedCandidate.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase)
+        return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase) || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase) || normalizedCandidate.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase)
     }
 
-    public static func MatchesCompilationUnitFile(candidate: string, query: string): bool {
+    static func MatchesCompilationUnitFile(candidate: string, query: string): bool {
         normalizedCandidate := NormalizePath(candidate)
         normalizedQuery := NormalizePath(query)
-        return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase)
-            || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(Path.GetFileName(normalizedCandidate), Path.GetFileName(normalizedQuery), StringComparison.OrdinalIgnoreCase)
+        return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase) || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetFileName(normalizedCandidate), Path.GetFileName(normalizedQuery), StringComparison.OrdinalIgnoreCase)
     }
 
-    public static func GetRelativePath(basePath: string, filePath: string): string {
+    static func GetRelativePath(basePath: string, filePath: string): string {
         return Path.GetRelativePath(basePath, filePath)
     }
 
-    public static func GetProjectRoot(projectDir: string?, currentDirectory: string): string {
+    static func GetProjectRoot(projectDir: string?, currentDirectory: string): string {
         return Path.GetFullPath(projectDir ?? currentDirectory)
     }
 
-    public static func GetDefaultProjectName(projectDir: string): string {
+    static func GetDefaultProjectName(projectDir: string): string {
         projectName := Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectDir)))
         return projectName ?? "Project"
     }
 
-    public static func ResolveProjectFilePath(projectRoot: string, filePath: string): string {
+    static func ResolveProjectFilePath(projectRoot: string, filePath: string): string {
         if Path.IsPathRooted(filePath) {
             return filePath
         }
@@ -231,11 +210,11 @@ public class QueryCommandDogfoodKernels {
         return Path.Combine(projectRoot, filePath)
     }
 
-    public static func IsAliasOf(candidateAliasOf: string?, commandName: string): bool {
+    static func IsAliasOf(candidateAliasOf: string?, commandName: string): bool {
         return string.Equals(candidateAliasOf, commandName, StringComparison.Ordinal)
     }
 
-    public static func WithOutlineFile(result: OutlineResult, outputFile: string): OutlineResult {
+    static func WithOutlineFile(result: OutlineResult, outputFile: string): OutlineResult {
         return new OutlineResult(outputFile, result.Imports, result.Outline)
     }
 

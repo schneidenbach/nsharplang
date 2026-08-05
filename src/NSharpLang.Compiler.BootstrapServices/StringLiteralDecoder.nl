@@ -2,8 +2,8 @@ namespace NSharpLang.Compiler
 
 import System.Text
 
-public class StringLiteralDecoder {
-    public static func Decode(tokenText: string): string {
+class StringLiteralDecoder {
+    static func Decode(tokenText: string): string {
         if IsInterpolatedRawStringLiteral(tokenText) {
             return tokenText.Substring(4, tokenText.Length - 7)
         }
@@ -25,7 +25,7 @@ public class StringLiteralDecoder {
         return DecodeBody(tokenText.Substring(start, end - start))
     }
 
-    public static func DecodeInterpolatedText(literal: string, text: string): string {
+    static func DecodeInterpolatedText(literal: string, text: string): string {
         if IsInterpolatedRawStringLiteral(literal) {
             return text
         }
@@ -33,34 +33,23 @@ public class StringLiteralDecoder {
         return DecodeBody(text)
     }
 
-    public static func IsInterpolatedRawStringLiteral(tokenText: string): bool {
+    static func IsInterpolatedRawStringLiteral(tokenText: string): bool {
         if tokenText.Length < 7 {
             return false
         }
 
-        return tokenText[0] == '$' &&
-            tokenText[1] == '"' &&
-            tokenText[2] == '"' &&
-            tokenText[3] == '"' &&
-            tokenText[tokenText.Length - 1] == '"' &&
-            tokenText[tokenText.Length - 2] == '"' &&
-            tokenText[tokenText.Length - 3] == '"'
+        return tokenText[0] == '$' && tokenText[1] == '"' && tokenText[2] == '"' && tokenText[3] == '"' && tokenText[tokenText.Length - 1] == '"' && tokenText[tokenText.Length - 2] == '"' && tokenText[tokenText.Length - 3] == '"'
     }
 
-    public static func IsTripleQuoteStringLiteral(tokenText: string): bool {
+    static func IsTripleQuoteStringLiteral(tokenText: string): bool {
         if tokenText.Length < 6 {
             return false
         }
 
-        return tokenText[0] == '"' &&
-            tokenText[1] == '"' &&
-            tokenText[2] == '"' &&
-            tokenText[tokenText.Length - 1] == '"' &&
-            tokenText[tokenText.Length - 2] == '"' &&
-            tokenText[tokenText.Length - 3] == '"'
+        return tokenText[0] == '"' && tokenText[1] == '"' && tokenText[2] == '"' && tokenText[tokenText.Length - 1] == '"' && tokenText[tokenText.Length - 2] == '"' && tokenText[tokenText.Length - 3] == '"'
     }
 
-    public static func TryDecodeBody(body: string, out decoded: string): bool {
+    static func TryDecodeBody(body: string, out decoded: string): bool {
         decoded = ""
         if body.IndexOf('\\') < 0 {
             decoded = body
@@ -118,7 +107,7 @@ public class StringLiteralDecoder {
 
     // No-out scalar seam for columnar expression planners. -1 means the body does not decode to
     // exactly one character; every admitted escape remains owned by TryDecodeBody above.
-    public static func DecodeCharacterBody(body: string): int {
+    static func DecodeCharacterBody(body: string): int {
         decoded := ""
         if !TryDecodeBody(body, out decoded) {
             return -1
@@ -129,7 +118,7 @@ public class StringLiteralDecoder {
         return (int)decoded[0]
     }
 
-    public static func DecodeBody(body: string): string {
+    static func DecodeBody(body: string): string {
         if body.IndexOf('\\') < 0 {
             return body
         }

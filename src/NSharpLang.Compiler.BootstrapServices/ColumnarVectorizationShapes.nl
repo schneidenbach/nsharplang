@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 
-public class ColumnarReductionShape {
+class ColumnarReductionShape {
     AccumulatorNode: int
     ArrayNode: int
     IndexNode: int
@@ -28,7 +28,7 @@ public class ColumnarReductionShape {
     }
 }
 
-public class ColumnarRangeCountShape {
+class ColumnarRangeCountShape {
     CounterNode: int
     ArrayNode: int
     IndexNode: int
@@ -50,7 +50,7 @@ public class ColumnarRangeCountShape {
     }
 }
 
-public class ColumnarMinMaxReduction {
+class ColumnarMinMaxReduction {
     AccumulatorNode: int
     Accumulator: string
     IsMin: bool
@@ -62,7 +62,7 @@ public class ColumnarMinMaxReduction {
     }
 }
 
-public class ColumnarMinMaxShape {
+class ColumnarMinMaxShape {
     ArrayNode: int
     IndexNode: int
     BoundNode: int
@@ -78,7 +78,7 @@ public class ColumnarMinMaxShape {
     }
 }
 
-public class ColumnarCountTransitionsShape {
+class ColumnarCountTransitionsShape {
     CounterNode: int
     ArrayNode: int
     IndexNode: int

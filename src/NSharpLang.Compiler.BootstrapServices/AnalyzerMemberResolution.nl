@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // WHAT A MEMBER NAME RESOLVES TO ON A TYPE — the analyzer's whole member surface.
 //
 // `ResolveMember` is the dispatcher: it strips the spellings that are not shapes (oblivious, by-ref,
@@ -24,8 +25,7 @@ import NSharpLang.Compiler.Ast
 // THE CONTAINING TYPE NAME CROSSES AS A PARAMETER. `Analyzer`'s `_currentTypeName` is a plain
 // mutable field reassigned every time the walk enters or leaves a type, so it is read at the call
 // and threaded through to the extension surface rather than held here.
-public class AnalyzerMemberResolution {
-
+class AnalyzerMemberResolution {
     functionTypeFactory: AnalyzerFunctionTypeFactory
     declarationContext: AnalyzerDeclarationContext
     typeSubstitution: AnalyzerTypeSubstitution
@@ -34,14 +34,7 @@ public class AnalyzerMemberResolution {
     extensionMethodResolution: AnalyzerExtensionMethodResolution
     usingNamespaces: List<string>
 
-    constructor(
-        functionTypes: AnalyzerFunctionTypeFactory,
-        declarations: AnalyzerDeclarationContext,
-        substitution: AnalyzerTypeSubstitution,
-        types: AnalyzerTypeResolver,
-        clrConversion: AnalyzerClrTypeConversion,
-        extensions: AnalyzerExtensionMethodResolution,
-        importedNamespaces: List<string>) {
+    constructor(functionTypes: AnalyzerFunctionTypeFactory, declarations: AnalyzerDeclarationContext, substitution: AnalyzerTypeSubstitution, types: AnalyzerTypeResolver, clrConversion: AnalyzerClrTypeConversion, extensions: AnalyzerExtensionMethodResolution, importedNamespaces: List<string>) {
         functionTypeFactory = functionTypes
         declarationContext = declarations
         typeSubstitution = substitution
@@ -53,11 +46,7 @@ public class AnalyzerMemberResolution {
 
     // WHAT A MEMBER NAME RESOLVES TO. `unknown` is the "no such member" answer; every arm that can
     // answer does so by returning, so the order of the arms IS the resolution order.
-    public func ResolveMember(
-        objectType: TypeInfo,
-        memberName: string,
-        includeStaticMembers: bool,
-        currentTypeName: string?): TypeInfo {
+    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?): TypeInfo {
         current: TypeInfo = objectType
 
         oblivious := current as ObliviousTypeInfo
@@ -109,8 +98,7 @@ public class AnalyzerMemberResolution {
             if !includeStaticMembers {
                 columnInfo := TryGetSoaColumn(soaRecordType.Declaration, memberName)
                 if columnInfo != null {
-                    return new ArrayTypeInfo(
-                        typeSubstitution.ResolveTypeForSourceOwner(columnInfo.Type, soaRecordType, null))
+                    return new ArrayTypeInfo(typeSubstitution.ResolveTypeForSourceOwner(columnInfo.Type, soaRecordType, null))
                 }
 
                 if memberName == "length" || memberName == "capacity" {
@@ -123,12 +111,10 @@ public class AnalyzerMemberResolution {
                     return CreateSoaIntrinsic("clear", BuiltInTypes.Void)
                 }
                 if memberName == "ensureCapacity" {
-                    return CreateSoaIntrinsicWithParameter(
-                        "ensureCapacity", BuiltInTypes.Void, "capacity", BuiltInTypes.Int)
+                    return CreateSoaIntrinsicWithParameter("ensureCapacity", BuiltInTypes.Void, "capacity", BuiltInTypes.Int)
                 }
                 if memberName == "copyRow" {
-                    return CreateSoaIntrinsicWithTwoParameters(
-                        "copyRow", BuiltInTypes.Void, "from", BuiltInTypes.Int, "to", BuiltInTypes.Int)
+                    return CreateSoaIntrinsicWithTwoParameters("copyRow", BuiltInTypes.Void, "from", BuiltInTypes.Int, "to", BuiltInTypes.Int)
                 }
 
                 return BuiltInTypes.Unknown
@@ -142,10 +128,7 @@ public class AnalyzerMemberResolution {
                 while wrapIndex < wrapColumns.Count {
                     wrapColumn := wrapColumns[wrapIndex]
                     wrapParameterNames.Add(wrapColumn.Name)
-                    wrapParameterTypes.Add(
-                        new ArrayTypeInfo(
-                            typeSubstitution.ResolveTypeForSourceOwner(
-                                wrapColumn.Type, soaRecordType, null)))
+                    wrapParameterTypes.Add(new ArrayTypeInfo(typeSubstitution.ResolveTypeForSourceOwner(wrapColumn.Type, soaRecordType, null)))
                     wrapIndex = wrapIndex + 1
                 }
 
@@ -167,11 +150,7 @@ public class AnalyzerMemberResolution {
         // primitive resolves against that type's metadata. `null`, `never` and `void` have no
         // members and `unknown` must stay unknown, so all four are excluded by name.
         simpleType := current as SimpleTypeInfo
-        if simpleType != null
-            && !BuiltInTypes.IsUnknown(current)
-            && BuiltInTypes.IsNot(current, BuiltInTypes.Null)
-            && BuiltInTypes.IsNot(current, BuiltInTypes.Never)
-            && BuiltInTypes.IsNot(current, BuiltInTypes.Void) {
+        if simpleType != null && !BuiltInTypes.IsUnknown(current) && BuiltInTypes.IsNot(current, BuiltInTypes.Null) && BuiltInTypes.IsNot(current, BuiltInTypes.Never) && BuiltInTypes.IsNot(current, BuiltInTypes.Void) {
             simpleClrType := clrTypeConversion.TryConvertTypeInfoToClrType(current)
             if simpleClrType != null {
                 current = new ReflectionTypeInfo(simpleClrType)
@@ -188,8 +167,7 @@ public class AnalyzerMemberResolution {
             if genericDefinition != null {
                 definitionAsReflection := genericDefinition as ReflectionTypeInfo
                 if definitionAsReflection == null {
-                    sourceGenericSubstitution = declarationContext.CreateGenericSubstitution(
-                        genericDefinition, sourceGeneric.TypeArguments)
+                    sourceGenericSubstitution = declarationContext.CreateGenericSubstitution(genericDefinition, sourceGeneric.TypeArguments)
                     current = genericDefinition
                     handledAsSourceGeneric = true
                 }
@@ -199,17 +177,12 @@ public class AnalyzerMemberResolution {
         if !handledAsSourceGeneric {
             if !includeStaticMembers {
                 arrayExtensionMemberType: TypeInfo = BuiltInTypes.Unknown
-                if declarationContext.TryResolveKnownArrayExtensionMember(
-                        current,
-                        memberName,
-                        usingNamespaces.Contains("System"),
-                        out arrayExtensionMemberType) {
+                if declarationContext.TryResolveKnownArrayExtensionMember(current, memberName, usingNamespaces.Contains("System"), out arrayExtensionMemberType) {
                     return arrayExtensionMemberType
                 }
 
                 structuralMemberType: TypeInfo = BuiltInTypes.Unknown
-                if declarationContext.TryResolveKnownGenericStructuralMember(
-                        current, memberName, out structuralMemberType) {
+                if declarationContext.TryResolveKnownGenericStructuralMember(current, memberName, out structuralMemberType) {
                     return structuralMemberType
                 }
             }
@@ -226,11 +199,7 @@ public class AnalyzerMemberResolution {
                     bindingClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(current)
                     if bindingClrType != null {
                         bindingMemberType: TypeInfo = BuiltInTypes.Unknown
-                        if TryResolveReflectionPropertyOrField(
-                                bindingClrType,
-                                memberName,
-                                includeStaticMembers,
-                                out bindingMemberType) {
+                        if TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out bindingMemberType) {
                             return bindingMemberType
                         }
                     }
@@ -247,14 +216,12 @@ public class AnalyzerMemberResolution {
             memberFlags := GetReflectionMemberFlags(includeStaticMembers)
 
             interfaceMemberType: TypeInfo = BuiltInTypes.Unknown
-            if declarationContext.TryResolveRuntimeInterfaceMethodMember(
-                    clrType, memberName, includeStaticMembers, out interfaceMemberType) {
+            if declarationContext.TryResolveRuntimeInterfaceMethodMember(clrType, memberName, includeStaticMembers, out interfaceMemberType) {
                 return interfaceMemberType
             }
 
             reflectedMemberType: TypeInfo = BuiltInTypes.Unknown
-            if TryResolveReflectionPropertyOrField(
-                    clrType, memberName, includeStaticMembers, out reflectedMemberType) {
+            if TryResolveReflectionPropertyOrField(clrType, memberName, includeStaticMembers, out reflectedMemberType) {
                 return reflectedMemberType
             }
 
@@ -271,13 +238,11 @@ public class AnalyzerMemberResolution {
 
             if matchingMethods.Count > 0 {
                 firstMatchingMethod := matchingMethods[0]
-                return new ReflectionMethodGroupInfo(
-                    matchingMethods.ToArray(), firstMatchingMethod.get_Name() + "(...)")
+                return new ReflectionMethodGroupInfo(matchingMethods.ToArray(), firstMatchingMethod.get_Name() + "(...)")
             }
 
             // Nothing on the metadata surface; the extension surface still sees the SOURCE receiver.
-            return extensionMethodResolution.TryResolveExtensionMethod(
-                extensionReceiverType, memberName, currentTypeName)
+            return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
         }
 
         // A DECLARED SHAPE'S OWN MEMBERS. Value members before function members, then the primary
@@ -285,51 +250,34 @@ public class AnalyzerMemberResolution {
         // type, then the inherited `object` surface — and the base walk is a full re-resolution, so
         // a base class's own extension fall-through does NOT apply to a derived receiver.
         sourceShape := new AnalyzerSourceMemberShape()
-        if declarationContext.TryGetSourceMemberShape(
-                current, sourceGenericSubstitution, out sourceShape) {
+        if declarationContext.TryGetSourceMemberShape(current, sourceGenericSubstitution, out sourceShape) {
             declaredValueMember: TypeInfo = BuiltInTypes.Unknown
-            if declarationContext.TryResolveDeclaredValueMember(
-                    sourceShape.Owner,
-                    sourceShape.DeclaredMembers,
-                    memberName,
-                    sourceGenericSubstitution,
-                    out declaredValueMember) {
+            if declarationContext.TryResolveDeclaredValueMember(sourceShape.Owner, sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, out declaredValueMember) {
                 return declaredValueMember
             }
 
-            declaredFunctionMember := ResolveDeclaredFunctionMember(
-                sourceShape.DeclaredMembers,
-                memberName,
-                sourceGenericSubstitution,
-                sourceShape.Owner)
+            declaredFunctionMember := ResolveDeclaredFunctionMember(sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, sourceShape.Owner)
             if declaredFunctionMember != null {
                 return declaredFunctionMember
             }
 
             if !includeStaticMembers && sourceShape.SupportsPrimaryParameters {
                 primaryConstructorMember: TypeInfo = BuiltInTypes.Unknown
-                if declarationContext.TryResolvePrimaryParameter(
-                        sourceShape.Owner,
-                        sourceShape.PrimaryParameters,
-                        memberName,
-                        sourceGenericSubstitution,
-                        out primaryConstructorMember) {
+                if declarationContext.TryResolvePrimaryParameter(sourceShape.Owner, sourceShape.PrimaryParameters, memberName, sourceGenericSubstitution, out primaryConstructorMember) {
                     return primaryConstructorMember
                 }
             }
 
             if includeStaticMembers {
                 nestedTypeMember: TypeInfo = BuiltInTypes.Unknown
-                if declarationContext.TryResolveNestedType(
-                        sourceShape.Owner, memberName, false, out nestedTypeMember) {
+                if declarationContext.TryResolveNestedType(sourceShape.Owner, memberName, false, out nestedTypeMember) {
                     return nestedTypeMember
                 }
             }
 
             declaredBaseType := sourceShape.BaseType
             if declaredBaseType != null {
-                baseMember := ResolveMember(
-                    declaredBaseType, memberName, includeStaticMembers, currentTypeName)
+                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName)
                 if !BuiltInTypes.IsUnknown(baseMember) {
                     return baseMember
                 }
@@ -392,8 +340,7 @@ public class AnalyzerMemberResolution {
                 return BuiltInTypes.Object
             }
 
-            return extensionMethodResolution.TryResolveExtensionMethod(
-                current, memberName, currentTypeName)
+            return extensionMethodResolution.TryResolveExtensionMethod(current, memberName, currentTypeName)
         }
 
         // A DECLARED UNION ANSWERS WITH ITSELF for every name: the arms are resolved by the match
@@ -407,8 +354,7 @@ public class AnalyzerMemberResolution {
         newtypeCandidate := current as NewtypeInfo
         if newtypeCandidate != null {
             if memberName == "Value" {
-                return typeSubstitution.ResolveTypeForSourceOwner(
-                    newtypeCandidate.UnderlyingType, newtypeCandidate, null)
+                return typeSubstitution.ResolveTypeForSourceOwner(newtypeCandidate.UnderlyingType, newtypeCandidate, null)
             }
 
             if !includeStaticMembers {
@@ -426,13 +372,12 @@ public class AnalyzerMemberResolution {
             }
         }
 
-        return extensionMethodResolution.TryResolveExtensionMethod(
-            extensionReceiverType, memberName, currentTypeName)
+        return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
     }
 
     // Public instance members always; static members only when the name was written against the
     // TYPE rather than against a value.
-    public static func GetReflectionMemberFlags(includeStaticMembers: bool): BindingFlags {
+    static func GetReflectionMemberFlags(includeStaticMembers: bool): BindingFlags {
         memberFlags := BindingFlags.Public | BindingFlags.Instance
         if includeStaticMembers {
             memberFlags = memberFlags | BindingFlags.Static
@@ -451,11 +396,7 @@ public class AnalyzerMemberResolution {
     // accessors are found with the NON-PUBLIC opt-in because an event may be public while its
     // add/remove methods are not, and the handler delegate type and declaring type ride on the
     // answer because the subscription needs both to emit.
-    public static func TryResolveReflectionPropertyOrField(
-        reflectedType: Type,
-        memberName: string,
-        includeStaticMembers: bool,
-        out memberType: TypeInfo): bool {
+    static func TryResolveReflectionPropertyOrField(reflectedType: Type, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
         memberFlags := GetReflectionMemberFlags(includeStaticMembers)
 
         property := reflectedType.GetProperty(memberName, memberFlags)
@@ -472,13 +413,7 @@ public class AnalyzerMemberResolution {
 
         eventMember := reflectedType.GetEvent(memberName, memberFlags)
         if eventMember != null {
-            memberType = new ReflectionEventInfo(
-                eventMember.get_Name(),
-                eventMember.GetAddMethod(true),
-                eventMember.GetRemoveMethod(true),
-                eventMember.get_EventHandlerType(),
-                eventMember.get_DeclaringType(),
-                "event " + eventMember.get_Name())
+            memberType = new ReflectionEventInfo(eventMember.get_Name(), eventMember.GetAddMethod(true), eventMember.GetRemoveMethod(true), eventMember.get_EventHandlerType(), eventMember.get_DeclaringType(), "event " + eventMember.get_Name())
             return true
         }
 
@@ -494,11 +429,7 @@ public class AnalyzerMemberResolution {
     // signature from — and if ANY overload is in that state the whole NAME answers nothing, rather
     // than a method group silently missing one of its overloads. A partial group would bind a call
     // to the wrong overload with no diagnostic at all.
-    public func ResolveDeclaredFunctionMember(
-        members: DeclaredMemberInfo[],
-        memberName: string,
-        substitution: Dictionary<string, TypeInfo>?,
-        declarationOwner: TypeInfo?): TypeInfo? {
+    func ResolveDeclaredFunctionMember(members: DeclaredMemberInfo[], memberName: string, substitution: Dictionary<string, TypeInfo>?, declarationOwner: TypeInfo?): TypeInfo? {
         matching := new List<DeclaredMemberInfo>()
         index := 0
         while index < members.Length {
@@ -524,9 +455,7 @@ public class AnalyzerMemberResolution {
         functionTypes := new List<FunctionTypeInfo>()
         buildIndex := 0
         while buildIndex < matching.Count {
-            functionTypes.Add(
-                functionTypeFactory.CreateFromDeclaredMember(
-                    matching[buildIndex], substitution, declarationOwner))
+            functionTypes.Add(functionTypeFactory.CreateFromDeclaredMember(matching[buildIndex], substitution, declarationOwner))
             buildIndex = buildIndex + 1
         }
 
@@ -539,13 +468,8 @@ public class AnalyzerMemberResolution {
 
     // The recorded shape is self-consistent: the arrays are as long as the counts say, and the
     // required-parameter count is a real prefix of the parameter list.
-    public static func CanResolveFunctionMemberFromTypeInfo(member: DeclaredMemberInfo): bool {
-        return member.TypeParameters.Length == member.TypeParameterCount
-            && member.RequiredParameterCount >= 0
-            && member.RequiredParameterCount <= member.ParameterCount
-            && member.ParameterNames.Length == member.ParameterCount
-            && member.ParameterTypes.Length == member.ParameterCount
-            && member.ParameterModifiers.Length == member.ParameterCount
+    static func CanResolveFunctionMemberFromTypeInfo(member: DeclaredMemberInfo): bool {
+        return member.TypeParameters.Length == member.TypeParameterCount && member.RequiredParameterCount >= 0 && member.RequiredParameterCount <= member.ParameterCount && member.ParameterNames.Length == member.ParameterCount && member.ParameterTypes.Length == member.ParameterCount && member.ParameterModifiers.Length == member.ParameterCount
     }
 
     // EVERY SOURCE TYPE INHERITS `object`, AND THIS IS THAT SURFACE. A source declaration names no
@@ -556,7 +480,7 @@ public class AnalyzerMemberResolution {
     // THE PROBE ORDER IS PROPERTY, THEN FIELD, THEN METHOD, and the method arm distinguishes a
     // single method from a group because `Equals` is overloaded on `object` and `ToString` is not.
     // Accessor methods are excluded by the property arm answering first, not by a name test.
-    public static func TryResolveSourceObjectMember(memberName: string, out memberType: TypeInfo): bool {
+    static func TryResolveSourceObjectMember(memberName: string, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
         flags := BindingFlags.Public | BindingFlags.Instance
         objectType := typeof(object)
@@ -601,9 +525,7 @@ public class AnalyzerMemberResolution {
 
     // Which COLUMN a name denotes on a SoA record, or nothing. Column names are matched exactly:
     // a table's columns are its declared fields and nothing else answers for them.
-    public static func TryGetSoaColumn(
-        declaration: SoaRecordDeclarationInfo,
-        name: string): SoaColumnInfo? {
+    static func TryGetSoaColumn(declaration: SoaRecordDeclarationInfo, name: string): SoaColumnInfo? {
         index := 0
         while index < declaration.Columns.Count {
             column := declaration.Columns[index]
@@ -620,7 +542,7 @@ public class AnalyzerMemberResolution {
     // `ensureCapacity` and `copyRow` have no declaration anywhere to resolve against — their
     // signatures are synthesised here and exist nowhere else. The three arities are spelled out
     // rather than defaulted because the intrinsics are a closed set of exactly these shapes.
-    public static func CreateSoaIntrinsic(syntheticName: string, returnType: TypeInfo): FunctionTypeInfo {
+    static func CreateSoaIntrinsic(syntheticName: string, returnType: TypeInfo): FunctionTypeInfo {
         result := new FunctionTypeInfo()
         result.SyntheticName = syntheticName
         result.ParameterNames = new List<string>()
@@ -629,11 +551,7 @@ public class AnalyzerMemberResolution {
         return result
     }
 
-    public static func CreateSoaIntrinsicWithParameter(
-        syntheticName: string,
-        returnType: TypeInfo,
-        parameterName: string,
-        parameterType: TypeInfo): FunctionTypeInfo {
+    static func CreateSoaIntrinsicWithParameter(syntheticName: string, returnType: TypeInfo, parameterName: string, parameterType: TypeInfo): FunctionTypeInfo {
         names := new List<string>()
         names.Add(parameterName)
         types := new List<TypeInfo>()
@@ -647,13 +565,7 @@ public class AnalyzerMemberResolution {
         return result
     }
 
-    public static func CreateSoaIntrinsicWithTwoParameters(
-        syntheticName: string,
-        returnType: TypeInfo,
-        firstName: string,
-        firstType: TypeInfo,
-        secondName: string,
-        secondType: TypeInfo): FunctionTypeInfo {
+    static func CreateSoaIntrinsicWithTwoParameters(syntheticName: string, returnType: TypeInfo, firstName: string, firstType: TypeInfo, secondName: string, secondType: TypeInfo): FunctionTypeInfo {
         names := new List<string>()
         names.Add(firstName)
         names.Add(secondName)

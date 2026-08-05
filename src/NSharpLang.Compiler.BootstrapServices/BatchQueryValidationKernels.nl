@@ -1,17 +1,13 @@
 namespace NSharpLang.Cli
 
-public enum BatchQueryPayloadShapeKind {
+enum BatchQueryPayloadShapeKind {
     Invalid = 0,
     RootArray = 1,
     NestedRequestsArray = 2
 }
 
-public class BatchQueryValidationKernels {
-    public static func GetPayloadShapeKind(
-        rootIsArray: bool,
-        rootIsObject: bool,
-        hasRequests: bool,
-        requestsIsArray: bool): BatchQueryPayloadShapeKind {
+class BatchQueryValidationKernels {
+    static func GetPayloadShapeKind(rootIsArray: bool, rootIsObject: bool, hasRequests: bool, requestsIsArray: bool): BatchQueryPayloadShapeKind {
         if rootIsArray {
             return BatchQueryPayloadShapeKind.RootArray
         }
@@ -23,15 +19,11 @@ public class BatchQueryValidationKernels {
         return BatchQueryPayloadShapeKind.Invalid
     }
 
-    public static func IsRequestItemObject(itemIsObject: bool): bool {
+    static func IsRequestItemObject(itemIsObject: bool): bool {
         return itemIsObject
     }
 
-    public static func HasRequiredInput(
-        commandKind: BatchQueryCommandKind,
-        filePath: string?,
-        position: string?,
-        query: string?): bool {
+    static func HasRequiredInput(commandKind: BatchQueryCommandKind, filePath: string?, position: string?, query: string?): bool {
         if commandKind == BatchQueryCommandKind.Outline {
             return !string.IsNullOrWhiteSpace(filePath ?? "")
         }
@@ -41,14 +33,13 @@ public class BatchQueryValidationKernels {
         }
 
         if RequiresFileAndPosition(commandKind) {
-            return !string.IsNullOrWhiteSpace(filePath ?? "")
-                && !string.IsNullOrWhiteSpace(position ?? "")
+            return !string.IsNullOrWhiteSpace(filePath ?? "") && !string.IsNullOrWhiteSpace(position ?? "")
         }
 
         return true
     }
 
-    public static func GetRequiredInputMessage(commandKind: BatchQueryCommandKind): string {
+    static func GetRequiredInputMessage(commandKind: BatchQueryCommandKind): string {
         if commandKind == BatchQueryCommandKind.Outline {
             return BatchQueryKernels.GetOutlineFileRequiredMessage()
         }
@@ -64,7 +55,7 @@ public class BatchQueryValidationKernels {
         return ""
     }
 
-    public static func GetCommandName(commandKind: BatchQueryCommandKind): string {
+    static func GetCommandName(commandKind: BatchQueryCommandKind): string {
         if commandKind == BatchQueryCommandKind.Symbols {
             return "symbols"
         }
@@ -105,10 +96,6 @@ public class BatchQueryValidationKernels {
     }
 
     static func RequiresFileAndPosition(commandKind: BatchQueryCommandKind): bool {
-        return commandKind == BatchQueryCommandKind.Type
-            || commandKind == BatchQueryCommandKind.Inspect
-            || commandKind == BatchQueryCommandKind.Definition
-            || commandKind == BatchQueryCommandKind.References
-            || commandKind == BatchQueryCommandKind.Completions
+        return commandKind == BatchQueryCommandKind.Type || commandKind == BatchQueryCommandKind.Inspect || commandKind == BatchQueryCommandKind.Definition || commandKind == BatchQueryCommandKind.References || commandKind == BatchQueryCommandKind.Completions
     }
 }

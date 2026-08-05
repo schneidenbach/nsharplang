@@ -1,13 +1,13 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Cli
-import NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
 import System.Text
+import NSharpLang.Cli
+import NSharpLang.Compiler
 
-public class TidyDependencyStatus {
+class TidyDependencyStatus {
     Name: string
     Version: string?
     Status: string
@@ -21,7 +21,7 @@ public class TidyDependencyStatus {
     }
 }
 
-public class TidyCommandSummary {
+class TidyCommandSummary {
     PossiblyUnusedCount: int
     UnknownCount: int
 
@@ -31,8 +31,8 @@ public class TidyCommandSummary {
     }
 }
 
-public class TidyCommand {
-    public static func Execute(args: string[]): int {
+class TidyCommand {
+    static func Execute(args: string[]): int {
         options := TidyCommandKernels.GetOptionSummary(args)
         if options.ShowHelp {
             print TidyCommandKernels.GetHelpText()
@@ -48,8 +48,7 @@ public class TidyCommand {
             if outputMode == 1 {
                 print BuildErrorJson(TidyCommandKernels.GetMissingProjectFileJsonMessage())
             } else {
-                Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(
-                    TidyCommandKernels.GetMissingProjectFileTextMessage()))
+                Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(TidyCommandKernels.GetMissingProjectFileTextMessage()))
             }
 
             return 1
@@ -131,9 +130,7 @@ public class TidyCommand {
         return namespaces
     }
 
-    static func ClassifyDependencies(
-        dependencies: List<Reference>,
-        importedNamespaces: List<string>): List<TidyDependencyStatus> {
+    static func ClassifyDependencies(dependencies: List<Reference>, importedNamespaces: List<string>): List<TidyDependencyStatus> {
         nugetDependencies := new List<Reference>()
         i := 0
         while i < dependencies.Count {
@@ -162,17 +159,10 @@ public class TidyCommand {
         return results
     }
 
-    static func CreateDependencyStatusFromRank(
-        packageName: string,
-        version: string?,
-        statusRank: int): TidyDependencyStatus? {
+    static func CreateDependencyStatusFromRank(packageName: string, version: string?, statusRank: int): TidyDependencyStatus? {
         firstDot := packageName.IndexOf('.')
         if statusRank == 3 && firstDot <= 0 {
-            return new TidyDependencyStatus(
-                packageName,
-                version,
-                "unknown",
-                TidyCommandKernels.GetUnknownReasonMessage())
+            return new TidyDependencyStatus(packageName, version, "unknown", TidyCommandKernels.GetUnknownReasonMessage())
         }
 
         if firstDot <= 0 {
@@ -187,19 +177,11 @@ public class TidyCommand {
         }
 
         if statusRank == 2 {
-            return new TidyDependencyStatus(
-                packageName,
-                version,
-                "used",
-                TidyCommandKernels.GetUsedReasonMessage(prefix2))
+            return new TidyDependencyStatus(packageName, version, "used", TidyCommandKernels.GetUsedReasonMessage(prefix2))
         }
 
         if statusRank == 1 {
-            return new TidyDependencyStatus(
-                packageName,
-                version,
-                "possibly-unused",
-                TidyCommandKernels.GetPossiblyUnusedReasonMessage(prefix1, prefix2))
+            return new TidyDependencyStatus(packageName, version, "possibly-unused", TidyCommandKernels.GetPossiblyUnusedReasonMessage(prefix1, prefix2))
         }
 
         return null
@@ -224,10 +206,7 @@ public class TidyCommand {
         return new TidyCommandSummary(summary.PossiblyUnusedCount, summary.UnknownCount)
     }
 
-    static func PrintTable(
-        results: List<TidyDependencyStatus>,
-        projectRoot: string,
-        summary: TidyCommandSummary) {
+    static func PrintTable(results: List<TidyDependencyStatus>, projectRoot: string, summary: TidyCommandSummary) {
         if results.Count == 0 {
             print TidyCommandKernels.GetNoNuGetDependenciesMessage(projectRoot)
             return
@@ -251,10 +230,7 @@ public class TidyCommand {
         i = 0
         while i < results.Count {
             result := results[i]
-            print TidyCommandKernels.GetTableRow(
-                PadRight(result.Name, nameWidth),
-                PadRight(result.Status, statusWidth),
-                result.Reason)
+            print TidyCommandKernels.GetTableRow(PadRight(result.Name, nameWidth), PadRight(result.Status, statusWidth), result.Reason)
             i = i + 1
         }
 

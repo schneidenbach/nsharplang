@@ -4,13 +4,13 @@ import System
 import System.Collections.Generic
 import System.Text
 
-public class OutputFormatterDiagnosticKernels {
-    public static func SummarizeDiagnosticSeverities(diagnostics: IReadOnlyList<DiagnosticResult>): DiagnosticSummary {
+class OutputFormatterDiagnosticKernels {
+    static func SummarizeDiagnosticSeverities(diagnostics: IReadOnlyList<DiagnosticResult>): DiagnosticSummary {
         errors := 0
         warnings := 0
         info := 0
 
-        foreach diagnosticValue in diagnostics {
+        for diagnosticValue in diagnostics {
             diagnostic := (DiagnosticResult)diagnosticValue
             severity := diagnostic.Severity
             if severity == "error" {
@@ -25,13 +25,11 @@ public class OutputFormatterDiagnosticKernels {
         return new DiagnosticSummary(errors, warnings, info)
     }
 
-    public static func FilterDiagnosticSeverities(
-        diagnostics: IReadOnlyList<DiagnosticResult>,
-        targetSeverity: string): ValueTuple<int[], int> {
+    static func FilterDiagnosticSeverities(diagnostics: IReadOnlyList<DiagnosticResult>, targetSeverity: string): ValueTuple<int[], int> {
         resultIndices := new List<int>()
         index := 0
 
-        foreach diagnosticValue in diagnostics {
+        for diagnosticValue in diagnostics {
             diagnostic := (DiagnosticResult)diagnosticValue
             severity := diagnostic.Severity
             if String.Equals(severity, targetSeverity, StringComparison.OrdinalIgnoreCase) {
@@ -45,12 +43,10 @@ public class OutputFormatterDiagnosticKernels {
         return new ValueTuple<int[], int>(values, values.Length)
     }
 
-    public static func FilterDiagnosticSeverityResults(
-        diagnostics: IReadOnlyList<DiagnosticResult>,
-        targetSeverity: string): List<DiagnosticResult> {
+    static func FilterDiagnosticSeverityResults(diagnostics: IReadOnlyList<DiagnosticResult>, targetSeverity: string): List<DiagnosticResult> {
         result := new List<DiagnosticResult>()
 
-        foreach diagnosticValue in diagnostics {
+        for diagnosticValue in diagnostics {
             diagnostic := (DiagnosticResult)diagnosticValue
             severity := diagnostic.Severity
             if String.Equals(severity, targetSeverity, StringComparison.OrdinalIgnoreCase) {
@@ -61,7 +57,7 @@ public class OutputFormatterDiagnosticKernels {
         return result
     }
 
-    public static func GetDiagnosticTitle(code: string, severity: string): string {
+    static func GetDiagnosticTitle(code: string, severity: string): string {
         label := DiagnosticSeverityLabel(severity)
         if label == "" {
             return ""
@@ -70,39 +66,39 @@ public class OutputFormatterDiagnosticKernels {
         return "[" + code + "] " + label
     }
 
-    public static func GetExpectedTypeText(expectedType: string): string {
+    static func GetExpectedTypeText(expectedType: string): string {
         return GetDiagnosticDetailText(1, expectedType)
     }
 
-    public static func GetActualTypeText(actualType: string): string {
+    static func GetActualTypeText(actualType: string): string {
         return GetDiagnosticDetailText(2, actualType)
     }
 
-    public static func GetHintText(hint: string): string {
+    static func GetHintText(hint: string): string {
         return GetDiagnosticDetailText(3, hint)
     }
 
-    public static func GetSuggestionText(suggestion: string): string {
+    static func GetSuggestionText(suggestion: string): string {
         return GetDiagnosticDetailText(4, suggestion)
     }
 
-    public static func GetDocsUrlText(docsUrl: string): string {
+    static func GetDocsUrlText(docsUrl: string): string {
         return GetDiagnosticDetailText(5, docsUrl)
     }
 
-    public static func GetNoDiagnosticsText(): string {
+    static func GetNoDiagnosticsText(): string {
         return "No diagnostics found."
     }
 
-    public static func GetFoundSummaryText(summary: DiagnosticSummary): string {
+    static func GetFoundSummaryText(summary: DiagnosticSummary): string {
         return DiagnosticFoundSummaryText(summary.Errors, summary.Warnings, summary.Info)
     }
 
-    public static func GetSourceLineText(line: int, sourceSnippet: string): string {
+    static func GetSourceLineText(line: int, sourceSnippet: string): string {
         return "    " + line.ToString() + " | " + sourceSnippet
     }
 
-    public static func GetHeaderLineText(title: string, fileName: string, line: int, column: int): string {
+    static func GetHeaderLineText(title: string, fileName: string, line: int, column: int): string {
         location := fileName + ":" + line.ToString() + ":" + column.ToString()
         headerContent := " " + title + " "
         locationPart := " " + location + " "
@@ -116,11 +112,10 @@ public class OutputFormatterDiagnosticKernels {
             rulerWidth = 2
         }
 
-        return DiagnosticRepeatText("─", 2) + headerContent + DiagnosticRepeatText("─", rulerWidth) +
-            locationPart + DiagnosticRepeatText("─", 2)
+        return DiagnosticRepeatText("─", 2) + headerContent + DiagnosticRepeatText("─", rulerWidth) + locationPart + DiagnosticRepeatText("─", 2)
     }
 
-    public static func GetCaretLineText(line: int, column: int, length: int): string {
+    static func GetCaretLineText(line: int, column: int, length: int): string {
         lineDigits := line.ToString().Length
         caretOffset := column - 1
         if caretOffset < 0 {
@@ -132,8 +127,7 @@ public class OutputFormatterDiagnosticKernels {
             caretLength = 1
         }
 
-        return "    " + DiagnosticRepeatChar(' ', lineDigits) + " | " +
-            DiagnosticRepeatChar(' ', caretOffset) + DiagnosticRepeatChar('^', caretLength)
+        return "    " + DiagnosticRepeatChar(' ', lineDigits) + " | " + DiagnosticRepeatChar(' ', caretOffset) + DiagnosticRepeatChar('^', caretLength)
     }
 
     static func GetDiagnosticDetailText(kind: int, value: string): string {

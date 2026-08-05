@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.Ast
 
-public enum BinaryOperator {
+enum BinaryOperator {
     Add,
     Subtract,
     Multiply,
@@ -20,10 +20,10 @@ public enum BinaryOperator {
     LeftShift,
     RightShift,
     NullCoalesce,
-    Range,
+    Range
 }
 
-public enum UnaryOperator {
+enum UnaryOperator {
     Negate,
     Not,
     BitwiseNot,
@@ -34,13 +34,13 @@ public enum UnaryOperator {
     IndexFromEnd
 }
 
-public enum ArgumentModifier {
+enum ArgumentModifier {
     None,
     Ref,
     Out
 }
 
-public enum AssignmentOperator {
+enum AssignmentOperator {
     Assign,
     AddAssign,
     SubtractAssign,
@@ -49,7 +49,7 @@ public enum AssignmentOperator {
     NullCoalesceAssign
 }
 
-public enum CastKind {
+enum CastKind {
     Hard,
     Safe
 }

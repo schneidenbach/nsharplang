@@ -3,15 +3,13 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.Collections.Generic
 
-public class CleanArtifactDirectoryOrderer {
-    public static func Order(directories: IReadOnlyList<string>): string[] {
+class CleanArtifactDirectoryOrderer {
+    static func Order(directories: IReadOnlyList<string>): string[] {
         selected := new List<string>()
         seen := new HashSet<string>(StringComparer.Ordinal)
 
-        foreach directory in directories {
-            if GetArtifactDirectoryKindRank(directory) > 0
-                && !IsUnderNodeModulesDirectory(directory)
-                && !seen.Contains(directory) {
+        for directory in directories {
+            if GetArtifactDirectoryKindRank(directory) > 0 && !IsUnderNodeModulesDirectory(directory) && !seen.Contains(directory) {
                 seen.Add(directory)
                 selected.Add(directory)
             }

@@ -211,15 +211,22 @@ class ColumnarStructInput {
         TypeParamNames = typeParamNames ?? new string[](0)
         SourceFileId = sourceFileId
         EnclosingTypeName = enclosingTypeName ?? ""
-        NestedVisibilityAttributes = NestedVisibilityFor(
-            name, visibilityModifierFlags)
+        NestedVisibilityAttributes = NestedVisibilityFor(name, visibilityModifierFlags)
     }
 
     static func NestedVisibilityFor(name: string, flags: int): int {
-        if (flags & 1) != 0 { return 2 }
-        if (flags & 2) != 0 || (flags & 32768) != 0 { return 3 }
-        if (flags & 4) != 0 { return 4 }
-        if (flags & 8) != 0 { return 5 }
+        if (flags & 1) != 0 {
+            return 2
+        }
+        if (flags & 2) != 0 || (flags & 32768) != 0 {
+            return 3
+        }
+        if (flags & 4) != 0 {
+            return 4
+        }
+        if (flags & 8) != 0 {
+            return 5
+        }
         if name.Length > 0 && char.IsUpper(name[0]) {
             return 2
         }
@@ -375,54 +382,37 @@ class ColumnarProgramInput {
     // The assembly owner asks N# for the semantic declaration identity and then uses the returned
     // string mechanically as the CLR builder/registry name. Namespace interpretation must never
     // be reconstructed in C#.
-    public func ExactTypeNameForFile(name: string, sourceFileId: int): string {
+    func ExactTypeNameForFile(name: string, sourceFileId: int): string {
         return bindingScope.ExactTypeNameForFile(name, sourceFileId)
     }
 
-    public func ExactStructTypeName(input: ColumnarStructInput): string {
+    func ExactStructTypeName(input: ColumnarStructInput): string {
         return bindingScope.ExactStructTypeName(input)
     }
 
-    public func ExactRelativeTypeNameForFile(
-        name: string, sourceFileId: int): string {
+    func ExactRelativeTypeNameForFile(name: string, sourceFileId: int): string {
         return bindingScope.ExactRelativeTypeNameForFile(name, sourceFileId)
     }
 
     // Metadata declaration sites do not own a node-table view, so select the same immutable
     // per-file semantic scope explicitly before resolving a live type handle.
-    public func TryResolveExactExplicitTypeForFile(
-        sourceFileId: int,
-        canonical: string,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    func TryResolveExactExplicitTypeForFile(sourceFileId: int, canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
         claimed := false
-        return TryResolveExactExplicitTypeForFile(
-            sourceFileId, canonical, bindings, out result, out claimed)
+        return TryResolveExactExplicitTypeForFile(sourceFileId, canonical, bindings, out result, out claimed)
     }
 
-    public func TryResolveExactExplicitTypeForFile(
-        sourceFileId: int,
-        canonical: string,
-        bindings: ColumnarFragmentBindings,
-        out result: Type,
-        out claimed: bool): bool {
+    func TryResolveExactExplicitTypeForFile(sourceFileId: int, canonical: string, bindings: ColumnarFragmentBindings, out result: Type, out claimed: bool): bool {
         fileScope := bindingScope.ForSourceFile(sourceFileId)
-        return fileScope.TryResolveExactExplicitType(
-            canonical, bindings, out result, out claimed)
+        return fileScope.TryResolveExactExplicitType(canonical, bindings, out result, out claimed)
     }
 
     // Definition registries need the declaration identity, not a CLR Type. This is especially
     // important for string-backed enums, whose distinct source declarations all erase to
     // System.String. Keep that selection in the same per-file N# binding scope as explicit type
     // resolution so the mechanical assembly owner never probes candidate declarations.
-    public func TryResolveExactSourceDeclarationNameForFile(
-        sourceFileId: int,
-        canonical: string,
-        out exactName: string,
-        out claimed: bool): bool {
+    func TryResolveExactSourceDeclarationNameForFile(sourceFileId: int, canonical: string, out exactName: string, out claimed: bool): bool {
         fileScope := bindingScope.ForSourceFile(sourceFileId)
-        return fileScope.TryResolveExactSourceDeclarationName(
-            canonical, out exactName, out claimed)
+        return fileScope.TryResolveExactSourceDeclarationName(canonical, out exactName, out claimed)
     }
 
     static func BuildSingleSourceFiles(source: string): ColumnarSourceFile[] {

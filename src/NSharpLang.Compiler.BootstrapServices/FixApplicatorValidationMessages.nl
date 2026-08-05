@@ -1,14 +1,7 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-public class FixApplicatorValidationMessages {
-    public static func BuildValidationMessage(
-        code: int,
-        errorInfo: int[],
-        startLines: int[],
-        startColumns: int[],
-        endLines: int[],
-        endColumns: int[],
-        count: int): string {
+class FixApplicatorValidationMessages {
+    static func BuildValidationMessage(code: int, errorInfo: int[], startLines: int[], startColumns: int[], endLines: int[], endColumns: int[], count: int): string {
         if code == 1 {
             index := ValidationIndex(errorInfo, 0, count)
             return "Invalid edit position: " + FormatEditRange(startLines, startColumns, endLines, endColumns, index) + ". Lines are 1-based and columns must be non-negative."
@@ -22,10 +15,7 @@ public class FixApplicatorValidationMessages {
         if code == 3 {
             lowIndex := ValidationIndex(errorInfo, 0, count)
             highIndex := ValidationIndex(errorInfo, 1, count)
-            return "Overlapping edits detected: edit at "
-                + FormatEditRange(startLines, startColumns, endLines, endColumns, lowIndex)
-                + " overlaps with edit at "
-                + FormatEditRange(startLines, startColumns, endLines, endColumns, highIndex)
+            return "Overlapping edits detected: edit at " + FormatEditRange(startLines, startColumns, endLines, endColumns, lowIndex) + " overlaps with edit at " + FormatEditRange(startLines, startColumns, endLines, endColumns, highIndex)
         }
 
         if code == 4 {
@@ -57,20 +47,7 @@ public class FixApplicatorValidationMessages {
         return index
     }
 
-    static func FormatEditRange(
-        startLines: int[],
-        startColumns: int[],
-        endLines: int[],
-        endColumns: int[],
-        index: int): string {
-        return "("
-            + startLines[index].ToString()
-            + ","
-            + startColumns[index].ToString()
-            + ")..("
-            + endLines[index].ToString()
-            + ","
-            + endColumns[index].ToString()
-            + ")"
+    static func FormatEditRange(startLines: int[], startColumns: int[], endLines: int[], endColumns: int[], index: int): string {
+        return "(" + startLines[index].ToString() + "," + startColumns[index].ToString() + ")..(" + endLines[index].ToString() + "," + endColumns[index].ToString() + ")"
     }
 }

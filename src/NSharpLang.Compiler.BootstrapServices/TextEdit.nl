@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public class TextEdit {
+class TextEdit {
     StartLine: int
     StartColumn: int
     EndLine: int
@@ -21,11 +21,7 @@ public class TextEdit {
             return false
         }
 
-        return StartLine == other.StartLine
-            && StartColumn == other.StartColumn
-            && EndLine == other.EndLine
-            && EndColumn == other.EndColumn
-            && NewText == other.NewText
+        return StartLine == other.StartLine && StartColumn == other.StartColumn && EndLine == other.EndLine && EndColumn == other.EndColumn && NewText == other.NewText
     }
 
     override func GetHashCode(): int {

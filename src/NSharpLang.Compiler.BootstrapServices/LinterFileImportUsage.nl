@@ -3,22 +3,16 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 import System.IO
 
-public class LinterFileImportUsage {
-    public static func IsUsed(
-        importSymbol: string,
-        importPath: string?,
-        currentFilePath: string?,
-        codeIdentifiers: HashSet<string>): bool {
+class LinterFileImportUsage {
+    static func IsUsed(importSymbol: string, importPath: string?, currentFilePath: string?, codeIdentifiers: HashSet<string>): bool {
         if codeIdentifiers.Contains(importSymbol) {
             return true
         }
 
         // A DOTTED use (`Alias.Type` in a type reference or qualified call) records the dotted
         // identifier, not the bare alias — a prefix match on `<symbol>.` is a use.
-        foreach identifier in codeIdentifiers {
-            if identifier.Length > importSymbol.Length + 1
-                && identifier.StartsWith(importSymbol)
-                && identifier[importSymbol.Length] == '.' {
+        for identifier in codeIdentifiers {
+            if identifier.Length > importSymbol.Length + 1 && identifier.StartsWith(importSymbol) && identifier[importSymbol.Length] == '.' {
                 return true
             }
         }

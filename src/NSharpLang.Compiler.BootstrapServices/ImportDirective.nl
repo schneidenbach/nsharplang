@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.Ast
 
-public class ImportDirective {
+class ImportDirective {
     Namespace: string
     Alias: string?
     Line: int

@@ -7,6 +7,7 @@ import System.Reflection
 import System.Text
 import NSharpLang.Compiler.Ast
 
+
 // THE ANALYZER'S OVERLOAD SCORING AND APPLICABILITY KERNEL.
 //
 // Overload resolution in N# runs over TWO signature worlds and this owner holds the pure decision
@@ -52,7 +53,7 @@ import NSharpLang.Compiler.Ast
 //
 // Do not reintroduce any of this in C#. This owner reports nothing and records nothing: every member
 // is a question with an answer.
-public class AnalyzerOverloadFacts {
+class AnalyzerOverloadFacts {
 
     // ------------------------------------------------------------------
     // The reflection world: applicability, generic inference and ranking.
@@ -61,7 +62,7 @@ public class AnalyzerOverloadFacts {
     // The reflection score ladder. 8 identical, 6 implicit numeric widening, 4 assignable,
     // 2 otherwise — and 2 rather than "inapplicable", because applicability was already decided by
     // `TryMatchReflectionParameter`; this only ORDERS the survivors.
-    public static func GetReflectionMatchScore(parameterType: Type, argumentType: Type): int {
+    static func GetReflectionMatchScore(parameterType: Type, argumentType: Type): int {
         if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(parameterType, argumentType) {
             return 8
         }
@@ -89,10 +90,7 @@ public class AnalyzerOverloadFacts {
     // open parameter that is NEITHER array nor generic (a generic pointer or function-pointer shell)
     // matches unconditionally rather than failing, so an exotic signature cannot silently drop a
     // candidate.
-    public static func TryMatchReflectionParameter(
-        parameterType: Type,
-        argumentType: Type,
-        bindings: Dictionary<Type, Type>): bool {
+    static func TryMatchReflectionParameter(parameterType: Type, argumentType: Type, bindings: Dictionary<Type, Type>): bool {
         effectiveParameterType := parameterType
         if effectiveParameterType.get_IsByRef() {
             byRefElement := effectiveParameterType.GetElementType()
@@ -184,10 +182,7 @@ public class AnalyzerOverloadFacts {
     // comes first because that is the case the argument-binding walk actually needs (`List<int>`
     // against `IEnumerable<T>`), and a type cannot implement the same definition twice with
     // different arguments.
-    public static func TryFindCompatibleGenericType(
-        parameterType: Type,
-        actualType: Type,
-        out compatibleType: Type?): bool {
+    static func TryFindCompatibleGenericType(parameterType: Type, actualType: Type, out compatibleType: Type?): bool {
         compatibleType = null
 
         if !parameterType.get_IsGenericType() {
@@ -205,8 +200,7 @@ public class AnalyzerOverloadFacts {
         index := 0
         while index < interfaces.Length {
             candidateInterface := interfaces[index]
-            if candidateInterface.get_IsGenericType()
-                && candidateInterface.GetGenericTypeDefinition() == genericDefinition {
+            if candidateInterface.get_IsGenericType() && candidateInterface.GetGenericTypeDefinition() == genericDefinition {
                 compatibleType = candidateInterface
                 return true
             }
@@ -230,7 +224,7 @@ public class AnalyzerOverloadFacts {
     // Whether an extension method's RECEIVER parameter accepts a receiver of this CLR type. A closed
     // receiver is plain CLR assignability; an open one only has to be re-expressible over the
     // receiver, because the type arguments are inferred later by the argument walk.
-    public static func IsExtensionParameterCompatible(parameterType: Type, targetClrType: Type): bool {
+    static func IsExtensionParameterCompatible(parameterType: Type, targetClrType: Type): bool {
         if !parameterType.get_ContainsGenericParameters() {
             return parameterType.IsAssignableFrom(targetClrType)
         }
@@ -241,14 +235,12 @@ public class AnalyzerOverloadFacts {
 
     // The attribute test by FULL NAME rather than by type identity: the attribute is read through a
     // MetadataLoadContext, where the compiler's own `ExtensionAttribute` is a different type object.
-    public static func HasExtensionAttribute(method: MethodInfo): bool {
-        return HasAttributeNamed(
-            method.GetCustomAttributesData(),
-            "System.Runtime.CompilerServices.ExtensionAttribute")
+    static func HasExtensionAttribute(method: MethodInfo): bool {
+        return HasAttributeNamed(method.GetCustomAttributesData(), "System.Runtime.CompilerServices.ExtensionAttribute")
     }
 
     // Same full-name discipline, for the params tail.
-    public static func IsParamsParameter(parameter: ParameterInfo): bool {
+    static func IsParamsParameter(parameter: ParameterInfo): bool {
         return HasAttributeNamed(parameter.GetCustomAttributesData(), "System.ParamArrayAttribute")
     }
 
@@ -277,10 +269,7 @@ public class AnalyzerOverloadFacts {
 
     // The reflection arity filter. `parameterOffset` skips an extension method's receiver. Optional
     // and params parameters are not REQUIRED, and a params tail removes the upper bound entirely.
-    public static func HasCompatibleReflectionArity(
-        parameters: ParameterInfo[],
-        parameterOffset: int,
-        argumentCount: int): bool {
+    static func HasCompatibleReflectionArity(parameters: ParameterInfo[], parameterOffset: int, argumentCount: int): bool {
         firstIndex := parameterOffset
         if firstIndex < 0 {
             firstIndex = 0
@@ -319,7 +308,7 @@ public class AnalyzerOverloadFacts {
     }
 
     // A by-ref parameter's underlying type; everything else is itself.
-    public static func GetByRefElementType(clrType: Type): Type {
+    static func GetByRefElementType(clrType: Type): Type {
         if !clrType.get_IsByRef() {
             return clrType
         }
@@ -336,7 +325,7 @@ public class AnalyzerOverloadFacts {
     // read-only sequence shapes answer their single type argument, which is how a `params
     // ReadOnlySpan<T>` overload accepts a loose argument list. Anything else answers false — and
     // still writes `object`, because the caller uses the element type either way.
-    public static func TryGetReflectionParamsElementType(paramsParameterType: Type, out elementType: Type): bool {
+    static func TryGetReflectionParamsElementType(paramsParameterType: Type, out elementType: Type): bool {
         elementType = typeof(object)
 
         if paramsParameterType.get_IsArray() {
@@ -349,11 +338,7 @@ public class AnalyzerOverloadFacts {
 
         if paramsParameterType.get_IsGenericType() {
             genericDefinitionName := paramsParameterType.GetGenericTypeDefinition().get_FullName()
-            if genericDefinitionName == "System.ReadOnlySpan`1"
-                || genericDefinitionName == "System.Span`1"
-                || genericDefinitionName == "System.Collections.Generic.IEnumerable`1"
-                || genericDefinitionName == "System.Collections.Generic.IReadOnlyList`1"
-                || genericDefinitionName == "System.Collections.Generic.IReadOnlyCollection`1" {
+            if genericDefinitionName == "System.ReadOnlySpan`1" || genericDefinitionName == "System.Span`1" || genericDefinitionName == "System.Collections.Generic.IEnumerable`1" || genericDefinitionName == "System.Collections.Generic.IReadOnlyList`1" || genericDefinitionName == "System.Collections.Generic.IReadOnlyCollection`1" {
                 elementType = paramsParameterType.GetGenericArguments()[0]
                 return true
             }
@@ -365,7 +350,7 @@ public class AnalyzerOverloadFacts {
 
     // The delegate a lambda argument is really being matched against: the by-ref shell comes off, and
     // an expression tree unwraps to the delegate it encodes.
-    public static func GetDelegateParameterTypeForLambdaTarget(parameterType: Type): Type {
+    static func GetDelegateParameterTypeForLambdaTarget(parameterType: Type): Type {
         effectiveType := GetByRefElementType(parameterType)
         expressionDelegateType: Type = typeof(object)
         if AnalyzerFunctionTypeFactory.TryGetExpressionTreeDelegateType(effectiveType, out expressionDelegateType) {
@@ -378,7 +363,7 @@ public class AnalyzerOverloadFacts {
     // A call written as `receiver.Method(...)` against a method carrying the extension attribute.
     // The two arities differ in whether the RECEIVER is also checked: the bare form is the syntactic
     // question the signature formatter asks, the receiver form is the applicability question.
-    public static func IsExtensionMethodCall(method: MethodInfo, call: CallExpression): bool {
+    static func IsExtensionMethodCall(method: MethodInfo, call: CallExpression): bool {
         memberAccess := call.Callee as MemberAccessExpression
         if memberAccess == null {
             return false
@@ -387,10 +372,7 @@ public class AnalyzerOverloadFacts {
         return HasExtensionAttribute(method)
     }
 
-    public static func IsExtensionMethodCallOnReceiver(
-        method: MethodInfo,
-        call: CallExpression,
-        receiverClrType: Type?): bool {
+    static func IsExtensionMethodCallOnReceiver(method: MethodInfo, call: CallExpression, receiverClrType: Type?): bool {
         if !IsExtensionMethodCall(method, call) {
             return false
         }
@@ -412,16 +394,12 @@ public class AnalyzerOverloadFacts {
     // therefore differs from the declared parameter type, and when the whole array was passed
     // directly the two are the same type. The question is asked of the BOUND ARGUMENT rather than of
     // a loose type, because that recorded type is the only evidence the expansion ever happened.
-    public static func IsExpandedReflectionParamsArgument(
-        bound: SuppliedReflectionBoundArgument,
-        parameter: ParameterInfo): bool {
+    static func IsExpandedReflectionParamsArgument(bound: SuppliedReflectionBoundArgument, parameter: ParameterInfo): bool {
         if !IsParamsParameter(parameter) {
             return false
         }
 
-        return !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(
-            bound.OpenParameterType,
-            GetByRefElementType(parameter.get_ParameterType()))
+        return !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(bound.OpenParameterType, GetByRefElementType(parameter.get_ParameterType()))
     }
 
     // Whether a user-defined operator's CLR parameter accepts this operand.
@@ -430,7 +408,7 @@ public class AnalyzerOverloadFacts {
     // operator cannot be proven to apply and the IL backend would not bind it either — it resolves
     // against concrete argument types. Answering true here would let an unrelated operand piggy-back
     // on a vector or struct operator (`Vector<int> + SomeUserType`) and swallow a real type mismatch.
-    public static func IsRuntimeOperatorParameterCompatible(parameterType: Type, argumentType: Type?): bool {
+    static func IsRuntimeOperatorParameterCompatible(parameterType: Type, argumentType: Type?): bool {
         if argumentType == null {
             return false
         }
@@ -458,7 +436,7 @@ public class AnalyzerOverloadFacts {
     // long as the signature and its LAST entry must carry the modifier: a signature whose modifier
     // list disagrees with its parameter list is treated as having no params tail rather than being
     // indexed into.
-    public static func GetSyntheticParamsParameterIndex(functionType: FunctionTypeInfo, expectedCount: int): int {
+    static func GetSyntheticParamsParameterIndex(functionType: FunctionTypeInfo, expectedCount: int): int {
         if !functionType.HasParamsParameter || expectedCount == 0 {
             return -1
         }
@@ -481,7 +459,7 @@ public class AnalyzerOverloadFacts {
 
     // How many of a source signature's parameters have no default. A count outside the signature is
     // ignored rather than trusted.
-    public static func GetSyntheticRequiredParameterCount(functionType: FunctionTypeInfo, expectedCount: int): int {
+    static func GetSyntheticRequiredParameterCount(functionType: FunctionTypeInfo, expectedCount: int): int {
         requiredCount := expectedCount
         declaredRequiredCount: int? = functionType.RequiredParameterCount
         if declaredRequiredCount.HasValue {
@@ -496,10 +474,7 @@ public class AnalyzerOverloadFacts {
     }
 
     // The same count as the CALLER must supply — the receiver offset comes off.
-    public static func GetSyntheticRequiredArgumentCount(
-        functionType: FunctionTypeInfo,
-        expectedCount: int,
-        parameterStartIndex: int): int {
+    static func GetSyntheticRequiredArgumentCount(functionType: FunctionTypeInfo, expectedCount: int, parameterStartIndex: int): int {
         requiredCount := GetSyntheticRequiredParameterCount(functionType, expectedCount)
         clampedStart := parameterStartIndex
         if clampedStart < 0 {
@@ -522,7 +497,7 @@ public class AnalyzerOverloadFacts {
     // the argument list, else 0. Both halves are required: a receiver-style signature invoked
     // WITHOUT a member access (a bare call to an extension by its declared name) supplies every
     // parameter positionally.
-    public static func GetSyntheticParameterStartIndex(functionType: FunctionTypeInfo, call: CallExpression): int {
+    static func GetSyntheticParameterStartIndex(functionType: FunctionTypeInfo, call: CallExpression): int {
         if !functionType.SourceHasReceiverParameter {
             return 0
         }
@@ -538,9 +513,7 @@ public class AnalyzerOverloadFacts {
     // Whether a parameter is written as a BARE type-parameter name. This is the specificity signal
     // the source tie-break uses: an overload that matched by binding a type parameter is less
     // specific than one that matched a written type.
-    public static func IsDirectFunctionTypeParameterReference(
-        typeReference: TypeReference,
-        typeParameters: List<TypeParameter>): bool {
+    static func IsDirectFunctionTypeParameterReference(typeReference: TypeReference, typeParameters: List<TypeParameter>): bool {
         simple := typeReference as SimpleTypeReference
         if simple == null {
             return false
@@ -560,7 +533,7 @@ public class AnalyzerOverloadFacts {
 
     // The type reference generic inference should read for a params parameter — its ELEMENT, so
     // `params xs: T[]` infers `T` from an argument rather than from the array.
-    public static func GetParamsInferenceTypeReference(paramsTypeRef: TypeReference): TypeReference {
+    static func GetParamsInferenceTypeReference(paramsTypeRef: TypeReference): TypeReference {
         array := paramsTypeRef as ArrayTypeReference
         if array != null {
             return array.ElementType
@@ -576,10 +549,7 @@ public class AnalyzerOverloadFacts {
 
     // A `ref`/`out` source parameter's type is a by-ref type. Idempotent: a signature that already
     // carries the shell is left alone.
-    public static func ApplySyntheticParameterModifier(
-        functionType: FunctionTypeInfo,
-        parameterIndex: int,
-        parameterType: TypeInfo): TypeInfo {
+    static func ApplySyntheticParameterModifier(functionType: FunctionTypeInfo, parameterIndex: int, parameterType: TypeInfo): TypeInfo {
         modifiers := functionType.ParameterModifiers
         if modifiers == null || parameterIndex < 0 || parameterIndex >= modifiers.Count {
             return parameterType
@@ -600,7 +570,7 @@ public class AnalyzerOverloadFacts {
 
     // Whether a generic name written in a parameter denotes the same type as one read from metadata,
     // when exactly one of the two is namespace-qualified.
-    public static func GenericNamesMatch(refName: string, infoName: string): bool {
+    static func GenericNamesMatch(refName: string, infoName: string): bool {
         if refName == infoName {
             return true
         }
@@ -622,7 +592,7 @@ public class AnalyzerOverloadFacts {
 
     // A reflected candidate's signature. A receiver-style extension call drops the receiver
     // parameter, so the rendered signature is the one the user actually wrote the call against.
-    public static func FormatReflectionMethodSignature(method: MethodInfo, call: CallExpression): string {
+    static func FormatReflectionMethodSignature(method: MethodInfo, call: CallExpression): string {
         parameters := method.GetParameters()
         startIndex := 0
         if IsExtensionMethodCall(method, call) {
@@ -650,10 +620,7 @@ public class AnalyzerOverloadFacts {
     // A source candidate's signature, as the NL402 fix hint renders it. The receiver offset is
     // clamped rather than trusted, so a malformed offset renders the whole signature instead of
     // indexing out of it.
-    public static func FormatSyntheticFunctionSignature(
-        functionType: FunctionTypeInfo,
-        functionName: string,
-        parameterStartIndex: int): string {
+    static func FormatSyntheticFunctionSignature(functionType: FunctionTypeInfo, functionName: string, parameterStartIndex: int): string {
         parameterCount := 0
         parameterTypes := functionType.ParameterTypes
         if parameterTypes != null {
@@ -714,7 +681,7 @@ public class AnalyzerOverloadFacts {
     // One rendered parameter. The SOURCE type reference is preferred over the resolved `TypeInfo`, so
     // the hint echoes what the user wrote; a parameter past the required count renders ` = ...`
     // unless it is the params tail, which has no default.
-    public static func FormatSyntheticParameterSignature(functionType: FunctionTypeInfo, index: int): string {
+    static func FormatSyntheticParameterSignature(functionType: FunctionTypeInfo, index: int): string {
         name := "arg" + (index + 1).ToString()
         names := functionType.ParameterNames
         if names != null && index < names.Count {
@@ -780,20 +747,14 @@ public class AnalyzerOverloadFacts {
 //
 // This owner is REBUILT wherever the well-known-type bag is built or torn down, because two of its
 // collaborators are: an owner's fields never change after construction.
-public class AnalyzerOverloadScoring {
-
+class AnalyzerOverloadScoring {
     declarationContext: AnalyzerDeclarationContext
     clrTypeConversion: AnalyzerClrTypeConversion
     assignability: AnalyzerAssignability
     typeResolver: AnalyzerTypeResolver
     wellKnownTypes: AnalyzerWellKnownTypes?
 
-    constructor(
-        context: AnalyzerDeclarationContext,
-        conversion: AnalyzerClrTypeConversion,
-        assignabilityOwner: AnalyzerAssignability,
-        resolver: AnalyzerTypeResolver,
-        wellKnown: AnalyzerWellKnownTypes?) {
+    constructor(context: AnalyzerDeclarationContext, conversion: AnalyzerClrTypeConversion, assignabilityOwner: AnalyzerAssignability, resolver: AnalyzerTypeResolver, wellKnown: AnalyzerWellKnownTypes?) {
         declarationContext = context
         clrTypeConversion = conversion
         assignability = assignabilityOwner
@@ -807,7 +768,7 @@ public class AnalyzerOverloadScoring {
     // `type Meters = int` scores against `int`. Then reference identity. Then the CROSS-REPRESENTATION
     // rule: two `TypeInfo`s that convert to the SAME CLR type are identical even when one came from
     // source and the other from metadata, which is what stops `int` losing to `System.Int32`.
-    public func GetNSharpMatchScore(parameterType: TypeInfo, argumentType: TypeInfo): int {
+    func GetNSharpMatchScore(parameterType: TypeInfo, argumentType: TypeInfo): int {
         resolvedParam := declarationContext.ResolveDeclaredAlias(parameterType)
         resolvedArg := declarationContext.ResolveDeclaredAlias(argumentType)
 
@@ -836,7 +797,7 @@ public class AnalyzerOverloadScoring {
     // assignability: a nullable REFERENCE-typed argument may satisfy a parameter its inner type
     // satisfies. Nullable value types are excluded — unwrapping one is a real conversion, not an
     // annotation.
-    public func IsAssignableReflectionArgument(expectedType: TypeInfo, argumentType: TypeInfo): bool {
+    func IsAssignableReflectionArgument(expectedType: TypeInfo, argumentType: TypeInfo): bool {
         if assignability.IsAssignable(expectedType, argumentType) {
             return true
         }
@@ -857,7 +818,7 @@ public class AnalyzerOverloadScoring {
     // A source params parameter's element type: an array's element, or a single-argument generic's
     // argument (which is how `params xs: ReadOnlySpan<T>` answers). Null means the parameter is not a
     // sequence at all, and the caller treats the call as unexpandable.
-    public func GetNSharpParamsElementType(paramsType: TypeInfo): TypeInfo? {
+    func GetNSharpParamsElementType(paramsType: TypeInfo): TypeInfo? {
         resolved := declarationContext.ResolveDeclaredAlias(paramsType)
 
         array := resolved as ArrayTypeInfo
@@ -875,11 +836,7 @@ public class AnalyzerOverloadScoring {
 
     // Whether the caller passed the params ARRAY itself rather than a loose argument list: exactly one
     // trailing argument, not a spread, and assignable to the array type.
-    public func IsSingleDirectNSharpParamsArrayArgument(
-        regularParamCount: int,
-        arguments: IReadOnlyList<Argument>,
-        argTypes: IReadOnlyList<TypeInfo>,
-        paramsArrayType: TypeInfo): bool {
+    func IsSingleDirectNSharpParamsArrayArgument(regularParamCount: int, arguments: IReadOnlyList<Argument>, argTypes: IReadOnlyList<TypeInfo>, paramsArrayType: TypeInfo): bool {
         if argTypes.Count != regularParamCount + 1 {
             return false
         }
@@ -894,7 +851,7 @@ public class AnalyzerOverloadScoring {
 
     // What generic inference should read from a params ARGUMENT: a spread of an array contributes its
     // ELEMENT type, so `f(...xs)` infers the same `T` a loose list would.
-    public func GetParamsInferenceArgumentType(argument: Argument, argumentType: TypeInfo): TypeInfo {
+    func GetParamsInferenceArgumentType(argument: Argument, argumentType: TypeInfo): TypeInfo {
         spread := argument.Value as SpreadExpression
         if spread == null {
             return argumentType
@@ -912,7 +869,7 @@ public class AnalyzerOverloadScoring {
     // `System.Delegate` / `System.MulticastDelegate` themselves — a parameter that accepts ANY
     // delegate rather than one shape. Without a well-known-type bag there are no metadata facts yet
     // and the answer is false.
-    public func IsBroadDelegateType(clrType: Type): bool {
+    func IsBroadDelegateType(clrType: Type): bool {
         if wellKnownTypes == null {
             return false
         }
@@ -933,10 +890,7 @@ public class AnalyzerOverloadScoring {
     // A lambda may be matched against a BROAD delegate parameter only when it annotates every
     // parameter: there is no delegate shape to infer them from, so an un-annotated (or `var`)
     // parameter has no type at all.
-    public func CanInferBroadDelegateLambda(
-        openDelegateType: Type,
-        clrBindings: Dictionary<Type, Type>,
-        lambda: LambdaExpression): bool {
+    func CanInferBroadDelegateLambda(openDelegateType: Type, clrBindings: Dictionary<Type, Type>, lambda: LambdaExpression): bool {
         if !IsBroadDelegateType(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openDelegateType, clrBindings)) {
             return false
         }
@@ -961,10 +915,7 @@ public class AnalyzerOverloadScoring {
 
     // The signature such a lambda contributes: its own annotated parameters, no modifiers, and NO
     // return type — the delegate is broad, so nothing constrains the result.
-    public func CreateBroadDelegateSignatureForLambda(
-        openDelegateType: Type,
-        clrBindings: Dictionary<Type, Type>,
-        lambda: LambdaExpression): FunctionTypeInfo? {
+    func CreateBroadDelegateSignatureForLambda(openDelegateType: Type, clrBindings: Dictionary<Type, Type>, lambda: LambdaExpression): FunctionTypeInfo? {
         if !CanInferBroadDelegateLambda(openDelegateType, clrBindings, lambda) {
             return null
         }

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // The analyzer's CALLABLE / DELEGATE-REFERENCE classification family.
 //
 // These decide what a value that names code IS: a bare method reference (a "method group", which is
@@ -16,13 +17,12 @@ import NSharpLang.Compiler.Ast
 // no diagnostics, no recovery. Do not reintroduce any of them in C#, and do not grow this class
 // beyond the callable/delegate family; the rest of the assignability closure lands in sibling
 // owners.
-
-public class AnalyzerCallableReferenceFacts {
+class AnalyzerCallableReferenceFacts {
 
     // True when the value is a bare reference to code rather than a value of a delegate type: one of
     // the three method-group shapes, or a FunctionTypeInfo that carries a source function's identity
     // (a lambda does not). Such a value must be called, or converted to a delegate.
-    public static func IsCallableReferenceType(candidate: TypeInfo): bool {
+    static func IsCallableReferenceType(candidate: TypeInfo): bool {
         if IsMethodGroupReferenceType(candidate) {
             return true
         }
@@ -37,7 +37,7 @@ public class AnalyzerCallableReferenceFacts {
 
     // The three TypeInfo shapes that denote an unresolved group of candidate methods: a single
     // reflection method, a reflection method group, and an N# source method group.
-    public static func IsMethodGroupReferenceType(candidate: TypeInfo): bool {
+    static func IsMethodGroupReferenceType(candidate: TypeInfo): bool {
         reflectionMethod := candidate as ReflectionMethodInfo
         if reflectionMethod != null {
             return true
@@ -54,7 +54,7 @@ public class AnalyzerCallableReferenceFacts {
 
     // True when the function type came from a DECLARED source function rather than a lambda: only a
     // declaration records the source name. This is the method-group-versus-lambda discriminator.
-    public static func HasSourceFunctionIdentity(functionType: FunctionTypeInfo): bool {
+    static func HasSourceFunctionIdentity(functionType: FunctionTypeInfo): bool {
         return !string.IsNullOrEmpty(functionType.SourceName)
     }
 
@@ -68,7 +68,7 @@ public class AnalyzerCallableReferenceFacts {
     // the RUNTIME-versus-MetadataLoadContext asymmetry is preserved exactly: a delegate type loaded
     // into a MetadataLoadContext is NOT reference-equal to the runtime roots and, like the C# this
     // replaces, answers false.
-    public static func IsRuntimeDelegateType(candidate: Type): bool {
+    static func IsRuntimeDelegateType(candidate: Type): bool {
         coreLibrary := typeof(object).get_Assembly()
         delegateRoot := coreLibrary.GetType("System.Delegate")
         if delegateRoot == null {
@@ -91,7 +91,7 @@ public class AnalyzerCallableReferenceFacts {
     // result, an index, a synthesised node — does the TYPE get to answer, and there the first
     // candidate's name is the best available approximation of a group that has not been resolved.
     // The transparent wrappers are peeled first, so `(f)` names `f` exactly as `f` does.
-    public static func GetCallableReferenceName(expression: Expression, candidate: TypeInfo): string {
+    static func GetCallableReferenceName(expression: Expression, candidate: TypeInfo): string {
         unwrapped := AnalyzerConstantExpressionFacts.UnwrapTransparentWrappers(expression)
 
         identifier := unwrapped as IdentifierExpression
@@ -140,7 +140,7 @@ public class AnalyzerCallableReferenceFacts {
 
     // The declared modifier of parameter `index`, or `None` when the function type carries no
     // modifier list or the list is shorter than the parameter list.
-    public static func GetFunctionParameterModifier(functionType: FunctionTypeInfo, index: int): ParameterModifier {
+    static func GetFunctionParameterModifier(functionType: FunctionTypeInfo, index: int): ParameterModifier {
         modifiers := functionType.ParameterModifiers
         if modifiers == null || index >= modifiers.Count {
             return ParameterModifier.None
@@ -151,7 +151,7 @@ public class AnalyzerCallableReferenceFacts {
 
     // `params` is a call-site convenience, not part of a delegate's signature, so it erases to `None`
     // before two signatures' modifiers are compared. `ref` and `out` are load-bearing and are kept.
-    public static func NormalizeDelegateParameterModifier(modifier: ParameterModifier): ParameterModifier {
+    static func NormalizeDelegateParameterModifier(modifier: ParameterModifier): ParameterModifier {
         if modifier == ParameterModifier.Params {
             return ParameterModifier.None
         }
@@ -162,7 +162,7 @@ public class AnalyzerCallableReferenceFacts {
     // Reads a `Func<T1..Tn, TResult>` or `Action<T1..Tn>` as a function signature. `Func` takes its
     // last type argument as the return type and needs at least one; `Action` takes them all as
     // parameters and returns `void`. Any other generic name is not a delegate shape — null.
-    public static func CreateFunctionTypeInfoFromGenericDelegate(delegateType: GenericTypeInfo): FunctionTypeInfo? {
+    static func CreateFunctionTypeInfoFromGenericDelegate(delegateType: GenericTypeInfo): FunctionTypeInfo? {
         name := delegateType.Name
         isFunc := name == "Func"
         if !isFunc && name != "Action" {

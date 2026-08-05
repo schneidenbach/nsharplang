@@ -3,12 +3,8 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 
-public class Preprocessor {
-    public static func ProcessSource(
-        source: string,
-        definedSymbols: IReadOnlySet<string>,
-        fileName: string?,
-        errors: List<CompilerError>): string {
+class Preprocessor {
+    static func ProcessSource(source: string, definedSymbols: IReadOnlySet<string>, fileName: string?, errors: List<CompilerError>): string {
         result := new StringBuilder()
         stack := new Stack<Frame>()
 
@@ -80,11 +76,7 @@ public class Preprocessor {
         return result.ToString()
     }
 
-    public static func Process(
-        tokens: List<Token>,
-        definedSymbols: IReadOnlySet<string>,
-        fileName: string?,
-        errors: List<CompilerError>): List<Token> {
+    static func Process(tokens: List<Token>, definedSymbols: IReadOnlySet<string>, fileName: string?, errors: List<CompilerError>): List<Token> {
         result := new List<Token>()
         stack := new Stack<Frame>()
 
@@ -152,13 +144,7 @@ public class Preprocessor {
         return frame.CurrentActive
     }
 
-    static func HandleIf(
-        stack: Stack<Frame>,
-        condition: string,
-        symbols: IReadOnlySet<string>,
-        token: Token,
-        fileName: string?,
-        errors: List<CompilerError>) {
+    static func HandleIf(stack: Stack<Frame>, condition: string, symbols: IReadOnlySet<string>, token: Token, fileName: string?, errors: List<CompilerError>) {
         parentActive := IsEmitting(stack)
         taken := false
         if parentActive {
@@ -178,13 +164,7 @@ public class Preprocessor {
         })
     }
 
-    static func HandleElif(
-        stack: Stack<Frame>,
-        condition: string,
-        symbols: IReadOnlySet<string>,
-        token: Token,
-        fileName: string?,
-        errors: List<CompilerError>) {
+    static func HandleElif(stack: Stack<Frame>, condition: string, symbols: IReadOnlySet<string>, token: Token, fileName: string?, errors: List<CompilerError>) {
         if stack.Count == 0 {
             Preprocessor.AddError(errors, fileName, token, "'#elif' directive without a matching '#if'.")
             return
@@ -210,11 +190,7 @@ public class Preprocessor {
         stack.Push(frame)
     }
 
-    static func HandleElse(
-        stack: Stack<Frame>,
-        token: Token,
-        fileName: string?,
-        errors: List<CompilerError>) {
+    static func HandleElse(stack: Stack<Frame>, token: Token, fileName: string?, errors: List<CompilerError>) {
         if stack.Count == 0 {
             Preprocessor.AddError(errors, fileName, token, "'#else' directive without a matching '#if'.")
             return
@@ -238,11 +214,7 @@ public class Preprocessor {
         stack.Push(frame)
     }
 
-    static func HandleEndif(
-        stack: Stack<Frame>,
-        token: Token,
-        fileName: string?,
-        errors: List<CompilerError>) {
+    static func HandleEndif(stack: Stack<Frame>, token: Token, fileName: string?, errors: List<CompilerError>) {
         if stack.Count == 0 {
             Preprocessor.AddError(errors, fileName, token, "'#endif' directive without a matching '#if'.")
             return
@@ -251,12 +223,7 @@ public class Preprocessor {
         stack.Pop()
     }
 
-    static func EvaluateGuarded(
-        condition: string,
-        symbols: IReadOnlySet<string>,
-        token: Token,
-        fileName: string?,
-        errors: List<CompilerError>): bool {
+    static func EvaluateGuarded(condition: string, symbols: IReadOnlySet<string>, token: Token, fileName: string?, errors: List<CompilerError>): bool {
         value := false
         errorMessage := ""
         if ConditionEvaluator.TryEvaluate(condition, symbols, out value, out errorMessage) {
@@ -278,12 +245,7 @@ public class Preprocessor {
             length = 1
         }
 
-        errors.Add(new CompilerError(
-            ErrorCode.InvalidPreprocessorDirective,
-            messageText,
-            token.Line,
-            token.Column,
-            ErrorSeverity.Error) {
+        errors.Add(new CompilerError(ErrorCode.InvalidPreprocessorDirective, messageText, token.Line, token.Column, ErrorSeverity.Error) {
             FileName: fileName,
             Length: length
         })
@@ -345,7 +307,7 @@ class ConditionEvaluator {
         errorMessage = ""
     }
 
-    public static func TryEvaluate(condition: string, symbols: IReadOnlySet<string>, out value: bool, out errorMessage: string): bool {
+    static func TryEvaluate(condition: string, symbols: IReadOnlySet<string>, out value: bool, out errorMessage: string): bool {
         value = false
         errorMessage = ""
 

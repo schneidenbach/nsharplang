@@ -1,13 +1,13 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Cli
 import System
 import System.IO
 import System.Text
 import System.Text.Json
+import NSharpLang.Cli
 
-public class AuditCommand {
-    public static func Execute(args: string[]): int {
+class AuditCommand {
+    static func Execute(args: string[]): int {
         options := AuditCommandKernels.GetOptionSummary(args)
         if options.ShowHelp {
             print AuditCommandKernels.GetHelpText()
@@ -29,11 +29,7 @@ public class AuditCommand {
         csproj := csprojFiles[0]
 
         try {
-            result := DotnetRunner.Run(
-                "list \"" + csproj + "\" package --vulnerable --include-transitive --format json",
-                projectRoot,
-                true,
-                null)
+            result := DotnetRunner.Run("list \"" + csproj + "\" package --vulnerable --include-transitive --format json", projectRoot, true, null)
 
             if result.ExitCode != 0 {
                 if result.Stderr.IndexOf("--vulnerable", StringComparison.Ordinal) >= 0 {

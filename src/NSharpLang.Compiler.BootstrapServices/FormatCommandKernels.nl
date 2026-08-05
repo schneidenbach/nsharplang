@@ -4,7 +4,7 @@ import System
 import System.IO
 import System.Text
 
-public class FormatOptionSummary {
+class FormatOptionSummary {
     projectOptionValue: string?
     verifyOnlyValue: bool
     diffOnlyValue: bool
@@ -17,12 +17,7 @@ public class FormatOptionSummary {
     StdinMode: bool => stdinModeValue
     ShowHelp: bool => showHelpValue
 
-    constructor(
-        projectOption: string?,
-        verifyOnly: bool,
-        diffOnly: bool,
-        stdinMode: bool,
-        showHelp: bool) {
+    constructor(projectOption: string?, verifyOnly: bool, diffOnly: bool, stdinMode: bool, showHelp: bool) {
         projectOptionValue = projectOption
         verifyOnlyValue = verifyOnly
         diffOnlyValue = diffOnly
@@ -31,8 +26,8 @@ public class FormatOptionSummary {
     }
 }
 
-public class FormatCommandKernels {
-    public static func GetOptionSummary(args: string[]): FormatOptionSummary {
+class FormatCommandKernels {
+    static func GetOptionSummary(args: string[]): FormatOptionSummary {
         projectOption: string? = null
         verifyOnly := false
         diffOnly := false
@@ -81,7 +76,7 @@ public class FormatCommandKernels {
         return new FormatOptionSummary(projectOption, verifyOnly, diffOnly, stdinMode, showHelp)
     }
 
-    public static func GetHelpText(): string {
+    static func GetHelpText(): string {
         builder := new StringBuilder()
         AppendLine(builder, "N# Format")
         AppendLine(builder, "")
@@ -109,55 +104,55 @@ public class FormatCommandKernels {
         return builder.ToString()
     }
 
-    public static func GetStdinWithFilesMessage(): string {
+    static func GetStdinWithFilesMessage(): string {
         return "Cannot combine --stdin with file arguments."
     }
 
-    public static func GetNoFilesFoundMessage(): string {
+    static func GetNoFilesFoundMessage(): string {
         return "No .nl files found to format."
     }
 
-    public static func GetFileNotFoundMessage(sourceFile: string): string {
+    static func GetFileNotFoundMessage(sourceFile: string): string {
         return "File not found: " + sourceFile
     }
 
-    public static func GetErrorFormattingMessage(sourceFile: string, exceptionMessage: string): string {
+    static func GetErrorFormattingMessage(sourceFile: string, exceptionMessage: string): string {
         return "Error formatting " + sourceFile + ": " + exceptionMessage
     }
 
-    public static func GetWarningLine(relativePath: string, warning: string): string {
+    static func GetWarningLine(relativePath: string, warning: string): string {
         return "Warning [" + relativePath + "]: " + warning
     }
 
-    public static func GetSafetyCheckFailedMessage(warnings: string): string {
+    static func GetSafetyCheckFailedMessage(warnings: string): string {
         return "Formatter safety check failed: " + warnings
     }
 
-    public static func GetCheckFailedHeader(count: int): string {
+    static func GetCheckFailedHeader(count: int): string {
         return "Formatting check failed for " + count.ToString() + " file(s):"
     }
 
-    public static func GetCheckFailedPathLine(sourceFile: string): string {
+    static func GetCheckFailedPathLine(sourceFile: string): string {
         return "  " + sourceFile
     }
 
-    public static func GetAllFilesFormattedMessage(): string {
+    static func GetAllFilesFormattedMessage(): string {
         return "All files are properly formatted."
     }
 
-    public static func GetFormattedCountMessage(count: int): string {
+    static func GetFormattedCountMessage(count: int): string {
         return "Formatted " + count.ToString() + " file(s)."
     }
 
-    public static func GetFailedMessage(exceptionMessage: string): string {
+    static func GetFailedMessage(exceptionMessage: string): string {
         return "Format failed: " + exceptionMessage
     }
 
-    public static func GetParseErrorsMessage(relativePath: string, messages: string): string {
+    static func GetParseErrorsMessage(relativePath: string, messages: string): string {
         return "Parse errors in " + relativePath + ": " + messages
     }
 
-    public static func GetStdinExitCode(verifyOnly: bool, source: string, formatted: string): int {
+    static func GetStdinExitCode(verifyOnly: bool, source: string, formatted: string): int {
         if verifyOnly && !string.Equals(source, formatted, StringComparison.Ordinal) {
             return 1
         }
@@ -165,11 +160,7 @@ public class FormatCommandKernels {
         return 0
     }
 
-    public static func GetCompletionKind(
-        failed: bool,
-        verifyOnly: bool,
-        diffOnly: bool,
-        filesNeedingFormatting: int): int {
+    static func GetCompletionKind(failed: bool, verifyOnly: bool, diffOnly: bool, filesNeedingFormatting: int): int {
         if failed {
             return 1
         }
@@ -193,7 +184,7 @@ public class FormatCommandKernels {
         return 6
     }
 
-    public static func ResolveFilePath(projectRoot: string, filePath: string): string {
+    static func ResolveFilePath(projectRoot: string, filePath: string): string {
         if Path.IsPathRooted(filePath) {
             return Path.GetFullPath(filePath)
         }
@@ -201,19 +192,19 @@ public class FormatCommandKernels {
         return Path.GetFullPath(Path.Combine(projectRoot, filePath))
     }
 
-    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
         return Path.GetFullPath(projectOption ?? currentDirectory)
     }
 
-    public static func GetRelativePath(projectRoot: string, filePath: string): string {
+    static func GetRelativePath(projectRoot: string, filePath: string): string {
         return NormalizePath(Path.GetRelativePath(projectRoot, filePath))
     }
 
-    public static func GetFileDirectory(projectRoot: string, filePath: string): string {
+    static func GetFileDirectory(projectRoot: string, filePath: string): string {
         return Path.GetDirectoryName(Path.GetFullPath(filePath)) ?? projectRoot
     }
 
-    public static func GetDiscoveredDirectoryName(directoryPath: string): string {
+    static func GetDiscoveredDirectoryName(directoryPath: string): string {
         end := directoryPath.Length
         while end > 0 {
             ch := directoryPath[end - 1]
@@ -242,11 +233,11 @@ public class FormatCommandKernels {
         return directoryPath.Substring(start + 1, length)
     }
 
-    public static func ShouldEmitFormattedFile(source: string, formatted: string): bool {
+    static func ShouldEmitFormattedFile(source: string, formatted: string): bool {
         return !string.Equals(source, formatted, StringComparison.Ordinal)
     }
 
-    public static func ShouldFormatDiscoveredPath(relativePath: string): bool {
+    static func ShouldFormatDiscoveredPath(relativePath: string): bool {
         if PathEndsWithTestsNl(relativePath) {
             return false
         }
@@ -294,7 +285,7 @@ public class FormatCommandKernels {
         return true
     }
 
-    public static func ShouldSkipDiscoveredDirectoryName(directoryName: string): bool {
+    static func ShouldSkipDiscoveredDirectoryName(directoryName: string): bool {
         return FormatPathSegmentIsExcluded(directoryName, 0, directoryName.Length)
     }
 

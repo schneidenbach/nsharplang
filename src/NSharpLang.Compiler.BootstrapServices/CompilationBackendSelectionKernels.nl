@@ -3,8 +3,8 @@ namespace NSharpLang.Cli
 import System
 import NSharpLang.Compiler
 
-public class CompilationBackendSelectionKernels {
-    public static func Validate(backendOption: string?, config: ProjectConfig?) {
+class CompilationBackendSelectionKernels {
+    static func Validate(backendOption: string?, config: ProjectConfig?) {
         selectedValue := GetSelectedBackendValue(backendOption, config)
         projectBackend := ""
         if config != null {

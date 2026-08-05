@@ -3,26 +3,11 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 
-public class InspectSummaryBuilder {
-    public static func Build(result: InspectResult): InspectSummaryResult {
+class InspectSummaryBuilder {
+    static func Build(result: InspectResult): InspectSummaryResult {
         referenceSample := BuildReferenceSample(result.References.Results)
 
-        return new InspectSummaryResult(
-            BuildSymbol(result),
-            BuildType(result),
-            BuildDefinition(result),
-            new InspectSummaryReferencesResult(
-                result.References.Count,
-                result.References.DefinitionCount,
-                BuildReferenceFiles(result.References.Results),
-                referenceSample),
-            new InspectSummaryCompletionsResult(
-                CompletionContextText(result.Completions.Context),
-                result.Completions.Receiver,
-                result.Completions.ReceiverType,
-                CompletionTotalCount(result.Completions.Completions),
-                BuildGroupCounts(result.Completions.Completions),
-                BuildCompletionGroups(result.Completions.Completions)))
+        return new InspectSummaryResult(BuildSymbol(result), BuildType(result), BuildDefinition(result), new InspectSummaryReferencesResult(result.References.Count, result.References.DefinitionCount, BuildReferenceFiles(result.References.Results), referenceSample), new InspectSummaryCompletionsResult(CompletionContextText(result.Completions.Context), result.Completions.Receiver, result.Completions.ReceiverType, CompletionTotalCount(result.Completions.Completions), BuildGroupCounts(result.Completions.Completions), BuildCompletionGroups(result.Completions.Completions)))
     }
 
     static func BuildSymbol(result: InspectResult): InspectSummarySymbolResult? {
@@ -40,11 +25,7 @@ public class InspectSummaryBuilder {
         }
 
         typeResult := (TypeResult)result.Type
-        return new InspectSummaryTypeResult(
-            typeResult.Name,
-            typeResult.ResolvedType,
-            typeResult.Kind,
-            typeResult.Nullability)
+        return new InspectSummaryTypeResult(typeResult.Name, typeResult.ResolvedType, typeResult.Kind, typeResult.Nullability)
     }
 
     static func BuildDefinition(result: InspectResult): LocationResult? {
@@ -71,11 +52,7 @@ public class InspectSummaryBuilder {
         i := 0
         while i < count {
             reference := references[i]
-            sample[i] = new InspectReferenceSummaryResult(
-                reference.File,
-                reference.Line,
-                reference.Column,
-                reference.IsDefinition)
+            sample[i] = new InspectReferenceSummaryResult(reference.File, reference.Line, reference.Column, reference.IsDefinition)
             i = i + 1
         }
 
@@ -140,7 +117,7 @@ public class InspectSummaryBuilder {
 
     static func CompletionTotalCount(completions: Dictionary<string, List<CompletionItem>>): int {
         total := 0
-        foreach entry in completions {
+        for entry in completions {
             total = total + entry.Value.Count
         }
 
@@ -176,7 +153,7 @@ public class InspectSummaryBuilder {
     static func CompletionGroupKeys(completions: Dictionary<string, List<CompletionItem>>): string[] {
         keys := new string[](completions.Count)
         index := 0
-        foreach entry in completions {
+        for entry in completions {
             keys[index] = entry.Key
             index = index + 1
         }

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // WHETHER A VALUE EXISTS BY THE TIME SOMETHING READS IT — the analyzer's definite-assignment
 // authority, and both of its NL304 diagnostics.
 //
@@ -33,8 +34,7 @@ import NSharpLang.Compiler.Ast
 // WHAT "ALWAYS EXITS" MEANS HERE is `return`, `throw`, `break` or `continue` — the local walk
 // returns TRUE for a statement whose every path leaves the enclosing flow, and a path that always
 // exits contributes nothing to a merge. `yield` is NOT an exit: a generator resumes.
-public class AnalyzerDefiniteAssignment {
-
+class AnalyzerDefiniteAssignment {
     diagnosticsValue: AnalyzerDiagnosticSink
     typeResolverValue: AnalyzerTypeResolver
 
@@ -48,10 +48,10 @@ public class AnalyzerDefiniteAssignment {
     // Every non-nullable field a class declares WITHOUT an initializer must be assigned by every
     // constructor that does not chain to another one. The report names the field and lands on the
     // `constructor` keyword, because that is the thing that failed to do its job.
-    public func CheckConstructorFields(ctor: ConstructorDeclaration, classDecl: ClassDeclaration) {
+    func CheckConstructorFields(ctor: ConstructorDeclaration, classDecl: ClassDeclaration) {
         // Collect all non-nullable fields without initializers
         uninitializedFields := new HashSet<string>()
-        foreach member in classDecl.Members {
+        for member in classDecl.Members {
             field := member as FieldDeclaration
             if field != null {
                 // Skip STATIC fields: they are not part of any instance constructor's contract — a
@@ -74,16 +74,9 @@ public class AnalyzerDefiniteAssignment {
 
         // Check if constructor assigns all required fields
         assignedFields := GetAssignedFields(ctor.Body)
-        foreach fieldName in uninitializedFields {
+        for fieldName in uninitializedFields {
             if !assignedFields.Contains(fieldName) {
-                diagnosticsValue.Report(
-                    ErrorCode.DefiniteAssignmentError,
-                    "Field '" + fieldName + "' is non-nullable but isn't assigned in this constructor "
-                        + "— either assign it here or give it a default value in its declaration",
-                    ctor.Line,
-                    ctor.Column,
-                    null,
-                    "constructor".Length)
+                diagnosticsValue.Report(ErrorCode.DefiniteAssignmentError, "Field '" + fieldName + "' is non-nullable but isn't assigned in this constructor " + "— either assign it here or give it a default value in its declaration", ctor.Line, ctor.Column, null, "constructor".Length)
             }
         }
     }
@@ -116,7 +109,7 @@ public class AnalyzerDefiniteAssignment {
     // `lock` bodies contribute nothing, because a loop may run zero times and a `try` may throw
     // before it reaches the assignment.
     func CollectAssignedFields(statements: List<Statement>, assigned: HashSet<string>) {
-        foreach stmt in statements {
+        for stmt in statements {
             expressionStatement := stmt as ExpressionStatement
             if expressionStatement != null {
                 assignment := expressionStatement.Expression as AssignmentExpression
@@ -164,12 +157,11 @@ public class AnalyzerDefiniteAssignment {
                 // to catch assignments that happen unconditionally inside
                 continue
             }
-
-            // try, for, foreach, while, using, lock bodies are NOT guaranteed
-            // to execute (loop may run 0 times, try may throw before assignment),
-            // so assignments inside them do NOT count as definite assignment.
         }
     }
+    // try, for, foreach, while, using, lock bodies are NOT guaranteed
+    // to execute (loop may run 0 times, try may throw before assignment),
+    // so assignments inside them do NOT count as definite assignment.
 
     // ── Definite assignment for locals (NL304) ─────────────────────────────
     //
@@ -179,7 +171,7 @@ public class AnalyzerDefiniteAssignment {
     // through the control-flow graph, intersecting at merge points (if/else,
     // switch) and treating loop bodies conservatively (they may run zero times).
     // The squiggle lands on the offending READ of the variable.
-    public func CheckLocals(body: BlockStatement) {
+    func CheckLocals(body: BlockStatement) {
         state := new DefiniteAssignmentState()
         AnalyzeBlock(body, state)
     }
@@ -224,7 +216,7 @@ public class AnalyzerDefiniteAssignment {
         tupleDecl := stmt as TupleDeconstructionStatement
         if tupleDecl != null {
             AnalyzeExpression(tupleDecl.Initializer, state)
-            foreach name in tupleDecl.Names {
+            for name in tupleDecl.Names {
                 if name != "_" {
                     state.Assigned.Add(name)
                 }
@@ -368,7 +360,7 @@ public class AnalyzerDefiniteAssignment {
     }
 
     func AnalyzeBlock(block: BlockStatement, state: DefiniteAssignmentState): bool {
-        foreach statement in block.Statements {
+        for statement in block.Statements {
             if AnalyzeStatement(statement, state) {
                 return true
             }
@@ -439,7 +431,7 @@ public class AnalyzerDefiniteAssignment {
         hasDefault := false
         allCasesExit := true
 
-        foreach switchCase in switchStmt.Cases {
+        for switchCase in switchStmt.Cases {
             if switchCase.Pattern == null {
                 hasDefault = true
             }
@@ -448,7 +440,7 @@ public class AnalyzerDefiniteAssignment {
             state.Assigned.UnionWith(before)
 
             caseExits := false
-            foreach statement in switchCase.Statements {
+            for statement in switchCase.Statements {
                 if AnalyzeStatement(statement, state) {
                     caseExits = true
                     break
@@ -492,7 +484,7 @@ public class AnalyzerDefiniteAssignment {
         state.Assigned.Clear()
         state.Assigned.UnionWith(before)
 
-        foreach catchClause in tryStmt.CatchClauses {
+        for catchClause in tryStmt.CatchClauses {
             catchState := CopyNames(before)
             state.Assigned.Clear()
             state.Assigned.UnionWith(catchState)
@@ -574,7 +566,7 @@ public class AnalyzerDefiniteAssignment {
         call := expr as CallExpression
         if call != null {
             AnalyzeExpression(call.Callee, state)
-            foreach argument in call.Arguments {
+            for argument in call.Arguments {
                 // out arguments assign the target rather than reading it.
                 outTarget := argument.Value as IdentifierExpression
                 if argument.Modifier == ArgumentModifier.Out && outTarget != null {
@@ -664,7 +656,7 @@ public class AnalyzerDefiniteAssignment {
 
         array := expr as ArrayLiteralExpression
         if array != null {
-            foreach element in array.Elements {
+            for element in array.Elements {
                 AnalyzeExpression(element, state)
             }
 
@@ -673,7 +665,7 @@ public class AnalyzerDefiniteAssignment {
 
         tuple := expr as TupleExpression
         if tuple != null {
-            foreach element in tuple.Elements {
+            for element in tuple.Elements {
                 AnalyzeExpression(element.Value, state)
             }
 
@@ -682,7 +674,7 @@ public class AnalyzerDefiniteAssignment {
 
         interpolated := expr as InterpolatedStringExpression
         if interpolated != null {
-            foreach part in interpolated.Parts {
+            for part in interpolated.Parts {
                 hole := part as InterpolatedStringHole
                 if hole != null {
                     AnalyzeExpression(hole.Expression, state)
@@ -694,14 +686,14 @@ public class AnalyzerDefiniteAssignment {
 
         newExpr := expr as NewExpression
         if newExpr != null {
-            foreach argument in newExpr.ConstructorArguments {
+            for argument in newExpr.ConstructorArguments {
                 AnalyzeExpression(argument.Value, state)
             }
 
             AnalyzeExpression(newExpr.ArrayLengthExpression, state)
             initializer := newExpr.Initializer
             if initializer != null {
-                foreach property in initializer.Properties {
+                for property in initializer.Properties {
                     AnalyzeExpression(property.IndexExpression, state)
                     AnalyzeExpression(property.Value, state)
                 }
@@ -719,19 +711,18 @@ public class AnalyzerDefiniteAssignment {
         withExpr := expr as WithExpression
         if withExpr != null {
             AnalyzeExpression(withExpr.Target, state)
-            foreach property in withExpr.Properties {
+            for property in withExpr.Properties {
                 AnalyzeExpression(property.IndexExpression, state)
                 AnalyzeExpression(property.Value, state)
             }
 
             return
         }
-
-        // nameof does not read the value of its operand.
-        //
-        // Lambdas capture by reference and may run later; their bodies are
-        // analyzed independently and must not consume the enclosing flow state.
     }
+    // nameof does not read the value of its operand.
+    //
+    // Lambdas capture by reference and may run later; their bodies are
+    // analyzed independently and must not consume the enclosing flow state.
 
     // THE REPORT. It fires only for a name the walk is TRACKING (a local declared without an
     // initializer), only when that name is not in the assigned set, and only ONCE per
@@ -748,14 +739,6 @@ public class AnalyzerDefiniteAssignment {
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.DefiniteAssignmentError,
-            "'" + name + "' is used here before it has been assigned a value on every path that "
-                + "reaches this point",
-            identifier.Line,
-            identifier.Column,
-            "Give '" + name + "' an initial value where you declare it, or assign it on every branch "
-                + "before this use.",
-            Math.Max(1, name.Length))
+        diagnosticsValue.Report(ErrorCode.DefiniteAssignmentError, "'" + name + "' is used here before it has been assigned a value on every path that " + "reaches this point", identifier.Line, identifier.Column, "Give '" + name + "' an initial value where you declare it, or assign it on every branch " + "before this use.", Math.Max(1, name.Length))
     }
 }

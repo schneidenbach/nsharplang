@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
+
 // Lambda definition placement and visibility is a semantic decision, not an emission mechanic. Given
 // the captured-binding facts a lambda body resolves against its enclosing scope, N# selects the owning
 // type, the generated method identity, and the exact CLR visibility, and it defines the synthesized
@@ -46,13 +47,9 @@ class ColumnarLambdaPlacement {
     // leaves this null so the sub-emitter uses its default (no method/enclosing type parameters).
     TypeParametersForBody: Dictionary<string, Type>?
 
-    constructor(
-        mode: ColumnarLambdaPlacementMode,
-        method: MethodBuilder,
-        ownerTypeForBody: TypeBuilder) {
+    constructor(mode: ColumnarLambdaPlacementMode, method: MethodBuilder, ownerTypeForBody: TypeBuilder) {
         if method == null || ownerTypeForBody == null {
-            throw new InvalidOperationException(
-                "Lambda placement requires a synthesized method and its body owner.")
+            throw new InvalidOperationException("Lambda placement requires a synthesized method and its body owner.")
         }
         Mode = mode
         Method = method
@@ -72,6 +69,7 @@ class ColumnarLambdaPlacement {
 // mechanical delegate-signature reflection) and the enclosing visible-binding names, and consumes the
 // ordinals and per-name types to drive the lambda body sub-emitter; BodyNode is the lambda body child.
 class ColumnarLambdaSignature {
+
     // Parameter name -> zero-based ordinal, in declaration order.
     Ordinals: Dictionary<string, int>
     // Parameter name -> its contextual type (the target delegate's parameter type at that ordinal).
@@ -79,13 +77,9 @@ class ColumnarLambdaSignature {
     // The lambda body node — the child after the last parameter.
     BodyNode: int
 
-    constructor(
-        ordinals: Dictionary<string, int>,
-        parameterTypesByName: Dictionary<string, Type>,
-        bodyNode: int) {
+    constructor(ordinals: Dictionary<string, int>, parameterTypesByName: Dictionary<string, Type>, bodyNode: int) {
         if ordinals == null || parameterTypesByName == null {
-            throw new InvalidOperationException(
-                "A contextual-lambda signature requires its ordinal and parameter-type maps.")
+            throw new InvalidOperationException("A contextual-lambda signature requires its ordinal and parameter-type maps.")
         }
         Ordinals = ordinals
         ParameterTypesByName = parameterTypesByName
@@ -94,6 +88,7 @@ class ColumnarLambdaSignature {
 }
 
 class ColumnarLambdaPlacementPlanner {
+
     // Bind a lambda literal's parameters to the target delegate's parameter types, or decline. The host
     // passes the delegate's decomposed parameter types (from its mechanical delegate-signature
     // reflection) and the names already visible where the lambda is written; N# owns the arity match,
@@ -101,15 +96,9 @@ class ColumnarLambdaPlacementPlanner {
     // returns the parameter ordinals, per-name types, and the body node. A null result is the standard
     // lambda decline. This owns only the signature decision; the delegate decomposition and return type,
     // the body emission, and the delegate construction stay mechanical in the host.
-    public static func PlanContextualSignature(
-        nodes: ColumnarNodeTable,
-        source: string,
-        lambdaNode: int,
-        parameterTypes: Type[],
-        visibleBindingNames: HashSet<string>): ColumnarLambdaSignature? {
+    static func PlanContextualSignature(nodes: ColumnarNodeTable, source: string, lambdaNode: int, parameterTypes: Type[], visibleBindingNames: HashSet<string>): ColumnarLambdaSignature? {
         if nodes == null || source == null || parameterTypes == null || visibleBindingNames == null {
-            throw new InvalidOperationException(
-                "Contextual-lambda signature planning requires the node table, source, delegate parameter types, and visible bindings.")
+            throw new InvalidOperationException("Contextual-lambda signature planning requires the node table, source, delegate parameter types, and visible bindings.")
         }
 
         parameterCount := nodes.ChildCount(lambdaNode) - 1
@@ -150,15 +139,9 @@ class ColumnarLambdaPlacementPlanner {
     // returns the captured names. The host's non-capturing-vs-capturing branch consumes the result — an
     // empty set is the static lowering, a non-empty set drives the display-class capture. The this-capture
     // member-chain scan and the display-class emission stay mechanical in the host.
-    public static func PlanCaptureSet(
-        nodes: ColumnarNodeTable,
-        source: string,
-        bodyNode: int,
-        boundParameterNames: HashSet<string>,
-        enclosingCapturableNames: HashSet<string>): HashSet<string> {
+    static func PlanCaptureSet(nodes: ColumnarNodeTable, source: string, bodyNode: int, boundParameterNames: HashSet<string>, enclosingCapturableNames: HashSet<string>): HashSet<string> {
         if nodes == null || source == null || boundParameterNames == null || enclosingCapturableNames == null {
-            throw new InvalidOperationException(
-                "Contextual-lambda capture-set planning requires the node table, source, bound parameter names, and enclosing capturable names.")
+            throw new InvalidOperationException("Contextual-lambda capture-set planning requires the node table, source, bound parameter names, and enclosing capturable names.")
         }
 
         captures := new HashSet<string>(StringComparer.Ordinal)
@@ -173,13 +156,7 @@ class ColumnarLambdaPlacementPlanner {
     // before its body is walked, so those names shadow the enclosing scope inside it. A kind-6 identifier
     // with a real value span is captured when it is unbound here and lives in the enclosing capturable set;
     // a value-less identifier is a masquerading TYPE node and is never a name read.
-    static func CollectContextualLambdaCaptures(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        bound: HashSet<string>,
-        enclosingCapturableNames: HashSet<string>,
-        captures: HashSet<string>) {
+    static func CollectContextualLambdaCaptures(nodes: ColumnarNodeTable, source: string, node: int, bound: HashSet<string>, enclosingCapturableNames: HashSet<string>, captures: HashSet<string>) {
         kind := nodes.Kind(node)
         if kind == 38 || kind == 42 || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
             return
@@ -187,7 +164,7 @@ class ColumnarLambdaPlacementPlanner {
 
         if kind == 39 {
             nestedBound := new HashSet<string>(StringComparer.Ordinal)
-            foreach existing in bound {
+            for existing in bound {
                 nestedBound.Add(existing)
             }
 
@@ -202,8 +179,7 @@ class ColumnarLambdaPlacementPlanner {
                 p = p + 1
             }
 
-            CollectContextualLambdaCaptures(
-                nodes, source, nodes.Child(node, nestedParameterCount), nestedBound, enclosingCapturableNames, captures)
+            CollectContextualLambdaCaptures(nodes, source, nodes.Child(node, nestedParameterCount), nestedBound, enclosingCapturableNames, captures)
             return
         }
 
@@ -245,9 +221,7 @@ class ColumnarLambdaPlacementPlanner {
     // null for a form that does not apply. The lambda form takes precedence; a null result is the standard
     // inference decline the host reports. The body preflight and the reflection-bound validity/equivalence
     // checks stay mechanical in the host — this owns only which candidate the return type comes from.
-    public static func PlanSingleParameterContextualReturnType(
-        lambdaBodyReturnType: Type?,
-        localFunctionReturnType: Type?): Type? {
+    static func PlanSingleParameterContextualReturnType(lambdaBodyReturnType: Type?, localFunctionReturnType: Type?): Type? {
         if lambdaBodyReturnType != null {
             return lambdaBodyReturnType
         }
@@ -261,17 +235,8 @@ class ColumnarLambdaPlacementPlanner {
     // instance — so the mechanical host reports the standard lambda decline. hasThisCapture is the host's
     // resolved fact that the body references the enclosing reference type's member chain (and so needs
     // `this`); when false the lambda is program-static.
-    public static func PlanNonCapturingPlacement(
-        programType: TypeBuilder,
-        enclosing: ColumnarStructDef?,
-        lambdaCounter: int[],
-        isConstructorBody: bool,
-        visibleTypeParameters: Dictionary<string, Type>,
-        returnType: Type,
-        parameterTypes: Type[],
-        hasThisCapture: bool): ColumnarLambdaPlacement? {
-        if programType == null || lambdaCounter == null || visibleTypeParameters == null
-            || returnType == null || parameterTypes == null {
+    static func PlanNonCapturingPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], isConstructorBody: bool, visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
+        if programType == null || lambdaCounter == null || visibleTypeParameters == null || returnType == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
         }
 
@@ -281,45 +246,32 @@ class ColumnarLambdaPlacementPlanner {
             if enclosing == null || !enclosing.IsReference || isConstructorBody {
                 return null
             }
-            if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(
-                returnType, parameterTypes, enclosing.Builder) {
+            if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, enclosing.Builder) {
                 return null
             }
             // MethodAttributes.Private (0x0001) | MethodAttributes.HideBySig (0x0080): a private instance
             // method, same-type ldftn'd with the receiver, so private visibility is sufficient.
-            instanceMethod := enclosing.Builder.DefineMethod(
-                NextLambdaMethodName(lambdaCounter), (MethodAttributes)129, returnType, parameterTypes)
-            placement := new ColumnarLambdaPlacement(
-                ColumnarLambdaPlacementMode.InstanceThis, instanceMethod, enclosing.Builder)
+            instanceMethod := enclosing.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), (MethodAttributes)129, returnType, parameterTypes)
+            placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.InstanceThis, instanceMethod, enclosing.Builder)
             placement.CurrentStructForBody = enclosing
             placement.OrdinalShift = 1
-            placement.TypeParametersForBody =
-                ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(
-                    visibleTypeParameters, enclosing.Builder)
+            placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, enclosing.Builder)
             return placement
         }
 
-        if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(
-            returnType, parameterTypes, programType) {
+        if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, programType) {
             return null
         }
-        staticMethod := DefineProgramStaticLambda(
-            programType, lambdaCounter, returnType, parameterTypes)
-        return new ColumnarLambdaPlacement(
-            ColumnarLambdaPlacementMode.StaticProgram, staticMethod, programType)
+        staticMethod := DefineProgramStaticLambda(programType, lambdaCounter, returnType, parameterTypes)
+        return new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticProgram, staticMethod, programType)
     }
 
     // Define the assembly-static program method that hosts a non-capturing lambda body.
-    public static func DefineProgramStaticLambda(
-        programType: TypeBuilder,
-        lambdaCounter: int[],
-        returnType: Type,
-        parameterTypes: Type[]): MethodBuilder {
+    static func DefineProgramStaticLambda(programType: TypeBuilder, lambdaCounter: int[], returnType: Type, parameterTypes: Type[]): MethodBuilder {
         if programType == null || lambdaCounter == null || returnType == null || parameterTypes == null {
             throw new InvalidOperationException("Static lambda definition requires a program type and signature.")
         }
-        return programType.DefineMethod(
-            NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes(), returnType, parameterTypes)
+        return programType.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes(), returnType, parameterTypes)
     }
 
     // MethodAttributes.Assembly (0x0003) | MethodAttributes.Static (0x0010): an assembly-visible static

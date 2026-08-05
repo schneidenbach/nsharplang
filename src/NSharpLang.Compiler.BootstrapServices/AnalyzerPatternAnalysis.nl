@@ -4,97 +4,134 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
-// THE FIVE STEPS THE PATTERN WALK CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
+
+// THE SIX STEPS THE PATTERN FAMILY CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
 //
 // The walk owns what a pattern MEANS — which of the thirteen arms a pattern node takes, what each
 // arm binds and under which name, which union case a dotted name or a case pattern names, what a
 // case property resolves to under the scrutinee's substitution, which of the four diagnostics fires
-// and where, and in what order all of it happens. What it cannot do is run the analyzer's own
-// EXPRESSION walk, declare a symbol into the analyzer's scope stack, or call the two SoA escape
-// reporters that belong to a different family, so it ASKS: one request at a time, each naming a kind
+// and where, and in what order all of it happens. It ALSO owns the statement that exists to dispatch
+// on patterns: a `switch`, whose per-case scope is there for nothing but the bindings this walk
+// declares into it. What it cannot do is run the analyzer's own EXPRESSION walk, declare a symbol
+// into the analyzer's scope stack, open or close a scope on that stack, or re-enter the statement
+// dispatch for a case body, so it ASKS: one request at a time, each naming a kind
 // and carrying every value the step needs. Nothing here is a policy the driver may reinterpret — the
 // driver switches on `Kind`, performs exactly the one operation with exactly these operands, and
 // hands the answer back.
 //
 // The kinds:
-//   1  analyse an EXPRESSION — a literal pattern's literal or a relational pattern's bound.
-//      ANSWERS a type, and that type is the operand of the step that follows it.
-//   2  the SoA row-view escape report. ANSWERS whether it fired.
-//   3  the SoA direct-column escape report. ANSWERS whether it fired.
+//   1  analyse an EXPRESSION — a literal pattern's literal, a relational pattern's bound, or a
+//      `switch` value. ANSWERS a type, and that type is the operand of the step that follows it.
 //   4  declare a binding into the analyzer's scope stack.
-//   5  analyse a NESTED pattern against the type this arm resolved for it.
-public class PatternAnalysisRequest {
-
-    public Kind: int
-    public Node: Expression?
-    public Pattern: Pattern?
-    public Name: string?
-    public CarriedType: TypeInfo
-    public Text: string?
-    public Line: int
-    public Column: int
+//   5  analyse a NESTED pattern against the type this arm resolved for it. A `switch` case's own
+//      pattern is this step too — the operation and its operands are identical — so the statement
+//      form cost the driver nothing here.
+//   6  open a block scope on the analyzer's scope stack at `Line` / `Column`.
+//   7  analyse a statement LIST — a `switch` case's body — which re-enters the statement dispatch
+//      and applies the unreachable-code rule to its contents.
+//   8  close the scope kind 6 opened.
+//
+// The numbering has GAPS at 2 and 3 rather than closing up, because the kind number is a protocol
+// between this walk and one driver, and a renumber would silently re-point every contract that pins
+// a step's kind. The gaps say what left: 2 and 3 were the two SoA escape reports, and this walk
+// HOLDS `AnalyzerSoaEscape` now — the switch value's two reports needed it held, and once it is
+// held, relaying the literal and relational arms' reports through the driver would be asking C# to
+// relay one N# call to another.
+class PatternAnalysisRequest {
+    Kind: int
+    Node: Expression?
+    Pattern: Pattern?
+    Statements: List<Statement>?
+    Name: string?
+    CarriedType: TypeInfo
+    Line: int
+    Column: int
 
     constructor(kind: int, carriedType: TypeInfo) {
         Kind = kind
         Node = null
         Pattern = null
+        Statements = null
         Name = null
         CarriedType = carriedType
-        Text = null
         Line = 0
         Column = 0
     }
 }
 
-// THE PATTERN WALK'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
+// THE WALK'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
-// `Phase` is the walk's program counter: 0 is the thirteen-way dispatch, every arm that emits more
-// than one step owns a band of its own, and 99 is done. `Pending` records what the outstanding
+// ONE state serves BOTH forms, because ONE driver serves them: `Form` 0 is a pattern node and
+// `Form` 1 is a `switch` statement, and exactly one of `patternNodeValue` and `switchNodeValue` is
+// set.
+//
+// `Phase` is the walk's program counter, and each form owns a BAND so a phase number never means two
+// things: the pattern form runs 0 (the thirteen-way dispatch) with a band per multi-step arm, the
+// switch form runs 70..75, and 99 is done for both. `Pending` records what the outstanding
 // request asked for, so its answer is folded back into the right place. Everything else is one arm's
 // working set, derived at the moment the C# member derived it and never before.
-public class PatternAnalysisState {
-
-    patternNodeValue: Pattern
+class PatternAnalysisState {
+    formValue: int
+    patternNodeValue: Pattern?
+    switchNodeValue: SwitchStatement?
     valueTypeValue: TypeInfo
 
-    PatternNode: Pattern => patternNodeValue
+    Form: int => formValue
+    PatternNode: Pattern? => patternNodeValue
+    SwitchNode: SwitchStatement? => switchNodeValue
     ValueType: TypeInfo => valueTypeValue
 
-    public Phase: int
-    public Pending: int
-    public Index: int
+    Phase: int
+    Pending: int
+    Index: int
 
-    // The answer to the outstanding kind-1 analysis, and to the outstanding kind-2/3 escape report.
-    // `AnalyzedType` is an OPERAND of the step after it; `Escaped` decides whether the step after IT
-    // happens at all.
-    public AnalyzedType: TypeInfo
-    public Escaped: bool
+    // The answer to the outstanding kind-1 analysis. It is an OPERAND of the step after it — the
+    // literal arm's escape report, the relational arm's comparability judgement, and the switch
+    // form's own escape reports all measure it. `Escaped` is what the relational arm's short-circuit
+    // reads; both reports are direct calls now, so it is written here rather than supplied.
+    AnalyzedType: TypeInfo
+    Escaped: bool
+
+    // The switch form's working set: the scrutinee type every case pattern is analysed against —
+    // collapsed to `unknown` when the value escaped — and the ambient break-target depth the switch
+    // saved on entry and must restore on the way out.
+    SwitchValueType: TypeInfo
+    SavedBreakDepth: int
 
     // The union-case arm's working set, settled once at dispatch: the owner a case property is
     // resolved against, the substitution the scrutinee's arguments induce, the case's rendered name,
     // the case's own property list and the pattern's.
-    public UnionOwner: TypeInfo
-    public UnionSubstitution: Dictionary<string, TypeInfo>?
-    public UnionCaseName: string
-    public CaseProperties: List<UnionCaseProperty>?
-    public PatternProperties: List<PropertyPattern>?
+    UnionOwner: TypeInfo
+    UnionSubstitution: Dictionary<string, TypeInfo>?
+    UnionCaseName: string
+    CaseProperties: List<UnionCaseProperty>?
+    PatternProperties: List<PropertyPattern>?
 
     // The list arm's one element type, resolved once for the whole list exactly as the C# member
     // resolved it once above its loop.
-    public ElementType: TypeInfo
+    ElementType: TypeInfo
 
     // The object arm's nested walk. The property walk is its own owner; this walk drives it and
     // forwards its two requests as its own, so `Analyzer.cs` never sees the composition.
-    public PropertyState: PropertyPatternBindingState?
+    PropertyState: PropertyPatternBindingState?
 
-    constructor(patternNode: Pattern, valueType: TypeInfo) {
+    constructor(form: int, patternNode: Pattern?, switchNode: SwitchStatement?, valueType: TypeInfo) {
+        formValue = form
         patternNodeValue = patternNode
+        switchNodeValue = switchNode
         valueTypeValue = valueType
+
         Phase = 0
+        if form == 1 {
+            Phase = 70
+        }
+
         Pending = 0
         Index = 0
         AnalyzedType = BuiltInTypes.Unknown
         Escaped = false
+        SwitchValueType = BuiltInTypes.Unknown
+        SavedBreakDepth = 0
         UnionOwner = BuiltInTypes.Unknown
         UnionSubstitution = null
         UnionCaseName = ""
@@ -105,26 +142,38 @@ public class PatternAnalysisState {
     }
 }
 
-// WHAT A PATTERN MEANS, as a walk that suspends at each step it cannot take itself.
+// WHAT A PATTERN MEANS — AND WHAT THE STATEMENT THAT DISPATCHES ON ONE MEANS — as a walk that
+// suspends at each step it cannot take itself.
 //
 // This is the pattern family's LAST member and its root: every other owner the family has —
 // exhaustiveness selection, the match-coverage decision, the list and relational shape questions,
 // reachability, property-pattern binding — sits one layer below it and is called from here. Landing
 // it leaves `Analyzer.cs` with no pattern POLICY at all, only a driver.
 //
+// THE `switch` STATEMENT IS THE SECOND FORM, AND IT IS HERE BECAUSE IT IS THE PATTERN FAMILY'S
+// STATEMENT, NOT BECAUSE IT WAS CONVENIENT. A `switch` in N# is non-exhaustive dispatch on patterns
+// and nothing else: its value is the scrutinee every case pattern is analysed against, and its
+// per-case scope exists for nothing but the bindings THIS walk declares into it with kind 4 — before
+// the move, the scope a binding landed in was opened by a caller the walk could not see. A DEDICATED
+// owner with a driver of its own was measured first and refused: the driver alone is more C# than
+// the arm it would delete, while here the case's pattern step IS kind 5 — the same operation with
+// the same operands — so the statement form added THREE kinds and no loop.
+//
 // WHY A RESUMABLE WALK WITH ANSWERS RATHER THAN THE ANSWER-FREE REQUEST LOOP OF SLICE 28, AND THE
 // MEASUREMENT SETTLED IT IN BOTH DIRECTIONS AT ONCE. The deciding question the family has asked
 // every time is whether the STEP COUNT — or a step's OPERANDS — depend on an answer the walk does
 // not have yet. For the property-pattern walk the answer was no on both counts, and the loop only
-// had to yield so its own reports landed in list order. Here it is YES ON BOTH, and the two
+// had to yield so its own reports landed in list order. Here it is YES ON BOTH, and the three
 // witnesses are different arms:
-//   * A LITERAL pattern's schedule is three steps long no matter what, but its SECOND step cannot be
-//     BUILT until the first has answered: the row-escape report is passed the literal's analysed
-//     type. No schedule computed up front carries that operand.
-//   * A RELATIONAL pattern's schedule is not even a fixed LENGTH. Its two escape reports are joined
-//     by `&&` over their negations, so a row-view bound stops the walk before the direct-column
-//     report is asked, and either one stops it before the comparability judgement runs. The COUNT is
-//     a function of a boolean the driver produces.
+//   * A LITERAL pattern's two escape reports cannot be made until its ONE step has answered: the
+//     row report is passed the literal's analysed type. No schedule computed up front carries that
+//     operand.
+//   * A RELATIONAL pattern's REPORT CHAIN is not even a fixed length. Its two escape reports are
+//     joined by `&&` over their negations, so a row-view bound stops the chain before the
+//     direct-column probe runs, and either one stops it before the comparability judgement does.
+//   * A `switch`'s STEP COUNT is a function of its cases and its scrutinee type is the answer to its
+//     own first step — every case pattern below it is measured against a type the walk does not have
+//     until it has already suspended once.
 // So this walk suspends and RESUMES WITH THE ANSWER, like slice 24's call walk and unlike slice 28's
 // property walk. The distinction is recorded because the mechanism looks identical from the driver's
 // side and the reason is not.
@@ -137,8 +186,7 @@ public class PatternAnalysisState {
 // THE THIRTEENTH ARM IS THE ONE WITH NO CASE. `Analyzer.cs`'s switch had no `default`, so a pattern
 // node of any other kind fell through in silence. That is preserved as an explicit terminal arm here
 // rather than left implicit.
-public class AnalyzerPatternAnalysis {
-
+class AnalyzerPatternAnalysis {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     typeResolverValue: AnalyzerTypeResolver
@@ -147,16 +195,10 @@ public class AnalyzerPatternAnalysis {
     patternShapesValue: AnalyzerPatternShapes
     patternReachabilityValue: AnalyzerPatternReachability
     propertyPatternBindingValue: AnalyzerPropertyPatternBinding
+    soaEscapeValue: AnalyzerSoaEscape
+    ambientValue: AnalyzerAmbientContext
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        typeResolver: AnalyzerTypeResolver,
-        typeSubstitution: AnalyzerTypeSubstitution,
-        matchExhaustiveness: AnalyzerMatchExhaustiveness,
-        patternShapes: AnalyzerPatternShapes,
-        patternReachability: AnalyzerPatternReachability,
-        propertyPatternBinding: AnalyzerPropertyPatternBinding) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, typeSubstitution: AnalyzerTypeSubstitution, matchExhaustiveness: AnalyzerMatchExhaustiveness, patternShapes: AnalyzerPatternShapes, patternReachability: AnalyzerPatternReachability, propertyPatternBinding: AnalyzerPropertyPatternBinding, soaEscape: AnalyzerSoaEscape, ambient: AnalyzerAmbientContext) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
@@ -165,17 +207,26 @@ public class AnalyzerPatternAnalysis {
         patternShapesValue = patternShapes
         patternReachabilityValue = patternReachability
         propertyPatternBindingValue = propertyPatternBinding
+        soaEscapeValue = soaEscape
+        ambientValue = ambient
     }
 
-    public func Begin(patternNode: Pattern, valueType: TypeInfo): PatternAnalysisState {
-        return new PatternAnalysisState(patternNode, valueType)
+    func Begin(patternNode: Pattern, valueType: TypeInfo): PatternAnalysisState {
+        return new PatternAnalysisState(0, patternNode, null, valueType)
+    }
+
+    // A `switch` STATEMENT. The scrutinee type is not known yet — the walk's own first step answers
+    // it — so the state opens with `unknown` and the switch form settles `SwitchValueType` at
+    // phase 71.
+    func BeginSwitch(switchNode: SwitchStatement): PatternAnalysisState {
+        return new PatternAnalysisState(1, null, switchNode, BuiltInTypes.Unknown)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this pattern node is finished. Every phase
     // either decides something and advances, or emits exactly one request; the walk never advances
     // past a point whose answer it has not been given. Reports land here, BETWEEN two steps, which is
     // what keeps this walk's diagnostics in list order with the ones its nested analyses produce.
-    public func NextStep(state: PatternAnalysisState): PatternAnalysisRequest? {
+    func NextStep(state: PatternAnalysisState): PatternAnalysisRequest? {
         while state.Phase != 99 {
             request := Advance(state)
             if request != null {
@@ -186,10 +237,10 @@ public class AnalyzerPatternAnalysis {
         return null
     }
 
-    // THE ANSWER TO THE OUTSTANDING STEP. Kind 1 answers a type that a later step carries; kinds 2
-    // and 3 answer whether the escape report fired, which is what the relational arm's short-circuit
-    // reads. Kinds 4 and 5 answer nothing and nothing is folded in for them.
-    public func Supply(state: PatternAnalysisState, answer: TypeInfo?, handled: bool) {
+    // THE ANSWER TO THE OUTSTANDING STEP. Kind 1 answers a type that a later step carries. Kinds 4,
+    // 5, 6, 7 and 8 answer nothing and nothing is folded in for them, so this fold is now a single
+    // question — the escape reports used to answer here and are direct calls on the held reporter.
+    func Supply(state: PatternAnalysisState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -197,12 +248,6 @@ public class AnalyzerPatternAnalysis {
             if answer != null {
                 state.AnalyzedType = answer
             }
-
-            return
-        }
-
-        if pending == 2 || pending == 3 {
-            state.Escaped = handled
         }
     }
 
@@ -211,19 +256,29 @@ public class AnalyzerPatternAnalysis {
     // body read the node as the type it is.
     func Advance(state: PatternAnalysisState): PatternAnalysisRequest? {
         phase := state.Phase
+        if state.Form == 1 {
+            switchNode := state.SwitchNode
+            if switchNode != null {
+                return AdvanceSwitch(state, switchNode, phase)
+            }
+
+            state.Phase = 99
+            return null
+        }
+
         if phase == 0 {
             return Dispatch(state)
         }
 
-        if phase == 10 || phase == 11 {
+        if phase == 10 {
             literalPattern := state.PatternNode as LiteralPattern
             if literalPattern != null {
-                return AdvanceLiteral(state, literalPattern, phase)
+                return AdvanceLiteral(state, literalPattern)
             }
-        } else if phase == 20 || phase == 21 || phase == 22 {
+        } else if phase == 20 {
             relationalPattern := state.PatternNode as RelationalPattern
             if relationalPattern != null {
-                return AdvanceRelational(state, relationalPattern, phase)
+                return AdvanceRelational(state, relationalPattern)
             }
         } else if phase == 30 {
             return AdvanceUnionProperties(state)
@@ -252,6 +307,11 @@ public class AnalyzerPatternAnalysis {
     // rather than a precedence.
     func Dispatch(state: PatternAnalysisState): PatternAnalysisRequest? {
         patternNode := state.PatternNode
+        if patternNode == null {
+            state.Phase = 99
+            return null
+        }
+
         valueType := state.ValueType
 
         identifierPattern := patternNode as IdentifierPattern
@@ -307,11 +367,7 @@ public class AnalyzerPatternAnalysis {
 
         objectPattern := patternNode as ObjectPattern
         if objectPattern != null {
-            state.PropertyState = propertyPatternBindingValue.Begin(
-                objectPattern.Properties,
-                valueType,
-                patternNode.Line,
-                patternNode.Column)
+            state.PropertyState = propertyPatternBindingValue.Begin(objectPattern.Properties, valueType, patternNode.Line, patternNode.Column)
             state.Phase = 50
             return null
         }
@@ -331,11 +387,7 @@ public class AnalyzerPatternAnalysis {
             state.Phase = 99
             sliceBindingName := slicePattern.BindingName
             if sliceBindingName != null {
-                return DeclareRequest(
-                    sliceBindingName,
-                    new ArrayTypeInfo(valueType),
-                    patternNode.Line,
-                    patternNode.Column)
+                return DeclareRequest(sliceBindingName, new ArrayTypeInfo(valueType), patternNode.Line, patternNode.Column)
             }
 
             return null
@@ -355,9 +407,7 @@ public class AnalyzerPatternAnalysis {
     // nothing. Otherwise a DOTTED name over a declared union is a case reference: it binds nothing
     // and reports when the union has no such case. Everything else is a plain binding of the
     // scrutinee. The union lookup is reached only by a dotted name, exactly as the `&&` ordered it.
-    func DispatchIdentifier(
-        state: PatternAnalysisState,
-        identifierPattern: IdentifierPattern): PatternAnalysisRequest? {
+    func DispatchIdentifier(state: PatternAnalysisState, identifierPattern: IdentifierPattern): PatternAnalysisRequest? {
         state.Phase = 99
         valueType := state.ValueType
         name := identifierPattern.Name
@@ -366,11 +416,7 @@ public class AnalyzerPatternAnalysis {
         nullableValueType := valueType as NullableTypeInfo
         if nullableValueType != null && !dotted {
             if name != "_" {
-                return DeclareRequest(
-                    name,
-                    nullableValueType.InnerType,
-                    identifierPattern.Line,
-                    identifierPattern.Column)
+                return DeclareRequest(name, nullableValueType.InnerType, identifierPattern.Line, identifierPattern.Column)
             }
 
             return null
@@ -396,9 +442,7 @@ public class AnalyzerPatternAnalysis {
     // THE UNION-CASE ARM'S HEAD. A scrutinee that declares no union makes the whole arm silent —
     // including a case pattern carrying properties, which nothing else checks. Everything the
     // property loop needs is settled here, once, before the first property is looked at.
-    func DispatchUnionCase(
-        state: PatternAnalysisState,
-        unionCasePattern: UnionCasePattern): PatternAnalysisRequest? {
+    func DispatchUnionCase(state: PatternAnalysisState, unionCasePattern: UnionCasePattern): PatternAnalysisRequest? {
         state.Phase = 99
         substitution: Dictionary<string, TypeInfo>? = null
         unionType := matchExhaustivenessValue.ResolveDeclaredUnionType(state.ValueType, out substitution)
@@ -407,9 +451,7 @@ public class AnalyzerPatternAnalysis {
         }
 
         caseName := AnalyzerExhaustivenessSelector.GetUnionCaseName(unionCasePattern.CaseName)
-        matchingCase := AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(
-            unionType,
-            unionCasePattern.CaseName)
+        matchingCase := AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionType, unionCasePattern.CaseName)
 
         if matchingCase == null {
             span := spansValue.GetPatternNameDiagnosticSpan(unionCasePattern)
@@ -428,14 +470,7 @@ public class AnalyzerPatternAnalysis {
         caseProperties := matchingCase.Properties
         if caseProperties == null || caseProperties.Count == 0 {
             span := spansValue.GetPatternNameDiagnosticSpan(unionCasePattern)
-            diagnosticsValue.Report(
-                ErrorCode.InvalidPattern,
-                "Union case '" + caseName
-                    + "' doesn't carry any data — you can't destructure it with property patterns",
-                span.Line,
-                span.Column,
-                null,
-                span.Length)
+            diagnosticsValue.Report(ErrorCode.InvalidPattern, "Union case '" + caseName + "' doesn't carry any data — you can't destructure it with property patterns", span.Line, span.Column, null, span.Length)
             return null
         }
 
@@ -456,7 +491,8 @@ public class AnalyzerPatternAnalysis {
     func AdvanceUnionProperties(state: PatternAnalysisState): PatternAnalysisRequest? {
         properties := state.PatternProperties
         caseProperties := state.CaseProperties
-        if properties == null || caseProperties == null {
+        patternNode := state.PatternNode
+        if properties == null || caseProperties == null || patternNode == null {
             state.Phase = 99
             return null
         }
@@ -467,10 +503,7 @@ public class AnalyzerPatternAnalysis {
 
             caseProperty := FindCaseProperty(caseProperties, property.Name)
             if caseProperty != null {
-                propertyType := typeSubstitutionValue.ResolveTypeForSourceOwner(
-                    caseProperty.Type,
-                    state.UnionOwner,
-                    state.UnionSubstitution)
+                propertyType := typeSubstitutionValue.ResolveTypeForSourceOwner(caseProperty.Type, state.UnionOwner, state.UnionSubstitution)
 
                 nested := property.Pattern
                 if nested != null {
@@ -483,14 +516,11 @@ public class AnalyzerPatternAnalysis {
                     bindingName = explicitBindingName
                 }
 
-                span := spansValue.GetPropertyPatternNameDiagnosticSpan(
-                    property,
-                    state.PatternNode.Line,
-                    state.PatternNode.Column)
+                span := spansValue.GetPropertyPatternNameDiagnosticSpan(property, patternNode.Line, patternNode.Column)
                 return DeclareRequest(bindingName, propertyType, span.Line, span.Column)
             }
 
-            ReportUnknownCaseProperty(state, property)
+            ReportUnknownCaseProperty(state, property, patternNode)
         }
 
         state.Phase = 99
@@ -511,59 +541,34 @@ public class AnalyzerPatternAnalysis {
         return null
     }
 
-    // A literal pattern's three fixed steps. Both escape reports run and BOTH answers are discarded —
-    // the literal arm never short-circuits — but the row report's TYPE operand is the answer to the
-    // analysis before it, which is why the schedule cannot be hoisted.
-    func AdvanceLiteral(
-        state: PatternAnalysisState,
-        literalPattern: LiteralPattern,
-        phase: int): PatternAnalysisRequest? {
-        if phase == 10 {
-            state.Phase = 11
-            state.Pending = 2
-            return SoaRowRequest(literalPattern.Literal, state.AnalyzedType, "used as a pattern value")
-        }
-
+    // A literal pattern's ONE suspension and the two reports after it. Both escape reports run and
+    // BOTH answers are discarded — the literal arm never short-circuits — but the row report's TYPE
+    // operand is the answer to the analysis before it, which is why the pair cannot be hoisted above
+    // the step.
+    func AdvanceLiteral(state: PatternAnalysisState, literalPattern: LiteralPattern): PatternAnalysisRequest? {
         state.Phase = 99
-        state.Pending = 3
-        return SoaColumnRequest(literalPattern.Literal, "used as a pattern value")
+        soaEscapeValue.ReportSoaRowEscapeIfNeeded(literalPattern.Literal, state.AnalyzedType, "used as a pattern value")
+        soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(literalPattern.Literal, "used as a pattern value")
+        return null
     }
 
-    // A relational pattern's schedule, whose LENGTH depends on the driver's answers. A bound that
-    // escapes a row view — or that is a direct column value — is reported as that, and the
-    // comparability judgement is not asked at all, exactly as the `!a && !b` guard ordered it.
-    func AdvanceRelational(
-        state: PatternAnalysisState,
-        relationalPattern: RelationalPattern,
-        phase: int): PatternAnalysisRequest? {
-        if phase == 20 {
-            state.Phase = 21
-            state.Pending = 2
-            return SoaRowRequest(
-                relationalPattern.Value,
-                state.AnalyzedType,
-                "used as a relational pattern value")
-        }
-
-        if phase == 21 {
-            if state.Escaped {
-                state.Phase = 99
-                return null
-            }
-
-            state.Phase = 22
-            state.Pending = 3
-            return SoaColumnRequest(relationalPattern.Value, "used as a relational pattern value")
-        }
-
+    // A relational pattern's bound, and the three questions after it whose LENGTH depends on the
+    // first answers. A bound that escapes a row view — or that is a direct column value — is reported
+    // as that, and the comparability judgement is not asked at all, exactly as the `!a && !b` guard
+    // ordered it.
+    func AdvanceRelational(state: PatternAnalysisState, relationalPattern: RelationalPattern): PatternAnalysisRequest? {
         state.Phase = 99
-        if !state.Escaped {
-            patternShapesValue.ValidateRelationalPattern(
-                relationalPattern,
-                state.ValueType,
-                state.AnalyzedType)
+        state.Escaped = soaEscapeValue.ReportSoaRowEscapeIfNeeded(relationalPattern.Value, state.AnalyzedType, "used as a relational pattern value")
+        if state.Escaped {
+            return null
         }
 
+        state.Escaped = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(relationalPattern.Value, "used as a relational pattern value")
+        if state.Escaped {
+            return null
+        }
+
+        patternShapesValue.ValidateRelationalPattern(relationalPattern, state.ValueType, state.AnalyzedType)
         return null
     }
 
@@ -602,9 +607,7 @@ public class AnalyzerPatternAnalysis {
     // A positional pattern's elements are analysed against the scrutinee ITSELF, not against a
     // per-position element type. That is what `Analyzer.cs` did — its own comment said so — and it is
     // preserved verbatim; an ownership slice does not improve behaviour.
-    func AdvancePositional(
-        state: PatternAnalysisState,
-        positionalPattern: PositionalPattern): PatternAnalysisRequest? {
+    func AdvancePositional(state: PatternAnalysisState, positionalPattern: PositionalPattern): PatternAnalysisRequest? {
         if state.Index < positionalPattern.Patterns.Count {
             child := positionalPattern.Patterns[state.Index]
             state.Index = state.Index + 1
@@ -647,9 +650,7 @@ public class AnalyzerPatternAnalysis {
     // A list pattern's elements, against the one element type resolved for the whole list. A SLICE
     // element binds an ARRAY of that element type — anchored on the enclosing LIST pattern's
     // position, not the slice's — and a slice with no binding name is passed over in silence.
-    func AdvanceList(
-        state: PatternAnalysisState,
-        listPattern: ListPattern): PatternAnalysisRequest? {
+    func AdvanceList(state: PatternAnalysisState, listPattern: ListPattern): PatternAnalysisRequest? {
         while state.Index < listPattern.Elements.Count {
             element := listPattern.Elements[state.Index]
             state.Index = state.Index + 1
@@ -662,11 +663,7 @@ public class AnalyzerPatternAnalysis {
             bindingName := slicePattern.BindingName
             if bindingName != null {
                 sliceType := new ArrayTypeInfo(state.ElementType)
-                return DeclareRequest(
-                    bindingName,
-                    sliceType,
-                    state.PatternNode.Line,
-                    state.PatternNode.Column)
+                return DeclareRequest(bindingName, sliceType, listPattern.Line, listPattern.Column)
             }
         }
 
@@ -676,9 +673,7 @@ public class AnalyzerPatternAnalysis {
 
     // A type pattern resolves its target, asks whether the test can ever succeed, and binds. The
     // reachability judgement runs BEFORE the binding and reports for itself.
-    func DispatchType(
-        state: PatternAnalysisState,
-        typePattern: TypePattern): PatternAnalysisRequest? {
+    func DispatchType(state: PatternAnalysisState, typePattern: TypePattern): PatternAnalysisRequest? {
         state.Phase = 99
         targetType := typeResolverValue.ResolveType(typePattern.Type)
         patternReachabilityValue.CheckTypePattern(typePattern, state.ValueType, targetType)
@@ -695,32 +690,97 @@ public class AnalyzerPatternAnalysis {
     // itself, so what a reader sees is the name they wrote.
     func ReportUnknownCase(name: string, unionType: UnionTypeInfo, span: DiagnosticSpan) {
         unionObject := unionType as object
-        diagnosticsValue.Report(
-            ErrorCode.InvalidPattern,
-            "'" + name + "' is not a case of union '" + unionObject.ToString()
-                + "' — check the union definition for available cases",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidPattern, "'" + name + "' is not a case of union '" + unionObject.ToString() + "' — check the union definition for available cases", span.Line, span.Column, null, span.Length)
     }
 
     // The near-duplicate of the object pattern's NL503, and deliberately NOT the same diagnostic: a
     // case property is named on a UNION CASE, so the message names the case and points at its
     // definition. Slice 28 left it behind for exactly this reason.
-    func ReportUnknownCaseProperty(state: PatternAnalysisState, property: PropertyPattern) {
-        span := spansValue.GetPropertyPatternNameDiagnosticSpan(
-            property,
-            state.PatternNode.Line,
-            state.PatternNode.Column)
-        diagnosticsValue.Report(
-            ErrorCode.InvalidPattern,
-            "Union case '" + state.UnionCaseName + "' doesn't have a property named '" + property.Name
-                + "' — check the case definition for available properties",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+    func ReportUnknownCaseProperty(state: PatternAnalysisState, property: PropertyPattern, patternNode: Pattern) {
+        span := spansValue.GetPropertyPatternNameDiagnosticSpan(property, patternNode.Line, patternNode.Column)
+        diagnosticsValue.Report(ErrorCode.InvalidPattern, "Union case '" + state.UnionCaseName + "' doesn't have a property named '" + property.Name + "' — check the case definition for available properties", span.Line, span.Column, null, span.Length)
+    }
+
+    // ── THE `switch` WALK ──────────────────────────────────────────────────────────────────────
+    //
+    // SIX PHASES, AND EVERY ONE OF THE STATEMENT'S DECISIONS IS HERE. Phase 70 asks for the value.
+    // Phase 71 folds the answer, runs the two escape reports — the row report SHORT-CIRCUITS the
+    // column probe, so a value already refused as a row view is not also called a direct column read
+    // — collapses an escaped value to `unknown` for every case pattern below it, and enters the
+    // switch's ambient frame. Phases 72..75 are the per-case loop: open the case scope, analyse the
+    // case's pattern when it has one, analyse the case's statements, close the scope. The loop exits
+    // through 72, which is also where the ambient frame is restored, so the frame is balanced on the
+    // ONE path out.
+    //
+    // TWO THINGS ABOUT THE CASE SCOPE ARE `Analyzer.cs`'s AND ARE PRESERVED RATHER THAN TIDIED. It is
+    // positioned at the SWITCH statement's own line and column — not at the case's, and not at the
+    // pattern's, which is what `AnalyzeMatchExpression` uses for its arms — and it is opened for
+    // EVERY case including the `default` one that has no pattern to bind.
+    //
+    // THE AMBIENT FRAME IS A `break` TARGET AND NOTHING ELSE. `EnterSwitch` moves only the
+    // break-target finally depth, which is what NL319 reads; `continue` still targets the enclosing
+    // loop, and a switch does not make `continue` legal where it was not. That asymmetry lives in
+    // `AnalyzerAmbientContext` and this walk asks for it by name.
+    func AdvanceSwitch(state: PatternAnalysisState, switchNode: SwitchStatement, phase: int): PatternAnalysisRequest? {
+        if phase == 70 {
+            state.Phase = 71
+            state.Pending = 1
+            return ExpressionRequest(switchNode.Value)
+        }
+
+        if phase == 71 {
+            valueType := state.AnalyzedType
+            escaped := soaEscapeValue.ReportSoaRowEscapeIfNeeded(switchNode.Value, valueType, "used as a switch value")
+            if !escaped {
+                escaped = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(switchNode.Value, "used as a switch value")
+            }
+
+            state.Escaped = escaped
+            state.SwitchValueType = valueType
+            if escaped {
+                state.SwitchValueType = BuiltInTypes.Unknown
+            }
+
+            state.SavedBreakDepth = ambientValue.EnterSwitch()
+            state.Index = 0
+            state.Phase = 72
+            return null
+        }
+
+        if phase == 72 {
+            if state.Index >= switchNode.Cases.Count {
+                state.Phase = 99
+                ambientValue.ExitSwitch(state.SavedBreakDepth)
+                return null
+            }
+
+            state.Phase = 73
+            return ScopeOpenRequest(switchNode.Line, switchNode.Column)
+        }
+
+        if phase == 73 {
+            state.Phase = 74
+            casePattern := switchNode.Cases[state.Index].Pattern
+            if casePattern != null {
+                return PatternRequest(casePattern, state.SwitchValueType)
+            }
+
+            return null
+        }
+
+        if phase == 74 {
+            state.Phase = 75
+            return StatementsRequest(switchNode.Cases[state.Index].Statements)
+        }
+
+        if phase == 75 {
+            state.Index = state.Index + 1
+            state.Phase = 72
+            return ScopeCloseRequest()
+        }
+
+        state.Phase = 99
+        return null
     }
 
     func ExpressionRequest(node: Expression): PatternAnalysisRequest {
@@ -729,18 +789,21 @@ public class AnalyzerPatternAnalysis {
         return request
     }
 
-    func SoaRowRequest(node: Expression, carriedType: TypeInfo, usage: string): PatternAnalysisRequest {
-        request := new PatternAnalysisRequest(2, carriedType)
-        request.Node = node
-        request.Text = usage
+    func ScopeOpenRequest(line: int, column: int): PatternAnalysisRequest {
+        request := new PatternAnalysisRequest(6, BuiltInTypes.Unknown)
+        request.Line = line
+        request.Column = column
         return request
     }
 
-    func SoaColumnRequest(node: Expression, usage: string): PatternAnalysisRequest {
-        request := new PatternAnalysisRequest(3, BuiltInTypes.Unknown)
-        request.Node = node
-        request.Text = usage
+    func StatementsRequest(statements: List<Statement>): PatternAnalysisRequest {
+        request := new PatternAnalysisRequest(7, BuiltInTypes.Unknown)
+        request.Statements = statements
         return request
+    }
+
+    func ScopeCloseRequest(): PatternAnalysisRequest {
+        return new PatternAnalysisRequest(8, BuiltInTypes.Unknown)
     }
 
     func DeclareRequest(name: string, carriedType: TypeInfo, line: int, column: int): PatternAnalysisRequest {

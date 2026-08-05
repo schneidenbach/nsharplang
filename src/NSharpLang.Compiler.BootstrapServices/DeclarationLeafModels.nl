@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler.Ast
 
 import System.Collections.Generic
 
-public class SoaColumnDeclaration {
+class SoaColumnDeclaration {
     Name: string
     Type: TypeReference
     Line: int
@@ -16,7 +16,7 @@ public class SoaColumnDeclaration {
     }
 }
 
-public class UnionCase {
+class UnionCase {
     Name: string
     Properties: List<UnionCaseProperty>?
     Line: int
@@ -30,7 +30,7 @@ public class UnionCase {
     }
 }
 
-public class UnionCaseProperty {
+class UnionCaseProperty {
     Name: string
     Type: TypeReference
 

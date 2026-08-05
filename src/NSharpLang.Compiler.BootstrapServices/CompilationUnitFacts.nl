@@ -4,20 +4,18 @@ import System
 import System.Collections
 import System.Collections.Generic
 
-public class CompilationUnitFacts {
-    public static func ContainsSoaRecordDeclaration(compilationUnit: object): bool {
+class CompilationUnitFacts {
+    static func ContainsSoaRecordDeclaration(compilationUnit: object): bool {
         declarations := GetRequiredListProperty(compilationUnit, "Declarations")
         return ContainsSoaRecordDeclarationInList(declarations)
     }
 
-    public static func RequiresColumnarSoaEmission(
-        soaFeatureEnabled: bool,
-        compilationUnits: IEnumerable<object>): bool {
+    static func RequiresColumnarSoaEmission(soaFeatureEnabled: bool, compilationUnits: IEnumerable<object>): bool {
         if !soaFeatureEnabled {
             return false
         }
 
-        foreach compilationUnit in compilationUnits {
+        for compilationUnit in compilationUnits {
             if compilationUnit != null && ContainsSoaRecordDeclaration(compilationUnit) {
                 return true
             }
@@ -56,23 +54,18 @@ public class CompilationUnitFacts {
     }
 
     static func IsMemberOwningDeclaration(typeName: string): bool {
-        return typeName == "ClassDeclaration"
-            || typeName == "StructDeclaration"
-            || typeName == "RecordDeclaration"
-            || typeName == "InterfaceDeclaration"
+        return typeName == "ClassDeclaration" || typeName == "StructDeclaration" || typeName == "RecordDeclaration" || typeName == "InterfaceDeclaration"
     }
 
     static func GetRequiredListProperty(owner: object, propertyName: string): IList {
         value := GetMemberValue(owner, propertyName)
         if value == null {
-            throw new InvalidOperationException(
-                "CompilationUnitFacts expected '" + owner.GetType().Name + "." + propertyName + "' to exist.")
+            throw new InvalidOperationException("CompilationUnitFacts expected '" + owner.GetType().Name + "." + propertyName + "' to exist.")
         }
 
         list := value as IList
         if list == null {
-            throw new InvalidOperationException(
-                "CompilationUnitFacts expected '" + owner.GetType().Name + "." + propertyName + "' to contain a list.")
+            throw new InvalidOperationException("CompilationUnitFacts expected '" + owner.GetType().Name + "." + propertyName + "' to contain a list.")
         }
 
         return list

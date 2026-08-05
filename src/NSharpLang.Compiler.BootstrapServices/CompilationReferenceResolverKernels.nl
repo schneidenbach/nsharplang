@@ -5,23 +5,20 @@ import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler
 
-public class TargetFrameworkVersionParseResult {
-    public Parsed: bool
-    public Major: int
-    public Minor: int
+class TargetFrameworkVersionParseResult {
+    Parsed: bool
+    Major: int
+    Minor: int
 
     constructor(Parsed: bool, Major: int, Minor: int) {
         this.Parsed = Parsed
         this.Major = Major
         this.Minor = Minor
     }
-
 }
 
-public class CompilationReferenceResolverKernels {
-    public static func GetImplicitNSharpRuntimeAssetCandidates(
-        baseDirectory: string,
-        compilerDirectory: string?): string[] {
+class CompilationReferenceResolverKernels {
+    static func GetImplicitNSharpRuntimeAssetCandidates(baseDirectory: string, compilerDirectory: string?): string[] {
         candidates := new List<string>()
         candidates.Add(Path.Combine(baseDirectory, "NSharpLang.Runtime.dll"))
 
@@ -32,15 +29,15 @@ public class CompilationReferenceResolverKernels {
         return candidates.ToArray()
     }
 
-    public static func GetProjectRoot(projectDir: string): string {
+    static func GetProjectRoot(projectDir: string): string {
         return Path.GetFullPath(projectDir)
     }
 
-    public static func GetCompilerAssemblyDirectory(assemblyLocation: string): string? {
+    static func GetCompilerAssemblyDirectory(assemblyLocation: string): string? {
         return Path.GetDirectoryName(assemblyLocation)
     }
 
-    public static func GetGlobalPackagesFolder(configuredPackagesFolder: string?, userProfileFolder: string): string {
+    static func GetGlobalPackagesFolder(configuredPackagesFolder: string?, userProfileFolder: string): string {
         if !string.IsNullOrWhiteSpace(configuredPackagesFolder ?? "") {
             return Path.GetFullPath(configuredPackagesFolder)
         }
@@ -48,93 +45,78 @@ public class CompilationReferenceResolverKernels {
         return Path.Combine(Path.Combine(userProfileFolder, ".nuget"), "packages")
     }
 
-    public static func NormalizeNuGetPackageId(packageName: string): string {
+    static func NormalizeNuGetPackageId(packageName: string): string {
         return packageName.ToLowerInvariant()
     }
 
-    public static func NormalizeNuGetPackageVersion(version: string): string {
+    static func NormalizeNuGetPackageVersion(version: string): string {
         return version.ToLowerInvariant()
     }
 
-    public static func GetNuGetPackageDirectory(packagesRoot: string, packageName: string): string {
+    static func GetNuGetPackageDirectory(packagesRoot: string, packageName: string): string {
         return Path.Combine(packagesRoot, NormalizeNuGetPackageId(packageName))
     }
 
-    public static func GetNuGetPackageVersionDirectory(packageDirectory: string, version: string): string {
+    static func GetNuGetPackageVersionDirectory(packageDirectory: string, version: string): string {
         return Path.Combine(packageDirectory, NormalizeNuGetPackageVersion(version))
     }
 
-    public static func GetNuGetPackageParentDirectory(versionDirectory: string): string? {
+    static func GetNuGetPackageParentDirectory(versionDirectory: string): string? {
         return Path.GetDirectoryName(versionDirectory)
     }
 
-    public static func GetNuGetIndexUrl(packageName: string): string {
+    static func GetNuGetIndexUrl(packageName: string): string {
         packageId := NormalizeNuGetPackageId(packageName)
         return "https://api.nuget.org/v3-flatcontainer/" + packageId + "/index.json"
     }
 
-    public static func GetNuGetPackageDownloadUrl(packageName: string, version: string): string {
+    static func GetNuGetPackageDownloadUrl(packageName: string, version: string): string {
         packageId := NormalizeNuGetPackageId(packageName)
         normalizedVersion := NormalizeNuGetPackageVersion(version)
-        return "https://api.nuget.org/v3-flatcontainer/"
-            + packageId
-            + "/"
-            + normalizedVersion
-            + "/"
-            + packageId
-            + "."
-            + normalizedVersion
-            + ".nupkg"
+        return "https://api.nuget.org/v3-flatcontainer/" + packageId + "/" + normalizedVersion + "/" + packageId + "." + normalizedVersion + ".nupkg"
     }
 
-    public static func GetNuGetPackageFileName(packageName: string, version: string): string {
-        return NormalizeNuGetPackageId(packageName)
-            + "."
-            + NormalizeNuGetPackageVersion(version)
-            + ".nupkg"
+    static func GetNuGetPackageFileName(packageName: string, version: string): string {
+        return NormalizeNuGetPackageId(packageName) + "." + NormalizeNuGetPackageVersion(version) + ".nupkg"
     }
 
-    public static func GetNuGetPackagePath(tempDirectory: string, packageName: string, version: string): string {
+    static func GetNuGetPackagePath(tempDirectory: string, packageName: string, version: string): string {
         return Path.Combine(tempDirectory, GetNuGetPackageFileName(packageName, version))
     }
 
-    public static func GetNuGetTempDirectory(tempRoot: string, uniqueName: string): string {
+    static func GetNuGetTempDirectory(tempRoot: string, uniqueName: string): string {
         return Path.Combine(tempRoot, "nlc-nuget-" + uniqueName)
     }
 
-    public static func GetNuGetExtractDirectory(versionDirectory: string, uniqueName: string): string {
+    static func GetNuGetExtractDirectory(versionDirectory: string, uniqueName: string): string {
         return versionDirectory + "." + uniqueName + ".tmp"
     }
 
-    public static func GetNuGetAssetRoot(versionDirectory: string, assetKind: string): string {
+    static func GetNuGetAssetRoot(versionDirectory: string, assetKind: string): string {
         return Path.Combine(versionDirectory, assetKind)
     }
 
-    public static func GetFallbackNuGetPackageIdentity(versionDirectory: string): PackageIdentity {
+    static func GetFallbackNuGetPackageIdentity(versionDirectory: string): PackageIdentity {
         packageId := Path.GetFileName(Path.GetDirectoryName(versionDirectory)) ?? ""
         packageVersion := Path.GetFileName(versionDirectory) ?? ""
         return new PackageIdentity(packageId, packageVersion)
     }
 
-    public static func ResolveNuGetPackageIdentity(
-        versionDirectory: string,
-        requestedPackageName: string,
-        declaredId: string?,
-        declaredVersion: string?): PackageIdentity {
+    static func ResolveNuGetPackageIdentity(versionDirectory: string, requestedPackageName: string, declaredId: string?, declaredVersion: string?): PackageIdentity {
         packageId := declaredId ?? requestedPackageName
         packageVersion := declaredVersion ?? (Path.GetFileName(versionDirectory) ?? "")
         return new PackageIdentity(packageId, packageVersion)
     }
 
-    public static func GetNuGetPackageAssetsCacheKey(packageId: string?, packageVersion: string?): string {
+    static func GetNuGetPackageAssetsCacheKey(packageId: string?, packageVersion: string?): string {
         return (packageId ?? "") + "@" + (packageVersion ?? "")
     }
 
-    public static func ShouldProbeInstalledNuGetVersions(requestedVersion: string?, packageDirectoryExists: bool): bool {
+    static func ShouldProbeInstalledNuGetVersions(requestedVersion: string?, packageDirectoryExists: bool): bool {
         return requestedVersion == null && packageDirectoryExists
     }
 
-    public static func SelectBestInstalledNuGetVersionDirectory(installedVersionDirectories: string[]): string? {
+    static func SelectBestInstalledNuGetVersionDirectory(installedVersionDirectories: string[]): string? {
         installedVersions := new List<string>()
         candidateDirectories := new List<string>()
         index := 0
@@ -156,7 +138,7 @@ public class CompilationReferenceResolverKernels {
         return null
     }
 
-    public static func GetLatestNuGetVersionOrThrow(packageName: string, rawVersions: string?[]): string {
+    static func GetLatestNuGetVersionOrThrow(packageName: string, rawVersions: string?[]): string {
         versionsList := new List<string>()
         index := 0
         while index < rawVersions.Length {
@@ -177,7 +159,7 @@ public class CompilationReferenceResolverKernels {
         throw new InvalidOperationException(GetNuGetNoPublishedVersionsMessage(packageName))
     }
 
-    public static func GetDotnetSharedRootCandidates(runtimeDirectory: string?): string[] {
+    static func GetDotnetSharedRootCandidates(runtimeDirectory: string?): string[] {
         candidates := new List<string>()
         yielded := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 
@@ -196,7 +178,7 @@ public class CompilationReferenceResolverKernels {
         return candidates.ToArray()
     }
 
-    public static func GetProjectAssemblyName(projectRoot: string, configuredName: string?): string {
+    static func GetProjectAssemblyName(projectRoot: string, configuredName: string?): string {
         if !string.IsNullOrWhiteSpace(configuredName ?? "") {
             return configuredName ?? ""
         }
@@ -205,31 +187,31 @@ public class CompilationReferenceResolverKernels {
         return projectName ?? "Project"
     }
 
-    public static func IsExecutableOutputType(outputType: string?): bool {
+    static func IsExecutableOutputType(outputType: string?): bool {
         return string.Equals(outputType ?? "", "exe", StringComparison.OrdinalIgnoreCase)
     }
 
-    public static func GetProjectYmlPath(projectRoot: string): string {
+    static func GetProjectYmlPath(projectRoot: string): string {
         return Path.Combine(projectRoot, "project.yml")
     }
 
-    public static func GetStableOutputDirectory(projectRoot: string, configuration: string, targetFramework: string): string {
+    static func GetStableOutputDirectory(projectRoot: string, configuration: string, targetFramework: string): string {
         return Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework)
     }
 
-    public static func GetProjectOutputAssemblyPath(outputDirectory: string, assemblyName: string): string {
+    static func GetProjectOutputAssemblyPath(outputDirectory: string, assemblyName: string): string {
         return Path.Combine(outputDirectory, assemblyName + ".dll")
     }
 
-    public static func GetDllReferencePath(assemblyPath: string): string {
+    static func GetDllReferencePath(assemblyPath: string): string {
         return Path.GetFullPath(assemblyPath)
     }
 
-    public static func ShouldTreatProjectReferenceBuildAsFailed(success: bool, outputAssemblyPath: string?): bool {
+    static func ShouldTreatProjectReferenceBuildAsFailed(success: bool, outputAssemblyPath: string?): bool {
         return !success || string.IsNullOrWhiteSpace(outputAssemblyPath ?? "")
     }
 
-    public static func ResolveProjectReferencePath(projectRoot: string, projectReference: string): string {
+    static func ResolveProjectReferencePath(projectRoot: string, projectReference: string): string {
         if Path.IsPathRooted(projectReference) {
             return projectReference
         }
@@ -237,7 +219,7 @@ public class CompilationReferenceResolverKernels {
         return Path.Combine(projectRoot, projectReference)
     }
 
-    public static func GetFrameworkReferenceNames(sdk: string, references: IEnumerable<Reference>): string[] {
+    static func GetFrameworkReferenceNames(sdk: string, references: IEnumerable<Reference>): string[] {
         names := new List<string>()
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 
@@ -245,7 +227,7 @@ public class CompilationReferenceResolverKernels {
             AddUniqueText(names, seen, "Microsoft.AspNetCore.App")
         }
 
-        foreach reference in references {
+        for reference in references {
             if reference.Type == ReferenceType.Framework {
                 AddUniqueText(names, seen, reference.Framework ?? "")
             }
@@ -254,12 +236,12 @@ public class CompilationReferenceResolverKernels {
         return names.ToArray()
     }
 
-    public static func GetSharedFrameworkRoot(sharedRoot: string, frameworkName: string): string {
+    static func GetSharedFrameworkRoot(sharedRoot: string, frameworkName: string): string {
         return Path.Combine(sharedRoot, frameworkName)
     }
 
-    public static func ShouldAddDllReference(references: IEnumerable<Reference>, fullPath: string): bool {
-        foreach reference in references {
+    static func ShouldAddDllReference(references: IEnumerable<Reference>, fullPath: string): bool {
+        for reference in references {
             if reference.Type == ReferenceType.Dll {
                 referencePath := reference.Dll
                 if !string.IsNullOrWhiteSpace(referencePath ?? "") {
@@ -273,19 +255,16 @@ public class CompilationReferenceResolverKernels {
         return true
     }
 
-    public static func GetNuGetReferences(
-        dependencies: IEnumerable<Reference>,
-        testDependencies: IEnumerable<Reference>,
-        includeTests: bool): List<Reference> {
+    static func GetNuGetReferences(dependencies: IEnumerable<Reference>, testDependencies: IEnumerable<Reference>, includeTests: bool): List<Reference> {
         references := new List<Reference>()
-        foreach reference in dependencies {
+        for reference in dependencies {
             if reference.Type == ReferenceType.NuGet {
                 references.Add(reference)
             }
         }
 
         if includeTests {
-            foreach reference in testDependencies {
+            for reference in testDependencies {
                 if reference.Type == ReferenceType.NuGet {
                     references.Add(reference)
                 }
@@ -295,20 +274,15 @@ public class CompilationReferenceResolverKernels {
         return references
     }
 
-    public static func GetProjectReferenceResolutionOptions(options: ReferenceResolutionOptions): ReferenceResolutionOptions {
-        return new ReferenceResolutionOptions(
-            options.Configuration,
-            false,
-            options.BuildProjectReferences,
-            options.Quiet,
-            options.AotMode)
+    static func GetProjectReferenceResolutionOptions(options: ReferenceResolutionOptions): ReferenceResolutionOptions {
+        return new ReferenceResolutionOptions(options.Configuration, false, options.BuildProjectReferences, options.Quiet, options.AotMode)
     }
 
-    public static func ShouldUseRuntimeAssembliesForCompile(compileAssemblyCount: int): bool {
+    static func ShouldUseRuntimeAssembliesForCompile(compileAssemblyCount: int): bool {
         return compileAssemblyCount == 0
     }
 
-    public static func GetPackageDependencies(rawIds: string?[], rawVersions: string?[]): PackageDependency[] {
+    static func GetPackageDependencies(rawIds: string?[], rawVersions: string?[]): PackageDependency[] {
         if rawIds.Length != rawVersions.Length {
             throw new ArgumentException("Package dependency id and version arrays must have the same length.")
         }
@@ -327,13 +301,11 @@ public class CompilationReferenceResolverKernels {
         return dependencies.ToArray()
     }
 
-    public static func GetProjectReferenceCycleMessage(chainRoots: string[]): string {
-        return "Project reference cycle detected: "
-            + string.Join(" -> ", chainRoots)
-            + ". Break the cycle in project.yml dependencies."
+    static func GetProjectReferenceCycleMessage(chainRoots: string[]): string {
+        return "Project reference cycle detected: " + string.Join(" -> ", chainRoots) + ". Break the cycle in project.yml dependencies."
     }
 
-    public static func GetCompilerDiagnosticsText(formattedDiagnostics: string[]): string {
+    static func GetCompilerDiagnosticsText(formattedDiagnostics: string[]): string {
         if formattedDiagnostics.Length == 0 {
             return "No compiler diagnostics were produced."
         }
@@ -341,47 +313,23 @@ public class CompilationReferenceResolverKernels {
         return string.Join(Environment.NewLine, formattedDiagnostics)
     }
 
-    public static func GetProjectReferenceBuildFailedMessage(projectYmlPath: string, diagnostics: string): string {
-        return "Project reference '"
-            + projectYmlPath
-            + "' failed to build:"
-            + Environment.NewLine
-            + diagnostics
+    static func GetProjectReferenceBuildFailedMessage(projectYmlPath: string, diagnostics: string): string {
+        return "Project reference '" + projectYmlPath + "' failed to build:" + Environment.NewLine + diagnostics
     }
 
-    public static func GetFrameworkReferenceNotResolvedMessage(
-        frameworkName: string,
-        projectRoot: string,
-        targetFramework: string): string {
-        return "Could not resolve framework reference '"
-            + frameworkName
-            + "' for project '"
-            + projectRoot
-            + "'. Install the "
-            + frameworkName
-            + " runtime for "
-            + targetFramework
-            + ", or remove the framework reference from project.yml."
+    static func GetFrameworkReferenceNotResolvedMessage(frameworkName: string, projectRoot: string, targetFramework: string): string {
+        return "Could not resolve framework reference '" + frameworkName + "' for project '" + projectRoot + "'. Install the " + frameworkName + " runtime for " + targetFramework + ", or remove the framework reference from project.yml."
     }
 
-    public static func GetNuGetNoPublishedVersionsMessage(packageName: string): string {
+    static func GetNuGetNoPublishedVersionsMessage(packageName: string): string {
         return "Package '" + packageName + "' has no published versions on NuGet.org."
     }
 
-    public static func GetNuGetRestoreFailedMessage(packageName: string, version: string, detail: string): string {
-        return "Could not restore NuGet package '"
-            + packageName
-            + "' version '"
-            + version
-            + "'. Check network access, NuGet.org availability, or pin a version already present in the local NuGet cache. Details: "
-            + detail
+    static func GetNuGetRestoreFailedMessage(packageName: string, version: string, detail: string): string {
+        return "Could not restore NuGet package '" + packageName + "' version '" + version + "'. Check network access, NuGet.org availability, or pin a version already present in the local NuGet cache. Details: " + detail
     }
 
-    public static func GetImplicitTestDependencyPlan(
-        includeTests: bool,
-        hasTests: bool,
-        testFramework: string?,
-        existingPackageIds: string[]): ImplicitTestDependencyPlan {
+    static func GetImplicitTestDependencyPlan(includeTests: bool, hasTests: bool, testFramework: string?, existingPackageIds: string[]): ImplicitTestDependencyPlan {
         if !includeTests || !hasTests {
             return new ImplicitTestDependencyPlan(false, "", "")
         }
@@ -400,16 +348,14 @@ public class CompilationReferenceResolverKernels {
         return new ImplicitTestDependencyPlan(true, packageName, version)
     }
 
-    public static func FilterReferencesByType(
-        references: IEnumerable<Reference>,
-        targetType: ReferenceType): List<Reference> {
+    static func FilterReferencesByType(references: IEnumerable<Reference>, targetType: ReferenceType): List<Reference> {
         targetTypeId := Convert.ToInt32(targetType)
         if targetTypeId < 0 || targetTypeId > Convert.ToInt32(ReferenceType.Framework) {
             throw new ArgumentOutOfRangeException("targetType", "Reference type is not supported.")
         }
 
         filteredReferences := new List<Reference>()
-        foreach reference in references {
+        for reference in references {
             typeId := Convert.ToInt32(reference.Type)
             if typeId < 0 || typeId > Convert.ToInt32(ReferenceType.Framework) {
                 throw new InvalidOperationException("N# reference resolver type filter received an unsupported reference type.")
@@ -423,7 +369,7 @@ public class CompilationReferenceResolverKernels {
         return filteredReferences
     }
 
-    public static func SelectBestScoreIndex(scores: int[], count: int): int {
+    static func SelectBestScoreIndex(scores: int[], count: int): int {
         if count < 0 || count > scores.Length {
             throw new ArgumentOutOfRangeException("count", "Score count must fit within the score array.")
         }
@@ -450,7 +396,7 @@ public class CompilationReferenceResolverKernels {
         return bestIndex
     }
 
-    public static func ParseTargetFrameworkVersion(targetFramework: string): TargetFrameworkVersionParseResult {
+    static func ParseTargetFrameworkVersion(targetFramework: string): TargetFrameworkVersionParseResult {
         result := new int[](2)
         code := TargetFrameworkVersionInto(targetFramework, result)
         if code != 0 {
@@ -466,7 +412,7 @@ public class CompilationReferenceResolverKernels {
         return new TargetFrameworkVersionParseResult(false, 0, 0)
     }
 
-    public static func GetFrameworkCompatibilityScore(assetFramework: string?, targetFramework: string): int {
+    static func GetFrameworkCompatibilityScore(assetFramework: string?, targetFramework: string): int {
         result := new int[](5)
         code := FrameworkCompatibilityScoreInto(assetFramework ?? "", targetFramework, result)
         if code != 1 {
@@ -476,7 +422,7 @@ public class CompilationReferenceResolverKernels {
         return result[0]
     }
 
-    public static func SelectBestAssetDirectoryIndex(candidateFrameworks: string[], targetFramework: string): int {
+    static func SelectBestAssetDirectoryIndex(candidateFrameworks: string[], targetFramework: string): int {
         scores := new int[](candidateFrameworks.Length)
         index := 0
         while index < candidateFrameworks.Length {
@@ -487,7 +433,7 @@ public class CompilationReferenceResolverKernels {
         return SelectBestScoreIndex(scores, scores.Length)
     }
 
-    public static func SelectBestAssetDirectory(candidateDirectories: string[], targetFramework: string): string? {
+    static func SelectBestAssetDirectory(candidateDirectories: string[], targetFramework: string): string? {
         candidateFrameworks := new string[](candidateDirectories.Length)
         index := 0
         while index < candidateDirectories.Length {
@@ -503,7 +449,7 @@ public class CompilationReferenceResolverKernels {
         return null
     }
 
-    public static func SelectBestDependencyGroupIndex(groupTargetFrameworks: string?[], targetFramework: string): int {
+    static func SelectBestDependencyGroupIndex(groupTargetFrameworks: string?[], targetFramework: string): int {
         scores := new int[](groupTargetFrameworks.Length)
         index := 0
         while index < groupTargetFrameworks.Length {
@@ -514,7 +460,7 @@ public class CompilationReferenceResolverKernels {
         return SelectBestScoreIndex(scores, scores.Length)
     }
 
-    public static func SortPathsIgnoreCase(paths: string[]): string[] {
+    static func SortPathsIgnoreCase(paths: string[]): string[] {
         sorted := new string[](paths.Length)
         index := 0
         while index < paths.Length {
@@ -526,7 +472,7 @@ public class CompilationReferenceResolverKernels {
         return sorted
     }
 
-    public static func NormalizeNuGetDependencyVersion(version: string?): string? {
+    static func NormalizeNuGetDependencyVersion(version: string?): string? {
         source := version ?? ""
         result := new int[](2)
         code := NuGetDependencyVersionRangeInto(source, result)
@@ -551,9 +497,7 @@ public class CompilationReferenceResolverKernels {
         return source.Substring(start, length)
     }
 
-    public static func SelectSharedFrameworkCandidateIndex(
-        versions: Version[],
-        targetMajor: int?): int {
+    static func SelectSharedFrameworkCandidateIndex(versions: Version[], targetMajor: int?): int {
         count := versions.Length
         if count <= 0 {
             return -1
@@ -592,9 +536,7 @@ public class CompilationReferenceResolverKernels {
         return bestOverallIndex
     }
 
-    public static func SelectSharedFrameworkDirectoryIndex(
-        versionNames: string[],
-        targetVersion: TargetFrameworkVersionParseResult): int {
+    static func SelectSharedFrameworkDirectoryIndex(versionNames: string[], targetVersion: TargetFrameworkVersionParseResult): int {
         current := new int[](4)
         bestOverall := new int[](4)
         bestMatching := new int[](4)
@@ -634,7 +576,7 @@ public class CompilationReferenceResolverKernels {
         return bestOverallIndex
     }
 
-    public static func SelectSharedFrameworkDirectory(candidateDirectories: string[], targetFramework: string): string? {
+    static func SelectSharedFrameworkDirectory(candidateDirectories: string[], targetFramework: string): string? {
         targetVersion := ParseTargetFrameworkVersion(targetFramework)
         candidateVersions := new string[](candidateDirectories.Length)
         index := 0
@@ -651,7 +593,7 @@ public class CompilationReferenceResolverKernels {
         return null
     }
 
-    public static func SelectLatestNuGetVersionIndex(versions: string[]): int {
+    static func SelectLatestNuGetVersionIndex(versions: string[]): int {
         if versions.Length == 0 {
             return -1
         }
@@ -673,7 +615,7 @@ public class CompilationReferenceResolverKernels {
         return versions.Length - 1
     }
 
-    public static func SelectBestNuGetVersionIndex(versions: string[]): int {
+    static func SelectBestNuGetVersionIndex(versions: string[]): int {
         if versions.Length == 0 {
             return -1
         }
@@ -693,7 +635,7 @@ public class CompilationReferenceResolverKernels {
         return bestIndex
     }
 
-    public static func PathHasSegmentIgnoreCase(path: string, separator: char, segment: string): bool {
+    static func PathHasSegmentIgnoreCase(path: string, separator: char, segment: string): bool {
         segmentStart := 0
         index := 0
         while index <= path.Length {
@@ -801,12 +743,7 @@ public class CompilationReferenceResolverKernels {
         return segmentCount > 0
     }
 
-    static func TryParseVersionIntSegment(
-        text: string,
-        start: int,
-        end: int,
-        result: int[],
-        resultIndex: int): bool {
+    static func TryParseVersionIntSegment(text: string, start: int, end: int, result: int[], resultIndex: int): bool {
         if start >= end {
             return false
         }
@@ -1080,12 +1017,7 @@ public class CompilationReferenceResolverKernels {
         return 0
     }
 
-    static func NuGetVersionTryParseIntSegment(
-        text: string,
-        start: int,
-        end: int,
-        result: int[],
-        resultIndex: int): bool {
+    static func NuGetVersionTryParseIntSegment(text: string, start: int, end: int, result: int[], resultIndex: int): bool {
         if start >= end {
             return false
         }
@@ -1193,12 +1125,7 @@ public class CompilationReferenceResolverKernels {
         return 1
     }
 
-    static func TryParseIntSegment(
-        text: string,
-        start: int,
-        end: int,
-        result: int[],
-        resultIndex: int): bool {
+    static func TryParseIntSegment(text: string, start: int, end: int, result: int[], resultIndex: int): bool {
         if start >= end {
             return false
         }
@@ -1332,13 +1259,7 @@ public class CompilationReferenceResolverKernels {
         return end
     }
 
-    static func FrameworkNormalizedEquals(
-        left: string,
-        leftStart: int,
-        leftEnd: int,
-        right: string,
-        rightStart: int,
-        rightEnd: int): bool {
+    static func FrameworkNormalizedEquals(left: string, leftStart: int, leftEnd: int, right: string, rightStart: int, rightEnd: int): bool {
         leftLength := FrameworkNormalizedLength(left, leftStart, leftEnd)
         if leftLength != FrameworkNormalizedLength(right, rightStart, rightEnd) {
             return false
@@ -1609,14 +1530,7 @@ public class CompilationReferenceResolverKernels {
         return true
     }
 
-    static func FrameworkTryParseNormalizedIntSegment(
-        text: string,
-        start: int,
-        end: int,
-        segmentStart: int,
-        segmentEnd: int,
-        result: int[],
-        resultIndex: int): bool {
+    static func FrameworkTryParseNormalizedIntSegment(text: string, start: int, end: int, segmentStart: int, segmentEnd: int, result: int[], resultIndex: int): bool {
         if segmentStart >= segmentEnd {
             return false
         }

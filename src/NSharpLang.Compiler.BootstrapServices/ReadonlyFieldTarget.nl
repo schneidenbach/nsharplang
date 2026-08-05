@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public class ReadonlyFieldTarget {
+class ReadonlyFieldTarget {
     Name: string
     IsStatic: bool
     IsCurrentInstance: bool

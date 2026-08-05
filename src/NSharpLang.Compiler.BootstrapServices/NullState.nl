@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum NullState {
+enum NullState {
     Unknown,
     Null,
     MaybeNull,
@@ -8,8 +8,8 @@ public enum NullState {
     Oblivious
 }
 
-public class NullStateFacts {
-    public static func GetDiagnosticText(state: NullState): string {
+class NullStateFacts {
+    static func GetDiagnosticText(state: NullState): string {
         if state == NullState.Null {
             return "null"
         }
@@ -29,7 +29,7 @@ public class NullStateFacts {
         return "unknown"
     }
 
-    public static func GetSchemaText(state: NullState): string {
+    static func GetSchemaText(state: NullState): string {
         if state == NullState.Null {
             return "null"
         }

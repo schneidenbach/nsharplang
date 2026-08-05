@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-public enum SymbolKind {
+enum SymbolKind {
     Function,
     Class,
     Struct,
@@ -19,7 +19,7 @@ public enum SymbolKind {
     Test
 }
 
-public class SymbolResult {
+class SymbolResult {
     nameValue: string
     kindValue: SymbolKind
     fileValue: string
@@ -31,48 +31,84 @@ public class SymbolResult {
     parametersValue: ParameterResult[]?
 
     Name: string {
-        get { return nameValue }
-        set { nameValue = value }
+        get {
+            return nameValue
+        }
+        set {
+            nameValue = value
+        }
     }
 
     Kind: SymbolKind {
-        get { return kindValue }
-        set { kindValue = value }
+        get {
+            return kindValue
+        }
+        set {
+            kindValue = value
+        }
     }
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     TypeName: string? {
-        get { return typeNameValue }
-        set { typeNameValue = value }
+        get {
+            return typeNameValue
+        }
+        set {
+            typeNameValue = value
+        }
     }
 
     Modifiers: string[]? {
-        get { return modifiersValue }
-        set { modifiersValue = value }
+        get {
+            return modifiersValue
+        }
+        set {
+            modifiersValue = value
+        }
     }
 
     Members: SymbolResult[]? {
-        get { return membersValue }
-        set { membersValue = value }
+        get {
+            return membersValue
+        }
+        set {
+            membersValue = value
+        }
     }
 
     Parameters: ParameterResult[]? {
-        get { return parametersValue }
-        set { parametersValue = value }
+        get {
+            return parametersValue
+        }
+        set {
+            parametersValue = value
+        }
     }
 
     constructor(Name: string, Kind: SymbolKind, File: string, Line: int, Column: int, TypeName: string?, Modifiers: string[]?, Members: SymbolResult[]?, Parameters: ParameterResult[]?) {
@@ -88,24 +124,36 @@ public class SymbolResult {
     }
 }
 
-public class OutlineResult {
+class OutlineResult {
     fileValue: string
     importsValue: string[]
     outlineValue: OutlineEntry[]
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Imports: string[] {
-        get { return importsValue }
-        set { importsValue = value }
+        get {
+            return importsValue
+        }
+        set {
+            importsValue = value
+        }
     }
 
     Outline: OutlineEntry[] {
-        get { return outlineValue }
-        set { outlineValue = value }
+        get {
+            return outlineValue
+        }
+        set {
+            outlineValue = value
+        }
     }
 
     constructor(File: string, Imports: string[], Outline: OutlineEntry[]) {
@@ -115,7 +163,7 @@ public class OutlineResult {
     }
 }
 
-public class OutlineEntry {
+class OutlineEntry {
     nameValue: string
     kindValue: SymbolKind
     lineValue: int
@@ -125,38 +173,66 @@ public class OutlineEntry {
     childrenValue: OutlineEntry[]?
 
     Name: string {
-        get { return nameValue }
-        set { nameValue = value }
+        get {
+            return nameValue
+        }
+        set {
+            nameValue = value
+        }
     }
 
     Kind: SymbolKind {
-        get { return kindValue }
-        set { kindValue = value }
+        get {
+            return kindValue
+        }
+        set {
+            kindValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     EndLine: int {
-        get { return endLineValue }
-        set { endLineValue = value }
+        get {
+            return endLineValue
+        }
+        set {
+            endLineValue = value
+        }
     }
 
     ReturnType: string? {
-        get { return returnTypeValue }
-        set { returnTypeValue = value }
+        get {
+            return returnTypeValue
+        }
+        set {
+            returnTypeValue = value
+        }
     }
 
     TypeName: string? {
-        get { return typeNameValue }
-        set { typeNameValue = value }
+        get {
+            return typeNameValue
+        }
+        set {
+            typeNameValue = value
+        }
     }
 
     Children: OutlineEntry[]? {
-        get { return childrenValue }
-        set { childrenValue = value }
+        get {
+            return childrenValue
+        }
+        set {
+            childrenValue = value
+        }
     }
 
     constructor(Name: string, Kind: SymbolKind, Line: int, EndLine: int, ReturnType: string?, TypeName: string?, Children: OutlineEntry[]?) {
@@ -170,7 +246,7 @@ public class OutlineEntry {
     }
 }
 
-public class DiagnosticResult {
+class DiagnosticResult {
     codeValue: string
     severityValue: string
     messageValue: string
@@ -187,90 +263,132 @@ public class DiagnosticResult {
     docsUrlValue: string?
 
     Code: string {
-        get { return codeValue }
-        set { codeValue = value }
+        get {
+            return codeValue
+        }
+        set {
+            codeValue = value
+        }
     }
 
     Severity: string {
-        get { return severityValue }
-        set { severityValue = value }
+        get {
+            return severityValue
+        }
+        set {
+            severityValue = value
+        }
     }
 
     Message: string {
-        get { return messageValue }
-        set { messageValue = value }
+        get {
+            return messageValue
+        }
+        set {
+            messageValue = value
+        }
     }
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     Length: int {
-        get { return lengthValue }
-        set { lengthValue = value }
+        get {
+            return lengthValue
+        }
+        set {
+            lengthValue = value
+        }
     }
 
     SourceSnippet: string? {
-        get { return sourceSnippetValue }
-        set { sourceSnippetValue = value }
+        get {
+            return sourceSnippetValue
+        }
+        set {
+            sourceSnippetValue = value
+        }
     }
 
     Explanation: string? {
-        get { return explanationValue }
-        set { explanationValue = value }
+        get {
+            return explanationValue
+        }
+        set {
+            explanationValue = value
+        }
     }
 
     Suggestion: string? {
-        get { return suggestionValue }
-        set { suggestionValue = value }
+        get {
+            return suggestionValue
+        }
+        set {
+            suggestionValue = value
+        }
     }
 
     Hint: string? {
-        get { return hintValue }
-        set { hintValue = value }
+        get {
+            return hintValue
+        }
+        set {
+            hintValue = value
+        }
     }
 
     ExpectedType: string? {
-        get { return expectedTypeValue }
-        set { expectedTypeValue = value }
+        get {
+            return expectedTypeValue
+        }
+        set {
+            expectedTypeValue = value
+        }
     }
 
     ActualType: string? {
-        get { return actualTypeValue }
-        set { actualTypeValue = value }
+        get {
+            return actualTypeValue
+        }
+        set {
+            actualTypeValue = value
+        }
     }
 
     DocsUrl: string? {
-        get { return docsUrlValue }
-        set { docsUrlValue = value }
+        get {
+            return docsUrlValue
+        }
+        set {
+            docsUrlValue = value
+        }
     }
 
-    constructor(
-        Code: string,
-        Severity: string,
-        Message: string,
-        File: string,
-        Line: int,
-        Column: int,
-        Length: int,
-        SourceSnippet: string?,
-        Explanation: string?,
-        Suggestion: string?,
-        Hint: string?,
-        ExpectedType: string?,
-        ActualType: string?,
-        DocsUrl: string?) {
+    constructor(Code: string, Severity: string, Message: string, File: string, Line: int, Column: int, Length: int, SourceSnippet: string?, Explanation: string?, Suggestion: string?, Hint: string?, ExpectedType: string?, ActualType: string?, DocsUrl: string?) {
         codeValue = Code
         severityValue = Severity
         messageValue = Message
@@ -288,7 +406,7 @@ public class DiagnosticResult {
     }
 }
 
-public class TypeResult {
+class TypeResult {
     nameValue: string
     resolvedTypeValue: string
     kindValue: string
@@ -296,28 +414,48 @@ public class TypeResult {
     nullabilityValue: string?
 
     Name: string {
-        get { return nameValue }
-        set { nameValue = value }
+        get {
+            return nameValue
+        }
+        set {
+            nameValue = value
+        }
     }
 
     ResolvedType: string {
-        get { return resolvedTypeValue }
-        set { resolvedTypeValue = value }
+        get {
+            return resolvedTypeValue
+        }
+        set {
+            resolvedTypeValue = value
+        }
     }
 
     Kind: string {
-        get { return kindValue }
-        set { kindValue = value }
+        get {
+            return kindValue
+        }
+        set {
+            kindValue = value
+        }
     }
 
     Definition: LocationResult? {
-        get { return definitionValue }
-        set { definitionValue = value }
+        get {
+            return definitionValue
+        }
+        set {
+            definitionValue = value
+        }
     }
 
     Nullability: string? {
-        get { return nullabilityValue }
-        set { nullabilityValue = value }
+        get {
+            return nullabilityValue
+        }
+        set {
+            nullabilityValue = value
+        }
     }
 
     constructor(Name: string, ResolvedType: string, Kind: string, Definition: LocationResult?, Nullability: string? = null) {
@@ -329,7 +467,7 @@ public class TypeResult {
     }
 }
 
-public class DefinitionResult {
+class DefinitionResult {
     nameValue: string
     kindValue: string
     fileValue: string
@@ -338,33 +476,57 @@ public class DefinitionResult {
     lengthValue: int
 
     Name: string {
-        get { return nameValue }
-        set { nameValue = value }
+        get {
+            return nameValue
+        }
+        set {
+            nameValue = value
+        }
     }
 
     Kind: string {
-        get { return kindValue }
-        set { kindValue = value }
+        get {
+            return kindValue
+        }
+        set {
+            kindValue = value
+        }
     }
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     Length: int {
-        get { return lengthValue }
-        set { lengthValue = value }
+        get {
+            return lengthValue
+        }
+        set {
+            lengthValue = value
+        }
     }
 
     constructor(Name: string, Kind: string, File: string, Line: int, Column: int, Length: int) {
@@ -377,7 +539,7 @@ public class DefinitionResult {
     }
 }
 
-public class ReferenceResult {
+class ReferenceResult {
     fileValue: string
     lineValue: int
     columnValue: int
@@ -386,33 +548,57 @@ public class ReferenceResult {
     isDefinitionValue: bool
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     Length: int {
-        get { return lengthValue }
-        set { lengthValue = value }
+        get {
+            return lengthValue
+        }
+        set {
+            lengthValue = value
+        }
     }
 
     Context: string? {
-        get { return contextValue }
-        set { contextValue = value }
+        get {
+            return contextValue
+        }
+        set {
+            contextValue = value
+        }
     }
 
     IsDefinition: bool {
-        get { return isDefinitionValue }
-        set { isDefinitionValue = value }
+        get {
+            return isDefinitionValue
+        }
+        set {
+            isDefinitionValue = value
+        }
     }
 
     constructor(File: string, Line: int, Column: int, Length: int, Context: string?, IsDefinition: bool) {
@@ -425,24 +611,36 @@ public class ReferenceResult {
     }
 }
 
-public class LocationResult {
+class LocationResult {
     fileValue: string
     lineValue: int
     columnValue: int
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     constructor(File: string, Line: int, Column: int) {
@@ -452,24 +650,36 @@ public class LocationResult {
     }
 }
 
-public class InspectSymbolResult {
+class InspectSymbolResult {
     nameValue: string
     kindValue: string
     definitionValue: LocationResult?
 
     Name: string {
-        get { return nameValue }
-        set { nameValue = value }
+        get {
+            return nameValue
+        }
+        set {
+            nameValue = value
+        }
     }
 
     Kind: string {
-        get { return kindValue }
-        set { kindValue = value }
+        get {
+            return kindValue
+        }
+        set {
+            kindValue = value
+        }
     }
 
     Definition: LocationResult? {
-        get { return definitionValue }
-        set { definitionValue = value }
+        get {
+            return definitionValue
+        }
+        set {
+            definitionValue = value
+        }
     }
 
     constructor(Name: string, Kind: string, Definition: LocationResult?) {
@@ -479,24 +689,36 @@ public class InspectSymbolResult {
     }
 }
 
-public class InspectReferencesResult {
+class InspectReferencesResult {
     countValue: int
     definitionCountValue: int
     resultsValue: ReferenceResult[]
 
     Count: int {
-        get { return countValue }
-        set { countValue = value }
+        get {
+            return countValue
+        }
+        set {
+            countValue = value
+        }
     }
 
     DefinitionCount: int {
-        get { return definitionCountValue }
-        set { definitionCountValue = value }
+        get {
+            return definitionCountValue
+        }
+        set {
+            definitionCountValue = value
+        }
     }
 
     Results: ReferenceResult[] {
-        get { return resultsValue }
-        set { resultsValue = value }
+        get {
+            return resultsValue
+        }
+        set {
+            resultsValue = value
+        }
     }
 
     constructor(Count: int, DefinitionCount: int, Results: ReferenceResult[]) {
@@ -506,7 +728,7 @@ public class InspectReferencesResult {
     }
 }
 
-public class InspectResult {
+class InspectResult {
     symbolValue: InspectSymbolResult?
     typeValue: TypeResult?
     definitionValue: DefinitionResult?
@@ -514,28 +736,48 @@ public class InspectResult {
     completionsValue: CompletionResult
 
     Symbol: InspectSymbolResult? {
-        get { return symbolValue }
-        set { symbolValue = value }
+        get {
+            return symbolValue
+        }
+        set {
+            symbolValue = value
+        }
     }
 
     Type: TypeResult? {
-        get { return typeValue }
-        set { typeValue = value }
+        get {
+            return typeValue
+        }
+        set {
+            typeValue = value
+        }
     }
 
     Definition: DefinitionResult? {
-        get { return definitionValue }
-        set { definitionValue = value }
+        get {
+            return definitionValue
+        }
+        set {
+            definitionValue = value
+        }
     }
 
     References: InspectReferencesResult {
-        get { return referencesValue }
-        set { referencesValue = value }
+        get {
+            return referencesValue
+        }
+        set {
+            referencesValue = value
+        }
     }
 
     Completions: CompletionResult {
-        get { return completionsValue }
-        set { completionsValue = value }
+        get {
+            return completionsValue
+        }
+        set {
+            completionsValue = value
+        }
     }
 
     constructor(Symbol: InspectSymbolResult?, Type: TypeResult?, Definition: DefinitionResult?, References: InspectReferencesResult, Completions: CompletionResult) {
@@ -547,7 +789,7 @@ public class InspectResult {
     }
 }
 
-public class InspectSummaryResult {
+class InspectSummaryResult {
     symbolValue: InspectSummarySymbolResult?
     typeValue: InspectSummaryTypeResult?
     definitionValue: LocationResult?
@@ -555,28 +797,48 @@ public class InspectSummaryResult {
     completionsValue: InspectSummaryCompletionsResult
 
     Symbol: InspectSummarySymbolResult? {
-        get { return symbolValue }
-        set { symbolValue = value }
+        get {
+            return symbolValue
+        }
+        set {
+            symbolValue = value
+        }
     }
 
     Type: InspectSummaryTypeResult? {
-        get { return typeValue }
-        set { typeValue = value }
+        get {
+            return typeValue
+        }
+        set {
+            typeValue = value
+        }
     }
 
     Definition: LocationResult? {
-        get { return definitionValue }
-        set { definitionValue = value }
+        get {
+            return definitionValue
+        }
+        set {
+            definitionValue = value
+        }
     }
 
     References: InspectSummaryReferencesResult {
-        get { return referencesValue }
-        set { referencesValue = value }
+        get {
+            return referencesValue
+        }
+        set {
+            referencesValue = value
+        }
     }
 
     Completions: InspectSummaryCompletionsResult {
-        get { return completionsValue }
-        set { completionsValue = value }
+        get {
+            return completionsValue
+        }
+        set {
+            completionsValue = value
+        }
     }
 
     constructor(Symbol: InspectSummarySymbolResult?, Type: InspectSummaryTypeResult?, Definition: LocationResult?, References: InspectSummaryReferencesResult, Completions: InspectSummaryCompletionsResult) {
@@ -588,30 +850,46 @@ public class InspectSummaryResult {
     }
 }
 
-public class InspectReferenceSummaryResult {
+class InspectReferenceSummaryResult {
     fileValue: string
     lineValue: int
     columnValue: int
     isDefinitionValue: bool
 
     File: string {
-        get { return fileValue }
-        set { fileValue = value }
+        get {
+            return fileValue
+        }
+        set {
+            fileValue = value
+        }
     }
 
     Line: int {
-        get { return lineValue }
-        set { lineValue = value }
+        get {
+            return lineValue
+        }
+        set {
+            lineValue = value
+        }
     }
 
     Column: int {
-        get { return columnValue }
-        set { columnValue = value }
+        get {
+            return columnValue
+        }
+        set {
+            columnValue = value
+        }
     }
 
     IsDefinition: bool {
-        get { return isDefinitionValue }
-        set { isDefinitionValue = value }
+        get {
+            return isDefinitionValue
+        }
+        set {
+            isDefinitionValue = value
+        }
     }
 
     constructor(File: string, Line: int, Column: int, IsDefinition: bool) {
@@ -622,30 +900,46 @@ public class InspectReferenceSummaryResult {
     }
 }
 
-public class InspectSummaryReferencesResult {
+class InspectSummaryReferencesResult {
     countValue: int
     definitionCountValue: int
     filesValue: string[]
     sampleValue: InspectReferenceSummaryResult[]
 
     Count: int {
-        get { return countValue }
-        set { countValue = value }
+        get {
+            return countValue
+        }
+        set {
+            countValue = value
+        }
     }
 
     DefinitionCount: int {
-        get { return definitionCountValue }
-        set { definitionCountValue = value }
+        get {
+            return definitionCountValue
+        }
+        set {
+            definitionCountValue = value
+        }
     }
 
     Files: string[] {
-        get { return filesValue }
-        set { filesValue = value }
+        get {
+            return filesValue
+        }
+        set {
+            filesValue = value
+        }
     }
 
     Sample: InspectReferenceSummaryResult[] {
-        get { return sampleValue }
-        set { sampleValue = value }
+        get {
+            return sampleValue
+        }
+        set {
+            sampleValue = value
+        }
     }
 
     constructor(Count: int, DefinitionCount: int, Files: string[], Sample: InspectReferenceSummaryResult[]) {

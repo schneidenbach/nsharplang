@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // THE SOURCE BINDER'S WALK — overload selection, match scoring and generic inference for a call to
 // an N#-DECLARED function, plus the span the constraint reports anchor on.
 //
@@ -33,8 +34,7 @@ import NSharpLang.Compiler.Ast
 // THE GATE SEQUENCE IS STATED ONCE. `TryGetScoringPlacement` is the arity-and-placement gate a
 // candidate must clear before it is scored at all, and BOTH the scorer and the receiver-type
 // question read it, so the two can never disagree about which candidates reach the inference walk.
-public class AnalyzerSyntheticCallWalk {
-
+class AnalyzerSyntheticCallWalk {
     typeResolver: AnalyzerTypeResolver
     binder: AnalyzerSyntheticCallBinder
     reporter: AnalyzerSyntheticCallReporter
@@ -43,14 +43,7 @@ public class AnalyzerSyntheticCallWalk {
     spans: AnalyzerDiagnosticSpans
     diagnostics: AnalyzerDiagnosticSink
 
-    constructor(
-        resolver: AnalyzerTypeResolver,
-        callBinder: AnalyzerSyntheticCallBinder,
-        callReporter: AnalyzerSyntheticCallReporter,
-        scoring: AnalyzerOverloadScoring,
-        assignabilityOwner: AnalyzerAssignability,
-        spanResolver: AnalyzerDiagnosticSpans,
-        diagnosticSink: AnalyzerDiagnosticSink) {
+    constructor(resolver: AnalyzerTypeResolver, callBinder: AnalyzerSyntheticCallBinder, callReporter: AnalyzerSyntheticCallReporter, scoring: AnalyzerOverloadScoring, assignabilityOwner: AnalyzerAssignability, spanResolver: AnalyzerDiagnosticSpans, diagnosticSink: AnalyzerDiagnosticSink) {
         typeResolver = resolver
         binder = callBinder
         reporter = callReporter
@@ -69,7 +62,7 @@ public class AnalyzerSyntheticCallWalk {
     // a start index of zero means the first parameter is supplied positionally, so there is no
     // receiver to read. `GetSyntheticParameterStartIndex` is 1 only for a `this` parameter invoked
     // THROUGH a member access, so the member-access half needs no separate test here.
-    public static func NeedsReceiverType(functionType: FunctionTypeInfo, call: CallExpression): bool {
+    static func NeedsReceiverType(functionType: FunctionTypeInfo, call: CallExpression): bool {
         typeParameters := functionType.TypeParameters
         if typeParameters == null || typeParameters.Count == 0 {
             return false
@@ -94,10 +87,7 @@ public class AnalyzerSyntheticCallWalk {
     // reach the inference walk's receiver arm? A candidate the arity tables reject never gets
     // there, so asking `NeedsReceiverType` alone would over-answer and analyse a receiver the
     // current walk never touches.
-    public func AnyCandidateNeedsReceiverType(
-        candidates: IReadOnlyList<FunctionTypeInfo>,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>): bool {
+    func AnyCandidateNeedsReceiverType(candidates: IReadOnlyList<FunctionTypeInfo>, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>): bool {
         index := 0
         while index < candidates.Count {
             candidate := candidates[index]
@@ -123,11 +113,7 @@ public class AnalyzerSyntheticCallWalk {
     // defaults is less specific than one that did not), and anything still tied is AMBIGUOUS and
     // says so. A later candidate never displaces an equally specific earlier one, so declaration
     // order is not a tiebreak.
-    public func BindNSharpCall(
-        candidates: IReadOnlyList<FunctionTypeInfo>,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        receiverType: TypeInfo?): FunctionTypeInfo? {
+    func BindNSharpCall(candidates: IReadOnlyList<FunctionTypeInfo>, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): FunctionTypeInfo? {
         bestIndex := -1
         bestScore := -1
         ambiguous := false
@@ -171,31 +157,27 @@ public class AnalyzerSyntheticCallWalk {
             bestStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(best, call)
             currentArgumentCount := Math.Max(0, currentParameterCount - currentStartIndex)
             bestArgumentCount := Math.Max(0, bestParameterCount - bestStartIndex)
-            currentHasParams := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-                candidate, currentParameterCount) >= 0
-            bestHasParams := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-                best, bestParameterCount) >= 0
-            currentGenericParameterCost := AnalyzerSyntheticCallFacts.GetGenericParameterCost(
-                candidate, call, argTypes)
-            bestGenericParameterCost := AnalyzerSyntheticCallFacts.GetGenericParameterCost(
-                best, call, argTypes)
+            currentHasParams := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(candidate, currentParameterCount) >= 0
+            bestHasParams := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(best, bestParameterCount) >= 0
+            currentGenericParameterCost := AnalyzerSyntheticCallFacts.GetGenericParameterCost(candidate, call, argTypes)
+            bestGenericParameterCost := AnalyzerSyntheticCallFacts.GetGenericParameterCost(best, call, argTypes)
 
             if currentGenericParameterCost < bestGenericParameterCost {
                 bestIndex = currentIndex
                 ambiguous = false
             } else if currentGenericParameterCost > bestGenericParameterCost {
-                // Best overload has fewer direct generic-parameter matches.
             } else if bestHasParams && !currentHasParams {
+                // Best overload has fewer direct generic-parameter matches.
                 bestIndex = currentIndex
                 ambiguous = false
             } else if !bestHasParams && currentHasParams {
-                // Best non-params overload remains more specific.
             } else if currentArgumentCount > bestArgumentCount {
+                // Best non-params overload remains more specific.
                 bestIndex = currentIndex
                 ambiguous = false
             } else if currentArgumentCount < bestArgumentCount {
-                // Best overload uses fewer defaults.
             } else {
+                // Best overload uses fewer defaults.
                 ambiguous = true
             }
         }
@@ -207,14 +189,7 @@ public class AnalyzerSyntheticCallWalk {
         bestFunction := candidates[bestIndex]
         if ambiguous {
             functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(bestFunction, call)
-            diagnostics.Report(
-                ErrorCode.InvalidSyntax,
-                "Ambiguous call to '" + functionName
-                    + "': multiple overloads match with equal specificity",
-                call.Line,
-                call.Column,
-                null,
-                0)
+            diagnostics.Report(ErrorCode.InvalidSyntax, "Ambiguous call to '" + functionName + "': multiple overloads match with equal specificity", call.Line, call.Column, null, 0)
         }
 
         return bestFunction
@@ -227,11 +202,7 @@ public class AnalyzerSyntheticCallWalk {
     // A position that compares UNKNOWN on either side, or an SoA row, is SKIPPED rather than
     // rejected: the arity tables already admitted the candidate and an unresolvable position must
     // not be turned into a rejection the user cannot act on.
-    public func GetCallMatchScore(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        receiverType: TypeInfo?): int {
+    func GetCallMatchScore(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): int {
         parameterIndexByArgument: int[] = new int[0]
         if !TryGetScoringPlacement(functionType, call, argTypes, out parameterIndexByArgument) {
             return -1
@@ -244,8 +215,7 @@ public class AnalyzerSyntheticCallWalk {
 
         expectedCount := parameterTypes.Count
         parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
-        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-            functionType, expectedCount)
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, expectedCount)
         genericBindings := InferGenericBindings(functionType, call, argTypes, receiverType)
 
         score := 0
@@ -258,15 +228,7 @@ public class AnalyzerSyntheticCallWalk {
                 continue
             }
 
-            comparison := binder.GetArgumentComparisonTypes(
-                functionType,
-                call,
-                argTypes,
-                currentArgument,
-                parameterIndex,
-                paramsParameterIndex,
-                parameterStartIndex,
-                genericBindings)
+            comparison := binder.GetArgumentComparisonTypes(functionType, call, argTypes, currentArgument, parameterIndex, paramsParameterIndex, parameterStartIndex, genericBindings)
             if !comparison.Matched {
                 return -1
             }
@@ -299,11 +261,7 @@ public class AnalyzerSyntheticCallWalk {
     // band (a params tail removes the upper bound), when every written argument reaches a
     // parameter, and when the call did not write MORE type arguments than the signature declares.
     // Placement is asked with `reportErrors: false` — this is a question, not a report.
-    func TryGetScoringPlacement(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        out parameterIndexByArgument: int[]): bool {
+    func TryGetScoringPlacement(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, out parameterIndexByArgument: int[]): bool {
         parameterIndexByArgument = new int[0]
         parameterTypes := functionType.ParameterTypes
         if parameterTypes == null {
@@ -312,11 +270,9 @@ public class AnalyzerSyntheticCallWalk {
 
         expectedCount := parameterTypes.Count
         parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
-        requiredCount := AnalyzerOverloadFacts.GetSyntheticRequiredArgumentCount(
-            functionType, expectedCount, parameterStartIndex)
+        requiredCount := AnalyzerOverloadFacts.GetSyntheticRequiredArgumentCount(functionType, expectedCount, parameterStartIndex)
         expectedArgumentCount := Math.Max(0, expectedCount - parameterStartIndex)
-        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-            functionType, expectedCount)
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, expectedCount)
         hasParamsParameter := paramsParameterIndex >= 0
         if argTypes.Count < requiredCount {
             return false
@@ -328,8 +284,7 @@ public class AnalyzerSyntheticCallWalk {
 
         functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
         bound: int[] = new int[0]
-        if !reporter.TryBindAndReport(
-                functionType, functionName, call, out bound, parameterStartIndex, false) {
+        if !reporter.TryBindAndReport(functionType, functionName, call, out bound, parameterStartIndex, false) {
             return false
         }
 
@@ -356,11 +311,7 @@ public class AnalyzerSyntheticCallWalk {
     //
     // The params tail infers from its ELEMENT, so `params xs: T[]` called as `f(1, 2)` binds
     // `T = int` rather than `T = int[]`.
-    public func InferGenericBindings(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        receiverType: TypeInfo?): Dictionary<string, TypeInfo>? {
+    func InferGenericBindings(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): Dictionary<string, TypeInfo>? {
         typeParameters := functionType.TypeParameters
         if typeParameters == null || typeParameters.Count == 0 {
             return null
@@ -382,8 +333,7 @@ public class AnalyzerSyntheticCallWalk {
 
             argumentIndex := 0
             while argumentIndex < typeArguments.Count {
-                bindings[typeParameters[argumentIndex].Name] = typeResolver.ResolveType(
-                    typeArguments[argumentIndex])
+                bindings[typeParameters[argumentIndex].Name] = typeResolver.ResolveType(typeArguments[argumentIndex])
                 argumentIndex = argumentIndex + 1
             }
 
@@ -400,23 +350,15 @@ public class AnalyzerSyntheticCallWalk {
         functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
         parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
         if parameterStartIndex > 0 && receiverType != null {
-            binder.CollectTypeParameterBounds(
-                sourceParameterTypes[0], receiverType, typeParameters, allBounds)
+            binder.CollectTypeParameterBounds(sourceParameterTypes[0], receiverType, typeParameters, allBounds)
         }
 
         parameterIndexByArgument: int[] = new int[0]
-        if !reporter.TryBindAndReport(
-                functionType,
-                functionName,
-                call,
-                out parameterIndexByArgument,
-                parameterStartIndex,
-                false) {
+        if !reporter.TryBindAndReport(functionType, functionName, call, out parameterIndexByArgument, parameterStartIndex, false) {
             return bindings
         }
 
-        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-            functionType, sourceParameterTypes.Count)
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, sourceParameterTypes.Count)
         walkIndex := 0
         while walkIndex < call.Arguments.Count && walkIndex < argTypes.Count {
             parameterIndex := parameterIndexByArgument[walkIndex]
@@ -424,14 +366,11 @@ public class AnalyzerSyntheticCallWalk {
                 parameterTypeRef := sourceParameterTypes[parameterIndex]
                 argumentType := argTypes[walkIndex]
                 if paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex {
-                    parameterTypeRef = AnalyzerOverloadFacts.GetParamsInferenceTypeReference(
-                        parameterTypeRef)
-                    argumentType = overloadScoring.GetParamsInferenceArgumentType(
-                        call.Arguments[walkIndex], argumentType)
+                    parameterTypeRef = AnalyzerOverloadFacts.GetParamsInferenceTypeReference(parameterTypeRef)
+                    argumentType = overloadScoring.GetParamsInferenceArgumentType(call.Arguments[walkIndex], argumentType)
                 }
 
-                binder.CollectTypeParameterBounds(
-                    parameterTypeRef, argumentType, typeParameters, allBounds)
+                binder.CollectTypeParameterBounds(parameterTypeRef, argumentType, typeParameters, allBounds)
             }
 
             walkIndex = walkIndex + 1
@@ -467,11 +406,7 @@ public class AnalyzerSyntheticCallWalk {
     // parameter declared as that bare type parameter: with none there is nothing to point at, and
     // with two the report would have to pick one arbitrarily. Every other case falls back to the
     // call itself, which is always available and never wrong.
-    public func GetGenericConstraintDiagnosticSpan(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        typeParameter: string,
-        functionName: string): DiagnosticSpan {
+    func GetGenericConstraintDiagnosticSpan(functionType: FunctionTypeInfo, call: CallExpression, typeParameter: string, functionName: string): DiagnosticSpan {
         sourceParameterTypes := functionType.SourceParameterTypes
         if sourceParameterTypes == null || sourceParameterTypes.Count == 0 {
             return spans.GetCallDiagnosticSpan(call, functionName)
@@ -479,13 +414,7 @@ public class AnalyzerSyntheticCallWalk {
 
         parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
         parameterIndexByArgument: int[] = new int[0]
-        if !reporter.TryBindAndReport(
-                functionType,
-                functionName,
-                call,
-                out parameterIndexByArgument,
-                parameterStartIndex,
-                false) {
+        if !reporter.TryBindAndReport(functionType, functionName, call, out parameterIndexByArgument, parameterStartIndex, false) {
             return spans.GetCallDiagnosticSpan(call, functionName)
         }
 

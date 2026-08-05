@@ -4,11 +4,12 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // The two lists a condition yields: what it proves when it is TRUE, and what it proves when it is
 // FALSE. They are returned together because a caller almost always needs both — the then-branch
 // scope takes one, the else-branch scope takes the other, and a guard clause whose taken branch
 // exits installs the OPPOSITE one into the surviving flow.
-public class FlowNarrowingSplit {
+class FlowNarrowingSplit {
     thenValue: List<FlowNarrowing>
     elseValue: List<FlowNarrowing>
 
@@ -49,16 +50,12 @@ public class FlowNarrowingSplit {
 // Unrelated types keep the newer one, because a later condition is the more recent statement about
 // the value. A null fact is installed for every path; a TYPE narrowing is installed only for a
 // simple name, because a member path's declared member type is not the scope's to rewrite.
-public class AnalyzerFlowNarrowing {
-
+class AnalyzerFlowNarrowing {
     scopesValue: AnalyzerScopeStack
     typeResolverValue: AnalyzerTypeResolver
     assignabilityValue: AnalyzerAssignability
 
-    constructor(
-        scopes: AnalyzerScopeStack,
-        typeResolver: AnalyzerTypeResolver,
-        assignability: AnalyzerAssignability) {
+    constructor(scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, assignability: AnalyzerAssignability) {
         scopesValue = scopes
         typeResolverValue = typeResolver
         assignabilityValue = assignability
@@ -66,9 +63,9 @@ public class AnalyzerFlowNarrowing {
 
     // Applies narrowings to the current scope, intersecting duplicate symbols
     // (keeping the most specific/derived type rather than last-one-wins).
-    public func ApplyNarrowingsToScope(narrowings: List<FlowNarrowing>) {
+    func ApplyNarrowingsToScope(narrowings: List<FlowNarrowing>) {
         currentScope := scopesValue.Peek()
-        foreach narrowing in narrowings {
+        for narrowing in narrowings {
             nullState := narrowing.NullState
             currentScope.NullStates[narrowing.Path] = nullState
             if nullState == NullState.Null {
@@ -104,7 +101,7 @@ public class AnalyzerFlowNarrowing {
     // Extracts flow-sensitive type narrowings from a condition expression.
     // Returns separate narrowing lists for then-branch and else-branch.
     // Handles: null checks (!=null, ==null), is-type patterns, and && chains.
-    public func ExtractFlowNarrowings(condition: Expression): FlowNarrowingSplit {
+    func ExtractFlowNarrowings(condition: Expression): FlowNarrowingSplit {
         thenNarrowings := new List<FlowNarrowing>()
         elseNarrowings := new List<FlowNarrowing>()
 
@@ -125,16 +122,18 @@ public class AnalyzerFlowNarrowing {
                 rightSplit := ExtractFlowNarrowings(binary.Right)
                 thenNarrowings.AddRange(leftSplit.Then)
                 thenNarrowings.AddRange(rightSplit.Then)
-                // else-branch gets nothing for compound && (negation is disjunction)
             } else if binary.Operator == BinaryOperator.Or {
+                // else-branch gets nothing for compound && (negation is disjunction)
+
                 // a || b → both sides must be false in else-branch; then = a || b (can't narrow)
                 leftSplit := ExtractFlowNarrowings(binary.Left)
                 rightSplit := ExtractFlowNarrowings(binary.Right)
                 elseNarrowings.AddRange(leftSplit.Else)
                 elseNarrowings.AddRange(rightSplit.Else)
-                // then-branch gets nothing for compound || (only one side needs to be true)
             }
         } else if isExpr != null {
+            // then-branch gets nothing for compound || (only one side needs to be true)
+
             // x is Type varName → narrow/declare in then-branch
             narrowedType := typeResolverValue.ResolveType(isExpr.Type)
             variableName := isExpr.VariableName
@@ -186,7 +185,7 @@ public class AnalyzerFlowNarrowing {
 
     func TryRemoveAnonymousUnionArm(sourceUnion: AnonymousUnionTypeInfo, matchedType: TypeInfo): TypeInfo? {
         remaining := new List<TypeInfo>()
-        foreach arm in sourceUnion.Arms {
+        for arm in sourceUnion.Arms {
             if !assignabilityValue.IsAssignable(matchedType, arm) {
                 remaining.Add(arm)
             }
@@ -210,12 +209,7 @@ public class AnalyzerFlowNarrowing {
     // One side of an equality against `null`. The OTHER side must be the literal, which is what
     // makes this callable twice with the operands swapped rather than needing to know which side
     // the reader wrote the literal on.
-    func TryExtractNullNarrowing(
-        expr: Expression,
-        other: Expression,
-        thenNarrowings: List<FlowNarrowing>,
-        elseNarrowings: List<FlowNarrowing>,
-        notEqual: bool) {
+    func TryExtractNullNarrowing(expr: Expression, other: Expression, thenNarrowings: List<FlowNarrowing>, elseNarrowings: List<FlowNarrowing>, notEqual: bool) {
         nullLiteral := other as NullLiteralExpression
         if nullLiteral == null {
             return

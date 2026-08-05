@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
@@ -71,37 +72,50 @@ public class YieldStatementState {
     }
 }
 
-// THE SIX STEPS A `foreach` LOOP CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
+// THE SEVEN STEPS A LOOP STATEMENT CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
 //
-// The walk owns what N#'s TWO iteration statements MEAN — `foreach x in e { … }` and
-// `await foreach x in e { … }`: which escape report the collection's type selects and with which
-// action word, that an escaped collection collapses to `unknown` before anything else looks at it,
-// which of the two element-type questions is asked, what the loop variable's type therefore is,
-// which scope kind opens and at which position, the ORDER of the six replayed operations, and that
-// the body runs inside an open loop. What it cannot do is run the analyzer's own EXPRESSION walk,
-// open or close a scope on the analyzer's scope stack, declare a name into that stack, write the
-// semantic model the IDE reads, or re-enter the STATEMENT dispatch — so it ASKS: one request at a
-// time, each naming a kind and carrying every value the step needs. Nothing here is a policy the
-// driver may reinterpret — the driver switches on `Kind`, performs exactly the one operation with
-// exactly these operands, and hands the answer back.
+// The walk owns what ALL FOUR of N#'s loop statements MEAN — `foreach x in e { … }`,
+// `await foreach x in e { … }`, `while c { … }` and `for i := 0; c; u { … }`: which escape report an
+// iterated collection's type selects and with which action word, that an escaped collection
+// collapses to `unknown` before anything else looks at it, which of the two element-type questions
+// is asked, what the loop variable's type therefore is, which scope kind opens and at which
+// position, whether a condition is asked to be a boolean and under whose name, what a condition
+// PROVES about the body it guards and in which scope those facts are installed, the ORDER of every
+// replayed operation, and that the body — and only the body — runs inside an open loop. What it
+// cannot do is run the analyzer's own EXPRESSION walk, open or close a scope on the analyzer's scope
+// stack, declare a name into that stack, write the semantic model the IDE reads, re-enter the
+// STATEMENT dispatch, or run the statement-level expression walk that owns a `for` iterator — so it
+// ASKS: one request at a time, each naming a kind and carrying every value the step needs. Nothing
+// here is a policy the driver may reinterpret — the driver switches on `Kind`, performs exactly the
+// one operation with exactly these operands, and hands the answer back.
 //
 // The kinds:
-//   1  analyse the COLLECTION expression, WITHOUT touching the analyzer's ambient target-typing
-//      slot — neither arm ever set it. ANSWERS a type, and that type is the operand of both escape
-//      reports and of the element-type question that settles every step after it.
+//   1  analyse an EXPRESSION — a `foreach` collection or a `while`/`for` condition — WITHOUT
+//      touching the analyzer's ambient target-typing slot, which no loop arm ever set. ANSWERS a
+//      type: for `foreach` it is the operand of both escape reports and of the element-type question
+//      that settles every step after it; for a condition it is the operand of the boolean gate.
 //   2  open a block scope on the analyzer's scope stack at `Line` / `Column`.
 //   3  declare the loop variable into the analyzer's scope stack, under `CarriedType`. No
-//      declaration kind is carried: neither arm tagged one, so the analyzer derives it.
+//      declaration kind is carried: no arm tagged one, so the analyzer derives it. `foreach` only.
 //   4  record the loop variable in the semantic model the IDE's hover and completion read.
-//   5  analyse the loop BODY, which re-enters the statement dispatch and therefore this walk itself.
-//      This is ONE statement, not a list — it is deliberately NOT
-//      `ExpressionStatementRequest`'s kind 5, because the list walk also runs the unreachable-code
-//      rule, and a loop body that is a single statement never had that rule applied to it.
-//   6  close the scope kind 2 opened.
+//      `foreach` only.
+//   5  analyse ONE STATEMENT — a loop body, or a `for` initializer — which re-enters the statement
+//      dispatch and therefore this walk itself. This is ONE statement, not a list: it is
+//      deliberately NOT `ExpressionStatementRequest`'s kind 5, because the list walk also runs the
+//      unreachable-code rule, and neither a loop body nor a `for` initializer ever had that rule
+//      applied to it.
+//   6  close a scope kind 2 opened.
+//   7  run the STATEMENT-LEVEL EXPRESSION walk over a `for` loop's update clause — the one step in
+//      this estate where a driver drives a driver. It is here rather than in the dispatch because
+//      the arm that used to write it is gone: WHETHER a `for` has an iterator, WHEN in the eight
+//      replayed operations it runs, and that it runs as the for-iterator form of that family rather
+//      than as a bare expression statement are all this walk's decisions. What the driver adds is
+//      only the two things N# cannot do for itself — construct that family's state and run its
+//      loop — and it performs them with the expression it is handed and nothing else.
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1 with no gaps; the
 // other walks' numbers mean different operations, and none of them is a shared vocabulary.
-public class ForeachStatementRequest {
+public class LoopStatementRequest {
 
     public Kind: int
     public Node: Expression?
@@ -124,58 +138,102 @@ public class ForeachStatementRequest {
 
 // THE LOOP'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
-// ONE state serves BOTH iteration statements, because ONE driver serves both. `ForeachStatement` and
-// `AwaitForEachStatement` are structurally identical but share no base beyond `Statement`, so the
-// state carries the five OPERANDS rather than the node, and `IsAsync` is the single bit that
-// separates the two walks: it selects the action word the escape reports use and which of the two
-// element-type entries is asked. Nothing else about them differs.
+// ONE state serves ALL FOUR loop statements, because ONE driver serves them all. The four AST nodes
+// are structurally unrelated — `ForeachStatement` and `AwaitForEachStatement` share no base beyond
+// `Statement`, and `WhileStatement` and `ForStatement` share none with them — so the state carries
+// the OPERANDS rather than the node, and `Form` says which of the four walks is running: 0 is the
+// iteration family (`IsAsync` separates its two members), 1 is `while`, 2 is `for`. Exactly the
+// operands that form uses are non-null.
 //
-// `Phase` is the walk's program counter: 0 asks for the collection; 1 folds the answer in, runs the
-// two escape reports in order and settles the element type; 2 through 5 are the four replayed
-// operations, with the loop opened at 4 and closed at 5; and 6 finishes. 99 is done.
+// `Phase` is the walk's program counter, and each form owns a BAND of it so a phase number never
+// means two things. The ITERATION family runs 0..6: 0 asks for the collection; 1 folds the answer
+// in, runs the two escape reports in order and settles the element type; 2 through 5 are the four
+// replayed operations, with the loop opened at 4 and closed at 5; and 6 finishes. `while` runs
+// 10..14. `for` runs 20..29. 99 is done for all three.
 //
 // `LoopFrame` is the ambient snapshot `EnterLoop` hands back. It is held on the state rather than in
 // a local because the walk SUSPENDS between opening the loop and closing it — the body runs in the
-// driver — and it is nullable only because a state exists before phase 4 has run.
-public class ForeachStatementState {
+// driver — and it is nullable only because a state exists before the loop has been opened.
+//
+// `BodyNarrowings` is what the condition PROVED, held for the same reason: the facts are extracted
+// at one phase, installed at a second and the body runs at a third, with the driver in between.
+//
+// THE FLOW-NARROWING WRITER IS PASSED IN AT `Begin` RATHER THAN HELD, and it is the third member of
+// this estate to be handed that way after the assignability oracle in `BeginYield` and `BeginReturn`.
+// `Analyzer.cs` REBUILDS it when the metadata load context opens and again when it is disposed —
+// it holds assignability, which the rebuild replaces — so an owner constructed once may not keep a
+// reference to it. The iteration family passes null: neither `foreach` arm ever narrowed anything.
+public class LoopStatementState {
 
-    variableNameValue: string
-    collectionValue: Expression
+    formValue: int
+    variableNameValue: string?
+    collectionValue: Expression?
+    conditionValue: Expression?
+    initializerValue: Statement?
+    iteratorValue: Expression?
     bodyValue: Statement
     lineValue: int
     columnValue: int
     isAsyncValue: bool
+    narrowingValue: AnalyzerFlowNarrowing?
 
-    VariableName: string => variableNameValue
-    Collection: Expression => collectionValue
+    Form: int => formValue
+    VariableName: string? => variableNameValue
+    Collection: Expression? => collectionValue
+    Condition: Expression? => conditionValue
+    Initializer: Statement? => initializerValue
+    Iterator: Expression? => iteratorValue
     Body: Statement => bodyValue
     Line: int => lineValue
     Column: int => columnValue
     IsAsync: bool => isAsyncValue
+    Narrowing: AnalyzerFlowNarrowing? => narrowingValue
 
     public Phase: int
     public Pending: int
     public CollectionType: TypeInfo
     public ElementType: TypeInfo
+    public ConditionType: TypeInfo
+    public BodyNarrowings: List<FlowNarrowing>?
     public LoopFrame: AmbientContextFrame?
 
     constructor(
-        variableName: string,
-        collection: Expression,
+        form: int,
+        variableName: string?,
+        collection: Expression?,
+        condition: Expression?,
+        initializer: Statement?,
+        iterator: Expression?,
         body: Statement,
         line: int,
         column: int,
-        isAsync: bool) {
+        isAsync: bool,
+        narrowing: AnalyzerFlowNarrowing?) {
+        formValue = form
         variableNameValue = variableName
         collectionValue = collection
+        conditionValue = condition
+        initializerValue = initializer
+        iteratorValue = iterator
         bodyValue = body
         lineValue = line
         columnValue = column
         isAsyncValue = isAsync
+        narrowingValue = narrowing
         Phase = 0
+        if form == 1 {
+            Phase = 10
+        }
+
+        if form == 2 {
+            Phase = 20
+        }
+
         Pending = 0
         CollectionType = BuiltInTypes.Unknown
         ElementType = BuiltInTypes.Unknown
+        ConditionType = BuiltInTypes.Unknown
+        BodyNarrowings = null
         LoopFrame = null
     }
 }
@@ -210,12 +268,22 @@ public class ForeachStatementState {
 // identity. That is the behaviour `Analyzer.cs` had, character for character, and it is preserved
 // rather than "fixed": widening it here would change which foreach loops compile.
 //
-// ALL THREE STATEMENTS THAT ASK THE QUESTION ALSO LIVE HERE — `yield`, `foreach` and
-// `await foreach` — for the same reason each: the rule that ends the walk is a question about the
-// ELEMENT TYPE, and that family is this one. Both walks reach their collaborators through the
-// objects this type already holds; neither needs anything `Analyzer.cs` rebuilds with the metadata
-// load context, which is why neither has to be handed one at `Begin` the way the assignability
-// oracle is.
+// EVERY STATEMENT THAT LOOPS LIVES HERE, and so does the `yield` that feeds one. `foreach`,
+// `await foreach`, `while`, `for` and `yield` are five walks over one request type, one state and one
+// driver. The element-type question is why the iteration arms are here; `while` and `for` are here
+// because they are the SAME WALK as `foreach` with a condition in place of a collection, and cutting
+// a second protocol for them would have been two request types for one shape. The family therefore
+// owns the whole of what a loop is in N#: not just what iterating a value produces, but what a loop
+// condition must be, what it proves about the body, and that `break` and `continue` are legal inside
+// exactly the body and nothing else.
+//
+// WHAT IT HOLDS AND WHAT IT IS HANDED. Every collaborator below is constructed exactly once by
+// `Analyzer.cs` and never rebuilt with the metadata load context, which is why holding them is safe:
+// the diagnostic sink, the span reader, the scope stack, the declaration context, the type resolver,
+// the ambient context and the SoA escape owner — and now the BOOLEAN-CONDITION owner, whose gate the
+// `while` and `for` arms each ran by hand. The two things `Analyzer.cs` DOES rebuild are handed in at
+// `Begin` instead: the assignability oracle for `yield`, and the flow-narrowing writer for `while`
+// and `for`.
 public class AnalyzerLoopSequence {
 
     diagnosticsValue: AnalyzerDiagnosticSink
@@ -225,6 +293,7 @@ public class AnalyzerLoopSequence {
     typeResolverValue: AnalyzerTypeResolver
     ambientValue: AnalyzerAmbientContext
     soaEscapeValue: AnalyzerSoaEscape
+    conditionsValue: AnalyzerBooleanConditions
 
     constructor(
         diagnostics: AnalyzerDiagnosticSink,
@@ -233,7 +302,8 @@ public class AnalyzerLoopSequence {
         declarationContext: AnalyzerDeclarationContext,
         typeResolver: AnalyzerTypeResolver,
         ambient: AnalyzerAmbientContext,
-        soaEscape: AnalyzerSoaEscape) {
+        soaEscape: AnalyzerSoaEscape,
+        conditions: AnalyzerBooleanConditions) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -241,6 +311,7 @@ public class AnalyzerLoopSequence {
         typeResolverValue = typeResolver
         ambientValue = ambient
         soaEscapeValue = soaEscape
+        conditionsValue = conditions
     }
 
     // THE `foreach` COLLECTION'S ELEMENT TYPE, plus the report when there is not one. The declared
@@ -795,34 +866,83 @@ public class AnalyzerLoopSequence {
         return null
     }
 
-    // THE `foreach` STATEMENT'S ENTRY. The five operands are read off the node here, so the walk
-    // never holds an AST node whose type is one of two unrelated classes.
-    public func BeginForeach(statement: ForeachStatement): ForeachStatementState {
-        return new ForeachStatementState(
+    // THE `foreach` STATEMENT'S ENTRY. The operands are read off the node here, so the walk never
+    // holds an AST node whose type is one of four unrelated classes.
+    public func BeginForeach(statement: ForeachStatement): LoopStatementState {
+        return new LoopStatementState(
+            0,
             statement.VariableName,
             statement.Collection,
+            null,
+            null,
+            null,
             statement.Body,
             statement.Line,
             statement.Column,
-            false)
+            false,
+            null)
     }
 
     // THE `await foreach` STATEMENT'S ENTRY — the same walk with `IsAsync` set, which is the whole
     // difference between the two arms.
-    public func BeginAwaitForeach(statement: AwaitForEachStatement): ForeachStatementState {
-        return new ForeachStatementState(
+    public func BeginAwaitForeach(statement: AwaitForEachStatement): LoopStatementState {
+        return new LoopStatementState(
+            0,
             statement.VariableName,
             statement.Collection,
+            null,
+            null,
+            null,
             statement.Body,
             statement.Line,
             statement.Column,
-            true)
+            true,
+            null)
+    }
+
+    // THE `while` STATEMENT'S ENTRY. It carries no position of its own: the only scope a `while` ever
+    // opens is the narrowing scope, and that opens at the BODY's position rather than the keyword's.
+    public func BeginWhile(
+        statement: WhileStatement,
+        narrowing: AnalyzerFlowNarrowing): LoopStatementState {
+        return new LoopStatementState(
+            1,
+            null,
+            null,
+            statement.Condition,
+            null,
+            null,
+            statement.Body,
+            statement.Line,
+            statement.Column,
+            false,
+            narrowing)
+    }
+
+    // THE `for` STATEMENT'S ENTRY. All three clauses are OPTIONAL and each one's absence changes the
+    // walk: no initializer skips a statement, no condition skips both the boolean gate AND the
+    // narrowing that a condition would otherwise prove, and no iterator skips the nested walk.
+    public func BeginFor(
+        statement: ForStatement,
+        narrowing: AnalyzerFlowNarrowing): LoopStatementState {
+        return new LoopStatementState(
+            2,
+            null,
+            null,
+            statement.Condition,
+            statement.Initializer,
+            statement.Iterator,
+            statement.Body,
+            statement.Line,
+            statement.Column,
+            false,
+            narrowing)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this loop is finished.
-    public func NextForeachStep(state: ForeachStatementState): ForeachStatementRequest? {
+    public func NextLoopStep(state: LoopStatementState): LoopStatementRequest? {
         while state.Phase != 99 {
-            request := AdvanceForeach(state)
+            request := AdvanceLoop(state)
             if request != null {
                 return request
             }
@@ -831,20 +951,47 @@ public class AnalyzerLoopSequence {
         return null
     }
 
-    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 answers anything: the collection's type. The
-    // four replayed operations and the body walk answer nothing, and nothing is folded in for them.
-    public func SupplyForeach(state: ForeachStatementState, answer: TypeInfo?) {
+    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 answers anything, and which slot it lands in
+    // is the FORM's business: the iteration family folds a collection type, `while` and `for` fold a
+    // condition type. The replayed operations, the body walk and the nested iterator walk answer
+    // nothing, and nothing is folded in for them.
+    public func SupplyLoop(state: LoopStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
-        if pending == 1 {
+        if pending != 1 {
+            return
+        }
+
+        if state.Form == 0 {
             if answer != null {
                 state.CollectionType = answer
             }
+
+            return
+        }
+
+        if answer != null {
+            state.ConditionType = answer
+        } else {
+            state.ConditionType = BuiltInTypes.Unknown
         }
     }
 
-    func AdvanceForeach(state: ForeachStatementState): ForeachStatementRequest? {
+    func AdvanceLoop(state: LoopStatementState): LoopStatementRequest? {
+        form := state.Form
+        if form == 1 {
+            return AdvanceWhile(state)
+        }
+
+        if form == 2 {
+            return AdvanceFor(state)
+        }
+
+        return AdvanceForeach(state)
+    }
+
+    func AdvanceForeach(state: LoopStatementState): LoopStatementRequest? {
         phase := state.Phase
         if phase == 0 {
             return AdvanceForeachCollection(state)
@@ -877,10 +1024,10 @@ public class AnalyzerLoopSequence {
     // PHASE 0 — the collection, and nothing before it. The scope opens only after its type is known,
     // so an expression that mentions the loop variable's name resolves to whatever that name meant
     // OUTSIDE the loop, which is what `Analyzer.cs` did.
-    func AdvanceForeachCollection(state: ForeachStatementState): ForeachStatementRequest? {
+    func AdvanceForeachCollection(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 1
         state.Pending = 1
-        request := new ForeachStatementRequest(1, BuiltInTypes.Unknown)
+        request := new LoopStatementRequest(1, BuiltInTypes.Unknown)
         request.Node = state.Collection
         return request
     }
@@ -890,8 +1037,13 @@ public class AnalyzerLoopSequence {
     // it is a direct column read. Either report collapses the collection to `unknown`, which is what
     // silences the element-type mismatch that would otherwise follow — one bad collection is one
     // diagnostic, not two.
-    func AdvanceForeachElementType(state: ForeachStatementState): ForeachStatementRequest? {
+    func AdvanceForeachElementType(state: LoopStatementState): LoopStatementRequest? {
         collection := state.Collection
+        if collection == null {
+            state.Phase = 99
+            return null
+        }
+
         usage := "used as a foreach collection"
         if state.IsAsync {
             usage = "used as an async foreach collection"
@@ -910,7 +1062,7 @@ public class AnalyzerLoopSequence {
         }
 
         state.Phase = 2
-        request := new ForeachStatementRequest(2, BuiltInTypes.Unknown)
+        request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
         request.Line = state.Line
         request.Column = state.Column
         return request
@@ -918,9 +1070,9 @@ public class AnalyzerLoopSequence {
 
     // PHASE 2 — the loop variable, declared at the STATEMENT's position rather than the variable's,
     // because that is the position `Analyzer.cs` passed and it is what the binding map records.
-    func AdvanceForeachDeclare(state: ForeachStatementState): ForeachStatementRequest? {
+    func AdvanceForeachDeclare(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 3
-        request := new ForeachStatementRequest(3, state.ElementType)
+        request := new LoopStatementRequest(3, state.ElementType)
         request.Name = state.VariableName
         request.Line = state.Line
         request.Column = state.Column
@@ -930,9 +1082,9 @@ public class AnalyzerLoopSequence {
     // PHASE 3 — the semantic model the IDE's hover and completion read. A separate step from the
     // scope declaration for the reason `AnalyzerVariableDeclaration` records: it writes a different
     // store, keyed by the semantic scope id rather than by the analyzer's own stack.
-    func AdvanceForeachRecord(state: ForeachStatementState): ForeachStatementRequest? {
+    func AdvanceForeachRecord(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 4
-        request := new ForeachStatementRequest(4, state.ElementType)
+        request := new LoopStatementRequest(4, state.ElementType)
         request.Name = state.VariableName
         return request
     }
@@ -940,23 +1092,349 @@ public class AnalyzerLoopSequence {
     // PHASE 4 — the loop opens, THEN the body runs. The frame is taken here rather than at entry
     // because the collection expression is not inside the loop: a `break` written in it is as
     // illegal as one written outside.
-    func AdvanceForeachBody(state: ForeachStatementState): ForeachStatementRequest? {
+    func AdvanceForeachBody(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 5
         state.LoopFrame = ambientValue.EnterLoop()
-        request := new ForeachStatementRequest(5, BuiltInTypes.Unknown)
+        request := new LoopStatementRequest(5, BuiltInTypes.Unknown)
         request.Body = state.Body
         return request
     }
 
     // PHASE 5 — the loop closes BEFORE the scope does, which is the order `Analyzer.cs` used.
-    func AdvanceForeachClose(state: ForeachStatementState): ForeachStatementRequest? {
+    func AdvanceForeachClose(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 6
         frame := state.LoopFrame
         if frame != null {
             ambientValue.ExitLoop(frame)
         }
 
-        return new ForeachStatementRequest(6, BuiltInTypes.Unknown)
+        return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // ── THE `while` WALK ───────────────────────────────────────────────────────────────────────
+    //
+    // Five phases for a loop that has no variable, no collection and no scope of its own. The one
+    // scope it can open is the NARROWING scope, and it opens only when the condition actually proved
+    // something — `while x != null { … }` gets one, `while i < n { … }` does not, and that difference
+    // is visible to every name lookup inside the body.
+    func AdvanceWhile(state: LoopStatementState): LoopStatementRequest? {
+        phase := state.Phase
+        if phase == 10 {
+            return AdvanceWhileCondition(state)
+        }
+
+        if phase == 11 {
+            return AdvanceWhileGate(state)
+        }
+
+        if phase == 12 {
+            return AdvanceWhileNarrowedBody(state)
+        }
+
+        if phase == 13 {
+            return AdvanceWhileNarrowedClose(state)
+        }
+
+        if phase == 14 {
+            return AdvanceWhileClose(state)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // PHASE 10 — the condition, and nothing before it. The loop is NOT open yet: a `break` written
+    // inside the condition is as illegal as one written outside, exactly as for a `foreach`
+    // collection.
+    func AdvanceWhileCondition(state: LoopStatementState): LoopStatementRequest? {
+        condition := state.Condition
+        if condition == null {
+            state.Phase = 99
+            return null
+        }
+
+        state.Phase = 11
+        state.Pending = 1
+        request := new LoopStatementRequest(1, BuiltInTypes.Unknown)
+        request.Node = condition
+        return request
+    }
+
+    // PHASE 11 — WHAT THE CONDITION IS AND WHAT IT PROVES, IN THAT ORDER OF EXECUTION AND NOT OF
+    // READING. The narrowings are extracted BEFORE the boolean gate reports, which is the order
+    // `Analyzer.cs` wrote and is preserved rather than tidied: the extractor consults the scope stack,
+    // and a report that changed it would change what a later extraction saw. Then the loop opens, and
+    // only then does the body run — with the proved facts installed in their own scope when there
+    // are any.
+    func AdvanceWhileGate(state: LoopStatementState): LoopStatementRequest? {
+        condition := state.Condition
+        if condition == null {
+            state.Phase = 99
+            return null
+        }
+
+        narrowing := state.Narrowing
+        if narrowing != null {
+            state.BodyNarrowings = narrowing.ExtractFlowNarrowings(condition).Then
+        }
+
+        conditionsValue.ReportConditionTypeMismatchIfNeeded(
+            condition,
+            "a 'while' loop",
+            "used as a 'while' condition",
+            state.ConditionType)
+        state.LoopFrame = ambientValue.EnterLoop()
+
+        if NarrowingCount(state) > 0 {
+            state.Phase = 12
+            request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+            request.Line = state.Body.Line
+            request.Column = state.Body.Column
+            return request
+        }
+
+        state.Phase = 14
+        return NewBodyRequest(state)
+    }
+
+    // PHASE 12 — the proved facts are installed in the scope phase 11 just opened, and then the body
+    // runs inside them.
+    func AdvanceWhileNarrowedBody(state: LoopStatementState): LoopStatementRequest? {
+        ApplyBodyNarrowings(state)
+        state.Phase = 13
+        return NewBodyRequest(state)
+    }
+
+    // PHASE 13 — the narrowing scope closes. The loop is still open: `Analyzer.cs` closed the scope
+    // first and the loop second.
+    func AdvanceWhileNarrowedClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 14
+        return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // PHASE 14 — the loop closes. Both paths reach it, which is what makes the frame balanced whether
+    // or not the condition proved anything.
+    func AdvanceWhileClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 99
+        ExitLoopFrame(state)
+        return null
+    }
+
+    // ── THE `for` WALK ─────────────────────────────────────────────────────────────────────────
+    //
+    // The SAME walk as `while` with three optional clauses around it, which is why they share a state
+    // and a driver rather than each getting one. `for` differs in four things and nothing else: it
+    // opens an OUTER scope at the keyword — so a variable the initializer declares dies at the closing
+    // brace and not before — it runs an initializer STATEMENT inside that scope, it runs an update
+    // expression through the statement-level expression family, and every one of its condition-shaped
+    // steps is skipped when there is no condition. A `for` with no condition narrows nothing, because
+    // there is nothing to prove.
+    func AdvanceFor(state: LoopStatementState): LoopStatementRequest? {
+        phase := state.Phase
+        if phase == 20 {
+            return AdvanceForOuterScope(state)
+        }
+
+        if phase == 21 {
+            return AdvanceForInitializer(state)
+        }
+
+        if phase == 22 {
+            return AdvanceForCondition(state)
+        }
+
+        if phase == 23 {
+            return AdvanceForGate(state)
+        }
+
+        if phase == 24 {
+            return AdvanceForIterator(state)
+        }
+
+        if phase == 25 {
+            return AdvanceForBody(state)
+        }
+
+        if phase == 26 {
+            return AdvanceForNarrowedBody(state)
+        }
+
+        if phase == 27 {
+            return AdvanceForNarrowedClose(state)
+        }
+
+        if phase == 28 {
+            return AdvanceForClose(state)
+        }
+
+        if phase == 29 {
+            return AdvanceForOuterClose(state)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // PHASE 20 — the outer scope, opened at the `for` KEYWORD rather than at the body. That position
+    // is the whole reason this scope exists: it is what makes `for i := 0; …` declare `i` for the
+    // loop and not for the enclosing block.
+    func AdvanceForOuterScope(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 21
+        request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+        request.Line = state.Line
+        request.Column = state.Column
+        return request
+    }
+
+    // PHASE 21 — the initializer, which is a STATEMENT and re-enters the statement dispatch. It runs
+    // inside the outer scope and OUTSIDE the loop, so a `break` written in it is illegal.
+    func AdvanceForInitializer(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 22
+        initializer := state.Initializer
+        if initializer == null {
+            return null
+        }
+
+        request := new LoopStatementRequest(5, BuiltInTypes.Unknown)
+        request.Body = initializer
+        return request
+    }
+
+    // PHASE 22 — the condition, when there is one.
+    func AdvanceForCondition(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 23
+        condition := state.Condition
+        if condition == null {
+            return null
+        }
+
+        state.Pending = 1
+        request := new LoopStatementRequest(1, BuiltInTypes.Unknown)
+        request.Node = condition
+        return request
+    }
+
+    // PHASE 23 — the boolean gate. Unlike `while`, the narrowings are NOT extracted here: the `for`
+    // arm extracted them after the loop opened, which is phase 25, and the order is preserved.
+    func AdvanceForGate(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 24
+        condition := state.Condition
+        if condition == null {
+            return null
+        }
+
+        conditionsValue.ReportConditionTypeMismatchIfNeeded(
+            condition,
+            "a 'for' loop",
+            "used as a 'for' condition",
+            state.ConditionType)
+        return null
+    }
+
+    // PHASE 24 — the update clause, run through the statement-level expression family as a `for`
+    // ITERATOR rather than as a bare expression statement, which is what selects that family's
+    // for-iterator wordings. It runs BEFORE the body and OUTSIDE the loop, which is what
+    // `Analyzer.cs` did: the update expression is analysed once, in declaration order, and a `break`
+    // written in it is illegal.
+    func AdvanceForIterator(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 25
+        iterator := state.Iterator
+        if iterator == null {
+            return null
+        }
+
+        request := new LoopStatementRequest(7, BuiltInTypes.Unknown)
+        request.Node = iterator
+        return request
+    }
+
+    // PHASE 25 — the loop opens, THEN the condition's facts are extracted, THEN the body runs. A
+    // `for` with no condition proves nothing and takes the plain body path.
+    func AdvanceForBody(state: LoopStatementState): LoopStatementRequest? {
+        state.LoopFrame = ambientValue.EnterLoop()
+        condition := state.Condition
+        narrowing := state.Narrowing
+        if condition != null && narrowing != null {
+            state.BodyNarrowings = narrowing.ExtractFlowNarrowings(condition).Then
+        }
+
+        if NarrowingCount(state) > 0 {
+            state.Phase = 26
+            request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+            request.Line = state.Body.Line
+            request.Column = state.Body.Column
+            return request
+        }
+
+        state.Phase = 28
+        return NewBodyRequest(state)
+    }
+
+    // PHASE 26 — the proved facts, installed in the scope phase 25 opened.
+    func AdvanceForNarrowedBody(state: LoopStatementState): LoopStatementRequest? {
+        ApplyBodyNarrowings(state)
+        state.Phase = 27
+        return NewBodyRequest(state)
+    }
+
+    // PHASE 27 — the narrowing scope closes.
+    func AdvanceForNarrowedClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 28
+        return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // PHASE 28 — the loop closes, and the OUTER scope closes after it. That is the order
+    // `Analyzer.cs` used, and it matters: the ambient loop depth is restored before the scope stack
+    // is popped.
+    func AdvanceForClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 29
+        ExitLoopFrame(state)
+        return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // PHASE 29 — done.
+    func AdvanceForOuterClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 99
+        return null
+    }
+
+    // ── WHAT `while` AND `for` SHARE ───────────────────────────────────────────────────────────
+
+    // HOW MANY FACTS THE CONDITION PROVED. Zero when it proved none and zero when there was no
+    // narrowing writer to ask, which is the same answer for the walk's purposes: no narrowing scope.
+    func NarrowingCount(state: LoopStatementState): int {
+        narrowings := state.BodyNarrowings
+        if narrowings == null {
+            return 0
+        }
+
+        return narrowings.Count
+    }
+
+    // INSTALL WHAT THE CONDITION PROVED into the scope that was just opened for it.
+    func ApplyBodyNarrowings(state: LoopStatementState) {
+        narrowings := state.BodyNarrowings
+        narrowing := state.Narrowing
+        if narrowings != null && narrowing != null {
+            narrowing.ApplyNarrowingsToScope(narrowings)
+        }
+    }
+
+    // THE BODY STEP, which is the same request for both walks.
+    func NewBodyRequest(state: LoopStatementState): LoopStatementRequest {
+        request := new LoopStatementRequest(5, BuiltInTypes.Unknown)
+        request.Body = state.Body
+        return request
+    }
+
+    // CLOSE THE AMBIENT LOOP the walk opened, which is what makes `break` and `continue` illegal
+    // again on the far side of the closing brace.
+    func ExitLoopFrame(state: LoopStatementState) {
+        frame := state.LoopFrame
+        if frame != null {
+            ambientValue.ExitLoop(frame)
+            state.LoopFrame = null
+        }
     }
 
     // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. Same helper, same reason, as

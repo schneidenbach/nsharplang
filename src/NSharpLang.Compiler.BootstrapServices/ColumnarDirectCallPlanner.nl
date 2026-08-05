@@ -160,8 +160,7 @@ class ColumnarDirectCallPlanner {
             // A delegate-typed local/parameter/lifted/boxed value with no same-named method tier is
             // invoked through its Invoke method. Let those bare calls flow to the delegate-invoke
             // owner instead of declining early.
-            if !explicitThis && !hasInstance && !hasStatic && !hasSibling
-                && !hasInheritedExternal && !bindings.IsSiblingShadowedByValue(bareName) {
+            if !explicitThis && !hasInstance && !hasStatic && !hasSibling && !hasInheritedExternal && !bindings.IsSiblingShadowedByValue(bareName) {
                 return false
             }
         }
@@ -227,10 +226,7 @@ class ColumnarDirectCallPlanner {
         // method-beats-value order means any instance method (at any arity) on the current type, any
         // static method at this arity on the enclosing type, or any sibling keeps the name terminal
         // for its own owner, so those cases fall through to ordinary resolution below.
-        if !explicitThis && bindings.IsSiblingShadowedByValue(memberName)
-            && !bindings.HasSiblingCallable(memberName)
-            && !HasCurrentInstanceMethodAnyArity(bindings, memberName)
-            && !HasEnclosingStaticMethodAtArity(bindings, memberName, argumentTypes.Length) {
+        if !explicitThis && bindings.IsSiblingShadowedByValue(memberName) && !bindings.HasSiblingCallable(memberName) && !HasCurrentInstanceMethodAnyArity(bindings, memberName) && !HasEnclosingStaticMethodAtArity(bindings, memberName, argumentTypes.Length) {
             return TryAppendDelegateInvoke(nodes, source, callNode, callee, bindings, handles, plan, callFragment, depth, argumentTypes, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
         }
 
@@ -285,9 +281,7 @@ class ColumnarDirectCallPlanner {
         // receiver's call/callvirt instruction) applied to the recorded external base and its own
         // inherited chain, loading the current instance as the receiver. A non-selected inherited
         // shape (excluded generic/params/by-ref, arity mismatch, or ambiguous set) is not claimed.
-        if currentDefinition != null
-            && (explicitThis || !bindings.IsValueBinding(memberName))
-            && !ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName) {
+        if currentDefinition != null && (explicitThis || !bindings.IsValueBinding(memberName)) && !ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName) {
             externalBase := ResolveExternalRuntimeBase(currentDefinition)
             if externalBase != null {
                 inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
@@ -518,8 +512,7 @@ class ColumnarDirectCallPlanner {
         resultType = typeof(int)
 
         delegateType := typeof(object)
-        if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out delegateType)
-            || !ColumnarRuntimeInstanceMemberResolver.IsSupportedDelegateType(delegateType) {
+        if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out delegateType) || !ColumnarRuntimeInstanceMemberResolver.IsSupportedDelegateType(delegateType) {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
@@ -534,8 +527,7 @@ class ColumnarDirectCallPlanner {
 
         parameters := invoke.GetParameters()
         returnType := invoke.get_ReturnType()
-        if parameters == null || returnType == null
-            || parameters.Length != argumentTypes.Length {
+        if parameters == null || returnType == null || parameters.Length != argumentTypes.Length {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
@@ -605,14 +597,12 @@ class ColumnarDirectCallPlanner {
         }
 
         currentDefinition := current.SourceDefinition
-        return currentDefinition != null
-            && ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName)
+        return currentDefinition != null && ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName)
     }
 
     static func HasEnclosingStaticMethodAtArity(bindings: ColumnarFragmentBindings, memberName: string, argumentCount: int): bool {
         enclosing := bindings.EnclosingTypeDefinition
-        return enclosing != null
-            && ColumnarSourceDirectCallResolver.HasStaticDeclarationAtArity(enclosing, memberName, argumentCount)
+        return enclosing != null && ColumnarSourceDirectCallResolver.HasStaticDeclarationAtArity(enclosing, memberName, argumentCount)
     }
 
     // Every plannable sibling parameter must be an ordinary (non-by-ref) value with no ref/out/
@@ -1125,11 +1115,7 @@ class ColumnarDirectCallPlanner {
     }
 
     static func AppendImplicitReceiver(plan: ColumnarCodePlan, selection: ColumnarSourceDirectCallSelection) {
-        argumentIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(
-            plan,
-            0,
-            selection.ReceiverType,
-            !selection.ReceiverIsReference)
+        argumentIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, selection.ReceiverType, !selection.ReceiverIsReference)
 
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
     }
@@ -1225,14 +1211,9 @@ class ColumnarDirectCallPlanner {
             actualType := typeof(int)
             valuePlanned := false
             if allowPrimitiveBinary {
-                valuePlanned =
-                    ColumnarRangeIndexPlanner.TryAppendConstructionValue(
-                        nodes, source, argumentNode, bindings, handles, plan,
-                        parentFragment, depth, out actualType)
+                valuePlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth, out actualType)
             } else {
-                valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(
-                    nodes, source, argumentNode, bindings, handles, plan,
-                    parentFragment, depth, out actualType)
+                valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth, out actualType)
             }
             if !valuePlanned || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(actualType, inferredTypes[index]) || !AppendArgumentConversion(plan, actualType, parameterTypes[index], argumentFacts.SourceTypeDefinitions) {
                 return false
@@ -1272,19 +1253,10 @@ class ColumnarDirectCallPlanner {
 
         sourceInterfaceIsReference := false
         exactSourceInterfaceFlow := false
-        if flow == ColumnarDirectCallArgumentFlow.Reference
-            || flow == ColumnarDirectCallArgumentFlow.Boxing {
-            exactSourceInterfaceFlow = ColumnarReferenceConversionFacts
-                .TryClassifyExactSourceInterfaceUpcast(
-                    actualType,
-                    parameterType,
-                    sourceTypeDefinitions,
-                    out sourceInterfaceIsReference)
-            if exactSourceInterfaceFlow
-                && sourceInterfaceIsReference
-                    != (flow == ColumnarDirectCallArgumentFlow.Reference) {
-                throw new InvalidOperationException(
-                    "Source interface conversion flow disagrees with its declaration shape.")
+        if flow == ColumnarDirectCallArgumentFlow.Reference || flow == ColumnarDirectCallArgumentFlow.Boxing {
+            exactSourceInterfaceFlow = ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(actualType, parameterType, sourceTypeDefinitions, out sourceInterfaceIsReference)
+            if exactSourceInterfaceFlow && sourceInterfaceIsReference != (flow == ColumnarDirectCallArgumentFlow.Reference) {
+                throw new InvalidOperationException("Source interface conversion flow disagrees with its declaration shape.")
             }
         }
 
@@ -1295,8 +1267,7 @@ class ColumnarDirectCallPlanner {
         if flow == ColumnarDirectCallArgumentFlow.Reference {
             if exactSourceInterfaceFlow {
                 targetIndex := plan.AddType(parameterType)
-                plan.AppendTypeInstruction(
-                    ColumnarCodePlanContract.Castclass(), targetIndex)
+                plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), targetIndex)
             }
             return true
         }
@@ -1306,8 +1277,7 @@ class ColumnarDirectCallPlanner {
             plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), typeIndex)
             if exactSourceInterfaceFlow {
                 targetIndex := plan.AddType(parameterType)
-                plan.AppendTypeInstruction(
-                    ColumnarCodePlanContract.Castclass(), targetIndex)
+                plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), targetIndex)
             }
             return true
         }
@@ -1448,14 +1418,10 @@ class ColumnarDirectCallPlanner {
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         syntaxAdmitted := IsAdmittedValueSyntax(nodes, node, depth)
         if allowPrimitiveBinary && !syntaxAdmitted {
-            syntaxAdmitted = ColumnarPrimitiveBinaryPlanner.IsAdmittedSyntax(
-                nodes, source, node, depth)
+            syntaxAdmitted = ColumnarPrimitiveBinaryPlanner.IsAdmittedSyntax(nodes, source, node, depth)
         }
-        if allowPrimitiveBinary && !syntaxAdmitted
-            && ColumnarConstructionPlanner.MayPlanRoot(nodes, node) {
-            syntaxAdmitted =
-                ColumnarConstructionPlanner.IsAdmittedConstructionValueSyntax(
-                    nodes, source, node, bindings, handles, depth)
+        if allowPrimitiveBinary && !syntaxAdmitted && ColumnarConstructionPlanner.MayPlanRoot(nodes, node) {
+            syntaxAdmitted = ColumnarConstructionPlanner.IsAdmittedConstructionValueSyntax(nodes, source, node, bindings, handles, depth)
         }
         if !syntaxAdmitted {
             return false
@@ -1465,13 +1431,9 @@ class ColumnarDirectCallPlanner {
         scratch.PrepareV3()
         valuePlanned := false
         if allowPrimitiveBinary {
-            valuePlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(
-                nodes, source, node, bindings, handles, scratch,
-                -1, depth, out resultType, out nestedOwnership)
+            valuePlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, scratch, -1, depth, out resultType, out nestedOwnership)
         } else {
-            valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(
-                nodes, source, node, bindings, handles, scratch,
-                -1, depth, out resultType, out nestedOwnership)
+            valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, node, bindings, handles, scratch, -1, depth, out resultType, out nestedOwnership)
         }
         if !valuePlanned {
             return false
@@ -1492,18 +1454,14 @@ class ColumnarDirectCallPlanner {
             return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, nodes.Child(node, 0), depth + 1)
         }
 
-        if kind == ColumnarExpressionNodeKind.NewExpression()
-            || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression()
-            || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
-            return ColumnarConstructionPlanner.IsAdmittedValueSyntax(
-                nodes, node, depth)
+        if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+            return ColumnarConstructionPlanner.IsAdmittedValueSyntax(nodes, node, depth)
         }
 
         // A cast's first child is a TYPE subtree in the type-kernel encoding, so only the operand
         // participates in expression-syntax admission.
         if kind == ColumnarExpressionNodeKind.CastExpression() {
-            return nodes.ChildCount(node) == 2
-                && IsAdmittedValueSyntax(nodes, nodes.Child(node, 1), depth + 1)
+            return nodes.ChildCount(node) == 2 && IsAdmittedValueSyntax(nodes, nodes.Child(node, 1), depth + 1)
         }
 
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {

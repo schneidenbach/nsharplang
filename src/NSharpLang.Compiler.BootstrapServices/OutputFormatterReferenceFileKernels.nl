@@ -3,12 +3,12 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 
-public class OutputFormatterReferenceFileKernels {
-    public static func BuildInspectSummaryReferenceFiles(references: IReadOnlyList<object>): string[] {
+class OutputFormatterReferenceFileKernels {
+    static func BuildInspectSummaryReferenceFiles(references: IReadOnlyList<object>): string[] {
         return BuildReferenceFiles(references, true, false)
     }
 
-    public static func BuildDiagnosticClusterFiles(diagnostics: IReadOnlyList<object>): string[] {
+    static func BuildDiagnosticClusterFiles(diagnostics: IReadOnlyList<object>): string[] {
         return BuildReferenceFiles(diagnostics, false, true)
     }
 

@@ -3,15 +3,15 @@ namespace NSharpLang.Cli
 import System.Collections.Generic
 import System.Text
 
-public class CommandRegistry {
-    public static TopLevelCommands: IReadOnlyList<CliCommandSpec> => BuildTopLevelCommands()
-    public static QueryCommands: IReadOnlyList<CliCommandSpec> => BuildQueryCommands()
+class CommandRegistry {
+    static TopLevelCommands: IReadOnlyList<CliCommandSpec> => BuildTopLevelCommands()
+    static QueryCommands: IReadOnlyList<CliCommandSpec> => BuildQueryCommands()
 
-    public static func JoinCommandNames(commands: IEnumerable<CliCommandSpec>): string {
+    static func JoinCommandNames(commands: IEnumerable<CliCommandSpec>): string {
         builder := new StringBuilder()
         first := true
 
-        foreach command in commands {
+        for command in commands {
             if first {
                 first = false
             } else {

@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 
-public class DiagnosticSpanResult {
+class DiagnosticSpanResult {
     columnValue: int
     lengthValue: int
 
@@ -15,8 +15,8 @@ public class DiagnosticSpanResult {
     }
 }
 
-public class DiagnosticSpanResolver {
-    public static func Resolve(sourceLine: string?, oneBasedColumn: int, requestedLength: int): DiagnosticSpanResult {
+class DiagnosticSpanResolver {
+    static func Resolve(sourceLine: string?, oneBasedColumn: int, requestedLength: int): DiagnosticSpanResult {
         if requestedLength > 0 {
             return new DiagnosticSpanResult(oneBasedColumn, Math.Max(1, requestedLength))
         }
@@ -43,9 +43,7 @@ public class DiagnosticSpanResolver {
             }
 
             if visibleStart >= 0 {
-                return new DiagnosticSpanResult(
-                    visibleStart + 1,
-                    InferVisibleTokenLength(line, visibleStart))
+                return new DiagnosticSpanResult(visibleStart + 1, InferVisibleTokenLength(line, visibleStart))
             }
 
             return new DiagnosticSpanResult(oneBasedColumn, 1)
@@ -165,73 +163,119 @@ public class DiagnosticSpanResolver {
 
     static func MatchOperatorLength(sourceLine: string, zeroBasedStart: int): int {
         length := MatchOperator(sourceLine, zeroBasedStart, "??=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "...")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, ":=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "::")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "==")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "=>")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "!=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "<=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "<<")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, ">=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, ">>")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "&&")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "||")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "++")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "+=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "--")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "-=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "*=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "/=")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "??")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "?.")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "?[")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         length = MatchOperator(sourceLine, zeroBasedStart, "..")
-        if length > 0 { return length }
+        if length > 0 {
+            return length
+        }
 
         return 1
     }
@@ -249,21 +293,51 @@ public class DiagnosticSpanResolver {
     }
 
     static func IsOperatorChar(ch: char): bool {
-        if ch == ':' { return true }
-        if ch == '=' { return true }
-        if ch == '!' { return true }
-        if ch == '<' { return true }
-        if ch == '>' { return true }
-        if ch == '&' { return true }
-        if ch == '|' { return true }
-        if ch == '+' { return true }
-        if ch == '-' { return true }
-        if ch == '*' { return true }
-        if ch == '/' { return true }
-        if ch == '?' { return true }
-        if ch == '.' { return true }
-        if ch == '%' { return true }
-        if ch == '^' { return true }
+        if ch == ':' {
+            return true
+        }
+        if ch == '=' {
+            return true
+        }
+        if ch == '!' {
+            return true
+        }
+        if ch == '<' {
+            return true
+        }
+        if ch == '>' {
+            return true
+        }
+        if ch == '&' {
+            return true
+        }
+        if ch == '|' {
+            return true
+        }
+        if ch == '+' {
+            return true
+        }
+        if ch == '-' {
+            return true
+        }
+        if ch == '*' {
+            return true
+        }
+        if ch == '/' {
+            return true
+        }
+        if ch == '?' {
+            return true
+        }
+        if ch == '.' {
+            return true
+        }
+        if ch == '%' {
+            return true
+        }
+        if ch == '^' {
+            return true
+        }
         return ch == '~'
     }
 

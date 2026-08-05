@@ -3,14 +3,8 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Text
 
-public class CodeIntelligenceSourceTextKernels {
-    public static func TryExtractIdentifierSpan(
-        snapshot: object,
-        filePathValue: string,
-        source: string,
-        line: int,
-        column: int,
-        out span: ValueTuple<int, int>?): bool {
+class CodeIntelligenceSourceTextKernels {
+    static func TryExtractIdentifierSpan(snapshot: object, filePathValue: string, source: string, line: int, column: int, out span: ValueTuple<int, int>?): bool {
         span = null
 
         start := 0
@@ -23,12 +17,7 @@ public class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    public static func TryExtractDocComment(
-        snapshot: object,
-        filePathValue: string,
-        source: string,
-        definitionLine: int,
-        out documentation: string?): bool {
+    static func TryExtractDocComment(snapshot: object, filePathValue: string, source: string, definitionLine: int, out documentation: string?): bool {
         documentation = null
 
         lineStarts := new int[](source.Length + 1)
@@ -68,13 +57,7 @@ public class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    public static func TryExtractCompletionPrefix(
-        snapshot: object,
-        filePathValue: string,
-        source: string,
-        line: int,
-        column: int,
-        out prefix: string?): bool {
+    static func TryExtractCompletionPrefix(snapshot: object, filePathValue: string, source: string, line: int, column: int, out prefix: string?): bool {
         prefix = null
 
         lineStart := 0
@@ -92,13 +75,7 @@ public class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    public static func TryExtractIdentifierName(
-        snapshot: object,
-        filePathValue: string,
-        source: string,
-        line: int,
-        column: int,
-        out name: string?): bool {
+    static func TryExtractIdentifierName(snapshot: object, filePathValue: string, source: string, line: int, column: int, out name: string?): bool {
         name = null
 
         start := 0
@@ -112,12 +89,7 @@ public class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    public static func TryExtractSourceContext(
-        snapshot: object,
-        filePathValue: string,
-        source: string,
-        line: int,
-        out context: string?): bool {
+    static func TryExtractSourceContext(snapshot: object, filePathValue: string, source: string, line: int, out context: string?): bool {
         context = null
 
         lineStart := 0
@@ -146,16 +118,11 @@ public class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    public static func TryExtractSourceLine(
-        snapshot: object,
-        filePathValue: string,
-        source: string,
-        line: int,
-        out text: string?): bool {
+    static func TryExtractSourceLine(snapshot: object, filePathValue: string, source: string, line: int, out text: string?): bool {
         return TryExtractSourceLine(source, line, out text)
     }
 
-    public static func TryExtractSourceLine(source: string, line: int, out text: string?): bool {
+    static func TryExtractSourceLine(source: string, line: int, out text: string?): bool {
         text = null
 
         lineStart := 0
@@ -168,11 +135,7 @@ public class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    public static func TryExtractEditorIdentifierSpan(
-        source: string,
-        line: int,
-        column: int,
-        out span: ValueTuple<int, int, string>?): bool {
+    static func TryExtractEditorIdentifierSpan(source: string, line: int, column: int, out span: ValueTuple<int, int, string>?): bool {
         span = null
 
         if line <= 0 || column <= 0 {
@@ -216,12 +179,7 @@ public class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    public static func TryExtractVariableDeclarationName(
-        snapshot: object,
-        filePathValue: string,
-        source: string,
-        line: int,
-        out name: string?): bool {
+    static func TryExtractVariableDeclarationName(snapshot: object, filePathValue: string, source: string, line: int, out name: string?): bool {
         name = null
 
         lineStart := 0
@@ -258,23 +216,12 @@ public class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    static func TryExtractIdentifierSpanCore(
-        source: string,
-        line: int,
-        column: int,
-        out start: int,
-        out length: int): bool {
+    static func TryExtractIdentifierSpanCore(source: string, line: int, column: int, out start: int, out length: int): bool {
         lineStart := 0
         return TryExtractIdentifierSpanCoreWithLineStart(source, line, column, out start, out length, out lineStart)
     }
 
-    static func TryExtractIdentifierSpanCoreWithLineStart(
-        source: string,
-        line: int,
-        column: int,
-        out start: int,
-        out length: int,
-        out lineStart: int): bool {
+    static func TryExtractIdentifierSpanCoreWithLineStart(source: string, line: int, column: int, out start: int, out length: int, out lineStart: int): bool {
         start = -1
         length = 0
         lineStart = 0
@@ -421,12 +368,7 @@ public class CodeIntelligenceSourceTextKernels {
         return count + 1
     }
 
-    static func FindDocCommentStartLine(
-        source: string,
-        lineStarts: int[],
-        lineLengths: int[],
-        lineCount: int,
-        definitionLine: int): int {
+    static func FindDocCommentStartLine(source: string, lineStarts: int[], lineLengths: int[], lineCount: int, definitionLine: int): int {
         if definitionLine <= 1 || definitionLine > lineCount + 1 {
             return -1
         }
@@ -469,9 +411,7 @@ public class CodeIntelligenceSourceTextKernels {
             trimEnd = trimEnd - 1
         }
 
-        return trimStart + 1 <= trimEnd
-            && source[trimStart] == '/'
-            && source[trimStart + 1] == '/'
+        return trimStart + 1 <= trimEnd && source[trimStart] == '/' && source[trimStart + 1] == '/'
     }
 
     static func IsBlankLine(source: string, lineStart: int, lineLength: int): bool {
@@ -551,16 +491,12 @@ public class CodeIntelligenceSourceTextKernels {
         distance := 1
         while distance <= 3 {
             left := index - distance
-            if left >= 0
-                && IsCodeIntelligenceIdentifierChar(source[lineStart + left])
-                && IsSnapFriendlyNeighbor(source, lineStart, lineLength, left + 1, index) {
+            if left >= 0 && IsCodeIntelligenceIdentifierChar(source[lineStart + left]) && IsSnapFriendlyNeighbor(source, lineStart, lineLength, left + 1, index) {
                 return left
             }
 
             right := index + distance
-            if right < lineLength
-                && IsCodeIntelligenceIdentifierChar(source[lineStart + right])
-                && IsSnapFriendlyNeighbor(source, lineStart, lineLength, index, right - 1) {
+            if right < lineLength && IsCodeIntelligenceIdentifierChar(source[lineStart + right]) && IsSnapFriendlyNeighbor(source, lineStart, lineLength, index, right - 1) {
                 return right
             }
 
@@ -576,9 +512,7 @@ public class CodeIntelligenceSourceTextKernels {
         }
 
         if ch <= '~' {
-            return ch == '_'
-                || (ch >= 'A' && ch <= 'Z')
-                || (ch >= '0' && ch <= '9')
+            return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
         }
 
         if ch >= 'A' && ch <= 'Z' {
@@ -592,12 +526,7 @@ public class CodeIntelligenceSourceTextKernels {
         return Char.IsLetterOrDigit(ch)
     }
 
-    static func IsSnapFriendlyNeighbor(
-        source: string,
-        lineStart: int,
-        lineLength: int,
-        start: int,
-        end: int): bool {
+    static func IsSnapFriendlyNeighbor(source: string, lineStart: int, lineLength: int, start: int, end: int): bool {
         if start > end {
             return true
         }
@@ -634,16 +563,6 @@ public class CodeIntelligenceSourceTextKernels {
     }
 
     static func IsSnapPunctuation(ch: char): bool {
-        return ch == '.'
-            || ch == '?'
-            || ch == '('
-            || ch == ')'
-            || ch == '['
-            || ch == ']'
-            || ch == '{'
-            || ch == '}'
-            || ch == ','
-            || ch == ';'
-            || ch == ':'
+        return ch == '.' || ch == '?' || ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '{' || ch == '}' || ch == ',' || ch == ';' || ch == ':'
     }
 }

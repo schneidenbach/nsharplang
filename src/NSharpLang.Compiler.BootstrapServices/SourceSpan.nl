@@ -2,19 +2,19 @@ namespace NSharpLang.Compiler.Ast
 
 import System
 
-public struct SourceSpan(startLine: int, startColumn: int, endLine: int, endColumn: int) {
+struct SourceSpan(startLine: int, startColumn: int, endLine: int, endColumn: int) {
     StartLine: int = startLine
     StartColumn: int = startColumn
     EndLine: int = endLine
     EndColumn: int = endColumn
 
-    public static None: SourceSpan => new SourceSpan(0, 0, 0, 0)
+    static None: SourceSpan => new SourceSpan(0, 0, 0, 0)
 
     IsValid: bool => StartLine > 0 && StartColumn > 0 && EndLine > 0 && EndColumn > 0
 
     Length: int => ComputeLength(IsValid, StartLine, StartColumn, EndLine, EndColumn)
 
-    public func Contains(line: int, column: int): bool {
+    func Contains(line: int, column: int): bool {
         if !IsValid {
             return false
         }
@@ -34,7 +34,7 @@ public struct SourceSpan(startLine: int, startColumn: int, endLine: int, endColu
         return true
     }
 
-    public static func FromStartAndLength(line: int, column: int, length: int): SourceSpan {
+    static func FromStartAndLength(line: int, column: int, length: int): SourceSpan {
         if line <= 0 || column <= 0 {
             return SourceSpan.None
         }
@@ -51,10 +51,7 @@ public struct SourceSpan(startLine: int, startColumn: int, endLine: int, endColu
     }
 
     func EqualsSpan(other: SourceSpan): bool {
-        return StartLine == other.StartLine
-            && StartColumn == other.StartColumn
-            && EndLine == other.EndLine
-            && EndColumn == other.EndColumn
+        return StartLine == other.StartLine && StartColumn == other.StartColumn && EndLine == other.EndLine && EndColumn == other.EndColumn
     }
 
     override func Equals(value: object): bool {

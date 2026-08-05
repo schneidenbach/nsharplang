@@ -3,19 +3,14 @@ namespace NSharpLang.Compiler.Performance
 import System.Collections.Generic
 import NSharpLang.Compiler
 
-public class SystemsFindingDiagnostics {
-    public static func ToCompilerError(finding: SystemsFinding): CompilerError {
+class SystemsFindingDiagnostics {
+    static func ToCompilerError(finding: SystemsFinding): CompilerError {
         severity := ErrorSeverity.Warning
         if string.Equals(finding.Severity, "error", StringComparison.OrdinalIgnoreCase) {
             severity = ErrorSeverity.Error
         }
 
-        return new CompilerError(
-            ErrorCode.InvalidSyntax,
-            finding.Message,
-            finding.Line,
-            finding.Column,
-            severity) {
+        return new CompilerError(ErrorCode.InvalidSyntax, finding.Message, finding.Line, finding.Column, severity) {
             DiagnosticIdOverride: finding.Code,
             FileName: finding.File,
             Length: finding.Length,

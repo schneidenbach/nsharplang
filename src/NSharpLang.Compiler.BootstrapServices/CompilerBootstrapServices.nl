@@ -4,8 +4,8 @@ import System
 import System.Collections.Generic
 import System.IO
 
-public class ParserTokenCompactor {
-    public static func TryCompact(tokens: List<Token>, out compactedTokens: List<Token>): bool {
+class ParserTokenCompactor {
+    static func TryCompact(tokens: List<Token>, out compactedTokens: List<Token>): bool {
         compactedTokens = new List<Token>()
         i := 0
         while i < tokens.Count {
@@ -21,8 +21,8 @@ public class ParserTokenCompactor {
     }
 }
 
-public class SourceFileDeduplicator {
-    public static func TryDeduplicateOrdinalIgnoreCase(sourceFiles: IReadOnlyList<string>, out deduplicatedSourceFiles: List<string>): bool {
+class SourceFileDeduplicator {
+    static func TryDeduplicateOrdinalIgnoreCase(sourceFiles: IReadOnlyList<string>, out deduplicatedSourceFiles: List<string>): bool {
         deduplicatedSourceFiles = new List<string>()
         i := 0
         while i < sourceFiles.Count {
@@ -56,7 +56,7 @@ public class SourceFileDeduplicator {
     }
 }
 
-public class MultiFileCompilerInputs {
+class MultiFileCompilerInputs {
     SourceFiles: List<string>
     SourceTextOverrides: Dictionary<string, string>
     PreprocessorSymbols: HashSet<string>
@@ -68,31 +68,19 @@ public class MultiFileCompilerInputs {
     }
 }
 
-public class MultiFileCompilerInputBuilder {
-    public static func Build(
-        sourceFiles: IReadOnlyList<string>,
-        config: ProjectConfig,
-        sourceTextOverridePaths: string[],
-        sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
+class MultiFileCompilerInputBuilder {
+    static func Build(sourceFiles: IReadOnlyList<string>, config: ProjectConfig, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
         normalizedOverrides := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         normalizedSourceFiles := NormalizeSourceFiles(sourceFiles, sourceTextOverridePaths, sourceTextOverrideTexts, normalizedOverrides)
         preprocessorSymbols := BuildPreprocessorSymbols(config)
         return new MultiFileCompilerInputs(normalizedSourceFiles, normalizedOverrides, preprocessorSymbols)
     }
 
-    public static func BuildFromProject(
-        projectRoot: string,
-        config: ProjectConfig,
-        sourceTextOverridePaths: string[],
-        sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
+    static func BuildFromProject(projectRoot: string, config: ProjectConfig, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
         return Build(DiscoverSourceFiles(projectRoot, config), config, sourceTextOverridePaths, sourceTextOverrideTexts)
     }
 
-    static func NormalizeSourceFiles(
-        sourceFiles: IReadOnlyList<string>,
-        sourceTextOverridePaths: string[],
-        sourceTextOverrideTexts: string[],
-        normalizedOverrides: Dictionary<string, string>): List<string> {
+    static func NormalizeSourceFiles(sourceFiles: IReadOnlyList<string>, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[], normalizedOverrides: Dictionary<string, string>): List<string> {
         candidates := new List<string>()
 
         i := 0
@@ -154,8 +142,8 @@ public class MultiFileCompilerInputBuilder {
     }
 }
 
-public class ProjectSourceFileFilter {
-    public static func Filter(files: string[], projectRoot: string, excludePatterns: string[], includeTests: bool): string[] {
+class ProjectSourceFileFilter {
+    static func Filter(files: string[], projectRoot: string, excludePatterns: string[], includeTests: bool): string[] {
         relativePaths := new string[](files.Length)
         resultIndices := new int[](files.Length)
 
@@ -177,11 +165,7 @@ public class ProjectSourceFileFilter {
         return result
     }
 
-    static func ProjectSourceFilterKeptIndices(
-        relativePaths: string[],
-        excludePatterns: string[],
-        includeTests: bool,
-        resultIndices: int[]): int {
+    static func ProjectSourceFilterKeptIndices(relativePaths: string[], excludePatterns: string[], includeTests: bool, resultIndices: int[]): int {
         resultCount := 0
         i := 0
         while i < relativePaths.Length {
@@ -273,11 +257,7 @@ public class ProjectSourceFileFilter {
         return ProjectSourceFilterMatchFrom(path, 0, pattern, 0)
     }
 
-    static func ProjectSourceFilterMatchFrom(
-        path: string,
-        pathIndex: int,
-        pattern: string,
-        patternIndex: int): bool {
+    static func ProjectSourceFilterMatchFrom(path: string, pathIndex: int, pattern: string, patternIndex: int): bool {
         pi := pathIndex
         qi := patternIndex
 
@@ -441,8 +421,8 @@ public class ProjectSourceFileFilter {
     }
 }
 
-public class AssemblyVersionKernels {
-    public static func TryParseComponent(component: string, out value: int): bool {
+class AssemblyVersionKernels {
+    static func TryParseComponent(component: string, out value: int): bool {
         value = 0
         if component.Length == 0 {
             return false
@@ -476,8 +456,8 @@ public class AssemblyVersionKernels {
     }
 }
 
-public class FormatterConfigKernels {
-    public static func ParseInt(value: string): int? {
+class FormatterConfigKernels {
+    static func ParseInt(value: string): int? {
         start := 0
         end := value.Length
         while start < end {

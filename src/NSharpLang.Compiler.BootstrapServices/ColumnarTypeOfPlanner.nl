@@ -13,6 +13,7 @@ import System.Threading
 import System.Threading.Tasks
 import YamlDotNet.Serialization
 
+
 // Direct owner for `typeof(Type)`. The embedded type subtree is semantic input, not expression
 // text: N# reconstructs its canonical shape, resolves the exact live runtime/TypeBuilder handle,
 // and records the CLR `ldtoken; Type.GetTypeFromHandle` lowering in a validated schema-v3 plan.
@@ -23,8 +24,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
         candidate := UnwrapParentheses(nodes, node)
-        return candidate >= 0
-            && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression()
+        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression()
     }
 
     // A parsed typeof root is terminal even when its type facts are corrupt or unavailable. The
@@ -33,16 +33,8 @@ class ColumnarTypeOfPlanner {
         return MayPlanRoot(nodes, node)
     }
 
-    static func TryEmit(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        bindings: ColumnarFragmentBindings,
-        plan: ColumnarCodePlan,
-        il: ILGenerator,
-        out resultType: Type): bool {
-        if Plan(nodes, source, node, bindings, plan)
-            != ColumnarFragmentPlanStatus.Planned {
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out resultType: Type): bool {
+        if Plan(nodes, source, node, bindings, plan) != ColumnarFragmentPlanStatus.Planned {
             resultType = typeof(Type)
             return false
         }
@@ -51,28 +43,16 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
-    static func TryGetType(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        bindings: ColumnarFragmentBindings,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         ValidateInputs(nodes, source, node, bindings, plan)
         candidate := UnwrapParentheses(nodes, node)
         targetType := typeof(object)
-        if candidate >= 0
-            && nodes.Kind(candidate)
-                == ColumnarExpressionNodeKind.TypeOfExpression()
-            && (!TryResolveTarget(
-                    nodes, source, candidate, bindings, out targetType)
-                || !IsSupportedType(targetType, bindings)) {
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression() && (!TryResolveTarget(nodes, source, candidate, bindings, out targetType) || !IsSupportedType(targetType, bindings)) {
             plan.PrepareV3()
             resultType = typeof(Type)
             return false
         }
-        if Plan(nodes, source, node, bindings, plan)
-            != ColumnarFragmentPlanStatus.Planned {
+        if Plan(nodes, source, node, bindings, plan) != ColumnarFragmentPlanStatus.Planned {
             resultType = typeof(Type)
             return false
         }
@@ -80,27 +60,19 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
-    static func Plan(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        bindings: ColumnarFragmentBindings,
-        plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
+    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         ValidateInputs(nodes, source, node, bindings, plan)
         plan.PrepareV3()
         candidate := UnwrapParentheses(nodes, node)
-        if candidate < 0
-            || nodes.Kind(candidate) != ColumnarExpressionNodeKind.TypeOfExpression() {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.TypeOfExpression() {
             return plan.Status
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
-            fragment := plan.BeginFragment(
-                -1, ColumnarExpressionNodeKind.TypeOfExpression(), candidate)
+            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.TypeOfExpression(), candidate)
             resultType := typeof(Type)
-            if !TryAppendTypeOf(
-                    nodes, source, candidate, bindings, plan, out resultType) {
+            if !TryAppendTypeOf(nodes, source, candidate, bindings, plan, out resultType) {
                 plan.Rollback(checkpoint)
                 return plan.Status
             }
@@ -113,61 +85,34 @@ class ColumnarTypeOfPlanner {
         }
     }
 
-    static func TryAppendTypeOf(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        bindings: ColumnarFragmentBindings,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryAppendTypeOf(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(Type)
-        if nodes == null || source == null || bindings == null || plan == null
-            || node < 0 || node >= nodes.Kinds.Length
-            || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression()
-            || nodes.ChildCount(node) != 1 {
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression() || nodes.ChildCount(node) != 1 {
             return false
         }
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
-            || plan.Status != ColumnarFragmentPlanStatus.NotOwned
-            || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException(
-                "Typeof append requires an open schema-v3 plan.")
+        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Typeof append requires an open schema-v3 plan.")
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
             targetType := typeof(object)
-            if !TryResolveTarget(
-                    nodes, source, node, bindings, out targetType) {
+            if !TryResolveTarget(nodes, source, node, bindings, out targetType) {
                 plan.Rollback(checkpoint)
                 return false
             }
 
             targetIndex := plan.AddType(targetType)
-            plan.AppendTypeInstruction(
-                ColumnarCodePlanContract.Ldtoken(), targetIndex)
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), targetIndex)
 
             handleParameters := new Type[](1)
             handleParameters[0] = typeof(RuntimeTypeHandle)
-            getTypeFromHandle := typeof(Type).GetMethod(
-                "GetTypeFromHandle", handleParameters)
-            if getTypeFromHandle == null
-                || !getTypeFromHandle.get_IsStatic()
-                || getTypeFromHandle.get_DeclaringType() != typeof(Type)
-                || getTypeFromHandle.get_ReturnType() != typeof(Type)
-                || getTypeFromHandle.GetParameters().Length != 1 {
-                throw new InvalidOperationException(
-                    "System.Type.GetTypeFromHandle has an unexpected runtime signature.")
+            getTypeFromHandle := typeof(Type).GetMethod("GetTypeFromHandle", handleParameters)
+            if getTypeFromHandle == null || !getTypeFromHandle.get_IsStatic() || getTypeFromHandle.get_DeclaringType() != typeof(Type) || getTypeFromHandle.get_ReturnType() != typeof(Type) || getTypeFromHandle.GetParameters().Length != 1 {
+                throw new InvalidOperationException("System.Type.GetTypeFromHandle has an unexpected runtime signature.")
             }
-            methodIndex := plan.AddMethodWithSignature(
-                getTypeFromHandle,
-                typeof(Type),
-                handleParameters,
-                typeof(Type),
-                true,
-                false)
-            plan.AppendMethodInstruction(
-                ColumnarCodePlanContract.Call(), methodIndex)
+            methodIndex := plan.AddMethodWithSignature(getTypeFromHandle, typeof(Type), handleParameters, typeof(Type), true, false)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
             return true
         } catch ex: Exception {
             plan.Rollback(checkpoint)
@@ -175,31 +120,16 @@ class ColumnarTypeOfPlanner {
         }
     }
 
-    static func TryResolveTarget(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        bindings: ColumnarFragmentBindings,
-        out targetType: Type): bool {
+    static func TryResolveTarget(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out targetType: Type): bool {
         targetType = typeof(object)
-        if nodes == null || source == null || bindings == null
-            || node < 0 || node >= nodes.Kinds.Length
-            || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression()
-            || nodes.ChildCount(node) != 1 {
+        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression() || nodes.ChildCount(node) != 1 {
             return false
         }
         canonical := ""
-        return TryBuildTypeCanonical(
-                nodes, source, nodes.Child(node, 0), 0, out canonical)
-            && TryResolveType(canonical, bindings, out targetType)
+        return TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), 0, out canonical) && TryResolveType(canonical, bindings, out targetType)
     }
 
-    static func TryBuildTypeCanonical(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        depth: int,
-        out canonical: string): bool {
+    static func TryBuildTypeCanonical(nodes: ColumnarNodeTable, source: string, node: int, depth: int, out canonical: string): bool {
         canonical = ""
         if depth > 200 || node < 0 || node >= nodes.Kinds.Length {
             return false
@@ -225,11 +155,11 @@ class ColumnarTypeOfPlanner {
             builder.Append("<")
             i := 0
             while i < childCount {
-                if i > 0 { builder.Append(",") }
+                if i > 0 {
+                    builder.Append(",")
+                }
                 argument := ""
-                if !TryBuildTypeCanonical(
-                        nodes, source, nodes.Child(node, i), depth + 1,
-                        out argument) {
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, i), depth + 1, out argument) {
                     return false
                 }
                 builder.Append(argument)
@@ -245,9 +175,7 @@ class ColumnarTypeOfPlanner {
                 return false
             }
             element := ""
-            if !TryBuildTypeCanonical(
-                    nodes, source, nodes.Child(node, 0), depth + 1,
-                    out element) {
+            if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out element) {
                 return false
             }
             canonical = element + (kind == 2 ? "[]" : "?")
@@ -262,11 +190,11 @@ class ColumnarTypeOfPlanner {
             builder := new StringBuilder()
             i := 0
             while i < childCount {
-                if i > 0 { builder.Append("|") }
+                if i > 0 {
+                    builder.Append("|")
+                }
                 arm := ""
-                if !TryBuildTypeCanonical(
-                        nodes, source, nodes.Child(node, i), depth + 1,
-                        out arm) {
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, i), depth + 1, out arm) {
                     return false
                 }
                 builder.Append(arm)
@@ -285,11 +213,11 @@ class ColumnarTypeOfPlanner {
             builder.Append("ValueTuple<")
             i := 0
             while i < childCount {
-                if i > 0 { builder.Append(",") }
+                if i > 0 {
+                    builder.Append(",")
+                }
                 element := ""
-                if !TryBuildTypeCanonical(
-                        nodes, source, nodes.Child(node, i), depth + 1,
-                        out element) {
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, i), depth + 1, out element) {
                     return false
                 }
                 builder.Append(element)
@@ -302,17 +230,12 @@ class ColumnarTypeOfPlanner {
 
         // A named tuple element is transparent to CLR type identity.
         if kind == 7 && nodes.ChildCount(node) == 1 {
-            return TryBuildTypeCanonical(
-                nodes, source, nodes.Child(node, 0), depth + 1,
-                out canonical)
+            return TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out canonical)
         }
         return false
     }
 
-    static func TryResolveType(
-        canonical: string,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    static func TryResolveType(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
         if canonical == null || canonical.Length == 0 || bindings == null {
             return false
@@ -328,15 +251,7 @@ class ColumnarTypeOfPlanner {
             leftCanonical := unionParts[0]
             rightCanonical := unionParts[1]
             unionDefinition := typeof(object)
-            if !TryResolveRuntimeGenericDefinition(
-                    "NSharpLang.Runtime.Union`2",
-                    "NSharpLang.Runtime",
-                    out unionDefinition)
-                || !TryResolveType(leftCanonical, bindings, out left)
-                || !TryResolveType(rightCanonical, bindings, out right)
-                || !IsSupportedAnonymousUnionArm(left, bindings)
-                || !IsSupportedAnonymousUnionArm(right, bindings)
-                || SameTypeShape(left, right) {
+            if !TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.Union`2", "NSharpLang.Runtime", out unionDefinition) || !TryResolveType(leftCanonical, bindings, out left) || !TryResolveType(rightCanonical, bindings, out right) || !IsSupportedAnonymousUnionArm(left, bindings) || !IsSupportedAnonymousUnionArm(right, bindings) || SameTypeShape(left, right) {
                 return false
             }
             arguments := new Type[](2)
@@ -348,11 +263,7 @@ class ColumnarTypeOfPlanner {
 
         if canonical.EndsWith("[]", StringComparison.Ordinal) {
             element := typeof(object)
-            if !TryResolveType(
-                    canonical.Substring(0, canonical.Length - 2),
-                    bindings,
-                    out element)
-                || !IsSupportedElementType(element, bindings) {
+            if !TryResolveType(canonical.Substring(0, canonical.Length - 2), bindings, out element) || !IsSupportedElementType(element, bindings) {
                 return false
             }
             result = element.MakeArrayType()
@@ -361,10 +272,7 @@ class ColumnarTypeOfPlanner {
 
         if canonical.EndsWith("?", StringComparison.Ordinal) {
             element := typeof(object)
-            if !TryResolveType(
-                    canonical.Substring(0, canonical.Length - 1),
-                    bindings,
-                    out element) {
+            if !TryResolveType(canonical.Substring(0, canonical.Length - 1), bindings, out element) {
                 return false
             }
             if !element.get_IsValueType() {
@@ -386,8 +294,7 @@ class ColumnarTypeOfPlanner {
         }
 
         runtimeIdentity := ""
-        if ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
-                canonical, out runtimeIdentity) {
+        if ColumnarExternalBindingPlans.TryGetRuntimeTypeName(canonical, out runtimeIdentity) {
             runtimeType := Type.GetType(runtimeIdentity)
             if runtimeType != null {
                 result = runtimeType
@@ -395,16 +302,13 @@ class ColumnarTypeOfPlanner {
             }
         }
 
-        if TryResolveKnownExternalType(canonical, out result)
-            || TryResolveExceptionType(canonical, out result) {
+        if TryResolveKnownExternalType(canonical, out result) || TryResolveExceptionType(canonical, out result) {
             return true
         }
 
-        if canonical.Length >= 2 && canonical[0] == '('
-            && canonical[canonical.Length - 1] == ')' {
+        if canonical.Length >= 2 && canonical[0] == '(' && canonical[canonical.Length - 1] == ')' {
             argumentText := canonical.Substring(1, canonical.Length - 2)
-            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-                argumentText)
+            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(argumentText)
             definition := OpenValueTupleType(argumentCanonicals.Count)
             if definition == null {
                 return false
@@ -414,8 +318,7 @@ class ColumnarTypeOfPlanner {
             while i < arguments.Length {
                 argumentType := typeof(object)
                 argumentCanonical := argumentCanonicals[i]
-                if !TryResolveType(
-                        argumentCanonical, bindings, out argumentType) {
+                if !TryResolveType(argumentCanonical, bindings, out argumentType) {
                     return false
                 }
                 arguments[i] = argumentType
@@ -425,13 +328,8 @@ class ColumnarTypeOfPlanner {
             return IsSupportedValueTuple(result, bindings)
         }
 
-        if canonical.StartsWith("Func<", StringComparison.Ordinal)
-            && canonical.EndsWith(">", StringComparison.Ordinal) {
-            return TryResolveDelegate(
-                canonical.Substring(5, canonical.Length - 6),
-                true,
-                bindings,
-                out result)
+        if canonical.StartsWith("Func<", StringComparison.Ordinal) && canonical.EndsWith(">", StringComparison.Ordinal) {
+            return TryResolveDelegate(canonical.Substring(5, canonical.Length - 6), true, bindings, out result)
         }
 
         genericOpen := canonical.IndexOf("<", StringComparison.Ordinal)
@@ -439,30 +337,22 @@ class ColumnarTypeOfPlanner {
             head := canonical.Substring(0, genericOpen)
             shortHead := ColumnarTypeCanonicalizer.UnqualifiedTypeName(head)
             if shortHead != head {
-                return TryResolveType(
-                    shortHead + canonical.Substring(genericOpen),
-                    bindings,
-                    out result)
+                return TryResolveType(shortHead + canonical.Substring(genericOpen), bindings, out result)
             }
 
             if IsCollectionHead(head) && HasSourceTypeNamed(head, bindings) {
                 return false
             }
 
-            if TryResolveClosedSourceGeneric(
-                    canonical, genericOpen, bindings, out result) {
+            if TryResolveClosedSourceGeneric(canonical, genericOpen, bindings, out result) {
                 return true
             }
 
-            argumentText := canonical.Substring(
-                genericOpen + 1,
-                canonical.Length - genericOpen - 2)
-            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-                argumentText)
+            argumentText := canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(argumentText)
 
             if head == "Action" {
-                return TryResolveDelegate(
-                    argumentText, false, bindings, out result)
+                return TryResolveDelegate(argumentText, false, bindings, out result)
             }
             if head == "Span" || head == "ReadOnlySpan" {
                 element := typeof(object)
@@ -470,14 +360,10 @@ class ColumnarTypeOfPlanner {
                 if argumentCanonicals.Count == 1 {
                     elementCanonical = argumentCanonicals[0]
                 }
-                if argumentCanonicals.Count != 1
-                    || !TryResolveType(elementCanonical, bindings, out element)
-                    || !IsSupportedReadOnlySpanElement(element) {
+                if argumentCanonicals.Count != 1 || !TryResolveType(elementCanonical, bindings, out element) || !IsSupportedReadOnlySpanElement(element) {
                     return false
                 }
-                definition := (head == "Span"
-                    ? typeof(Span<int>)
-                    : typeof(ReadOnlySpan<int>)).GetGenericTypeDefinition()
+                definition := (head == "Span" ? typeof(Span<int>) : typeof(ReadOnlySpan<int>)).GetGenericTypeDefinition()
                 arguments := new Type[](1)
                 arguments[0] = element
                 result = definition.MakeGenericType(arguments)
@@ -493,8 +379,7 @@ class ColumnarTypeOfPlanner {
                 while i < arguments.Length {
                     argumentType := typeof(object)
                     argumentCanonical := argumentCanonicals[i]
-                    if !TryResolveType(
-                            argumentCanonical, bindings, out argumentType) {
+                    if !TryResolveType(argumentCanonical, bindings, out argumentType) {
                         return false
                     }
                     arguments[i] = argumentType
@@ -509,14 +394,10 @@ class ColumnarTypeOfPlanner {
                 if argumentCanonicals.Count == 1 {
                     elementCanonical = argumentCanonicals[0]
                 }
-                if argumentCanonicals.Count != 1
-                    || !TryResolveType(elementCanonical, bindings, out element)
-                    || !IsSupportedType(element, bindings) {
+                if argumentCanonicals.Count != 1 || !TryResolveType(elementCanonical, bindings, out element) || !IsSupportedType(element, bindings) {
                     return false
                 }
-                definition := (head == "Task"
-                    ? typeof(Task<int>)
-                    : typeof(ValueTask<int>)).GetGenericTypeDefinition()
+                definition := (head == "Task" ? typeof(Task<int>) : typeof(ValueTask<int>)).GetGenericTypeDefinition()
                 arguments := new Type[](1)
                 arguments[0] = element
                 result = definition.MakeGenericType(arguments)
@@ -532,16 +413,7 @@ class ColumnarTypeOfPlanner {
                     firstCanonical = argumentCanonicals[0]
                     secondCanonical = argumentCanonicals[1]
                 }
-                if !TryResolveRuntimeGenericDefinition(
-                        "NSharpLang.Runtime.Result`2",
-                        "NSharpLang.Runtime",
-                        out definition)
-                    || argumentCanonicals.Count != 2
-                    || !TryResolveType(firstCanonical, bindings, out first)
-                    || !TryResolveType(secondCanonical, bindings, out second)
-                    || IsByRefLike(first) || IsByRefLike(second)
-                    || !IsSupportedType(first, bindings)
-                    || !IsSupportedType(second, bindings) {
+                if !TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.Result`2", "NSharpLang.Runtime", out definition) || argumentCanonicals.Count != 2 || !TryResolveType(firstCanonical, bindings, out first) || !TryResolveType(secondCanonical, bindings, out second) || IsByRefLike(first) || IsByRefLike(second) || !IsSupportedType(first, bindings) || !IsSupportedType(second, bindings) {
                     return false
                 }
                 arguments := new Type[](2)
@@ -551,13 +423,10 @@ class ColumnarTypeOfPlanner {
                 return true
             }
 
-            return TryResolveCollection(
-                head, argumentCanonicals, bindings, out result)
+            return TryResolveCollection(head, argumentCanonicals, bindings, out result)
         }
 
-        if TryResolveEnum(canonical, bindings, out result)
-            || TryResolveSourceType(canonical, bindings, out result)
-            || TryResolveSourceUnion(canonical, bindings, out result) {
+        if TryResolveEnum(canonical, bindings, out result) || TryResolveSourceType(canonical, bindings, out result) || TryResolveSourceUnion(canonical, bindings, out result) {
             return true
         }
 
@@ -579,10 +448,7 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
-    static func TryResolveRuntimeGenericDefinition(
-        fullName: string,
-        assemblyName: string,
-        out result: Type): bool {
+    static func TryResolveRuntimeGenericDefinition(fullName: string, assemblyName: string, out result: Type): bool {
         result = typeof(object)
         qualifiedName := fullName + ", " + assemblyName
         direct := Type.GetType(qualifiedName)
@@ -596,12 +462,9 @@ class ColumnarTypeOfPlanner {
         while i < assemblies.Length {
             assembly := assemblies[i]
             identity := assembly.GetName().get_FullName()
-            if String.Equals(identity, assemblyName, StringComparison.Ordinal)
-                || identity.StartsWith(
-                    assemblyName + ",", StringComparison.Ordinal) {
+            if String.Equals(identity, assemblyName, StringComparison.Ordinal) || identity.StartsWith(assemblyName + ",", StringComparison.Ordinal) {
                 candidate := assembly.GetType(fullName)
-                if candidate != null
-                    && candidate.get_IsGenericTypeDefinition() {
+                if candidate != null && candidate.get_IsGenericTypeDefinition() {
                     result = candidate
                     return true
                 }
@@ -611,113 +474,130 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
-    static func TryResolveSpecialKnownType(
-        canonical: string,
-        out result: Type): bool {
+    static func TryResolveSpecialKnownType(canonical: string, out result: Type): bool {
         result = typeof(object)
-        if canonical == "StringBuilder" { result = typeof(StringBuilder) }
-        else if canonical == "object" { result = typeof(object) }
-        else if canonical == "StringComparer" { result = typeof(StringComparer) }
-        else if canonical == "SearchOption" { result = typeof(SearchOption) }
-        else if canonical == "IList" { result = typeof(IList) }
-        else if canonical == "IComparable" {
+        if canonical == "StringBuilder" {
+            result = typeof(StringBuilder)
+        } else if canonical == "object" {
+            result = typeof(object)
+        } else if canonical == "StringComparer" {
+            result = typeof(StringComparer)
+        } else if canonical == "SearchOption" {
+            result = typeof(SearchOption)
+        } else if canonical == "IList" {
+            result = typeof(IList)
+        } else if canonical == "IComparable" {
             comparable := Type.GetType("System.IComparable")
             if comparable == null {
                 return false
             }
             result = comparable
-        }
-        else if canonical == "Type" { result = typeof(Type) }
-        else if canonical == "Version" { result = typeof(Version) }
-        else if canonical == "TimeSpan" { result = typeof(TimeSpan) }
-        else if canonical == "Random" { result = typeof(Random) }
-        else if canonical == "Process" { result = typeof(Process) }
-        else if canonical == "ProcessStartInfo" { result = typeof(ProcessStartInfo) }
-        else if canonical == "StreamReader" { result = typeof(StreamReader) }
-        else if canonical == "Stream" { result = typeof(Stream) }
-        else if canonical == "CancellationToken" {
+        } else if canonical == "Type" {
+            result = typeof(Type)
+        } else if canonical == "Version" {
+            result = typeof(Version)
+        } else if canonical == "TimeSpan" {
+            result = typeof(TimeSpan)
+        } else if canonical == "Random" {
+            result = typeof(Random)
+        } else if canonical == "Process" {
+            result = typeof(Process)
+        } else if canonical == "ProcessStartInfo" {
+            result = typeof(ProcessStartInfo)
+        } else if canonical == "StreamReader" {
+            result = typeof(StreamReader)
+        } else if canonical == "Stream" {
+            result = typeof(Stream)
+        } else if canonical == "CancellationToken" {
             result = typeof(CancellationToken)
-        } else if canonical == "Task" { result = typeof(Task) }
-        else if canonical == "ValueTask" { result = typeof(ValueTask) }
-        else if canonical == "Assembly" { result = typeof(Assembly) }
-        else { return false }
+        } else if canonical == "Task" {
+            result = typeof(Task)
+        } else if canonical == "ValueTask" {
+            result = typeof(ValueTask)
+        } else if canonical == "Assembly" {
+            result = typeof(Assembly)
+        } else {
+            return false
+        }
         return true
     }
 
-    static func TryResolveBuiltinType(
-        canonical: string,
-        out result: Type): bool {
+    static func TryResolveBuiltinType(canonical: string, out result: Type): bool {
         result = typeof(object)
-        if canonical == "int" { result = typeof(int) }
-        else if canonical == "long" { result = typeof(long) }
-        else if canonical == "uint" { result = typeof(uint) }
-        else if canonical == "ulong" { result = typeof(ulong) }
-        else if canonical == "short" { result = typeof(short) }
-        else if canonical == "ushort" { result = typeof(ushort) }
-        else if canonical == "byte" { result = typeof(byte) }
-        else if canonical == "sbyte" { result = typeof(sbyte) }
-        else if canonical == "bool" { result = typeof(bool) }
-        else if canonical == "char" { result = typeof(char) }
-        else if canonical == "double" { result = typeof(double) }
-        else if canonical == "float" { result = typeof(float) }
-        else if canonical == "decimal" { result = typeof(decimal) }
-        else if canonical == "string" { result = typeof(string) }
-        else if canonical == "IntPtr" || canonical == "nint" {
+        if canonical == "int" {
+            result = typeof(int)
+        } else if canonical == "long" {
+            result = typeof(long)
+        } else if canonical == "uint" {
+            result = typeof(uint)
+        } else if canonical == "ulong" {
+            result = typeof(ulong)
+        } else if canonical == "short" {
+            result = typeof(short)
+        } else if canonical == "ushort" {
+            result = typeof(ushort)
+        } else if canonical == "byte" {
+            result = typeof(byte)
+        } else if canonical == "sbyte" {
+            result = typeof(sbyte)
+        } else if canonical == "bool" {
+            result = typeof(bool)
+        } else if canonical == "char" {
+            result = typeof(char)
+        } else if canonical == "double" {
+            result = typeof(double)
+        } else if canonical == "float" {
+            result = typeof(float)
+        } else if canonical == "decimal" {
+            result = typeof(decimal)
+        } else if canonical == "string" {
+            result = typeof(string)
+        } else if canonical == "IntPtr" || canonical == "nint" {
             result = typeof(IntPtr)
         } else if canonical == "UIntPtr" || canonical == "nuint" {
             result = typeof(UIntPtr)
-        } else if canonical == "DateTime" { result = typeof(DateTime) }
-        else if canonical == "Index" { result = typeof(Index) }
-        else if canonical == "Range" { result = typeof(Range) }
-        else { return false }
+        } else if canonical == "DateTime" {
+            result = typeof(DateTime)
+        } else if canonical == "Index" {
+            result = typeof(Index)
+        } else if canonical == "Range" {
+            result = typeof(Range)
+        } else {
+            return false
+        }
         return true
     }
 
-    static func TryResolveKnownExternalType(
-        canonical: string,
-        out result: Type): bool {
+    static func TryResolveKnownExternalType(canonical: string, out result: Type): bool {
         result = typeof(object)
         fullName := ""
-        if canonical == "IYamlTypeConverter"
-            || canonical == "YamlDotNet.Serialization.IYamlTypeConverter" {
+        if canonical == "IYamlTypeConverter" || canonical == "YamlDotNet.Serialization.IYamlTypeConverter" {
             fullName = "YamlDotNet.Serialization.IYamlTypeConverter"
-        } else if canonical == "ObjectDeserializer"
-            || canonical == "YamlDotNet.Serialization.ObjectDeserializer" {
+        } else if canonical == "ObjectDeserializer" || canonical == "YamlDotNet.Serialization.ObjectDeserializer" {
             fullName = "YamlDotNet.Serialization.ObjectDeserializer"
-        } else if canonical == "ObjectSerializer"
-            || canonical == "YamlDotNet.Serialization.ObjectSerializer" {
+        } else if canonical == "ObjectSerializer" || canonical == "YamlDotNet.Serialization.ObjectSerializer" {
             fullName = "YamlDotNet.Serialization.ObjectSerializer"
-        } else if canonical == "DeserializerBuilder"
-            || canonical == "YamlDotNet.Serialization.DeserializerBuilder" {
+        } else if canonical == "DeserializerBuilder" || canonical == "YamlDotNet.Serialization.DeserializerBuilder" {
             fullName = "YamlDotNet.Serialization.DeserializerBuilder"
-        } else if canonical == "IDeserializer"
-            || canonical == "YamlDotNet.Serialization.IDeserializer" {
+        } else if canonical == "IDeserializer" || canonical == "YamlDotNet.Serialization.IDeserializer" {
             fullName = "YamlDotNet.Serialization.IDeserializer"
-        } else if canonical == "INamingConvention"
-            || canonical == "YamlDotNet.Serialization.INamingConvention" {
+        } else if canonical == "INamingConvention" || canonical == "YamlDotNet.Serialization.INamingConvention" {
             fullName = "YamlDotNet.Serialization.INamingConvention"
-        } else if canonical == "CamelCaseNamingConvention"
-            || canonical
-                == "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention" {
+        } else if canonical == "CamelCaseNamingConvention" || canonical == "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention" {
             fullName = "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention"
         } else if canonical == "IParser" || canonical == "YamlDotNet.Core.IParser" {
             fullName = "YamlDotNet.Core.IParser"
         } else if canonical == "IEmitter" || canonical == "YamlDotNet.Core.IEmitter" {
             fullName = "YamlDotNet.Core.IEmitter"
-        } else if canonical == "YamlException"
-            || canonical == "YamlDotNet.Core.YamlException" {
+        } else if canonical == "YamlException" || canonical == "YamlDotNet.Core.YamlException" {
             fullName = "YamlDotNet.Core.YamlException"
-        } else if canonical == "ParsingEvent"
-            || canonical == "YamlDotNet.Core.Events.ParsingEvent" {
+        } else if canonical == "ParsingEvent" || canonical == "YamlDotNet.Core.Events.ParsingEvent" {
             fullName = "YamlDotNet.Core.Events.ParsingEvent"
-        } else if canonical == "Scalar"
-            || canonical == "YamlDotNet.Core.Events.Scalar" {
+        } else if canonical == "Scalar" || canonical == "YamlDotNet.Core.Events.Scalar" {
             fullName = "YamlDotNet.Core.Events.Scalar"
-        } else if canonical == "MappingStart"
-            || canonical == "YamlDotNet.Core.Events.MappingStart" {
+        } else if canonical == "MappingStart" || canonical == "YamlDotNet.Core.Events.MappingStart" {
             fullName = "YamlDotNet.Core.Events.MappingStart"
-        } else if canonical == "MappingEnd"
-            || canonical == "YamlDotNet.Core.Events.MappingEnd" {
+        } else if canonical == "MappingEnd" || canonical == "YamlDotNet.Core.Events.MappingEnd" {
             fullName = "YamlDotNet.Core.Events.MappingEnd"
         }
         if fullName.Length > 0 {
@@ -729,28 +609,23 @@ class ColumnarTypeOfPlanner {
             return false
         }
 
-        if canonical == "JsonElement"
-            || canonical == "System.Text.Json.JsonElement" {
+        if canonical == "JsonElement" || canonical == "System.Text.Json.JsonElement" {
             result = typeof(JsonElement)
             return true
         }
-        if canonical == "JsonDocument"
-            || canonical == "System.Text.Json.JsonDocument" {
+        if canonical == "JsonDocument" || canonical == "System.Text.Json.JsonDocument" {
             result = typeof(JsonDocument)
             return true
         }
-        if canonical == "JsonValueKind"
-            || canonical == "System.Text.Json.JsonValueKind" {
+        if canonical == "JsonValueKind" || canonical == "System.Text.Json.JsonValueKind" {
             result = typeof(JsonValueKind)
             return true
         }
-        if canonical == "JsonSerializerOptions"
-            || canonical == "System.Text.Json.JsonSerializerOptions" {
+        if canonical == "JsonSerializerOptions" || canonical == "System.Text.Json.JsonSerializerOptions" {
             result = typeof(JsonSerializerOptions)
             return true
         }
-        if canonical == "JsonNamingPolicy"
-            || canonical == "System.Text.Json.JsonNamingPolicy" {
+        if canonical == "JsonNamingPolicy" || canonical == "System.Text.Json.JsonNamingPolicy" {
             result = typeof(JsonNamingPolicy)
             return true
         }
@@ -785,63 +660,47 @@ class ColumnarTypeOfPlanner {
                     return true
                 }
             } catch {
-                // A later loaded assembly may carry the exact supported type.
             }
+            // A later loaded assembly may carry the exact supported type.
+
             i += 1
         }
         return false
     }
 
-    static func TryResolveExceptionType(
-        canonical: string,
-        out result: Type): bool {
+    static func TryResolveExceptionType(canonical: string, out result: Type): bool {
         result = typeof(object)
         if canonical == "Exception" || canonical == "System.Exception" {
             result = typeof(Exception)
-        } else if canonical == "InvalidOperationException"
-            || canonical == "System.InvalidOperationException" {
+        } else if canonical == "InvalidOperationException" || canonical == "System.InvalidOperationException" {
             result = typeof(InvalidOperationException)
-        } else if canonical == "ArgumentException"
-            || canonical == "System.ArgumentException" {
+        } else if canonical == "ArgumentException" || canonical == "System.ArgumentException" {
             result = typeof(ArgumentException)
-        } else if canonical == "ArgumentNullException"
-            || canonical == "System.ArgumentNullException" {
+        } else if canonical == "ArgumentNullException" || canonical == "System.ArgumentNullException" {
             result = typeof(ArgumentNullException)
-        } else if canonical == "ArgumentOutOfRangeException"
-            || canonical == "System.ArgumentOutOfRangeException" {
+        } else if canonical == "ArgumentOutOfRangeException" || canonical == "System.ArgumentOutOfRangeException" {
             result = typeof(ArgumentOutOfRangeException)
-        } else if canonical == "FormatException"
-            || canonical == "System.FormatException" {
+        } else if canonical == "FormatException" || canonical == "System.FormatException" {
             result = typeof(FormatException)
-        } else if canonical == "NotSupportedException"
-            || canonical == "System.NotSupportedException" {
+        } else if canonical == "NotSupportedException" || canonical == "System.NotSupportedException" {
             result = typeof(NotSupportedException)
-        } else if canonical == "NotImplementedException"
-            || canonical == "System.NotImplementedException" {
+        } else if canonical == "NotImplementedException" || canonical == "System.NotImplementedException" {
             result = typeof(NotImplementedException)
-        } else if canonical == "TimeoutException"
-            || canonical == "System.TimeoutException" {
+        } else if canonical == "TimeoutException" || canonical == "System.TimeoutException" {
             result = typeof(TimeoutException)
-        } else if canonical == "DivideByZeroException"
-            || canonical == "System.DivideByZeroException" {
+        } else if canonical == "DivideByZeroException" || canonical == "System.DivideByZeroException" {
             result = typeof(DivideByZeroException)
-        } else if canonical == "ArithmeticException"
-            || canonical == "System.ArithmeticException" {
+        } else if canonical == "ArithmeticException" || canonical == "System.ArithmeticException" {
             result = typeof(ArithmeticException)
-        } else if canonical == "OverflowException"
-            || canonical == "System.OverflowException" {
+        } else if canonical == "OverflowException" || canonical == "System.OverflowException" {
             result = typeof(OverflowException)
-        } else if canonical == "NullReferenceException"
-            || canonical == "System.NullReferenceException" {
+        } else if canonical == "NullReferenceException" || canonical == "System.NullReferenceException" {
             result = typeof(NullReferenceException)
-        } else if canonical == "IndexOutOfRangeException"
-            || canonical == "System.IndexOutOfRangeException" {
+        } else if canonical == "IndexOutOfRangeException" || canonical == "System.IndexOutOfRangeException" {
             result = typeof(IndexOutOfRangeException)
-        } else if canonical == "InvalidCastException"
-            || canonical == "System.InvalidCastException" {
+        } else if canonical == "InvalidCastException" || canonical == "System.InvalidCastException" {
             result = typeof(InvalidCastException)
-        } else if canonical == "FileNotFoundException"
-            || canonical == "System.IO.FileNotFoundException" {
+        } else if canonical == "FileNotFoundException" || canonical == "System.IO.FileNotFoundException" {
             result = typeof(FileNotFoundException)
         } else {
             return false
@@ -849,26 +708,21 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
-    static func TryResolveCollection(
-        head: string,
-        argumentCanonicals: List<string>,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    static func TryResolveCollection(head: string, argumentCanonicals: List<string>, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
-        if head == "List" || head == "HashSet" || head == "Stack"
-            || head == "IReadOnlyList" || head == "IReadOnlyCollection"
-            || head == "IReadOnlySet" || head == "IEnumerable" {
+        if head == "List" || head == "HashSet" || head == "Stack" || head == "IReadOnlyList" || head == "IReadOnlyCollection" || head == "IReadOnlySet" || head == "IEnumerable" {
             element := typeof(object)
             elementCanonical := ""
             if argumentCanonicals.Count == 1 {
                 elementCanonical = argumentCanonicals[0]
             }
-            if argumentCanonicals.Count != 1
-                || !TryResolveType(elementCanonical, bindings, out element) {
+            if argumentCanonicals.Count != 1 || !TryResolveType(elementCanonical, bindings, out element) {
                 return false
             }
             if head == "HashSet" || head == "IReadOnlySet" {
-                if !IsAdmissibleHashSetElement(element, bindings) { return false }
+                if !IsAdmissibleHashSetElement(element, bindings) {
+                    return false
+                }
             } else if !IsAdmissibleCollectionElement(element, bindings) {
                 return false
             }
@@ -901,18 +755,10 @@ class ColumnarTypeOfPlanner {
                 keyCanonical = argumentCanonicals[0]
                 valueCanonical = argumentCanonicals[1]
             }
-            if argumentCanonicals.Count != 2
-                || !TryResolveType(keyCanonical, bindings, out key)
-                || !TryResolveType(valueCanonical, bindings, out value)
-                || (head == "Dictionary"
-                    ? ContainsNonEnumBuilderBoundType(key)
-                    : ContainsBuilderBoundType(key))
-                || !IsAdmissibleCollectionElement(value, bindings) {
+            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "Dictionary" ? ContainsNonEnumBuilderBoundType(key) : ContainsBuilderBoundType(key)) || !IsAdmissibleCollectionElement(value, bindings) {
                 return false
             }
-            definition := (head == "Dictionary"
-                ? typeof(Dictionary<int, int>)
-                : typeof(SortedDictionary<int, int>)).GetGenericTypeDefinition()
+            definition := (head == "Dictionary" ? typeof(Dictionary<int, int>) : typeof(SortedDictionary<int, int>)).GetGenericTypeDefinition()
             arguments := new Type[](2)
             arguments[0] = key
             arguments[1] = value
@@ -922,11 +768,7 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
-    static func TryResolveDelegate(
-        argumentText: string,
-        hasReturn: bool,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    static func TryResolveDelegate(argumentText: string, hasReturn: bool, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
         parts := ColumnarTypeCanonicalizer.SplitTopLevelCommas(argumentText)
         if parts.Count == 0 {
@@ -938,9 +780,7 @@ class ColumnarTypeOfPlanner {
         if hasReturn {
             parameterCount -= 1
             returnCanonical := parts[parameterCount]
-            if returnCanonical != "void"
-                && (!TryResolveType(returnCanonical, bindings, out returnType)
-                    || IsAssemblyBuilderBacked(returnType)) {
+            if returnCanonical != "void" && (!TryResolveType(returnCanonical, bindings, out returnType) || IsAssemblyBuilderBacked(returnType)) {
                 return false
             }
         }
@@ -952,9 +792,7 @@ class ColumnarTypeOfPlanner {
         while i < parameterCount {
             parameterType := typeof(object)
             parameterCanonical := parts[i]
-            if parameterCanonical == "void"
-                || !TryResolveType(parameterCanonical, bindings, out parameterType)
-                || IsAssemblyBuilderBacked(parameterType) {
+            if parameterCanonical == "void" || !TryResolveType(parameterCanonical, bindings, out parameterType) || IsAssemblyBuilderBacked(parameterType) {
                 return false
             }
             parameters[i] = parameterType
@@ -999,21 +837,15 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
-    static func TryResolveClosedSourceGeneric(
-        canonical: string,
-        genericOpen: int,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    static func TryResolveClosedSourceGeneric(canonical: string, genericOpen: int, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
         head := canonical.Substring(0, genericOpen)
         openType := typeof(object)
         if !TryFindSourceGenericDefinition(head, bindings, out openType) {
             return false
         }
-        argumentsText := canonical.Substring(
-            genericOpen + 1, canonical.Length - genericOpen - 2)
-        argumentsCanonical := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-            argumentsText)
+        argumentsText := canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+        argumentsCanonical := ColumnarTypeCanonicalizer.SplitTopLevelCommas(argumentsText)
         openArguments := openType.GetGenericArguments()
         if argumentsCanonical.Count != openArguments.Length {
             return false
@@ -1023,8 +855,7 @@ class ColumnarTypeOfPlanner {
         while i < arguments.Length {
             argumentType := typeof(object)
             argumentCanonical := argumentsCanonical[i]
-            if !TryResolveType(
-                    argumentCanonical, bindings, out argumentType) {
+            if !TryResolveType(argumentCanonical, bindings, out argumentType) {
                 return false
             }
             arguments[i] = argumentType
@@ -1034,28 +865,22 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
-    static func TryFindSourceGenericDefinition(
-        name: string,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    static func TryFindSourceGenericDefinition(name: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
         candidate := typeof(object)
         for definition in bindings.SourceTypeDefinitions {
             if definition == null || definition.Builder == null {
-                throw new InvalidOperationException(
-                    "Typeof source type definitions cannot be null.")
+                throw new InvalidOperationException("Typeof source type definitions cannot be null.")
             }
             builder: Type = definition.Builder
-            if SourceExactNameMatches(builder, name)
-                && candidate == typeof(object) {
+            if SourceExactNameMatches(builder, name) && candidate == typeof(object) {
                 candidate = builder
             }
         }
         if candidate == typeof(object) {
             for definition in bindings.SourceTypeDefinitions {
                 builder: Type = definition.Builder
-                if SourceShortNameMatches(builder, name)
-                    && candidate == typeof(object) {
+                if SourceShortNameMatches(builder, name) && candidate == typeof(object) {
                     candidate = builder
                 }
             }
@@ -1071,36 +896,29 @@ class ColumnarTypeOfPlanner {
         candidate = typeof(object)
         for definition in bindings.SourceUnionDefinitions {
             if definition == null || definition.Base == null {
-                throw new InvalidOperationException(
-                    "Typeof source union definitions cannot be null.")
+                throw new InvalidOperationException("Typeof source union definitions cannot be null.")
             }
             builder: Type = definition.Base
-            if SourceExactNameMatches(builder, name)
-                && candidate == typeof(object) {
+            if SourceExactNameMatches(builder, name) && candidate == typeof(object) {
                 candidate = builder
             }
         }
         if candidate == typeof(object) {
             for definition in bindings.SourceUnionDefinitions {
                 builder: Type = definition.Base
-                if SourceShortNameMatches(builder, name)
-                    && candidate == typeof(object) {
+                if SourceShortNameMatches(builder, name) && candidate == typeof(object) {
                     candidate = builder
                 }
             }
         }
-        if candidate != typeof(object)
-            && candidate.get_IsGenericTypeDefinition() {
+        if candidate != typeof(object) && candidate.get_IsGenericTypeDefinition() {
             result = candidate
             return true
         }
         return false
     }
 
-    static func TryResolveEnum(
-        canonical: string,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    static func TryResolveEnum(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
         if !bindings.Enums.ContainsKey(canonical) {
             return false
@@ -1113,21 +931,15 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
-    static func TryResolveSourceType(
-        canonical: string,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    static func TryResolveSourceType(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
         for definition in bindings.SourceTypeDefinitions {
             if definition == null || definition.Builder == null {
-                throw new InvalidOperationException(
-                    "Typeof source type definitions cannot be null.")
+                throw new InvalidOperationException("Typeof source type definitions cannot be null.")
             }
             candidate: Type = definition.Builder
-            if SourceExactNameMatches(candidate, canonical)
-                && result == typeof(object) {
-                result = SelectUniqueSourceCandidate(
-                    result, candidate, "Typeof source type name is ambiguous.")
+            if SourceExactNameMatches(candidate, canonical) && result == typeof(object) {
+                result = SelectUniqueSourceCandidate(result, candidate, "Typeof source type name is ambiguous.")
             }
         }
         if result != typeof(object) || canonical.Contains(".") {
@@ -1135,102 +947,74 @@ class ColumnarTypeOfPlanner {
         }
         for definition in bindings.SourceTypeDefinitions {
             candidate: Type = definition.Builder
-            if SourceShortNameMatches(candidate, canonical)
-                && result == typeof(object) {
+            if SourceShortNameMatches(candidate, canonical) && result == typeof(object) {
                 result = candidate
             }
         }
         return result != typeof(object)
     }
 
-    static func TryResolveSourceUnion(
-        canonical: string,
-        bindings: ColumnarFragmentBindings,
-        out result: Type): bool {
+    static func TryResolveSourceUnion(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
         for definition in bindings.SourceUnionDefinitions {
             if definition == null || definition.Base == null {
-                throw new InvalidOperationException(
-                    "Typeof source union definitions cannot be null.")
+                throw new InvalidOperationException("Typeof source union definitions cannot be null.")
             }
             candidate: Type = definition.Base
-            if SourceExactNameMatches(candidate, canonical)
-                && result == typeof(object) {
-                result = SelectUniqueSourceCandidate(
-                    result, candidate, "Typeof source union name is ambiguous.")
+            if SourceExactNameMatches(candidate, canonical) && result == typeof(object) {
+                result = SelectUniqueSourceCandidate(result, candidate, "Typeof source union name is ambiguous.")
             }
         }
         if result == typeof(object) && !canonical.Contains(".") {
             for definition in bindings.SourceUnionDefinitions {
                 candidate: Type = definition.Base
-                if SourceShortNameMatches(candidate, canonical)
-                    && result == typeof(object) {
+                if SourceShortNameMatches(candidate, canonical) && result == typeof(object) {
                     result = candidate
                 }
             }
         }
-        return result != typeof(object)
-            && !result.get_IsGenericTypeDefinition()
+        return result != typeof(object) && !result.get_IsGenericTypeDefinition()
     }
 
-    static func HasSourceTypeNamed(
-        name: string,
-        bindings: ColumnarFragmentBindings): bool {
+    static func HasSourceTypeNamed(name: string, bindings: ColumnarFragmentBindings): bool {
         if bindings.Enums.ContainsKey(name) {
             return true
         }
         for definition in bindings.SourceTypeDefinitions {
-            if definition != null
-                && (SourceExactNameMatches(definition.Builder, name)
-                    || SourceShortNameMatches(definition.Builder, name)) {
+            if definition != null && (SourceExactNameMatches(definition.Builder, name) || SourceShortNameMatches(definition.Builder, name)) {
                 return true
             }
         }
         for definition in bindings.SourceUnionDefinitions {
-            if definition != null
-                && (SourceExactNameMatches(definition.Base, name)
-                    || SourceShortNameMatches(definition.Base, name)) {
+            if definition != null && (SourceExactNameMatches(definition.Base, name) || SourceShortNameMatches(definition.Base, name)) {
                 return true
             }
         }
         return false
     }
 
-    static func SourceExactNameMatches(
-        valueType: Type,
-        canonical: string): bool {
+    static func SourceExactNameMatches(valueType: Type, canonical: string): bool {
         if valueType == null || canonical == null || canonical.Length == 0 {
             return false
         }
         fullName := valueType.FullName ?? ""
         if fullName.Length > 0 {
-            return String.Equals(
-                fullName, canonical, StringComparison.Ordinal)
+            return String.Equals(fullName, canonical, StringComparison.Ordinal)
         }
-        return String.Equals(
-            valueType.Name, canonical, StringComparison.Ordinal)
+        return String.Equals(valueType.Name, canonical, StringComparison.Ordinal)
     }
 
-    static func SourceShortNameMatches(
-        valueType: Type,
-        canonical: string): bool {
-        if valueType == null || canonical == null || canonical.Length == 0
-            || SourceExactNameMatches(valueType, canonical) {
+    static func SourceShortNameMatches(valueType: Type, canonical: string): bool {
+        if valueType == null || canonical == null || canonical.Length == 0 || SourceExactNameMatches(valueType, canonical) {
             return false
         }
         shortCanonical := ColumnarTypeCanonicalizer.UnqualifiedTypeName(canonical)
         fullName := valueType.FullName ?? ""
         shortCandidate := ColumnarTypeCanonicalizer.UnqualifiedTypeName(fullName)
-        return String.Equals(
-                valueType.Name, shortCanonical, StringComparison.Ordinal)
-            || String.Equals(
-                shortCandidate, shortCanonical, StringComparison.Ordinal)
+        return String.Equals(valueType.Name, shortCanonical, StringComparison.Ordinal) || String.Equals(shortCandidate, shortCanonical, StringComparison.Ordinal)
     }
 
-    static func SelectUniqueSourceCandidate(
-        current: Type,
-        candidate: Type,
-        ambiguityMessage: string): Type {
+    static func SelectUniqueSourceCandidate(current: Type, candidate: Type, ambiguityMessage: string): Type {
         if current != typeof(object) && current != candidate {
             throw new InvalidOperationException(ambiguityMessage)
         }
@@ -1238,62 +1022,17 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsCollectionHead(name: string): bool {
-        return name == "List" || name == "Dictionary"
-            || name == "SortedDictionary" || name == "HashSet"
-            || name == "Stack"
+        return name == "List" || name == "Dictionary" || name == "SortedDictionary" || name == "HashSet" || name == "Stack"
     }
 
-    static func IsSupportedType(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
-        if valueType == typeof(int) || valueType == typeof(bool)
-            || valueType == typeof(long) || valueType == typeof(ulong)
-            || valueType == typeof(string) || valueType == typeof(char)
-            || valueType == typeof(double) || valueType == typeof(float)
-            || valueType == typeof(byte) || valueType == typeof(sbyte)
-            || valueType == typeof(short) || valueType == typeof(ushort)
-            || valueType == typeof(uint) || valueType == typeof(IntPtr)
-            || valueType == typeof(UIntPtr) || valueType == typeof(decimal)
-            || valueType == typeof(object) || valueType == typeof(Stream)
-            || valueType == typeof(StreamReader)
-            || valueType == typeof(StringComparer)
-            || valueType == typeof(StringBuilder)
-            || valueType == typeof(DateTime) || valueType == typeof(TimeSpan)
-            || valueType == typeof(Index) || valueType == typeof(Range)
-            || valueType == typeof(CancellationToken)
-            || valueType == typeof(Random) || valueType == typeof(IList)
-            || valueType == typeof(Type) || valueType == typeof(Version)
-            || valueType == typeof(Assembly) {
+    static func IsSupportedType(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        if valueType == typeof(int) || valueType == typeof(bool) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(string) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(uint) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(decimal) || valueType == typeof(object) || valueType == typeof(Stream) || valueType == typeof(StreamReader) || valueType == typeof(StringComparer) || valueType == typeof(StringBuilder) || valueType == typeof(DateTime) || valueType == typeof(TimeSpan) || valueType == typeof(Index) || valueType == typeof(Range) || valueType == typeof(CancellationToken) || valueType == typeof(Random) || valueType == typeof(IList) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) {
             return true
         }
         if valueType == typeof(Process) || valueType == typeof(ProcessStartInfo) {
             return true
         }
-        if IsSupportedTaskType(valueType, bindings)
-            || typeof(Exception).IsAssignableFrom(valueType)
-            || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-                valueType.FullName)
-            || IsSupportedJsonType(valueType)
-            || IsSupportedExternalType(valueType)
-            || IsSupportedSpanLikeType(valueType)
-            || IsSupportedGenericDefinitionName(
-                valueType, "System.Buffers.ArrayPool`1")
-            || IsSupportedGenericDefinitionName(
-                valueType, "System.Buffers.MemoryPool`1")
-            || IsSupportedGenericDefinitionName(
-                valueType, "System.Buffers.IMemoryOwner`1")
-            || IsSupportedGenericDefinitionName(
-                valueType, "System.Memory`1")
-            || IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Result`2")
-            || IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Union`2")
-            || IsEnumType(valueType)
-            || valueType is TypeBuilder
-            || valueType.get_IsGenericParameter()
-            || IsClosedSourceGeneric(valueType)
-            || IsSupportedValueTuple(valueType, bindings)
-            || IsSupportedDelegateType(valueType, bindings)
-            || IsSupportedCollectionType(valueType)
-            || IsSupportedNullable(valueType, bindings) {
+        if IsSupportedTaskType(valueType, bindings) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedJsonType(valueType) || IsSupportedExternalType(valueType) || IsSupportedSpanLikeType(valueType) || IsSupportedGenericDefinitionName(valueType, "System.Buffers.ArrayPool`1") || IsSupportedGenericDefinitionName(valueType, "System.Buffers.MemoryPool`1") || IsSupportedGenericDefinitionName(valueType, "System.Buffers.IMemoryOwner`1") || IsSupportedGenericDefinitionName(valueType, "System.Memory`1") || IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Result`2") || IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Union`2") || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsClosedSourceGeneric(valueType) || IsSupportedValueTuple(valueType, bindings) || IsSupportedDelegateType(valueType, bindings) || IsSupportedCollectionType(valueType) || IsSupportedNullable(valueType, bindings) {
             return true
         }
         if valueType.get_IsSZArray() {
@@ -1303,23 +1042,8 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
-    static func IsSupportedElementType(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
-        if valueType == typeof(bool) || valueType == typeof(int)
-            || valueType == typeof(uint) || valueType == typeof(long)
-            || valueType == typeof(ulong) || valueType == typeof(byte)
-            || valueType == typeof(sbyte) || valueType == typeof(short)
-            || valueType == typeof(ushort) || valueType == typeof(char)
-            || valueType == typeof(string) || valueType == typeof(double)
-            || valueType == typeof(float) || valueType == typeof(IntPtr)
-            || valueType == typeof(UIntPtr) || valueType == typeof(object)
-            || valueType == typeof(Type) || valueType == typeof(Version)
-            || valueType == typeof(Assembly) || IsEnumType(valueType)
-            || valueType is TypeBuilder || valueType.get_IsGenericParameter()
-            || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-                valueType.FullName)
-            || IsSupportedNullable(valueType, bindings) {
+    static func IsSupportedElementType(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullable(valueType, bindings) {
             return true
         }
         if valueType.get_IsSZArray() {
@@ -1329,104 +1053,60 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
-    static func IsLiftableNullableElement(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
-        return valueType == typeof(int) || valueType == typeof(long)
-            || valueType == typeof(ulong) || valueType == typeof(uint)
-            || valueType == typeof(short) || valueType == typeof(ushort)
-            || valueType == typeof(byte) || valueType == typeof(sbyte)
-            || valueType == typeof(bool) || valueType == typeof(char)
-            || valueType == typeof(double) || valueType == typeof(float)
-            || valueType == typeof(decimal) || valueType == typeof(TimeSpan)
-            || IsSupportedValueTuple(valueType, bindings)
+    static func IsLiftableNullableElement(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType, bindings)
     }
 
-    static func IsSupportedNullable(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
-        if !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition()
-            || valueType.GetGenericTypeDefinition()
-                != RequiredNullableDefinition() {
+    static func IsSupportedNullable(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || valueType.GetGenericTypeDefinition() != RequiredNullableDefinition() {
             return false
         }
-        return IsLiftableNullableElement(
-            valueType.GetGenericArguments()[0], bindings)
+        return IsLiftableNullableElement(valueType.GetGenericArguments()[0], bindings)
     }
 
     static func IsSupportedReadOnlySpanElement(valueType: Type): bool {
-        return valueType == typeof(bool) || valueType == typeof(int)
-            || valueType == typeof(uint) || valueType == typeof(long)
-            || valueType == typeof(ulong) || valueType == typeof(byte)
-            || valueType == typeof(sbyte) || valueType == typeof(short)
-            || valueType == typeof(ushort) || valueType == typeof(char)
-            || valueType == typeof(double) || valueType == typeof(float)
-            || IsEnumType(valueType)
+        return valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || IsEnumType(valueType)
     }
 
     static func IsSupportedSpanLikeType(valueType: Type): bool {
-        if !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
         return name == "System.Span`1" || name == "System.ReadOnlySpan`1"
     }
 
-    static func IsSupportedTaskType(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
+    static func IsSupportedTaskType(valueType: Type, bindings: ColumnarFragmentBindings): bool {
         if valueType == typeof(Task) || valueType == typeof(ValueTask) {
             return true
         }
-        if !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        return (name == "System.Threading.Tasks.Task`1"
-                || name == "System.Threading.Tasks.ValueTask`1")
-            && IsSupportedType(valueType.GetGenericArguments()[0], bindings)
+        return (name == "System.Threading.Tasks.Task`1" || name == "System.Threading.Tasks.ValueTask`1") && IsSupportedType(valueType.GetGenericArguments()[0], bindings)
     }
 
     static func IsSupportedJsonType(valueType: Type): bool {
         name := valueType.FullName ?? ""
-        return name == "System.Text.Json.JsonElement"
-            || name == "System.Text.Json.JsonDocument"
-            || name == "System.Text.Json.JsonValueKind"
-            || name == "System.Text.Json.JsonSerializerOptions"
-            || name == "System.Text.Json.JsonNamingPolicy"
-            || name == "System.Text.Json.JsonElement+ArrayEnumerator"
-            || name == "System.Text.Json.JsonElement+ObjectEnumerator"
-            || name == "System.Text.Json.JsonProperty"
+        return name == "System.Text.Json.JsonElement" || name == "System.Text.Json.JsonDocument" || name == "System.Text.Json.JsonValueKind" || name == "System.Text.Json.JsonSerializerOptions" || name == "System.Text.Json.JsonNamingPolicy" || name == "System.Text.Json.JsonElement+ArrayEnumerator" || name == "System.Text.Json.JsonElement+ObjectEnumerator" || name == "System.Text.Json.JsonProperty"
     }
 
     static func IsSupportedExternalType(valueType: Type): bool {
         valueAssemblyName := valueType.get_Assembly().GetName().get_FullName()
-        yamlAssemblyName := typeof(IYamlTypeConverter)
-            .get_Assembly()
-            .GetName()
-            .get_FullName()
-        if String.Equals(
-            valueAssemblyName, yamlAssemblyName, StringComparison.Ordinal) {
+        yamlAssemblyName := typeof(IYamlTypeConverter).get_Assembly().GetName().get_FullName()
+        if String.Equals(valueAssemblyName, yamlAssemblyName, StringComparison.Ordinal) {
             return true
         }
-        if valueType.get_IsValueType() || valueType.get_IsByRef()
-            || valueType.get_HasElementType()
-            || ContainsOpenGenericParameters(valueType) {
+        if valueType.get_IsValueType() || valueType.get_IsByRef() || valueType.get_HasElementType() || ContainsOpenGenericParameters(valueType) {
             return false
         }
         namespaceName := valueType.Namespace ?? ""
-        return namespaceName.StartsWith(
-                "Microsoft.AspNetCore.", StringComparison.Ordinal)
-            || namespaceName.StartsWith(
-                "Microsoft.Extensions.Hosting", StringComparison.Ordinal)
+        return namespaceName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) || namespaceName.StartsWith("Microsoft.Extensions.Hosting", StringComparison.Ordinal)
     }
 
     static func ContainsOpenGenericParameters(valueType: Type): bool {
-        if valueType.get_IsGenericParameter()
-            || valueType.get_IsGenericTypeDefinition() {
+        if valueType.get_IsGenericParameter() || valueType.get_IsGenericTypeDefinition() {
             return true
         }
         if !valueType.get_IsGenericType() {
@@ -1443,11 +1123,8 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
-    static func IsSupportedGenericDefinitionName(
-        valueType: Type,
-        definitionName: string): bool {
-        if !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+    static func IsSupportedGenericDefinitionName(valueType: Type, definitionName: string): bool {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1458,44 +1135,23 @@ class ColumnarTypeOfPlanner {
         return arguments.Length == 1 && arguments[0] == typeof(byte)
     }
 
-    static func IsSupportedRuntimeGeneric(
-        valueType: Type,
-        definitionName: string): bool {
-        return valueType.get_IsGenericType()
-            && !valueType.get_IsGenericTypeDefinition()
-            && (valueType.GetGenericTypeDefinition().FullName ?? "")
-                == definitionName
+    static func IsSupportedRuntimeGeneric(valueType: Type, definitionName: string): bool {
+        return valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && (valueType.GetGenericTypeDefinition().FullName ?? "") == definitionName
     }
 
-    static func IsSupportedAnonymousUnionArm(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
-        return valueType.FullName != "System.Void"
-            && !valueType.get_IsByRef()
-            && IsSupportedType(valueType, bindings)
+    static func IsSupportedAnonymousUnionArm(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        return valueType.FullName != "System.Void" && !valueType.get_IsByRef() && IsSupportedType(valueType, bindings)
     }
 
     static func IsSupportedCollectionType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType)
-            || !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        return name == "System.Collections.Generic.List`1"
-            || name == "System.Collections.Generic.Dictionary`2"
-            || name == "System.Collections.Generic.SortedDictionary`2"
-            || name == "System.Collections.Generic.HashSet`1"
-            || name == "System.Collections.Generic.Stack`1"
-            || name == "System.Collections.Generic.IReadOnlyList`1"
-            || name == "System.Collections.Generic.IReadOnlyCollection`1"
-            || name == "System.Collections.Generic.IReadOnlySet`1"
-            || name == "System.Collections.Generic.IEnumerable`1"
+        return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IEnumerable`1"
     }
 
-    static func IsAdmissibleCollectionElement(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
+    static func IsAdmissibleCollectionElement(valueType: Type, bindings: ColumnarFragmentBindings): bool {
         if IsEnumBuilder(valueType) {
             return false
         }
@@ -1505,55 +1161,37 @@ class ColumnarTypeOfPlanner {
         if valueType is TypeBuilder {
             return true
         }
-        if valueType.get_IsGenericType()
-            && !valueType.get_IsGenericTypeDefinition() {
+        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             name := valueType.GetGenericTypeDefinition().FullName ?? ""
-            if name == "System.Collections.Generic.List`1"
-                || name == "System.Collections.Generic.Dictionary`2"
-                || name == "System.Collections.Generic.SortedDictionary`2"
-                || name == "System.Collections.Generic.HashSet`1"
-                || name == "System.Collections.Generic.Stack`1" {
+            if name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1" {
                 return true
             }
             if ContainsBuilderBoundType(valueType) {
                 return false
             }
         }
-        return IsSupportedType(valueType, bindings)
-            && !ContainsBuilderBoundType(valueType)
+        return IsSupportedType(valueType, bindings) && !ContainsBuilderBoundType(valueType)
     }
 
-    static func IsAdmissibleHashSetElement(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
-        return IsAdmissibleCollectionElement(valueType, bindings)
-            && !ContainsNonEnumBuilderBoundType(valueType)
+    static func IsAdmissibleHashSetElement(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        return IsAdmissibleCollectionElement(valueType, bindings) && !ContainsNonEnumBuilderBoundType(valueType)
     }
 
-    static func IsSupportedDelegateType(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
+    static func IsSupportedDelegateType(valueType: Type, bindings: ColumnarFragmentBindings): bool {
         if valueType == typeof(Action) {
             return true
         }
-        if valueType is TypeBuilder || IsEnumBuilder(valueType)
-            || !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        if name != "System.Action`1" && name != "System.Action`2"
-            && name != "System.Action`3" && name != "System.Action`4"
-            && name != "System.Func`1" && name != "System.Func`2"
-            && name != "System.Func`3" && name != "System.Func`4"
-            && name != "System.Func`5" {
+        if name != "System.Action`1" && name != "System.Action`2" && name != "System.Action`3" && name != "System.Action`4" && name != "System.Func`1" && name != "System.Func`2" && name != "System.Func`3" && name != "System.Func`4" && name != "System.Func`5" {
             return false
         }
         arguments := valueType.GetGenericArguments()
         i := 0
         while i < arguments.Length {
-            if ContainsBuilderBoundType(arguments[i])
-                || !IsSupportedType(arguments[i], bindings) {
+            if ContainsBuilderBoundType(arguments[i]) || !IsSupportedType(arguments[i], bindings) {
                 return false
             }
             i += 1
@@ -1561,28 +1199,19 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
-    static func IsSupportedValueTuple(
-        valueType: Type,
-        bindings: ColumnarFragmentBindings): bool {
-        if !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+    static func IsSupportedValueTuple(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        if name != "System.ValueTuple`2" && name != "System.ValueTuple`3"
-            && name != "System.ValueTuple`4" && name != "System.ValueTuple`5"
-            && name != "System.ValueTuple`6" && name != "System.ValueTuple`7" {
+        if name != "System.ValueTuple`2" && name != "System.ValueTuple`3" && name != "System.ValueTuple`4" && name != "System.ValueTuple`5" && name != "System.ValueTuple`6" && name != "System.ValueTuple`7" {
             return false
         }
         arguments := valueType.GetGenericArguments()
         i := 0
         while i < arguments.Length {
             argument := arguments[i]
-            if IsEnumType(argument) || argument is TypeBuilder
-                || IsClosedSourceGeneric(argument)
-                || IsSupportedDelegateType(argument, bindings)
-                || ContainsBuilderBoundType(argument)
-                || !IsSupportedType(argument, bindings) {
+            if IsEnumType(argument) || argument is TypeBuilder || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument, bindings) || ContainsBuilderBoundType(argument) || !IsSupportedType(argument, bindings) {
                 return false
             }
             i += 1
@@ -1607,8 +1236,7 @@ class ColumnarTypeOfPlanner {
             return typeof(ValueTuple<int, int, int, int, int, int>).GetGenericTypeDefinition()
         }
         if arity == 7 {
-            return typeof(ValueTuple<int, int, int, int, int, int, int>)
-                .GetGenericTypeDefinition()
+            return typeof(ValueTuple<int, int, int, int, int, int, int>).GetGenericTypeDefinition()
         }
         return null
     }
@@ -1637,16 +1265,14 @@ class ColumnarTypeOfPlanner {
     }
 
     static func ContainsBuilderBoundType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType)
-            || valueType.get_IsGenericParameter() {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() {
             return true
         }
         if valueType.get_IsSZArray() {
             element := valueType.GetElementType()
             return element != null && ContainsBuilderBoundType(element)
         }
-        if !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1678,8 +1304,7 @@ class ColumnarTypeOfPlanner {
             element := valueType.GetElementType()
             return element != null && ContainsNonEnumBuilderBoundType(element)
         }
-        if !valueType.get_IsGenericType()
-            || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1698,24 +1323,18 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsClosedSourceGeneric(valueType: Type): bool {
-        return !(valueType is TypeBuilder)
-            && valueType.get_IsGenericType()
-            && !valueType.get_IsGenericTypeDefinition()
-            && valueType.GetGenericTypeDefinition() is TypeBuilder
+        return !(valueType is TypeBuilder) && valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && valueType.GetGenericTypeDefinition() is TypeBuilder
     }
 
     static func IsEnumBuilder(valueType: Type): bool {
-        return valueType != null
-            && valueType.GetType().FullName
-                == "System.Reflection.Emit.EnumBuilder"
+        return valueType != null && valueType.GetType().FullName == "System.Reflection.Emit.EnumBuilder"
     }
 
     static func IsAssemblyBuilderBacked(valueType: Type): bool {
         assemblyObject: object = valueType.get_Assembly()
         assemblyType := assemblyObject.GetType()
         while assemblyType != null {
-            if assemblyType.FullName
-                    == "System.Reflection.Emit.AssemblyBuilder" {
+            if assemblyType.FullName == "System.Reflection.Emit.AssemblyBuilder" {
                 return true
             }
             assemblyType = assemblyType.get_BaseType()
@@ -1743,14 +1362,9 @@ class ColumnarTypeOfPlanner {
             }
             leftElement := left.GetElementType()
             rightElement := right.GetElementType()
-            return leftElement != null
-                && rightElement != null
-                && SameTypeShape(leftElement, rightElement)
+            return leftElement != null && rightElement != null && SameTypeShape(leftElement, rightElement)
         }
-        if !left.get_IsGenericType() || !right.get_IsGenericType()
-            || left.get_IsGenericTypeDefinition()
-            || right.get_IsGenericTypeDefinition()
-            || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
+        if !left.get_IsGenericType() || !right.get_IsGenericType() || left.get_IsGenericTypeDefinition() || right.get_IsGenericTypeDefinition() || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
             return false
         }
         leftArguments := left.GetGenericArguments()
@@ -1777,14 +1391,19 @@ class ColumnarTypeOfPlanner {
         i := 0
         while i < canonical.Length {
             c := canonical[i]
-            if c == '<' { angleDepth += 1 }
-            else if c == '>' && angleDepth > 0 { angleDepth -= 1 }
-            else if c == '(' { parenDepth += 1 }
-            else if c == ')' && parenDepth > 0 { parenDepth -= 1 }
-            else if c == '[' { bracketDepth += 1 }
-            else if c == ']' && bracketDepth > 0 { bracketDepth -= 1 }
-            else if c == '|' && angleDepth == 0
-                && parenDepth == 0 && bracketDepth == 0 {
+            if c == '<' {
+                angleDepth += 1
+            } else if c == '>' && angleDepth > 0 {
+                angleDepth -= 1
+            } else if c == '(' {
+                parenDepth += 1
+            } else if c == ')' && parenDepth > 0 {
+                parenDepth -= 1
+            } else if c == '[' {
+                bracketDepth += 1
+            } else if c == ']' && bracketDepth > 0 {
+                bracketDepth -= 1
+            } else if c == '|' && angleDepth == 0 && parenDepth == 0 && bracketDepth == 0 {
                 result.Add(canonical.Substring(start, i - start))
                 start = i + 1
             }
@@ -1798,9 +1417,7 @@ class ColumnarTypeOfPlanner {
 
     static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
         depth := 0
-        while node >= 0 && node < nodes.Kinds.Length
-            && nodes.Kind(node)
-                == ColumnarExpressionNodeKind.ParenthesizedExpression() {
+        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
             if depth > 200 || nodes.ChildCount(node) != 1 {
                 return -1
             }
@@ -1810,29 +1427,19 @@ class ColumnarTypeOfPlanner {
         return node
     }
 
-    static func ValidateInputs(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        bindings: ColumnarFragmentBindings,
-        plan: ColumnarCodePlan) {
-        if nodes == null || source == null || bindings == null || plan == null
-            || bindings.SourceTypeDefinitions == null
-            || bindings.SourceUnionDefinitions == null {
-            throw new InvalidOperationException(
-                "Typeof planning inputs and source type facts cannot be null.")
+    static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
+        if nodes == null || source == null || bindings == null || plan == null || bindings.SourceTypeDefinitions == null || bindings.SourceUnionDefinitions == null {
+            throw new InvalidOperationException("Typeof planning inputs and source type facts cannot be null.")
         }
         if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException(
-                "Typeof planning received an invalid root node index.")
+            throw new InvalidOperationException("Typeof planning received an invalid root node index.")
         }
     }
 
     static func RequiredResultType(plan: ColumnarCodePlan): Type {
         result := plan.ResultType
         if result == null {
-            throw new InvalidOperationException(
-                "Planned typeof expression has no result type.")
+            throw new InvalidOperationException("Planned typeof expression has no result type.")
         }
         return result
     }
@@ -1840,8 +1447,7 @@ class ColumnarTypeOfPlanner {
     static func RequiredVoidType(): Type {
         result := Type.GetType("System.Void")
         if result == null {
-            throw new InvalidOperationException(
-                "System.Void runtime type was not found.")
+            throw new InvalidOperationException("System.Void runtime type was not found.")
         }
         return result
     }
@@ -1849,8 +1455,7 @@ class ColumnarTypeOfPlanner {
     static func RequiredNullableDefinition(): Type {
         result := Type.GetType("System.Nullable`1")
         if result == null {
-            throw new InvalidOperationException(
-                "System.Nullable<T> runtime type was not found.")
+            throw new InvalidOperationException("System.Nullable<T> runtime type was not found.")
         }
         return result
     }

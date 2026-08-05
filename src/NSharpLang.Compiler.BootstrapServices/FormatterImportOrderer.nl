@@ -4,8 +4,8 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
-public class FormatterImportOrderer {
-    public static func OrderBySystemThenNamespace(imports: List<ImportDirective>): List<ImportDirective> {
+class FormatterImportOrderer {
+    static func OrderBySystemThenNamespace(imports: List<ImportDirective>): List<ImportDirective> {
         count := imports.Count
         namespaces := new string[](count)
         resultIndices := new int[](count)

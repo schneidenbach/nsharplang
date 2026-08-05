@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 
+
 // The analyzer's conversion/assignability CLASSIFICATION TABLES.
 //
 // These are the leaf policies the assignability decision consults: the CLR implicit
@@ -32,45 +33,38 @@ enum NumericConversionKind {
     Decimal
 }
 
-public class AnalyzerConversionFacts {
+class AnalyzerConversionFacts {
 
     // CLR implicit numeric conversion over analyzer TypeInfo values. Only the built-in simple types
     // participate; identical names are NOT a conversion (the caller answers identity first).
-    public static func IsImplicitNumericConversion(source: TypeInfo, target: TypeInfo): bool {
+    static func IsImplicitNumericConversion(source: TypeInfo, target: TypeInfo): bool {
         sourceSimple := source as SimpleTypeInfo
         targetSimple := target as SimpleTypeInfo
         if sourceSimple == null || targetSimple == null {
             return false
         }
 
-        return IsNumericWidening(
-            SourceNumericCode(sourceSimple.Name),
-            SourceNumericCode(targetSimple.Name))
+        return IsNumericWidening(SourceNumericCode(sourceSimple.Name), SourceNumericCode(targetSimple.Name))
     }
 
     // CLR implicit numeric conversion over reflection types. Identical reflection types short-circuit
     // to true, and a Nullable<T> is read through to T on both sides before the table is consulted.
-    public static func IsImplicitNumericReflectionConversion(sourceType: Type, targetType: Type): bool {
+    static func IsImplicitNumericReflectionConversion(sourceType: Type, targetType: Type): bool {
         if sourceType == targetType {
             return true
         }
 
-        return IsNumericWidening(
-            ClrNumericCode(NumericTypeFullName(sourceType)),
-            ClrNumericCode(NumericTypeFullName(targetType)))
+        return IsNumericWidening(ClrNumericCode(NumericTypeFullName(sourceType)), ClrNumericCode(NumericTypeFullName(targetType)))
     }
 
     // Returns true when the type is a reference type — that is, when `null` is one of its values.
     // Numeric primitives, bool, char, structs, record structs, enums, byref types and closed generic
     // instantiations are value types.
-    public static func IsReferenceType(candidate: TypeInfo): bool {
+    static func IsReferenceType(candidate: TypeInfo): bool {
         simple := candidate as SimpleTypeInfo
         if simple != null {
             name := simple.Name
-            if name == "int" || name == "long" || name == "float" || name == "double" || name == "decimal"
-                || name == "byte" || name == "sbyte" || name == "short" || name == "ushort"
-                || name == "uint" || name == "ulong" || name == "char" || name == "bool"
-                || name == "void" || name == "null" || name == "never" {
+            if name == "int" || name == "long" || name == "float" || name == "double" || name == "decimal" || name == "byte" || name == "sbyte" || name == "short" || name == "ushort" || name == "uint" || name == "ulong" || name == "char" || name == "bool" || name == "void" || name == "null" || name == "never" {
                 return false
             }
 
@@ -83,8 +77,7 @@ public class AnalyzerConversionFacts {
         functionType := candidate as FunctionTypeInfo
         unionType := candidate as UnionTypeInfo
         anonymousUnionType := candidate as AnonymousUnionTypeInfo
-        if classType != null || interfaceType != null || arrayType != null
-            || functionType != null || unionType != null || anonymousUnionType != null {
+        if classType != null || interfaceType != null || arrayType != null || functionType != null || unionType != null || anonymousUnionType != null {
             return true
         }
 
@@ -117,16 +110,15 @@ public class AnalyzerConversionFacts {
     // array-to-span conversion, so it belongs with the conversion tables rather than with the
     // callable/delegate facts. Note this is a STRICT SUPERSET of the loop-sequence owner's
     // same-named file-private helper, which deliberately matches only the unqualified spellings.
-    public static func IsSpanTypeName(name: string): bool {
-        return name == "Span" || name == "ReadOnlySpan"
-            || name == "System.Span" || name == "System.ReadOnlySpan"
+    static func IsSpanTypeName(name: string): bool {
+        return name == "Span" || name == "ReadOnlySpan" || name == "System.Span" || name == "System.ReadOnlySpan"
     }
 
     // Assignability between two reflection types. `Type.IsAssignableFrom` alone is not sufficient
     // inside the analyzer's MetadataLoadContext: types loaded from different assembly identities are
     // not reference-equal, so the exact-identity comparison is applied to the source's interface list
     // and base chain as well.
-    public static func IsReflectionAssignableFrom(targetType: Type, sourceType: Type): bool {
+    static func IsReflectionAssignableFrom(targetType: Type, sourceType: Type): bool {
         if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(targetType, sourceType) {
             return true
         }
@@ -165,26 +157,19 @@ public class AnalyzerConversionFacts {
         }
 
         if sourceCode == NumericConversionKind.Byte {
-            return targetCode == NumericConversionKind.Short || targetCode == NumericConversionKind.UShort
-                || targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.UInt
-                || targetCode == NumericConversionKind.Long || targetCode == NumericConversionKind.ULong
-                || IsFloatingOrDecimalCode(targetCode)
+            return targetCode == NumericConversionKind.Short || targetCode == NumericConversionKind.UShort || targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.UInt || targetCode == NumericConversionKind.Long || targetCode == NumericConversionKind.ULong || IsFloatingOrDecimalCode(targetCode)
         }
 
         if sourceCode == NumericConversionKind.SByte {
-            return targetCode == NumericConversionKind.Short || targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.Long
-                || IsFloatingOrDecimalCode(targetCode)
+            return targetCode == NumericConversionKind.Short || targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.Long || IsFloatingOrDecimalCode(targetCode)
         }
 
         if sourceCode == NumericConversionKind.Short {
-            return targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.Long
-                || IsFloatingOrDecimalCode(targetCode)
+            return targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.Long || IsFloatingOrDecimalCode(targetCode)
         }
 
         if sourceCode == NumericConversionKind.UShort {
-            return targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.UInt
-                || targetCode == NumericConversionKind.Long || targetCode == NumericConversionKind.ULong
-                || IsFloatingOrDecimalCode(targetCode)
+            return targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.UInt || targetCode == NumericConversionKind.Long || targetCode == NumericConversionKind.ULong || IsFloatingOrDecimalCode(targetCode)
         }
 
         if sourceCode == NumericConversionKind.Int {
@@ -192,8 +177,7 @@ public class AnalyzerConversionFacts {
         }
 
         if sourceCode == NumericConversionKind.UInt {
-            return targetCode == NumericConversionKind.Long || targetCode == NumericConversionKind.ULong
-                || IsFloatingOrDecimalCode(targetCode)
+            return targetCode == NumericConversionKind.Long || targetCode == NumericConversionKind.ULong || IsFloatingOrDecimalCode(targetCode)
         }
 
         if sourceCode == NumericConversionKind.Long || sourceCode == NumericConversionKind.ULong {
@@ -201,9 +185,7 @@ public class AnalyzerConversionFacts {
         }
 
         if sourceCode == NumericConversionKind.Char {
-            return targetCode == NumericConversionKind.UShort || targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.UInt
-                || targetCode == NumericConversionKind.Long || targetCode == NumericConversionKind.ULong
-                || IsFloatingOrDecimalCode(targetCode)
+            return targetCode == NumericConversionKind.UShort || targetCode == NumericConversionKind.Int || targetCode == NumericConversionKind.UInt || targetCode == NumericConversionKind.Long || targetCode == NumericConversionKind.ULong || IsFloatingOrDecimalCode(targetCode)
         }
 
         if sourceCode == NumericConversionKind.Float {
@@ -219,36 +201,86 @@ public class AnalyzerConversionFacts {
 
     // N# source spellings. Anything else — including CLR full names — is not a participant.
     static func SourceNumericCode(name: string): NumericConversionKind {
-        if name == "byte" { return NumericConversionKind.Byte }
-        if name == "sbyte" { return NumericConversionKind.SByte }
-        if name == "short" { return NumericConversionKind.Short }
-        if name == "ushort" { return NumericConversionKind.UShort }
-        if name == "int" { return NumericConversionKind.Int }
-        if name == "uint" { return NumericConversionKind.UInt }
-        if name == "long" { return NumericConversionKind.Long }
-        if name == "ulong" { return NumericConversionKind.ULong }
-        if name == "char" { return NumericConversionKind.Char }
-        if name == "float" { return NumericConversionKind.Float }
-        if name == "double" { return NumericConversionKind.Double }
-        if name == "decimal" { return NumericConversionKind.Decimal }
+        if name == "byte" {
+            return NumericConversionKind.Byte
+        }
+        if name == "sbyte" {
+            return NumericConversionKind.SByte
+        }
+        if name == "short" {
+            return NumericConversionKind.Short
+        }
+        if name == "ushort" {
+            return NumericConversionKind.UShort
+        }
+        if name == "int" {
+            return NumericConversionKind.Int
+        }
+        if name == "uint" {
+            return NumericConversionKind.UInt
+        }
+        if name == "long" {
+            return NumericConversionKind.Long
+        }
+        if name == "ulong" {
+            return NumericConversionKind.ULong
+        }
+        if name == "char" {
+            return NumericConversionKind.Char
+        }
+        if name == "float" {
+            return NumericConversionKind.Float
+        }
+        if name == "double" {
+            return NumericConversionKind.Double
+        }
+        if name == "decimal" {
+            return NumericConversionKind.Decimal
+        }
         return NumericConversionKind.None
     }
 
     // CLR full names. Anything else — including N# source spellings — is not a participant.
     static func ClrNumericCode(fullName: string?): NumericConversionKind {
-        if fullName == null { return NumericConversionKind.None }
-        if fullName == "System.Byte" { return NumericConversionKind.Byte }
-        if fullName == "System.SByte" { return NumericConversionKind.SByte }
-        if fullName == "System.Int16" { return NumericConversionKind.Short }
-        if fullName == "System.UInt16" { return NumericConversionKind.UShort }
-        if fullName == "System.Int32" { return NumericConversionKind.Int }
-        if fullName == "System.UInt32" { return NumericConversionKind.UInt }
-        if fullName == "System.Int64" { return NumericConversionKind.Long }
-        if fullName == "System.UInt64" { return NumericConversionKind.ULong }
-        if fullName == "System.Char" { return NumericConversionKind.Char }
-        if fullName == "System.Single" { return NumericConversionKind.Float }
-        if fullName == "System.Double" { return NumericConversionKind.Double }
-        if fullName == "System.Decimal" { return NumericConversionKind.Decimal }
+        if fullName == null {
+            return NumericConversionKind.None
+        }
+        if fullName == "System.Byte" {
+            return NumericConversionKind.Byte
+        }
+        if fullName == "System.SByte" {
+            return NumericConversionKind.SByte
+        }
+        if fullName == "System.Int16" {
+            return NumericConversionKind.Short
+        }
+        if fullName == "System.UInt16" {
+            return NumericConversionKind.UShort
+        }
+        if fullName == "System.Int32" {
+            return NumericConversionKind.Int
+        }
+        if fullName == "System.UInt32" {
+            return NumericConversionKind.UInt
+        }
+        if fullName == "System.Int64" {
+            return NumericConversionKind.Long
+        }
+        if fullName == "System.UInt64" {
+            return NumericConversionKind.ULong
+        }
+        if fullName == "System.Char" {
+            return NumericConversionKind.Char
+        }
+        if fullName == "System.Single" {
+            return NumericConversionKind.Float
+        }
+        if fullName == "System.Double" {
+            return NumericConversionKind.Double
+        }
+        if fullName == "System.Decimal" {
+            return NumericConversionKind.Decimal
+        }
         return NumericConversionKind.None
     }
 

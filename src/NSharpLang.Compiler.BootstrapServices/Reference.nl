@@ -3,24 +3,20 @@ namespace NSharpLang.Compiler
 import System
 import System.IO
 
-public class Reference {
-    public Nuget: string?
-    public Version: string?
-    public Dll: string?
-    public Project: string?
-    public Framework: string?
+class Reference {
+    Nuget: string?
+    Version: string?
+    Dll: string?
+    Project: string?
+    Framework: string?
 
-    public Type: ReferenceType => GetReferenceType()
+    Type: ReferenceType => GetReferenceType()
 
-    public Value: string => GetValue()
+    Value: string => GetValue()
 
-    public HasValue: bool =>
-        !string.IsNullOrWhiteSpace(Nuget ?? "")
-            || !string.IsNullOrWhiteSpace(Dll ?? "")
-            || !string.IsNullOrWhiteSpace(Project ?? "")
-            || !string.IsNullOrWhiteSpace(Framework ?? "")
+    HasValue: bool => !string.IsNullOrWhiteSpace(Nuget ?? "") || !string.IsNullOrWhiteSpace(Dll ?? "") || !string.IsNullOrWhiteSpace(Project ?? "") || !string.IsNullOrWhiteSpace(Framework ?? "")
 
-    public func Validate(projectDirectory: string) {
+    func Validate(projectDirectory: string) {
         typeValue := Type
 
         if typeValue == ReferenceType.NuGet {
@@ -73,19 +69,35 @@ public class Reference {
     }
 
     func GetReferenceType(): ReferenceType {
-        if Nuget != null { return ReferenceType.NuGet }
-        if Dll != null { return ReferenceType.Dll }
-        if Project != null { return ReferenceType.Project }
-        if Framework != null { return ReferenceType.Framework }
+        if Nuget != null {
+            return ReferenceType.NuGet
+        }
+        if Dll != null {
+            return ReferenceType.Dll
+        }
+        if Project != null {
+            return ReferenceType.Project
+        }
+        if Framework != null {
+            return ReferenceType.Framework
+        }
 
         throw new InvalidOperationException("Reference must specify one of: nuget, dll, project, or framework")
     }
 
     func GetValue(): string {
-        if Nuget != null { return Nuget ?? "" }
-        if Dll != null { return Dll ?? "" }
-        if Project != null { return Project ?? "" }
-        if Framework != null { return Framework ?? "" }
+        if Nuget != null {
+            return Nuget ?? ""
+        }
+        if Dll != null {
+            return Dll ?? ""
+        }
+        if Project != null {
+            return Project ?? ""
+        }
+        if Framework != null {
+            return Framework ?? ""
+        }
 
         throw new InvalidOperationException("Invalid reference")
     }

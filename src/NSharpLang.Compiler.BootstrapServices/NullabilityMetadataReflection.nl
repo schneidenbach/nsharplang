@@ -5,6 +5,7 @@ import System.Collections
 import System.Collections.Generic
 import System.Reflection
 
+
 // The reflection half of the nullability metadata reader. `NullabilityMetadataCore` already owns
 // every decision that is a pure function of facts; this class owns the READING of those facts off
 // CLR reflection — the `NullabilityInfoContext` walk, the `CustomAttributeData` scan and the CLR
@@ -24,80 +25,58 @@ import System.Reflection
 // so nothing crosses a boundary and the override always ANSWERS rather than declining. (Slice 12B
 // carried it as `Func<Type, object>` because the conversion it composed with was still C#; with that
 // conversion N#-owned there is no boundary left to encode.)
-public class NullabilityMetadataReflection {
-    public static func ConvertType(clrType: Type): TypeInfo {
+class NullabilityMetadataReflection {
+    static func ConvertType(clrType: Type): TypeInfo {
         return ConvertReflectedType(clrType, null, null)
     }
 
     // The C# original accepted a type override here too; no caller in `src/`, `tests/` or
     // `editors/` ever passed one (measured at this tree), so the dead arm did not come across.
-    public static func ConvertProperty(property: PropertyInfo): TypeInfo {
-        converted := ConvertReflectedType(
-            property.get_PropertyType(),
-            CreateNullabilityInfoForProperty(property),
-            null)
+    static func ConvertProperty(property: PropertyInfo): TypeInfo {
+        converted := ConvertReflectedType(property.get_PropertyType(), CreateNullabilityInfoForProperty(property), null)
         return ApplyFlowAttributes(converted, property.GetCustomAttributesData())
     }
 
-    public static func ConvertField(field: FieldInfo): TypeInfo {
-        converted := ConvertReflectedType(
-            field.get_FieldType(),
-            CreateNullabilityInfoForField(field),
-            null)
+    static func ConvertField(field: FieldInfo): TypeInfo {
+        converted := ConvertReflectedType(field.get_FieldType(), CreateNullabilityInfoForField(field), null)
         return ApplyFlowAttributes(converted, field.GetCustomAttributesData())
     }
 
-    public static func ConvertParameter(parameter: ParameterInfo): TypeInfo {
+    static func ConvertParameter(parameter: ParameterInfo): TypeInfo {
         return ConvertParameterWithOverride(parameter, null)
     }
 
-    public static func ConvertParameterWithOverride(
-        parameter: ParameterInfo,
-        typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
-        converted := ConvertReflectedType(
-            parameter.get_ParameterType(),
-            CreateNullabilityInfoForParameter(parameter),
-            typeOverride)
+    static func ConvertParameterWithOverride(parameter: ParameterInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
+        converted := ConvertReflectedType(parameter.get_ParameterType(), CreateNullabilityInfoForParameter(parameter), typeOverride)
         return ApplyFlowAttributes(converted, parameter.GetCustomAttributesData())
     }
 
-    public static func ConvertReturn(method: MethodInfo): TypeInfo {
+    static func ConvertReturn(method: MethodInfo): TypeInfo {
         return ConvertReturnWithOverride(method, null)
     }
 
-    public static func ConvertReturnWithOverride(
-        method: MethodInfo,
-        typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
+    static func ConvertReturnWithOverride(method: MethodInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         returnParameter := method.get_ReturnParameter()
-        converted := ConvertReflectedType(
-            method.get_ReturnType(),
-            CreateNullabilityInfoForParameter(returnParameter),
-            typeOverride)
+        converted := ConvertReflectedType(method.get_ReturnType(), CreateNullabilityInfoForParameter(returnParameter), typeOverride)
         return ApplyFlowAttributes(converted, returnParameter.GetCustomAttributesData())
     }
 
-    public static func FormatType(clrType: Type): string {
+    static func FormatType(clrType: Type): string {
         return FormatTypeInfo(ConvertType(clrType))
     }
 
-    public static func FormatParameter(parameter: ParameterInfo): string {
+    static func FormatParameter(parameter: ParameterInfo): string {
         attributePrefix := FormatFlowAttributes(parameter.GetCustomAttributesData())
         typeName := FormatTypeInfo(ConvertParameter(parameter))
         parameterType := parameter.get_ParameterType()
-        return NullabilityMetadataCore.FormatParameter(
-            parameter.get_IsOut(),
-            parameterType.get_IsByRef(),
-            IsParamsParameter(parameter),
-            attributePrefix,
-            typeName,
-            parameter.get_Name())
+        return NullabilityMetadataCore.FormatParameter(parameter.get_IsOut(), parameterType.get_IsByRef(), IsParamsParameter(parameter), attributePrefix, typeName, parameter.get_Name())
     }
 
-    public static func FormatReturnType(method: MethodInfo): string {
+    static func FormatReturnType(method: MethodInfo): string {
         return FormatTypeInfo(ConvertReturn(method))
     }
 
-    public static func FormatTypeInfo(typeInfo: TypeInfo): string {
+    static func FormatTypeInfo(typeInfo: TypeInfo): string {
         reflection := typeInfo as ReflectionTypeInfo
         if reflection != null {
             return FormatClrTypeName(reflection.Type)
@@ -106,14 +85,11 @@ public class NullabilityMetadataReflection {
         return NullabilityMetadataCore.FormatTypeInfo(typeInfo)
     }
 
-    public static func StripMetadata(typeInfo: TypeInfo): TypeInfo {
+    static func StripMetadata(typeInfo: TypeInfo): TypeInfo {
         return NullabilityMetadataCore.StripMetadata(typeInfo)
     }
 
-    static func ConvertReflectedType(
-        clrType: Type,
-        nullabilityInfo: NullabilityInfo?,
-        typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
+    static func ConvertReflectedType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         effectiveType := clrType
         if clrType.get_IsByRef() {
             element := clrType.GetElementType()
@@ -128,18 +104,10 @@ public class NullabilityMetadataReflection {
 
         converted := ConvertReflectedTypeCore(effectiveType, nullabilityInfo, typeOverride)
         readState := GetReadState(nullabilityInfo)
-        return NullabilityMetadataCore.ApplyReadState(
-            converted,
-            IsNullableValueType(effectiveType),
-            CanReflectedTypeCarryReferenceNullability(effectiveType, converted),
-            readState == NullabilityState.Nullable,
-            readState == NullabilityState.Unknown)
+        return NullabilityMetadataCore.ApplyReadState(converted, IsNullableValueType(effectiveType), CanReflectedTypeCarryReferenceNullability(effectiveType, converted), readState == NullabilityState.Nullable, readState == NullabilityState.Unknown)
     }
 
-    static func ConvertReflectedTypeCore(
-        clrType: Type,
-        nullabilityInfo: NullabilityInfo?,
-        typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
+    static func ConvertReflectedTypeCore(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         if clrType.get_IsByRef() {
             byRefElement := clrType.GetElementType()
             if byRefElement != null {
@@ -150,11 +118,7 @@ public class NullabilityMetadataReflection {
         if IsNullableValueType(clrType) {
             underlying := Nullable.GetUnderlyingType(clrType)
             if underlying != null {
-                nullable: TypeInfo = new NullableTypeInfo(
-                    ConvertReflectedType(
-                        underlying,
-                        GetFirstGenericArgument(nullabilityInfo),
-                        typeOverride))
+                nullable: TypeInfo = new NullableTypeInfo(ConvertReflectedType(underlying, GetFirstGenericArgument(nullabilityInfo), typeOverride))
                 return nullable
             }
         }
@@ -162,8 +126,7 @@ public class NullabilityMetadataReflection {
         if clrType.get_IsArray() {
             elementType := clrType.GetElementType()
             if elementType != null {
-                array: TypeInfo = new ArrayTypeInfo(
-                    ConvertReflectedType(elementType, GetElementNullability(nullabilityInfo), typeOverride))
+                array: TypeInfo = new ArrayTypeInfo(ConvertReflectedType(elementType, GetElementNullability(nullabilityInfo), typeOverride))
                 return array
             }
         }
@@ -189,15 +152,11 @@ public class NullabilityMetadataReflection {
                     argumentNullability = nullabilityArguments[index]
                 }
 
-                convertedArguments.Add(
-                    ConvertReflectedType(typeArguments[index], argumentNullability, typeOverride))
+                convertedArguments.Add(ConvertReflectedType(typeArguments[index], argumentNullability, typeOverride))
                 index = index + 1
             }
 
-            constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(
-                name,
-                convertedArguments,
-                clrType)
+            constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(name, convertedArguments, clrType)
             return constructed
         }
 
@@ -215,10 +174,7 @@ public class NullabilityMetadataReflection {
     }
 
     static func ApplyFlowAttributes(typeInfo: TypeInfo, attributes: IList<CustomAttributeData>): TypeInfo {
-        return NullabilityMetadataCore.ApplyFlowAttributeFacts(
-            typeInfo,
-            HasAttributeKind(attributes, NullabilityMetadataCore.GetMaybeNullAttributeKind()),
-            HasAttributeKind(attributes, NullabilityMetadataCore.GetNotNullAttributeKind()))
+        return NullabilityMetadataCore.ApplyFlowAttributeFacts(typeInfo, HasAttributeKind(attributes, NullabilityMetadataCore.GetMaybeNullAttributeKind()), HasAttributeKind(attributes, NullabilityMetadataCore.GetNotNullAttributeKind()))
     }
 
     // `NullabilityInfoContext` caches per instance, and the C# original built a fresh one per
@@ -288,10 +244,7 @@ public class NullabilityMetadataReflection {
     }
 
     static func CanReflectedTypeCarryReferenceNullability(clrType: Type, converted: TypeInfo): bool {
-        return NullabilityMetadataCore.CanReflectedTypeCarryReferenceNullability(
-            clrType.get_IsGenericParameter(),
-            clrType.get_IsValueType(),
-            CanConvertedTypeCarryReferenceNullability(converted))
+        return NullabilityMetadataCore.CanReflectedTypeCarryReferenceNullability(clrType.get_IsGenericParameter(), clrType.get_IsValueType(), CanConvertedTypeCarryReferenceNullability(converted))
     }
 
     static func CanConvertedTypeCarryReferenceNullability(typeInfo: TypeInfo): bool {
@@ -333,9 +286,7 @@ public class NullabilityMetadataReflection {
     }
 
     static func IsParamsParameter(parameter: ParameterInfo): bool {
-        return HasAttributeKind(
-            parameter.GetCustomAttributesData(),
-            NullabilityMetadataCore.GetParamArrayAttributeKind())
+        return HasAttributeKind(parameter.GetCustomAttributesData(), NullabilityMetadataCore.GetParamArrayAttributeKind())
     }
 
     static func FormatFlowAttributes(attributes: IList<CustomAttributeData>): string {
@@ -384,11 +335,7 @@ public class NullabilityMetadataReflection {
             index = index + 1
         }
 
-        return NullabilityMetadataCore.FormatFlowAttributePrefix(
-            hasNotNullWhen,
-            notNullWhenValue,
-            hasMaybeNull,
-            hasNotNull)
+        return NullabilityMetadataCore.FormatFlowAttributePrefix(hasNotNullWhen, notNullWhenValue, hasMaybeNull, hasNotNull)
     }
 
     static func FormatClrTypeName(clrType: Type): string {

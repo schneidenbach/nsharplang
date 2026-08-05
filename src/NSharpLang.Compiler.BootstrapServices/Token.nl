@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 
-public enum TokenType {
+enum TokenType {
     Identifier,
     IntLiteral,
     FloatLiteral,
@@ -153,7 +153,7 @@ public enum TokenType {
     Scoped
 }
 
-public class Token {
+class Token {
     typeValue: TokenType
     valueText: string
     lineValue: int
@@ -168,12 +168,7 @@ public class Token {
     FileName: string? => fileNameValue
     IsTerminated: bool => isTerminatedValue
 
-    constructor(
-        Type: TokenType,
-        Value: string,
-        Line: int,
-        Column: int,
-        FileName: string?) {
+    constructor(Type: TokenType, Value: string, Line: int, Column: int, FileName: string?) {
         typeValue = Type
         valueText = Value
         lineValue = Line
@@ -182,13 +177,7 @@ public class Token {
         isTerminatedValue = true
     }
 
-    constructor(
-        Type: TokenType,
-        Value: string,
-        Line: int,
-        Column: int,
-        FileName: string? = null,
-        IsTerminated: bool = true) {
+    constructor(Type: TokenType, Value: string, Line: int, Column: int, FileName: string? = null, IsTerminated: bool = true) {
         typeValue = Type
         valueText = Value
         lineValue = Line
@@ -217,12 +206,7 @@ public class Token {
             return false
         }
 
-        return typeValue == other.Type
-            && valueText == other.Value
-            && lineValue == other.Line
-            && columnValue == other.Column
-            && fileNameValue == other.FileName
-            && isTerminatedValue == other.IsTerminated
+        return typeValue == other.Type && valueText == other.Value && lineValue == other.Line && columnValue == other.Column && fileNameValue == other.FileName && isTerminatedValue == other.IsTerminated
     }
 
     override func GetHashCode(): int {
@@ -243,7 +227,7 @@ public class Token {
     }
 }
 
-public class CommentTrivia {
+class CommentTrivia {
     lineValue: int
     columnValue: int
     textValue: string
@@ -267,10 +251,7 @@ public class CommentTrivia {
             return false
         }
 
-        return lineValue == other.Line
-            && columnValue == other.Column
-            && textValue == other.Text
-            && isMultiLineValue == other.IsMultiLine
+        return lineValue == other.Line && columnValue == other.Column && textValue == other.Text && isMultiLineValue == other.IsMultiLine
     }
 
     override func GetHashCode(): int {

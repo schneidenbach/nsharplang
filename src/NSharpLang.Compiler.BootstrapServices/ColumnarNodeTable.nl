@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
-public class ColumnarNodeTable {
+class ColumnarNodeTable {
     kinds: int[]
     valueStarts: int[]
     valueLengths: int[]
@@ -20,15 +20,7 @@ public class ColumnarNodeTable {
     EnclosingTypeName: string => enclosingTypeName
     VisibleTypeParameterNames: string[] => visibleTypeParameterNames
 
-    constructor(
-        kindsValue: int[],
-        valueStartsValue: int[],
-        valueLengthsValue: int[],
-        childStartsValue: int[],
-        childCountsValue: int[],
-        childIndicesValue: int[],
-        spanStartsValue: int[]? = null,
-        spanLengthsValue: int[]? = null) {
+    constructor(kindsValue: int[], valueStartsValue: int[], valueLengthsValue: int[], childStartsValue: int[], childCountsValue: int[], childIndicesValue: int[], spanStartsValue: int[]? = null, spanLengthsValue: int[]? = null) {
         this.kinds = kindsValue
         this.valueStarts = valueStartsValue
         this.valueLengths = valueLengthsValue
@@ -43,31 +35,22 @@ public class ColumnarNodeTable {
         this.additionalRootBindingNames = new string[](0)
     }
 
-    public func SetBindingContext(
-        scope: ColumnarBindingScopeFacts,
-        enclosingType: string,
-        typeParameterNames: string[],
-        additionalRootBindingNames: string[]?) {
+    func SetBindingContext(scope: ColumnarBindingScopeFacts, enclosingType: string, typeParameterNames: string[], additionalRootBindingNames: string[]?) {
         if scope == null || enclosingType == null || typeParameterNames == null {
-            throw new System.InvalidOperationException(
-                "Columnar binding context cannot contain null values.")
+            throw new System.InvalidOperationException("Columnar binding context cannot contain null values.")
         }
         bindingScope = scope
         enclosingTypeName = enclosingType
         visibleTypeParameterNames = typeParameterNames
-        this.additionalRootBindingNames = additionalRootBindingNames
-            ?? new string[](0)
+        this.additionalRootBindingNames = additionalRootBindingNames ?? new string[](0)
     }
 
     // Expression fragments reparsed from a body (currently interpolation holes) retain the
     // immutable lexical context of that body. The host only routes the two node tables through
     // this N# operation; it never interprets or reconstructs the binding facts.
-    public static func InheritBindingContext(
-        target: ColumnarNodeTable,
-        source: ColumnarNodeTable): ColumnarNodeTable {
+    static func InheritBindingContext(target: ColumnarNodeTable, source: ColumnarNodeTable): ColumnarNodeTable {
         if target == null || source == null {
-            throw new System.InvalidOperationException(
-                "Columnar binding context inheritance requires two node tables.")
+            throw new System.InvalidOperationException("Columnar binding context inheritance requires two node tables.")
         }
         target.bindingScope = source.bindingScope
         target.enclosingTypeName = source.enclosingTypeName
@@ -76,7 +59,7 @@ public class ColumnarNodeTable {
         return target
     }
 
-    public func HasAdditionalRootBinding(name: string): bool {
+    func HasAdditionalRootBinding(name: string): bool {
         index := 0
         while index < additionalRootBindingNames.Length {
             if additionalRootBindingNames[index] == name {
@@ -87,17 +70,17 @@ public class ColumnarNodeTable {
         return false
     }
 
-    public func Kind(index: int): int => kinds[index]
+    func Kind(index: int): int => kinds[index]
 
-    public func ValueStart(index: int): int => valueStarts[index]
+    func ValueStart(index: int): int => valueStarts[index]
 
-    public func ChildCount(index: int): int => childCounts[index]
+    func ChildCount(index: int): int => childCounts[index]
 
-    public func Child(index: int, childOrdinal: int): int => childIndices[childStarts[index] + childOrdinal]
+    func Child(index: int, childOrdinal: int): int => childIndices[childStarts[index] + childOrdinal]
 
-    public func Text(source: string, index: int): string => source.Substring(valueStarts[index], valueLengths[index])
+    func Text(source: string, index: int): string => source.Substring(valueStarts[index], valueLengths[index])
 
-    public func SpanStart(index: int): int {
+    func SpanStart(index: int): int {
         spans := spanStarts
         if spans == null {
             return valueStarts[index]
@@ -106,7 +89,7 @@ public class ColumnarNodeTable {
         return spans[index]
     }
 
-    public func SpanLength(index: int): int {
+    func SpanLength(index: int): int {
         spans := spanLengths
         if spans == null {
             return valueLengths[index]

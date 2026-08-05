@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 
+
 // The analyzer's CLR `Type` → `TypeInfo` conversion, and its generic-substitution variant.
 //
 // This is the opposite direction from `AnalyzerClrTypeConversion`: that owner asks "what CLR type
@@ -33,44 +34,30 @@ import System.Reflection
 //     the CLR bindings to the type itself and convert the RESULT. The two are not interchangeable:
 //     the override walk builds a `GenericTypeInfo` over converted arguments, while applying the
 //     bindings first yields a closed CLR type that converts as one reflected instantiation.
-public class AnalyzerReflectionTypeOverride {
-
+class AnalyzerReflectionTypeOverride {
     typeInfoOverridesValue: Dictionary<Type, TypeInfo>
     clrBindingsValue: Dictionary<Type, Type>?
     boundValue: bool
     hasTypeInfoOverridesValue: bool
 
-    constructor(
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?,
-        bound: bool,
-        hasTypeInfoOverrides: bool) {
+    constructor(typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?, bound: bool, hasTypeInfoOverrides: bool) {
         typeInfoOverridesValue = typeInfoOverrides
         clrBindingsValue = clrBindings
         boundValue = bound
         hasTypeInfoOverridesValue = hasTypeInfoOverrides
     }
 
-    public static func Direct(
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?): AnalyzerReflectionTypeOverride {
+    static func Direct(typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?): AnalyzerReflectionTypeOverride {
         return new AnalyzerReflectionTypeOverride(typeInfoOverrides, clrBindings, false, false)
     }
 
-    public static func Bound(
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?,
-        hasTypeInfoOverrides: bool): AnalyzerReflectionTypeOverride {
-        return new AnalyzerReflectionTypeOverride(
-            typeInfoOverrides,
-            clrBindings,
-            true,
-            hasTypeInfoOverrides)
+    static func Bound(typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?, hasTypeInfoOverrides: bool): AnalyzerReflectionTypeOverride {
+        return new AnalyzerReflectionTypeOverride(typeInfoOverrides, clrBindings, true, hasTypeInfoOverrides)
     }
 
     // The answer for one position. Never null: an override that has nothing to say still answers the
     // plain conversion, which is exactly what the C# lambdas this replaces did.
-    public func Answer(clrType: Type): TypeInfo {
+    func Answer(clrType: Type): TypeInfo {
         if boundValue && !hasTypeInfoOverridesValue && !clrType.get_ContainsGenericParameters() {
             bindings := clrBindingsValue
             if bindings == null {
@@ -81,17 +68,14 @@ public class AnalyzerReflectionTypeOverride {
             return AnalyzerReflectionTypeConversion.ConvertReflectionType(applied)
         }
 
-        return AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-            clrType,
-            typeInfoOverridesValue,
-            clrBindingsValue)
+        return AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(clrType, typeInfoOverridesValue, clrBindingsValue)
     }
 }
 
-public class AnalyzerReflectionTypeConversion {
+class AnalyzerReflectionTypeConversion {
 
     // The plain conversion. Total: every `Type` answers, with `ReflectionTypeInfo` as the catch-all.
-    public static func ConvertReflectionType(clrType: Type): TypeInfo {
+    static func ConvertReflectionType(clrType: Type): TypeInfo {
         builtIn := ConvertBuiltInReflectionType(clrType.get_FullName())
         if builtIn != null {
             return builtIn
@@ -123,10 +107,7 @@ public class AnalyzerReflectionTypeConversion {
                 index = index + 1
             }
 
-            constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(
-                name.Substring(0, tick),
-                convertedArguments,
-                clrType)
+            constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(name.Substring(0, tick), convertedArguments, clrType)
             return constructed
         }
 
@@ -137,10 +118,7 @@ public class AnalyzerReflectionTypeConversion {
     // The substitution-aware conversion. With nothing to substitute it IS the plain conversion, and
     // that shortcut is behaviour rather than an optimisation: without it a generic PARAMETER would
     // fall through to the reflected catch-all here too, which is what the plain conversion answers.
-    public static func ConvertReflectionTypeWithOverrides(
-        clrType: Type,
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?): TypeInfo {
+    static func ConvertReflectionTypeWithOverrides(clrType: Type, typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?): TypeInfo {
         bindingCount := 0
         if clrBindings != null {
             bindingCount = clrBindings.Count
@@ -178,8 +156,7 @@ public class AnalyzerReflectionTypeConversion {
         if clrType.get_IsArray() {
             arrayElement := clrType.GetElementType()
             if arrayElement != null {
-                array: TypeInfo = new ArrayTypeInfo(
-                    ConvertReflectionTypeWithOverrides(arrayElement, typeInfoOverrides, clrBindings))
+                array: TypeInfo = new ArrayTypeInfo(ConvertReflectionTypeWithOverrides(arrayElement, typeInfoOverrides, clrBindings))
                 return array
             }
         }
@@ -189,15 +166,11 @@ public class AnalyzerReflectionTypeConversion {
             convertedArguments := new List<TypeInfo>()
             index := 0
             while index < arguments.Length {
-                convertedArguments.Add(
-                    ConvertReflectionTypeWithOverrides(arguments[index], typeInfoOverrides, clrBindings))
+                convertedArguments.Add(ConvertReflectionTypeWithOverrides(arguments[index], typeInfoOverrides, clrBindings))
                 index = index + 1
             }
 
-            constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(
-                StripGenericArity(clrType.Name),
-                convertedArguments,
-                clrType)
+            constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(StripGenericArity(clrType.Name), convertedArguments, clrType)
             return constructed
         }
 
@@ -207,7 +180,7 @@ public class AnalyzerReflectionTypeConversion {
     // Rewrites a CLR type by substituting bound type parameters INTO it, answering a CLR type rather
     // than a TypeInfo. An unchanged composition answers the ORIGINAL instance rather than a
     // reconstructed equal one, which keeps reference identity where nothing was substituted.
-    public static func ApplyReflectionBindings(clrType: Type, bindings: Dictionary<Type, Type>): Type {
+    static func ApplyReflectionBindings(clrType: Type, bindings: Dictionary<Type, Type>): Type {
         if clrType.get_IsGenericParameter() {
             bound: Type? = null
             if bindings.TryGetValue(clrType, out bound) {
@@ -266,54 +239,25 @@ public class AnalyzerReflectionTypeConversion {
 
     // The four member-facing entry points. Each composes the nullability reader's walk with an
     // override, so a caller never has to hand a function across a boundary.
-    public static func ConvertParameterWithOverrides(
-        parameter: ParameterInfo,
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?): TypeInfo {
-        return NullabilityMetadataReflection.ConvertParameterWithOverride(
-            parameter,
-            AnalyzerReflectionTypeOverride.Direct(typeInfoOverrides, clrBindings))
+    static func ConvertParameterWithOverrides(parameter: ParameterInfo, typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?): TypeInfo {
+        return NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, AnalyzerReflectionTypeOverride.Direct(typeInfoOverrides, clrBindings))
     }
 
-    public static func ConvertReturnWithOverrides(
-        method: MethodInfo,
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?): TypeInfo {
-        return NullabilityMetadataReflection.ConvertReturnWithOverride(
-            method,
-            AnalyzerReflectionTypeOverride.Direct(typeInfoOverrides, clrBindings))
+    static func ConvertReturnWithOverrides(method: MethodInfo, typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?): TypeInfo {
+        return NullabilityMetadataReflection.ConvertReturnWithOverride(method, AnalyzerReflectionTypeOverride.Direct(typeInfoOverrides, clrBindings))
     }
 
-    public static func ConvertBoundParameter(
-        parameter: ParameterInfo,
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?,
-        hasTypeInfoOverrides: bool): TypeInfo {
-        return NullabilityMetadataReflection.ConvertParameterWithOverride(
-            parameter,
-            AnalyzerReflectionTypeOverride.Bound(typeInfoOverrides, clrBindings, hasTypeInfoOverrides))
+    static func ConvertBoundParameter(parameter: ParameterInfo, typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?, hasTypeInfoOverrides: bool): TypeInfo {
+        return NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, AnalyzerReflectionTypeOverride.Bound(typeInfoOverrides, clrBindings, hasTypeInfoOverrides))
     }
 
-    public static func ConvertBoundReturn(
-        method: MethodInfo,
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?,
-        hasTypeInfoOverrides: bool): TypeInfo {
-        return NullabilityMetadataReflection.ConvertReturnWithOverride(
-            method,
-            AnalyzerReflectionTypeOverride.Bound(typeInfoOverrides, clrBindings, hasTypeInfoOverrides))
+    static func ConvertBoundReturn(method: MethodInfo, typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?, hasTypeInfoOverrides: bool): TypeInfo {
+        return NullabilityMetadataReflection.ConvertReturnWithOverride(method, AnalyzerReflectionTypeOverride.Bound(typeInfoOverrides, clrBindings, hasTypeInfoOverrides))
     }
 
     // The same BOUND rule applied to a bare type rather than to a member.
-    public static func ConvertBoundType(
-        clrType: Type,
-        typeInfoOverrides: Dictionary<Type, TypeInfo>,
-        clrBindings: Dictionary<Type, Type>?,
-        hasTypeInfoOverrides: bool): TypeInfo {
-        substitution := AnalyzerReflectionTypeOverride.Bound(
-            typeInfoOverrides,
-            clrBindings,
-            hasTypeInfoOverrides)
+    static func ConvertBoundType(clrType: Type, typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>?, hasTypeInfoOverrides: bool): TypeInfo {
+        substitution := AnalyzerReflectionTypeOverride.Bound(typeInfoOverrides, clrBindings, hasTypeInfoOverrides)
         return substitution.Answer(clrType)
     }
 
@@ -323,25 +267,12 @@ public class AnalyzerReflectionTypeConversion {
     // records the ELEMENT type as its open parameter type while the `ParameterInfo` still declares
     // the ARRAY, so the tail must be converted from the recorded type; every other position reads
     // the parameter itself, which is what carries the declaration's nullability metadata.
-    public static func ConvertSuppliedArgumentType(
-        supplied: SuppliedReflectionBoundArgument,
-        parameter: ParameterInfo,
-        workingBindings: Dictionary<Type, Type>,
-        workingTypeInfoBindings: Dictionary<Type, TypeInfo>,
-        hasTypeInfoOverrides: bool): TypeInfo {
+    static func ConvertSuppliedArgumentType(supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo, workingBindings: Dictionary<Type, Type>, workingTypeInfoBindings: Dictionary<Type, TypeInfo>, hasTypeInfoOverrides: bool): TypeInfo {
         if AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(supplied, parameter) {
-            return ConvertBoundType(
-                supplied.OpenParameterType,
-                workingTypeInfoBindings,
-                workingBindings,
-                hasTypeInfoOverrides)
+            return ConvertBoundType(supplied.OpenParameterType, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides)
         }
 
-        return ConvertBoundParameter(
-            parameter,
-            workingTypeInfoBindings,
-            workingBindings,
-            hasTypeInfoOverrides)
+        return ConvertBoundParameter(parameter, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides)
     }
 
     // The generic head's name without its arity suffix. The two conversions differ here on purpose:
@@ -363,22 +294,54 @@ public class AnalyzerReflectionTypeConversion {
             return null
         }
 
-        if fullName == "System.Byte" { return BuiltInTypes.Byte }
-        if fullName == "System.SByte" { return BuiltInTypes.SByte }
-        if fullName == "System.Int16" { return BuiltInTypes.Short }
-        if fullName == "System.UInt16" { return BuiltInTypes.UShort }
-        if fullName == "System.Int32" { return BuiltInTypes.Int }
-        if fullName == "System.UInt32" { return BuiltInTypes.UInt }
-        if fullName == "System.Int64" { return BuiltInTypes.Long }
-        if fullName == "System.UInt64" { return BuiltInTypes.ULong }
-        if fullName == "System.Char" { return BuiltInTypes.Char }
-        if fullName == "System.Single" { return BuiltInTypes.Float }
-        if fullName == "System.Double" { return BuiltInTypes.Double }
-        if fullName == "System.Decimal" { return BuiltInTypes.Decimal }
-        if fullName == "System.Boolean" { return BuiltInTypes.Bool }
-        if fullName == "System.String" { return BuiltInTypes.String }
-        if fullName == "System.Void" { return BuiltInTypes.Void }
-        if fullName == "System.Object" { return BuiltInTypes.Object }
+        if fullName == "System.Byte" {
+            return BuiltInTypes.Byte
+        }
+        if fullName == "System.SByte" {
+            return BuiltInTypes.SByte
+        }
+        if fullName == "System.Int16" {
+            return BuiltInTypes.Short
+        }
+        if fullName == "System.UInt16" {
+            return BuiltInTypes.UShort
+        }
+        if fullName == "System.Int32" {
+            return BuiltInTypes.Int
+        }
+        if fullName == "System.UInt32" {
+            return BuiltInTypes.UInt
+        }
+        if fullName == "System.Int64" {
+            return BuiltInTypes.Long
+        }
+        if fullName == "System.UInt64" {
+            return BuiltInTypes.ULong
+        }
+        if fullName == "System.Char" {
+            return BuiltInTypes.Char
+        }
+        if fullName == "System.Single" {
+            return BuiltInTypes.Float
+        }
+        if fullName == "System.Double" {
+            return BuiltInTypes.Double
+        }
+        if fullName == "System.Decimal" {
+            return BuiltInTypes.Decimal
+        }
+        if fullName == "System.Boolean" {
+            return BuiltInTypes.Bool
+        }
+        if fullName == "System.String" {
+            return BuiltInTypes.String
+        }
+        if fullName == "System.Void" {
+            return BuiltInTypes.Void
+        }
+        if fullName == "System.Object" {
+            return BuiltInTypes.Object
+        }
 
         return null
     }

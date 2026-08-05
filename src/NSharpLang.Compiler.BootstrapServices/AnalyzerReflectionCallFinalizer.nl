@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // ONE EXPRESSION THE FINALISING WALK WANTS ANALYSED, AND EVERYTHING THE ANALYSIS NEEDS.
 //
 // The walk cannot analyse an expression itself — the expression walk is the analyzer's, and calling
@@ -13,8 +14,7 @@ import NSharpLang.Compiler.Ast
 // lambda entry point with `IsExpressionTreeTarget` applied; otherwise it comes from the ordinary
 // expected-type entry point. Nothing here is a policy the driver may reinterpret: which node,
 // which entry point, which expected type and which tree flag are all decided here.
-public class ReflectionAnalysisRequest {
-
+class ReflectionAnalysisRequest {
     expressionValue: Expression
     lambdaValue: LambdaExpression?
     expectedTypeValue: TypeInfo
@@ -25,11 +25,7 @@ public class ReflectionAnalysisRequest {
     ExpectedType: TypeInfo => expectedTypeValue
     IsExpressionTreeTarget: bool => isExpressionTreeTargetValue
 
-    constructor(
-        expression: Expression,
-        lambda: LambdaExpression?,
-        expectedType: TypeInfo,
-        isExpressionTreeTarget: bool) {
+    constructor(expression: Expression, lambda: LambdaExpression?, expectedType: TypeInfo, isExpressionTreeTarget: bool) {
         expressionValue = expression
         lambdaValue = lambda
         expectedTypeValue = expectedType
@@ -57,8 +53,7 @@ public class ReflectionAnalysisRequest {
 // it again against the now-complete signature, and the second analysis's RESULT is not read at all —
 // it runs for the diagnostics and the semantic-model records it leaves behind. Collapsing the two
 // would delete user-visible diagnostics and change their order, so both are kept exactly.
-public class ReflectionCallFinalizeState {
-
+class ReflectionCallFinalizeState {
     runtimeMethodValue: MethodInfo
     openMethodValue: MethodInfo
     openParametersValue: ParameterInfo[]
@@ -80,32 +75,24 @@ public class ReflectionCallFinalizeState {
     ParameterTypes: List<TypeInfo> => parameterTypesValue
 
     // 0 = phase one (the inferring lambda pre-pass), 1 = phase two (convert and validate), 2 = done.
-    public Phase: int
-    public PreIndex: int
-    public MainIndex: int
-    public ParamsIndex: int
-    public HasTypeInfoOverrides: bool
-    public Failed: bool
+    Phase: int
+    PreIndex: int
+    MainIndex: int
+    ParamsIndex: int
+    HasTypeInfoOverrides: bool
+    Failed: bool
 
     // 0 = nothing outstanding, 1 = a phase-one lambda, 2 = a phase-two lambda, 3 = a phase-two
     // expression. The kind decides what the answer is folded into, so it is state rather than a
     // property of the request the driver holds.
-    public PendingKind: int
-    public PendingOpenParameterType: Type?
-    public PendingExpectedType: TypeInfo?
+    PendingKind: int
+    PendingOpenParameterType: Type?
+    PendingExpectedType: TypeInfo?
 
     // The finalised call type, or null while the walk is unfinished and forever if it failed.
-    public Result: FunctionTypeInfo?
+    Result: FunctionTypeInfo?
 
-    constructor(
-        runtimeMethod: MethodInfo,
-        openMethod: MethodInfo,
-        openParameters: ParameterInfo[],
-        boundArguments: List<ReflectionBoundArgument>,
-        suppliedArguments: List<SuppliedReflectionBoundArgument>,
-        methodGroupArguments: Dictionary<int, FunctionTypeInfo>,
-        workingBindings: Dictionary<Type, Type>,
-        workingTypeInfoBindings: Dictionary<Type, TypeInfo>) {
+    constructor(runtimeMethod: MethodInfo, openMethod: MethodInfo, openParameters: ParameterInfo[], boundArguments: List<ReflectionBoundArgument>, suppliedArguments: List<SuppliedReflectionBoundArgument>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, workingBindings: Dictionary<Type, Type>, workingTypeInfoBindings: Dictionary<Type, TypeInfo>) {
         runtimeMethodValue = runtimeMethod
         openMethodValue = openMethod
         openParametersValue = openParameters

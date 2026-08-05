@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public class ColumnarDeclineDiagnostic {
+class ColumnarDeclineDiagnostic {
     detailValue: string?
     fileNameValue: string?
     lineValue: int
@@ -13,7 +13,7 @@ public class ColumnarDeclineDiagnostic {
     Column: int => columnValue
     SpanLength: int => spanLengthValue
 
-    public static Empty: ColumnarDeclineDiagnostic => new ColumnarDeclineDiagnostic(null, null, 0, 0, 1)
+    static Empty: ColumnarDeclineDiagnostic => new ColumnarDeclineDiagnostic(null, null, 0, 0, 1)
 
     constructor(detail: string?, fileName: string?, line: int, column: int, spanLength: int) {
         detailValue = detail

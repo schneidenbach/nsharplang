@@ -2,14 +2,14 @@ namespace NSharpLang.Cli.Commands
 
 import System
 
-public enum CompletionShellKind {
+enum CompletionShellKind {
     Unknown = 0,
     Bash = 1,
     Zsh = 2,
     Fish = 3
 }
 
-public class CompletionOptionSummary {
+class CompletionOptionSummary {
     ShellKind: CompletionShellKind
     ShowHelp: bool
 
@@ -19,8 +19,8 @@ public class CompletionOptionSummary {
     }
 }
 
-public class CompletionCommandKernels {
-    public static func GetOptionSummary(args: string[]): CompletionOptionSummary {
+class CompletionCommandKernels {
+    static func GetOptionSummary(args: string[]): CompletionOptionSummary {
         shellKind := CompletionShellKind.Unknown
         showHelp := false
 
@@ -58,24 +58,11 @@ public class CompletionCommandKernels {
         return new CompletionOptionSummary(shellKind, showHelp)
     }
 
-    public static func GetHelpText(): string {
-        return "N# Shell Completion\n"
-            + "\n"
-            + "Usage: nlc completion <bash|zsh|fish>\n"
-            + "\n"
-            + "Generate shell completion scripts from the current `nlc` command tree.\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc completion bash > /etc/bash_completion.d/nlc\n"
-            + "  nlc completion zsh > ~/.zsh/completions/_nlc\n"
-            + "  nlc completion fish > ~/.config/fish/completions/nlc.fish\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Script generated successfully\n"
-            + "  1  Invalid shell name"
+    static func GetHelpText(): string {
+        return "N# Shell Completion\n" + "\n" + "Usage: nlc completion <bash|zsh|fish>\n" + "\n" + "Generate shell completion scripts from the current `nlc` command tree.\n" + "\n" + "Examples:\n" + "  nlc completion bash > /etc/bash_completion.d/nlc\n" + "  nlc completion zsh > ~/.zsh/completions/_nlc\n" + "  nlc completion fish > ~/.config/fish/completions/nlc.fish\n" + "\n" + "Exit codes:\n" + "  0  Script generated successfully\n" + "  1  Invalid shell name"
     }
 
-    public static func GetUnknownShellMessage(shell: string): string {
+    static func GetUnknownShellMessage(shell: string): string {
         return "Unknown shell '" + shell + "'. Expected bash, zsh, or fish."
     }
 }

@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.Performance
 
-public enum EscapeKind {
+enum EscapeKind {
     LocalOnly,
     Returned,
     Stored,
@@ -10,7 +10,7 @@ public enum EscapeKind {
     ReflectionBoundary
 }
 
-public enum CaptureKind {
+enum CaptureKind {
     None,
     ByValue,
     ByMutableStorage,
@@ -18,7 +18,7 @@ public enum CaptureKind {
     CapturesRefLike
 }
 
-public enum AllocationKind {
+enum AllocationKind {
     None,
     Delegate,
     Closure,
@@ -28,7 +28,7 @@ public enum AllocationKind {
     Unknown
 }
 
-public enum DispatchKind {
+enum DispatchKind {
     Direct,
     ConstrainedValueType,
     Virtual,
@@ -37,7 +37,7 @@ public enum DispatchKind {
     ReflectionDynamic
 }
 
-public enum ValueLayoutKind {
+enum ValueLayoutKind {
     Primitive,
     Enum,
     Struct,
@@ -47,7 +47,7 @@ public enum ValueLayoutKind {
     ReferenceObject
 }
 
-public enum AotSafetyKind {
+enum AotSafetyKind {
     NoReflection,
     MetadataRequired,
     DynamicCodeRequired,

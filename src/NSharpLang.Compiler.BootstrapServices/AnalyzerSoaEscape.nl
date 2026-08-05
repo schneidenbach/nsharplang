@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // WHAT A STRUCT-OF-ARRAYS VALUE MAY NOT DO — the two escapes, and the registry of column reads the
 // second one is decided against.
 //
@@ -44,19 +45,14 @@ import NSharpLang.Compiler.Ast
 // direct-column gates (which Array methods may take a column, which parameter positions are pinned)
 // are systems policy and live elsewhere, but they ask THIS owner what a column is and report through
 // THIS owner's wording, so the fact and the wording have exactly one home.
-public class AnalyzerSoaEscape {
-
+class AnalyzerSoaEscape {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     scopesValue: AnalyzerScopeStack
     declarationContextValue: AnalyzerDeclarationContext
     columnAccessesValue: HashSet<object>
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -66,21 +62,21 @@ public class AnalyzerSoaEscape {
 
     // One call per analysis, from the same reset block that clears the scope stack. The registry is
     // per-file: a member access from a previous analysis is a node no current expression can be.
-    public func BeginAnalysis() {
+    func BeginAnalysis() {
         columnAccessesValue.Clear()
     }
 
     // THE MEMBER WALK'S OWN VERDICT, RECORDED. Called only where `AnalyzeMemberAccess` has already
     // resolved the receiver to a table and the name to one of its columns, so this is a statement of
     // fact rather than a guess, and it is what makes the syntactic probe complete.
-    public func RecordColumnMemberAccess(member: MemberAccessExpression) {
+    func RecordColumnMemberAccess(member: MemberAccessExpression) {
         columnAccessesValue.Add(member)
     }
 
     // WHETHER THIS EXPRESSION IS A DIRECT COLUMN READ, for the callers that only need the yes/no.
     // It consults the RECORDED set alone — this is the question "did the member walk resolve this as
     // a column", not "could it be one" — and unwraps the three transparent forms on the way.
-    public func IsSoaColumnMemberAccess(expression: Expression): bool {
+    func IsSoaColumnMemberAccess(expression: Expression): bool {
         member := expression as MemberAccessExpression
         if member != null {
             return columnAccessesValue.Contains(member)
@@ -112,7 +108,7 @@ public class AnalyzerSoaEscape {
     //
     // It answers the NODE rather than a boolean because the node's own name is the report's subject
     // — "SoA table member 'x' cannot be returned directly" names the COLUMN, not the expression.
-    public func FindSoaColumnMemberAccess(expression: Expression): MemberAccessExpression? {
+    func FindSoaColumnMemberAccess(expression: Expression): MemberAccessExpression? {
         memberAccess := expression as MemberAccessExpression
         if memberAccess != null {
             if columnAccessesValue.Contains(memberAccess) {
@@ -191,21 +187,15 @@ public class AnalyzerSoaEscape {
     // THE ROW-VIEW ESCAPE, UNCONDITIONAL. The caller has already decided this value is a row view —
     // either because it holds the type and tested it, or because the arm it is in can only be reached
     // with one — so this reports rather than asks.
-    public func ReportSoaRowEscape(expression: Expression, action: string) {
+    func ReportSoaRowEscape(expression: Expression, action: string) {
         span := spansValue.GetExpressionDiagnosticSpan(expression)
-        diagnosticsValue.Report(
-            ErrorCode.InvalidSyntax,
-            "SoA row views cannot be " + action + "; use the table and row index instead",
-            span.Line,
-            span.Column,
-            "Read or write a column with table[index].column in the same expression.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "SoA row views cannot be " + action + "; use the table and row index instead", span.Line, span.Column, "Read or write a column with table[index].column in the same expression.", span.Length)
     }
 
     // THE ROW-VIEW ESCAPE, ASKED. Answers whether it fired, because a value that has already been
     // rejected as a row view must not then be measured against anything else — the caller replaces
     // its type with `unknown` or ends its walk.
-    public func ReportSoaRowEscapeIfNeeded(expression: Expression, valueType: TypeInfo, action: string): bool {
+    func ReportSoaRowEscapeIfNeeded(expression: Expression, valueType: TypeInfo, action: string): bool {
         rowView := valueType as SoaRowTypeInfo
         if rowView == null {
             return false
@@ -217,7 +207,7 @@ public class AnalyzerSoaEscape {
 
     // THE DIRECT-COLUMN ESCAPE, ASKED. The syntactic probe decides, and its answer is the report's
     // subject as well as its trigger.
-    public func ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression: Expression, action: string): bool {
+    func ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression: Expression, action: string): bool {
         columnMember := FindSoaColumnMemberAccess(expression)
         if columnMember == null {
             return false
@@ -230,18 +220,9 @@ public class AnalyzerSoaEscape {
     // THE DIRECT-COLUMN ESCAPE, TOLD. The SPAN is the whole offending expression and the NAME is the
     // column's own — the two come from different nodes, which is why the column node is a parameter
     // rather than something this member re-derives.
-    public func ReportUnsupportedSoaDirectColumnValueEscape(
-        expression: Expression,
-        columnMember: MemberAccessExpression,
-        action: string) {
+    func ReportUnsupportedSoaDirectColumnValueEscape(expression: Expression, columnMember: MemberAccessExpression, action: string) {
         span := spansValue.GetExpressionDiagnosticSpan(expression)
-        diagnosticsValue.Report(
-            ErrorCode.InvalidSyntax,
-            "SoA table member '" + columnMember.MemberName + "' cannot be " + action + " directly",
-            span.Line,
-            span.Column,
-            "Use table.column[row] for element access, Table.wrap for table views, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "SoA table member '" + columnMember.MemberName + "' cannot be " + action + " directly", span.Line, span.Column, "Use table.column[row] for element access, Table.wrap for table views, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.", span.Length)
     }
 
     // The nullable unwrap `Analyzer.cs` performs before every structural question. Its C# original has

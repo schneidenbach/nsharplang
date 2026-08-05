@@ -1,7 +1,7 @@
 namespace NSharpLang.Cli
 
-public class PositionalArgumentKernels {
-    public static func GetArgs(args: string[], optionsWithValues: string[]): string[] {
+class PositionalArgumentKernels {
+    static func GetArgs(args: string[], optionsWithValues: string[]): string[] {
         count := CountArgs(args, optionsWithValues)
         result := new string[](count)
 

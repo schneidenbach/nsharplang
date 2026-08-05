@@ -69,6 +69,7 @@ class LoopHarness {
     Errors: List<CompilerError>
     Assignability: AnalyzerAssignability
     Model: SemanticModel
+    Narrowing: AnalyzerFlowNarrowing
 
     constructor(
         sequence: AnalyzerLoopSequence,
@@ -76,13 +77,15 @@ class LoopHarness {
         scopes: AnalyzerScopeStack,
         errors: List<CompilerError>,
         assignability: AnalyzerAssignability,
-        model: SemanticModel) {
+        model: SemanticModel,
+        narrowing: AnalyzerFlowNarrowing) {
         Sequence = sequence
         Ambient = ambient
         Scopes = scopes
         Errors = errors
         Assignability = assignability
         Model = model
+        Narrowing = narrowing
     }
 }
 
@@ -147,9 +150,11 @@ func LoopHarnessWith(sourceText: string?): LoopHarness {
         context, facts, structural, substitution, clrConversion, guard)
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
     ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
+    conditions := new AnalyzerBooleanConditions(diagnostics, spans, escape)
+    narrowing := new AnalyzerFlowNarrowing(scopes, resolver, assignability)
     sequence := new AnalyzerLoopSequence(
-        diagnostics, spans, scopes, context, resolver, ambient, escape)
-    return new LoopHarness(sequence, ambient, scopes, errors, assignability, model)
+        diagnostics, spans, scopes, context, resolver, ambient, escape, conditions)
+    return new LoopHarness(sequence, ambient, scopes, errors, assignability, model, narrowing)
 }
 
 func LoopDefault(): LoopHarness {
@@ -839,7 +844,7 @@ test "AN UNANSWERED VALUE WALK LEAVES THE YIELDED TYPE unknown RATHER THAN NULL"
 // two arms differ ONLY in a mode flag and therefore must not drift apart, the escape→`unknown`
 // collapse that keeps one bad collection to ONE diagnostic, and the body step being a single
 // STATEMENT rather than the statement LIST the expression-statement family asks for.
-class LoopForeachStep {
+class LoopDriverStep {
     Kind: int
     Node: Expression?
     Body: Statement?
@@ -874,14 +879,14 @@ class LoopForeachStep {
 
 // The foreach driver, exactly as `Analyzer.cs` writes it, with the ambient loop flag sampled at
 // every step so that the loop's open/close window is pinned rather than assumed.
-func LoopRunForeach(
+func LoopRun(
     harness: LoopHarness,
-    state: ForeachStatementState,
-    answer: TypeInfo?): List<LoopForeachStep> {
-    steps := new List<LoopForeachStep>()
-    step := harness.Sequence.NextForeachStep(state)
+    state: LoopStatementState,
+    answer: TypeInfo?): List<LoopDriverStep> {
+    steps := new List<LoopDriverStep>()
+    step := harness.Sequence.NextLoopStep(state)
     while step != null {
-        steps.Add(new LoopForeachStep(
+        steps.Add(new LoopDriverStep(
             step.Kind,
             step.Node,
             step.Body,
@@ -892,14 +897,14 @@ func LoopRunForeach(
             harness.Ambient.InLoop,
             harness.Errors.Count))
 
-        harness.Sequence.SupplyForeach(state, answer)
-        step = harness.Sequence.NextForeachStep(state)
+        harness.Sequence.SupplyLoop(state, answer)
+        step = harness.Sequence.NextLoopStep(state)
     }
 
     return steps
 }
 
-func LoopForeachKinds(steps: List<LoopForeachStep>): string {
+func LoopStepKinds(steps: List<LoopDriverStep>): string {
     rendered := ""
     index := 0
     while index < steps.Count {
@@ -936,9 +941,9 @@ test "A foreach ASKS FOR SIX STEPS IN ONE FIXED ORDER" {
     harness := LoopDefault()
     state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
 
-    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
-    assert LoopForeachKinds(steps) == "1,2,3,4,5,6"
+    assert LoopStepKinds(steps) == "1,2,3,4,5,6"
     assert harness.Errors.Count == 0
 }
 
@@ -947,10 +952,10 @@ test "AN await foreach ASKS FOR THE SAME SIX STEPS — THE ARMS DIFFER ONLY IN A
     state := harness.Sequence.BeginAwaitForeach(
         LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
 
-    steps := LoopRunForeach(
+    steps := LoopRun(
         harness, state, LoopGeneric("IAsyncEnumerable", BuiltInTypes.String))
 
-    assert LoopForeachKinds(steps) == "1,2,3,4,5,6"
+    assert LoopStepKinds(steps) == "1,2,3,4,5,6"
     assert steps[2].CarriedType == "string"
     assert harness.Errors.Count == 0
 }
@@ -960,7 +965,7 @@ test "THE COLLECTION IS ASKED FOR BEFORE THE SCOPE OPENS, AND THE SCOPE OPENS AT
     collection := LoopCollection()
     state := harness.Sequence.BeginForeach(LoopForeachOver(collection, LoopForeachBody()))
 
-    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
     // Step 1 carries the collection node itself, and NOTHING has opened yet.
     assert Object.ReferenceEquals(steps[0].Node, collection)
@@ -975,7 +980,7 @@ test "THE LOOP VARIABLE IS DECLARED THEN RECORDED, BOTH WITH THE ELEMENT TYPE" {
     harness := LoopDefault()
     state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
 
-    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.String))
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.String))
 
     assert LoopText(steps[2].Name) == "item"
     assert steps[2].CarriedType == "string"
@@ -993,7 +998,7 @@ test "THE BODY STEP CARRIES THE STATEMENT ITSELF, NOT A LIST AND NOT AN EXPRESSI
     body := LoopForeachBody()
     state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), body))
 
-    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
     assert Object.ReferenceEquals(steps[4].Body, body)
     assert steps[4].Node == null
@@ -1003,7 +1008,7 @@ test "THE LOOP IS OPEN FOR THE BODY STEP ALONE, AND CLOSED BEFORE THE SCOPE" {
     harness := LoopDefault()
     state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
 
-    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
     // The collection is NOT inside the loop: a `break` written in it is as illegal as one outside.
     assert !steps[0].InLoop
@@ -1020,9 +1025,9 @@ test "A NON-SEQUENCE COLLECTION REPORTS ONCE AND STILL DECLARES THE VARIABLE AS 
     harness := LoopDefault()
     state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
 
-    steps := LoopRunForeach(harness, state, BuiltInTypes.Int)
+    steps := LoopRun(harness, state, BuiltInTypes.Int)
 
-    assert LoopForeachKinds(steps) == "1,2,3,4,5,6"
+    assert LoopStepKinds(steps) == "1,2,3,4,5,6"
     assert steps[2].CarriedType == "unknown"
     assert harness.Errors.Count == 1
     assert LoopErrorText(harness, 0)
@@ -1036,7 +1041,7 @@ test "AN await foreach OVER A SYNCHRONOUS SEQUENCE REPORTS THE ASYNC WORDING FRO
     state := harness.Sequence.BeginAwaitForeach(
         LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
 
-    steps := LoopRunForeach(harness, state, LoopArrayOf(BuiltInTypes.Int))
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
     assert steps[2].CarriedType == "unknown"
     assert harness.Errors.Count == 1
@@ -1049,7 +1054,7 @@ test "A ROW-VIEW COLLECTION ESCAPES, COLLAPSES TO unknown, AND SPEAKS WITH THE A
     syncHarness := LoopDefault()
     syncState := syncHarness.Sequence.BeginForeach(
         LoopForeachOver(LoopCollection(), LoopForeachBody()))
-    syncSteps := LoopRunForeach(syncHarness, syncState, LoopSoaRowType())
+    syncSteps := LoopRun(syncHarness, syncState, LoopSoaRowType())
     assert syncSteps[2].CarriedType == "unknown"
     // ONE diagnostic, not two: the collapse is what silences the element-type mismatch.
     assert syncHarness.Errors.Count == 1
@@ -1060,7 +1065,7 @@ test "A ROW-VIEW COLLECTION ESCAPES, COLLAPSES TO unknown, AND SPEAKS WITH THE A
     asyncHarness := LoopDefault()
     asyncState := asyncHarness.Sequence.BeginAwaitForeach(
         LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
-    asyncSteps := LoopRunForeach(asyncHarness, asyncState, LoopSoaRowType())
+    asyncSteps := LoopRun(asyncHarness, asyncState, LoopSoaRowType())
     assert asyncSteps[2].CarriedType == "unknown"
     assert asyncHarness.Errors.Count == 1
     assert asyncHarness.Errors[0].Message
@@ -1074,7 +1079,7 @@ test "A DIRECT COLUMN COLLECTION ESCAPES ON SYNTAX, COLLAPSES, AND KEEPS THE ARM
     LoopDeclareSoaTable(syncHarness)
     syncState := syncHarness.Sequence.BeginForeach(
         LoopForeachOver(LoopSoaColumnRead(), LoopForeachBody()))
-    syncSteps := LoopRunForeach(syncHarness, syncState, LoopArrayOf(BuiltInTypes.Int))
+    syncSteps := LoopRun(syncHarness, syncState, LoopArrayOf(BuiltInTypes.Int))
     assert syncSteps[2].CarriedType == "unknown"
     assert syncHarness.Errors.Count == 1
     assert syncHarness.Errors[0].Message
@@ -1084,7 +1089,7 @@ test "A DIRECT COLUMN COLLECTION ESCAPES ON SYNTAX, COLLAPSES, AND KEEPS THE ARM
     LoopDeclareSoaTable(asyncHarness)
     asyncState := asyncHarness.Sequence.BeginAwaitForeach(
         LoopAwaitForeachOver(LoopSoaColumnRead(), LoopForeachBody()))
-    asyncSteps := LoopRunForeach(asyncHarness, asyncState, LoopArrayOf(BuiltInTypes.Int))
+    asyncSteps := LoopRun(asyncHarness, asyncState, LoopArrayOf(BuiltInTypes.Int))
     assert asyncSteps[2].CarriedType == "unknown"
     assert asyncHarness.Errors.Count == 1
     assert asyncHarness.Errors[0].Message
@@ -1095,9 +1100,9 @@ test "AN UNANSWERED COLLECTION WALK LEAVES THE TYPE unknown AND STAYS SILENT" {
     harness := LoopDefault()
     state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
 
-    steps := LoopRunForeach(harness, state, null)
+    steps := LoopRun(harness, state, null)
 
-    assert LoopForeachKinds(steps) == "1,2,3,4,5,6"
+    assert LoopStepKinds(steps) == "1,2,3,4,5,6"
     assert steps[2].CarriedType == "unknown"
     // An unknown collection is not worth reporting — it already carries whatever made it unknown.
     assert harness.Errors.Count == 0
@@ -1119,4 +1124,294 @@ test "THE WALK'S STATE CARRIES THE OPERANDS, NOT THE NODE — THE TWO ARMS SHARE
     assert syncState.LoopFrame == null
     assert LoopTypeText(syncState.CollectionType) == "unknown"
     assert LoopTypeText(syncState.ElementType) == "unknown"
+}
+
+// ── `while` AND `for` ─────────────────────────────────────────────────────────
+//
+// The two condition loops share the request type, the state and the driver with the two iteration
+// loops, and the contracts below are written around the FIVE things that sharing makes easy to get
+// wrong: that a condition-shaped clause is OPTIONAL for `for` and mandatory for `while`, that the
+// narrowing scope exists only when the condition actually proved something, that the ambient loop is
+// open for the BODY and for nothing else, that `for`'s outer scope opens at the KEYWORD and closes
+// LAST, and that the iterator is a NESTED walk rather than a plain expression.
+
+func LoopWhileOver(condition: Expression, body: Statement): WhileStatement {
+    return new WhileStatement(condition, body, 6, 5)
+}
+
+func LoopForOver(
+    initializer: Statement?,
+    condition: Expression?,
+    iterator: Expression?,
+    body: Statement): ForStatement {
+    return new ForStatement(initializer, condition, iterator, body, 6, 5)
+}
+
+// A condition that proves NOTHING — an ordinary identifier read.
+func LoopPlainCondition(): Expression {
+    plain: Expression = new IdentifierExpression("flag", 6, 11)
+    return plain
+}
+
+// A condition that PROVES something: `value is int n` declares `n` in the then-branch, which is the
+// shortest shape the narrowing extractor answers for without needing a symbol already in scope.
+func LoopProvingCondition(): Expression {
+    proving: Expression = new IsExpression(
+        new IdentifierExpression("value", 6, 11),
+        new SimpleTypeReference("int", 6, 20),
+        "n",
+        6,
+        11)
+    return proving
+}
+
+func LoopInitializer(): Statement {
+    initializer: Statement = new VariableDeclarationStatement(
+        "i", null, new IntLiteralExpression("0", 6, 14), VariableKind.Let, 6, 9)
+    return initializer
+}
+
+func LoopIterator(): Expression {
+    iterator: Expression = new UnaryExpression(
+        UnaryOperator.PostIncrement, new IdentifierExpression("i", 6, 30), 6, 30)
+    return iterator
+}
+
+test "A while ASKS FOR TWO STEPS WHEN THE CONDITION PROVES NOTHING" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginWhile(
+        LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // The condition, then the body. No scope, because there is nothing to put in one.
+    assert LoopStepKinds(steps) == "1,5"
+    assert harness.Errors.Count == 0
+}
+
+test "A while OPENS A NARROWING SCOPE ONLY WHEN THE CONDITION PROVED SOMETHING" {
+    harness := LoopDefault()
+    body := LoopForeachBody()
+    state := harness.Sequence.BeginWhile(
+        LoopWhileOver(LoopProvingCondition(), body), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // Condition, scope, body, scope close.
+    assert LoopStepKinds(steps) == "1,2,5,6"
+    // The scope opens at the BODY's position, not at the `while` keyword's — a `while` has no scope
+    // of its own to name.
+    assert steps[1].Line == 7
+    assert steps[1].Column == 9
+    assert Object.ReferenceEquals(steps[2].Body, body)
+}
+
+test "A while's LOOP IS OPEN FOR THE BODY AND FOR NOTHING ELSE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginWhile(
+        LoopWhileOver(LoopProvingCondition(), LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // The CONDITION is not inside the loop: a `break` written in it is as illegal as one outside.
+    assert !steps[0].InLoop
+    // The narrowing scope opens after the loop does, so it and the body are both inside.
+    assert steps[1].InLoop
+    assert steps[2].InLoop
+    // The scope closes BEFORE the loop, which is the order `Analyzer.cs` used.
+    assert steps[3].InLoop
+    assert !harness.Ambient.InLoop
+}
+
+test "A NON-BOOLEAN while CONDITION IS REPORTED BY THE WALK, UNDER THE while's OWN OWNER NAME" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginWhile(
+        LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0)
+        == "The condition in a 'while' loop must be a boolean, but I found 'int'|6:11+4"
+    // The report is in the list BEFORE the body runs, which is what an emission-order reader sees.
+    assert steps[0].ErrorsBefore == 0
+    assert steps[1].ErrorsBefore == 1
+}
+
+test "A ROW-VIEW while CONDITION IS TOLD ABOUT THE ESCAPE AND NOT ALSO TOLD IT IS NOT A BOOLEAN" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginWhile(
+        LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
+
+    LoopRun(harness, state, LoopSoaRowType())
+
+    // ONE diagnostic, not two — the escape silences the boolean question.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as a 'while' condition; use the table and row index instead"
+}
+
+test "A for WITH ALL THREE CLAUSES ASKS FOR EIGHT STEPS IN ONE FIXED ORDER" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginFor(
+        LoopForOver(
+            LoopInitializer(), LoopProvingCondition(), LoopIterator(), LoopForeachBody()),
+        harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // Outer scope, initializer, condition, iterator, narrowing scope, body, narrowing close,
+    // outer close.
+    assert LoopStepKinds(steps) == "2,5,1,7,2,5,6,6"
+    assert harness.Errors.Count == 0
+}
+
+test "A for's OUTER SCOPE OPENS AT THE KEYWORD AND CLOSES LAST" {
+    harness := LoopDefault()
+    body := LoopForeachBody()
+    state := harness.Sequence.BeginFor(
+        LoopForOver(LoopInitializer(), LoopProvingCondition(), LoopIterator(), body),
+        harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // The outer scope opens at the `for` KEYWORD — which is what makes the initializer's variable
+    // belong to the loop and not to the enclosing block.
+    assert steps[0].Line == 6
+    assert steps[0].Column == 5
+    // The narrowing scope opens at the BODY.
+    assert steps[4].Line == 7
+    assert steps[4].Column == 9
+    // Nothing runs after the outer close.
+    assert steps[7].Kind == 6
+    assert !steps[7].InLoop
+}
+
+test "A for's INITIALIZER AND ITERATOR RUN OUTSIDE THE LOOP, THE BODY INSIDE IT" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginFor(
+        LoopForOver(
+            LoopInitializer(), LoopProvingCondition(), LoopIterator(), LoopForeachBody()),
+        harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    assert !steps[0].InLoop
+    assert !steps[1].InLoop
+    assert !steps[2].InLoop
+    // The ITERATOR is analysed once, before the body, and outside the loop.
+    assert !steps[3].InLoop
+    assert steps[4].InLoop
+    assert steps[5].InLoop
+    assert steps[6].InLoop
+    // The loop closes BEFORE the outer scope does.
+    assert !steps[7].InLoop
+}
+
+test "A for's ITERATOR IS A NESTED WALK, CARRIED AS A NODE AND NOT AS A BODY" {
+    harness := LoopDefault()
+    iterator := LoopIterator()
+    state := harness.Sequence.BeginFor(
+        LoopForOver(null, null, iterator, LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    assert LoopStepKinds(steps) == "2,7,5,6"
+    assert Object.ReferenceEquals(steps[1].Node, iterator)
+    assert steps[1].Body == null
+}
+
+test "EVERY for CLAUSE IS OPTIONAL, AND EACH ABSENCE REMOVES EXACTLY ITS OWN STEPS" {
+    // No initializer: the initializer step is gone and nothing else moves.
+    noInit := LoopDefault()
+    noInitState := noInit.Sequence.BeginFor(
+        LoopForOver(null, LoopProvingCondition(), LoopIterator(), LoopForeachBody()),
+        noInit.Narrowing)
+    assert LoopStepKinds(LoopRun(noInit, noInitState, BuiltInTypes.Bool)) == "2,1,7,2,5,6,6"
+
+    // No condition: the condition step, the boolean gate AND the narrowing scope all go, because a
+    // `for` with no condition proves nothing.
+    noCond := LoopDefault()
+    noCondState := noCond.Sequence.BeginFor(
+        LoopForOver(LoopInitializer(), null, LoopIterator(), LoopForeachBody()),
+        noCond.Narrowing)
+    assert LoopStepKinds(LoopRun(noCond, noCondState, BuiltInTypes.Bool)) == "2,5,7,5,6"
+    assert noCond.Errors.Count == 0
+
+    // No iterator: the nested walk goes.
+    noIter := LoopDefault()
+    noIterState := noIter.Sequence.BeginFor(
+        LoopForOver(LoopInitializer(), LoopProvingCondition(), null, LoopForeachBody()),
+        noIter.Narrowing)
+    assert LoopStepKinds(LoopRun(noIter, noIterState, BuiltInTypes.Bool)) == "2,5,1,2,5,6,6"
+
+    // Nothing at all: the outer scope, the body, the close — and the loop still opens around the
+    // body alone.
+    bare := LoopDefault()
+    bareState := bare.Sequence.BeginFor(
+        LoopForOver(null, null, null, LoopForeachBody()), bare.Narrowing)
+    bareSteps := LoopRun(bare, bareState, BuiltInTypes.Bool)
+    assert LoopStepKinds(bareSteps) == "2,5,6"
+    assert !bareSteps[0].InLoop
+    assert bareSteps[1].InLoop
+    assert !bareSteps[2].InLoop
+}
+
+test "A NON-BOOLEAN for CONDITION SPEAKS UNDER THE for's OWN OWNER NAME, NOT THE while's" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginFor(
+        LoopForOver(null, LoopPlainCondition(), null, LoopForeachBody()), harness.Narrowing)
+
+    LoopRun(harness, state, BuiltInTypes.String)
+
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0)
+        == "The condition in a 'for' loop must be a boolean, but I found 'string'|6:11+4"
+}
+
+test "A DIRECT COLUMN READ IN A for CONDITION ESCAPES WITH THE for's ACTION WORD" {
+    harness := LoopDefault()
+    LoopDeclareSoaTable(harness)
+    state := harness.Sequence.BeginFor(
+        LoopForOver(null, LoopSoaColumnRead(), null, LoopForeachBody()), harness.Narrowing)
+
+    LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA table member 'x' cannot be used as a 'for' condition directly"
+}
+
+test "ONE STATE AND ONE DRIVER SERVE ALL FOUR LOOPS, AND Form IS THE ONLY THING THAT SEPARATES THEM" {
+    harness := LoopDefault()
+    iteration := harness.Sequence.BeginForeach(
+        LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    asyncIteration := harness.Sequence.BeginAwaitForeach(
+        LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+    whileLoop := harness.Sequence.BeginWhile(
+        LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
+    forLoop := harness.Sequence.BeginFor(
+        LoopForOver(LoopInitializer(), LoopPlainCondition(), LoopIterator(), LoopForeachBody()),
+        harness.Narrowing)
+
+    // The two iteration arms share a form and are separated by the mode flag alone.
+    assert iteration.Form == 0
+    assert asyncIteration.Form == 0
+    assert whileLoop.Form == 1
+    assert forLoop.Form == 2
+    // Each form's phase band starts where its walk does, so a phase number never means two things.
+    assert iteration.Phase == 0
+    assert whileLoop.Phase == 10
+    assert forLoop.Phase == 20
+    // Exactly the operands each form uses are non-null.
+    assert iteration.Collection != null
+    assert iteration.Condition == null
+    assert iteration.Narrowing == null
+    assert whileLoop.Collection == null
+    assert whileLoop.Condition != null
+    assert whileLoop.Initializer == null
+    assert whileLoop.Iterator == null
+    assert forLoop.Initializer != null
+    assert forLoop.Iterator != null
+    assert forLoop.Narrowing != null
 }

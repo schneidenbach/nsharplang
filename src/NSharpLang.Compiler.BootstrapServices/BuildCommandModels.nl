@@ -3,7 +3,7 @@ namespace NSharpLang.Cli
 import System.Collections.Generic
 import NSharpLang.Compiler.CodeIntelligence
 
-public class BuildOptionSummary {
+class BuildOptionSummary {
     OutputDir: string?
     BackendOption: string?
     ProjectOption: string?
@@ -14,16 +14,7 @@ public class BuildOptionSummary {
     Aot: bool
     ShowHelp: bool
 
-    constructor(
-        outputDir: string?,
-        backendOption: string?,
-        projectOption: string?,
-        release: bool,
-        verbose: bool,
-        timings: bool,
-        perfReport: bool,
-        aot: bool,
-        showHelp: bool) {
+    constructor(outputDir: string?, backendOption: string?, projectOption: string?, release: bool, verbose: bool, timings: bool, perfReport: bool, aot: bool, showHelp: bool) {
         OutputDir = outputDir
         BackendOption = backendOption
         ProjectOption = projectOption
@@ -36,16 +27,20 @@ public class BuildOptionSummary {
     }
 }
 
-public class BuildCommandResult {
+class BuildCommandResult {
     exitCodeValue: int
     perfFactsValue: BuildPerfReportFacts
 
     ExitCode: int {
-        get { return exitCodeValue }
+        get {
+            return exitCodeValue
+        }
     }
 
     PerfFacts: BuildPerfReportFacts {
-        get { return perfFactsValue }
+        get {
+            return perfFactsValue
+        }
     }
 
     constructor(exitCode: int, perfFacts: BuildPerfReportFacts) {
@@ -53,7 +48,7 @@ public class BuildCommandResult {
         perfFactsValue = perfFacts
     }
 
-    public static func Failure(exitCode: int = 1, perfFacts: BuildPerfReportFacts? = null): BuildCommandResult {
+    static func Failure(exitCode: int = 1, perfFacts: BuildPerfReportFacts? = null): BuildCommandResult {
         facts := perfFacts
         if facts == null {
             facts = BuildPerfReportFacts.Empty
@@ -63,7 +58,7 @@ public class BuildCommandResult {
     }
 }
 
-public class BuildPerfReportFacts {
+class BuildPerfReportFacts {
     allocationSitesValue: IReadOnlyList<PerfReportSite>
     delegateSitesValue: IReadOnlyList<PerfReportSite>
     boxingSitesValue: IReadOnlyList<PerfReportSite>
@@ -77,74 +72,74 @@ public class BuildPerfReportFacts {
     trustedSitesValue: IReadOnlyList<PerfReportTrustedSite>
 
     AllocationSites: IReadOnlyList<PerfReportSite> {
-        get { return allocationSitesValue }
+        get {
+            return allocationSitesValue
+        }
     }
 
     DelegateSites: IReadOnlyList<PerfReportSite> {
-        get { return delegateSitesValue }
+        get {
+            return delegateSitesValue
+        }
     }
 
     BoxingSites: IReadOnlyList<PerfReportSite> {
-        get { return boxingSitesValue }
+        get {
+            return boxingSitesValue
+        }
     }
 
     DispatchSites: IReadOnlyList<PerfReportSite> {
-        get { return dispatchSitesValue }
+        get {
+            return dispatchSitesValue
+        }
     }
 
     ClosureCaptures: IReadOnlyList<PerfReportSite> {
-        get { return closureCapturesValue }
+        get {
+            return closureCapturesValue
+        }
     }
 
     PoolSites: IReadOnlyList<PerfReportSite> {
-        get { return poolSitesValue }
+        get {
+            return poolSitesValue
+        }
     }
 
     ResourceSites: IReadOnlyList<PerfReportSite> {
-        get { return resourceSitesValue }
+        get {
+            return resourceSitesValue
+        }
     }
 
     BoundaryLeakSites: IReadOnlyList<PerfReportSite> {
-        get { return boundaryLeakSitesValue }
+        get {
+            return boundaryLeakSitesValue
+        }
     }
 
     HotReadinessSites: IReadOnlyList<PerfReportSite> {
-        get { return hotReadinessSitesValue }
+        get {
+            return hotReadinessSitesValue
+        }
     }
 
     ImplicitTrapSites: IReadOnlyList<PerfReportSite> {
-        get { return implicitTrapSitesValue }
+        get {
+            return implicitTrapSitesValue
+        }
     }
 
     TrustedSites: IReadOnlyList<PerfReportTrustedSite> {
-        get { return trustedSitesValue }
+        get {
+            return trustedSitesValue
+        }
     }
 
-    public static Empty: BuildPerfReportFacts => new BuildPerfReportFacts(
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportSite[](0),
-        new PerfReportTrustedSite[](0))
+    static Empty: BuildPerfReportFacts => new BuildPerfReportFacts(new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportSite[](0), new PerfReportTrustedSite[](0))
 
-    constructor(
-        allocationSites: IReadOnlyList<PerfReportSite>,
-        delegateSites: IReadOnlyList<PerfReportSite>,
-        boxingSites: IReadOnlyList<PerfReportSite>,
-        dispatchSites: IReadOnlyList<PerfReportSite>,
-        closureCaptures: IReadOnlyList<PerfReportSite>,
-        poolSites: IReadOnlyList<PerfReportSite>,
-        resourceSites: IReadOnlyList<PerfReportSite>,
-        boundaryLeakSites: IReadOnlyList<PerfReportSite>,
-        hotReadinessSites: IReadOnlyList<PerfReportSite>,
-        implicitTrapSites: IReadOnlyList<PerfReportSite>,
-        trustedSites: IReadOnlyList<PerfReportTrustedSite>) {
+    constructor(allocationSites: IReadOnlyList<PerfReportSite>, delegateSites: IReadOnlyList<PerfReportSite>, boxingSites: IReadOnlyList<PerfReportSite>, dispatchSites: IReadOnlyList<PerfReportSite>, closureCaptures: IReadOnlyList<PerfReportSite>, poolSites: IReadOnlyList<PerfReportSite>, resourceSites: IReadOnlyList<PerfReportSite>, boundaryLeakSites: IReadOnlyList<PerfReportSite>, hotReadinessSites: IReadOnlyList<PerfReportSite>, implicitTrapSites: IReadOnlyList<PerfReportSite>, trustedSites: IReadOnlyList<PerfReportTrustedSite>) {
         allocationSitesValue = allocationSites
         delegateSitesValue = delegateSites
         boxingSitesValue = boxingSites
