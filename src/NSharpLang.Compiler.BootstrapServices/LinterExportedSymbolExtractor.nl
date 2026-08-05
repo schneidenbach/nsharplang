@@ -3,8 +3,8 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 import System.IO
 
-public class LinterExportedSymbolExtractor {
-    public static func Extract(filePath: string): List<string> {
+class LinterExportedSymbolExtractor {
+    static func Extract(filePath: string): List<string> {
         symbols := new List<string>()
         if string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath) {
             return symbols
@@ -65,14 +65,7 @@ public class LinterExportedSymbolExtractor {
     }
 
     static func IsDeclarationKeyword(tokenType: TokenType): bool {
-        return tokenType == TokenType.Class
-            || tokenType == TokenType.Struct
-            || tokenType == TokenType.Record
-            || tokenType == TokenType.Interface
-            || tokenType == TokenType.Enum
-            || tokenType == TokenType.Union
-            || tokenType == TokenType.Func
-            || tokenType == TokenType.Type
+        return tokenType == TokenType.Class || tokenType == TokenType.Struct || tokenType == TokenType.Record || tokenType == TokenType.Interface || tokenType == TokenType.Enum || tokenType == TokenType.Union || tokenType == TokenType.Func || tokenType == TokenType.Type
     }
 
     static func FindDeclaredNameIndex(tokens: List<Token>, declarationIndex: int): int {

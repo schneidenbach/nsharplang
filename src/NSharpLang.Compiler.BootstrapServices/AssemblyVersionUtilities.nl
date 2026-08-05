@@ -2,10 +2,10 @@ namespace NSharpLang.Compiler
 
 import System
 
-public class AssemblyVersionUtilities {
-    public static DefaultAssemblyVersion: Version => new Version(1, 0, 0, 0)
+class AssemblyVersionUtilities {
+    static DefaultAssemblyVersion: Version => new Version(1, 0, 0, 0)
 
-    public static func GetAssemblyVersionOrDefault(packageVersion: string?): Version {
+    static func GetAssemblyVersionOrDefault(packageVersion: string?): Version {
         assemblyVersion := AssemblyVersionUtilities.DefaultAssemblyVersion
         if TryGetAssemblyVersion(packageVersion, out assemblyVersion) {
             return assemblyVersion
@@ -14,7 +14,7 @@ public class AssemblyVersionUtilities {
         return AssemblyVersionUtilities.DefaultAssemblyVersion
     }
 
-    public static func TryGetAssemblyVersion(packageVersion: string?, out assemblyVersion: Version): bool {
+    static func TryGetAssemblyVersion(packageVersion: string?, out assemblyVersion: Version): bool {
         assemblyVersion = AssemblyVersionUtilities.DefaultAssemblyVersion
 
         if packageVersion == null {

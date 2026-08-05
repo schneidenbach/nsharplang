@@ -3,7 +3,7 @@ namespace NSharpLang.Cli
 import System
 import System.Collections.Generic
 
-public class DefineArgumentExtraction {
+class DefineArgumentExtraction {
     Defines: string[]
     RemainingArgs: string[]
 
@@ -13,8 +13,8 @@ public class DefineArgumentExtraction {
     }
 }
 
-public class DefineArgumentKernels {
-    public static func Extract(args: string[]): DefineArgumentExtraction {
+class DefineArgumentKernels {
+    static func Extract(args: string[]): DefineArgumentExtraction {
         defines := new List<string>()
         remainingArgs := new List<string>()
 
@@ -47,23 +47,11 @@ public class DefineArgumentKernels {
     }
 
     static func DefineEqualsPrefixLength(arg: string): int {
-        if arg.Length >= 9
-            && arg[0] == '-'
-            && arg[1] == '-'
-            && arg[2] == 'd'
-            && arg[3] == 'e'
-            && arg[4] == 'f'
-            && arg[5] == 'i'
-            && arg[6] == 'n'
-            && arg[7] == 'e'
-            && arg[8] == '=' {
+        if arg.Length >= 9 && arg[0] == '-' && arg[1] == '-' && arg[2] == 'd' && arg[3] == 'e' && arg[4] == 'f' && arg[5] == 'i' && arg[6] == 'n' && arg[7] == 'e' && arg[8] == '=' {
             return 9
         }
 
-        if arg.Length >= 3
-            && arg[0] == '-'
-            && arg[1] == 'd'
-            && arg[2] == '=' {
+        if arg.Length >= 3 && arg[0] == '-' && arg[1] == 'd' && arg[2] == '=' {
             return 3
         }
 

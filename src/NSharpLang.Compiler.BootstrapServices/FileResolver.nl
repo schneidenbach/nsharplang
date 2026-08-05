@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System.IO
 
-public class FileResolver {
+class FileResolver {
     projectRootValue: string
     currentFileValue: string
     ProjectRoot: string => projectRootValue
@@ -13,7 +13,7 @@ public class FileResolver {
         currentFileValue = Path.GetFullPath(currentFile)
     }
 
-    public func ResolveFilePath(importPath: string): string {
+    func ResolveFilePath(importPath: string): string {
         resolvedImportPath := importPath
         if !resolvedImportPath.EndsWith(".nl") {
             resolvedImportPath = resolvedImportPath + ".nl"

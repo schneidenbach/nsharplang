@@ -5,8 +5,8 @@ import System.Collections.Generic
 import System.IO
 import System.Text
 
-public class RemoveCommand {
-    public static func Execute(args: string[]): int {
+class RemoveCommand {
+    static func Execute(args: string[]): int {
         arguments := RemoveCommandKernels.GetArgumentSummary(args)
         if arguments.ShowHelp {
             print RemoveCommandKernels.GetHelpText()

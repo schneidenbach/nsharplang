@@ -12,13 +12,7 @@ class FixApplicatorEditInputs {
     NewTexts: string[]
     Count: int
 
-    constructor(
-        startLines: int[],
-        startColumns: int[],
-        endLines: int[],
-        endColumns: int[],
-        newTexts: string[],
-        count: int) {
+    constructor(startLines: int[], startColumns: int[], endLines: int[], endColumns: int[], newTexts: string[], count: int) {
         StartLines = startLines
         StartColumns = startColumns
         EndLines = endLines
@@ -28,8 +22,8 @@ class FixApplicatorEditInputs {
     }
 }
 
-public class FixApplicatorCore {
-    public static func ApplyEdits(source: string, edits: List<TextEdit>): string {
+class FixApplicatorCore {
+    static func ApplyEdits(source: string, edits: List<TextEdit>): string {
         if edits.Count == 0 {
             return source
         }
@@ -37,15 +31,7 @@ public class FixApplicatorCore {
         sortedEdits := ValidateAndSortEdits(source, edits)
         inputs := MaterializeEditInputs(sortedEdits)
         output := new string[](1)
-        code := FixApplicatorEditEngine.ApplyOrderedTextEdits(
-            source,
-            inputs.StartLines,
-            inputs.StartColumns,
-            inputs.EndLines,
-            inputs.EndColumns,
-            inputs.NewTexts,
-            inputs.Count,
-            output)
+        code := FixApplicatorEditEngine.ApplyOrderedTextEdits(source, inputs.StartLines, inputs.StartColumns, inputs.EndLines, inputs.EndColumns, inputs.NewTexts, inputs.Count, output)
 
         if code != 0 {
             throw new InvalidOperationException("N# fix applicator kernel rejected the edit application.")
@@ -54,13 +40,13 @@ public class FixApplicatorCore {
         return output[0]
     }
 
-    public static func ValidateAndSortEdits(edits: IReadOnlyCollection<TextEdit>): List<TextEdit> {
+    static func ValidateAndSortEdits(edits: IReadOnlyCollection<TextEdit>): List<TextEdit> {
         sortedEdits := FixApplicatorTextEditOrderer.OrderTextEdits(edits)
         ValidateSortedEdits(null, sortedEdits)
         return sortedEdits
     }
 
-    public static func ValidateAndSortEdits(source: string, edits: IReadOnlyCollection<TextEdit>): List<TextEdit> {
+    static func ValidateAndSortEdits(source: string, edits: IReadOnlyCollection<TextEdit>): List<TextEdit> {
         sortedEdits := ValidateAndSortEdits(edits)
         ValidateSortedEdits(source, sortedEdits)
         return sortedEdits
@@ -77,29 +63,13 @@ public class FixApplicatorCore {
             hasSource = 1
         }
 
-        code := FixApplicatorEditEngine.ValidateOrderedTextEdits(
-            sourceText,
-            hasSource,
-            inputs.StartLines,
-            inputs.StartColumns,
-            inputs.EndLines,
-            inputs.EndColumns,
-            inputs.NewTexts,
-            inputs.Count,
-            errorInfo)
+        code := FixApplicatorEditEngine.ValidateOrderedTextEdits(sourceText, hasSource, inputs.StartLines, inputs.StartColumns, inputs.EndLines, inputs.EndColumns, inputs.NewTexts, inputs.Count, errorInfo)
 
         if code == 0 {
             return
         }
 
-        message := FixApplicatorValidationMessages.BuildValidationMessage(
-            code,
-            errorInfo,
-            inputs.StartLines,
-            inputs.StartColumns,
-            inputs.EndLines,
-            inputs.EndColumns,
-            inputs.Count)
+        message := FixApplicatorValidationMessages.BuildValidationMessage(code, errorInfo, inputs.StartLines, inputs.StartColumns, inputs.EndLines, inputs.EndColumns, inputs.Count)
         throw new InvalidOperationException(message)
     }
 

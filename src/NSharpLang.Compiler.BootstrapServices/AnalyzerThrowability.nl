@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import NSharpLang.Compiler.Ast
 
+
 // WHAT IT MEANS FOR A TYPE TO BE THROWABLE — the one question three N# constructs ask about
 // `System.Exception`, and the only thing they share.
 //
@@ -31,16 +32,12 @@ import NSharpLang.Compiler.Ast
 // two well-known spellings, then by whatever the scope stack says it declares, then by its CLR twin
 // if the funnel can name one, and otherwise NO; and a source class answers for its base class, which
 // is what makes a user exception hierarchy work. A type that reaches the end is not throwable.
-public class AnalyzerThrowability {
-
+class AnalyzerThrowability {
     scopesValue: AnalyzerScopeStack
     declarationContextValue: AnalyzerDeclarationContext
     typeSubstitutionValue: AnalyzerTypeSubstitution
 
-    constructor(
-        scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext,
-        typeSubstitution: AnalyzerTypeSubstitution) {
+    constructor(scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeSubstitution: AnalyzerTypeSubstitution) {
         scopesValue = scopes
         declarationContextValue = declarationContext
         typeSubstitutionValue = typeSubstitution
@@ -49,7 +46,7 @@ public class AnalyzerThrowability {
     // WHETHER A VALUE OF THIS TYPE MAY BE THROWN OR CAUGHT. The oblivious unwrap is a LOOP rather
     // than a recursion because each unwrap can expose another alias, and the alias resolve runs on
     // the way in and again after every unwrap.
-    public func IsThrowable(candidate: TypeInfo, clrTypeConversion: AnalyzerClrTypeConversion): bool {
+    func IsThrowable(candidate: TypeInfo, clrTypeConversion: AnalyzerClrTypeConversion): bool {
         resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
         oblivious := resolved as ObliviousTypeInfo
         while oblivious != null {
@@ -92,9 +89,7 @@ public class AnalyzerThrowability {
                 return false
             }
 
-            return IsThrowable(
-                typeSubstitutionValue.ResolveTypeForSourceOwner(baseClass, classType, null),
-                clrTypeConversion)
+            return IsThrowable(typeSubstitutionValue.ResolveTypeForSourceOwner(baseClass, classType, null), clrTypeConversion)
         }
 
         return false
@@ -104,10 +99,7 @@ public class AnalyzerThrowability {
     // produces for a bare `catch` and for a written `System.Exception`; the scope-stack redirect is
     // guarded against a name that resolves to ITSELF, which would otherwise recurse forever; and the
     // CLR funnel is the last door, so a BCL exception named by an import still answers yes.
-    func IsThrowableSimpleName(
-        simple: SimpleTypeInfo,
-        resolved: TypeInfo,
-        clrTypeConversion: AnalyzerClrTypeConversion): bool {
+    func IsThrowableSimpleName(simple: SimpleTypeInfo, resolved: TypeInfo, clrTypeConversion: AnalyzerClrTypeConversion): bool {
         name := simple.Name
         if name == "Exception" || name == "System.Exception" {
             return true

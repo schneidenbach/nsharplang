@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection.Emit
 
-public struct ColumnarMemberWriteChain(rootLocal: LocalBuilder?, rootParamOrdinal: int, rootType: Type, hops: List<FieldBuilder>, receiverType: Type) {
+struct ColumnarMemberWriteChain(rootLocal: LocalBuilder?, rootParamOrdinal: int, rootType: Type, hops: List<FieldBuilder>, receiverType: Type) {
     RootLocal: LocalBuilder? = rootLocal
     RootParamOrdinal: int = rootParamOrdinal
     RootType: Type = rootType

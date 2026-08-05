@@ -4,12 +4,12 @@ import System
 import YamlDotNet.Core.Events
 import YamlDotNet.Serialization
 
-public class ReferenceConverter: IYamlTypeConverter {
-    public func Accepts(targetType: Type): bool {
+class ReferenceConverter: IYamlTypeConverter {
+    func Accepts(targetType: Type): bool {
         return targetType == typeof(Reference)
     }
 
-    public func ReadYaml(parser: YamlDotNet.Core.IParser, targetType: Type, rootDeserializer: ObjectDeserializer): object {
+    func ReadYaml(parser: YamlDotNet.Core.IParser, targetType: Type, rootDeserializer: ObjectDeserializer): object {
         scalar := parser.Current as Scalar
         if scalar != null {
             parser.MoveNext()
@@ -54,7 +54,7 @@ public class ReferenceConverter: IYamlTypeConverter {
         throw new YamlDotNet.Core.YamlException("Invalid reference format")
     }
 
-    public func WriteYaml(emitter: YamlDotNet.Core.IEmitter, value: object?, targetType: Type, serializer: ObjectSerializer): void {
+    func WriteYaml(emitter: YamlDotNet.Core.IEmitter, value: object?, targetType: Type, serializer: ObjectSerializer): void {
         reference := value as Reference
         if reference == null {
             throw new InvalidOperationException("Expected Reference object")

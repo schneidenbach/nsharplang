@@ -4,8 +4,8 @@ import System
 import System.Collections.Generic
 import System.Text
 
-public class OutputFormatterTextBuilders {
-    public static func DiagnosticsToText(results: List<DiagnosticResult>): string {
+class OutputFormatterTextBuilders {
+    static func DiagnosticsToText(results: List<DiagnosticResult>): string {
         if results.Count == 0 {
             return OutputFormatterDiagnosticKernels.GetNoDiagnosticsText()
         }
@@ -15,7 +15,7 @@ public class OutputFormatterTextBuilders {
 
         AppendDiagnosticClusterSummary(builder, OutputFormatterDiagnosticClusterBuilder.BuildDiagnosticClusters(results))
 
-        foreach diagnostic in results {
+        for diagnostic in results {
             builder.AppendLine(FormatSingleDiagnosticText(diagnostic))
         }
 
@@ -25,20 +25,20 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
-    public static func SymbolsToText(results: List<SymbolResult>): string {
+    static func SymbolsToText(results: List<SymbolResult>): string {
         if results.Count == 0 {
             return OutputFormatterTextKernels.GetNoSymbolsText()
         }
 
         builder := new StringBuilder()
-        foreach symbol in results {
+        for symbol in results {
             AppendSymbolText(builder, symbol, 0)
         }
 
         return builder.ToString()
     }
 
-    public static func OutlineToText(result: OutlineResult): string {
+    static func OutlineToText(result: OutlineResult): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetOutlineFileLineText(result.File))
 
@@ -57,7 +57,7 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
-    public static func TypeToText(result: TypeResult, fileName: string, line: int, column: int): string {
+    static func TypeToText(result: TypeResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetTypeLocationHeaderText(fileName, line, column))
         builder.AppendLine(OutputFormatterTextKernels.GetTypeResultLineText(result))
@@ -75,11 +75,11 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
-    public static func DefinitionToText(result: DefinitionResult): string {
+    static func DefinitionToText(result: DefinitionResult): string {
         return OutputFormatterTextKernels.GetDefinitionLineText(result)
     }
 
-    public static func DefinitionSearchToText(query: string, results: IReadOnlyList<DefinitionResult>): string {
+    static func DefinitionSearchToText(query: string, results: IReadOnlyList<DefinitionResult>): string {
         builder := new StringBuilder()
         builder.AppendLine(DefinitionSearchKernels.GetDefinitionSearchHeader(query, results.Count))
 
@@ -88,28 +88,28 @@ public class OutputFormatterTextBuilders {
             return builder.ToString()
         }
 
-        foreach result in results {
+        for result in results {
             builder.AppendLine(OutputFormatterTextKernels.GetDefinitionSearchResultLineText(result))
         }
 
         return builder.ToString()
     }
 
-    public static func ReferencesToText(symbolName: string, results: List<ReferenceResult>): string {
+    static func ReferencesToText(symbolName: string, results: List<ReferenceResult>): string {
         if results.Count == 0 {
             return OutputFormatterTextKernels.GetNoReferencesText(symbolName)
         }
 
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetReferencesHeaderText(symbolName, results.Count))
-        foreach reference in results {
+        for reference in results {
             builder.AppendLine(OutputFormatterTextKernels.GetReferenceLineText(reference))
         }
 
         return builder.ToString()
     }
 
-    public static func DocToText(result: DocResult): string {
+    static func DocToText(result: DocResult): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetDocHeaderText(result))
 
@@ -179,24 +179,18 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
-    public static func CompletionsToText(result: CompletionResult, fileName: string, line: int, column: int): string {
+    static func CompletionsToText(result: CompletionResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
-        builder.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(
-            fileName,
-            line,
-            column,
-            CompletionContextText(result.Context)))
+        builder.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(fileName, line, column, CompletionContextText(result.Context)))
 
         if result.Receiver != null {
             receiver := result.Receiver ?? ""
-            builder.AppendLine(OutputFormatterTextKernels.GetCompletionReceiverLineText(
-                receiver,
-                result.ReceiverType))
+            builder.AppendLine(OutputFormatterTextKernels.GetCompletionReceiverLineText(receiver, result.ReceiverType))
         }
 
         builder.AppendLine()
 
-        foreach entry in result.Completions {
+        for entry in result.Completions {
             category := entry.Key
             items := entry.Value
             builder.AppendLine(OutputFormatterTextKernels.GetCompletionCategoryLineText(category, items.Count))
@@ -220,7 +214,7 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
-    public static func HoverToText(result: HoverResult, fileName: string, line: int, column: int): string {
+    static func HoverToText(result: HoverResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetHoverHeaderText(fileName, line, column))
         builder.AppendLine()
@@ -247,7 +241,7 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
-    public static func CallGraphToText(result: CallGraphResult): string {
+    static func CallGraphToText(result: CallGraphResult): string {
         builder := new StringBuilder()
         if result.Function != null {
             functionName := result.Function ?? ""
@@ -258,13 +252,13 @@ public class OutputFormatterTextBuilders {
 
         builder.AppendLine()
         builder.AppendLine(OutputFormatterTextKernels.GetCallGraphSectionHeaderText("Callers", result.Callers.Count))
-        foreach caller in result.Callers {
+        for caller in result.Callers {
             builder.AppendLine(OutputFormatterTextKernels.GetCallGraphEdgeLineText(caller))
         }
 
         builder.AppendLine()
         builder.AppendLine(OutputFormatterTextKernels.GetCallGraphSectionHeaderText("Callees", result.Callees.Count))
-        foreach callee in result.Callees {
+        for callee in result.Callees {
             builder.AppendLine(OutputFormatterTextKernels.GetCallGraphEdgeLineText(callee))
         }
 
@@ -275,21 +269,19 @@ public class OutputFormatterTextBuilders {
         return builder.ToString()
     }
 
-    public static func ImplementorsToText(result: ImplementorsResult): string {
+    static func ImplementorsToText(result: ImplementorsResult): string {
         builder := new StringBuilder()
-        builder.AppendLine(OutputFormatterTextKernels.GetImplementorsHeaderText(
-            result.Interface,
-            result.Results.Count))
+        builder.AppendLine(OutputFormatterTextKernels.GetImplementorsHeaderText(result.Interface, result.Results.Count))
         builder.AppendLine()
 
-        foreach implementor in result.Results {
+        for implementor in result.Results {
             builder.AppendLine(OutputFormatterTextKernels.GetImplementorLineText(implementor))
         }
 
         return builder.ToString()
     }
 
-    public static func InspectToText(result: InspectResult, fileName: string, line: int, column: int): string {
+    static func InspectToText(result: InspectResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
         builder.AppendLine(OutputFormatterTextKernels.GetInspectHeaderText(fileName, line, column))
         builder.AppendLine()
@@ -328,9 +320,7 @@ public class OutputFormatterTextBuilders {
         }
 
         builder.AppendLine()
-        builder.AppendLine(OutputFormatterTextKernels.GetInspectReferencesHeaderText(
-            result.References.Count,
-            result.References.DefinitionCount))
+        builder.AppendLine(OutputFormatterTextKernels.GetInspectReferencesHeaderText(result.References.Count, result.References.DefinitionCount))
 
         referenceCount := result.References.Results.Length
         if referenceCount > 10 {
@@ -358,20 +348,11 @@ public class OutputFormatterTextBuilders {
         }
 
         diagnosticCount := 0
-        foreach cluster in clusters {
+        for cluster in clusters {
             diagnosticCount = diagnosticCount + cluster.Count
         }
 
-        builder.AppendLine(
-            "Diagnostic clusters (" +
-            clusters.Count.ToString() +
-            " group" +
-            PluralSuffix(clusters.Count) +
-            ", " +
-            diagnosticCount.ToString() +
-            " diagnostic" +
-            PluralSuffix(diagnosticCount) +
-            ")")
+        builder.AppendLine("Diagnostic clusters (" + clusters.Count.ToString() + " group" + PluralSuffix(clusters.Count) + ", " + diagnosticCount.ToString() + " diagnostic" + PluralSuffix(diagnosticCount) + ")")
 
         count := clusters.Count
         if count > 10 {
@@ -381,23 +362,9 @@ public class OutputFormatterTextBuilders {
         index := 0
         while index < count {
             cluster := clusters[index]
-            builder.AppendLine(
-                "  [" +
-                cluster.Count.ToString() +
-                "x] " +
-                cluster.Category +
-                " / " +
-                cluster.SourceConstruct +
-                " / risk: " +
-                cluster.Risk)
+            builder.AppendLine("  [" + cluster.Count.ToString() + "x] " + cluster.Category + " / " + cluster.SourceConstruct + " / risk: " + cluster.Risk)
             builder.AppendLine("       recipe: " + cluster.Recipe)
-            builder.AppendLine(
-                "       root: " +
-                cluster.RootLocation.File +
-                ":" +
-                cluster.RootLocation.Line.ToString() +
-                ":" +
-                cluster.RootLocation.Column.ToString())
+            builder.AppendLine("       root: " + cluster.RootLocation.File + ":" + cluster.RootLocation.Line.ToString() + ":" + cluster.RootLocation.Column.ToString())
             builder.AppendLine("       next command: " + cluster.NextCommand)
             builder.AppendLine("       example: " + cluster.Examples[0].Message)
 
@@ -417,12 +384,7 @@ public class OutputFormatterTextBuilders {
 
         if clusters.Count > 10 {
             omitted := clusters.Count - 10
-            builder.AppendLine(
-                "  ... " +
-                omitted.ToString() +
-                " more cluster" +
-                PluralSuffix(omitted) +
-                " omitted; use --json for the full AI-consumable cluster list.")
+            builder.AppendLine("  ... " + omitted.ToString() + " more cluster" + PluralSuffix(omitted) + " omitted; use --json for the full AI-consumable cluster list.")
         }
 
         builder.AppendLine()
@@ -432,22 +394,13 @@ public class OutputFormatterTextBuilders {
         builder := new StringBuilder()
 
         title := OutputFormatterDiagnosticKernels.GetDiagnosticTitle(diagnostic.Code, diagnostic.Severity)
-        builder.AppendLine(OutputFormatterDiagnosticKernels.GetHeaderLineText(
-            title,
-            diagnostic.File,
-            diagnostic.Line,
-            diagnostic.Column))
+        builder.AppendLine(OutputFormatterDiagnosticKernels.GetHeaderLineText(title, diagnostic.File, diagnostic.Line, diagnostic.Column))
         builder.AppendLine()
 
         sourceSnippet := diagnostic.SourceSnippet ?? ""
         if !String.IsNullOrWhiteSpace(sourceSnippet) {
-            builder.AppendLine(OutputFormatterDiagnosticKernels.GetSourceLineText(
-                diagnostic.Line,
-                sourceSnippet.TrimEnd()))
-            builder.AppendLine(OutputFormatterDiagnosticKernels.GetCaretLineText(
-                diagnostic.Line,
-                diagnostic.Column,
-                diagnostic.Length))
+            builder.AppendLine(OutputFormatterDiagnosticKernels.GetSourceLineText(diagnostic.Line, sourceSnippet.TrimEnd()))
+            builder.AppendLine(OutputFormatterDiagnosticKernels.GetCaretLineText(diagnostic.Line, diagnostic.Column, diagnostic.Length))
         }
 
         builder.AppendLine()

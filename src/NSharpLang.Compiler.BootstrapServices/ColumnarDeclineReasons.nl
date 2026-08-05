@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
-public class ColumnarDeclineReason {
+class ColumnarDeclineReason {
     siteIdValue: string
     messageValue: string
     spanStartValue: int
@@ -17,14 +17,7 @@ public class ColumnarDeclineReason {
     SourceFileId: int => sourceFileIdValue
     HasSourceFileId: bool => hasSourceFileIdValue
 
-    constructor(
-        siteId: string,
-        message: string,
-        spanStart: int,
-        spanLength: int,
-        memberName: string,
-        sourceFileId: int = 0,
-        hasSourceFileId: bool = false) {
+    constructor(siteId: string, message: string, spanStart: int, spanLength: int, memberName: string, sourceFileId: int = 0, hasSourceFileId: bool = false) {
         siteIdValue = siteId
         messageValue = message
         spanStartValue = spanStart
@@ -35,8 +28,8 @@ public class ColumnarDeclineReason {
     }
 }
 
-public class ColumnarDeclineReasonFacts {
-    public static func ResolveFileIndex(fileLengths: int[], separatorLength: int, offset: int, sourceFileId: int, hasSourceFileId: bool): int {
+class ColumnarDeclineReasonFacts {
+    static func ResolveFileIndex(fileLengths: int[], separatorLength: int, offset: int, sourceFileId: int, hasSourceFileId: bool): int {
         if hasSourceFileId && sourceFileId >= 0 && sourceFileId < fileLengths.Length {
             return sourceFileId
         }
@@ -44,7 +37,7 @@ public class ColumnarDeclineReasonFacts {
         return MapMergedOffsetFileIndex(fileLengths, separatorLength, offset)
     }
 
-    public static func ResolveLocalOffset(fileLengths: int[], separatorLength: int, offset: int, sourceFileId: int, hasSourceFileId: bool): int {
+    static func ResolveLocalOffset(fileLengths: int[], separatorLength: int, offset: int, sourceFileId: int, hasSourceFileId: bool): int {
         if hasSourceFileId && sourceFileId >= 0 && sourceFileId < fileLengths.Length {
             return offset
         }
@@ -52,7 +45,7 @@ public class ColumnarDeclineReasonFacts {
         return MapMergedOffsetLocalOffset(fileLengths, separatorLength, offset)
     }
 
-    public static func MapMergedOffsetFileIndex(fileLengths: int[], separatorLength: int, offset: int): int {
+    static func MapMergedOffsetFileIndex(fileLengths: int[], separatorLength: int, offset: int): int {
         if offset < 0 {
             return -1
         }
@@ -73,7 +66,7 @@ public class ColumnarDeclineReasonFacts {
         return -1
     }
 
-    public static func MapMergedOffsetLocalOffset(fileLengths: int[], separatorLength: int, offset: int): int {
+    static func MapMergedOffsetLocalOffset(fileLengths: int[], separatorLength: int, offset: int): int {
         fileIndex := MapMergedOffsetFileIndex(fileLengths, separatorLength, offset)
         if fileIndex < 0 {
             return -1
@@ -89,7 +82,7 @@ public class ColumnarDeclineReasonFacts {
         return offset - start
     }
 
-    public static func LineFromOffset(source: string, offset: int): int {
+    static func LineFromOffset(source: string, offset: int): int {
         if offset < 0 || offset > source.Length {
             return 0
         }
@@ -116,7 +109,7 @@ public class ColumnarDeclineReasonFacts {
         return line
     }
 
-    public static func ColumnFromOffset(source: string, offset: int): int {
+    static func ColumnFromOffset(source: string, offset: int): int {
         if offset < 0 || offset > source.Length {
             return 0
         }
@@ -148,7 +141,7 @@ public class ColumnarDeclineReasonFacts {
         return offset - lineStart + 1
     }
 
-    public static func FormatDetail(reason: ColumnarDeclineReason, fileName: string? = null, line: int = 0, column: int = 0): string {
+    static func FormatDetail(reason: ColumnarDeclineReason, fileName: string? = null, line: int = 0, column: int = 0): string {
         detail := "Declined at " + reason.SiteId + ": " + reason.Message
         if reason.MemberName.Length > 0 {
             detail = detail + " in '" + reason.MemberName + "'"
@@ -161,10 +154,8 @@ public class ColumnarDeclineReasonFacts {
         return detail + "."
     }
 
-    public static func FormatTraceLine(reason: ColumnarDeclineReason, fileName: string? = null, line: int = 0, column: int = 0): string {
-        lineText := "decline site=" + reason.SiteId
-            + " message=\"" + reason.Message + "\""
-            + " span=" + reason.SpanStart.ToString() + ":" + reason.SpanLength.ToString()
+    static func FormatTraceLine(reason: ColumnarDeclineReason, fileName: string? = null, line: int = 0, column: int = 0): string {
+        lineText := "decline site=" + reason.SiteId + " message=\"" + reason.Message + "\"" + " span=" + reason.SpanStart.ToString() + ":" + reason.SpanLength.ToString()
 
         if reason.MemberName.Length > 0 {
             lineText = lineText + " member=\"" + reason.MemberName + "\""

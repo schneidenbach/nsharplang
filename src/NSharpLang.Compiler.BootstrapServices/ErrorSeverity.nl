@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum ErrorSeverity {
+enum ErrorSeverity {
     Warning,
     Error
 }

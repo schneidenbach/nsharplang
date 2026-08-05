@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System.Collections.Generic
 
-public class ScopeInfo {
+class ScopeInfo {
     idValue: int
     parentIdValue: int
     startLineValue: int
@@ -32,12 +32,12 @@ public class ScopeInfo {
         functionsValue = new Dictionary<string, TypeInfo>()
     }
 
-    public func SetEndPosition(endLine: int, endColumn: int) {
+    func SetEndPosition(endLine: int, endColumn: int) {
         endLineValue = endLine
         endColumnValue = endColumn
     }
 
-    public func ContainsPosition(line: int, column: int): bool {
+    func ContainsPosition(line: int, column: int): bool {
         if endLineValue == 0 {
             return false
         }
@@ -58,7 +58,7 @@ public class ScopeInfo {
     }
 }
 
-public class SemanticModel {
+class SemanticModel {
     scopesValue: List<ScopeInfo>
     expressionTypesValue: Dictionary<(Line: int, Column: int), TypeInfo>
     expressionNullStatesValue: Dictionary<(Line: int, Column: int), NullState>
@@ -97,21 +97,21 @@ public class SemanticModel {
     Scopes: IReadOnlyList<ScopeInfo> => scopesValue
     ScopeVersion: int => scopeVersionValue
 
-    public func OpenScope(parentId: int, startLine: int, startColumn: int): int {
+    func OpenScope(parentId: int, startLine: int, startColumn: int): int {
         id := scopesValue.Count
         scopesValue.Add(new ScopeInfo(id, parentId, startLine, startColumn))
         scopeVersionValue = scopeVersionValue + 1
         return id
     }
 
-    public func CloseScope(scopeId: int, endLine: int, endColumn: int) {
+    func CloseScope(scopeId: int, endLine: int, endColumn: int) {
         if scopeId >= 0 && scopeId < scopesValue.Count {
             scopesValue[scopeId].SetEndPosition(endLine, endColumn)
             scopeVersionValue = scopeVersionValue + 1
         }
     }
 
-    public func RecordScopedVariable(scopeId: int, name: string, typeInfo: TypeInfo) {
+    func RecordScopedVariable(scopeId: int, name: string, typeInfo: TypeInfo) {
         if scopeId >= 0 && scopeId < scopesValue.Count {
             scopesValue[scopeId].Variables[name] = typeInfo
             scopeVersionValue = scopeVersionValue + 1
@@ -120,7 +120,7 @@ public class SemanticModel {
         variablesValue[name] = typeInfo
     }
 
-    public func RecordScopedFunction(scopeId: int, name: string, typeInfo: TypeInfo) {
+    func RecordScopedFunction(scopeId: int, name: string, typeInfo: TypeInfo) {
         if scopeId >= 0 && scopeId < scopesValue.Count {
             scopesValue[scopeId].Functions[name] = typeInfo
             scopeVersionValue = scopeVersionValue + 1
@@ -129,27 +129,27 @@ public class SemanticModel {
         functionsValue[name] = typeInfo
     }
 
-    public func RecordVariable(name: string, typeInfo: TypeInfo) {
+    func RecordVariable(name: string, typeInfo: TypeInfo) {
         variablesValue[name] = typeInfo
     }
 
-    public func RecordFunction(name: string, typeInfo: TypeInfo) {
+    func RecordFunction(name: string, typeInfo: TypeInfo) {
         functionsValue[name] = typeInfo
     }
 
-    public func RecordProperty(name: string, typeInfo: TypeInfo) {
+    func RecordProperty(name: string, typeInfo: TypeInfo) {
         propertiesValue[name] = typeInfo
     }
 
-    public func RecordField(name: string, typeInfo: TypeInfo) {
+    func RecordField(name: string, typeInfo: TypeInfo) {
         fieldsValue[name] = typeInfo
     }
 
-    public func RecordType(name: string, typeInfo: TypeInfo) {
+    func RecordType(name: string, typeInfo: TypeInfo) {
         typesValue[name] = typeInfo
     }
 
-    public func RecordTypeMember(typeName: string, memberName: string, memberType: TypeInfo) {
+    func RecordTypeMember(typeName: string, memberName: string, memberType: TypeInfo) {
         members := new Dictionary<string, TypeInfo>()
         if typeMembersValue.TryGetValue(typeName, out members) {
             members[memberName] = memberType
@@ -161,7 +161,7 @@ public class SemanticModel {
         members[memberName] = memberType
     }
 
-    public func GetTypeMembers(typeName: string): Dictionary<string, TypeInfo>? {
+    func GetTypeMembers(typeName: string): Dictionary<string, TypeInfo>? {
         members := new Dictionary<string, TypeInfo>()
         if typeMembersValue.TryGetValue(typeName, out members) {
             return members
@@ -170,15 +170,15 @@ public class SemanticModel {
         return null
     }
 
-    public func RecordExpressionType(line: int, column: int, typeInfo: TypeInfo) {
+    func RecordExpressionType(line: int, column: int, typeInfo: TypeInfo) {
         expressionTypesValue[(Line: line, Column: column)] = typeInfo
     }
 
-    public func RecordExpressionNullState(line: int, column: int, state: NullState) {
+    func RecordExpressionNullState(line: int, column: int, state: NullState) {
         expressionNullStatesValue[(Line: line, Column: column)] = state
     }
 
-    public func RecordTypeReference(line: int, column: int, typeInfo: TypeInfo) {
+    func RecordTypeReference(line: int, column: int, typeInfo: TypeInfo) {
         if line <= 0 || column <= 0 {
             return
         }
@@ -186,7 +186,7 @@ public class SemanticModel {
         typeReferenceTypesValue[(Line: line, Column: column)] = typeInfo
     }
 
-    public func LookupIdentifier(name: string): TypeInfo? {
+    func LookupIdentifier(name: string): TypeInfo? {
         value := new TypeInfo()
 
         if variablesValue.TryGetValue(name, out value) {
@@ -212,7 +212,7 @@ public class SemanticModel {
         return null
     }
 
-    public func LookupIdentifierAtPosition(name: string, line: int, column: int): TypeInfo? {
+    func LookupIdentifierAtPosition(name: string, line: int, column: int): TypeInfo? {
         best: TypeInfo? = null
         bestDepth := -1
 
@@ -248,20 +248,20 @@ public class SemanticModel {
         return typeInfo
     }
 
-    public func GetVisibleVariablesAtPosition(line: int, column: int): Dictionary<string, TypeInfo> {
+    func GetVisibleVariablesAtPosition(line: int, column: int): Dictionary<string, TypeInfo> {
         result := new Dictionary<string, TypeInfo>()
 
         i := scopesValue.Count - 1
         while i >= 0 {
             scope := scopesValue[i]
             if scope.ContainsPosition(line, column) {
-                foreach entry in scope.Variables {
+                for entry in scope.Variables {
                     if !result.ContainsKey(entry.Key) {
                         result[entry.Key] = entry.Value
                     }
                 }
 
-                foreach entry in scope.Functions {
+                for entry in scope.Functions {
                     if !result.ContainsKey(entry.Key) {
                         result[entry.Key] = entry.Value
                     }
@@ -274,7 +274,7 @@ public class SemanticModel {
         return result
     }
 
-    public func LookupTypeAtPosition(line: int, column: int): TypeInfo? {
+    func LookupTypeAtPosition(line: int, column: int): TypeInfo? {
         value := new TypeInfo()
         if expressionTypesValue.TryGetValue((Line: line, Column: column), out value) {
             return value
@@ -283,7 +283,7 @@ public class SemanticModel {
         return null
     }
 
-    public func LookupTypeReferenceAtPosition(line: int, column: int): TypeInfo? {
+    func LookupTypeReferenceAtPosition(line: int, column: int): TypeInfo? {
         value := new TypeInfo()
         if typeReferenceTypesValue.TryGetValue((Line: line, Column: column), out value) {
             return value

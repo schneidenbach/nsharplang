@@ -3,12 +3,12 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System.Collections.Generic
 import System.Text.Json
 
-public class OutputFormatterJsonKernels {
+class OutputFormatterJsonKernels {
     static func CreateWriteIndentedOptions(): JsonSerializerOptions {
         return new JsonSerializerOptions { WriteIndented: true }
     }
 
-    public static func TrustedToJson(report: SystemsReport, projectRoot: string?): string {
+    static func TrustedToJson(report: SystemsReport, projectRoot: string?): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "trusted"
@@ -29,7 +29,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func DefinitionToJson(result: DefinitionResult): string {
+    static func DefinitionToJson(result: DefinitionResult): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "definition"
@@ -38,7 +38,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func DefinitionSearchToJson(query: string, results: IReadOnlyList<DefinitionResult>): string {
+    static func DefinitionSearchToJson(query: string, results: IReadOnlyList<DefinitionResult>): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "definition"
@@ -62,14 +62,14 @@ public class OutputFormatterJsonKernels {
 
     static func BuildDefinitionResults(results: IReadOnlyList<DefinitionResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildDefinitionResult(result))
         }
 
         return payload
     }
 
-    public static func CallGraphToJson(result: CallGraphResult): string {
+    static func CallGraphToJson(result: CallGraphResult): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "callGraph"
@@ -87,7 +87,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildCallSites(sites: List<CallSiteResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach site in sites {
+        for site in sites {
             payload.Add(BuildCallSite(site))
         }
 
@@ -107,7 +107,7 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
-    public static func ImplementorsToJson(result: ImplementorsResult): string {
+    static func ImplementorsToJson(result: ImplementorsResult): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "implementors"
@@ -117,12 +117,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func ErrorToJson(
-        command: string,
-        message: string,
-        projectRoot: string?,
-        errorCode: string?,
-        details: object?): string {
+    static func ErrorToJson(command: string, message: string, projectRoot: string?, errorCode: string?, details: object?): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = command
@@ -149,7 +144,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildImplementorResults(results: List<ImplementorResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildImplementorResult(result))
         }
 
@@ -170,7 +165,7 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
-    public static func HoverToJson(result: HoverResult, fileName: string, line: int, col: int): string {
+    static func HoverToJson(result: HoverResult, fileName: string, line: int, col: int): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "hover"
@@ -209,7 +204,7 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
-    public static func TypeToJson(result: TypeResult, fileName: string, line: int, col: int): string {
+    static func TypeToJson(result: TypeResult, fileName: string, line: int, col: int): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "type"
@@ -225,12 +220,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func PerfToJson(
-        fileName: string,
-        line: int,
-        col: int,
-        projectRoot: string?,
-        facts: IReadOnlyList<object>): string {
+    static func PerfToJson(fileName: string, line: int, col: int, projectRoot: string?, facts: IReadOnlyList<object>): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "perf"
@@ -253,7 +243,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildPerfFacts(facts: IReadOnlyList<object>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach fact in facts {
+        for fact in facts {
             payload.Add(BuildPerfFact(fact))
         }
 
@@ -351,7 +341,7 @@ public class OutputFormatterJsonKernels {
         return null
     }
 
-    public static func ReferencesToJson(symbolName: string, symbolKind: string, definedAt: LocationResult?, results: List<ReferenceResult>): string {
+    static func ReferencesToJson(symbolName: string, symbolKind: string, definedAt: LocationResult?, results: List<ReferenceResult>): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "references"
@@ -377,7 +367,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildReferenceResults(results: List<ReferenceResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildReferenceResult(result))
         }
 
@@ -399,7 +389,7 @@ public class OutputFormatterJsonKernels {
         return payload
     }
 
-    public static func OutlineToJson(result: OutlineResult): string {
+    static func OutlineToJson(result: OutlineResult): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "outline"
@@ -415,7 +405,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func SymbolsToJson(results: List<SymbolResult>, projectRoot: string?): string {
+    static func SymbolsToJson(results: List<SymbolResult>, projectRoot: string?): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "symbols"
@@ -430,7 +420,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func DiagnosticsToJson(results: List<DiagnosticResult>, projectRoot: string?): string {
+    static func DiagnosticsToJson(results: List<DiagnosticResult>, projectRoot: string?): string {
         summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
@@ -447,7 +437,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func DiagnosticClustersToJson(results: List<DiagnosticResult>, projectRoot: string?): string {
+    static func DiagnosticClustersToJson(results: List<DiagnosticResult>, projectRoot: string?): string {
         summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
         clusters := OutputFormatterDiagnosticClusterBuilder.BuildDiagnosticClusters(results)
         envelope := new Dictionary<string, object>()
@@ -465,7 +455,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func CheckToJson(results: List<DiagnosticResult>, projectRoot: string?, checkedFiles: int): string {
+    static func CheckToJson(results: List<DiagnosticResult>, projectRoot: string?, checkedFiles: int): string {
         summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
@@ -483,7 +473,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func LintToJson(results: List<DiagnosticResult>, projectRoot: string?, lintedFiles: int): string {
+    static func LintToJson(results: List<DiagnosticResult>, projectRoot: string?, lintedFiles: int): string {
         summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
@@ -501,20 +491,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func BuildPerfReportToJson(
-        projectRoot: string?,
-        ok: bool,
-        allocationSites: IReadOnlyList<PerfReportSite>,
-        delegateSites: IReadOnlyList<PerfReportSite>,
-        boxingSites: IReadOnlyList<PerfReportSite>,
-        dispatchSites: IReadOnlyList<PerfReportSite>,
-        closureCaptures: IReadOnlyList<PerfReportSite>,
-        poolSites: IReadOnlyList<PerfReportSite>,
-        resourceSites: IReadOnlyList<PerfReportSite>,
-        boundaryLeakSites: IReadOnlyList<PerfReportSite>,
-        hotReadinessSites: IReadOnlyList<PerfReportSite>,
-        implicitTrapSites: IReadOnlyList<PerfReportSite>,
-        trustedSites: IReadOnlyList<PerfReportTrustedSite>): string {
+    static func BuildPerfReportToJson(projectRoot: string?, ok: bool, allocationSites: IReadOnlyList<PerfReportSite>, delegateSites: IReadOnlyList<PerfReportSite>, boxingSites: IReadOnlyList<PerfReportSite>, dispatchSites: IReadOnlyList<PerfReportSite>, closureCaptures: IReadOnlyList<PerfReportSite>, poolSites: IReadOnlyList<PerfReportSite>, resourceSites: IReadOnlyList<PerfReportSite>, boundaryLeakSites: IReadOnlyList<PerfReportSite>, hotReadinessSites: IReadOnlyList<PerfReportSite>, implicitTrapSites: IReadOnlyList<PerfReportSite>, trustedSites: IReadOnlyList<PerfReportTrustedSite>): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "build"
@@ -542,11 +519,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func CheckSystemsReportToJson(
-        diagnostics: List<DiagnosticResult>,
-        projectRoot: string?,
-        checkedFiles: int,
-        report: SystemsReport): string {
+    static func CheckSystemsReportToJson(diagnostics: List<DiagnosticResult>, projectRoot: string?, checkedFiles: int, report: SystemsReport): string {
         summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(diagnostics)
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
@@ -565,7 +538,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func CompletionsToJson(result: CompletionResult, fileName: string, line: int, col: int): string {
+    static func CompletionsToJson(result: CompletionResult, fileName: string, line: int, col: int): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "completions"
@@ -590,7 +563,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func InspectToJson(result: InspectResult, fileName: string, line: int, col: int): string {
+    static func InspectToJson(result: InspectResult, fileName: string, line: int, col: int): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "inspect"
@@ -606,7 +579,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func InspectSummaryToJson(result: InspectResult, fileName: string, line: int, col: int): string {
+    static func InspectSummaryToJson(result: InspectResult, fileName: string, line: int, col: int): string {
         summary := InspectSummaryBuilder.Build(result)
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
@@ -623,7 +596,7 @@ public class OutputFormatterJsonKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func DocToJson(result: DocResult, query: string): string {
+    static func DocToJson(result: DocResult, query: string): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "doc"
@@ -635,7 +608,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildDiagnosticResults(results: List<DiagnosticResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildDiagnosticResult(result))
         }
 
@@ -693,7 +666,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildDiagnosticClusters(clusters: List<DiagnosticCluster>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach cluster in clusters {
+        for cluster in clusters {
             payload.Add(BuildDiagnosticCluster(cluster))
         }
 
@@ -729,7 +702,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildDiagnosticClusterRelatedDiagnostics(results: DiagnosticClusterRelatedDiagnostic[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildDiagnosticClusterRelatedDiagnostic(result))
         }
 
@@ -749,7 +722,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildDiagnosticClusterExamples(results: DiagnosticClusterExample[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildDiagnosticClusterExample(result))
         }
 
@@ -781,7 +754,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildPerfReportSiteJsonArray(sites: PerfReportSiteJson[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach site in sites {
+        for site in sites {
             payload.Add(BuildPerfReportSite(site))
         }
 
@@ -815,7 +788,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildPerfReportTrustedSiteJsonArray(sites: PerfReportTrustedSiteJson[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach site in sites {
+        for site in sites {
             payload.Add(BuildPerfReportTrustedSite(site))
         }
 
@@ -872,7 +845,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildSystemsFunctionSummaries(functions: SystemsFunctionSummaryJson[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach function in functions {
+        for function in functions {
             payload.Add(BuildSystemsFunctionSummary(function))
         }
 
@@ -916,7 +889,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildSystemsFindings(findings: SystemsFindingJson[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach finding in findings {
+        for finding in findings {
             payload.Add(BuildSystemsFinding(finding))
         }
 
@@ -983,7 +956,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildCompletionGroups(completions: Dictionary<string, List<CompletionItem>>): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
-        foreach entry in completions {
+        for entry in completions {
             payload[entry.Key] = BuildCompletionItems(entry.Value)
         }
 
@@ -992,7 +965,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildCompletionItems(items: List<CompletionItem>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach item in items {
+        for item in items {
             payload.Add(BuildCompletionItem(item))
         }
 
@@ -1103,7 +1076,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildReferenceArray(results: ReferenceResult[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildReferenceResult(result))
         }
 
@@ -1190,7 +1163,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildInspectReferenceSummaryArray(results: InspectReferenceSummaryResult[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildInspectReferenceSummaryResult(result))
         }
 
@@ -1270,7 +1243,7 @@ public class OutputFormatterJsonKernels {
 
         payload := new List<Dictionary<string, object>>()
         items := results ?? new DocMemberResult[](0)
-        foreach result in items {
+        for result in items {
             payload.Add(BuildDocMemberResult(result))
         }
 
@@ -1304,7 +1277,7 @@ public class OutputFormatterJsonKernels {
 
         payload := new List<Dictionary<string, object>>()
         items := results ?? new DocParameterResult[](0)
-        foreach result in items {
+        for result in items {
             payload.Add(BuildDocParameterResult(result))
         }
 
@@ -1325,7 +1298,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildSymbolResults(results: List<SymbolResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildSymbolResult(result))
         }
 
@@ -1334,7 +1307,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildSymbolArray(results: SymbolResult[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach result in results {
+        for result in results {
             payload.Add(BuildSymbolResult(result))
         }
 
@@ -1384,7 +1357,7 @@ public class OutputFormatterJsonKernels {
         }
 
         payload := new List<Dictionary<string, object>>()
-        foreach parameter in parameters {
+        for parameter in parameters {
             payload.Add(BuildParameterResult(parameter))
         }
 
@@ -1406,7 +1379,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildOutlineEntries(entries: OutlineEntry[]): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        foreach entry in entries {
+        for entry in entries {
             payload.Add(BuildOutlineEntry(entry))
         }
 
@@ -1544,7 +1517,7 @@ public class OutputFormatterJsonKernels {
 
     static func BuildTrustedResults(sites: SystemsTrustedSiteJson[]): List<Dictionary<string, object>> {
         results := new List<Dictionary<string, object>>()
-        foreach site in sites {
+        for site in sites {
             results.Add(BuildTrustedSite(site))
         }
 

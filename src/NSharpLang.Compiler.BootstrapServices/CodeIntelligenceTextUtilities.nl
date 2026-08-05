@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
 
-public struct EditorIdentifierSpan(startColumn: int, endColumn: int, name: string) {
+struct EditorIdentifierSpan(startColumn: int, endColumn: int, name: string) {
     StartColumn: int = startColumn
     EndColumn: int = endColumn
     Name: string = name
@@ -10,8 +10,8 @@ public struct EditorIdentifierSpan(startColumn: int, endColumn: int, name: strin
     EndCharacter: int => EndColumn
 }
 
-public class CodeIntelligenceTextUtilities {
-    public static func GetEditorWordAtPosition(text: string, line: int, character: int): string {
+class CodeIntelligenceTextUtilities {
+    static func GetEditorWordAtPosition(text: string, line: int, character: int): string {
         span := new EditorIdentifierSpan(0, 0, "")
         if TryGetEditorIdentifierSpanAtPosition(text, line, character, out span) {
             return span.Name
@@ -20,11 +20,7 @@ public class CodeIntelligenceTextUtilities {
         return ""
     }
 
-    public static func TryGetEditorIdentifierSpanAtPosition(
-        text: string,
-        line: int,
-        character: int,
-        out span: EditorIdentifierSpan): bool {
+    static func TryGetEditorIdentifierSpanAtPosition(text: string, line: int, character: int, out span: EditorIdentifierSpan): bool {
         span = new EditorIdentifierSpan(0, 0, "")
         if line < 0 || character < 0 {
             return false
@@ -35,7 +31,7 @@ public class CodeIntelligenceTextUtilities {
         return TryGetEditorIdentifierSpanCore(text, oneBasedLine, oneBasedColumn, out span)
     }
 
-    public static func GetSourceLine(source: string, line: int): string? {
+    static func GetSourceLine(source: string, line: int): string? {
         start := 0
         length := 0
         if !TryGetSourceLineRange(source, line, out start, out length) {
@@ -45,7 +41,7 @@ public class CodeIntelligenceTextUtilities {
         return source.Substring(start, length)
     }
 
-    public static func FindIdentifierNameColumn(source: string, name: string, line: int, fallbackColumn: int): int {
+    static func FindIdentifierNameColumn(source: string, name: string, line: int, fallbackColumn: int): int {
         if name.Length == 0 {
             return fallbackColumn
         }
@@ -128,11 +124,7 @@ public class CodeIntelligenceTextUtilities {
         return true
     }
 
-    static func TryGetEditorIdentifierSpanCore(
-        source: string,
-        line: int,
-        column: int,
-        out span: EditorIdentifierSpan): bool {
+    static func TryGetEditorIdentifierSpanCore(source: string, line: int, column: int, out span: EditorIdentifierSpan): bool {
         span = new EditorIdentifierSpan(0, 0, "")
         if line <= 0 || column <= 0 {
             return false
@@ -219,9 +211,7 @@ public class CodeIntelligenceTextUtilities {
         }
 
         if ch <= '~' {
-            return ch == '_'
-                || (ch >= 'A' && ch <= 'Z')
-                || (ch >= '0' && ch <= '9')
+            return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
         }
 
         if ch >= 'A' && ch <= 'Z' {

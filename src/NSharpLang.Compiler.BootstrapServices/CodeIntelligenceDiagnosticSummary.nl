@@ -1,23 +1,35 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-public class DiagnosticSummary {
+class DiagnosticSummary {
     errorsValue: int
     warningsValue: int
     infoValue: int
 
     Errors: int {
-        get { return errorsValue }
-        set { errorsValue = value }
+        get {
+            return errorsValue
+        }
+        set {
+            errorsValue = value
+        }
     }
 
     Warnings: int {
-        get { return warningsValue }
-        set { warningsValue = value }
+        get {
+            return warningsValue
+        }
+        set {
+            warningsValue = value
+        }
     }
 
     Info: int {
-        get { return infoValue }
-        set { infoValue = value }
+        get {
+            return infoValue
+        }
+        set {
+            infoValue = value
+        }
     }
 
     constructor(Errors: int, Warnings: int, Info: int) {

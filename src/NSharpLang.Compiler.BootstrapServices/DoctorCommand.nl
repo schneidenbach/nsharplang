@@ -1,12 +1,12 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Cli
 import System
 import System.Collections.Generic
 import System.IO
 import System.Text
+import NSharpLang.Cli
 
-public class DoctorCheck {
+class DoctorCheck {
     Name: string
     Status: string
     Detail: string
@@ -20,7 +20,7 @@ public class DoctorCheck {
     }
 }
 
-public class DoctorProcessResult {
+class DoctorProcessResult {
     ExitCode: int
     Stdout: string
     Stderr: string
@@ -32,10 +32,10 @@ public class DoctorProcessResult {
     }
 }
 
-public class DoctorCommand {
+class DoctorCommand {
     static VscodeExtensionId: string => "nsharp.nsharp"
 
-    public static func Execute(args: string[]): int {
+    static func Execute(args: string[]): int {
         options := DoctorCommandKernels.GetOptionSummary(args)
         if options.ShowHelp {
             print DoctorCommandKernels.GetHelpText()
@@ -55,10 +55,7 @@ public class DoctorCommand {
             if version.ExitCode == 0 {
                 checks.Add(Pass("dotnet", version.Stdout.Trim()))
             } else {
-                checks.Add(Fail(
-                    "dotnet",
-                    TrimOrDefault(version.Stderr, DoctorCommandKernels.GetDotnetVersionFailedMessage()),
-                    true))
+                checks.Add(Fail("dotnet", TrimOrDefault(version.Stderr, DoctorCommandKernels.GetDotnetVersionFailedMessage()), true))
             }
         }
 
@@ -71,16 +68,11 @@ public class DoctorCommand {
             checks.Add(Warn("nlc-command", DoctorCommandKernels.GetNlcCommandMissingMessage()))
         }
 
-        packageCache := Path.Combine(
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nsharp"),
-            "packages")
+        packageCache := Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nsharp"), "packages")
         if PackageCacheHasSdk(packageCache) {
             checks.Add(Pass("nsharp-packages", packageCache))
         } else {
-            checks.Add(Fail(
-                "nsharp-packages",
-                DoctorCommandKernels.GetPackageCacheMissingMessage(packageCache),
-                true))
+            checks.Add(Fail("nsharp-packages", DoctorCommandKernels.GetPackageCacheMissingMessage(packageCache), true))
         }
 
         templateList := Failed(DoctorCommandKernels.GetDotnetNotFoundMessage())
@@ -88,8 +80,7 @@ public class DoctorCommand {
             templateList = RunCapture("dotnet", "new list nsharp")
         }
 
-        if templateList.ExitCode == 0
-            && templateList.Stdout.IndexOf("nsharp-console", StringComparison.OrdinalIgnoreCase) >= 0 {
+        if templateList.ExitCode == 0 && templateList.Stdout.IndexOf("nsharp-console", StringComparison.OrdinalIgnoreCase) >= 0 {
             checks.Add(Pass("templates", DoctorCommandKernels.GetTemplateInstalledMessage()))
         } else {
             checks.Add(Fail("templates", DoctorCommandKernels.GetTemplatesMissingMessage(), true))
@@ -108,24 +99,16 @@ public class DoctorCommand {
             code := FindOnPath("code")
             if code == null {
                 if requireVscode {
-                    checks.Add(Fail(
-                        "vscode-extension",
-                        DoctorCommandKernels.GetVscodeRequiredMissingMessage(),
-                        true))
+                    checks.Add(Fail("vscode-extension", DoctorCommandKernels.GetVscodeRequiredMissingMessage(), true))
                 } else {
-                    checks.Add(Warn(
-                        "vscode-extension",
-                        DoctorCommandKernels.GetVscodeOptionalMissingMessage()))
+                    checks.Add(Warn("vscode-extension", DoctorCommandKernels.GetVscodeOptionalMissingMessage()))
                 }
             } else {
                 extensions := RunCapture("code", "--list-extensions")
                 if extensions.ExitCode == 0 && ContainsLine(extensions.Stdout, DoctorCommand.VscodeExtensionId) {
                     checks.Add(Pass("vscode-extension", DoctorCommand.VscodeExtensionId))
                 } else {
-                    checks.Add(Fail(
-                        "vscode-extension",
-                        DoctorCommandKernels.GetVscodeExtensionMissingMessage(DoctorCommand.VscodeExtensionId),
-                        requireVscode))
+                    checks.Add(Fail("vscode-extension", DoctorCommandKernels.GetVscodeExtensionMissingMessage(DoctorCommand.VscodeExtensionId), requireVscode))
                 }
             }
         }

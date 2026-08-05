@@ -38,11 +38,7 @@ class ColumnarRangeIndexPlanner {
 
         bindings.SetEnclosingTypeDefinition(enclosingTypeDefinition)
         if ColumnarConstructionPlanner.MayPlanRoot(nodes, node) {
-            return ColumnarConstructionPlanner.TryEmit(
-                nodes, source, node, bindings, plan, il,
-                out nsharpOwned,
-                out legacyWholeSubtreePlanning,
-                out resultType)
+            return ColumnarConstructionPlanner.TryEmit(nodes, source, node, bindings, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
         }
         if ColumnarDirectCallPlanner.MayPlanRoot(nodes, node) {
             return ColumnarDirectCallPlanner.TryEmit(nodes, source, node, bindings, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
@@ -114,11 +110,7 @@ class ColumnarRangeIndexPlanner {
 
         bindings.SetEnclosingTypeDefinition(enclosingTypeDefinition)
         if ColumnarConstructionPlanner.MayPlanRoot(nodes, node) {
-            return ColumnarConstructionPlanner.TryGetType(
-                nodes, source, node, bindings, plan,
-                out nsharpOwned,
-                out legacyWholeSubtreePlanning,
-                out resultType)
+            return ColumnarConstructionPlanner.TryGetType(nodes, source, node, bindings, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
         }
         if ColumnarDirectCallPlanner.MayPlanRoot(nodes, node) {
             return ColumnarDirectCallPlanner.TryGetType(nodes, source, node, bindings, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
@@ -239,9 +231,7 @@ class ColumnarRangeIndexPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.NewExpression()
-            || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression()
-            || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
             return true
         }
         if kind == ColumnarExpressionNodeKind.CallExpression() {
@@ -400,25 +390,16 @@ class ColumnarRangeIndexPlanner {
     }
 
     static func TryAppendPlannableValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
-        return TryAppendPlannableValueCore(
-            nodes, source, node, bindings, handles, plan,
-            parentFragment, depth, false,
-            out resultType, out nestedOwnership)
+        return TryAppendPlannableValueCore(nodes, source, node, bindings, handles, plan, parentFragment, depth, false, out resultType, out nestedOwnership)
     }
 
     static func TryAppendConstructionValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, out resultType: Type): bool {
         nestedOwnership := ColumnarDirectCallOwnership.NotOwned
-        return TryAppendConstructionValue(
-            nodes, source, node, bindings, handles, plan,
-            parentFragment, depth,
-            out resultType, out nestedOwnership)
+        return TryAppendConstructionValue(nodes, source, node, bindings, handles, plan, parentFragment, depth, out resultType, out nestedOwnership)
     }
 
     static func TryAppendConstructionValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
-        return TryAppendPlannableValueCore(
-            nodes, source, node, bindings, handles, plan,
-            parentFragment, depth, true,
-            out resultType, out nestedOwnership)
+        return TryAppendPlannableValueCore(nodes, source, node, bindings, handles, plan, parentFragment, depth, true, out resultType, out nestedOwnership)
     }
 
     static func TryAppendPlannableValueCore(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
@@ -470,31 +451,15 @@ class ColumnarRangeIndexPlanner {
             // planner in every value position; the remaining primitive binaries stay gated to the
             // construction-argument surface that admits them.
             if ColumnarConditionalPlanner.IsShortCircuitBinary(nodes, source, node) {
-                planned = ColumnarConditionalPlanner.TryPlanShortCircuit(
-                    nodes, source, node, bindings, handles, plan,
-                    fragment, depth,
-                    out resultType,
-                    out nestedOwnership)
+                planned = ColumnarConditionalPlanner.TryPlanShortCircuit(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
             } else if allowPrimitiveBinary {
-                planned = ColumnarPrimitiveBinaryPlanner.TryAppend(
-                    nodes, source, node, bindings, handles, plan,
-                    fragment, depth,
-                    out resultType,
-                    out nestedOwnership)
+                planned = ColumnarPrimitiveBinaryPlanner.TryAppend(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
             }
-        } else if kind == ColumnarExpressionNodeKind.NewExpression()
-            || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression()
-            || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        } else if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
             ownership := ColumnarDirectCallOwnership.NotOwned
             _legacyWholeSubtreePlanning := false
-            planned = ColumnarConstructionPlanner.TryAppend(
-                nodes, source, node, bindings, handles, plan,
-                fragment, depth,
-                out ownership,
-                out _legacyWholeSubtreePlanning,
-                out resultType)
-            if !planned
-                && ownership == ColumnarDirectCallOwnership.OwnedRejected {
+            planned = ColumnarConstructionPlanner.TryAppend(nodes, source, node, bindings, handles, plan, fragment, depth, out ownership, out _legacyWholeSubtreePlanning, out resultType)
+            if !planned && ownership == ColumnarDirectCallOwnership.OwnedRejected {
                 nestedOwnership = ColumnarDirectCallOwnership.OwnedRejected
             }
         } else if kind == ColumnarExpressionNodeKind.UnaryExpression() {
@@ -608,8 +573,7 @@ class ColumnarRangeIndexPlanner {
         // The i4-slot no-op branch: an int/uint target over an int or char literal emits only the
         // literal itself. Plan the literal directly into this open cast fragment so its known
         // Int32 value survives to the fragment boundary, which refines it to the declared target.
-        if (targetType == typeof(int) || targetType == typeof(uint))
-            && IsI4LiteralOperand(nodes, source, operandNode) {
+        if (targetType == typeof(int) || targetType == typeof(uint)) && IsI4LiteralOperand(nodes, source, operandNode) {
             operandType := typeof(int)
             if !ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, operandNode, plan, out operandType) {
                 return false
@@ -625,14 +589,10 @@ class ColumnarRangeIndexPlanner {
         // to char, so only the KNOWN-literal form is claimable: an in-range magnitude rides the
         // same literal no-op branch (the boundary refines the known Int32 value to ushort), and
         // every out-of-range magnitude stays with the legacy conv.u2 truncation owner.
-        if targetType == typeof(ushort)
-            && IsI4LiteralOperand(nodes, source, operandNode) {
-            if nodes.Kind(operandNode)
-                == ColumnarExpressionNodeKind.IntLiteralExpression() {
+        if targetType == typeof(ushort) && IsI4LiteralOperand(nodes, source, operandNode) {
+            if nodes.Kind(operandNode) == ColumnarExpressionNodeKind.IntLiteralExpression() {
                 magnitude := 0UL
-                if !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(
-                        nodes.Text(source, operandNode), out magnitude)
-                    || magnitude > 65535UL {
+                if !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(nodes.Text(source, operandNode), out magnitude) || magnitude > 65535UL {
                     return false
                 }
             }
@@ -663,12 +623,7 @@ class ColumnarRangeIndexPlanner {
         // exact int/uint and i4-underlying enum stack sources, so no executor change is required. An
         // identity target (`(int)intValue`) still declines here: it needs no reinterpretation and
         // rides no branch, and its empty fragment stays with the legacy owner.
-        if (targetType == typeof(int) || targetType == typeof(uint))
-            && operandType != targetType
-            && (operandType == typeof(int)
-                || operandType == typeof(uint)
-                || (operandType.get_IsEnum()
-                    && operandType.GetEnumUnderlyingType() == typeof(int))) {
+        if (targetType == typeof(int) || targetType == typeof(uint)) && operandType != targetType && (operandType == typeof(int) || operandType == typeof(uint) || (operandType.get_IsEnum() && operandType.GetEnumUnderlyingType() == typeof(int))) {
             if targetType == typeof(uint) {
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvU4())
             } else {
@@ -713,9 +668,7 @@ class ColumnarRangeIndexPlanner {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI1())
         } else if targetType == typeof(short) {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI2())
-        } else if (targetType == typeof(int) || targetType == typeof(uint))
-            && (operandType == typeof(long) || operandType == typeof(ulong)
-                || operandType == typeof(double) || operandType == typeof(float)) {
+        } else if (targetType == typeof(int) || targetType == typeof(uint)) && (operandType == typeof(long) || operandType == typeof(ulong) || operandType == typeof(double) || operandType == typeof(float)) {
             if targetType == typeof(uint) {
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvU4())
             } else {
@@ -736,18 +689,31 @@ class ColumnarRangeIndexPlanner {
     // by scope ruling; bool, string, object, and every non-numeric builtin never reach this arm.
     static func TryResolveNumericCastTarget(name: string, out targetType: Type): bool {
         targetType = typeof(int)
-        if name == "int" { targetType = typeof(int) }
-        else if name == "long" { targetType = typeof(long) }
-        else if name == "uint" { targetType = typeof(uint) }
-        else if name == "ulong" { targetType = typeof(ulong) }
-        else if name == "short" { targetType = typeof(short) }
-        else if name == "ushort" { targetType = typeof(ushort) }
-        else if name == "byte" { targetType = typeof(byte) }
-        else if name == "sbyte" { targetType = typeof(sbyte) }
-        else if name == "char" { targetType = typeof(char) }
-        else if name == "float" { targetType = typeof(float) }
-        else if name == "double" { targetType = typeof(double) }
-        else { return false }
+        if name == "int" {
+            targetType = typeof(int)
+        } else if name == "long" {
+            targetType = typeof(long)
+        } else if name == "uint" {
+            targetType = typeof(uint)
+        } else if name == "ulong" {
+            targetType = typeof(ulong)
+        } else if name == "short" {
+            targetType = typeof(short)
+        } else if name == "ushort" {
+            targetType = typeof(ushort)
+        } else if name == "byte" {
+            targetType = typeof(byte)
+        } else if name == "sbyte" {
+            targetType = typeof(sbyte)
+        } else if name == "char" {
+            targetType = typeof(char)
+        } else if name == "float" {
+            targetType = typeof(float)
+        } else if name == "double" {
+            targetType = typeof(double)
+        } else {
+            return false
+        }
         return true
     }
 
@@ -769,8 +735,7 @@ class ColumnarRangeIndexPlanner {
             return false
         }
         last := text[text.Length - 1]
-        return last != 'l' && last != 'L' && last != 'u' && last != 'U'
-            && last != 'm' && last != 'M'
+        return last != 'l' && last != 'L' && last != 'u' && last != 'U' && last != 'm' && last != 'M'
     }
 
     static func TryPlanFromEnd(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
@@ -930,14 +895,11 @@ class ColumnarRangeIndexPlanner {
     // A closed System.Collections.Generic.List<T> (over a baked or builder-bound element). The open
     // definition and every other collection stay with their existing owners.
     static func IsClosedListType(candidate: Type): bool {
-        if candidate == null || candidate is TypeBuilder
-            || !candidate.get_IsGenericType()
-            || candidate.get_IsGenericTypeDefinition() {
+        if candidate == null || candidate is TypeBuilder || !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
             return false
         }
 
-        return candidate.GetGenericTypeDefinition()
-            == typeof(List<int>).GetGenericTypeDefinition()
+        return candidate.GetGenericTypeDefinition() == typeof(List<int>).GetGenericTypeDefinition()
     }
 
     // `list[i]` lowers to `callvirt get_Item(int)` on the closed List<T>, returning the exact element
@@ -947,12 +909,7 @@ class ColumnarRangeIndexPlanner {
         resultType = typeof(int)
         intArguments := new Type[](1)
         intArguments[0] = typeof(int)
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(
-            listType,
-            "get_Item",
-            intArguments,
-            ColumnarDirectCallArgumentFacts.Empty(1),
-            false)
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(listType, "get_Item", intArguments, ColumnarDirectCallArgumentFacts.Empty(1), false)
         if !selection.IsSelected {
             return false
         }
@@ -962,13 +919,7 @@ class ColumnarRangeIndexPlanner {
             return false
         }
 
-        methodIndex := plan.AddMethodWithSignature(
-            method,
-            selection.DeclaringType,
-            selection.ParameterTypes,
-            selection.ReturnType,
-            false,
-            selection.IsAbstract)
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, selection.IsAbstract)
         if selection.ReceiverIsReference {
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
         } else {

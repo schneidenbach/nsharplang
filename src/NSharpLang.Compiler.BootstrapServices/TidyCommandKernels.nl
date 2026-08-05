@@ -1,10 +1,10 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Compiler
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler
 
-public class TidyOptionSummary {
+class TidyOptionSummary {
     ProjectOption: string?
     Fix: bool
     Json: bool
@@ -18,7 +18,7 @@ public class TidyOptionSummary {
     }
 }
 
-public class TidyDependencyStatusSummary {
+class TidyDependencyStatusSummary {
     PossiblyUnusedCount: int
     UnknownCount: int
 
@@ -28,8 +28,8 @@ public class TidyDependencyStatusSummary {
     }
 }
 
-public class TidyCommandKernels {
-    public static func GetOptionSummary(args: string[]): TidyOptionSummary {
+class TidyCommandKernels {
+    static func GetOptionSummary(args: string[]): TidyOptionSummary {
         projectOption: string? = null
         fix := false
         json := false
@@ -61,7 +61,7 @@ public class TidyCommandKernels {
         return new TidyOptionSummary(projectOption, fix, json, showHelp)
     }
 
-    public static func GetOutputMode(json: bool): int {
+    static func GetOutputMode(json: bool): int {
         if json {
             return 1
         }
@@ -69,7 +69,7 @@ public class TidyCommandKernels {
         return 2
     }
 
-    public static func GetImportedNamespace(line: string): string? {
+    static func GetImportedNamespace(line: string): string? {
         start := 0
         while start < line.Length && char.IsWhiteSpace(line[start]) {
             start = start + 1
@@ -96,7 +96,7 @@ public class TidyCommandKernels {
         return line.Substring(namespaceStart, namespaceEnd - namespaceStart)
     }
 
-    public static func SelectPossiblyUnusedDependencyIndices(statuses: IReadOnlyList<string>): int[] {
+    static func SelectPossiblyUnusedDependencyIndices(statuses: IReadOnlyList<string>): int[] {
         count := 0
         i := 0
         while i < statuses.Count {
@@ -122,7 +122,7 @@ public class TidyCommandKernels {
         return indices
     }
 
-    public static func SummarizeDependencyStatuses(statuses: IReadOnlyList<string>): TidyDependencyStatusSummary {
+    static func SummarizeDependencyStatuses(statuses: IReadOnlyList<string>): TidyDependencyStatusSummary {
         possiblyUnusedCount := 0
         unknownCount := 0
 
@@ -141,14 +141,12 @@ public class TidyCommandKernels {
         return new TidyDependencyStatusSummary(possiblyUnusedCount, unknownCount)
     }
 
-    public static func ClassifyDependencyStatusRanks(
-        dependencies: IReadOnlyList<Reference>,
-        importedNamespaces: IReadOnlyCollection<string>): int[] {
+    static func ClassifyDependencyStatusRanks(dependencies: IReadOnlyList<Reference>, importedNamespaces: IReadOnlyCollection<string>): int[] {
         statusRanks := new int[](dependencies.Count)
         importArray := new string[](importedNamespaces.Count)
 
         importIndex := 0
-        foreach importedNamespace in importedNamespaces {
+        for importedNamespace in importedNamespaces {
             importArray[importIndex] = importedNamespace
             importIndex = importIndex + 1
         }
@@ -167,9 +165,7 @@ public class TidyCommandKernels {
         return statusRanks
     }
 
-    public static func FilterRemovalLines(
-        lines: IReadOnlyList<string>,
-        packageNames: IReadOnlyList<string>): string[] {
+    static func FilterRemovalLines(lines: IReadOnlyList<string>, packageNames: IReadOnlyList<string>): string[] {
         keptCount := 0
         i := 0
         while i < lines.Count {
@@ -201,59 +197,27 @@ public class TidyCommandKernels {
         return result
     }
 
-    public static func GetHelpText(): string {
-        return "N# Tidy\n"
-            + "\n"
-            + "Usage: nlc tidy [options]\n"
-            + "\n"
-            + "Identify and optionally remove unused NuGet dependencies from project.yml.\n"
-            + "\n"
-            + "Each dependency is classified as:\n"
-            + "  used            — an import statement plausibly references the package namespace\n"
-            + "  possibly-unused — no import statement references the package namespace\n"
-            + "  unknown         — cannot determine usage (e.g. single-segment package names)\n"
-            + "\n"
-            + "The command is conservative: 'unknown' is reported rather than incorrectly\n"
-            + "flagging a dependency as unused.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --project <dir>   Project directory (default: current directory)\n"
-            + "  --fix             Remove all possibly-unused dependencies from project.yml\n"
-            + "  --json            Emit structured JSON output\n"
-            + "  --help, -h        Show this help text\n"
-            + "\n"
-            + "JSON schema (schemaVersion 1):\n"
-            + "  { schemaVersion, command, ok, projectRoot,\n"
-            + "    dependencies: [{ name, version, status, reason }] }\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc tidy                   Report unused dependencies\n"
-            + "  nlc tidy --fix             Remove possibly-unused dependencies\n"
-            + "  nlc tidy --json            Machine-readable output\n"
-            + "  nlc tidy --project ./lib   Analyse a different project\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  All dependencies in use (or tidy succeeded)\n"
-            + "  1  Error (missing project.yml, parse failure)"
+    static func GetHelpText(): string {
+        return "N# Tidy\n" + "\n" + "Usage: nlc tidy [options]\n" + "\n" + "Identify and optionally remove unused NuGet dependencies from project.yml.\n" + "\n" + "Each dependency is classified as:\n" + "  used            — an import statement plausibly references the package namespace\n" + "  possibly-unused — no import statement references the package namespace\n" + "  unknown         — cannot determine usage (e.g. single-segment package names)\n" + "\n" + "The command is conservative: 'unknown' is reported rather than incorrectly\n" + "flagging a dependency as unused.\n" + "\n" + "Options:\n" + "  --project <dir>   Project directory (default: current directory)\n" + "  --fix             Remove all possibly-unused dependencies from project.yml\n" + "  --json            Emit structured JSON output\n" + "  --help, -h        Show this help text\n" + "\n" + "JSON schema (schemaVersion 1):\n" + "  { schemaVersion, command, ok, projectRoot,\n" + "    dependencies: [{ name, version, status, reason }] }\n" + "\n" + "Examples:\n" + "  nlc tidy                   Report unused dependencies\n" + "  nlc tidy --fix             Remove possibly-unused dependencies\n" + "  nlc tidy --json            Machine-readable output\n" + "  nlc tidy --project ./lib   Analyse a different project\n" + "\n" + "Exit codes:\n" + "  0  All dependencies in use (or tidy succeeded)\n" + "  1  Error (missing project.yml, parse failure)"
     }
 
-    public static func GetMissingProjectFileJsonMessage(): string {
+    static func GetMissingProjectFileJsonMessage(): string {
         return "No project.yml found in the specified directory."
     }
 
-    public static func GetMissingProjectFileTextMessage(): string {
+    static func GetMissingProjectFileTextMessage(): string {
         return "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project."
     }
 
-    public static func GetParseFailedMessage(message: string): string {
+    static func GetParseFailedMessage(message: string): string {
         return "Failed to parse project.yml: " + message
     }
 
-    public static func GetNothingToRemoveMessage(): string {
+    static func GetNothingToRemoveMessage(): string {
         return "Nothing to remove."
     }
 
-    public static func GetRemovedDependenciesMessage(count: int): string {
+    static func GetRemovedDependenciesMessage(count: int): string {
         dependencyWord := "dependencies"
         if count == 1 {
             dependencyWord = "dependency"
@@ -262,23 +226,23 @@ public class TidyCommandKernels {
         return "Removed " + count.ToString() + " possibly-unused " + dependencyWord + "."
     }
 
-    public static func GetNoNuGetDependenciesMessage(projectRoot: string): string {
+    static func GetNoNuGetDependenciesMessage(projectRoot: string): string {
         return "No NuGet dependencies found in " + projectRoot
     }
 
-    public static func GetTableHeader(packageLabel: string, statusLabel: string): string {
+    static func GetTableHeader(packageLabel: string, statusLabel: string): string {
         return "  " + packageLabel + "  " + statusLabel + "  Reason"
     }
 
-    public static func GetTableSeparator(packageSeparator: string, statusSeparator: string): string {
+    static func GetTableSeparator(packageSeparator: string, statusSeparator: string): string {
         return "  " + packageSeparator + "  " + statusSeparator + "  ------"
     }
 
-    public static func GetTableRow(packageLabel: string, statusLabel: string, reason: string): string {
+    static func GetTableRow(packageLabel: string, statusLabel: string, reason: string): string {
         return "  " + packageLabel + "  " + statusLabel + "  " + reason
     }
 
-    public static func GetPossiblyUnusedFoundMessage(count: int): string {
+    static func GetPossiblyUnusedFoundMessage(count: int): string {
         dependencyWord := "dependencies"
         if count == 1 {
             dependencyWord = "dependency"
@@ -287,23 +251,23 @@ public class TidyCommandKernels {
         return count.ToString() + " possibly-unused " + dependencyWord + " found. Run 'nlc tidy --fix' to remove them."
     }
 
-    public static func GetAllDependenciesAccountedForMessage(unknownCount: int): string {
+    static func GetAllDependenciesAccountedForMessage(unknownCount: int): string {
         return "All dependencies accounted for (" + unknownCount.ToString() + " could not be determined)."
     }
 
-    public static func GetAllDependenciesInUseMessage(): string {
+    static func GetAllDependenciesInUseMessage(): string {
         return "All dependencies appear to be in use."
     }
 
-    public static func GetUnknownReasonMessage(): string {
+    static func GetUnknownReasonMessage(): string {
         return "Cannot determine namespace for single-segment package name; manual review required."
     }
 
-    public static func GetUsedReasonMessage(namespacePrefix: string): string {
+    static func GetUsedReasonMessage(namespacePrefix: string): string {
         return "Import statement references namespace matching '" + namespacePrefix + "'."
     }
 
-    public static func GetPossiblyUnusedReasonMessage(prefix1: string, prefix2: string): string {
+    static func GetPossiblyUnusedReasonMessage(prefix1: string, prefix2: string): string {
         return "No import statement found referencing '" + prefix1 + "' or '" + prefix2 + "'."
     }
 
@@ -391,8 +355,7 @@ public class TidyCommandKernels {
         markerLimit := lineValue.Length - 7
         markerStart := start
         while markerStart <= markerLimit {
-            if RemovalLineHasNugetMarkerAt(lineValue, markerStart)
-                && RemovalLineStartsWithAnyPackage(lineValue, markerStart + 7, packageNames) {
+            if RemovalLineHasNugetMarkerAt(lineValue, markerStart) && RemovalLineStartsWithAnyPackage(lineValue, markerStart + 7, packageNames) {
                 return 0
             }
 
@@ -402,10 +365,7 @@ public class TidyCommandKernels {
         return 1
     }
 
-    static func RemovalLineStartsWithAnyPackage(
-        lineValue: string,
-        packageStart: int,
-        packageNames: IReadOnlyList<string>): bool {
+    static func RemovalLineStartsWithAnyPackage(lineValue: string, packageStart: int, packageNames: IReadOnlyList<string>): bool {
         i := 0
         while i < packageNames.Count {
             packageName := packageNames[i]
@@ -456,12 +416,7 @@ public class TidyCommandKernels {
         return true
     }
 
-    static func TextSegmentEqualsIgnoreCase(
-        left: string,
-        leftStart: int,
-        right: string,
-        rightStart: int,
-        length: int): bool {
+    static func TextSegmentEqualsIgnoreCase(left: string, leftStart: int, right: string, rightStart: int, length: int): bool {
         if leftStart < 0 || rightStart < 0 || length < 0 {
             return false
         }

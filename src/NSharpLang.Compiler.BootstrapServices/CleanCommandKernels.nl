@@ -1,6 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
-public class CleanOptionSummary {
+class CleanOptionSummary {
     ProjectOption: string?
     CleanAll: bool
     ShowHelp: bool
@@ -12,8 +12,8 @@ public class CleanOptionSummary {
     }
 }
 
-public class CleanCommandKernels {
-    public static func GetOptionSummary(args: string[]): CleanOptionSummary {
+class CleanCommandKernels {
+    static func GetOptionSummary(args: string[]): CleanOptionSummary {
         projectOption: string? = null
         cleanAll := false
         showHelp := false
@@ -41,38 +41,19 @@ public class CleanCommandKernels {
         return new CleanOptionSummary(projectOption, cleanAll, showHelp)
     }
 
-    public static func GetHelpText(): string {
-        return "N# Clean\n"
-            + "\n"
-            + "Usage: nlc clean [options]\n"
-            + "\n"
-            + "Remove local build artifacts for the current project. Equivalent to `cargo clean`\n"
-            + "or `go clean`.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --project <dir>   Project root directory (default: current directory)\n"
-            + "  --all             Also clear NuGet caches\n"
-            + "  --help, -h        Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc clean\n"
-            + "  nlc clean --all\n"
-            + "  nlc clean --project examples/16-task-cli\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Clean completed successfully\n"
-            + "  1  Clean failed"
+    static func GetHelpText(): string {
+        return "N# Clean\n" + "\n" + "Usage: nlc clean [options]\n" + "\n" + "Remove local build artifacts for the current project. Equivalent to `cargo clean`\n" + "or `go clean`.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --all             Also clear NuGet caches\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc clean\n" + "  nlc clean --all\n" + "  nlc clean --project examples/16-task-cli\n" + "\n" + "Exit codes:\n" + "  0  Clean completed successfully\n" + "  1  Clean failed"
     }
 
-    public static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
         return "Project directory not found: " + projectRoot
     }
 
-    public static func GetNoArtifactsFoundMessage(projectRoot: string): string {
+    static func GetNoArtifactsFoundMessage(projectRoot: string): string {
         return "No build artifacts found under " + projectRoot + "."
     }
 
-    public static func GetRemovedArtifactsHeader(count: int): string {
+    static func GetRemovedArtifactsHeader(count: int): string {
         if count == 1 {
             return "Removed 1 build artifact directory:"
         }
@@ -80,15 +61,15 @@ public class CleanCommandKernels {
         return "Removed " + count.ToString() + " build artifact directories:"
     }
 
-    public static func GetRemovedArtifactLine(path: string): string {
+    static func GetRemovedArtifactLine(path: string): string {
         return "  " + path
     }
 
-    public static func GetClearedNuGetCachesMessage(): string {
+    static func GetClearedNuGetCachesMessage(): string {
         return "Cleared NuGet caches."
     }
 
-    public static func GetClearNuGetCachesFailedMessage(detail: string): string {
+    static func GetClearNuGetCachesFailedMessage(detail: string): string {
         if detail.Length == 0 {
             return "Failed to clear NuGet caches."
         }
@@ -96,7 +77,7 @@ public class CleanCommandKernels {
         return "Failed to clear NuGet caches.\n" + detail
     }
 
-    public static func GetCleanFailedMessage(message: string): string {
+    static func GetCleanFailedMessage(message: string): string {
         return "Clean failed: " + message
     }
 }

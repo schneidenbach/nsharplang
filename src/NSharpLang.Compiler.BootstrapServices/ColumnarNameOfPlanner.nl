@@ -3,17 +3,12 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Reflection.Emit
 
+
 // N# owns the syntactic nameof lowering admitted by the columnar parser: after transparent
 // parentheses, an identifier or member-access target contributes its final source name as ldstr.
 // Recursive expression owners append through the same schema-v3 transaction as root planning.
-public class ColumnarNameOfPlanner {
-    public static func TryEmit(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        il: ILGenerator,
-        out resultType: Type): bool {
+class ColumnarNameOfPlanner {
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, il: ILGenerator, out resultType: Type): bool {
         if Plan(nodes, source, node, plan) != ColumnarFragmentPlanStatus.Planned {
             resultType = typeof(int)
             return false
@@ -24,12 +19,7 @@ public class ColumnarNameOfPlanner {
         return true
     }
 
-    public static func TryGetType(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         if Plan(nodes, source, node, plan) != ColumnarFragmentPlanStatus.Planned {
             resultType = typeof(int)
             return false
@@ -39,11 +29,7 @@ public class ColumnarNameOfPlanner {
         return true
     }
 
-    public static func Plan(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
+    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         ValidateRootInputs(nodes, source, node, plan)
         plan.PrepareV3()
         if nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression() {
@@ -63,16 +49,10 @@ public class ColumnarNameOfPlanner {
         return plan.Status
     }
 
-    public static func TryAppendNameOf(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryAppendNameOf(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         ValidateAppendInputs(nodes, source, node, plan)
         resultType = typeof(string)
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression()
-            || nodes.ChildCount(node) != 1 {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression() || nodes.ChildCount(node) != 1 {
             return false
         }
 
@@ -81,8 +61,7 @@ public class ColumnarNameOfPlanner {
             return false
         }
         targetKind := nodes.Kind(target)
-        if targetKind != ColumnarExpressionNodeKind.IdentifierExpression()
-            && targetKind != ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if targetKind != ColumnarExpressionNodeKind.IdentifierExpression() && targetKind != ColumnarExpressionNodeKind.MemberAccessExpression() {
             return false
         }
 
@@ -97,8 +76,7 @@ public class ColumnarNameOfPlanner {
 
     static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
         depth := 0
-        while node >= 0 && node < nodes.Kinds.Length
-            && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
+        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
             if depth > 200 || nodes.ChildCount(node) != 1 {
                 return -1
             }
@@ -111,11 +89,7 @@ public class ColumnarNameOfPlanner {
         return node
     }
 
-    static func ValidateRootInputs(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan) {
+    static func ValidateRootInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
         if nodes == null || source == null || plan == null {
             throw new InvalidOperationException("Nameof planning inputs cannot be null.")
         }
@@ -124,20 +98,12 @@ public class ColumnarNameOfPlanner {
         }
     }
 
-    static func ValidateAppendInputs(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan) {
+    static func ValidateAppendInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
         ValidateRootInputs(nodes, source, node, plan)
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion()
-            || plan.Status != ColumnarFragmentPlanStatus.NotOwned
-            || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException(
-                "Nameof expressions can only append to an open schema-v3 plan.")
+        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Nameof expressions can only append to an open schema-v3 plan.")
         }
-        if plan.FragmentCount <= 0 || plan.FragmentCompleted == null
-            || plan.FragmentCompleted.Length < plan.FragmentCount {
+        if plan.FragmentCount <= 0 || plan.FragmentCompleted == null || plan.FragmentCompleted.Length < plan.FragmentCount {
             throw new InvalidOperationException("Nameof expressions require an open fragment.")
         }
         hasOpenFragment := false

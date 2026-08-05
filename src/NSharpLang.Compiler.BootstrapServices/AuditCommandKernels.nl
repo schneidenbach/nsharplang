@@ -1,6 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
-public class AuditOptionSummary {
+class AuditOptionSummary {
     ProjectOption: string?
     Json: bool
     ShowHelp: bool
@@ -12,8 +12,8 @@ public class AuditOptionSummary {
     }
 }
 
-public class AuditCommandKernels {
-    public static func GetOptionSummary(args: string[]): AuditOptionSummary {
+class AuditCommandKernels {
+    static func GetOptionSummary(args: string[]): AuditOptionSummary {
         projectOption: string? = null
         json := false
         showHelp := false
@@ -41,7 +41,7 @@ public class AuditCommandKernels {
         return new AuditOptionSummary(projectOption, json, showHelp)
     }
 
-    public static func GetOutputMode(json: bool): int {
+    static func GetOutputMode(json: bool): int {
         if json {
             return 1
         }
@@ -49,49 +49,31 @@ public class AuditCommandKernels {
         return 2
     }
 
-    public static func GetHelpText(): string {
-        return "N# Security Audit\n"
-            + "\n"
-            + "Usage: nlc audit [options]\n"
-            + "\n"
-            + "Check dependencies for known security vulnerabilities.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --project <dir>   Project root directory (default: current directory)\n"
-            + "  --json            Output as JSON envelope\n"
-            + "  --help, -h        Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc audit\n"
-            + "  nlc audit --json\n"
-            + "  nlc audit --project examples/14-minimal-api\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  No vulnerabilities found\n"
-            + "  1  Vulnerabilities found or audit failed"
+    static func GetHelpText(): string {
+        return "N# Security Audit\n" + "\n" + "Usage: nlc audit [options]\n" + "\n" + "Check dependencies for known security vulnerabilities.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --json            Output as JSON envelope\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc audit\n" + "  nlc audit --json\n" + "  nlc audit --project examples/14-minimal-api\n" + "\n" + "Exit codes:\n" + "  0  No vulnerabilities found\n" + "  1  Vulnerabilities found or audit failed"
     }
 
-    public static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
         return "Project directory not found: " + projectRoot
     }
 
-    public static func GetNoCsprojFileMessage(): string {
+    static func GetNoCsprojFileMessage(): string {
         return "No .csproj file found. Run 'nlc init' to create one."
     }
 
-    public static func GetVulnerableFlagUnsupportedMessage(): string {
+    static func GetVulnerableFlagUnsupportedMessage(): string {
         return "The --vulnerable flag requires .NET SDK 8.0 or later."
     }
 
-    public static func GetFailedMessage(message: string): string {
+    static func GetFailedMessage(message: string): string {
         return "Audit failed: " + message
     }
 
-    public static func GetNoKnownVulnerabilitiesMessage(): string {
+    static func GetNoKnownVulnerabilitiesMessage(): string {
         return "No known vulnerabilities found."
     }
 
-    public static func GetVulnerabilitySummaryMessage(vulnerabilityCount: int): string {
+    static func GetVulnerabilitySummaryMessage(vulnerabilityCount: int): string {
         suffix := "ies"
         if vulnerabilityCount == 1 {
             suffix = "y"
@@ -100,15 +82,15 @@ public class AuditCommandKernels {
         return vulnerabilityCount.ToString() + " vulnerabilit" + suffix + " found:"
     }
 
-    public static func GetVulnerabilityLine(severity: string, packageId: string, version: string): string {
+    static func GetVulnerabilityLine(severity: string, packageId: string, version: string): string {
         return "  " + severity + ": " + packageId + "@" + version
     }
 
-    public static func GetVulnerabilityUrlLine(url: string): string {
+    static func GetVulnerabilityUrlLine(url: string): string {
         return "    " + url
     }
 
-    public static func GetParseFailureMessage(): string {
+    static func GetParseFailureMessage(): string {
         return "  (could not parse vulnerability details)"
     }
 }

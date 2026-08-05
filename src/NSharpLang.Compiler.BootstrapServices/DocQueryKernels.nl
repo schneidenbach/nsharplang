@@ -5,7 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Text
 
-public class DocQueryLookupSplitPlan {
+class DocQueryLookupSplitPlan {
     typeCandidateValue: string
     remainderPartsValue: string[]
     containingTypePartsValue: string[]
@@ -19,12 +19,7 @@ public class DocQueryLookupSplitPlan {
     LastRemainder: string => lastRemainderValue
     HasContainingType: bool => containingTypePartsValue.Length > 0
 
-    constructor(
-        typeCandidate: string,
-        remainderParts: string[],
-        containingTypeParts: string[],
-        firstRemainder: string,
-        lastRemainder: string) {
+    constructor(typeCandidate: string, remainderParts: string[], containingTypeParts: string[], firstRemainder: string, lastRemainder: string) {
         typeCandidateValue = typeCandidate
         remainderPartsValue = remainderParts
         containingTypePartsValue = containingTypeParts
@@ -33,10 +28,10 @@ public class DocQueryLookupSplitPlan {
     }
 }
 
-public class DocQueryKernels {
-    public static func DeduplicateStableStringsOrdinalIgnoreCase(values: IReadOnlyList<string>): string[] {
+class DocQueryKernels {
+    static func DeduplicateStableStringsOrdinalIgnoreCase(values: IReadOnlyList<string>): string[] {
         items := new List<string>()
-        foreach valueObject in values {
+        for valueObject in values {
             items.Add((string)valueObject)
         }
 
@@ -66,12 +61,7 @@ public class DocQueryKernels {
         }
 
         scratch.EnsureRankCapacity(scratch.UniqueRankCount)
-        resultCount := StableDistinctRankIndices(
-            scratch.Ranks,
-            valueCount,
-            scratch.UniqueRankCount,
-            scratch.SeenRanks,
-            scratch.ResultIndices)
+        resultCount := StableDistinctRankIndices(scratch.Ranks, valueCount, scratch.UniqueRankCount, scratch.SeenRanks, scratch.ResultIndices)
 
         result := new string[](resultCount)
         i = 0
@@ -85,9 +75,9 @@ public class DocQueryKernels {
         return result
     }
 
-    public static func DeduplicateStableTypes(values: IReadOnlyList<Type>): Type[] {
+    static func DeduplicateStableTypes(values: IReadOnlyList<Type>): Type[] {
         items := new List<Type>()
-        foreach valueObject in values {
+        for valueObject in values {
             items.Add((Type)valueObject)
         }
 
@@ -117,12 +107,7 @@ public class DocQueryKernels {
         }
 
         scratch.EnsureRankCapacity(scratch.UniqueRankCount)
-        resultCount := StableDistinctRankIndices(
-            scratch.Ranks,
-            valueCount,
-            scratch.UniqueRankCount,
-            scratch.SeenRanks,
-            scratch.ResultIndices)
+        resultCount := StableDistinctRankIndices(scratch.Ranks, valueCount, scratch.UniqueRankCount, scratch.SeenRanks, scratch.ResultIndices)
 
         result := new Type[](resultCount)
         i = 0
@@ -136,9 +121,7 @@ public class DocQueryKernels {
         return result
     }
 
-    public static func SelectBestDocType(
-        query: string,
-        candidates: Type[]): Type? {
+    static func SelectBestDocType(query: string, candidates: Type[]): Type? {
         candidateCount := candidates.Length
         if candidateCount == 0 {
             return null
@@ -179,12 +162,7 @@ public class DocQueryKernels {
         return StripGenericArity(fullName.Replace('+', '.'))
     }
 
-    static func StableDistinctRankIndices(
-        valueRanks: int[],
-        valueCount: int,
-        uniqueRankCount: int,
-        seenRanks: int[],
-        resultIndices: int[]): int {
+    static func StableDistinctRankIndices(valueRanks: int[], valueCount: int, uniqueRankCount: int, seenRanks: int[], resultIndices: int[]): int {
         resultCount := 0
         i := 0
         while i < valueCount {
@@ -268,12 +246,7 @@ public class DocQueryKernels {
         return count
     }
 
-    static func DocQueryMemberIndexComesAfter(
-        leftIndex: int,
-        rightKindRank: int,
-        rightNameRank: int,
-        kindRanks: int[],
-        nameRanks: int[]): bool {
+    static func DocQueryMemberIndexComesAfter(leftIndex: int, rightKindRank: int, rightNameRank: int, kindRanks: int[], nameRanks: int[]): bool {
         leftKindRank := kindRanks[leftIndex]
         if leftKindRank != rightKindRank {
             return leftKindRank > rightKindRank
@@ -283,9 +256,9 @@ public class DocQueryKernels {
         return leftNameRank > rightNameRank
     }
 
-    public static func OrderDocMembers(members: IReadOnlyList<DocMemberResult>): DocMemberResult[] {
+    static func OrderDocMembers(members: IReadOnlyList<DocMemberResult>): DocMemberResult[] {
         materialized := new List<DocMemberResult>()
-        foreach memberObject in members {
+        for memberObject in members {
             member := (DocMemberResult)memberObject
             materialized.Add(member)
         }
@@ -334,7 +307,7 @@ public class DocQueryKernels {
         return result.ToArray()
     }
 
-    public static func StripGenericArity(name: string): string {
+    static func StripGenericArity(name: string): string {
         if name.IndexOf('`') < 0 {
             return name
         }
@@ -358,7 +331,7 @@ public class DocQueryKernels {
         return builder.ToString()
     }
 
-    public static func GetReflectionLookupTypeName(reflectionType: Type): string {
+    static func GetReflectionLookupTypeName(reflectionType: Type): string {
         fullName := reflectionType.FullName
         if fullName == null {
             fullName = reflectionType.Name
@@ -369,7 +342,7 @@ public class DocQueryKernels {
         return StripGenericArity(fullName)
     }
 
-    public static func GetReflectionTypeDocId(reflectionType: Type): string {
+    static func GetReflectionTypeDocId(reflectionType: Type): string {
         fullName := reflectionType.FullName
         if fullName == null {
             return "T:"
@@ -378,25 +351,25 @@ public class DocQueryKernels {
         return "T:" + fullName.Replace('+', '.')
     }
 
-    public static func ShouldSearchQualifiedSuffix(strippedName: string): bool {
+    static func ShouldSearchQualifiedSuffix(strippedName: string): bool {
         return strippedName.IndexOf('.') >= 0
     }
 
-    public static func GetResolveTypeShortName(strippedName: string): string {
+    static func GetResolveTypeShortName(strippedName: string): string {
         return StripGenericArity(GetLastDocQuerySegment(strippedName))
     }
 
-    public static func IsQualifiedTypeSuffixMatch(qualifiedName: string, strippedName: string): bool {
+    static func IsQualifiedTypeSuffixMatch(qualifiedName: string, strippedName: string): bool {
         suffix := "." + strippedName
         return DocQueryEndsWithSubstringIgnoreCase(qualifiedName, suffix, 0, suffix.Length)
     }
 
-    public static func GetDocMemberDocId(prefix: string, declaringTypeFullName: string?, memberName: string): string {
+    static func GetDocMemberDocId(prefix: string, declaringTypeFullName: string?, memberName: string): string {
         ownerName := declaringTypeFullName ?? ""
         return prefix + ownerName.Replace('+', '.') + "." + memberName
     }
 
-    public static func GetMethodDocMemberName(methodName: string, isConstructor: bool): string {
+    static func GetMethodDocMemberName(methodName: string, isConstructor: bool): string {
         if isConstructor {
             return "#ctor"
         }
@@ -404,7 +377,7 @@ public class DocQueryKernels {
         return methodName
     }
 
-    public static func GetMethodDocId(declaringTypeFullName: string?, memberName: string, parameterTypeDocIds: string[]): string {
+    static func GetMethodDocId(declaringTypeFullName: string?, memberName: string, parameterTypeDocIds: string[]): string {
         ownerName := declaringTypeFullName ?? ""
         builder := new StringBuilder()
         builder.Append("M:")
@@ -430,7 +403,7 @@ public class DocQueryKernels {
         return builder.ToString()
     }
 
-    public static func FormatBuiltinTypeName(fullName: string?): string? {
+    static func FormatBuiltinTypeName(fullName: string?): string? {
         if fullName == "System.Void" {
             return "void"
         }
@@ -474,15 +447,15 @@ public class DocQueryKernels {
         return null
     }
 
-    public static func FormatGenericTypeName(rawName: string, formattedArgs: string[]): string {
+    static func FormatGenericTypeName(rawName: string, formattedArgs: string[]): string {
         return StripGenericArity(rawName) + "<" + string.Join(", ", formattedArgs) + ">"
     }
 
-    public static func FormatArrayTypeName(elementTypeName: string): string {
+    static func FormatArrayTypeName(elementTypeName: string): string {
         return elementTypeName + "[]"
     }
 
-    public static func GetMethodSignatureName(methodName: string, declaringTypeName: string?, isConstructor: bool): string {
+    static func GetMethodSignatureName(methodName: string, declaringTypeName: string?, isConstructor: bool): string {
         if isConstructor && declaringTypeName != null {
             return StripGenericArity(declaringTypeName)
         }
@@ -490,7 +463,7 @@ public class DocQueryKernels {
         return methodName
     }
 
-    public static func FormatMethodSignature(methodName: string, parameterNames: string[], parameterTypeNames: string[]): string {
+    static func FormatMethodSignature(methodName: string, parameterNames: string[], parameterTypeNames: string[]): string {
         builder := new StringBuilder()
         builder.Append(methodName)
         builder.Append("(")
@@ -510,7 +483,7 @@ public class DocQueryKernels {
         return builder.ToString()
     }
 
-    public static func FormatParameterList(parameterNames: string[], parameterTypeNames: string[]): string {
+    static func FormatParameterList(parameterNames: string[], parameterTypeNames: string[]): string {
         builder := new StringBuilder()
         builder.Append("(")
         i := 0
@@ -529,11 +502,11 @@ public class DocQueryKernels {
         return builder.ToString()
     }
 
-    public static func FormatNestedQualifiedTypeName(declaringTypeName: string, nestedTypeName: string): string {
+    static func FormatNestedQualifiedTypeName(declaringTypeName: string, nestedTypeName: string): string {
         return declaringTypeName + "." + nestedTypeName
     }
 
-    public static func FormatQualifiedTypeName(namespaceName: string?, typeName: string): string {
+    static func FormatQualifiedTypeName(namespaceName: string?, typeName: string): string {
         if string.IsNullOrWhiteSpace(namespaceName) {
             return typeName
         }
@@ -541,15 +514,15 @@ public class DocQueryKernels {
         return (namespaceName ?? "") + "." + typeName
     }
 
-    public static func FormatByRefTypeDocId(elementTypeDocId: string): string {
+    static func FormatByRefTypeDocId(elementTypeDocId: string): string {
         return elementTypeDocId + "@"
     }
 
-    public static func FormatPointerTypeDocId(elementTypeDocId: string): string {
+    static func FormatPointerTypeDocId(elementTypeDocId: string): string {
         return elementTypeDocId + "*"
     }
 
-    public static func FormatArrayTypeDocId(elementTypeDocId: string, rank: int): string {
+    static func FormatArrayTypeDocId(elementTypeDocId: string, rank: int): string {
         if rank == 1 {
             return elementTypeDocId + "[]"
         }
@@ -571,7 +544,7 @@ public class DocQueryKernels {
         return builder.ToString()
     }
 
-    public static func FormatGenericParameterDocId(isMethodGenericParameter: bool, position: int): string {
+    static func FormatGenericParameterDocId(isMethodGenericParameter: bool, position: int): string {
         if isMethodGenericParameter {
             return "``" + position.ToString()
         }
@@ -579,12 +552,12 @@ public class DocQueryKernels {
         return "`" + position.ToString()
     }
 
-    public static func FormatGenericTypeDocId(genericTypeFullName: string?, parameterTypeDocIds: string[]): string {
+    static func FormatGenericTypeDocId(genericTypeFullName: string?, parameterTypeDocIds: string[]): string {
         ownerName := genericTypeFullName ?? ""
         return ownerName.Replace('+', '.') + "{" + string.Join(",", parameterTypeDocIds) + "}"
     }
 
-    public static func FormatNamedTypeDocId(fullName: string?, fallbackName: string): string {
+    static func FormatNamedTypeDocId(fullName: string?, fallbackName: string): string {
         if fullName == null {
             return fallbackName
         }
@@ -592,12 +565,7 @@ public class DocQueryKernels {
         return fullName.Replace('+', '.')
     }
 
-    public static func GetReflectionTypeKind(
-        isEnum: bool,
-        isInterface: bool,
-        isValueType: bool,
-        isAbstract: bool,
-        isSealed: bool): string {
+    static func GetReflectionTypeKind(isEnum: bool, isInterface: bool, isValueType: bool, isAbstract: bool, isSealed: bool): string {
         if isEnum {
             return "enum"
         }
@@ -621,7 +589,7 @@ public class DocQueryKernels {
         return "class"
     }
 
-    public static func FormatBaseTypeList(baseTypeFullName: string?, baseTypeDisplayName: string?, interfaceDisplayNames: string[]): string[] {
+    static func FormatBaseTypeList(baseTypeFullName: string?, baseTypeDisplayName: string?, interfaceDisplayNames: string[]): string[] {
         result := new List<string>()
         if baseTypeFullName != null && baseTypeDisplayName != null && ShouldIncludeBaseType(baseTypeFullName) {
             result.Add(baseTypeDisplayName)
@@ -636,11 +604,11 @@ public class DocQueryKernels {
         return result.ToArray()
     }
 
-    public static func IsDocMemberNameMatch(candidateName: string, requestedName: string): bool {
+    static func IsDocMemberNameMatch(candidateName: string, requestedName: string): bool {
         return DocQueryEqualsIgnoreCase(StripGenericArity(candidateName), requestedName)
     }
 
-    public static func IsConstructorMemberMatch(requestedName: string, containingTypeName: string): bool {
+    static func IsConstructorMemberMatch(requestedName: string, containingTypeName: string): bool {
         if DocQueryEqualsIgnoreCase(requestedName, "#ctor") {
             return true
         }
@@ -652,11 +620,11 @@ public class DocQueryKernels {
         return DocQueryEqualsIgnoreCase(StripGenericArity(containingTypeName), requestedName)
     }
 
-    public static func IsMethodMemberMatch(methodName: string, requestedName: string, isSpecialName: bool): bool {
+    static func IsMethodMemberMatch(methodName: string, requestedName: string, isSpecialName: bool): bool {
         return !isSpecialName && DocQueryEqualsIgnoreCase(methodName, requestedName)
     }
 
-    public static func GetOverloadKindText(kind: string, overloadCount: int): string {
+    static func GetOverloadKindText(kind: string, overloadCount: int): string {
         if overloadCount == 1 {
             return kind
         }
@@ -664,15 +632,15 @@ public class DocQueryKernels {
         return kind + " (" + overloadCount.ToString() + " overloads)"
     }
 
-    public static func FormatMemberFullName(containingTypeName: string, memberName: string): string {
+    static func FormatMemberFullName(containingTypeName: string, memberName: string): string {
         return containingTypeName + "." + memberName
     }
 
-    public static func ShouldIncludePublicType(isPublic: bool, isNestedPublic: bool): bool {
+    static func ShouldIncludePublicType(isPublic: bool, isNestedPublic: bool): bool {
         return isPublic || isNestedPublic
     }
 
-    public static func GetQualifiedTypeIndexName(fullName: string?): string? {
+    static func GetQualifiedTypeIndexName(fullName: string?): string? {
         if string.IsNullOrWhiteSpace(fullName) {
             return null
         }
@@ -680,11 +648,11 @@ public class DocQueryKernels {
         return (fullName ?? "").Replace('+', '.')
     }
 
-    public static func ShouldIncludeBaseType(fullName: string): bool {
+    static func ShouldIncludeBaseType(fullName: string): bool {
         return fullName != "System.Object" && fullName != "System.ValueType"
     }
 
-    public static func SortPathsByFileNameDescending(paths: string[]): string[] {
+    static func SortPathsByFileNameDescending(paths: string[]): string[] {
         sorted := new string[](paths.Length)
         i := 0
         while i < paths.Length {
@@ -709,7 +677,7 @@ public class DocQueryKernels {
         return sorted
     }
 
-    public static func GetXmlDocPath(assemblyLocation: string?, assemblyNameFromMetadata: string?, referencePackDirectories: string[]): string {
+    static func GetXmlDocPath(assemblyLocation: string?, assemblyNameFromMetadata: string?, referencePackDirectories: string[]): string {
         location := assemblyLocation ?? ""
         assemblyName := assemblyNameFromMetadata ?? ""
         if string.IsNullOrWhiteSpace(assemblyName) {
@@ -744,7 +712,7 @@ public class DocQueryKernels {
         return ""
     }
 
-    public static func DiscoverReferencePackAssemblyNames(referencePackDirectories: string[]): string[] {
+    static func DiscoverReferencePackAssemblyNames(referencePackDirectories: string[]): string[] {
         names := new List<string>()
         i := 0
         while i < referencePackDirectories.Length {
@@ -765,7 +733,7 @@ public class DocQueryKernels {
         return DeduplicateStableStringsOrdinalIgnoreCase(names)
     }
 
-    public static func GetReferencePackDirectories(assemblyLocations: string[], dotnetRoot: string?): string[] {
+    static func GetReferencePackDirectories(assemblyLocations: string[], dotnetRoot: string?): string[] {
         roots := new List<string>()
         seenRoots := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 
@@ -823,7 +791,7 @@ public class DocQueryKernels {
         return DeduplicateStableStringsOrdinalIgnoreCase(directories)
     }
 
-    public static func GetLookupSplitPlans(query: string): DocQueryLookupSplitPlan[] {
+    static func GetLookupSplitPlans(query: string): DocQueryLookupSplitPlan[] {
         parts := query.Split('.')
         if parts.Length < 2 {
             return new DocQueryLookupSplitPlan[](0)
@@ -850,12 +818,7 @@ public class DocQueryKernels {
                 r = r + 1
             }
 
-            plans[planIndex] = new DocQueryLookupSplitPlan(
-                JoinDocQueryParts(parts, 0, i),
-                remainderParts,
-                containingTypeParts,
-                remainderParts[0],
-                remainderParts[remainderCount - 1])
+            plans[planIndex] = new DocQueryLookupSplitPlan(JoinDocQueryParts(parts, 0, i), remainderParts, containingTypeParts, remainderParts[0], remainderParts[remainderCount - 1])
 
             planIndex = planIndex + 1
             i = i - 1
@@ -864,11 +827,7 @@ public class DocQueryKernels {
         return plans
     }
 
-    public static func FormatSeeElementText(
-        elementValue: string?,
-        langword: string?,
-        href: string?,
-        cref: string?): string {
+    static func FormatSeeElementText(elementValue: string?, langword: string?, href: string?, cref: string?): string {
         if !string.IsNullOrWhiteSpace(elementValue) {
             return elementValue
         }
@@ -901,7 +860,7 @@ public class DocQueryKernels {
         return StripGenericArity(GetLastDocQuerySegment(value))
     }
 
-    public static func FormatDocTextRaw(raw: string): string? {
+    static func FormatDocTextRaw(raw: string): string? {
         if string.IsNullOrWhiteSpace(raw) {
             return null
         }
@@ -932,14 +891,7 @@ public class DocQueryKernels {
         return builder.ToString()
     }
 
-    public static func FormatDocElementNodeText(
-        localName: string,
-        elementValue: string?,
-        childText: string,
-        nameAttribute: string?,
-        langword: string?,
-        href: string?,
-        cref: string?): string {
+    static func FormatDocElementNodeText(localName: string, elementValue: string?, childText: string, nameAttribute: string?, langword: string?, href: string?, cref: string?): string {
         if localName == "see" || localName == "seealso" {
             return FormatSeeElementText(elementValue, langword, href, cref)
         }
@@ -959,92 +911,27 @@ public class DocQueryKernels {
         return childText
     }
 
-    public static func CreateDocMemberResult(
-        name: string,
-        kind: string,
-        typeName: string?,
-        summary: string?,
-        parameters: string?): DocMemberResult {
+    static func CreateDocMemberResult(name: string, kind: string, typeName: string?, summary: string?, parameters: string?): DocMemberResult {
         return new DocMemberResult(name, kind, typeName, summary, parameters)
     }
 
-    public static func CreateDocParameterResult(
-        parameterName: string?,
-        typeName: string,
-        summary: string?): DocParameterResult {
+    static func CreateDocParameterResult(parameterName: string?, typeName: string, summary: string?): DocParameterResult {
         return new DocParameterResult(parameterName ?? "?", typeName, summary)
     }
 
-    public static func CreateTypeDocResult(
-        name: string,
-        fullName: string,
-        kind: string,
-        summary: string?,
-        namespaceName: string?,
-        members: DocMemberResult[]?,
-        baseTypes: string[]?): DocResult {
-        return new DocResult(
-            name,
-            fullName,
-            kind,
-            summary,
-            namespaceName,
-            members,
-            null,
-            null,
-            null,
-            baseTypes)
+    static func CreateTypeDocResult(name: string, fullName: string, kind: string, summary: string?, namespaceName: string?, members: DocMemberResult[]?, baseTypes: string[]?): DocResult {
+        return new DocResult(name, fullName, kind, summary, namespaceName, members, null, null, null, baseTypes)
     }
 
-    public static func CreateCallableDocResult(
-        name: string,
-        fullName: string,
-        kind: string,
-        summary: string?,
-        namespaceName: string?,
-        overloads: DocMemberResult[]?,
-        parameters: DocParameterResult[]?,
-        returnType: string?,
-        returnDoc: string?): DocResult {
-        return new DocResult(
-            name,
-            fullName,
-            kind,
-            summary,
-            namespaceName,
-            overloads,
-            parameters,
-            returnType,
-            returnDoc,
-            null)
+    static func CreateCallableDocResult(name: string, fullName: string, kind: string, summary: string?, namespaceName: string?, overloads: DocMemberResult[]?, parameters: DocParameterResult[]?, returnType: string?, returnDoc: string?): DocResult {
+        return new DocResult(name, fullName, kind, summary, namespaceName, overloads, parameters, returnType, returnDoc, null)
     }
 
-    public static func CreateValueDocResult(
-        name: string,
-        fullName: string,
-        kind: string,
-        summary: string?,
-        namespaceName: string?,
-        returnType: string?): DocResult {
-        return new DocResult(
-            name,
-            fullName,
-            kind,
-            summary,
-            namespaceName,
-            null,
-            null,
-            returnType,
-            null,
-            null)
+    static func CreateValueDocResult(name: string, fullName: string, kind: string, summary: string?, namespaceName: string?, returnType: string?): DocResult {
+        return new DocResult(name, fullName, kind, summary, namespaceName, null, null, returnType, null, null)
     }
 
-    public static func ScoreTypeMatch(
-        strippedQuery: string,
-        qualifiedName: string,
-        simpleName: string,
-        namespaceName: string,
-        isNested: int): int {
+    static func ScoreTypeMatch(strippedQuery: string, qualifiedName: string, simpleName: string, namespaceName: string, isNested: int): int {
         score := 0
 
         if DocQueryEqualsIgnoreCase(qualifiedName, strippedQuery) {
@@ -1235,13 +1122,7 @@ public class DocQueryKernels {
         return String.Compare(text, textStart, query, queryStart, queryLength, StringComparison.OrdinalIgnoreCase) == 0
     }
 
-    static func DocQueryEqualsSubstringIgnoreCase(
-        left: string,
-        leftStart: int,
-        leftLength: int,
-        right: string,
-        rightStart: int,
-        rightLength: int): bool {
+    static func DocQueryEqualsSubstringIgnoreCase(left: string, leftStart: int, leftLength: int, right: string, rightStart: int, rightLength: int): bool {
         if leftLength != rightLength {
             return false
         }

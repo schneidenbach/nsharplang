@@ -1,12 +1,12 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler
 
-public class RestoreCommand {
-    public static func Execute(args: string[]): int {
+class RestoreCommand {
+    static func Execute(args: string[]): int {
         options := RestoreCommandKernels.GetOptionSummary(args)
         if options.ShowHelp {
             print RestoreCommandKernels.GetHelpText()
@@ -17,7 +17,7 @@ public class RestoreCommand {
         return Restore(projectRoot, false)
     }
 
-    public static func Restore(projectRoot: string, quiet: bool = false): int {
+    static func Restore(projectRoot: string, quiet: bool = false): int {
         visitedProjectRoots := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         if RestoreRecursive(Path.GetFullPath(projectRoot), quiet, visitedProjectRoots) {
             return 0
@@ -58,16 +58,7 @@ public class RestoreCommand {
             projectReferences := RestoreCommandKernels.DeduplicateProjectReferences(resolvedProjectReferences)
 
             propsPath := Path.Combine(objDir, "project.g.props")
-            File.WriteAllText(
-                propsPath,
-                RestoreCommandKernels.GetGeneratedPropsText(
-                    config.TargetFramework,
-                    outputType,
-                    projectName,
-                    "il",
-                    config.TestFramework,
-                    baseSdk,
-                    projectReferences))
+            File.WriteAllText(propsPath, RestoreCommandKernels.GetGeneratedPropsText(config.TargetFramework, outputType, projectName, "il", config.TestFramework, baseSdk, projectReferences))
 
             if !RestoreReferencedProjects(projectRoot, quiet, visitedProjectRoots, projectDependencies) {
                 return false
@@ -103,11 +94,7 @@ public class RestoreCommand {
         return resolvedProjectReferences
     }
 
-    static func RestoreReferencedProjects(
-        projectRoot: string,
-        quiet: bool,
-        visitedProjectRoots: HashSet<string>,
-        dependencies: List<Reference>): bool {
+    static func RestoreReferencedProjects(projectRoot: string, quiet: bool, visitedProjectRoots: HashSet<string>, dependencies: List<Reference>): bool {
         i := 0
         while i < dependencies.Count {
             dependency := dependencies[i]

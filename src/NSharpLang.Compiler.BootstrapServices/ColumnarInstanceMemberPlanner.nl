@@ -516,19 +516,13 @@ class ColumnarInstanceMemberPlanner {
                 throw new InvalidOperationException("Source instance-member base facts have no exact type template.")
             }
             emittedBaseTemplate := current.Builder.get_BaseType()
-            if emittedBaseTemplate == null
-                || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-                    exactBaseTemplate, emittedBaseTemplate) {
+            if emittedBaseTemplate == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(exactBaseTemplate, emittedBaseTemplate) {
                 throw new InvalidOperationException("Source instance-member exact base template does not match emitted inheritance.")
             }
 
             currentWasClosed := !ContainsOpenTypeParameters(currentExactType)
-            currentArguments := currentExactType.get_IsGenericType()
-                ? currentExactType.GetGenericArguments()
-                : new Type[](0)
-            currentExactType = currentArguments.Length == 0
-                ? exactBaseTemplate
-                : SubstituteTypeArguments(exactBaseTemplate, currentArguments)
+            currentArguments := currentExactType.get_IsGenericType() ? currentExactType.GetGenericArguments() : new Type[](0)
+            currentExactType = currentArguments.Length == 0 ? exactBaseTemplate : SubstituteTypeArguments(exactBaseTemplate, currentArguments)
             if !ExactTypeOwnsDefinition(currentExactType, baseDefinition) {
                 throw new InvalidOperationException("Source instance-member exact base type does not match its definition.")
             }
@@ -555,9 +549,7 @@ class ColumnarInstanceMemberPlanner {
             resultType := field.get_FieldType()
             declaringType := foundDeclaring
             selectedField := field
-            foundArguments := foundExactDeclaring.get_IsGenericType()
-                ? foundExactDeclaring.GetGenericArguments()
-                : new Type[](0)
+            foundArguments := foundExactDeclaring.get_IsGenericType() ? foundExactDeclaring.GetGenericArguments() : new Type[](0)
             if foundArguments.Length > 0 {
                 resultType = SubstituteTypeArguments(resultType, foundArguments)
             }
@@ -592,9 +584,7 @@ class ColumnarInstanceMemberPlanner {
         propertyType := property.PropertyType
         declaringPropertyType := foundDeclaring
         selectedGetter := getter
-        foundPropertyArguments := foundExactDeclaring.get_IsGenericType()
-            ? foundExactDeclaring.GetGenericArguments()
-            : new Type[](0)
+        foundPropertyArguments := foundExactDeclaring.get_IsGenericType() ? foundExactDeclaring.GetGenericArguments() : new Type[](0)
         if foundPropertyArguments.Length > 0 {
             propertyType = SubstituteTypeArguments(propertyType, foundPropertyArguments)
         }
@@ -708,15 +698,11 @@ class ColumnarInstanceMemberPlanner {
             return !definition.Builder.get_IsGenericTypeDefinition()
         }
 
-        return exactType.get_IsGenericType()
-            && !exactType.get_IsGenericTypeDefinition()
-            && ColumnarConstructionPlanner.SameObject(
-                exactType.GetGenericTypeDefinition(), definition.Builder)
+        return exactType.get_IsGenericType() && !exactType.get_IsGenericTypeDefinition() && ColumnarConstructionPlanner.SameObject(exactType.GetGenericTypeDefinition(), definition.Builder)
     }
 
     static func ContainsOpenTypeParameters(valueType: Type): bool {
-        if valueType.get_IsGenericParameter()
-            || valueType.get_IsGenericTypeDefinition() {
+        if valueType.get_IsGenericParameter() || valueType.get_IsGenericTypeDefinition() {
             return true
         }
         if !valueType.get_IsGenericType() {

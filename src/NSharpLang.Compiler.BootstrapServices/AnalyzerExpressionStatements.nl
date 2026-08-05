@@ -6,6 +6,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // THE SIX STEPS THE STATEMENT-LEVEL EXPRESSION FAMILY CANNOT TAKE FOR ITSELF.
 //
 // This walk owns what it MEANS to write an expression where a statement belongs — a bare `f()` or
@@ -46,15 +47,14 @@ import NSharpLang.Compiler.Ast
 // driver whether a type was throwable until `AnalyzerThrowability` took that predicate whole — this
 // walk holds that owner now and asks it directly, which is why the `throw` and `assert throws` walks
 // each lost a suspension.
-public class ExpressionStatementRequest {
-
-    public Kind: int
-    public Node: Expression?
-    public Statements: List<Statement>?
-    public CarriedType: TypeInfo
-    public Text: string?
-    public Line: int
-    public Column: int
+class ExpressionStatementRequest {
+    Kind: int
+    Node: Expression?
+    Statements: List<Statement>?
+    CarriedType: TypeInfo
+    Text: string?
+    Line: int
+    Column: int
 
     constructor(kind: int, carriedType: TypeInfo) {
         Kind = kind
@@ -95,8 +95,7 @@ public class ExpressionStatementRequest {
 // again when it is disposed, so the throwability owner this walk HOLDS may not keep a reference to
 // it — the same reason the loop family carries the flow-narrowing writer and the yield walk carries
 // the assignability oracle.
-public class ExpressionStatementState {
-
+class ExpressionStatementState {
     discardedValue: Expression?
     assertValue: AssertStatement?
     assertThrowsValue: AssertThrowsStatement?
@@ -119,27 +118,17 @@ public class ExpressionStatementState {
     ClrTypeConversion: AnalyzerClrTypeConversion? => clrTypeConversionValue
     SubscriptionRoot: Type? => subscriptionRootValue
 
-    public Phase: int
-    public Pending: int
+    Phase: int
+    Pending: int
 
-    public ErrorsBefore: int
-    public AnsweredType: TypeInfo
-    public EscapeFired: bool
-    public ExceptionType: TypeInfo
-    public CalleeType: TypeInfo?
-    public MustUseCandidate: CallExpression?
+    ErrorsBefore: int
+    AnsweredType: TypeInfo
+    EscapeFired: bool
+    ExceptionType: TypeInfo
+    CalleeType: TypeInfo?
+    MustUseCandidate: CallExpression?
 
-    constructor(
-        discarded: Expression?,
-        assertStatement: AssertStatement?,
-        assertThrows: AssertThrowsStatement?,
-        thrown: Expression?,
-        printed: Expression?,
-        offHandle: Expression?,
-        context: DiscardedExpressionContext,
-        soaUsage: string,
-        clrTypeConversion: AnalyzerClrTypeConversion?,
-        subscriptionRoot: Type?) {
+    constructor(discarded: Expression?, assertStatement: AssertStatement?, assertThrows: AssertThrowsStatement?, thrown: Expression?, printed: Expression?, offHandle: Expression?, context: DiscardedExpressionContext, soaUsage: string, clrTypeConversion: AnalyzerClrTypeConversion?, subscriptionRoot: Type?) {
         discardedValue = discarded
         assertValue = assertStatement
         assertThrowsValue = assertThrows
@@ -227,20 +216,14 @@ public class ExpressionStatementState {
 // NL202 is the assert-throws non-throwable report. `assert` itself reports NOTHING of its own: it
 // deliberately does not require a boolean condition, because N# supports several comparison shapes
 // there, so everything it can raise comes from the two SoA reporters it re-enters.
-public class AnalyzerExpressionStatements {
-
+class AnalyzerExpressionStatements {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     typeResolverValue: AnalyzerTypeResolver
     soaEscapeValue: AnalyzerSoaEscape
     throwabilityValue: AnalyzerThrowability
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        typeResolver: AnalyzerTypeResolver,
-        soaEscape: AnalyzerSoaEscape,
-        throwability: AnalyzerThrowability) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, soaEscape: AnalyzerSoaEscape, throwability: AnalyzerThrowability) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
@@ -250,101 +233,37 @@ public class AnalyzerExpressionStatements {
 
     // A BARE EXPRESSION USED AS A STATEMENT. The SoA reports call it "discarded" and an invalid one
     // reports the expression-statement form of NL313.
-    public func BeginExpressionStatement(expression: Expression): ExpressionStatementState {
-        return new ExpressionStatementState(
-            expression,
-            null,
-            null,
-            null,
-            null,
-            null,
-            DiscardedExpressionContext.ExpressionStatement,
-            "discarded",
-            null,
-            null)
+    func BeginExpressionStatement(expression: Expression): ExpressionStatementState {
+        return new ExpressionStatementState(expression, null, null, null, null, null, DiscardedExpressionContext.ExpressionStatement, "discarded", null, null)
     }
 
     // THE `for` LOOP'S UPDATE CLAUSE. The same walk with two different constants: the SoA reports
     // name the iterator, and an invalid one reports the for-iterator form of NL313.
-    public func BeginForIterator(expression: Expression): ExpressionStatementState {
-        return new ExpressionStatementState(
-            expression,
-            null,
-            null,
-            null,
-            null,
-            null,
-            DiscardedExpressionContext.ForIterator,
-            "used as a 'for' iterator",
-            null,
-            null)
+    func BeginForIterator(expression: Expression): ExpressionStatementState {
+        return new ExpressionStatementState(expression, null, null, null, null, null, DiscardedExpressionContext.ForIterator, "used as a 'for' iterator", null, null)
     }
 
-    public func BeginAssert(assertStatement: AssertStatement): ExpressionStatementState {
-        return new ExpressionStatementState(
-            null,
-            assertStatement,
-            null,
-            null,
-            null,
-            null,
-            DiscardedExpressionContext.ExpressionStatement,
-            "asserted",
-            null,
-            null)
+    func BeginAssert(assertStatement: AssertStatement): ExpressionStatementState {
+        return new ExpressionStatementState(null, assertStatement, null, null, null, null, DiscardedExpressionContext.ExpressionStatement, "asserted", null, null)
     }
 
     // AN `assert throws`. The CLR conversion funnel is read from the caller's field HERE, because the
     // declared exception type is measured for throwability.
-    public func BeginAssertThrows(
-        assertThrows: AssertThrowsStatement,
-        clrTypeConversion: AnalyzerClrTypeConversion): ExpressionStatementState {
-        return new ExpressionStatementState(
-            null,
-            null,
-            assertThrows,
-            null,
-            null,
-            null,
-            DiscardedExpressionContext.ExpressionStatement,
-            "asserted",
-            clrTypeConversion,
-            null)
+    func BeginAssertThrows(assertThrows: AssertThrowsStatement, clrTypeConversion: AnalyzerClrTypeConversion): ExpressionStatementState {
+        return new ExpressionStatementState(null, null, assertThrows, null, null, null, DiscardedExpressionContext.ExpressionStatement, "asserted", clrTypeConversion, null)
     }
 
     // A `throw` STATEMENT'S OPERAND. The SoA reports call it "thrown", and a value that survives both
     // of them is measured against `System.Exception`.
-    public func BeginThrow(
-        expression: Expression,
-        clrTypeConversion: AnalyzerClrTypeConversion): ExpressionStatementState {
-        return new ExpressionStatementState(
-            null,
-            null,
-            null,
-            expression,
-            null,
-            null,
-            DiscardedExpressionContext.ExpressionStatement,
-            "thrown",
-            clrTypeConversion,
-            null)
+    func BeginThrow(expression: Expression, clrTypeConversion: AnalyzerClrTypeConversion): ExpressionStatementState {
+        return new ExpressionStatementState(null, null, null, expression, null, null, DiscardedExpressionContext.ExpressionStatement, "thrown", clrTypeConversion, null)
     }
 
     // A `print` STATEMENT'S VALUE. The shortest walk in the family: `print` has no rule of its own —
     // anything can be printed — so everything it can raise comes from the two SoA reporters, and BOTH
     // of them always run.
-    public func BeginPrint(expression: Expression): ExpressionStatementState {
-        return new ExpressionStatementState(
-            null,
-            null,
-            null,
-            null,
-            expression,
-            null,
-            DiscardedExpressionContext.ExpressionStatement,
-            "printed",
-            null,
-            null)
+    func BeginPrint(expression: Expression): ExpressionStatementState {
+        return new ExpressionStatementState(null, null, null, null, expression, null, DiscardedExpressionContext.ExpressionStatement, "printed", null, null)
     }
 
     // AN `off` STATEMENT'S HANDLE. `off sub` detaches an event subscription, and its handle is an
@@ -360,26 +279,14 @@ public class AnalyzerExpressionStatements {
     // instead of by two independent spellings. It is also the only door that is testable: this
     // project does not reference `NSharpLang.Runtime`, so a `Type.GetType` here would resolve only
     // because the analyzer's HOST happens to carry the assembly.
-    public func BeginOff(
-        expression: Expression,
-        subscriptionRoot: Type): ExpressionStatementState {
-        return new ExpressionStatementState(
-            null,
-            null,
-            null,
-            null,
-            null,
-            expression,
-            DiscardedExpressionContext.ExpressionStatement,
-            "used as an off handle",
-            null,
-            subscriptionRoot)
+    func BeginOff(expression: Expression, subscriptionRoot: Type): ExpressionStatementState {
+        return new ExpressionStatementState(null, null, null, null, null, expression, DiscardedExpressionContext.ExpressionStatement, "used as an off handle", null, subscriptionRoot)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this statement is finished. Every phase
     // either decides something and advances, or emits exactly one request; the walk never advances
     // past a point whose answer it has not been given.
-    public func NextStep(state: ExpressionStatementState): ExpressionStatementRequest? {
+    func NextStep(state: ExpressionStatementState): ExpressionStatementRequest? {
         while state.Phase != 99 {
             request := Advance(state)
             if request != null {
@@ -393,7 +300,7 @@ public class AnalyzerExpressionStatements {
     // THE ANSWER TO THE OUTSTANDING STEP. Kind 1 answers a type — the discard walk's escape choice
     // and the assert walk's escape choice both read it. Kind 8 answers the recorded callee type,
     // which selects the must-use reason. Kinds 4, 5 and 6 answer nothing.
-    public func Supply(state: ExpressionStatementState, answer: TypeInfo?) {
+    func Supply(state: ExpressionStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -456,9 +363,7 @@ public class AnalyzerExpressionStatements {
     // read, and a value refused as either is not ALSO told it is not throwable: one bad operand is
     // one diagnostic. The throwability question used to be a THIRD phase and a driver round trip; it
     // is a direct call on the owner now, so the walk suspends once instead of twice.
-    func AdvanceThrow(
-        state: ExpressionStatementState,
-        expression: Expression): ExpressionStatementRequest? {
+    func AdvanceThrow(state: ExpressionStatementState, expression: Expression): ExpressionStatementRequest? {
         phase := state.Phase
         if phase == 30 {
             state.Phase = 31
@@ -473,9 +378,7 @@ public class AnalyzerExpressionStatements {
                 return null
             }
 
-            if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-                expression,
-                "thrown") {
+            if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression, "thrown") {
                 state.EscapeFired = true
                 return null
             }
@@ -507,14 +410,7 @@ public class AnalyzerExpressionStatements {
     // the value rather than on the keyword.
     func ReportNonThrowableThrowOperand(expression: Expression, thrownType: TypeInfo) {
         span := spansValue.GetExpressionDiagnosticSpan(expression)
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            "Throw expressions must be assignable to System.Exception, but this expression is '"
-                + TypeText(thrownType) + "'",
-            span.Line,
-            span.Column,
-            "Throw an Exception-derived value, or wrap this value in an exception type.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "Throw expressions must be assignable to System.Exception, but this expression is '" + TypeText(thrownType) + "'", span.Line, span.Column, "Throw an Exception-derived value, or wrap this value in an exception type.", span.Length)
     }
 
     // ── THE `print` WALK ───────────────────────────────────────────────────────────────────────
@@ -524,9 +420,7 @@ public class AnalyzerExpressionStatements {
     // member of this family and of the loop family stops at the first one that fires. `print` did
     // not, and the difference is a second squiggle on a value that is both a row view by type and a
     // column read by syntax.
-    func AdvancePrint(
-        state: ExpressionStatementState,
-        expression: Expression): ExpressionStatementRequest? {
+    func AdvancePrint(state: ExpressionStatementState, expression: Expression): ExpressionStatementRequest? {
         phase := state.Phase
         if phase == 40 {
             state.Phase = 41
@@ -536,13 +430,8 @@ public class AnalyzerExpressionStatements {
 
         if phase == 41 {
             state.Phase = 99
-            rowFired := soaEscapeValue.ReportSoaRowEscapeIfNeeded(
-                expression,
-                state.AnsweredType,
-                "printed")
-            columnFired := soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-                expression,
-                "printed")
+            rowFired := soaEscapeValue.ReportSoaRowEscapeIfNeeded(expression, state.AnsweredType, "printed")
+            columnFired := soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression, "printed")
             state.EscapeFired = rowFired || columnFired
             return null
         }
@@ -559,9 +448,7 @@ public class AnalyzerExpressionStatements {
     // direct column read — unlike `print`, and like `throw` — and a handle refused as either is not
     // told it is not a subscription. An `unknown` handle is silent because an earlier error already
     // explained the problem, and only a handle that is none of those four things reaches NL318.
-    func AdvanceOff(
-        state: ExpressionStatementState,
-        expression: Expression): ExpressionStatementRequest? {
+    func AdvanceOff(state: ExpressionStatementState, expression: Expression): ExpressionStatementRequest? {
         phase := state.Phase
         if phase == 50 {
             state.Phase = 51
@@ -577,9 +464,7 @@ public class AnalyzerExpressionStatements {
                 return null
             }
 
-            if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-                expression,
-                state.SoaUsage) {
+            if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression, state.SoaUsage) {
                 state.EscapeFired = true
                 return null
             }
@@ -624,20 +509,12 @@ public class AnalyzerExpressionStatements {
     // on the `off` keyword, and the suggestion shows the two-step shape that works.
     func ReportInvalidOffHandle(expression: Expression) {
         span := spansValue.GetExpressionDiagnosticSpan(expression)
-        diagnosticsValue.Report(
-            ErrorCode.InvalidEventSubscription,
-            "`off` expects a subscription returned by `on`",
-            span.Line,
-            span.Column,
-            "Capture the subscription first (`sub := on <object>.<Event> handler`), then detach it with `off sub`.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidEventSubscription, "`off` expects a subscription returned by `on`", span.Line, span.Column, "Capture the subscription first (`sub := on <object>.<Event> handler`), then detach it with `off sub`.", span.Length)
     }
 
     // ── THE DISCARD WALK ───────────────────────────────────────────────────────────────────────
 
-    func AdvanceDiscarded(
-        state: ExpressionStatementState,
-        expression: Expression): ExpressionStatementRequest? {
+    func AdvanceDiscarded(state: ExpressionStatementState, expression: Expression): ExpressionStatementRequest? {
         phase := state.Phase
         if phase == 0 {
             return AdvanceDiscardedExpression(state, expression)
@@ -661,9 +538,7 @@ public class AnalyzerExpressionStatements {
 
     // PHASE 0 — the guard and the one step everything else depends on. The error count is captured
     // BEFORE the expression walk runs, so that anything the walk itself reports silences the rest.
-    func AdvanceDiscardedExpression(
-        state: ExpressionStatementState,
-        expression: Expression): ExpressionStatementRequest? {
+    func AdvanceDiscardedExpression(state: ExpressionStatementState, expression: Expression): ExpressionStatementRequest? {
         state.ErrorsBefore = diagnosticsValue.ErrorCount
         state.Phase = 1
         state.Pending = 1
@@ -680,9 +555,7 @@ public class AnalyzerExpressionStatements {
     // NOT fire, because that branch ends the walk itself. So a value the walk already rejected as a
     // row view is never also offered to the column probe — which is what
     // `ReportSoaRowEscapeIfNeeded`'s returned `true` meant at the C# call site.
-    func AdvanceDiscardedEscapes(
-        state: ExpressionStatementState,
-        expression: Expression): ExpressionStatementRequest? {
+    func AdvanceDiscardedEscapes(state: ExpressionStatementState, expression: Expression): ExpressionStatementRequest? {
         if AnalyzerParserErrorPlaceholders.ContainsInExpression(expression) {
             state.Phase = 99
             return null
@@ -703,17 +576,13 @@ public class AnalyzerExpressionStatements {
         }
 
         state.Phase = 2
-        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-            expression,
-            state.SoaUsage)
+        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression, state.SoaUsage)
         return null
     }
 
     // PHASE 2 — the validity decision. An expression that cannot stand as a statement reports the
     // form its context selects; anything else falls through to the must-use question.
-    func AdvanceDiscardedValidity(
-        state: ExpressionStatementState,
-        expression: Expression): ExpressionStatementRequest? {
+    func AdvanceDiscardedValidity(state: ExpressionStatementState, expression: Expression): ExpressionStatementRequest? {
         if state.EscapeFired {
             state.Phase = 99
             return null
@@ -779,9 +648,7 @@ public class AnalyzerExpressionStatements {
     // condition, and then both again for the message when there is one, in exactly that order, and
     // neither answer is read. The phases survive the reports becoming direct calls because the
     // EXPRESSION steps between them are still suspensions.
-    func AdvanceAssert(
-        state: ExpressionStatementState,
-        assertStatement: AssertStatement): ExpressionStatementRequest? {
+    func AdvanceAssert(state: ExpressionStatementState, assertStatement: AssertStatement): ExpressionStatementRequest? {
         phase := state.Phase
         if phase == 10 {
             state.Phase = 11
@@ -801,9 +668,7 @@ public class AnalyzerExpressionStatements {
 
         if phase == 12 {
             state.Phase = 13
-            soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-                assertStatement.Condition,
-                "asserted")
+            soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assertStatement.Condition, "asserted")
             return null
         }
 
@@ -834,9 +699,7 @@ public class AnalyzerExpressionStatements {
             state.Phase = 99
             message := assertStatement.Message
             if message != null {
-                soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-                    message,
-                    "used as an assertion message")
+                soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(message, "used as an assertion message")
             }
 
             return null
@@ -848,9 +711,7 @@ public class AnalyzerExpressionStatements {
 
     // ── THE ASSERT-THROWS WALK ─────────────────────────────────────────────────────────────────
 
-    func AdvanceAssertThrows(
-        state: ExpressionStatementState,
-        assertThrows: AssertThrowsStatement): ExpressionStatementRequest? {
+    func AdvanceAssertThrows(state: ExpressionStatementState, assertThrows: AssertThrowsStatement): ExpressionStatementRequest? {
         phase := state.Phase
         if phase == 20 {
             state.ExceptionType = typeResolverValue.ResolveDeclaredType(assertThrows.ExceptionType)
@@ -894,7 +755,7 @@ public class AnalyzerExpressionStatements {
     // Only the expressions that DO something: an assignment, a call, a construction, an event
     // subscription, an await, and the four increment/decrement forms. The three transparent wrappers
     // — parentheses, `checked` and `unchecked` — and an `alloc` are answered by what they wrap.
-    public static func IsValidExpressionStatement(expression: Expression): bool {
+    static func IsValidExpressionStatement(expression: Expression): bool {
         assignment := expression as AssignmentExpression
         if assignment != null {
             return true
@@ -928,10 +789,7 @@ public class AnalyzerExpressionStatements {
         unary := expression as UnaryExpression
         if unary != null {
             unaryOperator := unary.Operator
-            return unaryOperator == UnaryOperator.PreIncrement
-                || unaryOperator == UnaryOperator.PreDecrement
-                || unaryOperator == UnaryOperator.PostIncrement
-                || unaryOperator == UnaryOperator.PostDecrement
+            return unaryOperator == UnaryOperator.PreIncrement || unaryOperator == UnaryOperator.PreDecrement || unaryOperator == UnaryOperator.PostIncrement || unaryOperator == UnaryOperator.PostDecrement
         }
 
         parenthesized := expression as ParenthesizedExpression
@@ -957,7 +815,7 @@ public class AnalyzerExpressionStatements {
     // The underlying call when the statement is a BARE call whose result would be silently dropped.
     // An explicit discard (`_ = call()`) is an assignment and never reaches here, and any other use
     // of the value is not a statement at all.
-    public static func UnwrapMustUseCandidate(expression: Expression): CallExpression? {
+    static func UnwrapMustUseCandidate(expression: Expression): CallExpression? {
         call := expression as CallExpression
         if call != null {
             return call
@@ -986,12 +844,11 @@ public class AnalyzerExpressionStatements {
     // a single reflected method whose CLR attributes name it; and a reflected method group whose
     // methods ALL carry it. A group with a single non-must-use member says nothing, because calling
     // it might have resolved to that member.
-    public static func MustUseReason(calleeType: TypeInfo, call: CallExpression): string? {
+    static func MustUseReason(calleeType: TypeInfo, call: CallExpression): string? {
         functionType := calleeType as FunctionTypeInfo
         if functionType != null {
             if functionType.HasMustUseAttribute {
-                return "'" + AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
-                    + "' is marked [MustUse]"
+                return "'" + AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call) + "' is marked [MustUse]"
             }
 
             return null
@@ -1071,7 +928,7 @@ public class AnalyzerExpressionStatements {
     // The CLR side of the same question, read off the reflected method's own attribute data. Both
     // the short name and the full name are offered to the shared name test, because a method
     // compiled against a differently-namespaced `MustUse` still means it.
-    public static func HasMustUseAttribute(method: MethodInfo): bool {
+    static func HasMustUseAttribute(method: MethodInfo): bool {
         attributes := method.GetCustomAttributesData()
         count := SequenceCount(attributes)
         index := 0
@@ -1112,13 +969,7 @@ public class AnalyzerExpressionStatements {
         }
 
         span := spansValue.GetCallDiagnosticSpan(call, spanName)
-        diagnosticsValue.Report(
-            ErrorCode.DiscardedMustUseResult,
-            "You're discarding " + subject + ", but " + reason + " — its result must be used",
-            span.Line,
-            span.Column,
-            "Use the result (assign it, return it, or pass it to a call), or discard it explicitly with `_ = ...`.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.DiscardedMustUseResult, "You're discarding " + subject + ", but " + reason + " — its result must be used", span.Line, span.Column, "Use the result (assign it, return it, or pass it to a call), or discard it explicitly with `_ = ...`.", span.Length)
     }
 
     // ── THE TWO NL313 FORMS ────────────────────────────────────────────────────────────────────
@@ -1139,23 +990,11 @@ public class AnalyzerExpressionStatements {
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.InvalidExpressionStatement(
-                currentFilePath,
-                span.Line,
-                span.Column,
-                sourceSnippet,
-                span.Length,
-                description))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.InvalidExpressionStatement(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, description))
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.InvalidExpressionStatement,
-            "This expression statement has no effect",
-            span.Line,
-            span.Column,
-            "Use the value by assigning it, printing it, passing it to a call, or remove the expression. If you meant to call a method, add parentheses with the required arguments.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidExpressionStatement, "This expression statement has no effect", span.Line, span.Column, "Use the value by assigning it, printing it, passing it to a call, or remove the expression. If you meant to call a method, add parentheses with the required arguments.", span.Length)
     }
 
     func ReportInvalidForIteratorExpression(expression: Expression) {
@@ -1165,37 +1004,18 @@ public class AnalyzerExpressionStatements {
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.InvalidForIteratorExpression(
-                currentFilePath,
-                span.Line,
-                span.Column,
-                sourceSnippet,
-                span.Length,
-                description))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.InvalidForIteratorExpression(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, description))
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.InvalidExpressionStatement,
-            "This for-loop iterator has no effect",
-            span.Line,
-            span.Column,
-            "Use an assignment, call, increment, decrement, await expression, or object construction in the iterator clause, or remove the iterator.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidExpressionStatement, "This for-loop iterator has no effect", span.Line, span.Column, "Use an assignment, call, increment, decrement, await expression, or object construction in the iterator clause, or remove the iterator.", span.Length)
     }
 
     // ── NL202, THE ASSERT-THROWS TYPE ──────────────────────────────────────────────────────────
 
     func ReportNonThrowableAssertThrowsType(typeReference: TypeReference, exceptionType: TypeInfo) {
         span := TypeReferenceFacts.GetStartSpan(typeReference)
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            "Assert throws type must be assignable to System.Exception, but this type is '"
-                + TypeText(exceptionType) + "'",
-            span.StartLine,
-            span.StartColumn,
-            "Assert an Exception-derived type, or use a broader exception type such as Exception.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "Assert throws type must be assignable to System.Exception, but this type is '" + TypeText(exceptionType) + "'", span.StartLine, span.StartColumn, "Assert an Exception-derived type, or use a broader exception type such as Exception.", span.Length)
     }
 
     // ── HOW AN EXPRESSION IS NAMED IN PROSE ────────────────────────────────────────────────────
@@ -1203,7 +1023,7 @@ public class AnalyzerExpressionStatements {
     // The short human name a diagnostic uses for an expression. This is the family's, but two
     // attribute/table reporters that stay in `Analyzer.cs` still read it, so it is public and they
     // route here rather than keeping a second copy.
-    public static func DescribeExpression(expression: Expression): string {
+    static func DescribeExpression(expression: Expression): string {
         identifier := expression as IdentifierExpression
         if identifier != null {
             return identifier.Name

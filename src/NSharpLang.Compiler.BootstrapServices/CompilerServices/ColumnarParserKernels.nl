@@ -3592,7 +3592,11 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
         argStack.Values[st.ArgStackTop] = firstArg
         st.ArgStackTop = st.ArgStackTop + 1
 
-        while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+        // While a `>` is owed from a split `>>` (st.SplitGreaterDepth > 0), the owed `>` is the
+        // effective current token — the raw cursor already sits PAST the `>>`, so reading it here
+        // would let a following `,` (e.g. a parameter separator after `Dict<a, Dict<b, c>>`) be
+        // consumed as another type argument. The owed close must reach ConsumeGreaterForTypeNodeCore.
+        while st.SplitGreaterDepth == 0 && st.Pos < count && tokens.Kinds[st.Pos] == 134 {
             st.Pos = st.Pos + 1
             nextArg := ParseUnionTypeReferenceNodeCore(tokens, count, st, argStack, nodes, outChildIndices, depth + 1)
             if nextArg < 0 {
@@ -3630,7 +3634,11 @@ func ParsePostfixTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st:
         return -1
     }
 
-    matched := true
+    // A base type whose last generic close split a `>>` still owes the enclosing generic a `>` —
+    // the owed `>` is the effective current token, so no suffix can follow HERE. Reading the raw
+    // cursor would bind a `?` after `Dict<a, List<b>>?` to the INNER type (the recovery parser had
+    // the same desync). The suffix belongs to the ENCLOSING type after its ConsumeGreater.
+    matched := st.SplitGreaterDepth == 0
     while matched {
         pos := st.Pos
 
@@ -3675,7 +3683,9 @@ func ParseUnionTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: P
         return -1
     }
 
-    if !(st.Pos < count && tokens.Kinds[st.Pos] == 108) {
+    // Same owed-`>` discipline as the postfix suffixes: while st.SplitGreaterDepth > 0 the effective
+    // current token is the owed `>`, never a union `|`.
+    if !(st.SplitGreaterDepth == 0 && st.Pos < count && tokens.Kinds[st.Pos] == 108) {
         return firstArm
     }
 
@@ -3683,7 +3693,7 @@ func ParseUnionTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: P
     argStack.Values[st.ArgStackTop] = firstArm
     st.ArgStackTop = st.ArgStackTop + 1
 
-    while st.Pos < count && tokens.Kinds[st.Pos] == 108 {
+    while st.SplitGreaterDepth == 0 && st.Pos < count && tokens.Kinds[st.Pos] == 108 {
         st.Pos = st.Pos + 1
         nextArm := ParsePostfixTypeReferenceNodeCore(tokens, count, st, argStack, nodes, outChildIndices, depth)
         if nextArm < 0 {
@@ -4996,7 +5006,9 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             argStack.Values[st.ArgStackTop] = firstTypeArg
             st.ArgStackTop = st.ArgStackTop + 1
 
-            while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+            // Owed-`>` discipline (see the type kernel's argument loop): a split `>>` close must not
+            // let the raw cursor's `,` read as another type argument.
+            while st.SplitGreaterDepth == 0 && st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                 st.Pos = st.Pos + 1
                 nextTypeArg := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
                 if nextTypeArg < 0 {
@@ -7052,13 +7064,7 @@ func ColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[],
 // metadata names (`Outer+Middle`); the assembly owner uses them only to select the already-defined
 // enclosing TypeBuilder.
 func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outStructVisibilityFlags: int[], outEnclosingTypeNames: string[], outputOffset: int = 0): int {
-    if source == null || tokenKinds == null || tokenStarts == null
-        || tokenValueLengths == null || outStructIndices == null
-        || outStructReferenceFlags == null || outStructRecordFlags == null
-        || outStructVisibilityFlags == null || outEnclosingTypeNames == null
-        || count < 0 || outputOffset < 0
-        || count > tokenKinds.Length || count > tokenStarts.Length
-        || count > tokenValueLengths.Length {
+    if source == null || tokenKinds == null || tokenStarts == null || tokenValueLengths == null || outStructIndices == null || outStructReferenceFlags == null || outStructRecordFlags == null || outStructVisibilityFlags == null || outEnclosingTypeNames == null || count < 0 || outputOffset < 0 || count > tokenKinds.Length || count > tokenStarts.Length || count > tokenValueLengths.Length {
         return -1
     }
 
@@ -7075,19 +7081,14 @@ func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[
     index := 0
     while index < count {
         kind := tokenKinds[index]
-        declarationScope := bracketDepth == 0 && parenDepth == 0
-            && (braceDepth == 0
-                || ownerCount > 0
-                    && braceDepth == ownerBodyDepths[ownerCount - 1])
-        if declarationScope && IsTopLevelTypeDeclarationKind(kind)
-            && !IsRecordStructTailToken(tokenKinds, index) {
+        declarationScope := bracketDepth == 0 && parenDepth == 0 && (braceDepth == 0 || ownerCount > 0 && braceDepth == ownerBodyDepths[ownerCount - 1])
+        if declarationScope && IsTopLevelTypeDeclarationKind(kind) && !IsRecordStructTailToken(tokenKinds, index) {
             nameIndex := index + 1
             if kind == 13 && nameIndex < count && tokenKinds[nameIndex] == 9 {
                 nameIndex = nameIndex + 1
             }
             if nameIndex < count && tokenKinds[nameIndex] == 0 {
-                declarationName := source.Substring(
-                    tokenStarts[nameIndex], tokenValueLengths[nameIndex])
+                declarationName := source.Substring(tokenStarts[nameIndex], tokenValueLengths[nameIndex])
                 enclosingName := ""
                 if ownerCount > 0 {
                     enclosingName = ownerNames[ownerCount - 1]
@@ -7099,11 +7100,7 @@ func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[
 
                 if ownerCount > 0 && (kind == 8 || kind == 9 || kind == 13) {
                     outputIndex := outputOffset + outputCount
-                    if outputIndex >= outStructIndices.Length
-                        || outputIndex >= outStructReferenceFlags.Length
-                        || outputIndex >= outStructRecordFlags.Length
-                        || outputIndex >= outStructVisibilityFlags.Length
-                        || outputIndex >= outEnclosingTypeNames.Length {
+                    if outputIndex >= outStructIndices.Length || outputIndex >= outStructReferenceFlags.Length || outputIndex >= outStructRecordFlags.Length || outputIndex >= outStructVisibilityFlags.Length || outputIndex >= outEnclosingTypeNames.Length {
                         return -1
                     }
                     outStructIndices[outputIndex] = index
@@ -7116,17 +7113,12 @@ func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[
                     outStructRecordFlags[outputIndex] = isRecord ? 1 : 0
                     visibilityFlags := 0
                     modifierIndex := index - 1
-                    if kind == 9 && modifierIndex >= 0
-                        && tokenKinds[modifierIndex] == 78 {
+                    if kind == 9 && modifierIndex >= 0 && tokenKinds[modifierIndex] == 78 {
                         modifierIndex = modifierIndex - 1
                     }
-                    while modifierIndex >= 0
-                        && ParserDeclarationMemberModifierKind(
-                            tokenKinds[modifierIndex]) != 0 {
+                    while modifierIndex >= 0 && ParserDeclarationMemberModifierKind(tokenKinds[modifierIndex]) != 0 {
                         modifierFlag := ModifierFlag(tokenKinds[modifierIndex])
-                        if modifierFlag == 1 || modifierFlag == 2
-                            || modifierFlag == 4 || modifierFlag == 8
-                            || modifierFlag == 32768 {
+                        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 32768 {
                             visibilityFlags = visibilityFlags | modifierFlag
                         }
                         modifierIndex = modifierIndex - 1
@@ -7140,8 +7132,7 @@ func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[
 
         if kind == 129 {
             braceDepth = braceDepth + 1
-            if pendingOwnerName.Length > 0
-                && pendingOwnerDepth == braceDepth - 1 {
+            if pendingOwnerName.Length > 0 && pendingOwnerDepth == braceDepth - 1 {
                 ownerNames[ownerCount] = pendingOwnerName
                 ownerBodyDepths[ownerCount] = braceDepth
                 ownerCount = ownerCount + 1
@@ -7153,8 +7144,7 @@ func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[
             if braceDepth < 0 {
                 braceDepth = 0
             }
-            while ownerCount > 0
-                && braceDepth < ownerBodyDepths[ownerCount - 1] {
+            while ownerCount > 0 && braceDepth < ownerBodyDepths[ownerCount - 1] {
                 ownerCount = ownerCount - 1
             }
         } else if kind == 131 {
@@ -7175,8 +7165,7 @@ func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[
         index = index + 1
     }
 
-    if braceDepth != 0 || bracketDepth != 0 || parenDepth != 0
-        || ownerCount != 0 || pendingOwnerName.Length > 0 {
+    if braceDepth != 0 || bracketDepth != 0 || parenDepth != 0 || ownerCount != 0 || pendingOwnerName.Length > 0 {
         return -1
     }
     return outputCount
@@ -10286,20 +10275,14 @@ func FunctionSignatureDefaultDottedNameSupported(tokens: ParserTokenTable, start
     return !expectIdentifier && identifierCount >= 2 && dotCount >= 1
 }
 
-func FunctionSignatureDefaultDottedNameText(
-    source: string,
-    tokens: ParserTokenTable,
-    startIndex: int,
-    endIndex: int): string {
-    if !FunctionSignatureDefaultDottedNameSupported(
-            tokens, startIndex, endIndex) {
+func FunctionSignatureDefaultDottedNameText(source: string, tokens: ParserTokenTable, startIndex: int, endIndex: int): string {
+    if !FunctionSignatureDefaultDottedNameSupported(tokens, startIndex, endIndex) {
         return ""
     }
     builder := new StringBuilder()
     index := startIndex
     while index < endIndex {
-        builder.Append(source.Substring(
-            tokens.Starts[index], tokens.ValueLengths[index]))
+        builder.Append(source.Substring(tokens.Starts[index], tokens.ValueLengths[index]))
         index = index + 1
     }
     return builder.ToString()
@@ -10463,12 +10446,9 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
 
             outputs.ParamDefaultKinds[paramCount] = defaultKind
             if defaultKind == FunctionSignatureDefaultMemberAccessKind() {
-                outputs.ParamDefaultTexts[paramCount] =
-                    FunctionSignatureDefaultDottedNameText(
-                        source, tokens, defaultTokenStart, pos)
+                outputs.ParamDefaultTexts[paramCount] = FunctionSignatureDefaultDottedNameText(source, tokens, defaultTokenStart, pos)
             } else {
-                outputs.ParamDefaultTexts[paramCount] =
-                    FunctionSignatureSpanText(source, defaultStart, defaultLength)
+                outputs.ParamDefaultTexts[paramCount] = FunctionSignatureSpanText(source, defaultStart, defaultLength)
             }
         } else if foundDefault == 1 {
             return -1
@@ -11312,12 +11292,9 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
 
             outputs.ArgKinds[paramCount] = defaultKind
             if defaultKind == FunctionSignatureDefaultMemberAccessKind() {
-                outputs.ArgTexts[paramCount] =
-                    FunctionSignatureDefaultDottedNameText(
-                        source, tokens, defaultTokenStart, pos)
+                outputs.ArgTexts[paramCount] = FunctionSignatureDefaultDottedNameText(source, tokens, defaultTokenStart, pos)
             } else {
-                outputs.ArgTexts[paramCount] =
-                    FunctionSignatureSpanText(source, defaultStart, defaultLength)
+                outputs.ArgTexts[paramCount] = FunctionSignatureSpanText(source, defaultStart, defaultLength)
             }
         } else if foundDefault == 1 {
             return -1
@@ -12032,10 +12009,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
         signatureOutputs.ArgKinds[p] = primaryParameters.DefaultKinds[p]
         if primaryParameters.DefaultKinds[p] >= 0 {
             if primaryParameters.DefaultKinds[p] == ParserDeclarationDefaultMemberAccessKind() {
-                signatureOutputs.ArgTexts[p] = ParserDeclarationCanonicalDottedNameText(
-                    source,
-                    primaryParameters.DefaultStarts[p],
-                    primaryParameters.DefaultLengths[p])
+                signatureOutputs.ArgTexts[p] = ParserDeclarationCanonicalDottedNameText(source, primaryParameters.DefaultStarts[p], primaryParameters.DefaultLengths[p])
             } else {
                 signatureOutputs.ArgTexts[p] = ParserDeclarationSpanText(source, primaryParameters.DefaultStarts[p], primaryParameters.DefaultLengths[p])
             }
@@ -12400,8 +12374,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
     // Namespace qualification belongs to ColumnarBindingScopeFacts, which has the file identity;
     // returning a namespace-qualified string here would force the mechanical C# bridge to strip
     // semantic identity back apart.
-    structName := ParserDeclarationSpanText(
-        source, result.Values[0], result.Values[1])
+    structName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
     if structName == "" {
         return -1
     }

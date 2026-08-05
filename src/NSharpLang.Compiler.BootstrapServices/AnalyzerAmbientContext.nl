@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import NSharpLang.Compiler.Ast
 
+
 // A SNAPSHOT OF THE WHOLE AMBIENT CONTEXT, HELD BY THE CALLER FOR THE LENGTH OF ONE NESTED WALK.
 //
 // The frame is handed BACK to the C# caller rather than pushed onto a stack inside the context, and
@@ -12,26 +13,17 @@ import NSharpLang.Compiler.Ast
 // `Exit`, so a throw would leave a stale frame on it and the NEXT `Exit` would restore the wrong
 // one; worse, it would quietly make six idioms exception-safe that are not. A frame in the caller's
 // own local is abandoned by a throw exactly as the C# locals were.
-public class AmbientContextFrame {
+class AmbientContextFrame {
+    ReturnType: TypeInfo?
+    Function: FunctionDeclaration?
+    ReturnTypeWasOmitted: bool
+    IsAsync: bool
+    InLoop: bool
+    FinallyDepth: int
+    BreakTargetFinallyDepth: int
+    ContinueTargetFinallyDepth: int
 
-    public ReturnType: TypeInfo?
-    public Function: FunctionDeclaration?
-    public ReturnTypeWasOmitted: bool
-    public IsAsync: bool
-    public InLoop: bool
-    public FinallyDepth: int
-    public BreakTargetFinallyDepth: int
-    public ContinueTargetFinallyDepth: int
-
-    constructor(
-        returnType: TypeInfo?,
-        declaration: FunctionDeclaration?,
-        returnTypeWasOmitted: bool,
-        isAsync: bool,
-        inLoop: bool,
-        finallyDepth: int,
-        breakTargetFinallyDepth: int,
-        continueTargetFinallyDepth: int) {
+    constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int) {
         ReturnType = returnType
         Function = declaration
         ReturnTypeWasOmitted = returnTypeWasOmitted
@@ -62,11 +54,10 @@ public class AmbientContextFrame {
 //      expected type for the driver to install: this owner IS the ambient context, so it sets its own
 //      target-typing slot before emitting the request and restores it when the answer arrives — the
 //      transition never leaves N#.
-public class ReturnStatementRequest {
-
-    public Kind: int
-    public Node: Expression?
-    public Text: string?
+class ReturnStatementRequest {
+    Kind: int
+    Node: Expression?
+    Text: string?
 
     constructor(kind: int) {
         Kind = kind
@@ -93,20 +84,19 @@ public class ReturnStatementRequest {
 // boundary opens in one phase and closes in the next. A throw inside the expression walk abandons it
 // exactly as the C# local was abandoned: `Supply` is never reached, so the slot is not restored, and
 // the analyzer unwinds out of the whole statement either way.
-public class ReturnStatementState {
-
+class ReturnStatementState {
     statementValue: ReturnStatement
     assignabilityValue: AnalyzerAssignability
 
     Statement: ReturnStatement => statementValue
     Assignability: AnalyzerAssignability => assignabilityValue
 
-    public Phase: int
-    public Pending: int
-    public ValueNode: Expression?
-    public ExpectedReturnValueType: TypeInfo
-    public ReturnedType: TypeInfo
-    public SavedExpectedType: TypeInfo?
+    Phase: int
+    Pending: int
+    ValueNode: Expression?
+    ExpectedReturnValueType: TypeInfo
+    ReturnedType: TypeInfo
+    SavedExpectedType: TypeInfo?
 
     constructor(statement: ReturnStatement, assignability: AnalyzerAssignability) {
         statementValue = statement
@@ -156,8 +146,7 @@ public class ReturnStatementState {
 // still chooses to enter a loop, a nested body, a `finally` or a target type; the context only
 // records that it happened, hands back the frame to undo it, and answers questions about where the
 // walk now is.
-public class AnalyzerAmbientContext {
-
+class AnalyzerAmbientContext {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     soaEscapeValue: AnalyzerSoaEscape
@@ -227,10 +216,7 @@ public class AnalyzerAmbientContext {
     // nested walk.
     CurrentExpectedType: TypeInfo? => currentExpectedTypeValue
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        soaEscape: AnalyzerSoaEscape) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
         soaEscapeValue = soaEscape
@@ -252,7 +238,7 @@ public class AnalyzerAmbientContext {
     // its `Analyze` prologue and left the target-typing slot alone, and that is preserved verbatim: it
     // is only ever written inside a matched save/restore pair, so it is already `null` at every point
     // a new analysis can begin, and resetting it would be a write this family never performed.
-    public func BeginAnalysis() {
+    func BeginAnalysis() {
         currentReturnTypeValue = null
         currentFunctionValue = null
         returnTypeWasOmittedValue = false
@@ -266,24 +252,14 @@ public class AnalyzerAmbientContext {
     // Everything the context holds, as one value. Every `Enter` takes one of these first; each
     // matching `Exit` restores exactly the subset ITS boundary is responsible for, and the doc on
     // each pair names that subset.
-    public func Snapshot(): AmbientContextFrame {
-        return new AmbientContextFrame(
-            currentReturnTypeValue,
-            currentFunctionValue,
-            returnTypeWasOmittedValue,
-            isAsyncValue,
-            inLoopValue,
-            finallyDepthValue,
-            breakTargetFinallyDepthValue,
-            continueTargetFinallyDepthValue)
+    func Snapshot(): AmbientContextFrame {
+        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue)
     }
 
     // A TOP-LEVEL FUNCTION DECLARATION'S BODY. Sets the whole function family and leaves the
     // control-flow family alone: a declaration is never analysed from inside a loop or a `finally`,
     // so there is nothing there to reset.
-    public func EnterFunctionDeclaration(
-        declaration: FunctionDeclaration,
-        returnType: TypeInfo): AmbientContextFrame {
+    func EnterFunctionDeclaration(declaration: FunctionDeclaration, returnType: TypeInfo): AmbientContextFrame {
         saved := Snapshot()
         currentReturnTypeValue = returnType
         currentFunctionValue = declaration
@@ -296,7 +272,7 @@ public class AnalyzerAmbientContext {
     // `null` rather than to the saved one. That ASYMMETRY is the original behaviour and is preserved
     // deliberately: leaving a declaration leaves "inside a function" entirely, so a stray `return`
     // between declarations is reported as having no function to return from.
-    public func ExitFunctionDeclaration(saved: AmbientContextFrame) {
+    func ExitFunctionDeclaration(saved: AmbientContextFrame) {
         currentReturnTypeValue = null
         currentFunctionValue = saved.Function
         returnTypeWasOmittedValue = saved.ReturnTypeWasOmitted
@@ -307,13 +283,13 @@ public class AnalyzerAmbientContext {
     // NOTHING else — not the enclosing function's identity, which is what a diagnostic still names,
     // and not the omitted flag, because an accessor's type is always written. The saved value is a
     // bare type rather than a frame: the C# it replaces held exactly one local too.
-    public func EnterAccessorReturnType(returnType: TypeInfo): TypeInfo? {
+    func EnterAccessorReturnType(returnType: TypeInfo): TypeInfo? {
         saved := currentReturnTypeValue
         currentReturnTypeValue = returnType
         return saved
     }
 
-    public func ExitAccessorReturnType(saved: TypeInfo?) {
+    func ExitAccessorReturnType(saved: TypeInfo?) {
         currentReturnTypeValue = saved
     }
 
@@ -322,9 +298,7 @@ public class AnalyzerAmbientContext {
     // return type of `false`) and ZEROES the control-flow family, which is the whole point: a
     // `return` inside a nested body exits the NESTED body, not any `finally` the declaration happens
     // to sit inside, and `break`/`continue` cannot target a loop in the enclosing method at all.
-    public func EnterNestedBody(
-        declaration: FunctionDeclaration?,
-        returnType: TypeInfo?): AmbientContextFrame {
+    func EnterNestedBody(declaration: FunctionDeclaration?, returnType: TypeInfo?): AmbientContextFrame {
         saved := Snapshot()
         currentReturnTypeValue = returnType
         currentFunctionValue = declaration
@@ -338,7 +312,7 @@ public class AnalyzerAmbientContext {
     }
 
     // Restores ALL EIGHT. A nested body is the only boundary that saved all of them.
-    public func ExitNestedBody(saved: AmbientContextFrame) {
+    func ExitNestedBody(saved: AmbientContextFrame) {
         currentReturnTypeValue = saved.ReturnType
         currentFunctionValue = saved.Function
         returnTypeWasOmittedValue = saved.ReturnTypeWasOmitted
@@ -352,7 +326,7 @@ public class AnalyzerAmbientContext {
     // A LOOP BODY — `while`, `for`, `foreach` or `await foreach`. Opens the loop and records the
     // CURRENT finally depth as both branch targets: a `break` or `continue` written deeper than this
     // is inside a `finally` the branch would have to leave.
-    public func EnterLoop(): AmbientContextFrame {
+    func EnterLoop(): AmbientContextFrame {
         saved := Snapshot()
         inLoopValue = true
         breakTargetFinallyDepthValue = finallyDepthValue
@@ -362,7 +336,7 @@ public class AnalyzerAmbientContext {
 
     // Restores the loop flag and BOTH branch-target depths — never the finally depth itself, which
     // a loop body cannot change on its own.
-    public func ExitLoop(saved: AmbientContextFrame) {
+    func ExitLoop(saved: AmbientContextFrame) {
         inLoopValue = saved.InLoop
         breakTargetFinallyDepthValue = saved.BreakTargetFinallyDepth
         continueTargetFinallyDepthValue = saved.ContinueTargetFinallyDepth
@@ -372,22 +346,22 @@ public class AnalyzerAmbientContext {
     // per switch — so the break target's depth becomes the switch's entry depth. `continue` still
     // targets the enclosing loop, so its depth is untouched, and the loop flag is untouched too: a
     // switch does not make `continue` legal where it was not.
-    public func EnterSwitch(): int {
+    func EnterSwitch(): int {
         saved := breakTargetFinallyDepthValue
         breakTargetFinallyDepthValue = finallyDepthValue
         return saved
     }
 
-    public func ExitSwitch(saved: int) {
+    func ExitSwitch(saved: int) {
         breakTargetFinallyDepthValue = saved
     }
 
     // A `finally` BLOCK. Finallys nest, so this is a counter rather than a flag.
-    public func EnterFinally() {
+    func EnterFinally() {
         finallyDepthValue = finallyDepthValue + 1
     }
 
-    public func ExitFinally() {
+    func ExitFinally() {
         finallyDepthValue = finallyDepthValue - 1
     }
 
@@ -396,7 +370,7 @@ public class AnalyzerAmbientContext {
     // one of these; THREE of them restore from a `finally` and thirteen restore on the straight line,
     // and that difference is the caller's to keep — the frame lives in the caller's own local, so the
     // exception path is whatever the caller writes, unchanged by construction.
-    public func EnterExpectedType(expected: TypeInfo?): TypeInfo? {
+    func EnterExpectedType(expected: TypeInfo?): TypeInfo? {
         saved := currentExpectedTypeValue
         currentExpectedTypeValue = expected
         return saved
@@ -411,7 +385,7 @@ public class AnalyzerAmbientContext {
     // walk, and nulling it would change what `default`, `new()`, a lambda and a negative integer
     // literal resolve to inside it. Restored by `ExitExpectedType` either way, because the saved
     // value round-trips unchanged when nothing was set.
-    public func EnterExpectedTypeIfProvided(expected: TypeInfo?): TypeInfo? {
+    func EnterExpectedTypeIfProvided(expected: TypeInfo?): TypeInfo? {
         saved := currentExpectedTypeValue
         if expected != null {
             currentExpectedTypeValue = expected
@@ -420,21 +394,15 @@ public class AnalyzerAmbientContext {
         return saved
     }
 
-    public func ExitExpectedType(saved: TypeInfo?) {
+    func ExitExpectedType(saved: TypeInfo?) {
         currentExpectedTypeValue = saved
     }
 
     // `break`: illegal outside a loop, and illegal when it would leave a `finally` to reach one.
     // The two are exclusive — a `break` with no loop at all is told THAT, not told about handlers.
-    public func ReportBreakIfNeeded(line: int, column: int) {
+    func ReportBreakIfNeeded(line: int, column: int) {
         if !inLoopValue {
-            diagnosticsValue.Report(
-                ErrorCode.InvalidSyntax,
-                "'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here",
-                line,
-                column,
-                "Move this `break` inside a loop, or remove it if there is no loop to exit.",
-                5)
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here", line, column, "Move this `break` inside a loop, or remove it if there is no loop to exit.", 5)
             return
         }
 
@@ -445,15 +413,9 @@ public class AnalyzerAmbientContext {
 
     // `continue`: the same two rules against the CONTINUE target's depth, which a switch does not
     // move.
-    public func ReportContinueIfNeeded(line: int, column: int) {
+    func ReportContinueIfNeeded(line: int, column: int) {
         if !inLoopValue {
-            diagnosticsValue.Report(
-                ErrorCode.InvalidSyntax,
-                "'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here",
-                line,
-                column,
-                "Move this `continue` inside a loop, or remove it if there is no loop to continue.",
-                8)
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here", line, column, "Move this `continue` inside a loop, or remove it if there is no loop to continue.", 8)
             return
         }
 
@@ -463,7 +425,7 @@ public class AnalyzerAmbientContext {
     }
 
     // `return`: any depth at all is a violation, because a return leaves every handler it is inside.
-    public func ReportReturnOutOfFinallyIfNeeded(line: int, column: int) {
+    func ReportReturnOutOfFinallyIfNeeded(line: int, column: int) {
         if finallyDepthValue > 0 {
             ReportControlTransferOutOfFinally("return", line, column)
         }
@@ -474,37 +436,23 @@ public class AnalyzerAmbientContext {
         sourceSnippet := diagnosticsValue.SourceSnippet(line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ControlTransferOutOfFinally(
-                currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                keyword.Length,
-                keyword))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ControlTransferOutOfFinally(currentFilePath, line, column, sourceSnippet, keyword.Length, keyword))
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.ControlTransferOutOfFinally,
-            "Control cannot leave a 'finally' block with '" + keyword + "'",
-            line,
-            column,
-            "Move the `" + keyword + "` outside the `finally` block.",
-            keyword.Length)
+        diagnosticsValue.Report(ErrorCode.ControlTransferOutOfFinally, "Control cannot leave a 'finally' block with '" + keyword + "'", line, column, "Move the `" + keyword + "` outside the `finally` block.", keyword.Length)
     }
 
     // THE `return` STATEMENT'S ENTRY. The assignability oracle is read from the caller's field HERE,
     // at the moment the statement is analysed, rather than held — see `ReturnStatementState`.
-    public func BeginReturn(
-        statement: ReturnStatement,
-        assignability: AnalyzerAssignability): ReturnStatementState {
+    func BeginReturn(statement: ReturnStatement, assignability: AnalyzerAssignability): ReturnStatementState {
         return new ReturnStatementState(statement, assignability)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this `return` is finished. Every phase
     // either decides something and advances, or emits exactly one request; the walk never advances
     // past a point whose answer it has not been given.
-    public func NextStep(state: ReturnStatementState): ReturnStatementRequest? {
+    func NextStep(state: ReturnStatementState): ReturnStatementRequest? {
         while state.Phase != 99 {
             request := Advance(state)
             if request != null {
@@ -519,7 +467,7 @@ public class AnalyzerAmbientContext {
     // expression's type, which is the operand of the escape-report choice, the generator report and
     // the assignability check. Kind 1 is ALSO where the target-typing slot closes, because the C# it
     // replaces restored the slot on the line after the expression walk returned.
-    public func Supply(state: ReturnStatementState, answer: TypeInfo?) {
+    func Supply(state: ReturnStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -561,13 +509,7 @@ public class AnalyzerAmbientContext {
             return AdvanceInsideFunction(state, statement, returnType)
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.InvalidSyntax,
-            "'return' can only be used inside a function — there's no function to return from here",
-            statement.Line,
-            statement.Column,
-            "Move this `return` inside a function, or remove it if there is no function to return from.",
-            6)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'return' can only be used inside a function — there's no function to return from here", statement.Line, statement.Column, "Move this `return` inside a function, or remove it if there is no function to return from.", 6)
         state.Phase = 99
         return null
     }
@@ -575,10 +517,7 @@ public class AnalyzerAmbientContext {
     // The out-of-`finally` report fires for EVERY `return` inside a handler, with or without a value,
     // and BEFORE the value is walked — so a `return` that is both illegal here and ill-typed reports
     // the handler violation first.
-    func AdvanceInsideFunction(
-        state: ReturnStatementState,
-        statement: ReturnStatement,
-        returnType: TypeInfo): ReturnStatementRequest? {
+    func AdvanceInsideFunction(state: ReturnStatementState, statement: ReturnStatement, returnType: TypeInfo): ReturnStatementRequest? {
         ReportReturnOutOfFinallyIfNeeded(statement.Line, statement.Column)
 
         value := statement.Value
@@ -650,13 +589,7 @@ public class AnalyzerAmbientContext {
     func ReportReturnedValue(state: ReturnStatementState, value: Expression) {
         if CurrentFunctionDeclaresGenerator {
             span := spansValue.GetExpressionDiagnosticSpan(value)
-            diagnosticsValue.Report(
-                ErrorCode.InvalidSyntax,
-                "Generator functions cannot return a value",
-                span.Line,
-                span.Column,
-                "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.",
-                span.Length)
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Generator functions cannot return a value", span.Line, span.Column, "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.", span.Length)
             return
         }
 
@@ -683,23 +616,11 @@ public class AnalyzerAmbientContext {
         sourceSnippet := diagnosticsValue.SourceSnippet(statement.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.MissingReturn(
-                currentFilePath,
-                statement.Line,
-                statement.Column,
-                sourceSnippet,
-                6,
-                returnTypeName))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.MissingReturn(currentFilePath, statement.Line, statement.Column, sourceSnippet, 6, returnTypeName))
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.MissingReturn,
-            "This function should return '" + returnTypeName + "', but this 'return' doesn't provide a value",
-            statement.Line,
-            statement.Column,
-            null,
-            0)
+        diagnosticsValue.Report(ErrorCode.MissingReturn, "This function should return '" + returnTypeName + "', but this 'return' doesn't provide a value", statement.Line, statement.Column, null, 0)
     }
 
     // A `return` STATEMENT WHOSE VALUE DOES NOT FIT. Three rich shapes and one detail-only fallback,
@@ -708,10 +629,7 @@ public class AnalyzerAmbientContext {
     // that was WRITTEN says the function is declared to return nothing; anything else is an ordinary
     // type mismatch against the expected type. The span falls back through the returned expression
     // to the `return` keyword itself.
-    public func ReportReturnValueMismatch(
-        returnStatement: ReturnStatement,
-        returnedType: TypeInfo,
-        expectedReturnValueType: TypeInfo) {
+    func ReportReturnValueMismatch(returnStatement: ReturnStatement, returnedType: TypeInfo, expectedReturnValueType: TypeInfo) {
         statementSnippet := diagnosticsValue.SourceSnippet(returnStatement.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if statementSnippet != null && currentFilePath != null {
@@ -730,28 +648,17 @@ public class AnalyzerAmbientContext {
                 diagnosticSourceSnippet = spanLineSnippet
             }
 
-            diagnosticsValue.ReportBuilt(BuildReturnValueMismatchError(
-                currentFilePath,
-                span,
-                diagnosticSourceSnippet,
-                returnedType,
-                expectedReturnValueType))
+            diagnosticsValue.ReportBuilt(BuildReturnValueMismatchError(currentFilePath, span, diagnosticSourceSnippet, returnedType, expectedReturnValueType))
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            FormatReturnValueMismatchMessage(returnedType, expectedReturnValueType),
-            returnStatement.Line,
-            returnStatement.Column,
-            null,
-            0)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, FormatReturnValueMismatchMessage(returnedType, expectedReturnValueType), returnStatement.Line, returnStatement.Column, null, 0)
     }
 
     // AN EXPRESSION-BODIED FUNCTION whose expression gives back a value the `void` return type
     // cannot take. The same two `void` shapes as a `return` statement, spanned on the function's
     // NAME when the return type was omitted and on the expression otherwise.
-    public func ReportExpressionBodyReturn(declaration: FunctionDeclaration, expressionType: TypeInfo) {
+    func ReportExpressionBodyReturn(declaration: FunctionDeclaration, expressionType: TypeInfo) {
         span: DiagnosticSpan = new DiagnosticSpan(declaration.Line, declaration.Column, 1)
         expressionBody := declaration.ExpressionBody
         if returnTypeWasOmittedValue {
@@ -763,107 +670,53 @@ public class AnalyzerAmbientContext {
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(BuildVoidReturnValueError(
-                currentFilePath,
-                span,
-                sourceSnippet,
-                declaration.Name,
-                expressionType))
+            diagnosticsValue.ReportBuilt(BuildVoidReturnValueError(currentFilePath, span, sourceSnippet, declaration.Name, expressionType))
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            FormatReturnValueMismatchMessage(expressionType, BuiltInTypes.Void),
-            span.Line,
-            span.Column,
-            null,
-            0)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, FormatReturnValueMismatchMessage(expressionType, BuiltInTypes.Void), span.Line, span.Column, null, 0)
     }
 
     // The rich builder choice for a `return` statement: the two `void` shapes, or the general
     // mismatch against the expected type.
-    func BuildReturnValueMismatchError(
-        currentFilePath: string,
-        span: DiagnosticSpan,
-        sourceSnippet: string,
-        returnedType: TypeInfo,
-        expectedReturnValueType: TypeInfo): CompilerError {
+    func BuildReturnValueMismatchError(currentFilePath: string, span: DiagnosticSpan, sourceSnippet: string, returnedType: TypeInfo, expectedReturnValueType: TypeInfo): CompilerError {
         if BuiltInTypes.Is(currentReturnTypeValue, BuiltInTypes.Void) {
-            return BuildVoidReturnValueError(
-                currentFilePath,
-                span,
-                sourceSnippet,
-                EnclosingFunctionName(),
-                returnedType)
+            return BuildVoidReturnValueError(currentFilePath, span, sourceSnippet, EnclosingFunctionName(), returnedType)
         }
 
         actualTypeName := TypeText(returnedType)
         expectedTypeName := TypeText(expectedReturnValueType)
-        return ErrorMessageBuilder.ReturnTypeMismatch(
-            currentFilePath,
-            span.Line,
-            span.Column,
-            sourceSnippet,
-            span.Length,
-            EnclosingFunctionName(),
-            actualTypeName,
-            expectedTypeName)
+        return ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, EnclosingFunctionName(), actualTypeName, expectedTypeName)
     }
 
     // The `void` pair, shared by the `return` statement and the expression body: an OMITTED return
     // type is a missing annotation the author should add, a WRITTEN `void` is a deliberate choice
     // the returned value contradicts.
-    func BuildVoidReturnValueError(
-        currentFilePath: string,
-        span: DiagnosticSpan,
-        sourceSnippet: string,
-        functionName: string,
-        returnedType: TypeInfo): CompilerError {
+    func BuildVoidReturnValueError(currentFilePath: string, span: DiagnosticSpan, sourceSnippet: string, functionName: string, returnedType: TypeInfo): CompilerError {
         actualTypeName := TypeText(returnedType)
         if returnTypeWasOmittedValue {
-            return ErrorMessageBuilder.ReturnValueRequiresReturnType(
-                currentFilePath,
-                span.Line,
-                span.Column,
-                sourceSnippet,
-                span.Length,
-                functionName,
-                actualTypeName)
+            return ErrorMessageBuilder.ReturnValueRequiresReturnType(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, functionName, actualTypeName)
         }
 
-        return ErrorMessageBuilder.ReturnValueInVoidFunction(
-            currentFilePath,
-            span.Line,
-            span.Column,
-            sourceSnippet,
-            span.Length,
-            functionName,
-            actualTypeName)
+        return ErrorMessageBuilder.ReturnValueInVoidFunction(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, functionName, actualTypeName)
     }
 
     // The detail-only wording, used when the file has no snippet to underline. Three shapes, chosen
     // by the same two questions the rich builders ask.
-    public func FormatReturnValueMismatchMessage(
-        returnedType: TypeInfo,
-        expectedReturnValueType: TypeInfo): string {
+    func FormatReturnValueMismatchMessage(returnedType: TypeInfo, expectedReturnValueType: TypeInfo): string {
         functionName := EnclosingFunctionName()
         actualTypeName := TypeText(returnedType)
 
         if BuiltInTypes.Is(currentReturnTypeValue, BuiltInTypes.Void) {
             if returnTypeWasOmittedValue {
-                return "Function '" + functionName
-                    + "' has no return type annotation, so it is treated as 'void', but this code gives back '"
-                    + actualTypeName + "'"
+                return "Function '" + functionName + "' has no return type annotation, so it is treated as 'void', but this code gives back '" + actualTypeName + "'"
             }
 
-            return "Function '" + functionName + "' is declared to return 'void', but this code gives back '"
-                + actualTypeName + "'"
+            return "Function '" + functionName + "' is declared to return 'void', but this code gives back '" + actualTypeName + "'"
         }
 
         expectedTypeName := TypeText(expectedReturnValueType)
-        return "Function '" + functionName + "' should return '" + expectedTypeName
-            + "', but this return statement gives back '" + actualTypeName + "'"
+        return "Function '" + functionName + "' should return '" + expectedTypeName + "', but this return statement gives back '" + actualTypeName + "'"
     }
 
     // What a diagnostic calls the enclosing function. A lambda's block body has no declaration to

@@ -3,14 +3,14 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 
-public class SmartSuggester {
+class SmartSuggester {
     candidatesValue: List<string>
 
     constructor(candidates: List<string>) {
         candidatesValue = candidates
     }
 
-    public func SuggestSimilarNames(typo: string, maxSuggestions: int = 3): List<string> {
+    func SuggestSimilarNames(typo: string, maxSuggestions: int = 3): List<string> {
         result := new List<string>()
         if maxSuggestions <= 0 {
             return result
@@ -112,16 +112,14 @@ public class SmartSuggester {
     }
 }
 
-public class TypeConversionSuggester {
-    public static func SuggestConversion(fromType: string, toType: string): string? {
+class TypeConversionSuggester {
+    static func SuggestConversion(fromType: string, toType: string): string? {
         if fromType == "string" && toType == "int" {
-            return "Strings and integers are different types. To convert a string to an int,\n"
-                + "you can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+            return "Strings and integers are different types. To convert a string to an int,\n" + "you can use int.Parse(yourString) or int.TryParse(yourString, out result)."
         }
 
         if fromType == "int" && toType == "string" {
-            return "You can convert an integer to a string using .ToString() or string\n"
-                + "interpolation: " + InterpolatedStringExample("yourNumber")
+            return "You can convert an integer to a string using .ToString() or string\n" + "interpolation: " + InterpolatedStringExample("yourNumber")
         }
 
         if fromType == "int" && toType == "double" {
@@ -129,8 +127,7 @@ public class TypeConversionSuggester {
         }
 
         if fromType == "double" && toType == "int" {
-            return "Cannot implicitly convert 'double' to 'int'. Use an explicit cast: (int)value\n"
-                + "Warning: This truncates decimals (e.g. 3.7 becomes 3) and may lose data if the value exceeds the target type's range."
+            return "Cannot implicitly convert 'double' to 'int'. Use an explicit cast: (int)value\n" + "Warning: This truncates decimals (e.g. 3.7 becomes 3) and may lose data if the value exceeds the target type's range."
         }
 
         if fromType == "string" && toType == "double" {
@@ -146,8 +143,7 @@ public class TypeConversionSuggester {
         }
 
         if fromType == "long" && toType == "int" {
-            return "Cannot implicitly convert 'long' to 'int'. Use an explicit cast: (int)value\n"
-                + "Warning: This conversion may lose data if the value exceeds the target type's range."
+            return "Cannot implicitly convert 'long' to 'int'. Use an explicit cast: (int)value\n" + "Warning: This conversion may lose data if the value exceeds the target type's range."
         }
 
         if toType == fromType + "?" {
@@ -155,9 +151,7 @@ public class TypeConversionSuggester {
         }
 
         if fromType == toType + "?" {
-            return "You're trying to use a nullable value where a non-nullable is expected.\n"
-                + "You need to handle the null case, perhaps with 'if (x != null)' or the\n"
-                + "null-coalescing operator 'x ?? defaultValue'."
+            return "You're trying to use a nullable value where a non-nullable is expected.\n" + "You need to handle the null case, perhaps with 'if (x != null)' or the\n" + "null-coalescing operator 'x ?? defaultValue'."
         }
 
         if fromType.EndsWith("[]") && toType.StartsWith("List<") {
@@ -169,8 +163,7 @@ public class TypeConversionSuggester {
         }
 
         if IsNumericType(fromType) && IsNumericType(toType) {
-            return "Cannot implicitly convert '" + fromType + "' to '" + toType + "'. Use an explicit cast: (" + toType + ")value\n"
-                + "Warning: This conversion may lose data if the value exceeds the target type's range."
+            return "Cannot implicitly convert '" + fromType + "' to '" + toType + "'. Use an explicit cast: (" + toType + ")value\n" + "Warning: This conversion may lose data if the value exceeds the target type's range."
         }
 
         return null

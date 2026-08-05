@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
-public class ColumnarTokenizedSource {
+class ColumnarTokenizedSource {
     RawKinds: int[]
     RawStarts: int[]
     RawValueLengths: int[]
@@ -10,15 +10,7 @@ public class ColumnarTokenizedSource {
     ValueLengths: int[]
     Count: int
 
-    constructor(
-        rawKinds: int[],
-        rawStarts: int[],
-        rawValueLengths: int[],
-        rawCount: int,
-        kinds: int[],
-        starts: int[],
-        valueLengths: int[],
-        count: int) {
+    constructor(rawKinds: int[], rawStarts: int[], rawValueLengths: int[], rawCount: int, kinds: int[], starts: int[], valueLengths: int[], count: int) {
         RawKinds = rawKinds
         RawStarts = rawStarts
         RawValueLengths = rawValueLengths

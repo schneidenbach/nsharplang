@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // ONE STEP THE CALL WALK CANNOT TAKE FOR ITSELF, AND EVERYTHING THAT STEP NEEDS.
 //
 // The walk owns what a call MEANS — which branch it takes, which expression is analysed next, with
@@ -27,18 +28,17 @@ import NSharpLang.Compiler.Ast
 //   12 a single reflected method's binding
 //   13 a reflected method GROUP's binding
 //   14 the semantic-model record for a bound N# overload
-public class CallAnalysisRequest {
-
-    public Kind: int
-    public Node: Expression?
-    public ArgumentNode: Argument?
-    public CarriedType: TypeInfo?
-    public Method: MethodInfo?
-    public MethodGroup: ReflectionMethodGroupInfo?
-    public Text: string?
-    public Line: int
-    public Column: int
-    public Flag: bool
+class CallAnalysisRequest {
+    Kind: int
+    Node: Expression?
+    ArgumentNode: Argument?
+    CarriedType: TypeInfo?
+    Method: MethodInfo?
+    MethodGroup: ReflectionMethodGroupInfo?
+    Text: string?
+    Line: int
+    Column: int
+    Flag: bool
 
     constructor(kind: int) {
         Kind = kind
@@ -58,8 +58,7 @@ public class CallAnalysisRequest {
 //
 // `Phase` is the walk's program counter and `Pending` names the answer it is waiting for. Everything
 // else is what the C# member this replaces held in locals.
-public class CallAnalysisState {
-
+class CallAnalysisState {
     callValue: CallExpression
     argTypesValue: List<TypeInfo>
     candidateMethodsValue: List<MethodInfo>
@@ -68,23 +67,23 @@ public class CallAnalysisState {
     ArgTypes: List<TypeInfo> => argTypesValue
     CandidateMethods: List<MethodInfo> => candidateMethodsValue
 
-    public Phase: int
-    public Pending: int
-    public CalleeType: TypeInfo?
-    public SyntheticFunctionType: FunctionTypeInfo?
-    public SyntheticParameterIndexByArgument: int[]?
-    public SyntheticExpectedBindings: Dictionary<string, TypeInfo>?
-    public GroupFunctions: List<FunctionTypeInfo>?
-    public BoundFunction: FunctionTypeInfo?
-    public ReceiverType: TypeInfo?
-    public ParameterStartIndex: int
-    public ArgumentIndex: int
-    public EscapeIndex: int
-    public IsMethodGroup: bool
+    Phase: int
+    Pending: int
+    CalleeType: TypeInfo?
+    SyntheticFunctionType: FunctionTypeInfo?
+    SyntheticParameterIndexByArgument: int[]?
+    SyntheticExpectedBindings: Dictionary<string, TypeInfo>?
+    GroupFunctions: List<FunctionTypeInfo>?
+    BoundFunction: FunctionTypeInfo?
+    ReceiverType: TypeInfo?
+    ParameterStartIndex: int
+    ArgumentIndex: int
+    EscapeIndex: int
+    IsMethodGroup: bool
 
     // The call expression's type. `unknown` is the walk's own final answer for a callee it does not
     // recognise, so it is the honest starting value rather than a null placeholder.
-    public Result: TypeInfo
+    Result: TypeInfo
 
     constructor(call: CallExpression) {
         callValue = call
@@ -130,8 +129,7 @@ public class CallAnalysisState {
 //
 // The receiver's own GUARD stays here for the same reason it did in `AnalyzerSyntheticCallWalk`:
 // the driver may not analyse an expression the walk would not have analysed, nor skip one it would.
-public class AnalyzerCallAnalysis {
-
+class AnalyzerCallAnalysis {
     syntheticCallReporter: AnalyzerSyntheticCallReporter
     syntheticCallWalk: AnalyzerSyntheticCallWalk
     syntheticCallValidator: AnalyzerSyntheticCallValidator
@@ -140,14 +138,7 @@ public class AnalyzerCallAnalysis {
     assignability: AnalyzerAssignability
     diagnostics: AnalyzerDiagnosticSink
 
-    constructor(
-        callReporter: AnalyzerSyntheticCallReporter,
-        callWalk: AnalyzerSyntheticCallWalk,
-        callValidator: AnalyzerSyntheticCallValidator,
-        reflectionReporter: AnalyzerReflectionCallReporter,
-        substitution: AnalyzerTypeSubstitution,
-        assignabilityOwner: AnalyzerAssignability,
-        diagnosticSink: AnalyzerDiagnosticSink) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
@@ -157,14 +148,14 @@ public class AnalyzerCallAnalysis {
         diagnostics = diagnosticSink
     }
 
-    public func BeginCall(call: CallExpression): CallAnalysisState {
+    func BeginCall(call: CallExpression): CallAnalysisState {
         return new CallAnalysisState(call)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when the call's type is decided. Every phase
     // either computes something and advances, or emits exactly one request; the walk never advances
     // past a point whose answer it has not been given.
-    public func NextCallStep(state: CallAnalysisState): CallAnalysisRequest? {
+    func NextCallStep(state: CallAnalysisState): CallAnalysisRequest? {
         while state.Phase != 99 {
             request := AdvanceCall(state)
             if request != null {
@@ -178,7 +169,7 @@ public class AnalyzerCallAnalysis {
     // THE ANSWER TO THE OUTSTANDING STEP, folded in according to what was asked. `handled` is the
     // boolean verdict of the probe steps — the result-constructor factory and the four SoA gates —
     // and each of those ENDS the walk, exactly as the early `return` it replaces did.
-    public func SupplyCallStep(state: CallAnalysisState, answer: TypeInfo?, handled: bool) {
+    func SupplyCallStep(state: CallAnalysisState, answer: TypeInfo?, handled: bool) {
         pending := state.Pending
         state.Pending = 0
 
@@ -234,8 +225,7 @@ public class AnalyzerCallAnalysis {
             if returnType != null {
                 state.Result = returnType
             } else {
-                state.Result = reflectionCallReporter.ReportUnboundCall(
-                    state.Call, state.CandidateMethods, state.ArgTypes)
+                state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes)
             }
         }
     }
@@ -271,8 +261,7 @@ public class AnalyzerCallAnalysis {
                 return null
             }
 
-            return AcquireReceiver(
-                state, AnalyzerSyntheticCallWalk.NeedsReceiverType(functionType, state.Call), 5)
+            return AcquireReceiver(state, AnalyzerSyntheticCallWalk.NeedsReceiverType(functionType, state.Call), 5)
         }
 
         if phase == 5 {
@@ -334,12 +323,10 @@ public class AnalyzerCallAnalysis {
         functionType := calleeType as FunctionTypeInfo
         if functionType != null && functionType.ParameterTypes != null {
             state.SyntheticFunctionType = functionType
-            state.ParameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(
-                functionType, call)
+            state.ParameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
             functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
             placement: int[] = new int[0]
-            if syntheticCallReporter.TryBindAndReport(
-                    functionType, functionName, call, out placement, state.ParameterStartIndex, false) {
+            if syntheticCallReporter.TryBindAndReport(functionType, functionName, call, out placement, state.ParameterStartIndex, false) {
                 state.SyntheticParameterIndexByArgument = placement
             }
 
@@ -365,8 +352,7 @@ public class AnalyzerCallAnalysis {
     func InferArgumentBindings(state: CallAnalysisState): CallAnalysisRequest? {
         functionType := state.SyntheticFunctionType
         if functionType != null {
-            state.SyntheticExpectedBindings = syntheticCallWalk.InferGenericBindings(
-                functionType, state.Call, new List<TypeInfo>(), state.ReceiverType)
+            state.SyntheticExpectedBindings = syntheticCallWalk.InferGenericBindings(functionType, state.Call, new List<TypeInfo>(), state.ReceiverType)
         }
 
         state.ArgumentIndex = 0
@@ -392,8 +378,7 @@ public class AnalyzerCallAnalysis {
         state.Pending = 4
         request := new CallAnalysisRequest(4)
         request.ArgumentNode = call.Arguments[index]
-        request.CarriedType = syntheticCallValidator.GetExpectedArgumentType(
-            functionType, call, index, expectedIndex, state.SyntheticExpectedBindings)
+        request.CarriedType = syntheticCallValidator.GetExpectedArgumentType(functionType, call, index, expectedIndex, state.SyntheticExpectedBindings)
         request.Flag = false
         return request
     }
@@ -537,33 +522,17 @@ public class AnalyzerCallAnalysis {
     func ValidateNewtypeConstruction(state: CallAnalysisState, newtypeInfo: NewtypeInfo) {
         call := state.Call
         if call.Arguments.Count != 1 {
-            diagnostics.Report(
-                ErrorCode.InvalidSyntax,
-                "Newtype '" + newtypeInfo.Name + "' constructor expects exactly 1 argument but got "
-                    + call.Arguments.Count.ToString(),
-                call.Line,
-                call.Column,
-                null,
-                0)
+            diagnostics.Report(ErrorCode.InvalidSyntax, "Newtype '" + newtypeInfo.Name + "' constructor expects exactly 1 argument but got " + call.Arguments.Count.ToString(), call.Line, call.Column, null, 0)
             return
         }
 
-        underlyingType := typeSubstitution.ResolveTypeForSourceOwner(
-            newtypeInfo.UnderlyingType, newtypeInfo, null)
+        underlyingType := typeSubstitution.ResolveTypeForSourceOwner(newtypeInfo.UnderlyingType, newtypeInfo, null)
         argumentType := state.ArgTypes[0]
         if assignability.IsAssignable(underlyingType, argumentType) {
             return
         }
 
-        diagnostics.Report(
-            ErrorCode.TypeMismatch,
-            "Cannot construct '" + newtypeInfo.Name + "': argument of type '"
-                + TypeText(argumentType) + "' is not assignable to underlying type '"
-                + TypeText(underlyingType) + "'",
-            call.Line,
-            call.Column,
-            null,
-            0)
+        diagnostics.Report(ErrorCode.TypeMismatch, "Cannot construct '" + newtypeInfo.Name + "': argument of type '" + TypeText(argumentType) + "' is not assignable to underlying type '" + TypeText(underlyingType) + "'", call.Line, call.Column, null, 0)
     }
 
     // THE DECLARED-FUNCTION TAIL. Validation reads the receiver, then the return type reads it
@@ -578,24 +547,20 @@ public class AnalyzerCallAnalysis {
         }
 
         if phase == 14 {
-            return AcquireReceiver(
-                state, AnalyzerSyntheticCallWalk.NeedsReceiverType(functionType, state.Call), 15)
+            return AcquireReceiver(state, AnalyzerSyntheticCallWalk.NeedsReceiverType(functionType, state.Call), 15)
         }
 
         if phase == 15 {
-            syntheticCallValidator.ValidateCall(
-                functionType, state.Call, state.ArgTypes, state.ReceiverType)
+            syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
             state.Phase = 16
             return null
         }
 
         if phase == 16 {
-            return AcquireReceiver(
-                state, AnalyzerSyntheticCallWalk.NeedsReceiverType(functionType, state.Call), 17)
+            return AcquireReceiver(state, AnalyzerSyntheticCallWalk.NeedsReceiverType(functionType, state.Call), 17)
         }
 
-        state.Result = syntheticCallValidator.ResolveReturnType(
-            functionType, state.Call, state.ArgTypes, state.ReceiverType)
+        state.Result = syntheticCallValidator.ResolveReturnType(functionType, state.Call, state.ArgTypes, state.ReceiverType)
         state.Phase = 99
         return null
     }
@@ -615,15 +580,11 @@ public class AnalyzerCallAnalysis {
         }
 
         if phase == 18 {
-            return AcquireReceiver(
-                state,
-                syntheticCallWalk.AnyCandidateNeedsReceiverType(functions, state.Call, state.ArgTypes),
-                19)
+            return AcquireReceiver(state, syntheticCallWalk.AnyCandidateNeedsReceiverType(functions, state.Call, state.ArgTypes), 19)
         }
 
         if phase == 19 {
-            bound := syntheticCallWalk.BindNSharpCall(
-                functions, state.Call, state.ArgTypes, state.ReceiverType)
+            bound := syntheticCallWalk.BindNSharpCall(functions, state.Call, state.ArgTypes, state.ReceiverType)
             if bound == null {
                 syntheticCallValidator.ReportNoMatchingOverload(functions, state.Call, state.ArgTypes)
                 state.Result = BuiltInTypes.Unknown
@@ -647,24 +608,20 @@ public class AnalyzerCallAnalysis {
         }
 
         if phase == 20 {
-            return AcquireReceiver(
-                state, AnalyzerSyntheticCallWalk.NeedsReceiverType(boundFunction, state.Call), 21)
+            return AcquireReceiver(state, AnalyzerSyntheticCallWalk.NeedsReceiverType(boundFunction, state.Call), 21)
         }
 
         if phase == 21 {
-            syntheticCallValidator.ValidateCall(
-                boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
+            syntheticCallValidator.ValidateCall(boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
             state.Phase = 22
             return null
         }
 
         if phase == 22 {
-            return AcquireReceiver(
-                state, AnalyzerSyntheticCallWalk.NeedsReceiverType(boundFunction, state.Call), 23)
+            return AcquireReceiver(state, AnalyzerSyntheticCallWalk.NeedsReceiverType(boundFunction, state.Call), 23)
         }
 
-        state.Result = syntheticCallValidator.ResolveReturnType(
-            boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
+        state.Result = syntheticCallValidator.ResolveReturnType(boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
         state.Phase = 99
         return null
     }

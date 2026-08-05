@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 
+
 // The analyzer's TypeInfo → CLR `Type` CONSTRUCTION FUNNEL.
 //
 // Everything the semantic phase does that needs a real reflection type — comparing against a
@@ -35,9 +36,7 @@ import System.Reflection
 // Do not reintroduce any of this in C#, and do not give it diagnostics: the funnel reports nothing
 // and records nothing. A conversion that cannot be made is a null answer, and the caller decides
 // what that means.
-
-public class AnalyzerClrTypeConversion {
-
+class AnalyzerClrTypeConversion {
     declarationContext: AnalyzerDeclarationContext
     wellKnownTypes: AnalyzerWellKnownTypes?
 
@@ -48,7 +47,7 @@ public class AnalyzerClrTypeConversion {
 
     // The exact conversion. Null means "the CLR has no such type", which for a source-declared type
     // is the normal answer rather than a failure.
-    public func TryConvertTypeInfoToClrType(typeInfo: TypeInfo): Type? {
+    func TryConvertTypeInfoToClrType(typeInfo: TypeInfo): Type? {
         resolvedType := declarationContext.ResolveDeclaredAlias(typeInfo)
 
         reflectionType := resolvedType as ReflectionTypeInfo
@@ -107,7 +106,7 @@ public class AnalyzerClrTypeConversion {
     // The surrogate conversion: like the exact one, but an N#-declared type becomes `object` so CLR
     // binding can proceed. Generic, nullable and array shells are rebuilt around surrogate contents;
     // every other family that the exact conversion rejects stays rejected.
-    public func TryConvertTypeInfoToClrTypeForBinding(typeInfo: TypeInfo): Type? {
+    func TryConvertTypeInfoToClrTypeForBinding(typeInfo: TypeInfo): Type? {
         result := TryConvertTypeInfoToClrType(typeInfo)
         if result != null {
             return result
@@ -155,7 +154,7 @@ public class AnalyzerClrTypeConversion {
 
     // A function type reified as an `Action`/`Func` delegate. Public because the lambda-to-delegate
     // path asks for it directly, without going through the type-shaped entry point.
-    public func TryConstructDelegateType(functionType: FunctionTypeInfo): Type? {
+    func TryConstructDelegateType(functionType: FunctionTypeInfo): Type? {
         parameterTypes := functionType.ParameterTypes
         returnType := functionType.ReturnType
         facts := wellKnownTypes
@@ -252,10 +251,7 @@ public class AnalyzerClrTypeConversion {
         definition := genericType.GenericDefinition
         candidateDefinition: Type? = null
         if definition == null {
-            candidateDefinition = AnalyzerWellKnownTypeFacts.KnownOpenGenericType(
-                wellKnownTypes,
-                genericType.Name,
-                genericType.TypeArguments.Count)
+            candidateDefinition = AnalyzerWellKnownTypeFacts.KnownOpenGenericType(wellKnownTypes, genericType.Name, genericType.TypeArguments.Count)
         } else {
             reflectionDefinition := definition as ReflectionTypeInfo
             if reflectionDefinition != null {
@@ -264,8 +260,7 @@ public class AnalyzerClrTypeConversion {
         }
 
         typeDefinition := NormalizeOpenDefinition(candidateDefinition)
-        if typeDefinition == null
-            || typeDefinition.GetGenericArguments().Length != genericType.TypeArguments.Count {
+        if typeDefinition == null || typeDefinition.GetGenericArguments().Length != genericType.TypeArguments.Count {
             return null
         }
 
@@ -292,16 +287,11 @@ public class AnalyzerClrTypeConversion {
 
     // The surrogate half of generic construction. It reads the SMALLER surrogate vocabulary, and
     // every type argument converts through the surrogate entry point rather than the exact one.
-    func ConstructSurrogateGenericType(
-        facts: AnalyzerWellKnownTypes,
-        genericType: GenericTypeInfo): Type? {
+    func ConstructSurrogateGenericType(facts: AnalyzerWellKnownTypes, genericType: GenericTypeInfo): Type? {
         definition := genericType.GenericDefinition
         candidateDefinition: Type? = null
         if definition == null {
-            candidateDefinition = AnalyzerWellKnownTypeFacts.BindingSurrogateOpenGenericType(
-                facts,
-                genericType.Name,
-                genericType.TypeArguments.Count)
+            candidateDefinition = AnalyzerWellKnownTypeFacts.BindingSurrogateOpenGenericType(facts, genericType.Name, genericType.TypeArguments.Count)
         } else {
             reflectionDefinition := definition as ReflectionTypeInfo
             if reflectionDefinition != null {
@@ -310,8 +300,7 @@ public class AnalyzerClrTypeConversion {
         }
 
         typeDefinition := NormalizeOpenDefinition(candidateDefinition)
-        if typeDefinition == null
-            || typeDefinition.GetGenericArguments().Length != genericType.TypeArguments.Count {
+        if typeDefinition == null || typeDefinition.GetGenericArguments().Length != genericType.TypeArguments.Count {
             return null
         }
 
@@ -334,44 +323,93 @@ public class AnalyzerClrTypeConversion {
     // A built-in simple type read out of the metadata facts. A simple type that is not one of the
     // sixteen built-ins has no CLR spelling here and answers null.
     func BuiltInClrType(facts: AnalyzerWellKnownTypes, simple: SimpleTypeInfo): Type? {
-        if BuiltInTypes.Is(simple, BuiltInTypes.Int) { return facts.Int32 }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Long) { return facts.Int64 }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Float) { return facts.Single }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Double) { return facts.Double }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Decimal) { return facts.Decimal }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Byte) { return facts.Byte }
-        if BuiltInTypes.Is(simple, BuiltInTypes.SByte) { return facts.SByte }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Short) { return facts.Int16 }
-        if BuiltInTypes.Is(simple, BuiltInTypes.UShort) { return facts.UInt16 }
-        if BuiltInTypes.Is(simple, BuiltInTypes.UInt) { return facts.UInt32 }
-        if BuiltInTypes.Is(simple, BuiltInTypes.ULong) { return facts.UInt64 }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Char) { return facts.Char }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Bool) { return facts.Boolean }
-        if BuiltInTypes.Is(simple, BuiltInTypes.String) { return facts.String }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Void) { return facts.Void }
-        if BuiltInTypes.Is(simple, BuiltInTypes.Object) { return facts.Object }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Int) {
+            return facts.Int32
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Long) {
+            return facts.Int64
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Float) {
+            return facts.Single
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Double) {
+            return facts.Double
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Decimal) {
+            return facts.Decimal
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Byte) {
+            return facts.Byte
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.SByte) {
+            return facts.SByte
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Short) {
+            return facts.Int16
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.UShort) {
+            return facts.UInt16
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.UInt) {
+            return facts.UInt32
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.ULong) {
+            return facts.UInt64
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Char) {
+            return facts.Char
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Bool) {
+            return facts.Boolean
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.String) {
+            return facts.String
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Void) {
+            return facts.Void
+        }
+        if BuiltInTypes.Is(simple, BuiltInTypes.Object) {
+            return facts.Object
+        }
         return null
     }
 
     func ActionDelegateType(facts: AnalyzerWellKnownTypes, parameterTypes: Type[]): Type? {
         count := parameterTypes.Length
-        if count == 0 { return facts.Action }
-        if count == 1 { return MakeGenericOrNull(facts.Action1, parameterTypes) }
-        if count == 2 { return MakeGenericOrNull(facts.Action2, parameterTypes) }
-        if count == 3 { return MakeGenericOrNull(facts.Action3, parameterTypes) }
-        if count == 4 { return MakeGenericOrNull(facts.Action4, parameterTypes) }
+        if count == 0 {
+            return facts.Action
+        }
+        if count == 1 {
+            return MakeGenericOrNull(facts.Action1, parameterTypes)
+        }
+        if count == 2 {
+            return MakeGenericOrNull(facts.Action2, parameterTypes)
+        }
+        if count == 3 {
+            return MakeGenericOrNull(facts.Action3, parameterTypes)
+        }
+        if count == 4 {
+            return MakeGenericOrNull(facts.Action4, parameterTypes)
+        }
         return null
     }
 
-    func FuncDelegateType(
-        facts: AnalyzerWellKnownTypes,
-        funcTypes: Type[],
-        parameterCount: int): Type? {
-        if parameterCount == 0 { return MakeGenericOrNull(facts.Func1, funcTypes) }
-        if parameterCount == 1 { return MakeGenericOrNull(facts.Func2, funcTypes) }
-        if parameterCount == 2 { return MakeGenericOrNull(facts.Func3, funcTypes) }
-        if parameterCount == 3 { return MakeGenericOrNull(facts.Func4, funcTypes) }
-        if parameterCount == 4 { return MakeGenericOrNull(facts.Func5, funcTypes) }
+    func FuncDelegateType(facts: AnalyzerWellKnownTypes, funcTypes: Type[], parameterCount: int): Type? {
+        if parameterCount == 0 {
+            return MakeGenericOrNull(facts.Func1, funcTypes)
+        }
+        if parameterCount == 1 {
+            return MakeGenericOrNull(facts.Func2, funcTypes)
+        }
+        if parameterCount == 2 {
+            return MakeGenericOrNull(facts.Func3, funcTypes)
+        }
+        if parameterCount == 3 {
+            return MakeGenericOrNull(facts.Func4, funcTypes)
+        }
+        if parameterCount == 4 {
+            return MakeGenericOrNull(facts.Func5, funcTypes)
+        }
         return null
     }
 
@@ -379,19 +417,33 @@ public class AnalyzerClrTypeConversion {
     // unknowns, tuples, method groups, anonymous unions — does not.
     static func IsSurrogateUserDefinedType(candidate: TypeInfo): bool {
         classType := candidate as ClassTypeInfo
-        if classType != null { return true }
+        if classType != null {
+            return true
+        }
         recordType := candidate as RecordTypeInfo
-        if recordType != null { return true }
+        if recordType != null {
+            return true
+        }
         structType := candidate as StructTypeInfo
-        if structType != null { return true }
+        if structType != null {
+            return true
+        }
         interfaceType := candidate as InterfaceTypeInfo
-        if interfaceType != null { return true }
+        if interfaceType != null {
+            return true
+        }
         unionType := candidate as UnionTypeInfo
-        if unionType != null { return true }
+        if unionType != null {
+            return true
+        }
         enumType := candidate as EnumTypeInfo
-        if enumType != null { return true }
+        if enumType != null {
+            return true
+        }
         newtypeType := candidate as NewtypeInfo
-        if newtypeType != null { return true }
+        if newtypeType != null {
+            return true
+        }
         return false
     }
 
@@ -433,7 +485,6 @@ public class AnalyzerClrTypeConversion {
 
     // Both spellings the analyzer may carry for `JsonTypeInfo<T>`.
     static func IsJsonTypeInfoGenericName(name: string): bool {
-        return name == "JsonTypeInfo"
-            || name == "System.Text.Json.Serialization.Metadata.JsonTypeInfo"
+        return name == "JsonTypeInfo" || name == "System.Text.Json.Serialization.Metadata.JsonTypeInfo"
     }
 }

@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.Numerics
 
-public enum BatchQueryCommandKind {
+enum BatchQueryCommandKind {
     Unknown = 0,
     Symbols = 1,
     Outline = 2,
@@ -17,7 +17,7 @@ public enum BatchQueryCommandKind {
     Doc = 9
 }
 
-public class BatchQueryExecutionResult {
+class BatchQueryExecutionResult {
     Json: string
     Ok: bool
     RequestCount: int
@@ -33,7 +33,7 @@ public class BatchQueryExecutionResult {
     }
 }
 
-public class BatchQueryExecutionSummary {
+class BatchQueryExecutionSummary {
     Ok: bool
     SuccessCount: int
     FailureCount: int
@@ -45,8 +45,8 @@ public class BatchQueryExecutionSummary {
     }
 }
 
-public class BatchQueryKernels {
-    public static func NormalizeCommand(command: string?): string {
+class BatchQueryKernels {
+    static func NormalizeCommand(command: string?): string {
         if command == null {
             return ""
         }
@@ -63,7 +63,7 @@ public class BatchQueryKernels {
         return normalized
     }
 
-    public static func GetCommandKind(command: string?): BatchQueryCommandKind {
+    static func GetCommandKind(command: string?): BatchQueryCommandKind {
         normalized := NormalizeCommand(command)
         if normalized == "symbols" {
             return BatchQueryCommandKind.Symbols
@@ -104,7 +104,7 @@ public class BatchQueryKernels {
         return BatchQueryCommandKind.Unknown
     }
 
-    public static func FindDuplicateRequestIds(requests: IReadOnlyList<object>): string[] {
+    static func FindDuplicateRequestIds(requests: IReadOnlyList<object>): string[] {
         countsById := new Dictionary<string, int>(StringComparer.Ordinal)
         uniqueIds := new List<string>()
 
@@ -140,7 +140,7 @@ public class BatchQueryKernels {
         return duplicates.ToArray()
     }
 
-    public static func CountResultSuccesses(okWords: ulong[], itemCount: int): int {
+    static func CountResultSuccesses(okWords: ulong[], itemCount: int): int {
         if itemCount < 0 {
             throw new InvalidOperationException("N# batch success-count kernel received a negative item count.")
         }
@@ -175,7 +175,7 @@ public class BatchQueryKernels {
         return successCount
     }
 
-    public static func SummarizeExecutionResults(okWords: ulong[], itemCount: int): BatchQueryExecutionSummary {
+    static func SummarizeExecutionResults(okWords: ulong[], itemCount: int): BatchQueryExecutionSummary {
         successCount := CountResultSuccesses(okWords, itemCount)
         failureCount := itemCount - successCount
 
@@ -186,43 +186,43 @@ public class BatchQueryKernels {
         return new BatchQueryExecutionSummary(failureCount == 0, successCount, failureCount)
     }
 
-    public static func GetRequestsFileNotFoundMessage(path: string): string {
+    static func GetRequestsFileNotFoundMessage(path: string): string {
         return "Requests file not found: " + path
     }
 
-    public static func GetPayloadShapeMessage(): string {
+    static func GetPayloadShapeMessage(): string {
         return "Batch requests must be a JSON array or an object with a 'requests' array."
     }
 
-    public static func GetRequestObjectRequiredMessage(): string {
+    static func GetRequestObjectRequiredMessage(): string {
         return "Each batch request must be a JSON object."
     }
 
-    public static func GetRequestDeserializeFailedMessage(): string {
+    static func GetRequestDeserializeFailedMessage(): string {
         return "Failed to deserialize a batch request."
     }
 
-    public static func GetDuplicateRequestIdsMessage(duplicateIdsText: string): string {
+    static func GetDuplicateRequestIdsMessage(duplicateIdsText: string): string {
         return "Duplicate batch request ids are not allowed: " + duplicateIdsText
     }
 
-    public static func GetUnsupportedCommandMessage(command: string): string {
+    static func GetUnsupportedCommandMessage(command: string): string {
         return "Unsupported batch query command '" + command + "'."
     }
 
-    public static func GetOutlineFileRequiredMessage(): string {
+    static func GetOutlineFileRequiredMessage(): string {
         return "file is required for outline requests."
     }
 
-    public static func GetDocQueryRequiredMessage(): string {
+    static func GetDocQueryRequiredMessage(): string {
         return "query is required for doc requests."
     }
 
-    public static func GetFileAndPosRequiredMessage(): string {
+    static func GetFileAndPosRequiredMessage(): string {
         return "file and pos are required."
     }
 
-    public static func GetInvalidPositionMessage(position: string): string {
+    static func GetInvalidPositionMessage(position: string): string {
         return "Invalid position format '" + position + "'. Expected <line>:<col>."
     }
 
@@ -239,5 +239,4 @@ public class BatchQueryKernels {
 
         return null
     }
-
 }

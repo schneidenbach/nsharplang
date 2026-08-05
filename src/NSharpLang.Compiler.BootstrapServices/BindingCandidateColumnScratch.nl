@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-public class BindingCandidateColumnScratch {
+class BindingCandidateColumnScratch {
     QueryColumns: int[]
     ResultColumns: int[]
     ResultCounts: int[]
@@ -8,7 +8,7 @@ public class BindingCandidateColumnScratch {
     SpanEndColumns: int[]
     SpanStartColumns: int[]
 
-    public func EnsureCapacity(resultCapacity: int) {
+    func EnsureCapacity(resultCapacity: int) {
         EnsureInitialized()
         if ResultColumns.Length < resultCapacity {
             ResultColumns = new int[](resultCapacity)

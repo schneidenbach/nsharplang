@@ -7,7 +7,7 @@ import System.Text
 import System.Text.Json
 import NSharpLang.Compiler.CodeIntelligence
 
-public class DocOptionSummary {
+class DocOptionSummary {
     ProjectOption: string?
     OutputOption: string?
     Json: bool
@@ -23,7 +23,7 @@ public class DocOptionSummary {
     }
 }
 
-public class DocOpenCommand {
+class DocOpenCommand {
     FileName: string
     Arguments: string
 
@@ -33,8 +33,8 @@ public class DocOpenCommand {
     }
 }
 
-public class DocCommandKernels {
-    public static func GetOptionSummary(args: string[]): DocOptionSummary {
+class DocCommandKernels {
+    static func GetOptionSummary(args: string[]): DocOptionSummary {
         projectOption: string? = null
         outputOption: string? = null
         json := false
@@ -73,7 +73,7 @@ public class DocCommandKernels {
         return new DocOptionSummary(projectOption, outputOption, json, open, showHelp)
     }
 
-    public static func GetOutputMode(json: bool): int {
+    static func GetOutputMode(json: bool): int {
         if json {
             return 1
         }
@@ -81,11 +81,11 @@ public class DocCommandKernels {
         return 2
     }
 
-    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
         return Path.GetFullPath(projectOption ?? currentDirectory)
     }
 
-    public static func GetOutputDirectory(projectRoot: string, outputOption: string?): string {
+    static func GetOutputDirectory(projectRoot: string, outputOption: string?): string {
         if outputOption != null {
             return Path.GetFullPath(outputOption)
         }
@@ -93,31 +93,31 @@ public class DocCommandKernels {
         return Path.GetFullPath(Path.Combine(Path.Combine(projectRoot, "nsharp"), "docs"))
     }
 
-    public static func GetSymbolDirectory(outputDir: string): string {
+    static func GetSymbolDirectory(outputDir: string): string {
         return Path.Combine(outputDir, "symbols")
     }
 
-    public static func GetRawSlug(symbol: SymbolResult): string {
+    static func GetRawSlug(symbol: SymbolResult): string {
         return PageKind(symbol.Kind) + "-" + symbol.Name + "-" + GetFileNameWithoutExtension(symbol.File)
     }
 
-    public static func GetSymbolRelativePath(slug: string): string {
+    static func GetSymbolRelativePath(slug: string): string {
         return NormalizePath(Path.Combine("symbols", slug + ".html"))
     }
 
-    public static func GetSymbolAbsolutePath(outputDir: string, relativePath: string): string {
+    static func GetSymbolAbsolutePath(outputDir: string, relativePath: string): string {
         return Path.Combine(outputDir, relativePath)
     }
 
-    public static func GetIndexPath(outputDir: string): string {
+    static func GetIndexPath(outputDir: string): string {
         return Path.Combine(outputDir, "index.html")
     }
 
-    public static func GetManifestIndexPath(indexPath: string): string {
+    static func GetManifestIndexPath(indexPath: string): string {
         return NormalizePath(indexPath)
     }
 
-    public static func GetOpenCommand(path: string, isMacOs: bool, isWindows: bool): DocOpenCommand {
+    static func GetOpenCommand(path: string, isMacOs: bool, isWindows: bool): DocOpenCommand {
         quotedPath := QuoteProcessArgument(path)
         if isMacOs {
             return new DocOpenCommand("open", quotedPath)
@@ -130,15 +130,15 @@ public class DocCommandKernels {
         return new DocOpenCommand("xdg-open", quotedPath)
     }
 
-    public static func OrderSymbolsForGeneration(symbols: IReadOnlyList<SymbolResult>): List<SymbolResult> {
+    static func OrderSymbolsForGeneration(symbols: IReadOnlyList<SymbolResult>): List<SymbolResult> {
         return OrderEntriesForGeneration(symbols, false)
     }
 
-    public static func OrderMembersForGeneration(members: IReadOnlyList<SymbolResult>): List<SymbolResult> {
+    static func OrderMembersForGeneration(members: IReadOnlyList<SymbolResult>): List<SymbolResult> {
         return OrderEntriesForGeneration(members, true)
     }
 
-    public static func CreateSlugs(rawSlugs: string[]): string[] {
+    static func CreateSlugs(rawSlugs: string[]): string[] {
         result := new string[](rawSlugs.Length)
         i := 0
         while i < rawSlugs.Length {
@@ -149,64 +149,43 @@ public class DocCommandKernels {
         return result
     }
 
-    public static func GetHelpText(): string {
-        return "N# API Documentation\n"
-            + "\n"
-            + "Usage: nlc doc [options]\n"
-            + "\n"
-            + "Generate HTML API documentation for the current project. Similar to `cargo doc`.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --project <dir>   Project root directory (default: current directory)\n"
-            + "  --output <dir>    Output directory (default: ./nsharp/docs)\n"
-            + "  --json            Emit a structured JSON result envelope\n"
-            + "  --open            Open the generated index in the default browser\n"
-            + "  --help, -h        Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc doc\n"
-            + "  nlc doc --open\n"
-            + "  nlc doc --json\n"
-            + "  nlc doc --project examples/16-task-cli --output /tmp/nsharp-docs\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Documentation generated successfully\n"
-            + "  1  Documentation generation failed"
+    static func GetHelpText(): string {
+        return "N# API Documentation\n" + "\n" + "Usage: nlc doc [options]\n" + "\n" + "Generate HTML API documentation for the current project. Similar to `cargo doc`.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --output <dir>    Output directory (default: ./nsharp/docs)\n" + "  --json            Emit a structured JSON result envelope\n" + "  --open            Open the generated index in the default browser\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc doc\n" + "  nlc doc --open\n" + "  nlc doc --json\n" + "  nlc doc --project examples/16-task-cli --output /tmp/nsharp-docs\n" + "\n" + "Exit codes:\n" + "  0  Documentation generated successfully\n" + "  1  Documentation generation failed"
     }
 
-    public static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
         return "Project directory not found: " + projectRoot
     }
 
-    public static func GetGeneratedSummaryMessage(pageCount: int): string {
+    static func GetGeneratedSummaryMessage(pageCount: int): string {
         return "Generated API docs for " + pageCount.ToString() + " symbols."
     }
 
-    public static func GetOutputPathMessage(outputDir: string): string {
+    static func GetOutputPathMessage(outputDir: string): string {
         return "Output: " + outputDir
     }
 
-    public static func GetIndexPathMessage(indexPath: string): string {
+    static func GetIndexPathMessage(indexPath: string): string {
         return "Index: " + indexPath
     }
 
-    public static func GetOpenedMessage(): string {
+    static func GetOpenedMessage(): string {
         return "Opened generated documentation in the default browser."
     }
 
-    public static func GetGenerationFailedMessage(exceptionMessage: string): string {
+    static func GetGenerationFailedMessage(exceptionMessage: string): string {
         return "Doc generation failed: " + exceptionMessage
     }
 
-    public static func GetOpenFailedMessage(indexPath: string): string {
+    static func GetOpenFailedMessage(indexPath: string): string {
         return "Generated docs, but failed to open " + indexPath + "."
     }
 
-    public static func GetOpenFailedWithDetailMessage(indexPath: string, exceptionMessage: string): string {
+    static func GetOpenFailedWithDetailMessage(indexPath: string, exceptionMessage: string): string {
         return "Generated docs, but failed to open " + indexPath + ": " + exceptionMessage
     }
 
-    public static func ResultJson(projectRoot: string, outputDir: string, manifest: DocManifest): string {
+    static func ResultJson(projectRoot: string, outputDir: string, manifest: DocManifest): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "doc"
@@ -217,7 +196,7 @@ public class DocCommandKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func ErrorJson(projectRoot: string, message: string): string {
+    static func ErrorJson(projectRoot: string, message: string): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "doc"
@@ -230,7 +209,7 @@ public class DocCommandKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func RenderSymbolPage(symbol: SymbolResult, projectRoot: string): string {
+    static func RenderSymbolPage(symbol: SymbolResult, projectRoot: string): string {
         builder := new StringBuilder()
         AppendLine(builder, "<nav><a href=\"../index.html\">Back to index</a></nav>")
         AppendLine(builder, "<header>")
@@ -254,7 +233,7 @@ public class DocCommandKernels {
         return WrapHtml("N# API Docs - " + symbol.Name, builder.ToString())
     }
 
-    public static func RenderIndexPage(symbols: IReadOnlyList<SymbolResult>, pages: IReadOnlyList<DocPage>, projectRoot: string): string {
+    static func RenderIndexPage(symbols: IReadOnlyList<SymbolResult>, pages: IReadOnlyList<DocPage>, projectRoot: string): string {
         grouped := new StringBuilder()
         index := 0
         while index < symbols.Count {
@@ -267,9 +246,7 @@ public class DocCommandKernels {
                 symbol := symbols[index]
                 pageIndex := FindPageIndex(pages, symbol)
                 page := pages[pageIndex]
-                AppendLine(
-                    grouped,
-                    "    <li><a href=\"" + HtmlEncode(page.Path) + "\">" + HtmlEncode(symbol.Name) + "</a><span>" + HtmlEncode(DescribeLocation(projectRoot, symbol)) + "</span></li>")
+                AppendLine(grouped, "    <li><a href=\"" + HtmlEncode(page.Path) + "\">" + HtmlEncode(symbol.Name) + "</a><span>" + HtmlEncode(DescribeLocation(projectRoot, symbol)) + "</span></li>")
                 index = index + 1
             }
 
@@ -291,11 +268,11 @@ public class DocCommandKernels {
         return WrapHtml("N# API Docs", body.ToString())
     }
 
-    public static func GetLocationText(relativePath: string, line: int, column: int): string {
+    static func GetLocationText(relativePath: string, line: int, column: int): string {
         return relativePath + ":" + line.ToString() + ":" + column.ToString()
     }
 
-    public static func GetParameterText(name: string, typeName: string, hasDefault: bool, defaultValue: string): string {
+    static func GetParameterText(name: string, typeName: string, hasDefault: bool, defaultValue: string): string {
         if hasDefault {
             return name + ": " + typeName + " = " + defaultValue
         }
@@ -303,12 +280,7 @@ public class DocCommandKernels {
         return name + ": " + typeName
     }
 
-    public static func GetSignatureText(
-        kind: SymbolKind,
-        name: string,
-        hasParameterList: bool,
-        parametersText: string,
-        typeName: string): string {
+    static func GetSignatureText(kind: SymbolKind, name: string, hasParameterList: bool, parametersText: string, typeName: string): string {
         prefix := SignaturePrefix(kind)
         result := prefix + name
         if hasParameterList {
@@ -322,7 +294,7 @@ public class DocCommandKernels {
         return result
     }
 
-    public static func GetPageKindText(kind: SymbolKind): string {
+    static func GetPageKindText(kind: SymbolKind): string {
         return PageKind(kind)
     }
 
@@ -532,7 +504,7 @@ public class DocCommandKernels {
         return new JsonSerializerOptions { WriteIndented: true }
     }
 
-    public static func NormalizePath(path: string): string {
+    static func NormalizePath(path: string): string {
         normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
         if normalized != null {
             return normalized ?? ""
@@ -904,11 +876,7 @@ public class DocCommandKernels {
     }
 
     static func FormatParameter(parameter: ParameterResult): string {
-        return GetParameterText(
-            parameter.Name,
-            parameter.Type,
-            parameter.HasDefault,
-            parameter.DefaultValue ?? "")
+        return GetParameterText(parameter.Name, parameter.Type, parameter.HasDefault, parameter.DefaultValue ?? "")
     }
 
     static func DescribeLocation(projectRoot: string, symbol: SymbolResult): string {
@@ -935,5 +903,4 @@ public class DocCommandKernels {
 
         return projectRoot
     }
-
 }

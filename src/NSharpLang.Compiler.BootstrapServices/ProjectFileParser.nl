@@ -7,18 +7,14 @@ import System.Text
 import YamlDotNet.Serialization
 import YamlDotNet.Serialization.NamingConventions
 
-public class ProjectFileParser {
-    public static func Parse(yamlPath: string): ProjectConfig {
+class ProjectFileParser {
+    static func Parse(yamlPath: string): ProjectConfig {
         if !File.Exists(yamlPath) {
             throw new FileNotFoundException("Project file not found: " + yamlPath)
         }
 
         yaml := File.ReadAllText(yamlPath)
-        deserializer := new DeserializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .WithTypeConverter((IYamlTypeConverter)new ReferenceConverter())
-            .IgnoreUnmatchedProperties()
-            .Build()
+        deserializer := new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).WithTypeConverter((IYamlTypeConverter)new ReferenceConverter()).IgnoreUnmatchedProperties().Build()
 
         configObject := deserializer.Deserialize(yaml, typeof(ProjectConfig))
         config := (ProjectConfig)configObject
@@ -26,7 +22,7 @@ public class ProjectFileParser {
         return config
     }
 
-    public static func ParseFromDirectory(directory: string): ProjectConfig? {
+    static func ParseFromDirectory(directory: string): ProjectConfig? {
         projectPath := Path.Combine(directory, "project.yml")
         if !File.Exists(projectPath) {
             return null
@@ -35,7 +31,7 @@ public class ProjectFileParser {
         return Parse(projectPath)
     }
 
-    public static func ParseFromDirectoryOrDefault(directory: string): ProjectConfig {
+    static func ParseFromDirectoryOrDefault(directory: string): ProjectConfig {
         config := ParseFromDirectory(directory)
         if config != null {
             return config
@@ -45,7 +41,7 @@ public class ProjectFileParser {
         return CreateDefault(projectName)
     }
 
-    public static func CreateDefault(projectName: string? = null): ProjectConfig {
+    static func CreateDefault(projectName: string? = null): ProjectConfig {
         config := new ProjectConfig()
         config.Name = projectName
         config.Backend = "il"
@@ -138,7 +134,7 @@ public class ProjectFileParser {
         return filtered
     }
 
-    public static func GenerateTemplate(projectName: string): string {
+    static func GenerateTemplate(projectName: string): string {
         builder := new StringBuilder()
         builder.Append("name: ")
         builder.Append(projectName)

@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public class LinterImportSpan {
+class LinterImportSpan {
     columnValue: int
     lengthValue: int
 
@@ -13,11 +13,8 @@ public class LinterImportSpan {
     }
 }
 
-public class LinterImportMetadata {
-    public static func ResolveNamespaceImportSpan(
-        importColumn: int,
-        namespaceName: string,
-        sourceLine: string): LinterImportSpan {
+class LinterImportMetadata {
+    static func ResolveNamespaceImportSpan(importColumn: int, namespaceName: string, sourceLine: string): LinterImportSpan {
         keyword := "import"
         keywordStart := importColumn - 1
 
@@ -37,7 +34,7 @@ public class LinterImportMetadata {
         return new LinterImportSpan(pathStart + 1, namespaceName.Length)
     }
 
-    public static func ExtractFileImportSymbolName(path: string, alias: string?): string? {
+    static func ExtractFileImportSymbolName(path: string, alias: string?): string? {
         if !string.IsNullOrWhiteSpace(alias) {
             return alias
         }

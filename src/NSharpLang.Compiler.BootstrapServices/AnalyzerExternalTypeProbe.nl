@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 
+
 // The analyzer's EXTERNAL (MetadataLoadContext) type probe: every question the semantic phase
 // answers by looking at referenced assembly metadata rather than at source.
 //
@@ -38,9 +39,7 @@ import System.Reflection
 // Not to be confused with `ColumnarBindingScopeFacts.TryResolveExternalType`: that one verifies a
 // candidate against an EXPECTED emitted type identity for the columnar back end. This one answers
 // "what, if anything, does this spelling name" for the analyzer's diagnostics.
-
-public class AnalyzerExternalTypeProbe {
-
+class AnalyzerExternalTypeProbe {
     assemblies: List<Assembly>
     usingNamespaces: List<string>
     typeCache: Dictionary<string, Type>
@@ -53,7 +52,7 @@ public class AnalyzerExternalTypeProbe {
 
     // The ordered probe. A fresh ReflectionTypeInfo per call, exactly as the analyzer's own resolver
     // produced: callers compare these by TYPE identity, never by reference.
-    public func ResolveExternalType(name: string): TypeInfo? {
+    func ResolveExternalType(name: string): TypeInfo? {
         cachedType := typeof(object)
         if typeCache.TryGetValue(name, out cachedType) {
             return new ReflectionTypeInfo(cachedType)
@@ -102,7 +101,7 @@ public class AnalyzerExternalTypeProbe {
     // The EXACT probe: no using-namespace prefixing and no exported-name scan, so it answers only
     // for a fully-qualified spelling. Shares the same cache as the ordered probe, which is why an
     // exact hit here is visible to a later bare-name lookup and vice versa.
-    public func ResolveExactExternalType(fullName: string): Type? {
+    func ResolveExactExternalType(fullName: string): Type? {
         cachedType := typeof(object)
         if typeCache.TryGetValue(fullName, out cachedType) {
             return cachedType
@@ -124,9 +123,7 @@ public class AnalyzerExternalTypeProbe {
     // Every generic arity a spelling is available at, ascending: compiler-known first, then the
     // arity-qualified metadata probe (`Name`1`, `Name`2`, ...), which must land on an open
     // DEFINITION to count. 17 is the CLR's own limit on generic parameters.
-    public func KnownGenericHeadArities(
-        wellKnownTypes: AnalyzerWellKnownTypes?,
-        name: string): List<int> {
+    func KnownGenericHeadArities(wellKnownTypes: AnalyzerWellKnownTypes?, name: string): List<int> {
         arities := new List<int>()
 
         arity := 1
@@ -148,5 +145,4 @@ public class AnalyzerExternalTypeProbe {
 
         return arities
     }
-
 }

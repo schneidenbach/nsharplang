@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum DiagnosticCategory {
+enum DiagnosticCategory {
     Syntax,
     Type,
     Semantic,

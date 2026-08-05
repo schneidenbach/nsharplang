@@ -3,11 +3,11 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.Collections.Generic
 
-public class ReferenceTypeFilterScratch {
+class ReferenceTypeFilterScratch {
     TypeRanks: int[]
     ResultIndices: int[]
 
-    public func EnsureCapacity(referenceCount: int) {
+    func EnsureCapacity(referenceCount: int) {
         EnsureInitialized()
         if TypeRanks.Length != referenceCount {
             TypeRanks = new int[](referenceCount)
@@ -28,13 +28,13 @@ public class ReferenceTypeFilterScratch {
     }
 }
 
-public class StableDistinctScratch {
+class StableDistinctScratch {
     RanksByReference: Dictionary<string, int>
     Ranks: int[]
     ResultIndices: int[]
     SeenRanks: int[]
 
-    public func EnsureCapacity(count: int) {
+    func EnsureCapacity(count: int) {
         EnsureInitialized()
         if Ranks.Length != count {
             Ranks = new int[](count)
@@ -45,7 +45,7 @@ public class StableDistinctScratch {
         }
     }
 
-    public func EnsureRankCapacity(uniqueRankCount: int) {
+    func EnsureRankCapacity(uniqueRankCount: int) {
         EnsureInitialized()
         rankCapacity := uniqueRankCount + 1
         if SeenRanks.Length != rankCapacity {

@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import NSharpLang.Compiler.Ast
 
+
 // WHAT IT MEANS FOR A CONDITION TO BE A CONDITION — the analyzer's five boolean questions, and the
 // one gate that answers all of them.
 //
@@ -45,16 +46,12 @@ import NSharpLang.Compiler.Ast
 // THE ASSIGNABILITY ORACLE IS PASSED IN AT THE CALL rather than held, for the reason the return and
 // yield walks record: `Analyzer.cs` rebuilds it when the metadata load context opens and again when
 // it is disposed, so an owner constructed once may not keep a reference to it.
-public class AnalyzerBooleanConditions {
-
+class AnalyzerBooleanConditions {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     soaEscapeValue: AnalyzerSoaEscape
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        soaEscape: AnalyzerSoaEscape) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
         soaEscapeValue = soaEscape
@@ -64,11 +61,7 @@ public class AnalyzerBooleanConditions {
     // 'while' loop"); `actionText` names what the value was about to do in the escape reports ("used
     // as a 'while' condition"). The two are different strings on purpose — the escape wording talks
     // about the value and the mismatch wording talks about the construct.
-    public func ReportConditionTypeMismatchIfNeeded(
-        condition: Expression,
-        ownerText: string,
-        actionText: string,
-        conditionType: TypeInfo) {
+    func ReportConditionTypeMismatchIfNeeded(condition: Expression, ownerText: string, actionText: string, conditionType: TypeInfo) {
         if EscapedBeforeTheBooleanQuestion(condition, conditionType, actionText) {
             return
         }
@@ -82,7 +75,7 @@ public class AnalyzerBooleanConditions {
 
     // THE `if` CONDITION, which is the only one of the five that earns the rich report. The
     // suppressions are checked BEFORE the span is taken, because taking a span reads the file.
-    public func ReportIfConditionTypeMismatchIfNeeded(condition: Expression, conditionType: TypeInfo) {
+    func ReportIfConditionTypeMismatchIfNeeded(condition: Expression, conditionType: TypeInfo) {
         if EscapedBeforeTheBooleanQuestion(condition, conditionType, "used as an 'if' condition") {
             return
         }
@@ -99,33 +92,17 @@ public class AnalyzerBooleanConditions {
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(
-                currentFilePath,
-                span.Line,
-                span.Column,
-                sourceSnippet,
-                span.Length,
-                TypeText(conditionType),
-                "bool"))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(conditionType), "bool"))
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            "The condition in an 'if' must be a boolean, but I found '" + TypeText(conditionType) + "'",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "The condition in an 'if' must be a boolean, but I found '" + TypeText(conditionType) + "'", span.Line, span.Column, null, span.Length)
     }
 
     // A `match` CASE GUARD. Measured by assignability rather than identity, and reported under its
     // own code with its own wording, because a guard is an expression the case is filtered by rather
     // than a construct's condition.
-    public func ReportMatchGuardTypeMismatchIfNeeded(
-        guardExpression: Expression,
-        guardType: TypeInfo,
-        assignability: AnalyzerAssignability) {
+    func ReportMatchGuardTypeMismatchIfNeeded(guardExpression: Expression, guardType: TypeInfo, assignability: AnalyzerAssignability) {
         if EscapedBeforeTheBooleanQuestion(guardExpression, guardType, "used as a match guard") {
             return
         }
@@ -135,27 +112,16 @@ public class AnalyzerBooleanConditions {
         }
 
         span := spansValue.GetExpressionDiagnosticSpan(guardExpression)
-        diagnosticsValue.Report(
-            ErrorCode.GuardNotBoolean,
-            "A match guard must be a boolean, but this expression is '" + TypeText(guardType) + "'",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.GuardNotBoolean, "A match guard must be a boolean, but this expression is '" + TypeText(guardType) + "'", span.Line, span.Column, null, span.Length)
     }
 
     // BOTH ESCAPES ARE ALWAYS REPORTED. Neither short-circuits the other: a value that is a row view
     // is told so, and the column probe still runs, exactly as the five arms wrote it out by hand.
     // Either answer silences the boolean question, because a value the analyzer has already refused
     // to let leave its record must not ALSO be told it is the wrong type.
-    func EscapedBeforeTheBooleanQuestion(
-        condition: Expression,
-        conditionType: TypeInfo,
-        actionText: string): bool {
+    func EscapedBeforeTheBooleanQuestion(condition: Expression, conditionType: TypeInfo, actionText: string): bool {
         escapedAsRow := soaEscapeValue.ReportSoaRowEscapeIfNeeded(condition, conditionType, actionText)
-        escapedAsDirectColumn := soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-            condition,
-            actionText)
+        escapedAsDirectColumn := soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(condition, actionText)
         if escapedAsRow {
             return true
         }
@@ -170,13 +136,7 @@ public class AnalyzerBooleanConditions {
         }
 
         span := spansValue.GetExpressionDiagnosticSpan(condition)
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            "The condition in " + ownerText + " must be a boolean, but I found '" + TypeText(conditionType) + "'",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "The condition in " + ownerText + " must be a boolean, but I found '" + TypeText(conditionType) + "'", span.Line, span.Column, null, span.Length)
     }
 
     // A CONDITION THAT ALREADY CARRIES ITS OWN COMPLAINT. `unknown` is what a failed resolution

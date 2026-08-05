@@ -2,7 +2,7 @@ namespace NSharpLang.Cli.Commands
 
 import System.IO
 
-public class FixArgumentSummary {
+class FixArgumentSummary {
     ProjectOption: string?
     FileOption: string?
     PositionalProject: string?
@@ -11,14 +11,7 @@ public class FixArgumentSummary {
     IncludeReviewNeeded: bool
     ShowHelp: bool
 
-    constructor(
-        projectOption: string?,
-        fileOption: string?,
-        positionalProject: string?,
-        dryRun: bool,
-        useText: bool,
-        includeReviewNeeded: bool,
-        showHelp: bool) {
+    constructor(projectOption: string?, fileOption: string?, positionalProject: string?, dryRun: bool, useText: bool, includeReviewNeeded: bool, showHelp: bool) {
         ProjectOption = projectOption
         FileOption = fileOption
         PositionalProject = positionalProject
@@ -29,8 +22,8 @@ public class FixArgumentSummary {
     }
 }
 
-public class FixCommandArgumentKernels {
-    public static func GetArgumentSummary(args: string[]): FixArgumentSummary {
+class FixCommandArgumentKernels {
+    static func GetArgumentSummary(args: string[]): FixArgumentSummary {
         projectOption: string? = null
         fileOption: string? = null
         positionalProject: string? = null
@@ -91,17 +84,10 @@ public class FixCommandArgumentKernels {
             i = i + 1
         }
 
-        return new FixArgumentSummary(
-            projectOption,
-            fileOption,
-            positionalProject,
-            dryRun,
-            useText,
-            includeReviewNeeded,
-            showHelp)
+        return new FixArgumentSummary(projectOption, fileOption, positionalProject, dryRun, useText, includeReviewNeeded, showHelp)
     }
 
-    public static func GetEffectiveOutputMode(useText: bool): int {
+    static func GetEffectiveOutputMode(useText: bool): int {
         if useText {
             return 2
         }
@@ -138,7 +124,7 @@ public class FixCommandArgumentKernels {
     }
 }
 
-public class CheckArgumentSummary {
+class CheckArgumentSummary {
     ProjectOption: string?
     BackendOption: string?
     PositionalProject: string?
@@ -147,14 +133,7 @@ public class CheckArgumentSummary {
     SystemsReport: bool
     ShowHelp: bool
 
-    constructor(
-        projectOption: string?,
-        backendOption: string?,
-        positionalProject: string?,
-        useText: bool,
-        aot: bool,
-        systemsReport: bool,
-        showHelp: bool) {
+    constructor(projectOption: string?, backendOption: string?, positionalProject: string?, useText: bool, aot: bool, systemsReport: bool, showHelp: bool) {
         ProjectOption = projectOption
         BackendOption = backendOption
         PositionalProject = positionalProject
@@ -165,8 +144,8 @@ public class CheckArgumentSummary {
     }
 }
 
-public class CheckCommandKernels {
-    public static func GetArgumentSummary(args: string[]): CheckArgumentSummary {
+class CheckCommandKernels {
+    static func GetArgumentSummary(args: string[]): CheckArgumentSummary {
         projectOption: string? = null
         backendOption: string? = null
         positionalProject: string? = null
@@ -221,17 +200,10 @@ public class CheckCommandKernels {
             i = i + 1
         }
 
-        return new CheckArgumentSummary(
-            projectOption,
-            backendOption,
-            positionalProject,
-            useText,
-            aot,
-            systemsReport,
-            showHelp)
+        return new CheckArgumentSummary(projectOption, backendOption, positionalProject, useText, aot, systemsReport, showHelp)
     }
 
-    public static func GetEffectiveOutputMode(useText: bool, systemsReport: bool): int {
+    static func GetEffectiveOutputMode(useText: bool, systemsReport: bool): int {
         if useText {
             if systemsReport {
                 return -1
@@ -247,7 +219,7 @@ public class CheckCommandKernels {
         return 1
     }
 
-    public static func GetProjectDirectory(projectOption: string?, positionalProject: string?, currentDirectory: string): string {
+    static func GetProjectDirectory(projectOption: string?, positionalProject: string?, currentDirectory: string): string {
         if !string.IsNullOrWhiteSpace(projectOption ?? "") {
             return Path.GetFullPath(projectOption ?? "")
         }
@@ -255,23 +227,23 @@ public class CheckCommandKernels {
         return Path.GetFullPath(positionalProject ?? currentDirectory)
     }
 
-    public static func GetProjectYmlPath(projectDir: string): string {
+    static func GetProjectYmlPath(projectDir: string): string {
         return Path.Combine(projectDir, "project.yml")
     }
 
-    public static func ShouldVerifyIlOutput(errorCount: int, sourceFileCount: int, hasProjectFile: bool): bool {
+    static func ShouldVerifyIlOutput(errorCount: int, sourceFileCount: int, hasProjectFile: bool): bool {
         return errorCount == 0 && sourceFileCount > 0 && hasProjectFile
     }
 
-    public static func GetVerificationOutputPath(tempDir: string, assemblyName: string): string {
+    static func GetVerificationOutputPath(tempDir: string, assemblyName: string): string {
         return Path.Combine(tempDir, assemblyName + ".dll")
     }
 
-    public static func GetVerificationTempDirectory(tempRoot: string, uniqueName: string): string {
+    static func GetVerificationTempDirectory(tempRoot: string, uniqueName: string): string {
         return Path.Combine(tempRoot, "nlc-check-il-" + uniqueName)
     }
 
-    public static func GetExitCode(errorCount: int): int {
+    static func GetExitCode(errorCount: int): int {
         if errorCount > 0 {
             return 1
         }
@@ -279,45 +251,19 @@ public class CheckCommandKernels {
         return 0
     }
 
-    public static func GetHelpText(): string {
-        return "N# Type Check\n"
-            + "\n"
-            + "Usage: nlc check [options] [project-dir]\n"
-            + "\n"
-            + "Verifies your N# project compiles without errors. Runs semantic analysis,\n"
-            + "linting, and IL backend verification.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --backend <mode>  Compilation backend: il\n"
-            + "  --json        Output as JSON (default)\n"
-            + "  --text        Output as human-readable diagnostics\n"
-            + "  --aot         Report Native AOT blockers as errors\n"
-            + "  --systems-report\n"
-            + "                Output the versioned Systems N# effect/policy report as JSON\n"
-            + "  --project     Project root directory (default: current directory)\n"
-            + "  --help, -h    Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc check\n"
-            + "  nlc check --backend il\n"
-            + "  nlc check --text\n"
-            + "  nlc check --aot\n"
-            + "  nlc check --project examples/16-task-cli\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  No errors found\n"
-            + "  1  One or more errors detected"
+    static func GetHelpText(): string {
+        return "N# Type Check\n" + "\n" + "Usage: nlc check [options] [project-dir]\n" + "\n" + "Verifies your N# project compiles without errors. Runs semantic analysis,\n" + "linting, and IL backend verification.\n" + "\n" + "Options:\n" + "  --backend <mode>  Compilation backend: il\n" + "  --json        Output as JSON (default)\n" + "  --text        Output as human-readable diagnostics\n" + "  --aot         Report Native AOT blockers as errors\n" + "  --systems-report\n" + "                Output the versioned Systems N# effect/policy report as JSON\n" + "  --project     Project root directory (default: current directory)\n" + "  --help, -h    Show this help text\n" + "\n" + "Examples:\n" + "  nlc check\n" + "  nlc check --backend il\n" + "  nlc check --text\n" + "  nlc check --aot\n" + "  nlc check --project examples/16-task-cli\n" + "\n" + "Exit codes:\n" + "  0  No errors found\n" + "  1  One or more errors detected"
     }
 
-    public static func GetProjectDirectoryNotFoundMessage(projectDir: string): string {
+    static func GetProjectDirectoryNotFoundMessage(projectDir: string): string {
         return "Directory not found: " + projectDir
     }
 
-    public static func GetSystemsReportTextUnavailableMessage(): string {
+    static func GetSystemsReportTextUnavailableMessage(): string {
         return "--systems-report is only available as JSON output."
     }
 
-    public static func GetNoErrorsMessage(fileCount: int, elapsedText: string): string {
+    static func GetNoErrorsMessage(fileCount: int, elapsedText: string): string {
         suffix := "s"
         if fileCount == 1 {
             suffix = ""
@@ -326,15 +272,15 @@ public class CheckCommandKernels {
         return "  Checked " + fileCount.ToString() + " file" + suffix + " — no errors. [" + elapsedText + "]"
     }
 
-    public static func GetCheckedInMessage(elapsedText: string): string {
+    static func GetCheckedInMessage(elapsedText: string): string {
         return "  Checked in " + elapsedText
     }
 
-    public static func GetFailedElapsedMessage(elapsedText: string): string {
+    static func GetFailedElapsedMessage(elapsedText: string): string {
         return "  Check failed in " + elapsedText
     }
 
-    public static func GetFailedMessage(message: string): string {
+    static func GetFailedMessage(message: string): string {
         return "Check failed: " + message
     }
 }

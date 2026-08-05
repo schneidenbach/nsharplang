@@ -3,8 +3,8 @@ namespace NSharpLang.Compiler
 import System
 import System.Globalization
 
-public class NumericLiteralFacts {
-    public static func GetFloatLiteralTypeInfo(text: string): TypeInfo {
+class NumericLiteralFacts {
+    static func GetFloatLiteralTypeInfo(text: string): TypeInfo {
         trimmed := text.Trim()
         if trimmed.EndsWith("m", StringComparison.OrdinalIgnoreCase) {
             return BuiltInTypes.Decimal
@@ -17,7 +17,7 @@ public class NumericLiteralFacts {
         return BuiltInTypes.Double
     }
 
-    public static func TryGetIntegerLiteralTypeInfo(clrType: Type, out typeInfo: SimpleTypeInfo): bool {
+    static func TryGetIntegerLiteralTypeInfo(clrType: Type, out typeInfo: SimpleTypeInfo): bool {
         if clrType == typeof(byte) {
             typeInfo = BuiltInTypes.Byte
             return true
@@ -67,7 +67,7 @@ public class NumericLiteralFacts {
         return false
     }
 
-    public static func TryGetNegativeIntegerLiteralMaxMagnitude(typeName: string, out maxMagnitude: ulong): bool {
+    static func TryGetNegativeIntegerLiteralMaxMagnitude(typeName: string, out maxMagnitude: ulong): bool {
         if typeName == "sbyte" {
             maxMagnitude = 128UL
             return true
@@ -92,7 +92,7 @@ public class NumericLiteralFacts {
         return false
     }
 
-    public static func TryGetUnsignedIntegerLiteralMaxValue(typeName: string, out maxValue: ulong): bool {
+    static func TryGetUnsignedIntegerLiteralMaxValue(typeName: string, out maxValue: ulong): bool {
         if typeName == "byte" {
             maxValue = 255UL
             return true
@@ -137,7 +137,7 @@ public class NumericLiteralFacts {
         return false
     }
 
-    public static func TryParseUnsignedIntegerMagnitude(text: string, out value: ulong): bool {
+    static func TryParseUnsignedIntegerMagnitude(text: string, out value: ulong): bool {
         try {
             value = ParseUnsignedIntegerMagnitude(text)
             return true
@@ -153,7 +153,7 @@ public class NumericLiteralFacts {
         }
     }
 
-    public static func ParseUnsignedIntegerMagnitude(text: string): ulong {
+    static func ParseUnsignedIntegerMagnitude(text: string): ulong {
         end := text.Length
         while end > 0 {
             last := text[end - 1]
@@ -181,7 +181,7 @@ public class NumericLiteralFacts {
         return UInt64.Parse(clean, CultureInfo.InvariantCulture)
     }
 
-    public static func GetIntegerSuffix(text: string): NumericLiteralIntegerSuffix {
+    static func GetIntegerSuffix(text: string): NumericLiteralIntegerSuffix {
         hasUnsigned := false
         hasLong := false
         end := text.Length
@@ -203,7 +203,7 @@ public class NumericLiteralFacts {
     }
 }
 
-public class NumericLiteralIntegerSuffix {
+class NumericLiteralIntegerSuffix {
     hasUnsignedValue: bool
     hasLongValue: bool
     HasUnsigned: bool => hasUnsignedValue

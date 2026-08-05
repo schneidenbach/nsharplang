@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public class DiagnosticDescriptor {
+class DiagnosticDescriptor {
     Code: string
     Title: string
     Source: DiagnosticSource
@@ -11,14 +11,7 @@ public class DiagnosticDescriptor {
     DocsUrl: string?
     Explanation: string?
 
-    constructor(
-        Code: string,
-        Title: string,
-        Source: DiagnosticSource,
-        Category: DiagnosticCategory,
-        DefaultSeverity: DiagnosticSeverity,
-        BlocksBuildByDefault: bool
-    ) {
+    constructor(Code: string, Title: string, Source: DiagnosticSource, Category: DiagnosticCategory, DefaultSeverity: DiagnosticSeverity, BlocksBuildByDefault: bool) {
         this.Code = Code
         this.Title = Title
         this.Source = Source
@@ -30,15 +23,7 @@ public class DiagnosticDescriptor {
         this.Explanation = null
     }
 
-    constructor(
-        Code: string,
-        Title: string,
-        Source: DiagnosticSource,
-        Category: DiagnosticCategory,
-        DefaultSeverity: DiagnosticSeverity,
-        BlocksBuildByDefault: bool,
-        IsConfigurable: bool
-    ) {
+    constructor(Code: string, Title: string, Source: DiagnosticSource, Category: DiagnosticCategory, DefaultSeverity: DiagnosticSeverity, BlocksBuildByDefault: bool, IsConfigurable: bool) {
         this.Code = Code
         this.Title = Title
         this.Source = Source
@@ -50,17 +35,7 @@ public class DiagnosticDescriptor {
         this.Explanation = null
     }
 
-    constructor(
-        Code: string,
-        Title: string,
-        Source: DiagnosticSource,
-        Category: DiagnosticCategory,
-        DefaultSeverity: DiagnosticSeverity,
-        BlocksBuildByDefault: bool,
-        IsConfigurable: bool,
-        DocsUrl: string?,
-        Explanation: string?
-    ) {
+    constructor(Code: string, Title: string, Source: DiagnosticSource, Category: DiagnosticCategory, DefaultSeverity: DiagnosticSeverity, BlocksBuildByDefault: bool, IsConfigurable: bool, DocsUrl: string?, Explanation: string?) {
         this.Code = Code
         this.Title = Title
         this.Source = Source

@@ -1,15 +1,15 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Cli
-import NSharpLang.Compiler
-import NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.IO
 import System.Text
 import System.Text.Json
+import NSharpLang.Cli
+import NSharpLang.Compiler
+import NSharpLang.Compiler.CodeIntelligence
 
-public class TreeReport {
+class TreeReport {
     SchemaVersion: int
     Command: string
     Ok: bool
@@ -22,18 +22,7 @@ public class TreeReport {
     Summary: TreeSummary
     Limitations: string[]
 
-    constructor(
-        schemaVersion: int,
-        command: string,
-        ok: bool,
-        projectRoot: string,
-        project: TreeProject,
-        maxDepth: int,
-        capabilities: TreeCapabilities,
-        dependencies: TreeDependency[],
-        transitiveDependencies: TreeDependency[],
-        summary: TreeSummary,
-        limitations: string[]) {
+    constructor(schemaVersion: int, command: string, ok: bool, projectRoot: string, project: TreeProject, maxDepth: int, capabilities: TreeCapabilities, dependencies: TreeDependency[], transitiveDependencies: TreeDependency[], summary: TreeSummary, limitations: string[]) {
         SchemaVersion = schemaVersion
         Command = command
         Ok = ok
@@ -48,7 +37,7 @@ public class TreeReport {
     }
 }
 
-public class TreeProject {
+class TreeProject {
     Name: string
     TargetFramework: string
     Source: string
@@ -60,7 +49,7 @@ public class TreeProject {
     }
 }
 
-public class TreeCapabilities {
+class TreeCapabilities {
     DirectDependencies: bool
     TransitiveNuGetDependencies: bool
 
@@ -70,7 +59,7 @@ public class TreeCapabilities {
     }
 }
 
-public class TreeSummary {
+class TreeSummary {
     Direct: int
     Transitive: int
     Total: int
@@ -82,8 +71,8 @@ public class TreeSummary {
     }
 }
 
-public class TreeCommand {
-    public static func Execute(args: string[]): int {
+class TreeCommand {
+    static func Execute(args: string[]): int {
         options := TreeCommandKernels.GetOptionSummary(args)
         if options.ShowHelp {
             print TreeCommandKernels.GetHelpText()
@@ -138,11 +127,7 @@ public class TreeCommand {
         throw new InvalidOperationException(TreeCommandKernels.GetNoProjectFileMessage())
     }
 
-    static func BuildFromProjectYml(
-        projectRoot: string,
-        projectYml: string,
-        maxDepth: int,
-        extraLimitation: string?): TreeReport {
+    static func BuildFromProjectYml(projectRoot: string, projectYml: string, maxDepth: int, extraLimitation: string?): TreeReport {
         config := ProjectFileParser.Parse(projectYml)
         projectName := config.Name ?? Path.GetFileName(projectRoot) ?? "Project"
         allDirect := TreeCommandKernels.DeduplicateDependencies(ProjectYmlDependenciesToArray(config.Dependencies))
@@ -158,18 +143,7 @@ public class TreeCommand {
             limitationList.Add(extraLimitation ?? "")
         }
 
-        return new TreeReport(
-            2,
-            "tree",
-            true,
-            NormalizePath(projectRoot),
-            new TreeProject(projectName, config.TargetFramework, "project.yml"),
-            maxDepth,
-            new TreeCapabilities(true, false),
-            direct,
-            EmptyDependencyArray(),
-            new TreeSummary(direct.Length, 0, direct.Length),
-            limitationList.ToArray())
+        return new TreeReport(2, "tree", true, NormalizePath(projectRoot), new TreeProject(projectName, config.TargetFramework, "project.yml"), maxDepth, new TreeCapabilities(true, false), direct, EmptyDependencyArray(), new TreeSummary(direct.Length, 0, direct.Length), limitationList.ToArray())
     }
 
     static func BuildFromMsbuild(projectRoot: string, csproj: string, projectYml: string?, maxDepth: int): TreeReport {
@@ -180,20 +154,12 @@ public class TreeCommand {
             hasConfig = true
         }
 
-        result := DotnetRunner.Run(
-            "list \"" + csproj + "\" package --include-transitive --format json",
-            projectRoot,
-            true,
-            null)
+        result := DotnetRunner.Run("list \"" + csproj + "\" package --include-transitive --format json", projectRoot, true, null)
 
         if result.ExitCode != 0 {
             detail := GetDotnetListFailureDetail(result)
             if hasConfig && projectYml != null {
-                return BuildFromProjectYml(
-                    projectRoot,
-                    projectYml ?? "",
-                    maxDepth,
-                    TreeCommandKernels.GetTransitiveResolutionFailedLimitation(detail))
+                return BuildFromProjectYml(projectRoot, projectYml ?? "", maxDepth, TreeCommandKernels.GetTransitiveResolutionFailedLimitation(detail))
             }
 
             throw new InvalidOperationException(TreeCommandKernels.GetDotnetRestoreRetryMessage(detail))
@@ -237,25 +203,10 @@ public class TreeCommand {
             source = "project.yml+msbuild"
         }
 
-        return new TreeReport(
-            2,
-            "tree",
-            true,
-            NormalizePath(projectRoot),
-            new TreeProject(projectName, frameworkName, source),
-            maxDepth,
-            new TreeCapabilities(true, true),
-            visibleDirect,
-            visibleTransitive,
-            new TreeSummary(visibleDirect.Length, visibleTransitive.Length, visibleDirect.Length + visibleTransitive.Length),
-            new string[](0))
+        return new TreeReport(2, "tree", true, NormalizePath(projectRoot), new TreeProject(projectName, frameworkName, source), maxDepth, new TreeCapabilities(true, true), visibleDirect, visibleTransitive, new TreeSummary(visibleDirect.Length, visibleTransitive.Length, visibleDirect.Length + visibleTransitive.Length), new string[](0))
     }
 
-    static func ReadMsbuildDependencyGraph(
-        root: JsonElement,
-        direct: List<TreeDependency>,
-        transitive: List<TreeDependency>,
-        targetFrameworks: List<string>) {
+    static func ReadMsbuildDependencyGraph(root: JsonElement, direct: List<TreeDependency>, transitive: List<TreeDependency>, targetFrameworks: List<string>) {
         projects := new JsonElement()
         if !root.TryGetProperty("projects", out projects) {
             return
@@ -277,11 +228,7 @@ public class TreeCommand {
         }
     }
 
-    static func ReadFrameworks(
-        frameworks: JsonElement,
-        direct: List<TreeDependency>,
-        transitive: List<TreeDependency>,
-        targetFrameworks: List<string>) {
+    static func ReadFrameworks(frameworks: JsonElement, direct: List<TreeDependency>, transitive: List<TreeDependency>, targetFrameworks: List<string>) {
         if frameworks.ValueKind != JsonValueKind.Array {
             return
         }
@@ -299,11 +246,7 @@ public class TreeCommand {
         }
     }
 
-    static func AddPackageSection(
-        framework: JsonElement,
-        propertyName: string,
-        transitive: bool,
-        output: List<TreeDependency>) {
+    static func AddPackageSection(framework: JsonElement, propertyName: string, transitive: bool, output: List<TreeDependency>) {
         packages := new JsonElement()
         if !framework.TryGetProperty(propertyName, out packages) {
             return
@@ -321,13 +264,7 @@ public class TreeCommand {
                 continue
             }
 
-            output.Add(new TreeDependency(
-                name,
-                "nuget",
-                GetPackageVersion(packageElement),
-                "runtime",
-                transitive,
-                EmptyDependencyArray()))
+            output.Add(new TreeDependency(name, "nuget", GetPackageVersion(packageElement), "runtime", transitive, EmptyDependencyArray()))
         }
     }
 
@@ -394,13 +331,7 @@ public class TreeCommand {
             version = reference.Version
         }
 
-        return new TreeDependency(
-            NormalizePath(reference.Value),
-            kind,
-            version,
-            "runtime",
-            false,
-            EmptyDependencyArray())
+        return new TreeDependency(NormalizePath(reference.Value), kind, version, "runtime", false, EmptyDependencyArray())
     }
 
     static func SelectFirstCsproj(projectRoot: string): string? {

@@ -77,28 +77,13 @@ class ColumnarFragmentBindings {
     // Metadata declaration passes need exact source/runtime type identity without value-flow
     // bindings. Keep that mechanical bridge narrow: only semantic type facts enter, and every
     // parameter/local/capture/callable/tuple map is created empty.
-    public static func CreateTypeResolutionBindings(
-        enums: Dictionary<string, ColumnarEnumDef>,
-        sourceTypeDefinitions: IEnumerable<ColumnarStructDef>,
-        sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>,
-        typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
-        if enums == null || sourceTypeDefinitions == null
-            || sourceUnionDefinitions == null || typeParameters == null {
-            throw new InvalidOperationException(
-                "Columnar type-resolution binding collections cannot be null.")
+    static func CreateTypeResolutionBindings(enums: Dictionary<string, ColumnarEnumDef>, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
+        if enums == null || sourceTypeDefinitions == null || sourceUnionDefinitions == null || typeParameters == null {
+            throw new InvalidOperationException("Columnar type-resolution binding collections cannot be null.")
         }
 
         emptyNames := new string[](0)
-        result := new ColumnarFragmentBindings(
-            new Dictionary<string, int>(StringComparer.Ordinal),
-            new Dictionary<string, Type>(StringComparer.Ordinal),
-            new Dictionary<string, LocalBuilder>(StringComparer.Ordinal),
-            enums,
-            emptyNames,
-            emptyNames,
-            emptyNames,
-            emptyNames,
-            emptyNames)
+        result := new ColumnarFragmentBindings(new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), new Dictionary<string, LocalBuilder>(StringComparer.Ordinal), enums, emptyNames, emptyNames, emptyNames, emptyNames, emptyNames)
 
         for pair in typeParameters {
             ValidateTypeParameter(pair.Key, pair.Value)
@@ -113,11 +98,7 @@ class ColumnarFragmentBindings {
         return result
     }
 
-    public static func CreateTypeResolutionBindings(
-        enums: Dictionary<string, ColumnarEnumDef>,
-        sourceTypeDefinitions: Dictionary<string, ColumnarStructDef>,
-        sourceUnionDefinitions: Dictionary<string, ColumnarUnionDef>,
-        typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
+    static func CreateTypeResolutionBindings(enums: Dictionary<string, ColumnarEnumDef>, sourceTypeDefinitions: Dictionary<string, ColumnarStructDef>, sourceUnionDefinitions: Dictionary<string, ColumnarUnionDef>, typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
         structs := new ColumnarStructDef[](sourceTypeDefinitions.Count)
         structIndex := 0
         for pair in sourceTypeDefinitions {
@@ -130,19 +111,15 @@ class ColumnarFragmentBindings {
             unions[unionIndex] = pair.Value
             unionIndex += 1
         }
-        return CreateTypeResolutionBindings(
-            enums, structs, unions, typeParameters)
+        return CreateTypeResolutionBindings(enums, structs, unions, typeParameters)
     }
 
     // Erased source types (notably string-backed enums) cannot be distinguished by CLR Type.
     // Exact-scope consumers can probe one semantic enum definition at a time without exposing
     // or reconstructing this binding set's live type-parameter handles.
-    func CreateSingleEnumTypeResolutionBindings(
-        definition: ColumnarEnumDef): ColumnarFragmentBindings {
-        if definition == null || definition.DeclaredTypeName == null
-            || definition.DeclaredTypeName.Length == 0 {
-            throw new InvalidOperationException(
-                "Exact enum-definition selection requires a declared type name.")
+    func CreateSingleEnumTypeResolutionBindings(definition: ColumnarEnumDef): ColumnarFragmentBindings {
+        if definition == null || definition.DeclaredTypeName == null || definition.DeclaredTypeName.Length == 0 {
+            throw new InvalidOperationException("Exact enum-definition selection requires a declared type name.")
         }
         enums := new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal)
         enums[definition.DeclaredTypeName] = definition
@@ -150,11 +127,7 @@ class ColumnarFragmentBindings {
         for pair in typeParameters {
             copiedTypeParameters[pair.Key] = pair.Value
         }
-        return CreateTypeResolutionBindings(
-            enums,
-            new ColumnarStructDef[](0),
-            new ColumnarUnionDef[](0),
-            copiedTypeParameters)
+        return CreateTypeResolutionBindings(enums, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), copiedTypeParameters)
     }
 
     func CreateEmptySourceTypeResolutionBindings(): ColumnarFragmentBindings {
@@ -162,11 +135,7 @@ class ColumnarFragmentBindings {
         for pair in typeParameters {
             copiedTypeParameters[pair.Key] = pair.Value
         }
-        return CreateTypeResolutionBindings(
-            new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
-            new ColumnarStructDef[](0),
-            new ColumnarUnionDef[](0),
-            copiedTypeParameters)
+        return CreateTypeResolutionBindings(new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), new ColumnarStructDef[](0), new ColumnarUnionDef[](0), copiedTypeParameters)
     }
 
     static func FromRawFacts(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>): ColumnarFragmentBindings {
@@ -233,9 +202,7 @@ class ColumnarFragmentBindings {
     // Only the selected exact declaration name may participate; short CLR/display-name bridges
     // are not semantic identity.
     func TryResolveSelectedSourceType(exactName: string, declarationName: string, out selectedType: Type): bool {
-        if exactName == null || exactName.Length == 0 || declarationName == null || declarationName.Length == 0
-            || Enums == null || SourceTypeDefinitions == null || SourceUnionDefinitions == null
-            || ExactSourceTypes == null {
+        if exactName == null || exactName.Length == 0 || declarationName == null || declarationName.Length == 0 || Enums == null || SourceTypeDefinitions == null || SourceUnionDefinitions == null || ExactSourceTypes == null {
             throw new InvalidOperationException("Selected source-type lookup facts cannot be null or empty.")
         }
 
@@ -304,8 +271,7 @@ class ColumnarFragmentBindings {
     }
 
     static func ValidateTypeParameter(name: string, parameterType: Type) {
-        if name == null || name.Length == 0 || parameterType == null
-            || !parameterType.get_IsGenericParameter() || parameterType.Name != name {
+        if name == null || name.Length == 0 || parameterType == null || !parameterType.get_IsGenericParameter() || parameterType.Name != name {
             throw new InvalidOperationException("Columnar type-parameter facts must map each non-empty name to its exact generic parameter handle.")
         }
     }

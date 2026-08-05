@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // ONE ARGUMENT FAILED TO REACH A PARAMETER, OR ONE PARAMETER NEVER RECEIVED AN ARGUMENT.
 //
 // The source binder's placement walk is the ONE authority on which argument fills which parameter
@@ -15,8 +16,7 @@ import NSharpLang.Compiler.Ast
 // argument, and a failure about a MISSING argument anchors on the call and names the parameter it
 // wanted. The failures are appended in walk order, so replaying them in order reproduces the
 // interleaving the walk itself would have produced.
-public class SyntheticArgumentBindingFailure {
-
+class SyntheticArgumentBindingFailure {
     argumentIndexValue: int
     parameterIndexValue: int
     messageValue: string
@@ -38,8 +38,7 @@ public class SyntheticArgumentBindingFailure {
 // argument `i` was placed at, or -1 when it was placed nowhere. It is produced even when the bind
 // FAILED, because scoring, validation and the NL402 renderers all keep walking a partially placed
 // call — a single unknown argument name must not blank out the other arguments' diagnostics.
-public class SyntheticArgumentBinding {
-
+class SyntheticArgumentBinding {
     successValue: bool
     parameterIndexByArgumentValue: int[]
     failuresValue: List<SyntheticArgumentBindingFailure>
@@ -48,10 +47,7 @@ public class SyntheticArgumentBinding {
     ParameterIndexByArgument: int[] => parameterIndexByArgumentValue
     Failures: List<SyntheticArgumentBindingFailure> => failuresValue
 
-    constructor(
-        success: bool,
-        parameterIndexByArgument: int[],
-        failures: List<SyntheticArgumentBindingFailure>) {
+    constructor(success: bool, parameterIndexByArgument: int[], failures: List<SyntheticArgumentBindingFailure>) {
         successValue = success
         parameterIndexByArgumentValue = parameterIndexByArgument
         failuresValue = failures
@@ -64,8 +60,7 @@ public class SyntheticArgumentBinding {
 // with a null type on either side means the position carries no information and must be SKIPPED
 // rather than scored, which is a different answer from "does not match": an unresolved params
 // signature, or a spread of an unknown type, must not eliminate the candidate.
-public class SyntheticArgumentComparison {
-
+class SyntheticArgumentComparison {
     matchedValue: bool
     expectedTypeValue: TypeInfo?
     argumentTypeValue: TypeInfo?
@@ -103,15 +98,13 @@ public class SyntheticArgumentComparison {
 // one call reports every one of its placement problems rather than only the first.
 //
 // This owner reports nothing and records nothing. Do not reintroduce any of it in C#.
-public class AnalyzerSyntheticCallFacts {
+class AnalyzerSyntheticCallFacts {
 
     // The name a diagnostic calls this call target: the declaration's own synthetic name when it has
     // one, else the name written at the call site, else the generic word. Stated once because six
     // members in the family need the same string and a disagreement between them would show up as
     // two different names for one call.
-    public static func ResolveSyntheticFunctionName(
-        functionType: FunctionTypeInfo,
-        call: CallExpression): string {
+    static func ResolveSyntheticFunctionName(functionType: FunctionTypeInfo, call: CallExpression): string {
         syntheticName := functionType.SyntheticName
         if syntheticName != null {
             return syntheticName
@@ -127,7 +120,7 @@ public class AnalyzerSyntheticCallFacts {
 
     // The name WRITTEN at the call site, if the callee is named at all. A call through an arbitrary
     // expression (an invoked local, an element of an array of delegates) has no written name.
-    public static func GetCallTargetName(call: CallExpression): string? {
+    static func GetCallTargetName(call: CallExpression): string? {
         identifier := call.Callee as IdentifierExpression
         if identifier != null {
             return identifier.Name
@@ -143,11 +136,7 @@ public class AnalyzerSyntheticCallFacts {
 
     // Phase one and two of the placement walk. See the class comment: the answer is the
     // argument-to-parameter map plus the ordered failures, and the map is produced either way.
-    public static func BindFunctionArguments(
-        functionType: FunctionTypeInfo,
-        functionName: string,
-        call: CallExpression,
-        parameterStartIndex: int): SyntheticArgumentBinding {
+    static func BindFunctionArguments(functionType: FunctionTypeInfo, functionName: string, call: CallExpression, parameterStartIndex: int): SyntheticArgumentBinding {
         expectedCount := 0
         parameterTypes := functionType.ParameterTypes
         if parameterTypes != null {
@@ -173,8 +162,7 @@ public class AnalyzerSyntheticCallFacts {
 
         failures := new List<SyntheticArgumentBindingFailure>()
         parameterNames := functionType.ParameterNames
-        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-            functionType, expectedCount)
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, expectedCount)
         boundArgumentIndexByParameter := new int[](expectedCount)
         clearIndex := 0
         while clearIndex < expectedCount {
@@ -192,20 +180,16 @@ public class AnalyzerSyntheticCallFacts {
             if argumentName != null {
                 parameterIndex := FindParameterIndexByName(parameterNames, argumentName)
                 if parameterIndex < clampedStart || parameterIndex >= expectedCount {
-                    unknownMessage := "'" + functionName + "' has no parameter named '"
-                        + argumentName + "'"
-                    failures.Add(new SyntheticArgumentBindingFailure(
-                        argumentIndex, -1, unknownMessage))
+                    unknownMessage := "'" + functionName + "' has no parameter named '" + argumentName + "'"
+                    failures.Add(new SyntheticArgumentBindingFailure(argumentIndex, -1, unknownMessage))
                     success = false
                     argumentIndex = argumentIndex + 1
                     continue
                 }
 
                 if boundArgumentIndexByParameter[parameterIndex] >= 0 {
-                    duplicateMessage := "'" + functionName + "' got multiple values for parameter '"
-                        + argumentName + "'"
-                    failures.Add(new SyntheticArgumentBindingFailure(
-                        argumentIndex, -1, duplicateMessage))
+                    duplicateMessage := "'" + functionName + "' got multiple values for parameter '" + argumentName + "'"
+                    failures.Add(new SyntheticArgumentBindingFailure(argumentIndex, -1, duplicateMessage))
                     success = false
                     argumentIndex = argumentIndex + 1
                     continue
@@ -217,8 +201,7 @@ public class AnalyzerSyntheticCallFacts {
                 continue
             }
 
-            while nextPositionalParameter < expectedCount
-                && boundArgumentIndexByParameter[nextPositionalParameter] >= 0 {
+            while nextPositionalParameter < expectedCount && boundArgumentIndexByParameter[nextPositionalParameter] >= 0 {
                 nextPositionalParameter = nextPositionalParameter + 1
             }
 
@@ -233,10 +216,8 @@ public class AnalyzerSyntheticCallFacts {
                     continue
                 }
 
-                overflowMessage := "'" + functionName
-                    + "' got more positional arguments than its signature accepts"
-                failures.Add(new SyntheticArgumentBindingFailure(
-                    argumentIndex, -1, overflowMessage))
+                overflowMessage := "'" + functionName + "' got more positional arguments than its signature accepts"
+                failures.Add(new SyntheticArgumentBindingFailure(argumentIndex, -1, overflowMessage))
                 success = false
                 argumentIndex = argumentIndex + 1
                 continue
@@ -248,16 +229,13 @@ public class AnalyzerSyntheticCallFacts {
             argumentIndex = argumentIndex + 1
         }
 
-        requiredCount := AnalyzerOverloadFacts.GetSyntheticRequiredParameterCount(
-            functionType, expectedCount)
+        requiredCount := AnalyzerOverloadFacts.GetSyntheticRequiredParameterCount(functionType, expectedCount)
         missingIndex := clampedStart
         while missingIndex < requiredCount {
             if boundArgumentIndexByParameter[missingIndex] < 0 {
                 parameterName := MissingParameterName(functionType, missingIndex)
-                missingMessage := "'" + functionName + "' needs an argument for parameter '"
-                    + parameterName + "'"
-                failures.Add(new SyntheticArgumentBindingFailure(
-                    -1, missingIndex, missingMessage))
+                missingMessage := "'" + functionName + "' needs an argument for parameter '" + parameterName + "'"
+                failures.Add(new SyntheticArgumentBindingFailure(-1, missingIndex, missingMessage))
                 success = false
             }
 
@@ -307,10 +285,7 @@ public class AnalyzerSyntheticCallFacts {
     //
     // A signature whose arguments do not even PLACE has no meaningful cost and answers zero: the
     // tie-break only ever runs between two candidates that already scored equally.
-    public static func GetGenericParameterCost(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>): int {
+    static func GetGenericParameterCost(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>): int {
         typeParameters := functionType.TypeParameters
         sourceParameterTypes := functionType.SourceParameterTypes
         if typeParameters == null || typeParameters.Count == 0 {
@@ -321,16 +296,14 @@ public class AnalyzerSyntheticCallFacts {
             return 0
         }
 
-        parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(
-            functionType, call)
+        parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
         functionName := ResolveSyntheticFunctionName(functionType, call)
         binding := BindFunctionArguments(functionType, functionName, call, parameterStartIndex)
         if !binding.Success {
             return 0
         }
 
-        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-            functionType, sourceParameterTypes.Count)
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, sourceParameterTypes.Count)
         parameterIndexByArgument := binding.ParameterIndexByArgument
         cost := 0
         argumentIndex := 0
@@ -339,12 +312,10 @@ public class AnalyzerSyntheticCallFacts {
             if parameterIndex >= 0 && parameterIndex < sourceParameterTypes.Count {
                 sourceParameterType := sourceParameterTypes[parameterIndex]
                 if paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex {
-                    sourceParameterType = AnalyzerOverloadFacts.GetParamsInferenceTypeReference(
-                        sourceParameterType)
+                    sourceParameterType = AnalyzerOverloadFacts.GetParamsInferenceTypeReference(sourceParameterType)
                 }
 
-                if AnalyzerOverloadFacts.IsDirectFunctionTypeParameterReference(
-                        sourceParameterType, typeParameters) {
+                if AnalyzerOverloadFacts.IsDirectFunctionTypeParameterReference(sourceParameterType, typeParameters) {
                     cost = cost + 1
                 }
             }
@@ -360,9 +331,7 @@ public class AnalyzerSyntheticCallFacts {
     // name lookup at the leaves and a rebuild through every composite shell above them. An unbound
     // name is left alone rather than replaced with a hole: partial inference must still describe the
     // parameters it did close.
-    public static func ApplyGenericBindings(
-        candidate: TypeInfo,
-        bindings: Dictionary<string, TypeInfo>?): TypeInfo {
+    static func ApplyGenericBindings(candidate: TypeInfo, bindings: Dictionary<string, TypeInfo>?): TypeInfo {
         if bindings == null || bindings.Count == 0 {
             return candidate
         }
@@ -419,7 +388,7 @@ public class AnalyzerSyntheticCallFacts {
     //
     // Both spellings of every type are admitted — the source keyword and the CLR name — because one
     // bound may be written in source and another read from metadata for the same parameter.
-    public static func TryComputeNumericLub(types: List<TypeInfo>): TypeInfo? {
+    static func TryComputeNumericLub(types: List<TypeInfo>): TypeInfo? {
         maxIndex := -1
         index := 0
         while index < types.Count {
@@ -522,18 +491,13 @@ public class AnalyzerSyntheticCallFacts {
 // arrives as an `ExternalTypeInfo` has to be reopened as a CLR type before its type arguments can be
 // matched). All four are rebuilt when the well-known-type bag changes, so this owner is too, and its
 // fields never change after construction.
-public class AnalyzerSyntheticCallBinder {
-
+class AnalyzerSyntheticCallBinder {
     declarationContext: AnalyzerDeclarationContext
     overloadScoring: AnalyzerOverloadScoring
     assignability: AnalyzerAssignability
     clrTypeConversion: AnalyzerClrTypeConversion
 
-    constructor(
-        context: AnalyzerDeclarationContext,
-        scoring: AnalyzerOverloadScoring,
-        assignabilityOwner: AnalyzerAssignability,
-        conversion: AnalyzerClrTypeConversion) {
+    constructor(context: AnalyzerDeclarationContext, scoring: AnalyzerOverloadScoring, assignabilityOwner: AnalyzerAssignability, conversion: AnalyzerClrTypeConversion) {
         declarationContext = context
         overloadScoring = scoring
         assignability = assignabilityOwner
@@ -554,30 +518,20 @@ public class AnalyzerSyntheticCallBinder {
     // A params parameter whose type is not an array at all describes nothing, so the position is
     // skipped rather than failed — a malformed signature must not eliminate a candidate that the
     // arity tables already admitted.
-    public func GetArgumentComparisonTypes(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        argumentIndex: int,
-        parameterIndex: int,
-        paramsParameterIndex: int,
-        parameterStartIndex: int,
-        genericBindings: Dictionary<string, TypeInfo>?): SyntheticArgumentComparison {
+    func GetArgumentComparisonTypes(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, argumentIndex: int, parameterIndex: int, paramsParameterIndex: int, parameterStartIndex: int, genericBindings: Dictionary<string, TypeInfo>?): SyntheticArgumentComparison {
         parameterTypes := functionType.ParameterTypes
         if parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count {
             return new SyntheticArgumentComparison(false, null, null)
         }
 
-        boundParameterType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(
-            parameterTypes[parameterIndex], genericBindings)
+        boundParameterType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings)
         expectedType: TypeInfo? = declarationContext.ResolveDeclaredAlias(boundParameterType)
         argumentType: TypeInfo? = declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex])
         if paramsParameterIndex < 0 || parameterIndex != paramsParameterIndex {
             return new SyntheticArgumentComparison(true, expectedType, argumentType)
         }
 
-        boundParamsType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(
-            parameterTypes[paramsParameterIndex], genericBindings)
+        boundParamsType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[paramsParameterIndex], genericBindings)
         paramsType := declarationContext.ResolveDeclaredAlias(boundParamsType)
         paramsArrayType := paramsType as ArrayTypeInfo
         if paramsArrayType == null {
@@ -585,11 +539,7 @@ public class AnalyzerSyntheticCallBinder {
         }
 
         paramsArgumentIndex := paramsParameterIndex - parameterStartIndex
-        isDirectParamsArrayArgument := overloadScoring.IsSingleDirectNSharpParamsArrayArgument(
-            paramsArgumentIndex,
-            call.Arguments,
-            argTypes,
-            paramsArrayType)
+        isDirectParamsArrayArgument := overloadScoring.IsSingleDirectNSharpParamsArrayArgument(paramsArgumentIndex, call.Arguments, argTypes, paramsArrayType)
         if isDirectParamsArrayArgument {
             return new SyntheticArgumentComparison(true, expectedType, argumentType)
         }
@@ -619,7 +569,7 @@ public class AnalyzerSyntheticCallBinder {
     // wins, and a numeric list widens. Nothing common leaves `object` — the conservative answer,
     // deliberately NOT a failure, because a call whose inference is imprecise should still be
     // checked against `object` rather than abandoned.
-    public func ComputeLeastUpperBound(types: List<TypeInfo>): TypeInfo {
+    func ComputeLeastUpperBound(types: List<TypeInfo>): TypeInfo {
         if types.Count == 0 {
             return BuiltInTypes.Object
         }
@@ -668,8 +618,7 @@ public class AnalyzerSyntheticCallBinder {
         index := 0
         while index < types.Count {
             current := types[index]
-            if !TypeInfoIdentityFacts.AreEqual(current, candidate)
-                && !assignability.IsAssignable(candidate, current) {
+            if !TypeInfoIdentityFacts.AreEqual(current, candidate) && !assignability.IsAssignable(candidate, current) {
                 return false
             }
 
@@ -695,11 +644,7 @@ public class AnalyzerSyntheticCallBinder {
     // TWO ARGUMENT TYPES CARRY NO INFORMATION and are dropped at the top: `unknown`, because an
     // error-recovery type would bind a parameter to garbage, and `null`, because a null literal
     // constrains nothing.
-    public func CollectTypeParameterBounds(
-        parameterTypeReference: TypeReference,
-        argumentType: TypeInfo,
-        typeParameters: List<TypeParameter>,
-        allBounds: Dictionary<string, List<TypeInfo>>) {
+    func CollectTypeParameterBounds(parameterTypeReference: TypeReference, argumentType: TypeInfo, typeParameters: List<TypeParameter>, allBounds: Dictionary<string, List<TypeInfo>>) {
         if BuiltInTypes.IsUnknown(argumentType) {
             return
         }
@@ -733,8 +678,7 @@ public class AnalyzerSyntheticCallBinder {
         if array != null {
             argumentArray := argumentType as ArrayTypeInfo
             if argumentArray != null {
-                CollectTypeParameterBounds(
-                    array.ElementType, argumentArray.ElementType, typeParameters, allBounds)
+                CollectTypeParameterBounds(array.ElementType, argumentArray.ElementType, typeParameters, allBounds)
             }
 
             return
@@ -744,11 +688,9 @@ public class AnalyzerSyntheticCallBinder {
         if nullable != null {
             argumentNullable := argumentType as NullableTypeInfo
             if argumentNullable != null {
-                CollectTypeParameterBounds(
-                    nullable.InnerType, argumentNullable.InnerType, typeParameters, allBounds)
+                CollectTypeParameterBounds(nullable.InnerType, argumentNullable.InnerType, typeParameters, allBounds)
             } else {
-                CollectTypeParameterBounds(
-                    nullable.InnerType, argumentType, typeParameters, allBounds)
+                CollectTypeParameterBounds(nullable.InnerType, argumentType, typeParameters, allBounds)
             }
 
             return
@@ -762,15 +704,13 @@ public class AnalyzerSyntheticCallBinder {
                 innerArgumentType = argumentByRef.InnerType
             }
 
-            CollectTypeParameterBounds(
-                byRef.InnerType, innerArgumentType, typeParameters, allBounds)
+            CollectTypeParameterBounds(byRef.InnerType, innerArgumentType, typeParameters, allBounds)
             return
         }
 
         functionReference := parameterTypeReference as FunctionTypeReference
         if functionReference != null {
-            CollectFunctionTypeParameterBounds(
-                functionReference, argumentType, typeParameters, allBounds)
+            CollectFunctionTypeParameterBounds(functionReference, argumentType, typeParameters, allBounds)
         }
     }
 
@@ -778,22 +718,13 @@ public class AnalyzerSyntheticCallBinder {
     // CLR type, and against a `ReflectionTypeInfo` wrapping one. The three arms exist because the
     // same argument can arrive in three representations depending on where its type came from, and
     // the head names are compared with the namespace-tolerant rule rather than by string equality.
-    func CollectGenericTypeParameterBounds(
-        generic: GenericTypeReference,
-        argumentType: TypeInfo,
-        typeParameters: List<TypeParameter>,
-        allBounds: Dictionary<string, List<TypeInfo>>) {
+    func CollectGenericTypeParameterBounds(generic: GenericTypeReference, argumentType: TypeInfo, typeParameters: List<TypeParameter>, allBounds: Dictionary<string, List<TypeInfo>>) {
         argumentGeneric := argumentType as GenericTypeInfo
         if argumentGeneric != null {
-            if AnalyzerOverloadFacts.GenericNamesMatch(generic.Name, argumentGeneric.Name)
-                && generic.TypeArguments.Count == argumentGeneric.TypeArguments.Count {
+            if AnalyzerOverloadFacts.GenericNamesMatch(generic.Name, argumentGeneric.Name) && generic.TypeArguments.Count == argumentGeneric.TypeArguments.Count {
                 index := 0
                 while index < generic.TypeArguments.Count {
-                    CollectTypeParameterBounds(
-                        generic.TypeArguments[index],
-                        argumentGeneric.TypeArguments[index],
-                        typeParameters,
-                        allBounds)
+                    CollectTypeParameterBounds(generic.TypeArguments[index], argumentGeneric.TypeArguments[index], typeParameters, allBounds)
                     index = index + 1
                 }
             }
@@ -813,18 +744,13 @@ public class AnalyzerSyntheticCallBinder {
 
         reflection := argumentType as ReflectionTypeInfo
         if reflection != null && reflection.Type.get_IsGenericType() {
-            CollectClrTypeParameterBounds(
-                generic, reflection.Type, typeParameters, allBounds)
+            CollectClrTypeParameterBounds(generic, reflection.Type, typeParameters, allBounds)
         }
     }
 
     // The pairwise descent against a CLR type, shared by the external and reflection arms. The head
     // name comes off the CLR name's arity suffix.
-    func CollectClrTypeParameterBounds(
-        generic: GenericTypeReference,
-        clrType: Type,
-        typeParameters: List<TypeParameter>,
-        allBounds: Dictionary<string, List<TypeInfo>>) {
+    func CollectClrTypeParameterBounds(generic: GenericTypeReference, clrType: Type, typeParameters: List<TypeParameter>, allBounds: Dictionary<string, List<TypeInfo>>) {
         typeArguments := clrType.GetGenericArguments()
         if generic.TypeArguments.Count != typeArguments.Length {
             return
@@ -843,8 +769,7 @@ public class AnalyzerSyntheticCallBinder {
         index := 0
         while index < generic.TypeArguments.Count {
             converted := AnalyzerReflectionTypeConversion.ConvertReflectionType(typeArguments[index])
-            CollectTypeParameterBounds(
-                generic.TypeArguments[index], converted, typeParameters, allBounds)
+            CollectTypeParameterBounds(generic.TypeArguments[index], converted, typeParameters, allBounds)
             index = index + 1
         }
     }
@@ -852,11 +777,7 @@ public class AnalyzerSyntheticCallBinder {
     // A `Func`/`Action` parameter against a lambda's inferred signature: every parameter position it
     // has in common, then the return. The shorter of the two lists governs, so an arity mismatch
     // contributes what it can rather than nothing.
-    func CollectFunctionTypeParameterBounds(
-        functionReference: FunctionTypeReference,
-        argumentType: TypeInfo,
-        typeParameters: List<TypeParameter>,
-        allBounds: Dictionary<string, List<TypeInfo>>) {
+    func CollectFunctionTypeParameterBounds(functionReference: FunctionTypeReference, argumentType: TypeInfo, typeParameters: List<TypeParameter>, allBounds: Dictionary<string, List<TypeInfo>>) {
         argumentFunction := argumentType as FunctionTypeInfo
         if argumentFunction == null {
             return
@@ -867,19 +788,14 @@ public class AnalyzerSyntheticCallBinder {
         if argumentParameters != null {
             index := 0
             while index < referenceParameters.Count && index < argumentParameters.Count {
-                CollectTypeParameterBounds(
-                    referenceParameters[index],
-                    argumentParameters[index],
-                    typeParameters,
-                    allBounds)
+                CollectTypeParameterBounds(referenceParameters[index], argumentParameters[index], typeParameters, allBounds)
                 index = index + 1
             }
         }
 
         argumentReturn := argumentFunction.ReturnType
         if argumentReturn != null {
-            CollectTypeParameterBounds(
-                functionReference.ReturnType, argumentReturn, typeParameters, allBounds)
+            CollectTypeParameterBounds(functionReference.ReturnType, argumentReturn, typeParameters, allBounds)
         }
     }
 }
@@ -897,8 +813,7 @@ public class AnalyzerSyntheticCallBinder {
 // constraint span, the SoA validator) ask "would this bind?" without wanting the answer written
 // down. The map comes back either way, because a partially placed call still has diagnostics to
 // give about the arguments that DID land.
-public class AnalyzerSyntheticCallReporter {
-
+class AnalyzerSyntheticCallReporter {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
 
@@ -907,15 +822,8 @@ public class AnalyzerSyntheticCallReporter {
         spansValue = spans
     }
 
-    public func TryBindAndReport(
-        functionType: FunctionTypeInfo,
-        functionName: string,
-        call: CallExpression,
-        out parameterIndexByArgument: int[],
-        parameterStartIndex: int,
-        reportErrors: bool): bool {
-        binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-            functionType, functionName, call, parameterStartIndex)
+    func TryBindAndReport(functionType: FunctionTypeInfo, functionName: string, call: CallExpression, out parameterIndexByArgument: int[], parameterStartIndex: int, reportErrors: bool): bool {
+        binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(functionType, functionName, call, parameterStartIndex)
         parameterIndexByArgument = binding.ParameterIndexByArgument
         if !reportErrors {
             return binding.Success
@@ -925,15 +833,9 @@ public class AnalyzerSyntheticCallReporter {
         while index < binding.Failures.Count {
             failure := binding.Failures[index]
             if failure.ArgumentIndex >= 0 {
-                ReportArgumentBindingError(
-                    functionType,
-                    functionName,
-                    call.Arguments[failure.ArgumentIndex],
-                    failure.Message,
-                    parameterStartIndex)
+                ReportArgumentBindingError(functionType, functionName, call.Arguments[failure.ArgumentIndex], failure.Message, parameterStartIndex)
             } else {
-                ReportMissingArgumentBindingError(
-                    functionType, functionName, call, failure.Message, parameterStartIndex)
+                ReportMissingArgumentBindingError(functionType, functionName, call, failure.Message, parameterStartIndex)
             }
 
             index = index + 1
@@ -944,40 +846,16 @@ public class AnalyzerSyntheticCallReporter {
 
     // A parameter that never received an argument anchors on the CALL, because there is no written
     // argument to point at.
-    func ReportMissingArgumentBindingError(
-        functionType: FunctionTypeInfo,
-        functionName: string,
-        call: CallExpression,
-        message: string,
-        parameterStartIndex: int) {
+    func ReportMissingArgumentBindingError(functionType: FunctionTypeInfo, functionName: string, call: CallExpression, message: string, parameterStartIndex: int) {
         span := spansValue.GetCallDiagnosticSpan(call, functionName)
-        signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(
-            functionType, functionName, parameterStartIndex)
-        diagnosticsValue.Report(
-            ErrorCode.NoMatchingOverload,
-            message,
-            span.Line,
-            span.Column,
-            "Use " + signature + ".",
-            span.Length)
+        signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)
+        diagnosticsValue.Report(ErrorCode.NoMatchingOverload, message, span.Line, span.Column, "Use " + signature + ".", span.Length)
     }
 
     // A written argument that reached no parameter anchors on that ARGUMENT.
-    func ReportArgumentBindingError(
-        functionType: FunctionTypeInfo,
-        functionName: string,
-        argument: Argument,
-        message: string,
-        parameterStartIndex: int) {
+    func ReportArgumentBindingError(functionType: FunctionTypeInfo, functionName: string, argument: Argument, message: string, parameterStartIndex: int) {
         span := spansValue.GetExpressionDiagnosticSpan(argument.Value)
-        signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(
-            functionType, functionName, parameterStartIndex)
-        diagnosticsValue.Report(
-            ErrorCode.NoMatchingOverload,
-            message,
-            span.Line,
-            span.Column,
-            "Use " + signature + ", or remove the argument name.",
-            span.Length)
+        signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)
+        diagnosticsValue.Report(ErrorCode.NoMatchingOverload, message, span.Line, span.Column, "Use " + signature + ", or remove the argument name.", span.Length)
     }
 }

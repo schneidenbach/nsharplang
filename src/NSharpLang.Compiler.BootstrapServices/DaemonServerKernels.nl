@@ -4,8 +4,8 @@ import System
 import System.IO
 import NSharpLang.Cli.Commands
 
-public class DaemonServerKernels {
-    public static func ParsePosition(position: string, out line: int, out column: int): bool {
+class DaemonServerKernels {
+    static func ParsePosition(position: string, out line: int, out column: int): bool {
         line = 0
         column = 0
 
@@ -45,102 +45,95 @@ public class DaemonServerKernels {
         return parsedAny
     }
 
-    public static func GetUnknownMethodMessage(method: string): string {
+    static func GetUnknownMethodMessage(method: string): string {
         return DaemonServerMessageKernels.GetUnknownMethodMessage(method)
     }
 
-    public static func GetFailedLoadProjectMessage(): string {
+    static func GetFailedLoadProjectMessage(): string {
         return DaemonServerMessageKernels.GetFailedLoadProjectMessage()
     }
 
-    public static func GetEmptyBatchPayloadMessage(): string {
+    static func GetEmptyBatchPayloadMessage(): string {
         return DaemonServerMessageKernels.GetEmptyBatchPayloadMessage()
     }
 
-    public static func GetFileParameterRequiredMessage(): string {
+    static func GetFileParameterRequiredMessage(): string {
         return DaemonServerMessageKernels.GetFileParameterRequiredMessage()
     }
 
-    public static func GetFileAndPosParametersRequiredMessage(): string {
+    static func GetFileAndPosParametersRequiredMessage(): string {
         return DaemonServerMessageKernels.GetFileAndPosParametersRequiredMessage()
     }
 
-    public static func GetDefinitionTargetRequiredMessage(): string {
+    static func GetDefinitionTargetRequiredMessage(): string {
         return DaemonServerMessageKernels.GetDefinitionTargetRequiredMessage()
     }
 
-    public static func GetFileAndPosRequiredMessage(): string {
+    static func GetFileAndPosRequiredMessage(): string {
         return DaemonServerMessageKernels.GetFileAndPosRequiredMessage()
     }
 
-    public static func GetNoSymbolAtPositionMessage(filePath: string, line: int, column: int): string {
-        return "No symbol found at "
-            + filePath
-            + ":"
-            + line.ToString()
-            + ":"
-            + column.ToString()
+    static func GetNoSymbolAtPositionMessage(filePath: string, line: int, column: int): string {
+        return "No symbol found at " + filePath + ":" + line.ToString() + ":" + column.ToString()
     }
 
-    public static func GetSemanticReferencesUnavailableMessage(): string {
+    static func GetSemanticReferencesUnavailableMessage(): string {
         return DaemonServerMessageKernels.GetSemanticReferencesUnavailableMessage()
     }
 
-    public static func GetListeningMessage(socketPath: string, processId: int): string {
+    static func GetListeningMessage(socketPath: string, processId: int): string {
         return DaemonServerMessageKernels.GetListeningMessage(socketPath, processId.ToString())
     }
 
-    public static func GetProjectMessage(projectRoot: string): string {
+    static func GetProjectMessage(projectRoot: string): string {
         return DaemonServerMessageKernels.GetProjectMessage(projectRoot)
     }
 
-    public static func GetIdleTimeoutMessage(durationText: string): string {
+    static func GetIdleTimeoutMessage(durationText: string): string {
         return DaemonServerMessageKernels.GetIdleTimeoutMessage(durationText)
     }
 
-    public static func GetIdleTimeoutShutdownMessage(durationText: string): string {
+    static func GetIdleTimeoutShutdownMessage(durationText: string): string {
         return DaemonServerMessageKernels.GetIdleTimeoutShutdownMessage(durationText)
     }
 
-    public static func GetServerErrorMessage(messageText: string): string {
+    static func GetServerErrorMessage(messageText: string): string {
         return DaemonServerMessageKernels.GetServerErrorMessage(messageText)
     }
 
-    public static func GetClientErrorMessage(messageText: string): string {
+    static func GetClientErrorMessage(messageText: string): string {
         return DaemonServerMessageKernels.GetClientErrorMessage(messageText)
     }
 
-    public static func GetLoadingProjectMessage(): string {
+    static func GetLoadingProjectMessage(): string {
         return DaemonServerMessageKernels.GetLoadingProjectMessage()
     }
 
-    public static func GetProjectLoadedMessage(elapsedMilliseconds: long, fileCount: int): string {
-        return DaemonServerMessageKernels.GetProjectLoadedMessage(
-            elapsedMilliseconds.ToString(),
-            fileCount.ToString())
+    static func GetProjectLoadedMessage(elapsedMilliseconds: long, fileCount: int): string {
+        return DaemonServerMessageKernels.GetProjectLoadedMessage(elapsedMilliseconds.ToString(), fileCount.ToString())
     }
 
-    public static func GetProjectLoadFailedTraceMessage(messageText: string): string {
+    static func GetProjectLoadFailedTraceMessage(messageText: string): string {
         return DaemonServerMessageKernels.GetProjectLoadFailedTraceMessage(messageText)
     }
 
-    public static func GetFileWatcherStartedMessage(): string {
+    static func GetFileWatcherStartedMessage(): string {
         return DaemonServerMessageKernels.GetFileWatcherStartedMessage()
     }
 
-    public static func GetFileWatcherFailedMessage(messageText: string): string {
+    static func GetFileWatcherFailedMessage(messageText: string): string {
         return DaemonServerMessageKernels.GetFileWatcherFailedMessage(messageText)
     }
 
-    public static func GetFileChangedMessage(fileName: string): string {
+    static func GetFileChangedMessage(fileName: string): string {
         return DaemonServerMessageKernels.GetFileChangedMessage(fileName)
     }
 
-    public static func GetChangedFileName(path: string): string {
+    static func GetChangedFileName(path: string): string {
         return Path.GetFileName(path) ?? ""
     }
 
-    public static func ShouldInvalidateForChangedPath(path: string): bool {
+    static func ShouldInvalidateForChangedPath(path: string): bool {
         if ContainsPathSegmentIgnoreCase(path, ".nlc") {
             return false
         }
@@ -148,15 +141,15 @@ public class DaemonServerKernels {
         return WatchCommandKernels.ShouldTriggerForChangedPath(path)
     }
 
-    public static func GetShutdownCompleteMessage(): string {
+    static func GetShutdownCompleteMessage(): string {
         return DaemonServerMessageKernels.GetShutdownCompleteMessage()
     }
 
-    public static func GetMalformedRequestParamMessage(key: string, typeName: string, messageText: string): string {
+    static func GetMalformedRequestParamMessage(key: string, typeName: string, messageText: string): string {
         return DaemonServerMessageKernels.GetMalformedRequestParamMessage(key, typeName, messageText)
     }
 
-    public static func FormatDurationMilliseconds(totalMilliseconds: long): string {
+    static func FormatDurationMilliseconds(totalMilliseconds: long): string {
         if totalMilliseconds >= 60000 {
             return FormatDurationUnit(totalMilliseconds, 60000, "m")
         }

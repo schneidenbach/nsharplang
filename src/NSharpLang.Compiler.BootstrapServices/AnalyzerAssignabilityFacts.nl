@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 
+
 // The SHAPE DECISIONS behind the analyzer's assignability question.
 //
 // `IsAssignable` itself is a dispatch over arms, and the arms are what this owner holds: which
@@ -35,35 +36,24 @@ import System.Reflection
 // Either a finished assignability verdict, or the pairs that decide it. `Decided` selects: when it
 // is true `Result` is the answer and the pending lists are empty; when it is false the answer is
 // "every pending pair is assignable, target ← source, in order".
-public class AnalyzerAssignabilityDecision {
-
+class AnalyzerAssignabilityDecision {
     Decided: bool
     Result: bool
     PendingTargets: List<TypeInfo>
     PendingSources: List<TypeInfo>
 
-    constructor(
-        decidedValue: bool,
-        resultValue: bool,
-        pendingTargetValues: List<TypeInfo>,
-        pendingSourceValues: List<TypeInfo>) {
+    constructor(decidedValue: bool, resultValue: bool, pendingTargetValues: List<TypeInfo>, pendingSourceValues: List<TypeInfo>) {
         Decided = decidedValue
         Result = resultValue
         PendingTargets = pendingTargetValues
         PendingSources = pendingSourceValues
     }
 
-    public static func Answer(value: bool): AnalyzerAssignabilityDecision {
-        return new AnalyzerAssignabilityDecision(
-            true,
-            value,
-            new List<TypeInfo>(),
-            new List<TypeInfo>())
+    static func Answer(value: bool): AnalyzerAssignabilityDecision {
+        return new AnalyzerAssignabilityDecision(true, value, new List<TypeInfo>(), new List<TypeInfo>())
     }
 
-    public static func Pending(
-        targets: List<TypeInfo>,
-        sources: List<TypeInfo>): AnalyzerAssignabilityDecision {
+    static func Pending(targets: List<TypeInfo>, sources: List<TypeInfo>): AnalyzerAssignabilityDecision {
         if targets.Count == 0 {
             return Answer(true)
         }
@@ -72,8 +62,7 @@ public class AnalyzerAssignabilityDecision {
     }
 }
 
-public class AnalyzerAssignabilityFacts {
-
+class AnalyzerAssignabilityFacts {
     declarationContext: AnalyzerDeclarationContext
     wellKnownTypes: AnalyzerWellKnownTypes?
 
@@ -87,9 +76,7 @@ public class AnalyzerAssignabilityFacts {
     // a source-declared `List<T>` of the program's own is not this `List<T>` — and the arities must
     // agree. Type arguments must be identical, except that the four covariant targets accept a
     // reference-like argument pair whose assignability the caller answers.
-    public func ClassifyKnownGenericAssignability(
-        target: TypeInfo,
-        source: TypeInfo): AnalyzerAssignabilityDecision {
+    func ClassifyKnownGenericAssignability(target: TypeInfo, source: TypeInfo): AnalyzerAssignabilityDecision {
         targetGeneric := target as GenericTypeInfo
         sourceGeneric := source as GenericTypeInfo
         if targetGeneric == null || sourceGeneric == null {
@@ -100,8 +87,7 @@ public class AnalyzerAssignabilityFacts {
             return AnalyzerAssignabilityDecision.Answer(false)
         }
 
-        if !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(targetGeneric)
-            || !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(sourceGeneric) {
+        if !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(targetGeneric) || !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(sourceGeneric) {
             return AnalyzerAssignabilityDecision.Answer(false)
         }
 
@@ -117,9 +103,7 @@ public class AnalyzerAssignabilityFacts {
             targetArgument := targetGeneric.TypeArguments[index]
             sourceArgument := sourceGeneric.TypeArguments[index]
             if !TypeInfoIdentityFacts.AreEqual(targetArgument, sourceArgument) {
-                if !isCovariantTarget
-                    || !IsReferenceLikeForVariance(targetArgument)
-                    || !IsReferenceLikeForVariance(sourceArgument) {
+                if !isCovariantTarget || !IsReferenceLikeForVariance(targetArgument) || !IsReferenceLikeForVariance(sourceArgument) {
                     return AnalyzerAssignabilityDecision.Answer(false)
                 }
 
@@ -138,9 +122,7 @@ public class AnalyzerAssignabilityFacts {
     // whose parameter types are still being inferred must not be pre-judged. Note the directions:
     // a parameter pair is checked source ← target (the target's parameter must be acceptable where
     // the source's is expected) while the return pair is checked target ← source.
-    public func ClassifyFunctionTypeAssignability(
-        source: FunctionTypeInfo,
-        target: FunctionTypeInfo): AnalyzerAssignabilityDecision {
+    func ClassifyFunctionTypeAssignability(source: FunctionTypeInfo, target: FunctionTypeInfo): AnalyzerAssignabilityDecision {
         sourceParameterCount := 0
         if source.ParameterTypes != null {
             sourceParameterCount = source.ParameterTypes.Count
@@ -171,8 +153,7 @@ public class AnalyzerAssignabilityFacts {
 
         sourceReturn := source.ReturnType
         targetReturn := target.ReturnType
-        if sourceReturn != null && targetReturn != null
-            && !BuiltInTypes.IsUnknown(sourceReturn) {
+        if sourceReturn != null && targetReturn != null && !BuiltInTypes.IsUnknown(sourceReturn) {
             pendingTargets.Add(targetReturn)
             pendingSources.Add(sourceReturn)
         }
@@ -185,16 +166,12 @@ public class AnalyzerAssignabilityFacts {
     // program's own `List<T>` does not silently accept `[1, 2, 3]`. The reflection arm matches the
     // metadata name and is deliberately NARROWER — the three read-only/sorted spellings the generic
     // arm accepts have no reflection counterpart here.
-    public func TryGetCollectionElementType(
-        candidate: TypeInfo,
-        out elementType: TypeInfo): bool {
+    func TryGetCollectionElementType(candidate: TypeInfo, out elementType: TypeInfo): bool {
         elementType = BuiltInTypes.Unknown
 
         genericType := candidate as GenericTypeInfo
         if genericType != null {
-            if TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(genericType)
-                && IsCollectionGenericName(genericType.Name)
-                && genericType.TypeArguments.Count > 0 {
+            if TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(genericType) && IsCollectionGenericName(genericType.Name) && genericType.TypeArguments.Count > 0 {
                 elementType = genericType.TypeArguments[0]
                 return true
             }
@@ -206,9 +183,7 @@ public class AnalyzerAssignabilityFacts {
             // `IsGenericType && !IsGenericTypeDefinition` IS `IsConstructedGenericType`, and that
             // distinction is load-bearing: an OPEN definition such as `List<>` names no element
             // type, so it must answer nothing rather than answer with a type parameter.
-            if IsCollectionReflectionName(reflected.get_Name())
-                && reflected.get_IsGenericType()
-                && !reflected.get_IsGenericTypeDefinition() {
+            if IsCollectionReflectionName(reflected.get_Name()) && reflected.get_IsGenericType() && !reflected.get_IsGenericTypeDefinition() {
                 arguments := reflected.GetGenericArguments()
                 if arguments.Length > 0 {
                     firstArgument := arguments[0]
@@ -224,7 +199,7 @@ public class AnalyzerAssignabilityFacts {
     // `T[]` → `Span<T>` / `ReadOnlySpan<T>`. Nominal on both halves: the target must be the real
     // runtime span definition (a same-named source type does not qualify) and the element types must
     // be identical after alias resolution — a span is not variant.
-    public func IsArrayToSpanAssignable(target: TypeInfo, source: TypeInfo): bool {
+    func IsArrayToSpanAssignable(target: TypeInfo, source: TypeInfo): bool {
         array := source as ArrayTypeInfo
         targetGeneric := target as GenericTypeInfo
         if array == null || targetGeneric == null {
@@ -246,26 +221,18 @@ public class AnalyzerAssignabilityFacts {
 
         runtimeSpan := Type.GetType("System.Span`1, System.Private.CoreLib")
         runtimeReadOnlySpan := Type.GetType("System.ReadOnlySpan`1, System.Private.CoreLib")
-        isSpanDefinition := runtimeSpan != null
-            && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(
-                spanDefinition.Type,
-                runtimeSpan)
-        isReadOnlySpanDefinition := runtimeReadOnlySpan != null
-            && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(
-                spanDefinition.Type,
-                runtimeReadOnlySpan)
+        isSpanDefinition := runtimeSpan != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(spanDefinition.Type, runtimeSpan)
+        isReadOnlySpanDefinition := runtimeReadOnlySpan != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(spanDefinition.Type, runtimeReadOnlySpan)
         if !isSpanDefinition && !isReadOnlySpanDefinition {
             return false
         }
 
-        return TypeInfoIdentityFacts.AreEqual(
-            declarationContext.ResolveDeclaredAlias(targetGeneric.TypeArguments[0]),
-            declarationContext.ResolveDeclaredAlias(array.ElementType))
+        return TypeInfoIdentityFacts.AreEqual(declarationContext.ResolveDeclaredAlias(targetGeneric.TypeArguments[0]), declarationContext.ResolveDeclaredAlias(array.ElementType))
     }
 
     // Variance is only offered where a CLR reference conversion could carry it, so the nullable and
     // oblivious shells are transparent and everything else defers to the delegate-reference rule.
-    public func IsReferenceLikeForVariance(candidate: TypeInfo): bool {
+    func IsReferenceLikeForVariance(candidate: TypeInfo): bool {
         resolved := declarationContext.ResolveDeclaredAlias(candidate)
 
         nullableType := resolved as NullableTypeInfo
@@ -284,7 +251,7 @@ public class AnalyzerAssignabilityFacts {
     // Whether a delegate signature position may be crossed by a reference conversion at all. A
     // generic instantiation qualifies — it is a reference type unless it is the one value-typed
     // shape spelled generically, `Nullable<T>` — and anything else answers the reference-type rule.
-    public func MayUseDelegateReferenceConversion(candidate: TypeInfo): bool {
+    func MayUseDelegateReferenceConversion(candidate: TypeInfo): bool {
         resolved := declarationContext.ResolveDeclaredAlias(candidate)
 
         genericType := resolved as GenericTypeInfo
@@ -299,7 +266,7 @@ public class AnalyzerAssignabilityFacts {
     // function type, the two compiler-known delegate generics by NAME, or a real runtime delegate.
     // The nullable and oblivious shells are transparent; every other expected type rejects it, which
     // is what turns `x := SomeMethod` into a diagnostic rather than a value.
-    public func CanBindCallableReferenceToExpectedType(expectedType: TypeInfo): bool {
+    func CanBindCallableReferenceToExpectedType(expectedType: TypeInfo): bool {
         resolvedExpected := declarationContext.ResolveDeclaredAlias(expectedType)
 
         functionType := resolvedExpected as FunctionTypeInfo
@@ -314,8 +281,7 @@ public class AnalyzerAssignabilityFacts {
 
         reflectionType := resolvedExpected as ReflectionTypeInfo
         if reflectionType != null {
-            return IsDelegateType(reflectionType.Type)
-                || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionType.Type)
+            return IsDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionType.Type)
         }
 
         obliviousType := resolvedExpected as ObliviousTypeInfo
@@ -334,7 +300,7 @@ public class AnalyzerAssignabilityFacts {
     // A CONCRETE delegate type in the load context: something that derives from `System.Delegate`
     // without BEING one of the two abstract roots, since neither root names a callable signature.
     // Without metadata facts nothing is a delegate.
-    public func IsDelegateType(candidate: Type): bool {
+    func IsDelegateType(candidate: Type): bool {
         facts := wellKnownTypes
         if facts == null {
             return false
@@ -352,9 +318,7 @@ public class AnalyzerAssignabilityFacts {
     // assignable to a target on the left".
     static func IsKnownGenericConversion(targetName: string, sourceName: string): bool {
         if targetName == "IEnumerable" {
-            return sourceName == "IEnumerable" || sourceName == "List"
-                || sourceName == "ICollection" || sourceName == "IList"
-                || sourceName == "HashSet" || sourceName == "Queue"
+            return sourceName == "IEnumerable" || sourceName == "List" || sourceName == "ICollection" || sourceName == "IList" || sourceName == "HashSet" || sourceName == "Queue"
         }
 
         if targetName == "IQueryable" {
@@ -370,8 +334,7 @@ public class AnalyzerAssignabilityFacts {
         }
 
         if targetName == "IReadOnlyCollection" {
-            return sourceName == "List" || sourceName == "IReadOnlyList"
-                || sourceName == "HashSet" || sourceName == "Queue"
+            return sourceName == "List" || sourceName == "IReadOnlyList" || sourceName == "HashSet" || sourceName == "Queue"
         }
 
         if targetName == "IReadOnlyList" {
@@ -384,25 +347,14 @@ public class AnalyzerAssignabilityFacts {
     // The four read-only/streaming targets whose type argument is covariant. The mutable ones are
     // NOT: `ICollection<Animal>` must not accept an `ICollection<Dog>`, or a caller could add a cat.
     static func IsCovariantKnownGenericTarget(name: string): bool {
-        return name == "IEnumerable" || name == "IQueryable"
-            || name == "IReadOnlyCollection" || name == "IReadOnlyList"
+        return name == "IEnumerable" || name == "IQueryable" || name == "IReadOnlyCollection" || name == "IReadOnlyList"
     }
 
     static func IsCollectionGenericName(name: string): bool {
-        return name == "List" || name == "HashSet" || name == "IList"
-            || name == "ICollection" || name == "IEnumerable" || name == "IQueryable"
-            || name == "ISet" || name == "Queue" || name == "Stack"
-            || name == "LinkedList" || name == "Collection"
-            || name == "ObservableCollection" || name == "SortedSet"
-            || name == "IReadOnlyList" || name == "IReadOnlyCollection"
+        return name == "List" || name == "HashSet" || name == "IList" || name == "ICollection" || name == "IEnumerable" || name == "IQueryable" || name == "ISet" || name == "Queue" || name == "Stack" || name == "LinkedList" || name == "Collection" || name == "ObservableCollection" || name == "SortedSet" || name == "IReadOnlyList" || name == "IReadOnlyCollection"
     }
 
     static func IsCollectionReflectionName(name: string): bool {
-        return name.StartsWith("List`") || name.StartsWith("HashSet`")
-            || name.StartsWith("IList`") || name.StartsWith("ICollection`")
-            || name.StartsWith("IEnumerable`") || name.StartsWith("IQueryable`")
-            || name.StartsWith("ISet`") || name.StartsWith("Queue`")
-            || name.StartsWith("Stack`") || name.StartsWith("LinkedList`")
-            || name.StartsWith("Collection`") || name.StartsWith("ObservableCollection`")
+        return name.StartsWith("List`") || name.StartsWith("HashSet`") || name.StartsWith("IList`") || name.StartsWith("ICollection`") || name.StartsWith("IEnumerable`") || name.StartsWith("IQueryable`") || name.StartsWith("ISet`") || name.StartsWith("Queue`") || name.StartsWith("Stack`") || name.StartsWith("LinkedList`") || name.StartsWith("Collection`") || name.StartsWith("ObservableCollection`")
     }
 }

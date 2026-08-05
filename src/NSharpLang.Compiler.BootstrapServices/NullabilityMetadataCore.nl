@@ -106,11 +106,7 @@ class NullabilityMetadataCore {
         return typeInfo
     }
 
-    static func FormatFlowAttributePrefix(
-        hasNotNullWhen: bool,
-        notNullWhenValue: bool,
-        hasMaybeNull: bool,
-        hasNotNull: bool): string {
+    static func FormatFlowAttributePrefix(hasNotNullWhen: bool, notNullWhenValue: bool, hasMaybeNull: bool, hasNotNull: bool): string {
         formatted := ""
         if hasNotNullWhen {
             valueText := "false"
@@ -154,43 +150,26 @@ class NullabilityMetadataCore {
 
     static func GetFlowAttributeKind(attributeTypeName: string?): int {
         name := attributeTypeName ?? ""
-        if string.Equals(
-            name,
-            "System.Diagnostics.CodeAnalysis.MaybeNullAttribute",
-            StringComparison.Ordinal) {
+        if string.Equals(name, "System.Diagnostics.CodeAnalysis.MaybeNullAttribute", StringComparison.Ordinal) {
             return GetMaybeNullAttributeKind()
         }
 
-        if string.Equals(
-            name,
-            "System.Diagnostics.CodeAnalysis.NotNullAttribute",
-            StringComparison.Ordinal) {
+        if string.Equals(name, "System.Diagnostics.CodeAnalysis.NotNullAttribute", StringComparison.Ordinal) {
             return GetNotNullAttributeKind()
         }
 
-        if string.Equals(
-            name,
-            "System.Diagnostics.CodeAnalysis.NotNullWhenAttribute",
-            StringComparison.Ordinal) {
+        if string.Equals(name, "System.Diagnostics.CodeAnalysis.NotNullWhenAttribute", StringComparison.Ordinal) {
             return GetNotNullWhenAttributeKind()
         }
 
-        if string.Equals(
-            name,
-            "System.ParamArrayAttribute",
-            StringComparison.Ordinal) {
+        if string.Equals(name, "System.ParamArrayAttribute", StringComparison.Ordinal) {
             return GetParamArrayAttributeKind()
         }
 
         return 0
     }
 
-    static func ApplyReadState(
-        typeInfo: TypeInfo,
-        isNullableValueType: bool,
-        canCarryReferenceNullability: bool,
-        isNullableReadState: bool,
-        isUnknownReadState: bool): TypeInfo {
+    static func ApplyReadState(typeInfo: TypeInfo, isNullableValueType: bool, canCarryReferenceNullability: bool, isNullableReadState: bool, isUnknownReadState: bool): TypeInfo {
         if isNullableValueType {
             return typeInfo
         }
@@ -210,13 +189,7 @@ class NullabilityMetadataCore {
         return typeInfo
     }
 
-    static func FormatParameter(
-        isOut: bool,
-        isByRef: bool,
-        isParams: bool,
-        attributePrefix: string,
-        typeName: string,
-        parameterName: string?): string {
+    static func FormatParameter(isOut: bool, isByRef: bool, isParams: bool, attributePrefix: string, typeName: string, parameterName: string?): string {
         modifier := ""
         if isOut {
             modifier = "out "
@@ -315,10 +288,7 @@ class NullabilityMetadataCore {
         return true
     }
 
-    static func CanReflectedTypeCarryReferenceNullability(
-        isGenericParameter: bool,
-        isValueType: bool,
-        convertedCanCarryReferenceNullability: bool): bool {
+    static func CanReflectedTypeCarryReferenceNullability(isGenericParameter: bool, isValueType: bool, convertedCanCarryReferenceNullability: bool): bool {
         if !isGenericParameter {
             return !isValueType
         }

@@ -2,8 +2,8 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
 
-public class CodeIntelligenceSymbolKernels {
-    public static func FilterSymbolsByKind(symbols: List<SymbolResult>, targetKind: SymbolKind): List<SymbolResult> {
+class CodeIntelligenceSymbolKernels {
+    static func FilterSymbolsByKind(symbols: List<SymbolResult>, targetKind: SymbolKind): List<SymbolResult> {
         results := new List<SymbolResult>()
 
         i := 0

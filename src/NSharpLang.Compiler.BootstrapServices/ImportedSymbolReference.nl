@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public class ImportedSymbolReference {
+class ImportedSymbolReference {
     SourcePath: string
     ImportPath: string
     Line: int

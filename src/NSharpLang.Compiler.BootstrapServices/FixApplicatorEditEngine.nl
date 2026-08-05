@@ -16,17 +16,8 @@ struct FixApplicatorLineTable {
     Count: int
 }
 
-public class FixApplicatorEditEngine {
-    public static func ValidateOrderedTextEdits(
-        source: string,
-        hasSource: int,
-        startLines: int[],
-        startColumns: int[],
-        endLines: int[],
-        endColumns: int[],
-        newTexts: string[],
-        count: int,
-        errorInfo: int[]): int {
+class FixApplicatorEditEngine {
+    static func ValidateOrderedTextEdits(source: string, hasSource: int, startLines: int[], startColumns: int[], endLines: int[], endColumns: int[], newTexts: string[], count: int, errorInfo: int[]): int {
         edits := new FixApplicatorEditTable {
             StartLines: startLines,
             StartColumns: startColumns,
@@ -39,15 +30,7 @@ public class FixApplicatorEditEngine {
         return ValidateOrderedTextEditsCore(source, hasSource, ref edits, errorInfo)
     }
 
-    public static func ApplyOrderedTextEdits(
-        source: string,
-        startLines: int[],
-        startColumns: int[],
-        endLines: int[],
-        endColumns: int[],
-        newTexts: string[],
-        count: int,
-        output: string[]): int {
+    static func ApplyOrderedTextEdits(source: string, startLines: int[], startColumns: int[], endLines: int[], endColumns: int[], newTexts: string[], count: int, output: string[]): int {
         if output.Length < 1 {
             return -1
         }
@@ -84,11 +67,7 @@ public class FixApplicatorEditEngine {
         return 0
     }
 
-    static func ValidateOrderedTextEditsCore(
-        source: string,
-        hasSource: int,
-        edits: &FixApplicatorEditTable,
-        errorInfo: int[]): int {
+    static func ValidateOrderedTextEditsCore(source: string, hasSource: int, edits: &FixApplicatorEditTable, errorInfo: int[]): int {
         if errorInfo.Length < 2 || !EditTableShapeIsValid(ref edits) {
             return -1
         }
@@ -103,8 +82,7 @@ public class FixApplicatorEditEngine {
                 return 1
             }
 
-            endBeforeStart := edits.EndLines[i] < edits.StartLines[i]
-                || (edits.EndLines[i] == edits.StartLines[i] && edits.EndColumns[i] < edits.StartColumns[i])
+            endBeforeStart := edits.EndLines[i] < edits.StartLines[i] || (edits.EndLines[i] == edits.StartLines[i] && edits.EndColumns[i] < edits.StartColumns[i])
             if endBeforeStart {
                 errorInfo[0] = i
                 return 2
@@ -117,9 +95,7 @@ public class FixApplicatorEditEngine {
         while i < edits.Count - 1 {
             highIndex := i
             lowIndex := i + 1
-            overlaps := edits.StartLines[highIndex] < edits.EndLines[lowIndex]
-                || (edits.StartLines[highIndex] == edits.EndLines[lowIndex]
-                    && edits.StartColumns[highIndex] < edits.EndColumns[lowIndex])
+            overlaps := edits.StartLines[highIndex] < edits.EndLines[lowIndex] || (edits.StartLines[highIndex] == edits.EndLines[lowIndex] && edits.StartColumns[highIndex] < edits.EndColumns[lowIndex])
 
             if overlaps {
                 errorInfo[0] = lowIndex
@@ -141,27 +117,19 @@ public class FixApplicatorEditEngine {
 
         i = 0
         while i < edits.Count {
-            isEofInsert := edits.StartLines[i] == eofLine
-                && edits.EndLines[i] == eofLine
-                && edits.StartColumns[i] == 0
-                && edits.EndColumns[i] == 0
+            isEofInsert := edits.StartLines[i] == eofLine && edits.EndLines[i] == eofLine && edits.StartColumns[i] == 0 && edits.EndColumns[i] == 0
             if isEofInsert {
                 i = i + 1
                 continue
             }
 
-            isLastLineWholeLineDeletion := edits.NewTexts[i].Length == 0
-                && edits.EndLines[i] == eofLine
-                && edits.EndColumns[i] == 0
-                && edits.StartLines[i] == lineCount
-                && edits.StartColumns[i] == 0
+            isLastLineWholeLineDeletion := edits.NewTexts[i].Length == 0 && edits.EndLines[i] == eofLine && edits.EndColumns[i] == 0 && edits.StartLines[i] == lineCount && edits.StartColumns[i] == 0
             if isLastLineWholeLineDeletion {
                 i = i + 1
                 continue
             }
 
-            if !PositionIsInDocument(lineLengths, lineCount, edits.StartLines[i], edits.StartColumns[i])
-                || !PositionIsInDocument(lineLengths, lineCount, edits.EndLines[i], edits.EndColumns[i]) {
+            if !PositionIsInDocument(lineLengths, lineCount, edits.StartLines[i], edits.StartColumns[i]) || !PositionIsInDocument(lineLengths, lineCount, edits.EndLines[i], edits.EndColumns[i]) {
                 errorInfo[0] = i
                 return 4
             }
@@ -177,11 +145,7 @@ public class FixApplicatorEditEngine {
             return false
         }
 
-        return edits.Count <= edits.StartLines.Length
-            && edits.Count <= edits.StartColumns.Length
-            && edits.Count <= edits.EndLines.Length
-            && edits.Count <= edits.EndColumns.Length
-            && edits.Count <= edits.NewTexts.Length
+        return edits.Count <= edits.StartLines.Length && edits.Count <= edits.StartColumns.Length && edits.Count <= edits.EndLines.Length && edits.Count <= edits.EndColumns.Length && edits.Count <= edits.NewTexts.Length
     }
 
     static func PositionIsInDocument(lineLengths: int[], lineCount: int, line: int, column: int): bool {

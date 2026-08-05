@@ -1,10 +1,7 @@
 namespace NSharpLang.Compiler
 
-public class ErrorSuggestions {
-    public static func GetSuggestion(
-        code: ErrorCode,
-        context: string? = null,
-        additionalInfo: string? = null): string? {
+class ErrorSuggestions {
+    static func GetSuggestion(code: ErrorCode, context: string? = null, additionalInfo: string? = null): string? {
         if code == ErrorCode.TypeNotFound {
             if context != null {
                 if IsPossibleTypo(context) {
@@ -174,7 +171,7 @@ public class ErrorSuggestions {
         return types
     }
 
-    public static func LevenshteinDistance(s: string, t: string): int {
+    static func LevenshteinDistance(s: string, t: string): int {
         n := s.Length
         m := t.Length
 

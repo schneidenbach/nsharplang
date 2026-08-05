@@ -3,14 +3,8 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Reflection.Emit
 
-public class ColumnarBooleanLiteralPlanner {
-    public static func TryEmit(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        il: ILGenerator,
-        out resultType: Type): bool {
+class ColumnarBooleanLiteralPlanner {
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, il: ILGenerator, out resultType: Type): bool {
         if Plan(nodes, source, node, plan) != ColumnarFragmentPlanStatus.Planned {
             resultType = typeof(bool)
             return false
@@ -21,12 +15,7 @@ public class ColumnarBooleanLiteralPlanner {
         return true
     }
 
-    public static func TryGetType(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan,
-        out resultType: Type): bool {
+    static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         if Plan(nodes, source, node, plan) != ColumnarFragmentPlanStatus.Planned {
             resultType = typeof(bool)
             return false
@@ -36,17 +25,12 @@ public class ColumnarBooleanLiteralPlanner {
         return true
     }
 
-    public static func Plan(
-        nodes: ColumnarNodeTable,
-        source: string,
-        node: int,
-        plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
+    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         if nodes == null || source == null || plan == null {
             throw new InvalidOperationException("Boolean-literal planning inputs cannot be null.")
         }
         if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException(
-                "Boolean-literal planning received an invalid node index.")
+            throw new InvalidOperationException("Boolean-literal planning received an invalid node index.")
         }
         plan.Prepare()
         if nodes.Kind(node) != ColumnarExpressionNodeKind.BoolLiteralExpression() {
@@ -59,8 +43,7 @@ public class ColumnarBooleanLiteralPlanner {
         } else if text == "false" {
             plan.AppendInstruction(ColumnarCodePlanContract.LdcI4_0())
         } else {
-            throw new InvalidOperationException(
-                "Boolean literal node text must be exactly 'true' or 'false'.")
+            throw new InvalidOperationException("Boolean literal node text must be exactly 'true' or 'false'.")
         }
 
         plan.CompleteBoolean()

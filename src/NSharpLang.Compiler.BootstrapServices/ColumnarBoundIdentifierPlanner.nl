@@ -92,8 +92,7 @@ class ColumnarBoundIdentifierPlanner {
             // with the legacy Ldobj deref owner as a whole-subtree exit.
             elementType := parameterType.GetElementType()
             indirectOpcode := ColumnarCodePlanContract.NoOpCode()
-            return elementType != null
-                && TryGetByRefElementOpcode(elementType, out indirectOpcode)
+            return elementType != null && TryGetByRefElementOpcode(elementType, out indirectOpcode)
         }
 
         selection := EmptySelection()
@@ -200,8 +199,7 @@ class ColumnarBoundIdentifierPlanner {
             plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
             indirectOpcode := ColumnarCodePlanContract.NoOpCode()
             if !TryGetByRefElementOpcode(selection.ResultType, out indirectOpcode) {
-                throw new InvalidOperationException(
-                    "A by-reference parameter selection has no typed indirect-load opcode.")
+                throw new InvalidOperationException("A by-reference parameter selection has no typed indirect-load opcode.")
             }
             plan.AppendInstructionWithoutOperand(indirectOpcode)
         } else if selection.Kind == ColumnarBoundIdentifierKind.CurrentField {
@@ -644,11 +642,7 @@ class ColumnarBoundIdentifierPlanner {
             opcodeValue = ColumnarCodePlanContract.LdindR4()
         } else if elementType == typeof(double) {
             opcodeValue = ColumnarCodePlanContract.LdindR8()
-        } else if !elementType.get_IsValueType()
-            && !elementType.get_IsGenericParameter()
-            && !elementType.get_IsByRef()
-            && !elementType.get_IsGenericTypeDefinition()
-            && elementType.FullName != "System.Void" {
+        } else if !elementType.get_IsValueType() && !elementType.get_IsGenericParameter() && !elementType.get_IsByRef() && !elementType.get_IsGenericTypeDefinition() && elementType.FullName != "System.Void" {
             opcodeValue = ColumnarCodePlanContract.LdindRef()
         } else {
             return false
@@ -661,9 +655,7 @@ class ColumnarBoundIdentifierPlanner {
         while index < plan.ArgumentCount {
             if plan.ArgumentOrdinals[index] == ordinal {
                 existingType := plan.Types[plan.ArgumentTypeIndices[index]]
-                if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-                        existingType, valueType)
-                    || plan.ArgumentIsAddress[index] != isAddress {
+                if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(existingType, valueType) || plan.ArgumentIsAddress[index] != isAddress {
                     throw new InvalidOperationException("One argument ordinal cannot carry conflicting bound-identifier facts.")
                 }
 

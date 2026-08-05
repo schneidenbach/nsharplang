@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
+
 // The resolved placement of a reference type's instance field initializers. A class/record field
 // initializer (`readonly Pi: double = 3.14159`) is parsed into a synthesized zero-parameter initializer
 // constructor whose body is a list of top-level `field = value` assignments. Where each of those stores is
@@ -36,8 +37,7 @@ class ColumnarFieldInitPlan {
 
     constructor(inlineOrdinals: int[], helperOrdinals: int[], initializedFieldNames: string[]) {
         if inlineOrdinals == null || helperOrdinals == null || initializedFieldNames == null {
-            throw new InvalidOperationException(
-                "A field-initialization plan requires its resolved ordinals and field names.")
+            throw new InvalidOperationException("A field-initialization plan requires its resolved ordinals and field names.")
         }
         InlineOrdinals = inlineOrdinals
         HelperOrdinals = helperOrdinals
@@ -47,17 +47,14 @@ class ColumnarFieldInitPlan {
 }
 
 class ColumnarFieldInitPlanner {
+
     // Partition a synthesized instance-field-initializer body into the readonly stores that must run inline
     // in every constructor and the mutable stores that may keep the shared helper. `def.Fields` already
     // carries the exact FieldBuilder for each own instance field with its initonly attribute resolved, so
     // readonly classification reads directly off the field handle — no re-derivation.
-    public static func PlanFieldInitialization(
-        body: ColumnarFunctionInput,
-        source: string,
-        def: ColumnarStructDef): ColumnarFieldInitPlan {
+    static func PlanFieldInitialization(body: ColumnarFunctionInput, source: string, def: ColumnarStructDef): ColumnarFieldInitPlan {
         if body == null || source == null || def == null {
-            throw new InvalidOperationException(
-                "Field-initialization planning requires the initializer body, its source, and the type.")
+            throw new InvalidOperationException("Field-initialization planning requires the initializer body, its source, and the type.")
         }
 
         inline := new List<int>()

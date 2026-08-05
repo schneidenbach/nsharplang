@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System.Collections.Generic
 
-public class CodeAction {
+class CodeAction {
     Title: string
     DiagnosticCode: string
     Edits: List<TextEdit>

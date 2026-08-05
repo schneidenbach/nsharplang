@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 
-public class ProjectConfig {
+class ProjectConfig {
     nameValue: string?
     versionValue: string?
     entryValue: string?
@@ -198,14 +198,14 @@ public class ProjectConfig {
         }
     }
 
-    public EffectiveName: string => Name ?? Path.GetFileName(Environment.CurrentDirectory) ?? "Project"
+    EffectiveName: string => Name ?? Path.GetFileName(Environment.CurrentDirectory) ?? "Project"
 
-    public func GetSourceFiles(projectRoot: string, includeTests: bool = false): string[] {
+    func GetSourceFiles(projectRoot: string, includeTests: bool = false): string[] {
         allFiles := EnumerateSourceFileArray(projectRoot)
         return ProjectSourceFileFilter.Filter(allFiles, projectRoot, Exclude.ToArray(), includeTests)
     }
 
-    public static func EnumerateSourceFiles(projectRoot: string): IEnumerable<string> {
+    static func EnumerateSourceFiles(projectRoot: string): IEnumerable<string> {
         return EnumerateSourceFileArray(projectRoot)
     }
 
@@ -253,24 +253,48 @@ public class ProjectConfig {
     }
 
     static func ShouldSkipSourceDirectory(name: string): bool {
-        if String.Compare(name, ".context", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, ".git", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, ".github", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, ".hermes", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, ".vscode", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, ".vscode-test", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, ".worktrees", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, "bin", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, "node_modules", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, "nsharp", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, "obj", StringComparison.OrdinalIgnoreCase) == 0 { return true }
-        if String.Compare(name, "out", StringComparison.OrdinalIgnoreCase) == 0 { return true }
+        if String.Compare(name, ".context", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, ".git", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, ".github", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, ".hermes", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, ".vscode", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, ".vscode-test", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, ".worktrees", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, "bin", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, "node_modules", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, "nsharp", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, "obj", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, "out", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
 
         return false
     }
 }
 
-public class PackageConfig {
+class PackageConfig {
     authorValue: string?
     descriptionValue: string?
     tagsValue: List<string>?
@@ -333,7 +357,7 @@ public class PackageConfig {
     }
 }
 
-public class LanguageConfig {
+class LanguageConfig {
     profileValue: string?
     asyncDefaultTypeValue: string?
     pooledAsyncValue: bool
@@ -388,7 +412,7 @@ public class LanguageConfig {
     }
 }
 
-public class SystemsConfig {
+class SystemsConfig {
     modeValue: string?
     unknownExternalCallsValue: string?
     aotTargetValue: string?

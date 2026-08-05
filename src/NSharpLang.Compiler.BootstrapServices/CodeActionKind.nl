@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum CodeActionKind {
+enum CodeActionKind {
     QuickFix,
     Refactor,
     RefactorExtract,

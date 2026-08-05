@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // THE SEVEN STEPS THE RESOURCE FAMILY CANNOT TAKE FOR ITSELF.
 //
 // `try`, `using` and `lock` are one family because they are one SHAPE: each opens a guarded region,
@@ -36,16 +37,15 @@ import NSharpLang.Compiler.Ast
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1 with no gaps; the
 // other walks' numbers mean different operations, and none of them is a shared vocabulary.
-public class ResourceStatementRequest {
-
-    public Kind: int
-    public Node: Expression?
-    public Body: Statement?
-    public Declaration: VariableDeclarationStatement?
-    public Name: string?
-    public CarriedType: TypeInfo
-    public Line: int
-    public Column: int
+class ResourceStatementRequest {
+    Kind: int
+    Node: Expression?
+    Body: Statement?
+    Declaration: VariableDeclarationStatement?
+    Name: string?
+    CarriedType: TypeInfo
+    Line: int
+    Column: int
 
     constructor(kind: int, carriedType: TypeInfo) {
         Kind = kind
@@ -85,8 +85,7 @@ public class ResourceStatementRequest {
 // the oracle (through the nominal `IDisposable` question). The enclosing CLASS declaration is passed
 // for the same reason a node is: it is an operand of the moment, and `lock` is the only walk that
 // reads it.
-public class ResourceStatementState {
-
+class ResourceStatementState {
     formValue: int
     tryNodeValue: TryStatement?
     usingNodeValue: UsingStatement?
@@ -103,21 +102,14 @@ public class ResourceStatementState {
     Assignability: AnalyzerAssignability? => assignabilityValue
     CurrentClass: ClassDeclaration? => currentClassValue
 
-    public Phase: int
-    public Pending: int
-    public AnsweredType: TypeInfo
-    public CatchIndex: int
-    public CatchType: TypeInfo
-    public ErrorsBefore: int
+    Phase: int
+    Pending: int
+    AnsweredType: TypeInfo
+    CatchIndex: int
+    CatchType: TypeInfo
+    ErrorsBefore: int
 
-    constructor(
-        form: int,
-        tryNode: TryStatement?,
-        usingNode: UsingStatement?,
-        lockNode: LockStatement?,
-        clrTypeConversion: AnalyzerClrTypeConversion?,
-        assignability: AnalyzerAssignability?,
-        currentClass: ClassDeclaration?) {
+    constructor(form: int, tryNode: TryStatement?, usingNode: UsingStatement?, lockNode: LockStatement?, clrTypeConversion: AnalyzerClrTypeConversion?, assignability: AnalyzerAssignability?, currentClass: ClassDeclaration?) {
         formValue = form
         tryNodeValue = tryNode
         usingNodeValue = usingNode
@@ -175,8 +167,7 @@ public class ResourceStatementState {
 // reader, the scope stack, the declaration context, the type resolver, the type substitution engine,
 // the ambient context, the SoA escape owner and the throwability owner. The two that ARE rebuilt are
 // handed in at `Begin`.
-public class AnalyzerResourceStatements {
-
+class AnalyzerResourceStatements {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     scopesValue: AnalyzerScopeStack
@@ -187,16 +178,7 @@ public class AnalyzerResourceStatements {
     soaEscapeValue: AnalyzerSoaEscape
     throwabilityValue: AnalyzerThrowability
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext,
-        typeResolver: AnalyzerTypeResolver,
-        typeSubstitution: AnalyzerTypeSubstitution,
-        ambient: AnalyzerAmbientContext,
-        soaEscape: AnalyzerSoaEscape,
-        throwability: AnalyzerThrowability) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, typeSubstitution: AnalyzerTypeSubstitution, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, throwability: AnalyzerThrowability) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -210,32 +192,26 @@ public class AnalyzerResourceStatements {
 
     // A `try` STATEMENT. The CLR conversion funnel is read from the caller's field HERE, for the
     // reason `ResourceStatementState` records.
-    public func BeginTry(
-        statement: TryStatement,
-        clrTypeConversion: AnalyzerClrTypeConversion): ResourceStatementState {
+    func BeginTry(statement: TryStatement, clrTypeConversion: AnalyzerClrTypeConversion): ResourceStatementState {
         return new ResourceStatementState(0, statement, null, null, clrTypeConversion, null, null)
     }
 
     // A `using` STATEMENT. The assignability oracle is read from the caller's field HERE, for the
     // same reason.
-    public func BeginUsing(
-        statement: UsingStatement,
-        assignability: AnalyzerAssignability): ResourceStatementState {
+    func BeginUsing(statement: UsingStatement, assignability: AnalyzerAssignability): ResourceStatementState {
         return new ResourceStatementState(1, null, statement, null, null, assignability, null)
     }
 
     // A `lock` STATEMENT. The enclosing class declaration is an operand: a bare name lockee may be
     // one of ITS type parameters rather than the enclosing function's.
-    public func BeginLock(
-        statement: LockStatement,
-        currentClass: ClassDeclaration?): ResourceStatementState {
+    func BeginLock(statement: LockStatement, currentClass: ClassDeclaration?): ResourceStatementState {
         return new ResourceStatementState(2, null, null, statement, null, null, currentClass)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this statement is finished. Every phase
     // either decides something and advances, or emits exactly one request; the walk never advances
     // past a point whose answer it has not been given.
-    public func NextResourceStep(state: ResourceStatementState): ResourceStatementRequest? {
+    func NextResourceStep(state: ResourceStatementState): ResourceStatementRequest? {
         while state.Phase != 99 {
             request := AdvanceResource(state)
             if request != null {
@@ -248,7 +224,7 @@ public class AnalyzerResourceStatements {
 
     // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 answers anything — the `using` resource
     // expression's type and the `lock` object's type. The other six are operations.
-    public func SupplyResource(state: ResourceStatementState, answer: TypeInfo?) {
+    func SupplyResource(state: ResourceStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
         if pending != 1 {
@@ -396,14 +372,7 @@ public class AnalyzerResourceStatements {
         }
 
         span := TypeReferenceFacts.GetStartSpan(typeReference)
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            "Catch type must be assignable to System.Exception, but this type is '"
-                + TypeText(state.CatchType) + "'",
-            span.StartLine,
-            span.StartColumn,
-            "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "Catch type must be assignable to System.Exception, but this type is '" + TypeText(state.CatchType) + "'", span.StartLine, span.StartColumn, "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions.", span.Length)
     }
 
     // ── THE `using` WALK ───────────────────────────────────────────────────────────────────────
@@ -473,16 +442,11 @@ public class AnalyzerResourceStatements {
                 return null
             }
 
-            if soaEscapeValue.ReportSoaRowEscapeIfNeeded(
-                    resourceExpression,
-                    state.AnsweredType,
-                    "used as a using resource") {
+            if soaEscapeValue.ReportSoaRowEscapeIfNeeded(resourceExpression, state.AnsweredType, "used as a using resource") {
                 return null
             }
 
-            if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-                    resourceExpression,
-                    "used as a using resource") {
+            if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(resourceExpression, "used as a using resource") {
                 return null
             }
 
@@ -517,14 +481,7 @@ public class AnalyzerResourceStatements {
     // NL103 ON A `using` RESOURCE. One wording and one suggestion for both resource forms; only the
     // span differs, and each caller takes its own.
     func ReportNonDisposableUsingResource(resourceType: TypeInfo, line: int, column: int, length: int) {
-        diagnosticsValue.Report(
-            ErrorCode.InvalidSyntax,
-            "Using resource of type '" + TypeText(resourceType)
-                + "' must implement IDisposable or provide Dispose(): void",
-            line,
-            column,
-            "Use a resource type with a parameterless void Dispose method, or remove the using statement.",
-            length)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Using resource of type '" + TypeText(resourceType) + "' must implement IDisposable or provide Dispose(): void", line, column, "Use a resource type with a parameterless void Dispose method, or remove the using statement.", length)
     }
 
     // ── THE `lock` WALK ────────────────────────────────────────────────────────────────────────
@@ -608,30 +565,16 @@ public class AnalyzerResourceStatements {
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.LockRequiresReferenceType(
-                currentFilePath,
-                span.Line,
-                span.Column,
-                sourceSnippet,
-                span.Length,
-                typeName,
-                isTypeParameter))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.LockRequiresReferenceType(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, typeName, isTypeParameter))
             return
         }
 
         suggestion := "Lock on a dedicated `object` field instead: `sync: object = new object()`"
         if isTypeParameter {
-            suggestion = "Constrain `" + typeName + "` to a reference type (`where " + typeName
-                + ": class`), or lock on a dedicated `object` field instead: `sync: object = new object()`"
+            suggestion = "Constrain `" + typeName + "` to a reference type (`where " + typeName + ": class`), or lock on a dedicated `object` field instead: `sync: object = new object()`"
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.LockRequiresReferenceType,
-            "'" + typeName + "' is not a reference type as required by the lock statement",
-            span.Line,
-            span.Column,
-            suggestion,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.LockRequiresReferenceType, "'" + typeName + "' is not a reference type as required by the lock statement", span.Line, span.Column, suggestion, span.Length)
     }
 
     // ── WHETHER A NAME IS AN ENCLOSING TYPE PARAMETER, AND WHETHER IT IS PROVABLY A REFERENCE ───
@@ -668,8 +611,7 @@ public class AnalyzerResourceStatements {
         index := 0
         while index < constraintReferences.Count {
             constraintReference := constraintReferences[index]
-            constraintType := declarationContextValue.ResolveDeclaredAlias(
-                typeResolverValue.ResolveType(constraintReference))
+            constraintType := declarationContextValue.ResolveDeclaredAlias(typeResolverValue.ResolveType(constraintReference))
             if IsReferenceConstraintType(constraintType) {
                 return 2
             }
@@ -829,10 +771,7 @@ public class AnalyzerResourceStatements {
     }
 
     static func IsPrimitiveValueTypeName(name: string): bool {
-        return name == "int" || name == "long" || name == "float" || name == "double"
-            || name == "decimal" || name == "byte" || name == "sbyte" || name == "short"
-            || name == "ushort" || name == "uint" || name == "ulong" || name == "char"
-            || name == "bool" || name == "void"
+        return name == "int" || name == "long" || name == "float" || name == "double" || name == "decimal" || name == "byte" || name == "sbyte" || name == "short" || name == "ushort" || name == "uint" || name == "ulong" || name == "char" || name == "bool" || name == "void"
     }
 
     // ── WHETHER A TYPE MAY BE A `using` RESOURCE ───────────────────────────────────────────────

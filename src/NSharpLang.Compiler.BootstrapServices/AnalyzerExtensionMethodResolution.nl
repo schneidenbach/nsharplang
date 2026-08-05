@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // WHICH EXTENSION METHOD A MEMBER NAME RESOLVES TO — the analyzer's extension surface, whole.
 //
 // A member name that is not declared on the receiver's own shape reaches this surface, and the
@@ -25,8 +26,7 @@ import NSharpLang.Compiler.Ast
 // would search whichever namespace set existed when the copy was taken. The containing type name is
 // the opposite case and must NOT be held: `_currentTypeName` is a plain mutable field that changes
 // every time the walk enters or leaves a type, so it crosses as a PARAMETER, read at the call.
-public class AnalyzerExtensionMethodResolution {
-
+class AnalyzerExtensionMethodResolution {
     typeResolver: AnalyzerTypeResolver
     assignability: AnalyzerAssignability
     declarationContext: AnalyzerDeclarationContext
@@ -36,15 +36,7 @@ public class AnalyzerExtensionMethodResolution {
     usingNamespaces: List<string>
     assemblies: List<Assembly>
 
-    constructor(
-        types: AnalyzerTypeResolver,
-        assignabilityOwner: AnalyzerAssignability,
-        declarations: AnalyzerDeclarationContext,
-        functionTypes: AnalyzerFunctionTypeFactory,
-        clrConversion: AnalyzerClrTypeConversion,
-        declaredExtensions: List<FunctionDeclaration>,
-        importedNamespaces: List<string>,
-        referenceAssemblies: List<Assembly>) {
+    constructor(types: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, declarations: AnalyzerDeclarationContext, functionTypes: AnalyzerFunctionTypeFactory, clrConversion: AnalyzerClrTypeConversion, declaredExtensions: List<FunctionDeclaration>, importedNamespaces: List<string>, referenceAssemblies: List<Assembly>) {
         typeResolver = types
         assignability = assignabilityOwner
         declarationContext = declarations
@@ -58,10 +50,7 @@ public class AnalyzerExtensionMethodResolution {
     // SOURCE EXTENSIONS FIRST, AND THE EXTERNAL SCAN IS THE FALLBACK — but only when no source
     // extension is APPLICABLE, not merely when none is named. A source `func` that shares the name
     // and rejects the receiver falls through to the external scan exactly as an unnamed one does.
-    public func TryResolveExtensionMethod(
-        targetType: TypeInfo,
-        methodName: string,
-        currentTypeName: string?): TypeInfo {
+    func TryResolveExtensionMethod(targetType: TypeInfo, methodName: string, currentTypeName: string?): TypeInfo {
         matchingExtensions := new List<FunctionDeclaration>()
         matchIndex := 0
         while matchIndex < extensionMethods.Count {
@@ -98,8 +87,7 @@ public class AnalyzerExtensionMethodResolution {
         functionTypes := new List<FunctionTypeInfo>()
         functionIndex := 0
         while functionIndex < applicableExtensions.Count {
-            functionTypes.Add(
-                functionTypeFactory.CreateFromDeclaration(applicableExtensions[functionIndex], currentTypeName))
+            functionTypes.Add(functionTypeFactory.CreateFromDeclaration(applicableExtensions[functionIndex], currentTypeName))
             functionIndex = functionIndex + 1
         }
 
@@ -119,7 +107,7 @@ public class AnalyzerExtensionMethodResolution {
     // exact-shape answer that assignability's conversions would also give but more expensively;
     // assignability is what admits an extension declared on a base type, an interface the receiver
     // implements, or a nullable/oblivious spelling of the same underlying type.
-    public func IsExtensionReceiverApplicable(candidate: FunctionDeclaration, targetType: TypeInfo): bool {
+    func IsExtensionReceiverApplicable(candidate: FunctionDeclaration, targetType: TypeInfo): bool {
         if candidate.Parameters.Count == 0 {
             return false
         }
@@ -131,8 +119,7 @@ public class AnalyzerExtensionMethodResolution {
         }
 
         receiverType := typeResolver.ResolveType(receiverTypeReference)
-        return TypeInfoIdentityFacts.AreEqual(receiverType, targetType)
-            || assignability.IsAssignable(receiverType, targetType)
+        return TypeInfoIdentityFacts.AreEqual(receiverType, targetType) || assignability.IsAssignable(receiverType, targetType)
     }
 
     // A declaration with NO type parameter list at all is not a generic function, so no spelling can
@@ -179,7 +166,7 @@ public class AnalyzerExtensionMethodResolution {
     // binding conversion supplies only a SURROGATE — a stand-in whose instance surface was never
     // searched on the receiver's behalf — so an instance method of the same name must still win, and
     // the scan is abandoned rather than allowed to answer with an extension that would hide it.
-    public func FindExternalExtensionMethods(targetType: TypeInfo, methodName: string): List<MethodInfo> {
+    func FindExternalExtensionMethods(targetType: TypeInfo, methodName: string): List<MethodInfo> {
         exactClrType := clrTypeConversion.TryConvertTypeInfoToClrType(targetType)
         if exactClrType != null {
             return ScanExternalExtensionMethods(exactClrType, methodName)
@@ -211,10 +198,7 @@ public class AnalyzerExtensionMethodResolution {
                 hostType := assemblyTypes[typeIndex]
                 hostNamespace := hostType.get_Namespace()
                 // A static class is `sealed abstract` in metadata; nothing else may declare one.
-                if hostNamespace != null
-                    && usingNamespaces.Contains(hostNamespace)
-                    && hostType.get_IsSealed()
-                    && hostType.get_IsAbstract() {
+                if hostNamespace != null && usingNamespaces.Contains(hostNamespace) && hostType.get_IsSealed() && hostType.get_IsAbstract() {
                     CollectExtensionMethods(hostType, memberFlags, methodName, targetClrType, methods)
                 }
                 typeIndex = typeIndex + 1
@@ -225,22 +209,14 @@ public class AnalyzerExtensionMethodResolution {
         return methods
     }
 
-    static func CollectExtensionMethods(
-        hostType: Type,
-        memberFlags: BindingFlags,
-        methodName: string,
-        targetClrType: Type,
-        methods: List<MethodInfo>) {
+    static func CollectExtensionMethods(hostType: Type, memberFlags: BindingFlags, methodName: string, targetClrType: Type, methods: List<MethodInfo>) {
         hostMethods := hostType.GetMethods(memberFlags)
         methodIndex := 0
         while methodIndex < hostMethods.Length {
             method := hostMethods[methodIndex]
             if method.get_Name() == methodName && AnalyzerOverloadFacts.HasExtensionAttribute(method) {
                 parameters := method.GetParameters()
-                if parameters.Length > 0
-                    && AnalyzerOverloadFacts.IsExtensionParameterCompatible(
-                        parameters[0].get_ParameterType(),
-                        targetClrType) {
+                if parameters.Length > 0 && AnalyzerOverloadFacts.IsExtensionParameterCompatible(parameters[0].get_ParameterType(), targetClrType) {
                     methods.Add(method)
                 }
             }

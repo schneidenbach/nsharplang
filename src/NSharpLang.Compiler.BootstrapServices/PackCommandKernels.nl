@@ -5,7 +5,7 @@ import System.IO
 import System.Text
 import System.Text.Json
 
-public class PackOptionSummary {
+class PackOptionSummary {
     projectOptionValue: string?
     outputDirValue: string?
     versionOverrideValue: string?
@@ -22,14 +22,7 @@ public class PackOptionSummary {
     JsonOutput: bool => jsonOutputValue
     ShowHelp: bool => showHelpValue
 
-    constructor(
-        projectOption: string?,
-        outputDir: string?,
-        versionOverride: string?,
-        configuration: string,
-        includeSymbols: bool,
-        jsonOutput: bool,
-        showHelp: bool) {
+    constructor(projectOption: string?, outputDir: string?, versionOverride: string?, configuration: string, includeSymbols: bool, jsonOutput: bool, showHelp: bool) {
         projectOptionValue = projectOption
         outputDirValue = outputDir
         versionOverrideValue = versionOverride
@@ -40,7 +33,7 @@ public class PackOptionSummary {
     }
 }
 
-public class PackTagsSummary {
+class PackTagsSummary {
     Text: string
     Count: int
 
@@ -50,8 +43,8 @@ public class PackTagsSummary {
     }
 }
 
-public class PackCommandKernels {
-    public static func GetOptionSummary(args: string[]): PackOptionSummary {
+class PackCommandKernels {
+    static func GetOptionSummary(args: string[]): PackOptionSummary {
         projectOption: string? = null
         versionOverride: string? = null
         outputLong: string? = null
@@ -119,17 +112,10 @@ public class PackCommandKernels {
             configuration = configurationLong
         }
 
-        return new PackOptionSummary(
-            projectOption,
-            outputDir,
-            versionOverride,
-            configuration ?? "Release",
-            includeSymbols,
-            jsonOutput,
-            showHelp)
+        return new PackOptionSummary(projectOption, outputDir, versionOverride, configuration ?? "Release", includeSymbols, jsonOutput, showHelp)
     }
 
-    public static func GetOutputMode(json: bool): int {
+    static func GetOutputMode(json: bool): int {
         if json {
             return 1
         }
@@ -137,15 +123,15 @@ public class PackCommandKernels {
         return 2
     }
 
-    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
         return Path.GetFullPath(projectOption ?? currentDirectory)
     }
 
-    public static func GetProjectYmlPath(projectRoot: string): string {
+    static func GetProjectYmlPath(projectRoot: string): string {
         return Path.Combine(projectRoot, "project.yml")
     }
 
-    public static func GetEffectiveVersionSource(versionOverride: string?, projectVersion: string?): int {
+    static func GetEffectiveVersionSource(versionOverride: string?, projectVersion: string?): int {
         if versionOverride != null {
             if (versionOverride ?? "").Trim().Length == 0 {
                 return 0
@@ -161,7 +147,7 @@ public class PackCommandKernels {
         return 2
     }
 
-    public static func GetEffectiveVersion(versionOverride: string?, projectVersion: string?): string? {
+    static func GetEffectiveVersion(versionOverride: string?, projectVersion: string?): string? {
         source := GetEffectiveVersionSource(versionOverride, projectVersion)
         if source == 1 {
             return versionOverride
@@ -174,11 +160,11 @@ public class PackCommandKernels {
         return null
     }
 
-    public static func GetBuildOutputDirectory(projectRoot: string, configuration: string, targetFramework: string): string {
+    static func GetBuildOutputDirectory(projectRoot: string, configuration: string, targetFramework: string): string {
         return Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework)
     }
 
-    public static func GetPackageOutputDirectory(projectRoot: string, configuration: string, outputDir: string?): string {
+    static func GetPackageOutputDirectory(projectRoot: string, configuration: string, outputDir: string?): string {
         if string.IsNullOrEmpty(outputDir ?? "") {
             return Path.Combine(Path.Combine(projectRoot, "bin"), configuration)
         }
@@ -186,47 +172,47 @@ public class PackCommandKernels {
         return Path.GetFullPath(outputDir)
     }
 
-    public static func GetPackagePath(packageOutputDir: string, projectName: string, version: string): string {
+    static func GetPackagePath(packageOutputDir: string, projectName: string, version: string): string {
         return Path.Combine(packageOutputDir, projectName + "." + version + ".nupkg")
     }
 
-    public static func GetSymbolsPackagePath(packageOutputDir: string, projectName: string, version: string): string {
+    static func GetSymbolsPackagePath(packageOutputDir: string, projectName: string, version: string): string {
         return Path.Combine(packageOutputDir, projectName + "." + version + ".snupkg")
     }
 
-    public static func GetNuspecEntryName(projectName: string): string {
+    static func GetNuspecEntryName(projectName: string): string {
         return projectName + ".nuspec"
     }
 
-    public static func GetPackageAssemblyEntryPath(targetFramework: string, assemblyPath: string): string {
+    static func GetPackageAssemblyEntryPath(targetFramework: string, assemblyPath: string): string {
         return "lib/" + targetFramework + "/" + (Path.GetFileName(assemblyPath) ?? "")
     }
 
-    public static func GetRuntimeConfigPath(assemblyPath: string): string? {
+    static func GetRuntimeConfigPath(assemblyPath: string): string? {
         return Path.ChangeExtension(assemblyPath, ".runtimeconfig.json")
     }
 
-    public static func GetRuntimeConfigEntryPath(targetFramework: string, runtimeConfigPath: string): string {
+    static func GetRuntimeConfigEntryPath(targetFramework: string, runtimeConfigPath: string): string {
         return "lib/" + targetFramework + "/" + (Path.GetFileName(runtimeConfigPath) ?? "")
     }
 
-    public static func GetIconSourcePath(projectRoot: string, iconPath: string): string {
+    static func GetIconSourcePath(projectRoot: string, iconPath: string): string {
         return Path.GetFullPath(Path.Combine(projectRoot, iconPath))
     }
 
-    public static func GetIconPackageEntryName(iconPath: string): string {
+    static func GetIconPackageEntryName(iconPath: string): string {
         return iconPath.Replace('\\', '/')
     }
 
-    public static func GetSymbolsPdbPath(assemblyPath: string): string? {
+    static func GetSymbolsPdbPath(assemblyPath: string): string? {
         return Path.ChangeExtension(assemblyPath, ".pdb")
     }
 
-    public static func GetSymbolsPdbEntryPath(pdbPath: string): string {
+    static func GetSymbolsPdbEntryPath(pdbPath: string): string {
         return "lib/" + (Path.GetFileName(pdbPath) ?? "")
     }
 
-    public static func GetPackageTags(tags: IReadOnlyList<string>?): PackTagsSummary {
+    static func GetPackageTags(tags: IReadOnlyList<string>?): PackTagsSummary {
         if tags == null || tags.Count == 0 {
             return new PackTagsSummary("", 0)
         }
@@ -245,7 +231,7 @@ public class PackCommandKernels {
         return new PackTagsSummary(builder.ToString(), tags.Count)
     }
 
-    public static func GetHelpText(): string {
+    static func GetHelpText(): string {
         builder := new StringBuilder()
         AppendLine(builder, "N# Pack")
         AppendLine(builder, "")
@@ -292,24 +278,23 @@ public class PackCommandKernels {
         return builder.ToString()
     }
 
-    public static func GetMissingProjectFileJsonMessage(): string {
+    static func GetMissingProjectFileJsonMessage(): string {
         return "No project.yml found. Run 'nlc new <name>' to create a project."
     }
 
-    public static func GetMissingProjectFileTextMessage(): string {
-        return "No project.yml found in current directory." + ((char)10).ToString()
-            + "Run 'nlc new <name>' to create a project."
+    static func GetMissingProjectFileTextMessage(): string {
+        return "No project.yml found in current directory." + ((char)10).ToString() + "Run 'nlc new <name>' to create a project."
     }
 
-    public static func GetParseFailedJsonMessage(message: string): string {
+    static func GetParseFailedJsonMessage(message: string): string {
         return "Failed to parse project.yml: " + message
     }
 
-    public static func GetParseFailedTextMessage(message: string): string {
+    static func GetParseFailedTextMessage(message: string): string {
         return "Failed to parse project.yml: " + message
     }
 
-    public static func GetStartMessage(name: string, version: string?): string {
+    static func GetStartMessage(name: string, version: string?): string {
         versionText := "(no version)"
         if version != null {
             versionText = version ?? ""
@@ -318,39 +303,39 @@ public class PackCommandKernels {
         return "Packing " + name + " " + versionText + "..."
     }
 
-    public static func GetMissingVersionJsonMessage(): string {
+    static func GetMissingVersionJsonMessage(): string {
         return "Package version is required. Set version in project.yml or pass --version."
     }
 
-    public static func GetMissingVersionTextMessage(): string {
+    static func GetMissingVersionTextMessage(): string {
         return "Package version is required. Set version in project.yml or pass --version."
     }
 
-    public static func GetBuildFailedJsonMessage(): string {
+    static func GetBuildFailedJsonMessage(): string {
         return "Pack build failed."
     }
 
-    public static func GetBuildFailedTextMessage(): string {
+    static func GetBuildFailedTextMessage(): string {
         return "Pack build failed."
     }
 
-    public static func GetSuccessMessage(): string {
+    static func GetSuccessMessage(): string {
         return "Pack successful!"
     }
 
-    public static func GetPackagePathLine(packagePath: string): string {
+    static func GetPackagePathLine(packagePath: string): string {
         return "  Package: " + packagePath
     }
 
-    public static func GetFailedJsonMessage(message: string): string {
+    static func GetFailedJsonMessage(message: string): string {
         return "Pack failed: " + message
     }
 
-    public static func GetFailedTextMessage(message: string): string {
+    static func GetFailedTextMessage(message: string): string {
         return "Pack failed: " + message
     }
 
-    public static func SuccessJson(projectRoot: string, projectName: string, version: string, packagePath: string): string {
+    static func SuccessJson(projectRoot: string, projectName: string, version: string, packagePath: string): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "pack"
@@ -362,7 +347,7 @@ public class PackCommandKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func ErrorJson(message: string): string {
+    static func ErrorJson(message: string): string {
         error := new Dictionary<string, object>()
         error["message"] = message
 
@@ -374,16 +359,7 @@ public class PackCommandKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func GetNuspecText(
-        projectName: string,
-        version: string,
-        packageAuthor: string,
-        packageDescription: string,
-        packageTags: string,
-        packageTagsCount: int,
-        packageLicense: string,
-        packageRepository: string,
-        packageIcon: string): string {
+    static func GetNuspecText(projectName: string, version: string, packageAuthor: string, packageDescription: string, packageTags: string, packageTagsCount: int, packageLicense: string, packageRepository: string, packageIcon: string): string {
         authors := "NSharp"
         if HasText(packageAuthor) {
             authors = packageAuthor
@@ -432,7 +408,7 @@ public class PackCommandKernels {
         return builder.ToString()
     }
 
-    public static func GetSymbolsNuspecText(projectName: string, version: string): string {
+    static func GetSymbolsNuspecText(projectName: string, version: string): string {
         builder := new StringBuilder()
         AppendXmlDeclaration(builder)
         AppendPackageOpen(builder)

@@ -1,7 +1,7 @@
 namespace NSharpLang.Compiler
 
-public class ParserLiteralFacts {
-    public static func IsCompleteStringLiteral(value: string): bool {
+class ParserLiteralFacts {
+    static func IsCompleteStringLiteral(value: string): bool {
         if StartsWithInterpolatedString(value) {
             return HasUnescapedClosingQuote(value, 1)
         }
@@ -13,7 +13,7 @@ public class ParserLiteralFacts {
         return true
     }
 
-    public static func IsCompleteCharLiteral(value: string): bool {
+    static func IsCompleteCharLiteral(value: string): bool {
         if value.Length < 3 || value[0] != '\'' || value[value.Length - 1] != '\'' {
             return false
         }
@@ -26,7 +26,7 @@ public class ParserLiteralFacts {
         return bodyLength == 2 && value[1] == '\\'
     }
 
-    public static func FindFormatSpecifierColon(expression: string): int {
+    static func FindFormatSpecifierColon(expression: string): int {
         parenDepth := 0
         bracketDepth := 0
         braceDepth := 0

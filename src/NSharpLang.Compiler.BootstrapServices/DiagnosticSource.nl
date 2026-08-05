@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum DiagnosticSource {
+enum DiagnosticSource {
     Compiler,
     Linter
 }

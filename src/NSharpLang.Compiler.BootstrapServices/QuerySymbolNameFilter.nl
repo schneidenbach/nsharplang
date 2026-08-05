@@ -4,11 +4,8 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.CodeIntelligence
 
-public class QuerySymbolNameFilter {
-    public static func Filter(
-        symbols: IReadOnlyList<SymbolResult>,
-        pattern: string,
-        limit: int): List<SymbolResult> {
+class QuerySymbolNameFilter {
+    static func Filter(symbols: IReadOnlyList<SymbolResult>, pattern: string, limit: int): List<SymbolResult> {
         results := new List<SymbolResult>()
         if limit <= 0 {
             return results
@@ -71,15 +68,11 @@ public class QuerySymbolNameFilter {
             return true
         }
 
-        if pattern.Length > 1
-            && pattern[0] == '*'
-            && !PatternHasWildcardFrom(pattern, 1) {
+        if pattern.Length > 1 && pattern[0] == '*' && !PatternHasWildcardFrom(pattern, 1) {
             return EndsWithAsciiIgnoreCase(text, pattern, 1, pattern.Length - 1)
         }
 
-        if pattern.Length > 1
-            && pattern[pattern.Length - 1] == '*'
-            && !PatternHasWildcardBefore(pattern, pattern.Length - 1) {
+        if pattern.Length > 1 && pattern[pattern.Length - 1] == '*' && !PatternHasWildcardBefore(pattern, pattern.Length - 1) {
             return StartsWithAsciiIgnoreCase(text, pattern, 0, pattern.Length - 1)
         }
 
@@ -148,11 +141,7 @@ public class QuerySymbolNameFilter {
         return false
     }
 
-    static func StartsWithAsciiIgnoreCase(
-        text: string,
-        pattern: string,
-        patternStart: int,
-        patternLength: int): bool {
+    static func StartsWithAsciiIgnoreCase(text: string, pattern: string, patternStart: int, patternLength: int): bool {
         if patternLength > text.Length {
             return false
         }
@@ -169,11 +158,7 @@ public class QuerySymbolNameFilter {
         return true
     }
 
-    static func EndsWithAsciiIgnoreCase(
-        text: string,
-        pattern: string,
-        patternStart: int,
-        patternLength: int): bool {
+    static func EndsWithAsciiIgnoreCase(text: string, pattern: string, patternStart: int, patternLength: int): bool {
         if patternLength > text.Length {
             return false
         }

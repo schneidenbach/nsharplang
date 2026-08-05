@@ -3,7 +3,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 
-public class CompletionReceiverScratch {
+class CompletionReceiverScratch {
     Contexts: int[]
     Prefixes: string[]
     Receivers: string[]
@@ -17,7 +17,7 @@ public class CompletionReceiverScratch {
     }
 }
 
-public class CompletionItemGroupingScratch {
+class CompletionItemGroupingScratch {
     kindIds: Dictionary<string, int>
 
     KindCounts: int[]
@@ -29,7 +29,7 @@ public class CompletionItemGroupingScratch {
     ResultKindIds: int[]
     ResultStarts: int[]
 
-    public func EnsureCapacity(count: int) {
+    func EnsureCapacity(count: int) {
         EnsureInitialized()
         if KindIds.Length != count {
             KindIds = new int[](count)
@@ -47,7 +47,7 @@ public class CompletionItemGroupingScratch {
         }
     }
 
-    public func GetKindId(kind: string): int {
+    func GetKindId(kind: string): int {
         EnsureInitialized()
         id := 0
         if kindIds.TryGetValue(kind, out id) {
@@ -60,7 +60,7 @@ public class CompletionItemGroupingScratch {
         return id
     }
 
-    public func GetKindName(id: int): string {
+    func GetKindName(id: int): string {
         EnsureInitialized()
         if id > 0 && id < KindNames.Length {
             name := KindNames[id]
@@ -72,7 +72,7 @@ public class CompletionItemGroupingScratch {
         return ""
     }
 
-    public func ResetKindIds() {
+    func ResetKindIds() {
         EnsureInitialized()
         if kindIds.Count > 0 {
             Array.Clear(KindNames, 1, kindIds.Count)

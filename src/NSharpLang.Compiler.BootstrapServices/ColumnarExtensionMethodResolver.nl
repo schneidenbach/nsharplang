@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler
 
+
 // One exact runtime extension-method candidate: a public static method that carries
 // [System.Runtime.CompilerServices.ExtensionAttribute] and whose first parameter is the extension
 // receiver. ParameterTypes is the FULL declared list, so ParameterTypes[0] is the receiver slot and
@@ -170,12 +171,7 @@ class ColumnarExtensionMethodResolver {
     }
 
     static func IsStaticExtensionHost(candidateType: Type, extensionAttribute: Type): bool {
-        return candidateType != null
-            && candidateType.get_IsClass()
-            && candidateType.get_IsSealed()
-            && candidateType.get_IsAbstract()
-            && !candidateType.get_IsGenericType()
-            && SafeIsDefined(candidateType, extensionAttribute)
+        return candidateType != null && candidateType.get_IsClass() && candidateType.get_IsSealed() && candidateType.get_IsAbstract() && !candidateType.get_IsGenericType() && SafeIsDefined(candidateType, extensionAttribute)
     }
 
     static func IsExtensionMethodCandidate(method: MethodInfo, extensionAttribute: Type): bool {
@@ -216,11 +212,7 @@ class ColumnarExtensionMethodResolver {
     }
 
     static func IsSupportedReceiverParameter(receiverParameterType: Type): bool {
-        return receiverParameterType != null
-            && !receiverParameterType.get_IsValueType()
-            && !receiverParameterType.get_IsByRef()
-            && !receiverParameterType.get_IsPointer()
-            && !receiverParameterType.get_IsGenericParameter()
+        return receiverParameterType != null && !receiverParameterType.get_IsValueType() && !receiverParameterType.get_IsByRef() && !receiverParameterType.get_IsPointer() && !receiverParameterType.get_IsGenericParameter()
     }
 
     static func ParameterTypesOrNull(parameters: ParameterInfo[]): Type[]? {
@@ -337,9 +329,7 @@ class ColumnarExtensionMethodResolver {
                     if score >= 0 {
                         parameterCount := parameterTypes.Length
                         candidateIsGeneric := candidate.Method.get_IsGenericMethod()
-                        if score > bestScore
-                            || (score == bestScore && parameterCount < bestParameterCount)
-                            || (score == bestScore && parameterCount == bestParameterCount && bestIsGeneric && !candidateIsGeneric) {
+                        if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) || (score == bestScore && parameterCount == bestParameterCount && bestIsGeneric && !candidateIsGeneric) {
                             bestScore = score
                             bestParameterCount = parameterCount
                             bestIsGeneric = candidateIsGeneric
@@ -522,8 +512,7 @@ class ColumnarExtensionMethodResolver {
 
     static func CandidateAppliesToReceiver(candidate: ColumnarExtensionMethodCandidate, receiverType: Type): bool {
         receiverParameterType := candidate.ReceiverParameterType
-        return !receiverParameterType.get_IsValueType()
-            && ReferenceAssignableFrom(receiverParameterType, receiverType)
+        return !receiverParameterType.get_IsValueType() && ReferenceAssignableFrom(receiverParameterType, receiverType)
     }
 
     // Explicit call arguments occupy the extension parameters after the receiver slot.

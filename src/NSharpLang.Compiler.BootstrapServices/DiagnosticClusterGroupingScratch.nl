@@ -3,19 +3,14 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 
-public class DiagnosticClusterGrouping {
+class DiagnosticClusterGrouping {
     GroupCount: int
     RootIndices: int[]
     Counts: int[]
     MemberStarts: int[]
     MemberIndices: int[]
 
-    constructor(
-        groupCount: int,
-        rootIndices: int[],
-        counts: int[],
-        memberStarts: int[],
-        memberIndices: int[]) {
+    constructor(groupCount: int, rootIndices: int[], counts: int[], memberStarts: int[], memberIndices: int[]) {
         GroupCount = groupCount
         RootIndices = rootIndices
         Counts = counts
@@ -24,7 +19,7 @@ public class DiagnosticClusterGrouping {
     }
 }
 
-public class DiagnosticClusterGroupingScratch {
+class DiagnosticClusterGroupingScratch {
     CodeIdsByText: Dictionary<string, int>
     MessagePatternIdsByText: Dictionary<string, int>
     SeverityIdsByText: Dictionary<string, int>
@@ -48,7 +43,7 @@ public class DiagnosticClusterGroupingScratch {
     SlotGroups: int[]
     SourceConstructIds: int[]
 
-    public func EnsureCapacity(count: int) {
+    func EnsureCapacity(count: int) {
         EnsureInitialized()
         if CodeIds.Length != count {
             CodeIds = new int[](count)
@@ -76,27 +71,27 @@ public class DiagnosticClusterGroupingScratch {
         }
     }
 
-    public func GetCodeId(text: string): int {
+    func GetCodeId(text: string): int {
         EnsureInitialized()
         return GetId(CodeIdsByText, text)
     }
 
-    public func GetSeverityId(text: string): int {
+    func GetSeverityId(text: string): int {
         EnsureInitialized()
         return GetId(SeverityIdsByText, text)
     }
 
-    public func GetMessagePatternId(text: string): int {
+    func GetMessagePatternId(text: string): int {
         EnsureInitialized()
         return GetId(MessagePatternIdsByText, text)
     }
 
-    public func ClearFiles(count: int) {
+    func ClearFiles(count: int) {
         EnsureInitialized()
         Array.Clear(Files, 0, count)
     }
 
-    public func ResetIds() {
+    func ResetIds() {
         EnsureInitialized()
         CodeIdsByText.Clear()
         SeverityIdsByText.Clear()

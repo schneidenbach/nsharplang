@@ -1,7 +1,7 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-public class CodeIntelligenceSignatureKernels {
-    public static func GetFallbackSignatureText(kind: string, name: string, typeName: string?): string {
+class CodeIntelligenceSignatureKernels {
+    static func GetFallbackSignatureText(kind: string, name: string, typeName: string?): string {
         if typeName != null {
             return kind + " " + name + ": " + typeName
         }

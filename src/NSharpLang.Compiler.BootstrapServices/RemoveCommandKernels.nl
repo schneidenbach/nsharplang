@@ -2,7 +2,7 @@ namespace NSharpLang.Cli.Commands
 
 import System
 
-public class RemoveArgumentSummary {
+class RemoveArgumentSummary {
     packageOperandValue: string?
     showHelpValue: bool
 
@@ -15,14 +15,14 @@ public class RemoveArgumentSummary {
     }
 }
 
-public enum RemoveDependencyLineAction {
+enum RemoveDependencyLineAction {
     Keep = 0,
     RemoveSingleLine = 1,
     RemoveMappingBlock = 2
 }
 
-public class RemoveCommandKernels {
-    public static func GetArgumentSummary(args: string[]): RemoveArgumentSummary {
+class RemoveCommandKernels {
+    static func GetArgumentSummary(args: string[]): RemoveArgumentSummary {
         resultIndices := new int[](2)
         code := RemoveArgumentSummaryInto(args, resultIndices)
         if code != 0 {
@@ -37,7 +37,7 @@ public class RemoveCommandKernels {
         return new RemoveArgumentSummary(packageOperand, resultIndices[1] != 0)
     }
 
-    public static func GetDependencyLineAction(line: string, packageName: string): RemoveDependencyLineAction {
+    static func GetDependencyLineAction(line: string, packageName: string): RemoveDependencyLineAction {
         result := RemoveDependencyLineActionCode(line, packageName)
         if result < 0 || result > 2 {
             throw new InvalidOperationException("N# remove dependency-line action kernel rejected the line.")
@@ -46,7 +46,7 @@ public class RemoveCommandKernels {
         return (RemoveDependencyLineAction)result
     }
 
-    public static func ShouldStopDependencyContinuationLine(line: string): bool {
+    static func ShouldStopDependencyContinuationLine(line: string): bool {
         result := RemoveShouldStopDependencyContinuationLine(line)
         if result != 0 && result != 1 {
             throw new InvalidOperationException("N# remove dependency continuation kernel rejected the line.")
@@ -55,38 +55,23 @@ public class RemoveCommandKernels {
         return result == 1
     }
 
-    public static func GetHelpText(): string {
-        return "N# Remove Dependency\n"
-            + "\n"
-            + "Usage: nlc remove <package>\n"
-            + "\n"
-            + "Remove a dependency from project.yml.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --help, -h    Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc remove Newtonsoft.Json\n"
-            + "  nlc remove Microsoft.AspNetCore.App\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Dependency removed successfully\n"
-            + "  1  Failed to remove dependency"
+    static func GetHelpText(): string {
+        return "N# Remove Dependency\n" + "\n" + "Usage: nlc remove <package>\n" + "\n" + "Remove a dependency from project.yml.\n" + "\n" + "Options:\n" + "  --help, -h    Show this help text\n" + "\n" + "Examples:\n" + "  nlc remove Newtonsoft.Json\n" + "  nlc remove Microsoft.AspNetCore.App\n" + "\n" + "Exit codes:\n" + "  0  Dependency removed successfully\n" + "  1  Failed to remove dependency"
     }
 
-    public static func GetUsageMessage(): string {
+    static func GetUsageMessage(): string {
         return "Usage: nlc remove <package>"
     }
 
-    public static func GetMissingProjectFileMessage(): string {
+    static func GetMissingProjectFileMessage(): string {
         return "No project.yml found."
     }
 
-    public static func GetPackageNotFoundMessage(packageName: string): string {
+    static func GetPackageNotFoundMessage(packageName: string): string {
         return "Package '" + packageName + "' not found in dependencies."
     }
 
-    public static func GetRemovedMessage(packageName: string): string {
+    static func GetRemovedMessage(packageName: string): string {
         return "Removed " + packageName + " from project.yml"
     }
 
@@ -135,8 +120,7 @@ public class RemoveCommandKernels {
             }
         }
 
-        if RemoveSubstringStartsWithAsciiIgnoreCase(line, start, end, "- nuget:")
-            || RemoveSubstringStartsWithAsciiIgnoreCase(line, start, end, "- framework:") {
+        if RemoveSubstringStartsWithAsciiIgnoreCase(line, start, end, "- nuget:") || RemoveSubstringStartsWithAsciiIgnoreCase(line, start, end, "- framework:") {
             if RemoveContainsAsciiIgnoreCase(line, start, end, packageName) {
                 return 2
             }
@@ -218,8 +202,7 @@ public class RemoveCommandKernels {
         limit := end - packageName.Length
         index := start
         while index < limit {
-            if text[index + packageName.Length] == '@'
-                && RemoveRangeEqualsAsciiIgnoreCase(text, index, packageName) {
+            if text[index + packageName.Length] == '@' && RemoveRangeEqualsAsciiIgnoreCase(text, index, packageName) {
                 return true
             }
 

@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum ScopeKind {
+enum ScopeKind {
     Global,
     Class,
     Struct,
@@ -10,7 +10,7 @@ public enum ScopeKind {
     Block
 }
 
-public enum UnknownKind {
+enum UnknownKind {
     ErrorRecovery,
     InferenceHole,
     DeferredExternal

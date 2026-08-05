@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 
+
 // THE ANALYZER'S ASSIGNABILITY DECISION — the whole strongly-connected component, in one owner.
 //
 // `IsAssignable(target, source)` answers the language's central semantic question: may a value of
@@ -42,8 +43,7 @@ import System.Collections.Generic
 // lists rather than a set of pairs: an EMITTED type cannot key a dictionary on the columnar surface,
 // and the scan is exact — `Object.Equals` is the same virtual equality a `HashSet` of pairs would
 // use, and the list is only ever as deep as the conversion recursion.
-public class AnalyzerImplicitConversionGuard {
-
+class AnalyzerImplicitConversionGuard {
     activeSources: List<TypeInfo>
     activeTargets: List<TypeInfo>
 
@@ -54,7 +54,7 @@ public class AnalyzerImplicitConversionGuard {
 
     // True when the pair was NOT already active and has now been marked so. False means the caller
     // is already inside this exact question and must answer "no" rather than recurse.
-    public func TryEnter(source: TypeInfo, target: TypeInfo): bool {
+    func TryEnter(source: TypeInfo, target: TypeInfo): bool {
         if IndexOfPair(source, target) >= 0 {
             return false
         }
@@ -64,7 +64,7 @@ public class AnalyzerImplicitConversionGuard {
         return true
     }
 
-    public func Exit(source: TypeInfo, target: TypeInfo) {
+    func Exit(source: TypeInfo, target: TypeInfo) {
         index := IndexOfPair(source, target)
         if index >= 0 {
             activeSources.RemoveAt(index)
@@ -72,7 +72,7 @@ public class AnalyzerImplicitConversionGuard {
         }
     }
 
-    public func Clear() {
+    func Clear() {
         activeSources.Clear()
         activeTargets.Clear()
     }
@@ -95,8 +95,7 @@ public class AnalyzerImplicitConversionGuard {
     }
 }
 
-public class AnalyzerAssignability {
-
+class AnalyzerAssignability {
     declarationContext: AnalyzerDeclarationContext
     assignabilityFacts: AnalyzerAssignabilityFacts
     structuralAssignability: AnalyzerStructuralAssignability
@@ -104,13 +103,7 @@ public class AnalyzerAssignability {
     clrTypeConversion: AnalyzerClrTypeConversion
     conversionGuard: AnalyzerImplicitConversionGuard
 
-    constructor(
-        context: AnalyzerDeclarationContext,
-        facts: AnalyzerAssignabilityFacts,
-        structural: AnalyzerStructuralAssignability,
-        substitution: AnalyzerTypeSubstitution,
-        clrConversion: AnalyzerClrTypeConversion,
-        guard: AnalyzerImplicitConversionGuard) {
+    constructor(context: AnalyzerDeclarationContext, facts: AnalyzerAssignabilityFacts, structural: AnalyzerStructuralAssignability, substitution: AnalyzerTypeSubstitution, clrConversion: AnalyzerClrTypeConversion, guard: AnalyzerImplicitConversionGuard) {
         declarationContext = context
         assignabilityFacts = facts
         structuralAssignability = structural
@@ -119,7 +112,7 @@ public class AnalyzerAssignability {
         conversionGuard = guard
     }
 
-    public func IsAssignable(target: TypeInfo, source: TypeInfo): bool {
+    func IsAssignable(target: TypeInfo, source: TypeInfo): bool {
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         resolvedSource := declarationContext.ResolveDeclaredAlias(source)
 
@@ -191,9 +184,7 @@ public class AnalyzerAssignability {
                 targetClrType := callableTarget.Type
                 if AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(targetClrType) {
                     delegateSignature := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(targetClrType)
-                    return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(
-                        sourceFunction,
-                        delegateSignature)
+                    return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(sourceFunction, delegateSignature)
                 }
             }
         } else {
@@ -236,9 +227,7 @@ public class AnalyzerAssignability {
 
         // Both sides reflected: CLR semantics decide.
         if sourceReflection != null && targetReflection != null {
-            return AnalyzerConversionFacts.IsReflectionAssignableFrom(
-                targetReflection.Type,
-                sourceReflection.Type)
+            return AnalyzerConversionFacts.IsReflectionAssignableFrom(targetReflection.Type, sourceReflection.Type)
         }
 
         // Mixed: reflected target, built-in source — convert the source and compare in the CLR.
@@ -344,7 +333,7 @@ public class AnalyzerAssignability {
     // Nominal subtyping: walk the base class chain and the interface lists of N#-declared types. A
     // generic instantiation is first replaced by its OPEN definition, under the substitution its
     // arguments induce, so `Box<int>`'s bases are read as `Box<T>`'s with `T` bound.
-    public func IsSubtypeOf(source: TypeInfo, target: TypeInfo): bool {
+    func IsSubtypeOf(source: TypeInfo, target: TypeInfo): bool {
         effectiveSource := source
         substitution: Dictionary<string, TypeInfo>? = null
         genericSource := effectiveSource as GenericTypeInfo
@@ -353,9 +342,7 @@ public class AnalyzerAssignability {
             if genericDefinition != null {
                 reflectionDefinition := genericDefinition as ReflectionTypeInfo
                 if reflectionDefinition == null {
-                    substitution = declarationContext.CreateGenericSubstitution(
-                        genericDefinition,
-                        genericSource.TypeArguments)
+                    substitution = declarationContext.CreateGenericSubstitution(genericDefinition, genericSource.TypeArguments)
                     effectiveSource = genericDefinition
                 }
             }
@@ -392,11 +379,7 @@ public class AnalyzerAssignability {
 
         interfaceSource := effectiveSource as InterfaceTypeInfo
         if interfaceSource != null {
-            if AnyInterfaceAssignable(
-                    interfaceSource.BaseInterfaces,
-                    interfaceSource,
-                    substitution,
-                    target) {
+            if AnyInterfaceAssignable(interfaceSource.BaseInterfaces, interfaceSource, substitution, target) {
                 return true
             }
         }
@@ -418,9 +401,7 @@ public class AnalyzerAssignability {
 
     // A method group against a real CLR delegate's signature: the same score the overload resolver
     // ranks candidates with, read only for its success.
-    public func IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(
-        source: FunctionTypeInfo,
-        target: FunctionTypeInfo): bool {
+    func IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(source: FunctionTypeInfo, target: FunctionTypeInfo): bool {
         score := 0
         return TryGetRuntimeDelegateMethodGroupMatchScore(source, target, out score)
     }
@@ -430,10 +411,7 @@ public class AnalyzerAssignability {
     // inferred must not be pre-judged. Note the RETURN is scored target ← source reversed
     // (`TryGetDelegateSignatureConversionScore(target.ReturnType, source.ReturnType)`), which is
     // covariance.
-    public func TryGetRuntimeDelegateMethodGroupMatchScore(
-        source: FunctionTypeInfo,
-        target: FunctionTypeInfo,
-        out score: int): bool {
+    func TryGetRuntimeDelegateMethodGroupMatchScore(source: FunctionTypeInfo, target: FunctionTypeInfo, out score: int): bool {
         score = 0
         sourceParameters := ParameterTypesOrEmpty(source)
         targetParameters := ParameterTypesOrEmpty(target)
@@ -455,10 +433,7 @@ public class AnalyzerAssignability {
                 }
 
                 parameterScore := 0
-                if !TryGetDelegateSignatureConversionScore(
-                        sourceParameter,
-                        targetParameter,
-                        out parameterScore) {
+                if !TryGetDelegateSignatureConversionScore(sourceParameter, targetParameter, out parameterScore) {
                     return false
                 }
 
@@ -487,10 +462,7 @@ public class AnalyzerAssignability {
     // How well one delegate-signature position converts to another, as a score rather than a
     // verdict: 8 exact, 4 a reference conversion, 2 an open type parameter, 1 an unknown. The ladder
     // is what makes an EXACT overload beat a merely convertible one.
-    func TryGetDelegateSignatureConversionScore(
-        target: TypeInfo,
-        source: TypeInfo,
-        out score: int): bool {
+    func TryGetDelegateSignatureConversionScore(target: TypeInfo, source: TypeInfo, out score: int): bool {
         score = 0
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         resolvedSource := declarationContext.ResolveDeclaredAlias(source)
@@ -515,8 +487,7 @@ public class AnalyzerAssignability {
             return true
         }
 
-        if !assignabilityFacts.MayUseDelegateReferenceConversion(resolvedTarget)
-            || !assignabilityFacts.MayUseDelegateReferenceConversion(resolvedSource) {
+        if !assignabilityFacts.MayUseDelegateReferenceConversion(resolvedTarget) || !assignabilityFacts.MayUseDelegateReferenceConversion(resolvedSource) {
             return false
         }
 
@@ -569,8 +540,7 @@ public class AnalyzerAssignability {
             return false
         }
 
-        if IsKnownGenericTypeAssignable(resolvedTarget, resolvedSource)
-            || IsSubtypeOf(resolvedSource, resolvedTarget) {
+        if IsKnownGenericTypeAssignable(resolvedTarget, resolvedSource) || IsSubtypeOf(resolvedSource, resolvedTarget) {
             score = 4
             return true
         }
@@ -582,12 +552,9 @@ public class AnalyzerAssignability {
     // that carries a SOURCE identity is a method group, not a lambda, and is scored as one instead.
     // Note the parameter direction: a lambda parameter is checked as the TARGET of the delegate's
     // argument, which is contravariance.
-    func IsLambdaAssignableToDelegate(
-        functionType: FunctionTypeInfo,
-        delegateType: GenericTypeInfo): bool {
+    func IsLambdaAssignableToDelegate(functionType: FunctionTypeInfo, delegateType: GenericTypeInfo): bool {
         if AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType) {
-            delegateSignature := AnalyzerCallableReferenceFacts.CreateFunctionTypeInfoFromGenericDelegate(
-                delegateType)
+            delegateSignature := AnalyzerCallableReferenceFacts.CreateFunctionTypeInfoFromGenericDelegate(delegateType)
             if delegateSignature != null {
                 return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(functionType, delegateSignature)
             }
@@ -680,17 +647,11 @@ public class AnalyzerAssignability {
             member := sourceMembers[index]
             if IsImplicitConversionOperator(member) {
                 parameterTypes := member.ParameterTypes
-                parameterType := typeSubstitution.ResolveTypeForSourceOwner(
-                    parameterTypes[0],
-                    declarationOwner,
-                    substitution)
+                parameterType := typeSubstitution.ResolveTypeForSourceOwner(parameterTypes[0], declarationOwner, substitution)
                 if IsAssignable(parameterType, source) {
                     memberReturnType := member.ReturnType
                     if memberReturnType != null {
-                        returnType := typeSubstitution.ResolveTypeForSourceOwner(
-                            memberReturnType,
-                            declarationOwner,
-                            substitution)
+                        returnType := typeSubstitution.ResolveTypeForSourceOwner(memberReturnType, declarationOwner, substitution)
                         if IsAssignable(target, returnType) {
                             return true
                         }
@@ -736,9 +697,7 @@ public class AnalyzerAssignability {
         return true
     }
 
-    func EveryArmAcceptedBySomeArm(
-        targetUnion: AnonymousUnionTypeInfo,
-        sourceUnion: AnonymousUnionTypeInfo): bool {
+    func EveryArmAcceptedBySomeArm(targetUnion: AnonymousUnionTypeInfo, sourceUnion: AnonymousUnionTypeInfo): bool {
         sourceArms := sourceUnion.Arms
         index := 0
         while index < sourceArms.Count {
@@ -780,17 +739,10 @@ public class AnalyzerAssignability {
         return true
     }
 
-    func AnyInterfaceAssignable(
-        interfaces: TypeReference[],
-        owner: TypeInfo,
-        substitution: Dictionary<string, TypeInfo>?,
-        target: TypeInfo): bool {
+    func AnyInterfaceAssignable(interfaces: TypeReference[], owner: TypeInfo, substitution: Dictionary<string, TypeInfo>?, target: TypeInfo): bool {
         index := 0
         while index < interfaces.Length {
-            interfaceType := typeSubstitution.ResolveTypeForSourceOwner(
-                interfaces[index],
-                owner,
-                substitution)
+            interfaceType := typeSubstitution.ResolveTypeForSourceOwner(interfaces[index], owner, substitution)
             if IsAssignable(target, interfaceType) {
                 return true
             }

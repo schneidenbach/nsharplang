@@ -1,9 +1,9 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Compiler.CodeIntelligence
 import System
+import NSharpLang.Compiler.CodeIntelligence
 
-public class QueryDaemonParameterSummary {
+class QueryDaemonParameterSummary {
     File: string?
     Pos: string?
     Name: string?
@@ -12,14 +12,7 @@ public class QueryDaemonParameterSummary {
     IncludeKeywords: bool
     Clusters: bool
 
-    constructor(
-        filePath: string?,
-        pos: string?,
-        name: string?,
-        kind: string?,
-        severity: string?,
-        includeKeywords: bool,
-        clusters: bool) {
+    constructor(filePath: string?, pos: string?, name: string?, kind: string?, severity: string?, includeKeywords: bool, clusters: bool) {
         File = filePath
         Pos = pos
         Name = name
@@ -30,7 +23,7 @@ public class QueryDaemonParameterSummary {
     }
 }
 
-public class QueryCommandOptionSummary {
+class QueryCommandOptionSummary {
     Filter: string?
     Function: string?
     Limit: string?
@@ -46,7 +39,7 @@ public class QueryCommandOptionSummary {
     }
 }
 
-public class QueryTopLevelOptionSummary {
+class QueryTopLevelOptionSummary {
     Subcommand: string?
     ProjectDir: string?
     File: string?
@@ -56,15 +49,7 @@ public class QueryTopLevelOptionSummary {
     InspectCompact: bool
     RemainingArgs: string[]
 
-    constructor(
-        subcommand: string?,
-        projectDir: string?,
-        filePath: string?,
-        pos: string?,
-        useText: bool,
-        noDaemon: bool,
-        inspectCompact: bool,
-        remainingArgs: string[]) {
+    constructor(subcommand: string?, projectDir: string?, filePath: string?, pos: string?, useText: bool, noDaemon: bool, inspectCompact: bool, remainingArgs: string[]) {
         Subcommand = subcommand
         ProjectDir = projectDir
         File = filePath
@@ -76,7 +61,7 @@ public class QueryTopLevelOptionSummary {
     }
 }
 
-public class QueryOptions {
+class QueryOptions {
     ProjectDir: string?
     File: string?
     Pos: string?
@@ -84,13 +69,7 @@ public class QueryOptions {
     NoDaemon: bool
     InspectCompact: bool
 
-    constructor(
-        projectDir: string?,
-        filePath: string?,
-        pos: string?,
-        useText: bool,
-        noDaemon: bool,
-        inspectCompact: bool) {
+    constructor(projectDir: string?, filePath: string?, pos: string?, useText: bool, noDaemon: bool, inspectCompact: bool) {
         ProjectDir = projectDir
         File = filePath
         Pos = pos
@@ -100,7 +79,7 @@ public class QueryOptions {
     }
 }
 
-public class QuerySymbolKindParseResult {
+class QuerySymbolKindParseResult {
     HasValue: bool
     value: int
 
@@ -109,13 +88,13 @@ public class QuerySymbolKindParseResult {
         value = kindValue
     }
 
-    public func GetValueOrDefault(): SymbolKind {
+    func GetValueOrDefault(): SymbolKind {
         return (SymbolKind)value
     }
 }
 
-public class QueryCommandKernels {
-    public static func GetDaemonParameterSummary(args: string[]): QueryDaemonParameterSummary {
+class QueryCommandKernels {
+    static func GetDaemonParameterSummary(args: string[]): QueryDaemonParameterSummary {
         filePath: string? = null
         pos: string? = null
         name: string? = null
@@ -159,7 +138,7 @@ public class QueryCommandKernels {
         return new QueryDaemonParameterSummary(filePath, pos, name, kind, severity, includeKeywords, clusters)
     }
 
-    public static func GetCommandOptionSummary(args: string[]): QueryCommandOptionSummary {
+    static func GetCommandOptionSummary(args: string[]): QueryCommandOptionSummary {
         filter: string? = null
         functionName: string? = null
         limit: string? = null
@@ -197,7 +176,7 @@ public class QueryCommandKernels {
         return new QueryCommandOptionSummary(filter, functionName, limit, requests, leadingOperand)
     }
 
-    public static func GetTopLevelOptionSummary(args: string[]): QueryTopLevelOptionSummary {
+    static func GetTopLevelOptionSummary(args: string[]): QueryTopLevelOptionSummary {
         subcommand: string? = null
         projectDir: string? = null
         filePath: string? = null
@@ -254,7 +233,7 @@ public class QueryCommandKernels {
         return new QueryTopLevelOptionSummary(subcommand, projectDir, filePath, pos, useText, noDaemon, inspectCompact, remainingArgs)
     }
 
-    public static func ParsePosition(position: string, out line: int, out column: int): bool {
+    static func ParsePosition(position: string, out line: int, out column: int): bool {
         line = 0
         column = 0
 
@@ -295,7 +274,7 @@ public class QueryCommandKernels {
         return true
     }
 
-    public static func ParsePositiveInt(valueText: string, out result: int): bool {
+    static func ParsePositiveInt(valueText: string, out result: int): bool {
         result = 0
         if !TryParseIntSegment(valueText, 0, valueText.Length, out result) {
             result = 0
@@ -310,7 +289,7 @@ public class QueryCommandKernels {
         return true
     }
 
-    public static func GetInspectOutputMode(useText: bool, inspectCompact: bool): int {
+    static func GetInspectOutputMode(useText: bool, inspectCompact: bool): int {
         if useText && inspectCompact {
             return -1
         }
@@ -326,11 +305,11 @@ public class QueryCommandKernels {
         return 1
     }
 
-    public static func ShouldUseDaemon(useText: bool, noDaemon: bool): bool {
+    static func ShouldUseDaemon(useText: bool, noDaemon: bool): bool {
         return !useText && !noDaemon
     }
 
-    public static func GetDiagnosticsOutputMode(useText: bool, clusters: bool): int {
+    static func GetDiagnosticsOutputMode(useText: bool, clusters: bool): int {
         if clusters {
             return 3
         }
@@ -342,7 +321,7 @@ public class QueryCommandKernels {
         return 1
     }
 
-    public static func GetJsonOnlyOutputMode(useText: bool): int {
+    static func GetJsonOnlyOutputMode(useText: bool): int {
         if useText {
             return -1
         }
@@ -350,7 +329,7 @@ public class QueryCommandKernels {
         return 1
     }
 
-    public static func GetTextJsonOutputMode(useText: bool): int {
+    static func GetTextJsonOutputMode(useText: bool): int {
         if useText {
             return 2
         }
@@ -358,7 +337,7 @@ public class QueryCommandKernels {
         return 1
     }
 
-    public static func GetResultPresenceExitCode(resultCount: int): int {
+    static func GetResultPresenceExitCode(resultCount: int): int {
         if resultCount > 0 {
             return 0
         }
@@ -366,7 +345,7 @@ public class QueryCommandKernels {
         return 1
     }
 
-    public static func GetBooleanSuccessExitCode(ok: bool): int {
+    static func GetBooleanSuccessExitCode(ok: bool): int {
         if ok {
             return 0
         }
@@ -374,7 +353,7 @@ public class QueryCommandKernels {
         return 1
     }
 
-    public static func GetDiagnosticSummaryExitCode(errorCount: int): int {
+    static func GetDiagnosticSummaryExitCode(errorCount: int): int {
         if errorCount > 0 {
             return 1
         }
@@ -382,11 +361,11 @@ public class QueryCommandKernels {
         return 0
     }
 
-    public static func IsInterfaceKind(kind: string?): bool {
+    static func IsInterfaceKind(kind: string?): bool {
         return String.Compare(kind ?? "", "interface", StringComparison.OrdinalIgnoreCase) == 0
     }
 
-    public static func ParseSymbolKind(valueText: string): QuerySymbolKindParseResult {
+    static func ParseSymbolKind(valueText: string): QuerySymbolKindParseResult {
         kindValue := 0
         if !TryParseSymbolKind(valueText, out kindValue) {
             return new QuerySymbolKindParseResult(false, 0)
@@ -395,56 +374,11 @@ public class QueryCommandKernels {
         return new QuerySymbolKindParseResult(true, kindValue)
     }
 
-    public static func GetHelpText(commandLines: string): string {
-        return "N# Code Intelligence CLI\n"
-            + "\n"
-            + "Usage: nlc query <command> [options]\n"
-            + "\n"
-            + "Commands:\n"
-            + commandLines + "\n"
-            + "\n"
-            + "Global Options:\n"
-            + "  --json        Output as JSON (default)\n"
-            + "  --text        Output as human-readable text (Elm-style)\n"
-            + "  --no-daemon   Force in-process analysis even if a daemon is running\n"
-            + "  --project     Project root directory (default: current directory)\n"
-            + "  --file        Target file for file-scoped operations\n"
-            + "  --pos         Position as line:col (e.g. 5:12)\n"
-            + "  --compact     For inspect, emit the compact token-efficient envelope (alias: --summary)\n"
-            + "  --clusters    For diagnostics, emit the stable diagnostic-cluster JSON envelope\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc query symbols                              # All symbols in project\n"
-            + "  nlc query symbols --filter '*Person*'          # Symbols matching glob\n"
-            + "  nlc query symbols --filter Person              # Symbols matching substring\n"
-            + "  nlc query batch --requests requests.json       # Mixed semantic queries in one call\n"
-            + "  nlc query symbols --file Program.nl            # Symbols in one file\n"
-            + "  nlc query symbols --kind function              # Only functions\n"
-            + "  nlc query outline Program.nl                   # File structure\n"
-            + "  nlc query diagnostics                          # All errors/warnings\n"
-            + "  nlc query diagnostics --clusters               # Diagnostic clusters\n"
-            + "  nlc query diagnostics --text                   # Elm-style error output\n"
-            + "  nlc query type --file Program.nl --pos 5:4     # Type at position\n"
-            + "  nlc query inspect --file Program.nl --pos 5:4\n"
-            + "  nlc query inspect --file Program.nl --pos 5:4 --compact\n"
-            + "  nlc query def --file Program.nl --pos 5:4      # Definition at position\n"
-            + "  nlc query refs --file Program.nl --pos 5:4     # All references\n"
-            + "  nlc query hover --file Program.nl --pos 5:4    # Signature + docs at position\n"
-            + "  nlc query call-graph --function Main           # Callers/callees of Main\n"
-            + "  nlc query call-graph --function Main --limit 50\n"
-            + "  nlc query implementors --name IShape           # Types implementing IShape\n"
-            + "  nlc query implementors --file Program.nl --pos 10:11\n"
-            + "  nlc query perf --file Program.nl --pos 5:4     # Allocation/dispatch/ABI facts\n"
-            + "  nlc query trusted                              # Governed [trusted] wrappers\n"
-            + "  nlc query doc Console                          # Type documentation\n"
-            + "  nlc query doc Console.WriteLine                # Method documentation\n"
-            + "  nlc query doc List                             # Generic type docs\n"
-            + "\n"
-            + "JSON queries reuse `nlc daemon` automatically when a daemon is already running.\n"
-            + "Use `--no-daemon` to bypass the daemon for debugging."
+    static func GetHelpText(commandLines: string): string {
+        return "N# Code Intelligence CLI\n" + "\n" + "Usage: nlc query <command> [options]\n" + "\n" + "Commands:\n" + commandLines + "\n" + "\n" + "Global Options:\n" + "  --json        Output as JSON (default)\n" + "  --text        Output as human-readable text (Elm-style)\n" + "  --no-daemon   Force in-process analysis even if a daemon is running\n" + "  --project     Project root directory (default: current directory)\n" + "  --file        Target file for file-scoped operations\n" + "  --pos         Position as line:col (e.g. 5:12)\n" + "  --compact     For inspect, emit the compact token-efficient envelope (alias: --summary)\n" + "  --clusters    For diagnostics, emit the stable diagnostic-cluster JSON envelope\n" + "\n" + "Examples:\n" + "  nlc query symbols                              # All symbols in project\n" + "  nlc query symbols --filter '*Person*'          # Symbols matching glob\n" + "  nlc query symbols --filter Person              # Symbols matching substring\n" + "  nlc query batch --requests requests.json       # Mixed semantic queries in one call\n" + "  nlc query symbols --file Program.nl            # Symbols in one file\n" + "  nlc query symbols --kind function              # Only functions\n" + "  nlc query outline Program.nl                   # File structure\n" + "  nlc query diagnostics                          # All errors/warnings\n" + "  nlc query diagnostics --clusters               # Diagnostic clusters\n" + "  nlc query diagnostics --text                   # Elm-style error output\n" + "  nlc query type --file Program.nl --pos 5:4     # Type at position\n" + "  nlc query inspect --file Program.nl --pos 5:4\n" + "  nlc query inspect --file Program.nl --pos 5:4 --compact\n" + "  nlc query def --file Program.nl --pos 5:4      # Definition at position\n" + "  nlc query refs --file Program.nl --pos 5:4     # All references\n" + "  nlc query hover --file Program.nl --pos 5:4    # Signature + docs at position\n" + "  nlc query call-graph --function Main           # Callers/callees of Main\n" + "  nlc query call-graph --function Main --limit 50\n" + "  nlc query implementors --name IShape           # Types implementing IShape\n" + "  nlc query implementors --file Program.nl --pos 10:11\n" + "  nlc query perf --file Program.nl --pos 5:4     # Allocation/dispatch/ABI facts\n" + "  nlc query trusted                              # Governed [trusted] wrappers\n" + "  nlc query doc Console                          # Type documentation\n" + "  nlc query doc Console.WriteLine                # Method documentation\n" + "  nlc query doc List                             # Generic type docs\n" + "\n" + "JSON queries reuse `nlc daemon` automatically when a daemon is already running.\n" + "Use `--no-daemon` to bypass the daemon for debugging."
     }
 
-    public static func GetDescriptionWithAliases(description: string, aliasesText: string): string {
+    static func GetDescriptionWithAliases(description: string, aliasesText: string): string {
         if aliasesText.Length == 0 {
             return description
         }
@@ -452,110 +386,103 @@ public class QueryCommandKernels {
         return description + " (aliases: " + aliasesText + ")"
     }
 
-    public static func GetUnknownSubcommandMessage(subcommand: string): string {
+    static func GetUnknownSubcommandMessage(subcommand: string): string {
         return "Unknown query subcommand: " + subcommand + ". Run 'nlc query help' for usage."
     }
 
-    public static func GetNoCompilationUnitForFileMessage(fileFilter: string): string {
+    static func GetNoCompilationUnitForFileMessage(fileFilter: string): string {
         return "No compilation unit found for --file " + fileFilter
     }
 
-    public static func GetNoCompilationUnitsMessage(): string {
+    static func GetNoCompilationUnitsMessage(): string {
         return "No compilation units in project."
     }
 
-    public static func GetPositionUsageMessage(subcommand: string): string {
+    static func GetPositionUsageMessage(subcommand: string): string {
         return "Usage: nlc query " + subcommand + " --file <path> --pos <line>:<col>"
     }
 
-    public static func GetInvalidPositionMessage(position: string): string {
+    static func GetInvalidPositionMessage(position: string): string {
         return "Invalid position format: " + position + ". Expected <line>:<col> (e.g. 5:12)"
     }
 
-    public static func GetNoSymbolAtPositionMessage(filePath: string, line: int, column: int): string {
+    static func GetNoSymbolAtPositionMessage(filePath: string, line: int, column: int): string {
         return "No symbol found at " + filePath + ":" + line.ToString() + ":" + column.ToString()
     }
 
-    public static func GetNoTypeInformationAtPositionMessage(filePath: string, line: int, column: int): string {
+    static func GetNoTypeInformationAtPositionMessage(filePath: string, line: int, column: int): string {
         return "No type information found at " + filePath + ":" + line.ToString() + ":" + column.ToString()
     }
 
-    public static func GetNoDefinitionAtPositionMessage(filePath: string, line: int, column: int): string {
+    static func GetNoDefinitionAtPositionMessage(filePath: string, line: int, column: int): string {
         return "No definition found at " + filePath + ":" + line.ToString() + ":" + column.ToString()
     }
 
-    public static func GetNoInterfaceAtPositionMessage(filePath: string, line: int, column: int): string {
+    static func GetNoInterfaceAtPositionMessage(filePath: string, line: int, column: int): string {
         return "No interface found at " + filePath + ":" + line.ToString() + ":" + column.ToString()
     }
 
-    public static func GetPerformanceJsonOnlyMessage(): string {
+    static func GetPerformanceJsonOnlyMessage(): string {
         return "Performance facts are only available as JSON output."
     }
 
-    public static func GetTrustedJsonOnlyMessage(): string {
+    static func GetTrustedJsonOnlyMessage(): string {
         return "Trusted-site reports are only available as JSON output."
     }
 
-    public static func GetImplementorsUsageMessage(): string {
+    static func GetImplementorsUsageMessage(): string {
         return "Usage: nlc query implementors --name <interface>\n       nlc query implementors --file <path> --pos <line>:<col>"
     }
 
-    public static func GetBatchJsonOnlyMessage(): string {
+    static func GetBatchJsonOnlyMessage(): string {
         return "Batch queries only support JSON output."
     }
 
-    public static func GetBatchUsageMessage(): string {
+    static func GetBatchUsageMessage(): string {
         return "Usage: nlc query batch --requests <path-to-json>"
     }
 
-    public static func GetEmptyBatchMessage(): string {
+    static func GetEmptyBatchMessage(): string {
         return "Batch request file did not contain any requests."
     }
 
-    public static func GetOutlineUsageMessage(): string {
+    static func GetOutlineUsageMessage(): string {
         return "Usage: nlc query outline <file>"
     }
 
-    public static func GetFileNotFoundMessage(filePath: string): string {
+    static func GetFileNotFoundMessage(filePath: string): string {
         return "File not found: " + filePath
     }
 
-    public static func GetDefinitionUsageMessage(): string {
+    static func GetDefinitionUsageMessage(): string {
         return "Usage: nlc query definition --file <path> --pos <line>:<col>"
     }
 
-    public static func GetInspectCompactTextUnsupportedMessage(): string {
+    static func GetInspectCompactTextUnsupportedMessage(): string {
         return "--compact/--summary is only supported with JSON output."
     }
 
-    public static func GetReferencesUsageMessage(): string {
+    static func GetReferencesUsageMessage(): string {
         return "Usage: nlc query references --file <path> --pos <line>:<col>\n\nThis is a semantic operation. Position-based only — no name-based shortcut."
     }
 
-    public static func GetSemanticReferencesUnavailableMessage(): string {
-        return "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. "
-            + "No name-based or text-based fallback was used."
+    static func GetSemanticReferencesUnavailableMessage(): string {
+        return "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. " + "No name-based or text-based fallback was used."
     }
 
-    public static func GetDocUsageMessage(): string {
-        return "Usage: nlc query doc <type-or-member>\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc query doc Console\n"
-            + "  nlc query doc Console.WriteLine\n"
-            + "  nlc query doc List\n"
-            + "  nlc query doc System.IO.File"
+    static func GetDocUsageMessage(): string {
+        return "Usage: nlc query doc <type-or-member>\n" + "\n" + "Examples:\n" + "  nlc query doc Console\n" + "  nlc query doc Console.WriteLine\n" + "  nlc query doc List\n" + "  nlc query doc System.IO.File"
     }
 
-    public static func GetNoDocumentationMessage(query: string): string {
+    static func GetNoDocumentationMessage(query: string): string {
         return "No documentation found for '" + query + "'."
     }
 
-    public static func GetProjectDirectoryNotFoundMessage(projectDir: string): string {
+    static func GetProjectDirectoryNotFoundMessage(projectDir: string): string {
         return "Project directory not found: " + projectDir
     }
 
-    public static func GetFailedAnalyzeProjectMessage(message: string): string {
+    static func GetFailedAnalyzeProjectMessage(message: string): string {
         return "Failed to analyze project: " + message
     }
 
@@ -584,11 +511,7 @@ public class QueryCommandKernels {
     }
 
     static func IsTopLevelFlag(arg: string): bool {
-        return arg == "--text"
-            || arg == "--json"
-            || arg == "--no-daemon"
-            || arg == "--summary"
-            || arg == "--compact"
+        return arg == "--text" || arg == "--json" || arg == "--no-daemon" || arg == "--summary" || arg == "--compact"
     }
 
     static func IsLongOption(arg: string): bool {

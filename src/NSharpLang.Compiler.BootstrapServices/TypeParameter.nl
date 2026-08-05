@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler.Ast
 
 import System.Collections.Generic
 
-public class TypeParameter {
+class TypeParameter {
     Name: string
 
     constructor(Name: string) {
@@ -10,7 +10,7 @@ public class TypeParameter {
     }
 }
 
-public class GenericConstraint {
+class GenericConstraint {
     TypeParameter: string
     Constraints: List<TypeReference>
     SpecialConstraints: SpecialConstraintKind

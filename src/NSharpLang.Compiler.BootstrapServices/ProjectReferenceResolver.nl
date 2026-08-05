@@ -3,8 +3,8 @@ namespace NSharpLang.Compiler
 import System
 import System.IO
 
-public class ProjectReferenceResolver {
-    public static func ResolveNSharpProjectRoot(projectReferencePath: string): string {
+class ProjectReferenceResolver {
+    static func ResolveNSharpProjectRoot(projectReferencePath: string): string {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectReferencePath)
 
         fullPath := Path.GetFullPath(projectReferencePath)
@@ -14,8 +14,7 @@ public class ProjectReferenceResolver {
                 return fullPath
             }
 
-            throw new FileNotFoundException(
-                "Project reference '" + projectReferencePath + "' points to a directory, but no project.yml was found in that directory.")
+            throw new FileNotFoundException("Project reference '" + projectReferencePath + "' points to a directory, but no project.yml was found in that directory.")
         }
 
         if !File.Exists(fullPath) {
@@ -31,12 +30,10 @@ public class ProjectReferenceResolver {
             return projectDirectory
         }
 
-        throw new InvalidOperationException(
-            "N# project reference '" + projectReferencePath + "' must point to a project.yml file or a directory containing project.yml. "
-                + "Use a DLL reference for prebuilt assemblies, or keep .csproj references inside MSBuild compatibility projects.")
+        throw new InvalidOperationException("N# project reference '" + projectReferencePath + "' must point to a project.yml file or a directory containing project.yml. " + "Use a DLL reference for prebuilt assemblies, or keep .csproj references inside MSBuild compatibility projects.")
     }
 
-    public static func ResolveMsBuildProjectPath(projectReferencePath: string): string {
+    static func ResolveMsBuildProjectPath(projectReferencePath: string): string {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectReferencePath)
 
         fullPath := Path.GetFullPath(projectReferencePath)
@@ -71,12 +68,10 @@ public class ProjectReferenceResolver {
             return directoryNamedCsproj
         }
 
-        throw new FileNotFoundException(
-            "Could not resolve an MSBuild project for '" + projectReferencePath + "'. Expected '" + namedCsproj + "' or a single .csproj in '" + projectDirectory + "'.")
+        throw new FileNotFoundException("Could not resolve an MSBuild project for '" + projectReferencePath + "'. Expected '" + namedCsproj + "' or a single .csproj in '" + projectDirectory + "'.")
     }
 
     static func IsYamlProjectPath(path: string): bool {
-        return path.EndsWith(".yml", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase)
+        return path.EndsWith(".yml", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase)
     }
 }

@@ -2,18 +2,13 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 
-public class ColumnarNumericFacts {
-    public static func IsIntPromotable(t: Type): bool {
-        return t == typeof(int) || t == typeof(char)
-            || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
+class ColumnarNumericFacts {
+    static func IsIntPromotable(t: Type): bool {
+        return t == typeof(int) || t == typeof(char) || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
     }
 
-    public static func IsCastableScalar(t: Type): bool {
-        return t == typeof(int) || t == typeof(long) || t == typeof(char)
-            || t == typeof(double) || t == typeof(float)
-            || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short)
-            || t == typeof(ushort) || t == typeof(uint) || t == typeof(ulong)
-            || t == typeof(decimal)
+    static func IsCastableScalar(t: Type): bool {
+        return t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double) || t == typeof(float) || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort) || t == typeof(uint) || t == typeof(ulong) || t == typeof(decimal)
     }
 
     // Whether a type is an enum the bitwise family (and/or/xor) may run over.
@@ -31,7 +26,7 @@ public class ColumnarNumericFacts {
     //
     // This is stated ONCE because both the planner that selects the opcode and the executor that
     // validates the resulting stack shape must agree on it.
-    public static func IsBitwiseEnum(t: Type): bool {
+    static func IsBitwiseEnum(t: Type): bool {
         if t == null {
             return false
         }
@@ -62,8 +57,6 @@ public class ColumnarNumericFacts {
             return false
         }
 
-        return IsIntPromotable(underlying)
-            || underlying == typeof(long) || underlying == typeof(ulong)
-            || underlying == typeof(uint)
+        return IsIntPromotable(underlying) || underlying == typeof(long) || underlying == typeof(ulong) || underlying == typeof(uint)
     }
 }

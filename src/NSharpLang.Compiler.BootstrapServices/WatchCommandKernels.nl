@@ -3,7 +3,7 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.IO
 
-public class WatchOptionSummary {
+class WatchOptionSummary {
     ProjectOption: string?
     DebounceMsOption: string?
     MaxRunsOption: string?
@@ -17,7 +17,7 @@ public class WatchOptionSummary {
     }
 }
 
-public class WatchTargetSummary {
+class WatchTargetSummary {
     TargetKind: int
 
     constructor(targetKind: int) {
@@ -25,7 +25,7 @@ public class WatchTargetSummary {
     }
 }
 
-public class WatchPositiveIntOption {
+class WatchPositiveIntOption {
     IsValid: bool
     HasValue: bool
     Value: int
@@ -37,8 +37,8 @@ public class WatchPositiveIntOption {
     }
 }
 
-public class WatchCommandKernels {
-    public static func GetTargetSummary(args: string[]): WatchTargetSummary {
+class WatchCommandKernels {
+    static func GetTargetSummary(args: string[]): WatchTargetSummary {
         targetKind := 0
         if args.Length == 0 {
             return new WatchTargetSummary(targetKind)
@@ -60,7 +60,7 @@ public class WatchCommandKernels {
         return new WatchTargetSummary(targetKind)
     }
 
-    public static func GetUnsupportedTargetName(args: string[]): string {
+    static func GetUnsupportedTargetName(args: string[]): string {
         if args.Length == 0 {
             return ""
         }
@@ -68,11 +68,11 @@ public class WatchCommandKernels {
         return args[0].ToLowerInvariant()
     }
 
-    public static func ShouldStopAfterRun(runCount: int, hasMaxRuns: bool, maxRuns: int): bool {
+    static func ShouldStopAfterRun(runCount: int, hasMaxRuns: bool, maxRuns: int): bool {
         return hasMaxRuns && runCount >= maxRuns
     }
 
-    public static func GetOptionSummary(args: string[]): WatchOptionSummary {
+    static func GetOptionSummary(args: string[]): WatchOptionSummary {
         projectOption: string? = null
         debounceMsOption: string? = null
         maxRunsOption: string? = null
@@ -117,7 +117,7 @@ public class WatchCommandKernels {
         return new WatchOptionSummary(projectOption, debounceMsOption, maxRunsOption, showHelp)
     }
 
-    public static func GetForwardedArgs(args: string[]): string[] {
+    static func GetForwardedArgs(args: string[]): string[] {
         count := 0
         i := 1
         while i < args.Length {
@@ -159,7 +159,7 @@ public class WatchCommandKernels {
         return forwardedArgs
     }
 
-    public static func ParsePositiveInt(value: string): int {
+    static func ParsePositiveInt(value: string): int {
         parsed := ParseInt32OrZero(value)
         if parsed <= 0 {
             return 0
@@ -168,7 +168,7 @@ public class WatchCommandKernels {
         return parsed
     }
 
-    public static func ParsePositiveIntOption(value: string?, hasDefault: bool, defaultValue: int): WatchPositiveIntOption {
+    static func ParsePositiveIntOption(value: string?, hasDefault: bool, defaultValue: int): WatchPositiveIntOption {
         if value == null || (value ?? "").Trim().Length == 0 {
             if hasDefault {
                 return new WatchPositiveIntOption(true, true, defaultValue)
@@ -185,11 +185,11 @@ public class WatchCommandKernels {
         return new WatchPositiveIntOption(false, false, 0)
     }
 
-    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
         return Path.GetFullPath(projectOption ?? currentDirectory)
     }
 
-    public static func GetParsedOptionalIntValue(parsed: WatchPositiveIntOption): int? {
+    static func GetParsedOptionalIntValue(parsed: WatchPositiveIntOption): int? {
         if parsed.HasValue {
             return parsed.Value
         }
@@ -197,7 +197,7 @@ public class WatchCommandKernels {
         return null
     }
 
-    public static func GetTargetCommandName(targetKind: int): string {
+    static func GetTargetCommandName(targetKind: int): string {
         if targetKind == 1 {
             return "check"
         }
@@ -221,63 +221,39 @@ public class WatchCommandKernels {
         return ""
     }
 
-    public static func GetHelpText(): string {
-        return "N# Watch\n"
-            + "\n"
-            + "Usage: nlc watch <check|build|test|lint|format> [command-options]\n"
-            + "\n"
-            + "Re-run an N# command when `.nl`, `project.yml`, or `.editorconfig` files change.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --project <dir>      Project root directory to watch (default: current directory)\n"
-            + "  --debounce-ms <ms>   Debounce window before rerunning (default: 250)\n"
-            + "  --max-runs <count>   Exit after N command executions (useful for scripts and tests)\n"
-            + "  --help, -h           Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc watch check\n"
-            + "  nlc watch build\n"
-            + "  nlc watch test --filter AddPerson\n"
-            + "  nlc watch lint\n"
-            + "  nlc watch format --check\n"
-            + "  nlc watch check --project examples/16-task-cli --max-runs 2\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Watch finished and the last run succeeded\n"
-            + "  1  Invalid usage or the last watched run failed"
+    static func GetHelpText(): string {
+        return "N# Watch\n" + "\n" + "Usage: nlc watch <check|build|test|lint|format> [command-options]\n" + "\n" + "Re-run an N# command when `.nl`, `project.yml`, or `.editorconfig` files change.\n" + "\n" + "Options:\n" + "  --project <dir>      Project root directory to watch (default: current directory)\n" + "  --debounce-ms <ms>   Debounce window before rerunning (default: 250)\n" + "  --max-runs <count>   Exit after N command executions (useful for scripts and tests)\n" + "  --help, -h           Show this help text\n" + "\n" + "Examples:\n" + "  nlc watch check\n" + "  nlc watch build\n" + "  nlc watch test --filter AddPerson\n" + "  nlc watch lint\n" + "  nlc watch format --check\n" + "  nlc watch check --project examples/16-task-cli --max-runs 2\n" + "\n" + "Exit codes:\n" + "  0  Watch finished and the last run succeeded\n" + "  1  Invalid usage or the last watched run failed"
     }
 
-    public static func GetUnsupportedTargetMessage(target: string): string {
+    static func GetUnsupportedTargetMessage(target: string): string {
         return "Unsupported watch target '" + target + "'. Expected check, build, test, lint, or format."
     }
 
-    public static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
         return "Project directory not found: " + projectRoot
     }
 
-    public static func GetPositiveIntExpectedMessage(flag: string): string {
+    static func GetPositiveIntExpectedMessage(flag: string): string {
         return flag + " expects a positive integer."
     }
 
-    public static func GetStartedMessage(projectRoot: string): string {
+    static func GetStartedMessage(projectRoot: string): string {
         return "Watching " + projectRoot + " for N# changes. Press Ctrl+C to stop."
     }
 
-    public static func GetChangeDetectedMessage(timeText: string, watchedCommand: string): string {
+    static func GetChangeDetectedMessage(timeText: string, watchedCommand: string): string {
         return "Change detected at " + timeText + ". Re-running `nlc " + watchedCommand + "`."
     }
 
-    public static func ShouldTriggerForChangedPath(path: string): bool {
+    static func ShouldTriggerForChangedPath(path: string): bool {
         fileNameStart := WatchFileNameStart(path)
 
-        if PathSubstringEqualsIgnoreCase(path, fileNameStart, path.Length, "project.yml")
-            || PathSubstringEqualsIgnoreCase(path, fileNameStart, path.Length, ".editorconfig") {
+        if PathSubstringEqualsIgnoreCase(path, fileNameStart, path.Length, "project.yml") || PathSubstringEqualsIgnoreCase(path, fileNameStart, path.Length, ".editorconfig") {
             return true
         }
 
         extensionStart := WatchExtensionStart(path, fileNameStart)
-        if extensionStart >= 0
-            && PathSubstringEqualsIgnoreCase(path, extensionStart, path.Length, ".nl") {
+        if extensionStart >= 0 && PathSubstringEqualsIgnoreCase(path, extensionStart, path.Length, ".nl") {
             return true
         }
 

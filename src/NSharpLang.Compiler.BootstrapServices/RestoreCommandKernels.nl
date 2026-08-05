@@ -5,7 +5,7 @@ import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler
 
-public class RestoreOptionSummary {
+class RestoreOptionSummary {
     showHelpValue: bool
 
     ShowHelp: bool => showHelpValue
@@ -15,8 +15,8 @@ public class RestoreOptionSummary {
     }
 }
 
-public class RestoreCommandKernels {
-    public static func GetOptionSummary(args: string[]): RestoreOptionSummary {
+class RestoreCommandKernels {
+    static func GetOptionSummary(args: string[]): RestoreOptionSummary {
         showHelp := false
 
         i := 0
@@ -34,11 +34,11 @@ public class RestoreCommandKernels {
         return new RestoreOptionSummary(showHelp)
     }
 
-    public static func DeduplicateProjectReferences(projectReferences: IEnumerable<string>): string[] {
+    static func DeduplicateProjectReferences(projectReferences: IEnumerable<string>): string[] {
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         results := new List<string>()
 
-        foreach reference in projectReferences {
+        for reference in projectReferences {
             if seen.Add(reference) {
                 results.Add(reference)
             }
@@ -47,16 +47,14 @@ public class RestoreCommandKernels {
         return results.ToArray()
     }
 
-    public static func FilterReferencesByType(
-        references: IEnumerable<Reference>,
-        targetType: ReferenceType): List<Reference> {
+    static func FilterReferencesByType(references: IEnumerable<Reference>, targetType: ReferenceType): List<Reference> {
         targetTypeId := Convert.ToInt32(targetType)
         if targetTypeId < 0 || targetTypeId > Convert.ToInt32(ReferenceType.Framework) {
             throw new InvalidOperationException("N# restore reference filter kernel received an unsupported reference type.")
         }
 
         filteredReferences := new List<Reference>()
-        foreach reference in references {
+        for reference in references {
             if reference.Type == targetType {
                 filteredReferences.Add(reference)
             }
@@ -65,39 +63,23 @@ public class RestoreCommandKernels {
         return filteredReferences
     }
 
-    public static func GetHelpText(): string {
-        return "N# Restore\n"
-            + "\n"
-            + "Usage: nlc restore\n"
-            + "\n"
-            + "Generates build configuration (obj/project.g.props) from project.yml.\n"
-            + "This must be run before 'dotnet build' can work directly against a minimal\n"
-            + "NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.\n"
-            + "\n"
-            + "Options:\n"
-            + "  -h, --help    Show this help message"
+    static func GetHelpText(): string {
+        return "N# Restore\n" + "\n" + "Usage: nlc restore\n" + "\n" + "Generates build configuration (obj/project.g.props) from project.yml.\n" + "This must be run before 'dotnet build' can work directly against a minimal\n" + "NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.\n" + "\n" + "Options:\n" + "  -h, --help    Show this help message"
     }
 
-    public static func GetMissingProjectFileMessage(): string {
+    static func GetMissingProjectFileMessage(): string {
         return "No project.yml found. Run 'nlc new <name>' to create a project."
     }
 
-    public static func GetGeneratedPropsMessage(): string {
+    static func GetGeneratedPropsMessage(): string {
         return "Generated obj/project.g.props from project.yml"
     }
 
-    public static func GetFailedMessage(message: string): string {
+    static func GetFailedMessage(message: string): string {
         return "Failed to restore project configuration: " + message
     }
 
-    public static func GetGeneratedPropsText(
-        targetFramework: string,
-        outputType: string,
-        projectName: string,
-        backend: string,
-        testFramework: string,
-        baseSdk: string,
-        projectReferences: string[]): string {
+    static func GetGeneratedPropsText(targetFramework: string, outputType: string, projectName: string, backend: string, testFramework: string, baseSdk: string, projectReferences: string[]): string {
         builder := new StringBuilder()
         builder.Append("<Project xmlns=")
         builder.Append('"')

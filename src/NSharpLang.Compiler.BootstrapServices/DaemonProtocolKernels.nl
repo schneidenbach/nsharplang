@@ -4,7 +4,7 @@ import System.Collections.Generic
 import System.IO
 import System.Text.Json
 
-public enum DaemonMethodKind {
+enum DaemonMethodKind {
     Unknown = 0,
     Ping = 1,
     Shutdown = 2,
@@ -20,7 +20,7 @@ public enum DaemonMethodKind {
     Inspect = 12
 }
 
-public class DaemonParameterValidation {
+class DaemonParameterValidation {
     IsValid: bool
     QueryCommand: string
     Message: string
@@ -32,128 +32,128 @@ public class DaemonParameterValidation {
     }
 }
 
-public class DaemonProtocolKernels {
-    public static func GetSocketDir(): string {
+class DaemonProtocolKernels {
+    static func GetSocketDir(): string {
         return ".nlc"
     }
 
-    public static func GetSocketName(): string {
+    static func GetSocketName(): string {
         return "daemon.sock"
     }
 
-    public static func GetIdleTimeoutMinutes(): int {
+    static func GetIdleTimeoutMinutes(): int {
         return 30
     }
 
-    public static func GetConnectionTimeoutMilliseconds(): int {
+    static func GetConnectionTimeoutMilliseconds(): int {
         return 5000
     }
 
-    public static func GetPingTimeoutMilliseconds(): int {
+    static func GetPingTimeoutMilliseconds(): int {
         return 2000
     }
 
-    public static func GetParseErrorCode(): int {
+    static func GetParseErrorCode(): int {
         return -32700
     }
 
-    public static func GetInvalidRequestErrorCode(): int {
+    static func GetInvalidRequestErrorCode(): int {
         return -32600
     }
 
-    public static func GetMethodNotFoundErrorCode(): int {
+    static func GetMethodNotFoundErrorCode(): int {
         return -32601
     }
 
-    public static func GetInvalidParamsErrorCode(): int {
+    static func GetInvalidParamsErrorCode(): int {
         return -32602
     }
 
-    public static func GetInternalErrorCode(): int {
+    static func GetInternalErrorCode(): int {
         return -32603
     }
 
-    public static func GetPingMethod(): string {
+    static func GetPingMethod(): string {
         return "daemon/ping"
     }
 
-    public static func GetShutdownMethod(): string {
+    static func GetShutdownMethod(): string {
         return "daemon/shutdown"
     }
 
-    public static func GetStatusMethod(): string {
+    static func GetStatusMethod(): string {
         return "daemon/status"
     }
 
-    public static func GetSymbolsMethod(): string {
+    static func GetSymbolsMethod(): string {
         return "query/symbols"
     }
 
-    public static func GetBatchMethod(): string {
+    static func GetBatchMethod(): string {
         return "query/batch"
     }
 
-    public static func GetOutlineMethod(): string {
+    static func GetOutlineMethod(): string {
         return "query/outline"
     }
 
-    public static func GetDiagnosticsMethod(): string {
+    static func GetDiagnosticsMethod(): string {
         return "query/diagnostics"
     }
 
-    public static func GetTypeMethod(): string {
+    static func GetTypeMethod(): string {
         return "query/type"
     }
 
-    public static func GetDefinitionMethod(): string {
+    static func GetDefinitionMethod(): string {
         return "query/definition"
     }
 
-    public static func GetReferencesMethod(): string {
+    static func GetReferencesMethod(): string {
         return "query/references"
     }
 
-    public static func GetCompletionsMethod(): string {
+    static func GetCompletionsMethod(): string {
         return "query/completions"
     }
 
-    public static func GetInspectMethod(): string {
+    static func GetInspectMethod(): string {
         return "query/inspect"
     }
 
-    public static func GetPidFileName(): string {
+    static func GetPidFileName(): string {
         return "daemon.pid"
     }
 
-    public static func GetPidFilePath(socketPath: string): string {
+    static func GetPidFilePath(socketPath: string): string {
         return Path.Combine(Path.GetDirectoryName(socketPath) ?? "", GetPidFileName())
     }
 
-    public static func GetAlreadyRunningMessage(projectRoot: string): string {
+    static func GetAlreadyRunningMessage(projectRoot: string): string {
         return "A daemon is already running for " + projectRoot + "."
     }
 
-    public static func GetMalformedRequestJsonMessage(): string {
+    static func GetMalformedRequestJsonMessage(): string {
         return "Malformed daemon request JSON."
     }
 
-    public static func GetMissingMethodMessage(): string {
+    static func GetMissingMethodMessage(): string {
         return "Daemon request must include a method."
     }
 
-    public static func GetPongResultJson(): string {
+    static func GetPongResultJson(): string {
         return "\"pong\""
     }
 
-    public static func GetShutdownResultJson(): string {
+    static func GetShutdownResultJson(): string {
         return "\"shutting down\""
     }
 
-    public static func FormatUptime(hours: int, minutes: int, seconds: int): string {
+    static func FormatUptime(hours: int, minutes: int, seconds: int): string {
         return hours.ToString() + "h " + minutes.ToString() + "m " + seconds.ToString() + "s"
     }
 
-    public static func FormatIdleTimeoutMinutes(minutes: int): string {
+    static func FormatIdleTimeoutMinutes(minutes: int): string {
         return minutes.ToString() + "m"
     }
 
@@ -161,12 +161,7 @@ public class DaemonProtocolKernels {
         return new JsonSerializerOptions()
     }
 
-    public static func StatusResultJson(
-        pid: int,
-        uptime: string,
-        projectRoot: string,
-        cachedFiles: int,
-        idleTimeout: string): string {
+    static func StatusResultJson(pid: int, uptime: string, projectRoot: string, cachedFiles: int, idleTimeout: string): string {
         payload := new Dictionary<string, object>()
         payload["pid"] = pid
         payload["uptime"] = uptime
@@ -176,22 +171,19 @@ public class DaemonProtocolKernels {
         return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
     }
 
-    public static func ErrorResponseJson(id: int, code: int, message: string): string {
-        return "{\"jsonrpc\":\"2.0\",\"id\":" + id.ToString()
-            + ",\"result\":null,\"error\":{\"code\":" + code.ToString()
-            + ",\"message\":" + JsonSerializer.Serialize(message, CreateCompactJsonOptions())
-            + "}}"
+    static func ErrorResponseJson(id: int, code: int, message: string): string {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id.ToString() + ",\"result\":null,\"error\":{\"code\":" + code.ToString() + ",\"message\":" + JsonSerializer.Serialize(message, CreateCompactJsonOptions()) + "}}"
     }
 
-    public static func ShouldUseProjectLocalSocket(projectLocalPath: string): bool {
+    static func ShouldUseProjectLocalSocket(projectLocalPath: string): bool {
         return Utf8ByteCount(projectLocalPath) <= 100
     }
 
-    public static func GetCanonicalProjectRoot(projectRoot: string): string {
+    static func GetCanonicalProjectRoot(projectRoot: string): string {
         return Path.GetFullPath(projectRoot)
     }
 
-    public static func GetSocketPathForProject(canonicalRoot: string, tempPath: string, hashPrefix: string): string {
+    static func GetSocketPathForProject(canonicalRoot: string, tempPath: string, hashPrefix: string): string {
         socketDir := GetSocketDir()
         socketName := GetSocketName()
         projectLocalPath := Path.Combine(Path.Combine(canonicalRoot, socketDir), socketName)
@@ -199,11 +191,11 @@ public class DaemonProtocolKernels {
         return GetSocketPath(canonicalRoot, socketDir, socketName, tempPath, hashPrefix, useProjectLocalSocket)
     }
 
-    public static func GetBatchDispatchAfterPrecheckMessage(): string {
+    static func GetBatchDispatchAfterPrecheckMessage(): string {
         return "Batch queries should be handled before single-request dispatch."
     }
 
-    public static func GetSocketPath(canonicalRoot: string, socketDir: string, socketName: string, tempPath: string, hashPrefix: string, useProjectLocalSocket: bool): string {
+    static func GetSocketPath(canonicalRoot: string, socketDir: string, socketName: string, tempPath: string, hashPrefix: string, useProjectLocalSocket: bool): string {
         dir := Path.Combine(canonicalRoot, socketDir)
         projectLocalPath := Path.Combine(dir, socketName)
 
@@ -218,7 +210,7 @@ public class DaemonProtocolKernels {
         return Path.Combine(runtimeDir, socketName)
     }
 
-    public static func GetMethodKind(method: string): DaemonMethodKind {
+    static func GetMethodKind(method: string): DaemonMethodKind {
         if method == GetPingMethod() {
             return DaemonMethodKind.Ping
         }
@@ -270,19 +262,11 @@ public class DaemonProtocolKernels {
         return DaemonMethodKind.Unknown
     }
 
-    public static func IsQueryMethod(kind: DaemonMethodKind): bool {
-        return kind == DaemonMethodKind.Batch
-            || kind == DaemonMethodKind.Symbols
-            || kind == DaemonMethodKind.Outline
-            || kind == DaemonMethodKind.Diagnostics
-            || kind == DaemonMethodKind.Type
-            || kind == DaemonMethodKind.Definition
-            || kind == DaemonMethodKind.References
-            || kind == DaemonMethodKind.Completions
-            || kind == DaemonMethodKind.Inspect
+    static func IsQueryMethod(kind: DaemonMethodKind): bool {
+        return kind == DaemonMethodKind.Batch || kind == DaemonMethodKind.Symbols || kind == DaemonMethodKind.Outline || kind == DaemonMethodKind.Diagnostics || kind == DaemonMethodKind.Type || kind == DaemonMethodKind.Definition || kind == DaemonMethodKind.References || kind == DaemonMethodKind.Completions || kind == DaemonMethodKind.Inspect
     }
 
-    public static func ValidateRequiredParameters(kind: DaemonMethodKind, hasFile: bool): DaemonParameterValidation {
+    static func ValidateRequiredParameters(kind: DaemonMethodKind, hasFile: bool): DaemonParameterValidation {
         if kind == DaemonMethodKind.Outline && !hasFile {
             return InvalidParameters("outline", DaemonServerMessageKernels.GetFileParameterRequiredMessage())
         }

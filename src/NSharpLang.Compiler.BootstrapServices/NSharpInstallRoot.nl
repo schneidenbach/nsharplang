@@ -3,19 +3,16 @@ namespace NSharpLang.Cli
 import System
 import System.IO
 
-public class NSharpInstallRoot {
-    public static DefaultFeedValue: string => "%HOME%/.nsharp/packages"
-    public static InstallRootFeedValue: string => "%NSHARP_INSTALL_DIR%/packages"
-    public static InstallDirEnvironmentVariable: string => "NSHARP_INSTALL_DIR"
+class NSharpInstallRoot {
+    static DefaultFeedValue: string => "%HOME%/.nsharp/packages"
+    static InstallRootFeedValue: string => "%NSHARP_INSTALL_DIR%/packages"
+    static InstallDirEnvironmentVariable: string => "NSHARP_INSTALL_DIR"
 
-    public static func Resolve(): string {
-        return Resolve(
-            AppContext.BaseDirectory,
-            Environment.GetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable),
-            DefaultInstallRoot())
+    static func Resolve(): string {
+        return Resolve(AppContext.BaseDirectory, Environment.GetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable), DefaultInstallRoot())
     }
 
-    public static func Resolve(baseDirectory: string, installDirOverride: string?, defaultInstallRoot: string): string {
+    static func Resolve(baseDirectory: string, installDirOverride: string?, defaultInstallRoot: string): string {
         if !string.IsNullOrWhiteSpace(installDirOverride ?? "") {
             return NormalizeDirectory(installDirOverride ?? "")
         }
@@ -27,33 +24,26 @@ public class NSharpInstallRoot {
             root = Path.GetDirectoryName(libDirectory)
         }
 
-        if root != null
-            && libDirectory != null
-            && string.Equals(Path.GetFileName(libDirectory), "lib", StringComparison.OrdinalIgnoreCase)
-            && Directory.Exists(Path.Combine(root, "bin"))
-            && Directory.Exists(Path.Combine(root, "packages")) {
+        if root != null && libDirectory != null && string.Equals(Path.GetFileName(libDirectory), "lib", StringComparison.OrdinalIgnoreCase) && Directory.Exists(Path.Combine(root, "bin")) && Directory.Exists(Path.Combine(root, "packages")) {
             return root
         }
 
         return NormalizeDirectory(defaultInstallRoot)
     }
 
-    public static func PackagesDirectory(): string {
+    static func PackagesDirectory(): string {
         return PackagesDirectory(Resolve())
     }
 
-    public static func PackagesDirectory(installRoot: string): string {
+    static func PackagesDirectory(installRoot: string): string {
         return Path.Combine(installRoot, "packages")
     }
 
-    public static func ProjectFeedValue(): string {
-        return ProjectFeedValue(
-            AppContext.BaseDirectory,
-            Environment.GetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable),
-            DefaultInstallRoot())
+    static func ProjectFeedValue(): string {
+        return ProjectFeedValue(AppContext.BaseDirectory, Environment.GetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable), DefaultInstallRoot())
     }
 
-    public static func ProjectFeedValue(baseDirectory: string, installDirOverride: string?, defaultInstallRoot: string): string {
+    static func ProjectFeedValue(baseDirectory: string, installDirOverride: string?, defaultInstallRoot: string): string {
         if !string.IsNullOrWhiteSpace(installDirOverride ?? "") {
             return NSharpInstallRoot.InstallRootFeedValue
         }
@@ -61,7 +51,7 @@ public class NSharpInstallRoot {
         return ProjectFeedValue(Resolve(baseDirectory, installDirOverride, defaultInstallRoot), defaultInstallRoot)
     }
 
-    public static func ProjectFeedValue(installRoot: string, defaultInstallRoot: string): string {
+    static func ProjectFeedValue(installRoot: string, defaultInstallRoot: string): string {
         if PathsEqual(installRoot, defaultInstallRoot) {
             return NSharpInstallRoot.DefaultFeedValue
         }
@@ -69,7 +59,7 @@ public class NSharpInstallRoot {
         return PackagesDirectory(NormalizeDirectory(installRoot))
     }
 
-    public static func DefaultInstallRoot(): string {
+    static func DefaultInstallRoot(): string {
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nsharp")
     }
 
@@ -83,9 +73,6 @@ public class NSharpInstallRoot {
             comparison = StringComparison.OrdinalIgnoreCase
         }
 
-        return string.Equals(
-            NormalizeDirectory(left),
-            NormalizeDirectory(right),
-            comparison)
+        return string.Equals(NormalizeDirectory(left), NormalizeDirectory(right), comparison)
     }
 }

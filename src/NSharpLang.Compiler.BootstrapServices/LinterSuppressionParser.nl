@@ -5,7 +5,7 @@ import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler.CodeIntelligence
 
-public class LinterSuppressionSet {
+class LinterSuppressionSet {
     lines: List<int>
     codes: List<string>
 
@@ -14,18 +14,17 @@ public class LinterSuppressionSet {
         codes = new List<string>()
     }
 
-    public func Add(line: int, code: string) {
+    func Add(line: int, code: string) {
         lines.Add(line)
         codes.Add(code)
     }
 
-    public func IsSuppressed(line: int, code: string): bool {
+    func IsSuppressed(line: int, code: string): bool {
         index := 0
         while index < lines.Count {
             if lines[index] == line {
                 currentCode := codes[index]
-                if string.Equals(currentCode, "*", StringComparison.Ordinal)
-                    || string.Equals(currentCode, code, StringComparison.OrdinalIgnoreCase) {
+                if string.Equals(currentCode, "*", StringComparison.Ordinal) || string.Equals(currentCode, code, StringComparison.OrdinalIgnoreCase) {
                     return true
                 }
             }
@@ -37,8 +36,8 @@ public class LinterSuppressionSet {
     }
 }
 
-public class LinterSuppressionParser {
-    public static func BuildSuppressions(filePath: string?, sourceText: string?): LinterSuppressionSet {
+class LinterSuppressionParser {
+    static func BuildSuppressions(filePath: string?, sourceText: string?): LinterSuppressionSet {
         source := sourceText
         if string.IsNullOrEmpty(source) && !string.IsNullOrWhiteSpace(filePath ?? "") {
             path := filePath ?? ""

@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum ReferenceType {
+enum ReferenceType {
     NuGet,
     Dll,
     Project,

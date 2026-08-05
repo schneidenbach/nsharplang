@@ -5,7 +5,7 @@ import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler
 
-public class ReferenceResolutionOptions {
+class ReferenceResolutionOptions {
     configurationValue: string
     includeTestsValue: bool
     buildProjectReferencesValue: bool
@@ -21,28 +21,48 @@ public class ReferenceResolutionOptions {
     }
 
     Configuration: string {
-        get { return configurationValue }
-        set { configurationValue = value }
+        get {
+            return configurationValue
+        }
+        set {
+            configurationValue = value
+        }
     }
 
     IncludeTests: bool {
-        get { return includeTestsValue }
-        set { includeTestsValue = value }
+        get {
+            return includeTestsValue
+        }
+        set {
+            includeTestsValue = value
+        }
     }
 
     BuildProjectReferences: bool {
-        get { return buildProjectReferencesValue }
-        set { buildProjectReferencesValue = value }
+        get {
+            return buildProjectReferencesValue
+        }
+        set {
+            buildProjectReferencesValue = value
+        }
     }
 
     Quiet: bool {
-        get { return quietValue }
-        set { quietValue = value }
+        get {
+            return quietValue
+        }
+        set {
+            quietValue = value
+        }
     }
 
     AotMode: bool {
-        get { return aotModeValue }
-        set { aotModeValue = value }
+        get {
+            return aotModeValue
+        }
+        set {
+            aotModeValue = value
+        }
     }
 
     constructor(Configuration: string, IncludeTests: bool, BuildProjectReferences: bool, Quiet: bool, AotMode: bool) {
@@ -54,12 +74,12 @@ public class ReferenceResolutionOptions {
     }
 }
 
-public class ReferenceResolutionResult {
+class ReferenceResolutionResult {
     runtimeAssets: HashSet<string>?
 
     RuntimeAssets: IReadOnlyList<string> => BuildRuntimeAssets()
 
-    public static func Create(projectRoot: string, dependencies: IReadOnlyList<Reference>?): ReferenceResolutionResult {
+    static func Create(projectRoot: string, dependencies: IReadOnlyList<Reference>?): ReferenceResolutionResult {
         result := new ReferenceResolutionResult()
         paths := ExternalAssemblyScan.ResolveRuntimeAssetPaths(projectRoot, dependencies)
 
@@ -72,19 +92,19 @@ public class ReferenceResolutionResult {
         return result
     }
 
-    public func AddRuntimeAsset(path: string) {
+    func AddRuntimeAsset(path: string) {
         if !string.IsNullOrWhiteSpace(path) && File.Exists(path) {
             RuntimeAssetSet.Add(Path.GetFullPath(path))
         }
     }
 
-    public func Add(other: ReferenceResolutionResult) {
-        foreach asset in other.RuntimeAssets {
+    func Add(other: ReferenceResolutionResult) {
+        for asset in other.RuntimeAssets {
             AddRuntimeAsset(asset)
         }
     }
 
-    public func CopyRuntimeAssets(outputDirectory: string) {
+    func CopyRuntimeAssets(outputDirectory: string) {
         assets := RuntimeAssets
 
         // A diamond dependency can restore two versions of the same assembly (for example a project
@@ -92,7 +112,7 @@ public class ReferenceResolutionResult {
         // versions). NuGet unifies such a conflict to the single highest version; mirror that here so
         // exactly one file per name is copied instead of failing on the runtime-asset name clash.
         destinations := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        foreach asset in assets {
+        for asset in assets {
             fileName := Path.GetFileName(asset)
             existing := ""
             if destinations.TryGetValue(fileName, out existing) {
@@ -108,7 +128,7 @@ public class ReferenceResolutionResult {
 
         Directory.CreateDirectory(outputDirectory)
 
-        foreach entry in destinations {
+        for entry in destinations {
             asset := entry.Value
             destination := Path.Combine(outputDirectory, Path.GetFileName(asset))
             if string.Equals(Path.GetFullPath(asset), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase) {
@@ -120,9 +140,7 @@ public class ReferenceResolutionResult {
     }
 
     static func PrefersReplacementRuntimeAsset(existingAsset: string, candidateAsset: string): bool {
-        return IsHigherVersion(
-            ExtractRuntimeAssetVersion(candidateAsset),
-            ExtractRuntimeAssetVersion(existingAsset))
+        return IsHigherVersion(ExtractRuntimeAssetVersion(candidateAsset), ExtractRuntimeAssetVersion(existingAsset))
     }
 
     // Recover a runtime asset's package version from the standard NuGet cache layout
@@ -165,7 +183,7 @@ public class ReferenceResolutionResult {
     func BuildRuntimeAssets(): string[] {
         assets := new string[](RuntimeAssetSet.Count)
         index := 0
-        foreach asset in RuntimeAssetSet {
+        for asset in RuntimeAssetSet {
             assets[index] = asset
             index = index + 1
         }
@@ -185,7 +203,7 @@ public class ReferenceResolutionResult {
     }
 }
 
-public class ResolutionContext {
+class ResolutionContext {
     packageAssetsValue: Dictionary<string, NuGetPackageAssets>?
     projectOutputsValue: Dictionary<string, ResolvedProjectReference>?
     activeProjectRootsValue: Stack<string>?
@@ -221,7 +239,7 @@ public class ResolutionContext {
     }
 }
 
-public class ResolvedProjectReference {
+class ResolvedProjectReference {
     OutputAssemblyPath: string
     References: ReferenceResolutionResult
 
@@ -231,11 +249,11 @@ public class ResolvedProjectReference {
     }
 }
 
-public class ReferenceTypeFilterScratch {
+class ReferenceTypeFilterScratch {
     TypeRanks: int[]
     ResultIndices: int[]
 
-    public func EnsureCapacity(referenceCount: int) {
+    func EnsureCapacity(referenceCount: int) {
         EnsureInitialized()
         if TypeRanks.Length != referenceCount {
             TypeRanks = new int[](referenceCount)
@@ -256,7 +274,7 @@ public class ReferenceTypeFilterScratch {
     }
 }
 
-public class NuGetPackageAssets {
+class NuGetPackageAssets {
     compileAssembliesValue: HashSet<string>?
     runtimeAssembliesValue: HashSet<string>?
 
@@ -280,18 +298,18 @@ public class NuGetPackageAssets {
         }
     }
 
-    public func Add(other: NuGetPackageAssets) {
-        foreach assembly in other.CompileAssemblies {
+    func Add(other: NuGetPackageAssets) {
+        for assembly in other.CompileAssemblies {
             CompileAssemblies.Add(assembly)
         }
 
-        foreach assembly in other.RuntimeAssemblies {
+        for assembly in other.RuntimeAssemblies {
             RuntimeAssemblies.Add(assembly)
         }
     }
 }
 
-public class PackageIdentity {
+class PackageIdentity {
     Id: string?
     Version: string?
 
@@ -301,7 +319,7 @@ public class PackageIdentity {
     }
 }
 
-public class PackageDependency {
+class PackageDependency {
     Id: string
     Version: string?
 
@@ -311,7 +329,7 @@ public class PackageDependency {
     }
 }
 
-public class ImplicitTestDependencyPlan {
+class ImplicitTestDependencyPlan {
     ShouldAdd: bool
     PackageName: string
     Version: string

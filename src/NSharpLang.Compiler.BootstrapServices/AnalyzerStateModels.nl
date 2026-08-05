@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System.Collections.Generic
 
-public enum AttributeArgumentConstantKind {
+enum AttributeArgumentConstantKind {
     Null,
     Bool,
     Integer,
@@ -15,12 +15,12 @@ public enum AttributeArgumentConstantKind {
     UnknownStaticMember
 }
 
-public enum DiscardedExpressionContext {
+enum DiscardedExpressionContext {
     ExpressionStatement,
     ForIterator
 }
 
-public class FlowNarrowing {
+class FlowNarrowing {
     pathValue: string
     narrowedTypeValue: TypeInfo?
     nullStateValue: NullState
@@ -36,7 +36,7 @@ public class FlowNarrowing {
     }
 }
 
-public class ImportedSymbolInfo {
+class ImportedSymbolInfo {
     nameValue: string
     typeValue: TypeInfo
     declarationValue: SymbolDeclaration
@@ -52,7 +52,7 @@ public class ImportedSymbolInfo {
     }
 }
 
-public class Scope {
+class Scope {
     kindValue: ScopeKind
     symbolsValue: Dictionary<string, TypeInfo>
     typesValue: Dictionary<string, TypeInfo>
@@ -78,11 +78,11 @@ public class Scope {
         declarationLocations = new Dictionary<string, SymbolDeclaration>()
     }
 
-    public func RecordDeclarationLocation(name: string, filePath: string?, line: int, column: int, kind: string) {
+    func RecordDeclarationLocation(name: string, filePath: string?, line: int, column: int, kind: string) {
         declarationLocations[name] = new SymbolDeclaration(name, filePath, line, column, kind)
     }
 
-    public func GetDeclarationLocation(name: string): SymbolDeclaration? {
+    func GetDeclarationLocation(name: string): SymbolDeclaration? {
         if declarationLocations.ContainsKey(name) {
             return declarationLocations[name]
         }
@@ -91,7 +91,7 @@ public class Scope {
     }
 }
 
-public class ErrorTupleResultGuard {
+class ErrorTupleResultGuard {
     ResultName: string
     ErrorName: string
     Line: int

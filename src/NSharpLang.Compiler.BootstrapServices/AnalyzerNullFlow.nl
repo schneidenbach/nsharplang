@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // WHAT THE ANALYZER BELIEVES ABOUT NULL AT A POINT IN THE PROGRAM — the null-state authority, the
 // flow type it induces, and the NL905 report.
 //
@@ -33,8 +34,7 @@ import NSharpLang.Compiler.Ast
 // scope stack's null facts, the declaration context's alias resolution, the span calculator, the
 // stable-path facts and the diagnostic sink — and it never asks what an expression's type is. The
 // TYPE is always handed in by the caller that already computed it.
-public class AnalyzerNullFlow {
-
+class AnalyzerNullFlow {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     scopesValue: AnalyzerScopeStack
@@ -42,11 +42,7 @@ public class AnalyzerNullFlow {
     reportedDiagnostics: HashSet<ValueTuple<int, int, string, string>>
     suppressFlowTypeValue: bool
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -58,14 +54,14 @@ public class AnalyzerNullFlow {
     // The ambient "do not collapse a not-null nullable" flag. Its two readers save the previous
     // value and restore it in a `finally`, so this is a stack discipline expressed as a property
     // rather than a field the analyzer reaches into.
-    public SuppressFlowType: bool => suppressFlowTypeValue
+    SuppressFlowType: bool => suppressFlowTypeValue
 
-    public func SetSuppressFlowType(suppress: bool) {
+    func SetSuppressFlowType(suppress: bool) {
         suppressFlowTypeValue = suppress
     }
 
     // One call per analysis, from the same reset block that clears the error list.
-    public func BeginAnalysis() {
+    func BeginAnalysis() {
         suppressFlowTypeValue = false
         reportedDiagnostics.Clear()
     }
@@ -76,7 +72,7 @@ public class AnalyzerNullFlow {
     // `Analyzer.cs` also took the EXPRESSION here and never read it; N#'s own NL012 said so, so the
     // dead parameter is not carried across. Nothing about the answer changes — it was already a
     // function of the type and the state alone.
-    public func ApplyNullabilityFlowType(expressionType: TypeInfo, nullState: NullState): TypeInfo {
+    func ApplyNullabilityFlowType(expressionType: TypeInfo, nullState: NullState): TypeInfo {
         if suppressFlowTypeValue {
             return expressionType
         }
@@ -93,7 +89,7 @@ public class AnalyzerNullFlow {
     // what a `null` literal or a `new` evaluates to does not depend on any recorded fact. Only after
     // those does the recorded fact for the expression's STABLE PATH get a say, and only after that
     // the type's own default.
-    public func GetExpressionNullState(expr: Expression, expressionType: TypeInfo): NullState {
+    func GetExpressionNullState(expr: Expression, expressionType: TypeInfo): NullState {
         nullLiteral := expr as NullLiteralExpression
         if nullLiteral != null {
             return NullState.Null
@@ -114,13 +110,7 @@ public class AnalyzerNullFlow {
         boolLiteral := expr as BoolLiteralExpression
         typeOfExpression := expr as TypeOfExpression
         nameofExpression := expr as NameofExpression
-        if stringLiteral != null
-            || intLiteral != null
-            || floatLiteral != null
-            || charLiteral != null
-            || boolLiteral != null
-            || typeOfExpression != null
-            || nameofExpression != null {
+        if stringLiteral != null || intLiteral != null || floatLiteral != null || charLiteral != null || boolLiteral != null || typeOfExpression != null || nameofExpression != null {
             return NullState.NotNull
         }
 
@@ -151,7 +141,7 @@ public class AnalyzerNullFlow {
     // a CLR value type that is not `Nullable<T>` can never be null and is NOT-NULL, while every
     // other reflected type is OBLIVIOUS rather than not-null — external metadata the analyzer has
     // not been told the nullability of must not produce a confident answer in either direction.
-    public func GetDefaultNullState(typeInfo: TypeInfo): NullState {
+    func GetDefaultNullState(typeInfo: TypeInfo): NullState {
         resolved := declarationContextValue.ResolveDeclaredAlias(typeInfo)
 
         if BuiltInTypes.Is(resolved, BuiltInTypes.Null) {
@@ -170,8 +160,7 @@ public class AnalyzerNullFlow {
 
         reflectionType := resolved as ReflectionTypeInfo
         if reflectionType != null {
-            if reflectionType.Type.get_IsValueType()
-                && Nullable.GetUnderlyingType(reflectionType.Type) == null {
+            if reflectionType.Type.get_IsValueType() && Nullable.GetUnderlyingType(reflectionType.Type) == null {
                 return NullState.NotNull
             }
 
@@ -183,7 +172,7 @@ public class AnalyzerNullFlow {
 
     // UNSAFE means "dereferencing this may throw". OBLIVIOUS is not unsafe: it is the analyzer
     // saying it does not know, and NL905 must never be a guess.
-    public static func IsUnsafeNullState(state: NullState): bool {
+    static func IsUnsafeNullState(state: NullState): bool {
         return state == NullState.Null || state == NullState.MaybeNull
     }
 
@@ -191,13 +180,7 @@ public class AnalyzerNullFlow {
     // be null. A null-conditional access is silent by construction — that IS the guard. The log
     // keys on the site AND the path AND the operation, so a chain that dereferences twice at the
     // same position still reports for each distinct path.
-    public func ReportPossibleNullAccess(
-        receiver: Expression,
-        receiverType: TypeInfo,
-        line: int,
-        column: int,
-        operation: string,
-        isNullConditional: bool) {
+    func ReportPossibleNullAccess(receiver: Expression, receiverType: TypeInfo, line: int, column: int, operation: string, isNullConditional: bool) {
         if isNullConditional {
             return
         }
@@ -224,39 +207,24 @@ public class AnalyzerNullFlow {
             message = "Possible null call: `" + path + "` is " + stateLabel
         }
 
-        suggestion := "Guard with 'if " + path + " == null { return }' or add a fallback before using '"
-            + path + "'."
+        suggestion := "Guard with 'if " + path + " == null { return }' or add a fallback before using '" + path + "'."
         if operation == "dereference" {
-            suggestion = "Use '?.', add a '??' fallback, guard with 'if " + path
-                + " == null { return }', or explicitly assert after proving '" + path + "' is not null."
+            suggestion = "Use '?.', add a '??' fallback, guard with 'if " + path + " == null { return }', or explicitly assert after proving '" + path + "' is not null."
         } else if operation == "index" {
-            suggestion = "Use '?[', add a '??' fallback, guard with 'if " + path
-                + " == null { return }', or explicitly assert after proving '" + path + "' is not null."
+            suggestion = "Use '?[', add a '??' fallback, guard with 'if " + path + " == null { return }', or explicitly assert after proving '" + path + "' is not null."
         } else if operation == "call" {
-            suggestion = "Guard with 'if " + path
-                + " == null { return }', use '?.' when calling through a member, or explicitly assert "
-                + "after proving '" + path + "' is not null."
+            suggestion = "Guard with 'if " + path + " == null { return }', use '?.' when calling through a member, or explicitly assert " + "after proving '" + path + "' is not null."
         }
 
         span := spansValue.GetNullReceiverDiagnosticSpan(receiver, path, line, column)
-        diagnosticsValue.Report(
-            ErrorCode.PossibleNullAccess,
-            message,
-            span.Line,
-            span.Column,
-            suggestion,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.PossibleNullAccess, message, span.Line, span.Column, suggestion, span.Length)
     }
 
     // WHAT AN ASSIGNMENT DOES TO THE FACT. Only a stable path can carry one at all. Everything
     // derived from that path is invalidated first — `a.b.c` stops being known when `a.b` is
     // rewritten — and then the target records the VALUE's state, falling back to the TARGET type's
     // default when the value's own state is unknown.
-    public func UpdateNullStateAfterAssignment(
-        target: Expression,
-        value: Expression,
-        targetType: TypeInfo,
-        valueType: TypeInfo) {
+    func UpdateNullStateAfterAssignment(target: Expression, value: Expression, targetType: TypeInfo, valueType: TypeInfo) {
         path := AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(target)
         if path == null {
             return

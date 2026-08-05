@@ -4,14 +4,12 @@ import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
 
-public class AnalyzerOverloadSignatureFacts {
-    public static func HasSourceParameterSignature(function: FunctionTypeInfo): bool {
+class AnalyzerOverloadSignatureFacts {
+    static func HasSourceParameterSignature(function: FunctionTypeInfo): bool {
         return function.SourceParameterTypes != null
     }
 
-    public static func HasDistinctParameterSignature(
-        newFunction: FunctionTypeInfo,
-        existingFunctions: IReadOnlyList<FunctionTypeInfo>): bool {
+    static func HasDistinctParameterSignature(newFunction: FunctionTypeInfo, existingFunctions: IReadOnlyList<FunctionTypeInfo>): bool {
         index := 0
         while index < existingFunctions.Count {
             if ParameterSignaturesMatch(newFunction, existingFunctions[index]) {
@@ -24,7 +22,7 @@ public class AnalyzerOverloadSignatureFacts {
         return true
     }
 
-    public static func ParameterSignaturesMatch(a: FunctionTypeInfo, b: FunctionTypeInfo): bool {
+    static func ParameterSignaturesMatch(a: FunctionTypeInfo, b: FunctionTypeInfo): bool {
         aParameters := a.SourceParameterTypes
         bParameters := b.SourceParameterTypes
         if aParameters == null || bParameters == null {
@@ -47,7 +45,7 @@ public class AnalyzerOverloadSignatureFacts {
         return true
     }
 
-    public static func GetParameterTypeSignature(typeRef: TypeReference): string {
+    static func GetParameterTypeSignature(typeRef: TypeReference): string {
         simple := typeRef as SimpleTypeReference
         if simple != null {
             return simple.Name

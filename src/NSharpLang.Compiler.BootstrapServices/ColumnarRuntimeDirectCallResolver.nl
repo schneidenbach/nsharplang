@@ -103,10 +103,7 @@ class ColumnarRuntimeDirectCallResolver {
         index := 0
         while index < methods.Length {
             definition := methods[index]
-            if definition != null
-                && definition.get_Name() == plan.MemberName
-                && definition.get_IsGenericMethodDefinition()
-                && definition.GetGenericArguments().Length == typeArguments.Length {
+            if definition != null && definition.get_Name() == plan.MemberName && definition.get_IsGenericMethodDefinition() && definition.GetGenericArguments().Length == typeArguments.Length {
                 candidate: MethodInfo? = null
                 try {
                     candidate = definition.MakeGenericMethod(typeArguments)

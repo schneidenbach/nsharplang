@@ -3,8 +3,8 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.IO
 
-public class InitCommand {
-    public static func Execute(args: string[]): int {
+class InitCommand {
+    static func Execute(args: string[]): int {
         options := InitCommandKernels.GetOptionSummary(args)
         if options.ShowHelp {
             print InitCommandKernels.GetHelpText()

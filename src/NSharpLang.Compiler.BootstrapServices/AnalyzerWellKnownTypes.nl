@@ -4,6 +4,7 @@ import System
 import System.IO
 import System.Reflection
 
+
 // The analyzer's WELL-KNOWN-TYPE fact bag.
 //
 // One instance is built per analysis from the analyzer's MetadataLoadContext and caches every CLR
@@ -22,9 +23,7 @@ import System.Reflection
 //
 // Do not reintroduce this type in C#, and do not put POLICY here: this class only resolves and
 // holds. The tables that read it live in `AnalyzerWellKnownTypeFacts`.
-
-public class AnalyzerWellKnownTypes {
-
+class AnalyzerWellKnownTypes {
     Int32: Type
     Int64: Type
     Single: Type
@@ -123,21 +122,14 @@ public class AnalyzerWellKnownTypes {
         Func5 = Resolve("System.Func`5")
 
         jsonAssembly := metadataContext.LoadFromAssemblyName("System.Text.Json")
-        JsonTypeInfoOpen = jsonAssembly.GetType(
-            "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1")
+        JsonTypeInfoOpen = jsonAssembly.GetType("System.Text.Json.Serialization.Metadata.JsonTypeInfo`1")
 
         collectionsAssembly := metadataContext.LoadFromAssemblyName("System.Collections")
         ListOpen = FromCollections(collectionsAssembly, "System.Collections.Generic.List`1")
-        ICollectionOpen = FromCollections(
-            collectionsAssembly,
-            "System.Collections.Generic.ICollection`1")
+        ICollectionOpen = FromCollections(collectionsAssembly, "System.Collections.Generic.ICollection`1")
         IListOpen = FromCollections(collectionsAssembly, "System.Collections.Generic.IList`1")
-        DictionaryOpen = FromCollections(
-            collectionsAssembly,
-            "System.Collections.Generic.Dictionary`2")
-        IDictionaryOpen = FromCollections(
-            collectionsAssembly,
-            "System.Collections.Generic.IDictionary`2")
+        DictionaryOpen = FromCollections(collectionsAssembly, "System.Collections.Generic.Dictionary`2")
+        IDictionaryOpen = FromCollections(collectionsAssembly, "System.Collections.Generic.IDictionary`2")
 
         IEnumerableOpen = Resolve("System.Collections.Generic.IEnumerable`1")
 
@@ -161,13 +153,13 @@ public class AnalyzerWellKnownTypes {
     // `NSharpLang.Runtime.Union<,>`, resolved on first read. The runtime assembly is optional — a
     // project that does not reference it simply never constructs a runtime union — so a missing
     // assembly is absorbed and the answer stays null for the rest of the analysis.
-    public func GetRuntimeUnionOpen(): Type? {
+    func GetRuntimeUnionOpen(): Type? {
         EnsureRuntimeTypes()
         return runtimeUnionOpen
     }
 
     // `NSharpLang.Runtime.Result<,>`, resolved on first read under the same rules.
-    public func GetRuntimeResultOpen(): Type? {
+    func GetRuntimeResultOpen(): Type? {
         EnsureRuntimeTypes()
         return runtimeResultOpen
     }

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // LITERAL AND CONSTANT SHAPE, for the validators that have to look at what the user WROTE rather
 // than at the type it resolved to.
 //
@@ -19,8 +20,7 @@ import NSharpLang.Compiler.Ast
 // whether a WRITTEN type name is one of those is the one thing here that is not pure: an alias
 // declared in the analysed program can name `int`, so the scope stack and the declaration context
 // both have to answer.
-public class AnalyzerConstantExpressionFacts {
-
+class AnalyzerConstantExpressionFacts {
     scopes: AnalyzerScopeStack
     declarationContext: AnalyzerDeclarationContext
 
@@ -32,7 +32,7 @@ public class AnalyzerConstantExpressionFacts {
     // Parentheses, `checked` and `unchecked` wrap an expression without changing what it IS, so
     // every shape question peels them first. The loop is repeated rather than recursive because the
     // wrappers nest arbitrarily and in any order.
-    public static func UnwrapTransparentWrappers(expression: Expression): Expression {
+    static func UnwrapTransparentWrappers(expression: Expression): Expression {
         current := expression
         unwrapping := true
         while unwrapping {
@@ -65,7 +65,7 @@ public class AnalyzerConstantExpressionFacts {
     // `null` or `default`, through any number of transparent wrappers and any number of casts. The
     // cast is peeled unconditionally here — `(int[])null` is still the null literal whatever the
     // target type is.
-    public static func IsNullOrDefaultLiteral(expression: Expression): bool {
+    static func IsNullOrDefaultLiteral(expression: Expression): bool {
         current := expression
         unwrapping := true
         while unwrapping {
@@ -89,7 +89,7 @@ public class AnalyzerConstantExpressionFacts {
 
     // A written compile-time negative: unary negation applied to a NON-ZERO unsigned magnitude.
     // `-0` is not negative, which is why the magnitude is checked rather than just the operator.
-    public func IsConstantNegative(expression: Expression): bool {
+    func IsConstantNegative(expression: Expression): bool {
         current := UnwrapSignedIntegerCasts(expression)
         unary := current as UnaryExpression
         if unary == null || unary.Operator != UnaryOperator.Negate {
@@ -159,9 +159,7 @@ public class AnalyzerConstantExpressionFacts {
         }
 
         resolved := declarationContext.ResolveDeclaredAlias(candidate)
-        return BuiltInTypes.Is(resolved, BuiltInTypes.Int)
-            || BuiltInTypes.Is(resolved, BuiltInTypes.Short)
-            || BuiltInTypes.Is(resolved, BuiltInTypes.SByte)
+        return BuiltInTypes.Is(resolved, BuiltInTypes.Int) || BuiltInTypes.Is(resolved, BuiltInTypes.Short) || BuiltInTypes.Is(resolved, BuiltInTypes.SByte)
     }
 }
 
@@ -195,8 +193,7 @@ public class AnalyzerConstantExpressionFacts {
 // receiver's TYPE, and only the analyzer's own expression walk can answer it. It arrives as an
 // ordinary value on the two members that infer, exactly as it does on the walk, and the DECISION
 // about whether one is needed at all stays in `AnalyzerSyntheticCallWalk.NeedsReceiverType`.
-public class AnalyzerSyntheticCallValidator {
-
+class AnalyzerSyntheticCallValidator {
     declarationContext: AnalyzerDeclarationContext
     typeResolver: AnalyzerTypeResolver
     assignability: AnalyzerAssignability
@@ -207,16 +204,7 @@ public class AnalyzerSyntheticCallValidator {
     diagnostics: AnalyzerDiagnosticSink
     constants: AnalyzerConstantExpressionFacts
 
-    constructor(
-        declarations: AnalyzerDeclarationContext,
-        resolver: AnalyzerTypeResolver,
-        assignabilityOwner: AnalyzerAssignability,
-        scoring: AnalyzerOverloadScoring,
-        callWalk: AnalyzerSyntheticCallWalk,
-        callReporter: AnalyzerSyntheticCallReporter,
-        spanResolver: AnalyzerDiagnosticSpans,
-        diagnosticSink: AnalyzerDiagnosticSink,
-        constantFacts: AnalyzerConstantExpressionFacts) {
+    constructor(declarations: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, scoring: AnalyzerOverloadScoring, callWalk: AnalyzerSyntheticCallWalk, callReporter: AnalyzerSyntheticCallReporter, spanResolver: AnalyzerDiagnosticSpans, diagnosticSink: AnalyzerDiagnosticSink, constantFacts: AnalyzerConstantExpressionFacts) {
         declarationContext = declarations
         typeResolver = resolver
         assignability = assignabilityOwner
@@ -235,21 +223,14 @@ public class AnalyzerSyntheticCallValidator {
     // trailing array literal is ambiguous — it can be the params array itself or one expanded
     // element of it — so the position deliberately answers null and lets validation decide once it
     // has seen the value.
-    public func GetExpectedArgumentType(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        argumentIndex: int,
-        parameterIndex: int,
-        genericBindings: Dictionary<string, TypeInfo>?): TypeInfo? {
+    func GetExpectedArgumentType(functionType: FunctionTypeInfo, call: CallExpression, argumentIndex: int, parameterIndex: int, genericBindings: Dictionary<string, TypeInfo>?): TypeInfo? {
         parameterTypes := functionType.ParameterTypes
         if parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count {
             return null
         }
 
-        parameterType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(
-            parameterTypes[parameterIndex], genericBindings)
-        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-            functionType, parameterTypes.Count)
+        parameterType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings)
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, parameterTypes.Count)
         if paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex {
             paramsElementType := overloadScoring.GetNSharpParamsElementType(parameterType)
 
@@ -267,8 +248,7 @@ public class AnalyzerSyntheticCallValidator {
             return parameterType
         }
 
-        return AnalyzerOverloadFacts.ApplySyntheticParameterModifier(
-            functionType, parameterIndex, parameterType)
+        return AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, parameterType)
     }
 
     // EVERYTHING THE ANALYZER SAYS ABOUT A CALL TO A CHOSEN N#-DECLARED FUNCTION.
@@ -279,11 +259,7 @@ public class AnalyzerSyntheticCallValidator {
     // problem. Then placement, which reports its own naming failures. Only then does each written
     // argument get compared to the parameter it actually landed on, and finally the SoA intrinsics
     // get their value-level check.
-    public func ValidateCall(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        receiverType: TypeInfo?) {
+    func ValidateCall(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?) {
         parameterTypes := functionType.ParameterTypes
         if parameterTypes == null {
             return
@@ -292,24 +268,19 @@ public class AnalyzerSyntheticCallValidator {
         functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
         expectedCount := parameterTypes.Count
         parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
-        requiredCount := AnalyzerOverloadFacts.GetSyntheticRequiredArgumentCount(
-            functionType, expectedCount, parameterStartIndex)
+        requiredCount := AnalyzerOverloadFacts.GetSyntheticRequiredArgumentCount(functionType, expectedCount, parameterStartIndex)
         expectedArgumentCount := Math.Max(0, expectedCount - parameterStartIndex)
-        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(
-            functionType, expectedCount)
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, expectedCount)
         hasParamsParameter := paramsParameterIndex >= 0
         genericBindings := walk.InferGenericBindings(functionType, call, argTypes, receiverType)
         ValidateGenericConstraints(functionType, call, genericBindings)
-        if argTypes.Count < requiredCount
-            || (!hasParamsParameter && argTypes.Count > expectedArgumentCount) {
-            ReportWrongArgumentCount(
-                call, functionName, requiredCount, expectedArgumentCount, argTypes.Count)
+        if argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedArgumentCount) {
+            ReportWrongArgumentCount(call, functionName, requiredCount, expectedArgumentCount, argTypes.Count)
             return
         }
 
         parameterIndexByArgument: int[] = new int[0]
-        if !reporter.TryBindAndReport(
-                functionType, functionName, call, out parameterIndexByArgument, parameterStartIndex, true) {
+        if !reporter.TryBindAndReport(functionType, functionName, call, out parameterIndexByArgument, parameterStartIndex, true) {
             return
         }
 
@@ -322,25 +293,17 @@ public class AnalyzerSyntheticCallValidator {
                 continue
             }
 
-            expectedType := declarationContext.ResolveDeclaredAlias(
-                AnalyzerOverloadFacts.ApplySyntheticParameterModifier(
-                    functionType,
-                    parameterIndex,
-                    AnalyzerSyntheticCallFacts.ApplyGenericBindings(
-                        parameterTypes[parameterIndex], genericBindings)))
+            expectedType := declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings)))
             argType := declarationContext.ResolveDeclaredAlias(argTypes[currentArgument])
             if hasParamsParameter && parameterIndex == paramsParameterIndex {
-                paramsType := declarationContext.ResolveDeclaredAlias(
-                    AnalyzerSyntheticCallFacts.ApplyGenericBindings(
-                        parameterTypes[paramsParameterIndex], genericBindings))
+                paramsType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[paramsParameterIndex], genericBindings))
                 paramsArrayType := paramsType as ArrayTypeInfo
                 if paramsArrayType == null {
                     continue
                 }
 
                 paramsArgumentIndex := paramsParameterIndex - parameterStartIndex
-                isDirectParamsArrayArgument := overloadScoring.IsSingleDirectNSharpParamsArrayArgument(
-                    paramsArgumentIndex, call.Arguments, argTypes, paramsArrayType)
+                isDirectParamsArrayArgument := overloadScoring.IsSingleDirectNSharpParamsArrayArgument(paramsArgumentIndex, call.Arguments, argTypes, paramsArrayType)
 
                 if !isDirectParamsArrayArgument {
                     spread := call.Arguments[currentArgument].Value as SpreadExpression
@@ -348,30 +311,23 @@ public class AnalyzerSyntheticCallValidator {
                         // A spread compares ELEMENT to ELEMENT; an unresolved spread says nothing.
                         spreadArrayType := argType as ArrayTypeInfo
                         if spreadArrayType != null {
-                            expectedType = declarationContext.ResolveDeclaredAlias(
-                                paramsArrayType.ElementType)
-                            argType = declarationContext.ResolveDeclaredAlias(
-                                spreadArrayType.ElementType)
+                            expectedType = declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType)
+                            argType = declarationContext.ResolveDeclaredAlias(spreadArrayType.ElementType)
                         } else if BuiltInTypes.IsUnknown(argType) {
                             continue
                         }
                     } else {
-                        expectedType = declarationContext.ResolveDeclaredAlias(
-                            paramsArrayType.ElementType)
+                        expectedType = declarationContext.ResolveDeclaredAlias(paramsArrayType.ElementType)
                     }
                 }
             }
 
             argumentRow := argType as SoaRowTypeInfo
-            if BuiltInTypes.IsUnknown(expectedType)
-                || BuiltInTypes.IsUnknown(argType)
-                || argumentRow != null
-                || assignability.IsAssignable(expectedType, argType) {
+            if BuiltInTypes.IsUnknown(expectedType) || BuiltInTypes.IsUnknown(argType) || argumentRow != null || assignability.IsAssignable(expectedType, argType) {
                 continue
             }
 
-            ReportWrongArgumentType(
-                functionType, call, functionName, currentArgument, parameterIndex, expectedType, argType)
+            ReportWrongArgumentType(functionType, call, functionName, currentArgument, parameterIndex, expectedType, argType)
         }
 
         ValidateSoaCall(functionType, functionName, call, argTypes, parameterIndexByArgument)
@@ -379,12 +335,7 @@ public class AnalyzerSyntheticCallValidator {
 
     // NL401. The rich form names the count it wanted; the fallback names the whole BAND, because
     // without a snippet the reader has no other way to see that some parameters are optional.
-    func ReportWrongArgumentCount(
-        call: CallExpression,
-        functionName: string,
-        requiredCount: int,
-        expectedArgumentCount: int,
-        actualCount: int) {
+    func ReportWrongArgumentCount(call: CallExpression, functionName: string, requiredCount: int, expectedArgumentCount: int, actualCount: int) {
         span := spans.GetCallDiagnosticSpan(call, functionName)
         filePath := ""
         snippet := ""
@@ -394,15 +345,7 @@ public class AnalyzerSyntheticCallValidator {
                 expected = requiredCount
             }
 
-            diagnostics.ReportBuilt(ErrorMessageBuilder.WrongArgumentCount(
-                filePath,
-                span.Line,
-                span.Column,
-                snippet,
-                span.Length,
-                functionName,
-                expected,
-                actualCount))
+            diagnostics.ReportBuilt(ErrorMessageBuilder.WrongArgumentCount(filePath, span.Line, span.Column, snippet, span.Length, functionName, expected, actualCount))
             return
         }
 
@@ -411,27 +354,13 @@ public class AnalyzerSyntheticCallValidator {
             expectedDescription = requiredCount.ToString() + " to " + expectedArgumentCount.ToString()
         }
 
-        diagnostics.Report(
-            ErrorCode.WrongArgumentCount,
-            "'" + functionName + "' takes " + expectedDescription + " argument(s), but you passed "
-                + actualCount.ToString(),
-            span.Line,
-            span.Column,
-            "Check the argument count against the function signature.",
-            span.Length)
+        diagnostics.Report(ErrorCode.WrongArgumentCount, "'" + functionName + "' takes " + expectedDescription + " argument(s), but you passed " + actualCount.ToString(), span.Line, span.Column, "Check the argument count against the function signature.", span.Length)
     }
 
     // NL202 for one argument. The rich form additionally needs the PARAMETER'S NAME — it renders
     // "the parameter `x` expects …" — so a signature that carries no names falls back even when the
     // snippet is available.
-    func ReportWrongArgumentType(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        functionName: string,
-        argumentIndex: int,
-        parameterIndex: int,
-        expectedType: TypeInfo,
-        argType: TypeInfo) {
+    func ReportWrongArgumentType(functionType: FunctionTypeInfo, call: CallExpression, functionName: string, argumentIndex: int, parameterIndex: int, expectedType: TypeInfo, argType: TypeInfo) {
         span := spans.GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value)
         parameterName: string? = null
         parameterNames := functionType.ParameterNames
@@ -454,17 +383,7 @@ public class AnalyzerSyntheticCallValidator {
         filePath := ""
         snippet := ""
         if TryGetRichContext(span.Line, out filePath, out snippet) && parameterName != null {
-            diagnostics.ReportBuilt(ErrorMessageBuilder.WrongArgumentType(
-                filePath,
-                span.Line,
-                span.Column,
-                snippet,
-                span.Length,
-                functionName,
-                argumentIndex + 1,
-                parameterNameText,
-                GetArgumentTypeDiagnosticName(call.Arguments[argumentIndex], argType),
-                expectedTypeText))
+            diagnostics.ReportBuilt(ErrorMessageBuilder.WrongArgumentType(filePath, span.Line, span.Column, snippet, span.Length, functionName, argumentIndex + 1, parameterNameText, GetArgumentTypeDiagnosticName(call.Arguments[argumentIndex], argType), expectedTypeText))
             return
         }
 
@@ -475,23 +394,13 @@ public class AnalyzerSyntheticCallValidator {
         }
 
         actualType := FormatArgumentTypeDiagnosticPhrase(call.Arguments[argumentIndex], argType)
-        diagnostics.Report(
-            ErrorCode.TypeMismatch,
-            ErrorMessageBuilder.WrongArgumentTypeMessage(
-                argumentDescription, functionName, actualType, parameterName, expectedTypeText),
-            span.Line,
-            span.Column,
-            "Pass a value with the expected type, or update the function signature.",
-            span.Length)
+        diagnostics.Report(ErrorCode.TypeMismatch, ErrorMessageBuilder.WrongArgumentTypeMessage(argumentDescription, functionName, actualType, parameterName, expectedTypeText), span.Line, span.Column, "Pass a value with the expected type, or update the function signature.", span.Length)
     }
 
     // NL208. A type parameter nothing bound is SKIPPED rather than reported: an open binding means
     // inference had nothing to go on, and a constraint report there would name a type the user never
     // wrote. Every violated arm reports independently, so one argument can carry several.
-    func ValidateGenericConstraints(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        bindings: Dictionary<string, TypeInfo>?) {
+    func ValidateGenericConstraints(functionType: FunctionTypeInfo, call: CallExpression, bindings: Dictionary<string, TypeInfo>?) {
         constraints := functionType.GenericConstraints
         if constraints == null || bindings == null || bindings.Count == 0 {
             return
@@ -511,55 +420,27 @@ public class AnalyzerSyntheticCallValidator {
                 continue
             }
 
-            span := walk.GetGenericConstraintDiagnosticSpan(
-                functionType, call, constraint.TypeParameter, functionName)
+            span := walk.GetGenericConstraintDiagnosticSpan(functionType, call, constraint.TypeParameter, functionName)
             boundObject := boundType as object
             boundText := boundObject.ToString()
             specialValue := Convert.ToInt32(constraint.SpecialConstraints)
 
             if (specialValue & classFlag) == classFlag {
                 if !AnalyzerConversionFacts.IsReferenceType(boundType) {
-                    diagnostics.Report(
-                        ErrorCode.GenericConstraintViolation,
-                        "`" + boundText + "` is a value type, but type parameter `"
-                            + constraint.TypeParameter + "` of `" + functionName
-                            + "` requires a reference type (the `class` constraint)",
-                        span.Line,
-                        span.Column,
-                        "Pass a class instance for `" + constraint.TypeParameter
-                            + "`, or relax the `class` constraint on `" + functionName + "`.",
-                        span.Length)
+                    diagnostics.Report(ErrorCode.GenericConstraintViolation, "`" + boundText + "` is a value type, but type parameter `" + constraint.TypeParameter + "` of `" + functionName + "` requires a reference type (the `class` constraint)", span.Line, span.Column, "Pass a class instance for `" + constraint.TypeParameter + "`, or relax the `class` constraint on `" + functionName + "`.", span.Length)
                 }
             }
 
             if (specialValue & structFlag) == structFlag {
                 boundNullable := boundType as NullableTypeInfo
                 if AnalyzerConversionFacts.IsReferenceType(boundType) || boundNullable != null {
-                    diagnostics.Report(
-                        ErrorCode.GenericConstraintViolation,
-                        "`" + boundText + "` is not a non-nullable value type, but type parameter `"
-                            + constraint.TypeParameter + "` of `" + functionName
-                            + "` requires one (the `struct` constraint)",
-                        span.Line,
-                        span.Column,
-                        "Pass a non-nullable value type for `" + constraint.TypeParameter
-                            + "`, or relax the `struct` constraint on `" + functionName + "`.",
-                        span.Length)
+                    diagnostics.Report(ErrorCode.GenericConstraintViolation, "`" + boundText + "` is not a non-nullable value type, but type parameter `" + constraint.TypeParameter + "` of `" + functionName + "` requires one (the `struct` constraint)", span.Line, span.Column, "Pass a non-nullable value type for `" + constraint.TypeParameter + "`, or relax the `struct` constraint on `" + functionName + "`.", span.Length)
                 }
             }
 
             if (specialValue & newFlag) == newFlag {
                 if !HasParameterlessConstructor(boundType) {
-                    diagnostics.Report(
-                        ErrorCode.GenericConstraintViolation,
-                        "`" + boundText + "` has no parameterless constructor, but type parameter `"
-                            + constraint.TypeParameter + "` of `" + functionName
-                            + "` requires one (the `new()` constraint)",
-                        span.Line,
-                        span.Column,
-                        "Give `" + boundText + "` a parameterless constructor, or relax the `new()` constraint on `"
-                            + functionName + "`.",
-                        span.Length)
+                    diagnostics.Report(ErrorCode.GenericConstraintViolation, "`" + boundText + "` has no parameterless constructor, but type parameter `" + constraint.TypeParameter + "` of `" + functionName + "` requires one (the `new()` constraint)", span.Line, span.Column, "Give `" + boundText + "` a parameterless constructor, or relax the `new()` constraint on `" + functionName + "`.", span.Length)
                 }
             }
 
@@ -570,8 +451,7 @@ public class AnalyzerSyntheticCallValidator {
             declaredConstraintTypesByParameter := functionType.ResolvedGenericConstraintTypes
             if declaredConstraintTypesByParameter != null {
                 declaredConstraintTypes: List<TypeInfo> = new List<TypeInfo>()
-                if declaredConstraintTypesByParameter.TryGetValue(
-                        constraint.TypeParameter, out declaredConstraintTypes) {
+                if declaredConstraintTypesByParameter.TryGetValue(constraint.TypeParameter, out declaredConstraintTypes) {
                     resolvedConstraintTypes = declaredConstraintTypes
                     resolvedFromDeclaration = true
                 }
@@ -580,8 +460,7 @@ public class AnalyzerSyntheticCallValidator {
             if !resolvedFromDeclaration {
                 writtenIndex := 0
                 while writtenIndex < constraint.Constraints.Count {
-                    resolvedConstraintTypes.Add(
-                        typeResolver.ResolveType(constraint.Constraints[writtenIndex]))
+                    resolvedConstraintTypes.Add(typeResolver.ResolveType(constraint.Constraints[writtenIndex]))
                     writtenIndex = writtenIndex + 1
                 }
             }
@@ -590,25 +469,14 @@ public class AnalyzerSyntheticCallValidator {
             while constraintTypeIndex < resolvedConstraintTypes.Count {
                 constraintType := resolvedConstraintTypes[constraintTypeIndex]
                 constraintTypeIndex = constraintTypeIndex + 1
-                closedConstraintType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(
-                    constraintType, bindings)
+                closedConstraintType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(constraintType, bindings)
 
                 // Either direction satisfies: the bound type may BE a subtype of the constraint, or
                 // be assignable to it through a conversion the constraint admits.
-                if !assignability.IsSubtypeOf(boundType, closedConstraintType)
-                    && !assignability.IsAssignable(closedConstraintType, boundType) {
+                if !assignability.IsSubtypeOf(boundType, closedConstraintType) && !assignability.IsAssignable(closedConstraintType, boundType) {
                     closedObject := closedConstraintType as object
                     closedText := closedObject.ToString()
-                    diagnostics.Report(
-                        ErrorCode.GenericConstraintViolation,
-                        "`" + boundText + "` does not implement `" + closedText
-                            + "`, which type parameter `" + constraint.TypeParameter + "` of `"
-                            + functionName + "` requires",
-                        span.Line,
-                        span.Column,
-                        "Implement `" + closedText + "` on `" + boundText
-                            + "`, or relax the constraint on `" + functionName + "`.",
-                        span.Length)
+                    diagnostics.Report(ErrorCode.GenericConstraintViolation, "`" + boundText + "` does not implement `" + closedText + "`, which type parameter `" + constraint.TypeParameter + "` of `" + functionName + "` requires", span.Line, span.Column, "Implement `" + closedText + "` on `" + boundText + "`, or relax the constraint on `" + functionName + "`.", span.Length)
                 }
             }
         }
@@ -621,7 +489,7 @@ public class AnalyzerSyntheticCallValidator {
     // parameters suppresses the default constructor. An unknown type is assumed to satisfy: a
     // constraint report about a type the analyzer could not resolve is noise on top of the
     // resolution failure the user already has.
-    public static func HasParameterlessConstructor(candidate: TypeInfo): bool {
+    static func HasParameterlessConstructor(candidate: TypeInfo): bool {
         structType := candidate as StructTypeInfo
         if structType != null {
             return true
@@ -656,11 +524,7 @@ public class AnalyzerSyntheticCallValidator {
 
     // THE RETURN TYPE OF A CALL TO AN N#-DECLARED FUNCTION, closed over whatever the call inferred.
     // A signature that declares no return type is `void`, not unknown.
-    public func ResolveReturnType(
-        functionType: FunctionTypeInfo,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        receiverType: TypeInfo?): TypeInfo {
+    func ResolveReturnType(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): TypeInfo {
         returnType: TypeInfo = BuiltInTypes.Void
         declaredReturnType := functionType.ReturnType
         if declaredReturnType != null {
@@ -676,10 +540,7 @@ public class AnalyzerSyntheticCallValidator {
     // The candidate list is rendered DISTINCT and capped at eight: overload groups can be large, and
     // a hint the reader will not finish is worse than a shorter one. Distinctness comes first, so
     // the cap counts eight DIFFERENT signatures rather than eight candidates.
-    public func ReportNoMatchingOverload(
-        candidates: IReadOnlyList<FunctionTypeInfo>,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>) {
+    func ReportNoMatchingOverload(candidates: IReadOnlyList<FunctionTypeInfo>, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>) {
         if candidates.Count == 0 {
             return
         }
@@ -715,10 +576,7 @@ public class AnalyzerSyntheticCallValidator {
                 candidateName = candidateSyntheticName
             }
 
-            signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(
-                candidate,
-                candidateName,
-                AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(candidate, call))
+            signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(candidate, candidateName, AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(candidate, call))
             if !candidateSignatures.Contains(signature) {
                 candidateSignatures.Add(signature)
             }
@@ -727,46 +585,24 @@ public class AnalyzerSyntheticCallValidator {
         filePath := ""
         snippet := ""
         if TryGetRichContext(span.Line, out filePath, out snippet) {
-            diagnostics.ReportBuilt(ErrorMessageBuilder.NoMatchingOverload(
-                filePath,
-                span.Line,
-                span.Column,
-                snippet,
-                span.Length,
-                functionName,
-                call.Arguments.Count,
-                argumentTypes,
-                candidateSignatures))
+            diagnostics.ReportBuilt(ErrorMessageBuilder.NoMatchingOverload(filePath, span.Line, span.Column, snippet, span.Length, functionName, call.Arguments.Count, argumentTypes, candidateSignatures))
             return
         }
 
-        diagnostics.Report(
-            ErrorCode.NoMatchingOverload,
-            "No overload of '" + functionName + "' accepts " + call.Arguments.Count.ToString()
-                + " argument(s) with these types",
-            span.Line,
-            span.Column,
-            "Check the argument count and types against the available overloads.",
-            span.Length)
+        diagnostics.Report(ErrorCode.NoMatchingOverload, "No overload of '" + functionName + "' accepts " + call.Arguments.Count.ToString() + " argument(s) with these types", span.Line, span.Column, "Check the argument count and types against the available overloads.", span.Length)
     }
 
     // THE SoA INTRINSICS' VALUE-LEVEL CHECKS. These are the only synthetic functions whose arguments
     // have a meaning beyond their type: a wrap column that is null, or a row id, capacity or length
     // written as a negative constant, is a guaranteed runtime failure that the type system admits.
-    func ValidateSoaCall(
-        functionType: FunctionTypeInfo,
-        functionName: string,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        parameterIndexByArgument: int[]) {
+    func ValidateSoaCall(functionType: FunctionTypeInfo, functionName: string, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, parameterIndexByArgument: int[]) {
         syntheticName := functionType.SyntheticName
         if syntheticName == null {
             return
         }
 
         if syntheticName == "wrap" {
-            ValidateSoaWrapColumnArguments(
-                functionType, functionName, call, argTypes, parameterIndexByArgument)
+            ValidateSoaWrapColumnArguments(functionType, functionName, call, argTypes, parameterIndexByArgument)
 
             lengthParameterIndex := -1
             parameterNames := functionType.ParameterNames
@@ -783,48 +619,20 @@ public class AnalyzerSyntheticCallValidator {
             }
 
             if lengthParameterIndex >= 0 {
-                ValidateNonNegativeIntArgument(
-                    functionName,
-                    call,
-                    argTypes,
-                    parameterIndexByArgument,
-                    lengthParameterIndex,
-                    "SoA table wrap length must not be negative",
-                    "Use zero or a valid row count no greater than the column lengths.")
+                ValidateNonNegativeIntArgument(functionName, call, argTypes, parameterIndexByArgument, lengthParameterIndex, "SoA table wrap length must not be negative", "Use zero or a valid row count no greater than the column lengths.")
             }
 
             return
         }
 
         if syntheticName == "ensureCapacity" {
-            ValidateNonNegativeIntArgument(
-                functionName,
-                call,
-                argTypes,
-                parameterIndexByArgument,
-                0,
-                "SoA table capacity must not be negative",
-                "Use zero or a positive capacity; the table can grow later with add or ensureCapacity.")
+            ValidateNonNegativeIntArgument(functionName, call, argTypes, parameterIndexByArgument, 0, "SoA table capacity must not be negative", "Use zero or a positive capacity; the table can grow later with add or ensureCapacity.")
             return
         }
 
         if syntheticName == "copyRow" {
-            ValidateNonNegativeIntArgument(
-                functionName,
-                call,
-                argTypes,
-                parameterIndexByArgument,
-                0,
-                "SoA table source row id must not be negative",
-                "Use zero or a valid non-negative source row id.")
-            ValidateNonNegativeIntArgument(
-                functionName,
-                call,
-                argTypes,
-                parameterIndexByArgument,
-                1,
-                "SoA table target row id must not be negative",
-                "Use zero or a valid non-negative target row id.")
+            ValidateNonNegativeIntArgument(functionName, call, argTypes, parameterIndexByArgument, 0, "SoA table source row id must not be negative", "Use zero or a valid non-negative source row id.")
+            ValidateNonNegativeIntArgument(functionName, call, argTypes, parameterIndexByArgument, 1, "SoA table target row id must not be negative", "Use zero or a valid non-negative target row id.")
         }
     }
 
@@ -833,12 +641,7 @@ public class AnalyzerSyntheticCallValidator {
     // The type gate is deliberately inverted: an argument whose type is KNOWN and NOT assignable is
     // skipped, because the ordinary NL202 already names it and two reports on one argument is one
     // too many. What is left is the argument that type-checks fine and is still null.
-    func ValidateSoaWrapColumnArguments(
-        functionType: FunctionTypeInfo,
-        functionName: string,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        parameterIndexByArgument: int[]) {
+    func ValidateSoaWrapColumnArguments(functionType: FunctionTypeInfo, functionName: string, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, parameterIndexByArgument: int[]) {
         parameterTypes := functionType.ParameterTypes
         if parameterTypes == null {
             return
@@ -860,9 +663,7 @@ public class AnalyzerSyntheticCallValidator {
                 continue
             }
 
-            if currentArgument < argTypes.Count
-                && !BuiltInTypes.IsUnknown(argTypes[currentArgument])
-                && !assignability.IsAssignable(expectedType, argTypes[currentArgument]) {
+            if currentArgument < argTypes.Count && !BuiltInTypes.IsUnknown(argTypes[currentArgument]) && !assignability.IsAssignable(expectedType, argTypes[currentArgument]) {
                 continue
             }
 
@@ -878,28 +679,14 @@ public class AnalyzerSyntheticCallValidator {
             }
 
             span := spans.GetExpressionDiagnosticSpan(argument.Value)
-            diagnostics.Report(
-                ErrorCode.TypeMismatch,
-                "SoA table wrap column '" + columnName + "' cannot be null",
-                span.Line,
-                span.Column,
-                "Pass the backing '" + columnName + "' column array, or allocate one before calling "
-                    + functionName + ".",
-                span.Length)
+            diagnostics.Report(ErrorCode.TypeMismatch, "SoA table wrap column '" + columnName + "' cannot be null", span.Line, span.Column, "Pass the backing '" + columnName + "' column array, or allocate one before calling " + functionName + ".", span.Length)
         }
     }
 
     // The argument that filled ONE named parameter position, checked for a written negative
     // constant. The parameter is located through the placement map rather than by position, so a
     // named argument is checked wherever the caller wrote it.
-    func ValidateNonNegativeIntArgument(
-        functionName: string,
-        call: CallExpression,
-        argTypes: IReadOnlyList<TypeInfo>,
-        parameterIndexByArgument: int[],
-        parameterIndex: int,
-        message: string,
-        suggestion: string) {
+    func ValidateNonNegativeIntArgument(functionName: string, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, parameterIndexByArgument: int[], parameterIndex: int, message: string, suggestion: string) {
         argumentIndex := -1
         placementIndex := 0
         while placementIndex < parameterIndexByArgument.Length {
@@ -921,9 +708,7 @@ public class AnalyzerSyntheticCallValidator {
 
         argType := declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex])
         argumentRow := argType as SoaRowTypeInfo
-        if BuiltInTypes.IsUnknown(argType)
-            || argumentRow != null
-            || !assignability.IsAssignable(BuiltInTypes.Int, argType) {
+        if BuiltInTypes.IsUnknown(argType) || argumentRow != null || !assignability.IsAssignable(BuiltInTypes.Int, argType) {
             return
         }
 
@@ -932,13 +717,7 @@ public class AnalyzerSyntheticCallValidator {
         }
 
         span := spans.GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value)
-        diagnostics.Report(
-            ErrorCode.TypeMismatch,
-            message,
-            span.Line,
-            span.Column,
-            functionName + " expects a non-negative int argument here. " + suggestion,
-            span.Length)
+        diagnostics.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, functionName + " expects a non-negative int argument here. " + suggestion, span.Length)
     }
 
     // HOW AN ARGUMENT'S TYPE IS NAMED IN A DIAGNOSTIC. A method group has no useful type name — the
@@ -946,9 +725,7 @@ public class AnalyzerSyntheticCallValidator {
     func GetArgumentTypeDiagnosticName(argument: Argument, argumentType: TypeInfo): string {
         resolvedType := declarationContext.ResolveDeclaredAlias(argumentType)
         if AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType) {
-            return "method group '"
-                + AnalyzerCallableReferenceFacts.GetCallableReferenceName(argument.Value, resolvedType)
-                + "'"
+            return "method group '" + AnalyzerCallableReferenceFacts.GetCallableReferenceName(argument.Value, resolvedType) + "'"
         }
 
         argumentTypeObject := argumentType as object

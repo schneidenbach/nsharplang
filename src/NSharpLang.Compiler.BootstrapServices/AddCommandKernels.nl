@@ -1,9 +1,9 @@
 namespace NSharpLang.Cli.Commands
 
-import NSharpLang.Compiler
 import System.Collections.Generic
+import NSharpLang.Compiler
 
-public class AddArgumentSummary {
+class AddArgumentSummary {
     VersionOption: string?
     PathOption: string?
     PackageOperand: string?
@@ -21,7 +21,7 @@ public class AddArgumentSummary {
     }
 }
 
-public class AddPackageSpec {
+class AddPackageSpec {
     PackageName: string
     Version: string?
 
@@ -31,8 +31,8 @@ public class AddPackageSpec {
     }
 }
 
-public class AddCommandKernels {
-    public static func GetArgumentSummary(args: string[]): AddArgumentSummary {
+class AddCommandKernels {
+    static func GetArgumentSummary(args: string[]): AddArgumentSummary {
         versionOption: string? = null
         pathOption: string? = null
         packageOperand: string? = null
@@ -92,7 +92,7 @@ public class AddCommandKernels {
         return new AddArgumentSummary(versionOption, pathOption, packageOperand, framework, prerelease, showHelp)
     }
 
-    public static func GetPackageSpec(raw: string, explicitVersion: string?): AddPackageSpec {
+    static func GetPackageSpec(raw: string, explicitVersion: string?): AddPackageSpec {
         separator := InlineVersionSeparatorIndex(raw)
         if separator > 0 {
             return new AddPackageSpec(raw.Substring(0, separator), raw.Substring(separator + 1, raw.Length - separator - 1))
@@ -101,9 +101,7 @@ public class AddCommandKernels {
         return new AddPackageSpec(raw, explicitVersion)
     }
 
-    public static func PackageOrFrameworkDependencyExists(
-        dependencies: IReadOnlyList<Reference>,
-        packageName: string): bool {
+    static func PackageOrFrameworkDependencyExists(dependencies: IReadOnlyList<Reference>, packageName: string): bool {
         index := 0
         while index < dependencies.Count {
             dependency := dependencies[index]
@@ -123,9 +121,7 @@ public class AddCommandKernels {
         return false
     }
 
-    public static func ProjectDependencyExists(
-        dependencies: IReadOnlyList<Reference>,
-        localPath: string): bool {
+    static func ProjectDependencyExists(dependencies: IReadOnlyList<Reference>, localPath: string): bool {
         index := 0
         while index < dependencies.Count {
             project := dependencies[index].Project
@@ -139,7 +135,7 @@ public class AddCommandKernels {
         return false
     }
 
-    public static func GetDependencyInsertIndex(lines: string[]): int {
+    static func GetDependencyInsertIndex(lines: string[]): int {
         depIndex := -1
         index := 0
         while index < lines.Length {
@@ -167,69 +163,43 @@ public class AddCommandKernels {
         return insertAt
     }
 
-    public static func GetHelpText(): string {
-        return "N# Add Dependency\n"
-            + "\n"
-            + "Usage: nlc add <package> [options]\n"
-            + "       nlc add <package>@<version>\n"
-            + "       nlc add --path <local-project>\n"
-            + "\n"
-            + "Add a NuGet package, framework reference, or local project reference to project.yml.\n"
-            + "If no version is specified, the latest version is resolved from NuGet.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --version <ver>   Package version (alternative to @version syntax)\n"
-            + "  --prerelease      Allow prerelease versions when resolving latest\n"
-            + "  --framework       Add as a framework reference instead of NuGet package\n"
-            + "  --path <path>     Add a local project reference (project.yml or directory)\n"
-            + "  --help, -h        Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc add Newtonsoft.Json\n"
-            + "  nlc add Serilog@3.1.0\n"
-            + "  nlc add Serilog --version 3.1.0\n"
-            + "  nlc add System.Text.Json --prerelease\n"
-            + "  nlc add Microsoft.AspNetCore.App --framework\n"
-            + "  nlc add --path ../MyLibrary\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Dependency added successfully\n"
-            + "  1  Failed to add dependency"
+    static func GetHelpText(): string {
+        return "N# Add Dependency\n" + "\n" + "Usage: nlc add <package> [options]\n" + "       nlc add <package>@<version>\n" + "       nlc add --path <local-project>\n" + "\n" + "Add a NuGet package, framework reference, or local project reference to project.yml.\n" + "If no version is specified, the latest version is resolved from NuGet.\n" + "\n" + "Options:\n" + "  --version <ver>   Package version (alternative to @version syntax)\n" + "  --prerelease      Allow prerelease versions when resolving latest\n" + "  --framework       Add as a framework reference instead of NuGet package\n" + "  --path <path>     Add a local project reference (project.yml or directory)\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc add Newtonsoft.Json\n" + "  nlc add Serilog@3.1.0\n" + "  nlc add Serilog --version 3.1.0\n" + "  nlc add System.Text.Json --prerelease\n" + "  nlc add Microsoft.AspNetCore.App --framework\n" + "  nlc add --path ../MyLibrary\n" + "\n" + "Exit codes:\n" + "  0  Dependency added successfully\n" + "  1  Failed to add dependency"
     }
 
-    public static func GetUsageMessage(): string {
+    static func GetUsageMessage(): string {
         return "Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>"
     }
 
-    public static func GetMissingProjectFileMessage(): string {
+    static func GetMissingProjectFileMessage(): string {
         return "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project."
     }
 
-    public static func GetResolvingLatestVersionMessage(packageName: string): string {
+    static func GetResolvingLatestVersionMessage(packageName: string): string {
         return "Resolving latest version for " + packageName + "..."
     }
 
-    public static func GetPackageNotFoundMessage(packageName: string): string {
+    static func GetPackageNotFoundMessage(packageName: string): string {
         return "Could not find package '" + packageName + "' on NuGet. Check the package name and try again."
     }
 
-    public static func GetDuplicatePackageMessage(packageName: string): string {
+    static func GetDuplicatePackageMessage(packageName: string): string {
         return "'" + packageName + "' is already in dependencies. Use 'nlc update' to change the version."
     }
 
-    public static func GetDuplicateProjectReferenceMessage(localPath: string): string {
+    static func GetDuplicateProjectReferenceMessage(localPath: string): string {
         return "Project reference '" + localPath + "' is already in dependencies."
     }
 
-    public static func GetFrameworkAddedMessage(packageName: string): string {
+    static func GetFrameworkAddedMessage(packageName: string): string {
         return "Added framework reference '" + packageName + "' to project.yml"
     }
 
-    public static func GetPackageAddedMessage(packageName: string, version: string): string {
+    static func GetPackageAddedMessage(packageName: string, version: string): string {
         return "Added " + packageName + "@" + version + " to project.yml"
     }
 
-    public static func GetProjectReferenceAddedMessage(localPath: string): string {
+    static func GetProjectReferenceAddedMessage(localPath: string): string {
         return "Added project reference '" + localPath + "' to project.yml"
     }
 

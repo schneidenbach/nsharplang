@@ -2,7 +2,7 @@ namespace NSharpLang.Compiler
 
 import System.Collections.Generic
 
-public class MultiFileCompilationResult {
+class MultiFileCompilationResult {
     successValue: bool
     errorsValue: IEnumerable<CompilerError>
     outputAssemblyPathValue: string?
@@ -17,7 +17,7 @@ public class MultiFileCompilationResult {
         outputAssemblyPathValue = OutputAssemblyPath
     }
 
-    public func Deconstruct(out Success: bool, out Errors: IEnumerable<CompilerError>, out OutputAssemblyPath: string?) {
+    func Deconstruct(out Success: bool, out Errors: IEnumerable<CompilerError>, out OutputAssemblyPath: string?) {
         Success = successValue
         Errors = errorsValue
         OutputAssemblyPath = outputAssemblyPathValue

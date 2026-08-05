@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // The analyzer's LEXICAL SCOPE STACK: the open scopes of the file being analyzed, innermost last, and
 // every question the semantic phase answers by walking them.
 //
@@ -42,9 +43,7 @@ import NSharpLang.Compiler.Ast
 // `Peek` and `Pop` on an empty stack, and `GlobalScope` on an empty stack, throw exactly what
 // `Stack<Scope>.Peek()`, `Stack<Scope>.Pop()` and `Enumerable.Last()` threw. No production path
 // reaches them, but a silent change from one exception to another is still a behaviour change.
-
-public class AnalyzerScopeStack {
-
+class AnalyzerScopeStack {
     scopes: List<Scope>
     semanticScopeIds: List<int>
 
@@ -59,13 +58,13 @@ public class AnalyzerScopeStack {
     // ---- the stack itself ---------------------------------------------------------------------
 
     // Resets BOTH stacks: an analysis run starts with no lexical scope and no semantic scope.
-    public func Clear() {
+    func Clear() {
         scopes.Clear()
         semanticScopeIds.Clear()
     }
 
     // The innermost open scope.
-    public func Peek(): Scope {
+    func Peek(): Scope {
         if scopes.Count == 0 {
             throw new InvalidOperationException("Stack empty.")
         }
@@ -74,7 +73,7 @@ public class AnalyzerScopeStack {
     }
 
     // The outermost open scope — the global scope, at the bottom of the stack.
-    public func GlobalScope(): Scope {
+    func GlobalScope(): Scope {
         if scopes.Count == 0 {
             throw new InvalidOperationException("Sequence contains no elements")
         }
@@ -84,7 +83,7 @@ public class AnalyzerScopeStack {
 
     // Opens a lexical scope AND its semantic scope, parented to whatever semantic scope is currently
     // innermost (-1 when there is none).
-    public func Push(model: SemanticModel, scope: Scope, startLine: int, startColumn: int) {
+    func Push(model: SemanticModel, scope: Scope, startLine: int, startColumn: int) {
         scopes.Add(scope)
 
         parentId := -1
@@ -97,7 +96,7 @@ public class AnalyzerScopeStack {
 
     // Closes the innermost lexical scope, and the innermost semantic scope if there is one. The
     // semantic scope's end column is the maximum int: a closing scope runs to the end of its line.
-    public func Pop(model: SemanticModel, currentLine: int) {
+    func Pop(model: SemanticModel, currentLine: int) {
         if scopes.Count == 0 {
             throw new InvalidOperationException("Stack empty.")
         }
@@ -111,11 +110,11 @@ public class AnalyzerScopeStack {
         }
     }
 
-    public func HasSemanticScope(): bool {
+    func HasSemanticScope(): bool {
         return semanticScopeIds.Count > 0
     }
 
-    public func CurrentSemanticScopeId(): int {
+    func CurrentSemanticScopeId(): int {
         if semanticScopeIds.Count == 0 {
             return -1
         }
@@ -126,7 +125,7 @@ public class AnalyzerScopeStack {
     // ---- name walks --------------------------------------------------------------------------
 
     // The innermost scope that binds `name` as a TYPE answers.
-    public func LookupType(name: string): TypeInfo? {
+    func LookupType(name: string): TypeInfo? {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -142,7 +141,7 @@ public class AnalyzerScopeStack {
     }
 
     // The innermost scope that binds `name` as a SYMBOL answers.
-    public func LookupSymbol(name: string): TypeInfo? {
+    func LookupSymbol(name: string): TypeInfo? {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -159,7 +158,7 @@ public class AnalyzerScopeStack {
 
     // The innermost scope ONLY — no walk. Used where a declaration asks "is this name already mine?"
     // rather than "is it visible?".
-    public func CurrentScopeSymbol(name: string): TypeInfo? {
+    func CurrentScopeSymbol(name: string): TypeInfo? {
         current := Peek()
         candidate := new TypeInfo()
         if current.Symbols.TryGetValue(name, out candidate) {
@@ -172,12 +171,7 @@ public class AnalyzerScopeStack {
     // Records a binding from a type-reference position to the declaration of the innermost scope that
     // binds the name. The first scope holding the name ends the walk whether or not it knows where the
     // declaration is, so an unlocated binding is silence rather than a fall-through to an outer scope.
-    public func RecordTypeBinding(
-        bindings: BindingMap,
-        filePath: string?,
-        name: string,
-        line: int,
-        column: int) {
+    func RecordTypeBinding(bindings: BindingMap, filePath: string?, name: string, line: int, column: int) {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -192,12 +186,7 @@ public class AnalyzerScopeStack {
 
     // Symbols first, then types: an identifier in scope means the VALUE, and only then the type of
     // that name. Both walks record the declaration binding they land on.
-    public func ResolveBindingTarget(
-        bindings: BindingMap,
-        filePath: string?,
-        name: string,
-        line: int,
-        column: int): TypeInfo? {
+    func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int): TypeInfo? {
         symbolIndex := scopes.Count - 1
         while symbolIndex >= 0 {
             symbolScope := scopes[symbolIndex]
@@ -225,13 +214,7 @@ public class AnalyzerScopeStack {
         return null
     }
 
-    func RecordDeclarationBinding(
-        bindings: BindingMap,
-        filePath: string?,
-        scope: Scope,
-        name: string,
-        line: int,
-        column: int) {
+    func RecordDeclarationBinding(bindings: BindingMap, filePath: string?, scope: Scope, name: string, line: int, column: int) {
         declaration := scope.GetDeclarationLocation(name)
         if declaration != null {
             bindings.RecordBinding(filePath, line, column, name.Length, declaration)
@@ -239,7 +222,7 @@ public class AnalyzerScopeStack {
     }
 
     // The innermost scope that binds `this` carries the type whose members are in scope.
-    public func CurrentTypeScope(): TypeInfo? {
+    func CurrentTypeScope(): TypeInfo? {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -258,7 +241,7 @@ public class AnalyzerScopeStack {
     // at the first scope that binds the name — answering from THAT scope's kind — and also at the first
     // type-level scope, because a name not found among the locals of an instance context is a member
     // reference by elimination.
-    public func IsCurrentTypeMemberReference(name: string): bool {
+    func IsCurrentTypeMemberReference(name: string): bool {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -280,7 +263,7 @@ public class AnalyzerScopeStack {
 
     // A generic type parameter is visible BOTH as a type and as an identifier, and it must be the SAME
     // instance in both namespaces.
-    public func DeclareTypeParameter(name: string) {
+    func DeclareTypeParameter(name: string) {
         current := Peek()
         typeParameter := new SimpleTypeInfo(name)
         current.Types[name] = typeParameter
@@ -289,7 +272,7 @@ public class AnalyzerScopeStack {
 
     // A nested type of the enclosing declaration. First declaration wins: an explicit declaration of
     // the same simple name in this scope is not overwritten.
-    public func DeclareNestedTypeIfAbsent(name: string, nestedType: TypeInfo) {
+    func DeclareNestedTypeIfAbsent(name: string, nestedType: TypeInfo) {
         current := Peek()
         if !current.Types.ContainsKey(name) {
             current.Types[name] = nestedType
@@ -303,7 +286,7 @@ public class AnalyzerScopeStack {
     // `NullState.Unknown`: the caller falls back to the DECLARED nullability in the first case and
     // must not in the second. A nullable enum return would say both in one call, but `NullState?` is
     // off the columnar surface, so presence and value are two walks.
-    public func HasNullState(path: string): bool {
+    func HasNullState(path: string): bool {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -319,7 +302,7 @@ public class AnalyzerScopeStack {
 
     // The innermost recorded null fact for a path. `NullState.Unknown` when no scope has one — ask
     // `HasNullState` to tell that apart from a recorded unknown.
-    public func NullStateOrUnknown(path: string): NullState {
+    func NullStateOrUnknown(path: string): NullState {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -334,7 +317,7 @@ public class AnalyzerScopeStack {
         return NullState.Unknown
     }
 
-    public func SetNullStateInCurrentScope(path: string, state: NullState) {
+    func SetNullStateInCurrentScope(path: string, state: NullState) {
         if scopes.Count == 0 || string.IsNullOrWhiteSpace(path) {
             return
         }
@@ -346,13 +329,13 @@ public class AnalyzerScopeStack {
     // An assignment invalidates the null facts for the assigned path AND for every member path under
     // it, in EVERY open scope — an outer scope's stale fact about `x.y` would otherwise outlive the
     // write to `x`.
-    public func InvalidateNullFactsForAssignment(path: string) {
+    func InvalidateNullFactsForAssignment(path: string) {
         memberPrefix := path + "."
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
             removals := new List<string>()
-            foreach entry in scope.NullStates {
+            for entry in scope.NullStates {
                 key := entry.Key
                 if key == path || key.StartsWith(memberPrefix, StringComparison.Ordinal) {
                     removals.Add(key)
@@ -372,7 +355,7 @@ public class AnalyzerScopeStack {
     // The nullable type an identifier was DECLARED with, looked up in the ENCLOSING scopes only: the
     // innermost scope holds the narrowed type, and the question here is what was narrowed. A scope
     // that binds the name to something that is not nullable does not stop the walk.
-    public func FindEnclosingNullableSymbol(name: string): NullableTypeInfo? {
+    func FindEnclosingNullableSymbol(name: string): NullableTypeInfo? {
         index := scopes.Count - 2
         while index >= 0 {
             scope := scopes[index]
@@ -392,21 +375,20 @@ public class AnalyzerScopeStack {
 
     // ---- error-tuple result guards ------------------------------------------------------------
 
-    public func RegisterErrorTupleResult(resultName: string, errorName: string, line: int, column: int) {
+    func RegisterErrorTupleResult(resultName: string, errorName: string, line: int, column: int) {
         if scopes.Count == 0 || string.IsNullOrWhiteSpace(resultName) || resultName == "_" {
             return
         }
 
         current := Peek()
-        current.ErrorTupleResults[resultName] =
-            new ErrorTupleResultGuard(resultName, errorName, line, column)
+        current.ErrorTupleResults[resultName] = new ErrorTupleResultGuard(resultName, errorName, line, column)
     }
 
     // Proving an error name null makes every result guarded by that error available. The walk collects
     // from the enclosing scopes but always marks availability in the INNERMOST scope, so the fact dies
     // with the branch that established it; it stops at the first scope that binds the error name,
     // because past that point the name means something else.
-    public func MarkErrorTupleResultsAvailableForError(errorName: string) {
+    func MarkErrorTupleResultsAvailableForError(errorName: string) {
         if scopes.Count == 0 || string.IsNullOrWhiteSpace(errorName) || errorName.Contains(".") {
             return
         }
@@ -415,7 +397,7 @@ public class AnalyzerScopeStack {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
-            foreach entry in scope.ErrorTupleResults {
+            for entry in scope.ErrorTupleResults {
                 guard := entry.Value
                 if guard.ErrorName == errorName {
                     current.AvailableErrorTupleResults.Add(guard.ResultName)
@@ -431,7 +413,7 @@ public class AnalyzerScopeStack {
     }
 
     // Assigning a guarded result over the top makes it available: the new value is not the guarded one.
-    public func MarkErrorTupleResultAvailableAfterAssignment(target: Expression) {
+    func MarkErrorTupleResultAvailableAfterAssignment(target: Expression) {
         if scopes.Count == 0 {
             return
         }
@@ -447,7 +429,7 @@ public class AnalyzerScopeStack {
         }
     }
 
-    public func FindErrorTupleResultGuard(resultName: string): ErrorTupleResultGuard? {
+    func FindErrorTupleResultGuard(resultName: string): ErrorTupleResultGuard? {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -470,7 +452,7 @@ public class AnalyzerScopeStack {
     // guard with no mark says no, and a plain symbol binding of the same name says yes because the name
     // is no longer the guarded result. A name no scope knows about is available — it is not a guarded
     // result at all.
-    public func IsErrorTupleResultAvailable(resultName: string): bool {
+    func IsErrorTupleResultAvailable(resultName: string): bool {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
@@ -497,7 +479,7 @@ public class AnalyzerScopeStack {
     // Whether a local or parameter declaration in the innermost scope shadows a local or parameter of
     // an ENCLOSING function/block scope. The walk stops dead at the first type-level or global scope:
     // a member or a global of the same name is not shadowing. Underscore-prefixed names opt out.
-    public func ShadowsEnclosingValueBinding(name: string, declaredType: TypeInfo): bool {
+    func ShadowsEnclosingValueBinding(name: string, declaredType: TypeInfo): bool {
         if scopes.Count == 0 {
             return false
         }
@@ -539,12 +521,12 @@ public class AnalyzerScopeStack {
 
     // Every type name in scope, innermost first. The order is the suggestion policy's tie-breaker, so
     // it is behaviour.
-    public func AllTypeNamesInScope(): List<string> {
+    func AllTypeNamesInScope(): List<string> {
         names := new List<string>()
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
-            foreach entry in scope.Types {
+            for entry in scope.Types {
                 names.Add(entry.Key)
             }
 
@@ -554,12 +536,12 @@ public class AnalyzerScopeStack {
         return names
     }
 
-    public func SuggestSimilarVariableNames(typo: string): List<string> {
+    func SuggestSimilarVariableNames(typo: string): List<string> {
         candidates := new List<string>()
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
-            foreach entry in scope.Symbols {
+            for entry in scope.Symbols {
                 candidates.Add(entry.Key)
             }
 
@@ -572,12 +554,12 @@ public class AnalyzerScopeStack {
 
     // Callable names only, plus the compilation's extension methods, deduplicated keeping the FIRST
     // spelling. Extension methods are not scope state, so they arrive as an argument.
-    public func SuggestSimilarCallableNames(typo: string, extensionMethodNames: List<string>): List<string> {
+    func SuggestSimilarCallableNames(typo: string, extensionMethodNames: List<string>): List<string> {
         candidates := new List<string>()
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
-            foreach entry in scope.Symbols {
+            for entry in scope.Symbols {
                 if AnalyzerCallableReferenceFacts.IsCallableReferenceType(entry.Value) {
                     candidates.Add(entry.Key)
                 }
@@ -611,5 +593,4 @@ public class AnalyzerScopeStack {
     static func IsLocalScopeKind(kind: ScopeKind): bool {
         return kind == ScopeKind.Function || kind == ScopeKind.Block
     }
-
 }

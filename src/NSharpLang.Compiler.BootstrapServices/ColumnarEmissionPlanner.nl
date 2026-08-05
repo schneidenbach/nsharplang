@@ -3,7 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 
-public class ColumnarSourceFile {
+class ColumnarSourceFile {
     FileName: string
     Source: string
     FileId: int
@@ -17,8 +17,8 @@ public class ColumnarSourceFile {
     }
 }
 
-public class ColumnarEmissionPlanner {
-    public static func BuildSourceFiles(sources: string[], fileNames: string[]): ColumnarSourceFile[] {
+class ColumnarEmissionPlanner {
+    static func BuildSourceFiles(sources: string[], fileNames: string[]): ColumnarSourceFile[] {
         if sources.Length != fileNames.Length {
             throw new ArgumentException("Columnar source and file-name arrays must have the same length.")
         }
@@ -26,18 +26,14 @@ public class ColumnarEmissionPlanner {
         files := new ColumnarSourceFile[](sources.Length)
         index := 0
         while index < sources.Length {
-            files[index] = new ColumnarSourceFile(
-                fileNames[index],
-                sources[index],
-                index,
-                BuildLineStarts(sources[index]))
+            files[index] = new ColumnarSourceFile(fileNames[index], sources[index], index, BuildLineStarts(sources[index]))
             index = index + 1
         }
 
         return files
     }
 
-    public static func BuildSourceFilesFromLists(sources: IReadOnlyList<string>, fileNames: IReadOnlyList<string>): ColumnarSourceFile[] {
+    static func BuildSourceFilesFromLists(sources: IReadOnlyList<string>, fileNames: IReadOnlyList<string>): ColumnarSourceFile[] {
         if sources.Count != fileNames.Count {
             throw new ArgumentException("Columnar source and file-name lists must have the same length.")
         }
@@ -45,24 +41,19 @@ public class ColumnarEmissionPlanner {
         files := new ColumnarSourceFile[](sources.Count)
         index := 0
         while index < sources.Count {
-            files[index] = new ColumnarSourceFile(
-                fileNames[index],
-                sources[index],
-                index,
-                BuildLineStarts(sources[index]))
+            files[index] = new ColumnarSourceFile(fileNames[index], sources[index], index, BuildLineStarts(sources[index]))
             index = index + 1
         }
 
         return files
     }
 
-    public static func IsExecutableOutput(outputType: string?): bool {
+    static func IsExecutableOutput(outputType: string?): bool {
         return string.Equals(outputType ?? "", "exe", StringComparison.OrdinalIgnoreCase)
     }
 
-    public static func IsEnabledEnvironmentFlag(value: string?): bool {
-        return string.Equals(value ?? "", "1", StringComparison.Ordinal)
-            || string.Equals(value ?? "", "true", StringComparison.OrdinalIgnoreCase)
+    static func IsEnabledEnvironmentFlag(value: string?): bool {
+        return string.Equals(value ?? "", "1", StringComparison.Ordinal) || string.Equals(value ?? "", "true", StringComparison.OrdinalIgnoreCase)
     }
 
     static func BuildLineStarts(source: string): int[] {

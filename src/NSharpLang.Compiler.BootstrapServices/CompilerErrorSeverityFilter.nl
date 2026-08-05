@@ -4,8 +4,8 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler
 
-public class CompilerErrorSeverityFilter {
-    public static func Filter(errors: IEnumerable<CompilerError>, severity: ErrorSeverity): List<CompilerError> {
+class CompilerErrorSeverityFilter {
+    static func Filter(errors: IEnumerable<CompilerError>, severity: ErrorSeverity): List<CompilerError> {
         targetSeverityId := Convert.ToInt32(severity)
         if targetSeverityId < 0 || targetSeverityId > 1 {
             throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the severity.")
@@ -13,7 +13,7 @@ public class CompilerErrorSeverityFilter {
 
         filteredErrors := new List<CompilerError>()
 
-        foreach error in errors {
+        for error in errors {
             if Convert.ToInt32(error.Severity) == targetSeverityId {
                 filteredErrors.Add(error)
             }

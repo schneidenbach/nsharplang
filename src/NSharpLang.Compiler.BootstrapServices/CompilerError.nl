@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.Text
 
-public record CompilerError(code: ErrorCode, message: string, line: int, column: int, severity: ErrorSeverity) {
+record CompilerError(code: ErrorCode, message: string, line: int, column: int, severity: ErrorSeverity) {
     Code: ErrorCode = code
     Message: string = message
     FileName: string?
@@ -31,7 +31,7 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
         return "NL" + codeValue.ToString("D3")
     }
 
-    public func FormatForTooling(includeCode: bool = true, includeLocation: bool = false): string {
+    func FormatForTooling(includeCode: bool = true, includeLocation: bool = false): string {
         builder := new StringBuilder()
         if includeCode {
             builder.Append(DiagnosticId)
@@ -105,7 +105,7 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
                 builder.AppendLine()
                 builder.AppendLine()
                 builder.AppendLine("did you mean:")
-                foreach suggestion in suggestions {
+                for suggestion in suggestions {
                     builder.Append("- ")
                     builder.AppendLine(suggestion)
                 }
@@ -129,7 +129,7 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
         return builder.ToString().TrimEnd()
     }
 
-    public func FormatForMsBuild(): string {
+    func FormatForMsBuild(): string {
         parts := new List<string>()
         parts.Add(Message)
 
@@ -196,7 +196,7 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
         return !string.IsNullOrWhiteSpace(value ?? "")
     }
 
-    public func Format(useColors: bool = true): string {
+    func Format(useColors: bool = true): string {
         if HumanExplanation != null {
             return FormatElmStyle(useColors)
         }
@@ -269,7 +269,7 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
                 renderedSuggestions = true
                 builder.AppendLine("Did you mean one of these?")
                 builder.AppendLine()
-                foreach suggestion in suggestions {
+                for suggestion in suggestions {
                     builder.AppendLine($"    {suggestion}")
                 }
 
@@ -397,27 +397,11 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
         return builder.ToString()
     }
 
-    public static func Create(
-        code: ErrorCode,
-        message: string,
-        line: int,
-        column: int,
-        severity: ErrorSeverity = ErrorSeverity.Error): CompilerError {
+    static func Create(code: ErrorCode, message: string, line: int, column: int, severity: ErrorSeverity = ErrorSeverity.Error): CompilerError {
         return new CompilerError(code, message, line, column, severity)
     }
 
-    public static func CreateDetailed(
-        code: ErrorCode,
-        message: string,
-        line: int,
-        column: int,
-        fileName: string?,
-        length: int,
-        suggestion: string?,
-        humanExplanation: string?,
-        contextualHint: string?,
-        docsUrl: string?,
-        severity: ErrorSeverity = ErrorSeverity.Error): CompilerError {
+    static func CreateDetailed(code: ErrorCode, message: string, line: int, column: int, fileName: string?, length: int, suggestion: string?, humanExplanation: string?, contextualHint: string?, docsUrl: string?, severity: ErrorSeverity = ErrorSeverity.Error): CompilerError {
         return new CompilerError(code, message, line, column, severity) {
             FileName: fileName,
             Length: Math.Max(1, length),
@@ -428,16 +412,7 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
         }
     }
 
-    public static func WithSnippet(
-        code: ErrorCode,
-        message: string,
-        fileName: string,
-        line: int,
-        column: int,
-        sourceSnippet: string,
-        length: int = 0,
-        suggestion: string? = null,
-        severity: ErrorSeverity = ErrorSeverity.Error): CompilerError {
+    static func WithSnippet(code: ErrorCode, message: string, fileName: string, line: int, column: int, sourceSnippet: string, length: int = 0, suggestion: string? = null, severity: ErrorSeverity = ErrorSeverity.Error): CompilerError {
         span := DiagnosticSpanResolver.Resolve(sourceSnippet, column, length)
         return new CompilerError(code, message, line, span.Column, severity) {
             FileName: fileName,
@@ -447,19 +422,7 @@ public record CompilerError(code: ErrorCode, message: string, line: int, column:
         }
     }
 
-    public static func WithSnippetDetailed(
-        code: ErrorCode,
-        message: string,
-        fileName: string,
-        line: int,
-        column: int,
-        sourceSnippet: string,
-        length: int = 0,
-        suggestion: string? = null,
-        severity: ErrorSeverity = ErrorSeverity.Error,
-        humanExplanation: string? = null,
-        contextualHint: string? = null,
-        docsUrl: string? = null): CompilerError {
+    static func WithSnippetDetailed(code: ErrorCode, message: string, fileName: string, line: int, column: int, sourceSnippet: string, length: int = 0, suggestion: string? = null, severity: ErrorSeverity = ErrorSeverity.Error, humanExplanation: string? = null, contextualHint: string? = null, docsUrl: string? = null): CompilerError {
         span := DiagnosticSpanResolver.Resolve(sourceSnippet, column, length)
         return new CompilerError(code, message, line, span.Column, severity) {
             FileName: fileName,

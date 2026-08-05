@@ -6,7 +6,7 @@ import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.Compiler.Performance
 
-public class BuildOperandSummary {
+class BuildOperandSummary {
     Count: int
     FirstOperandIndex: int
 
@@ -16,8 +16,8 @@ public class BuildOperandSummary {
     }
 }
 
-public class BuildCommandKernels {
-    public static func GetOperandSummary(args: string[]): BuildOperandSummary {
+class BuildCommandKernels {
+    static func GetOperandSummary(args: string[]): BuildOperandSummary {
         length := args.Length
         if length == 0 {
             return new BuildOperandSummary(0, -1)
@@ -149,7 +149,7 @@ public class BuildCommandKernels {
         return new BuildOperandSummary(count, firstOperandIndex)
     }
 
-    public static func GetOptionSummary(args: string[]): BuildOptionSummary {
+    static func GetOptionSummary(args: string[]): BuildOptionSummary {
         outputLong: string? = null
         outputShort: string? = null
         backend: string? = null
@@ -210,75 +210,35 @@ public class BuildCommandKernels {
         return new BuildOptionSummary(output, backend, project, release, verbose, timings, perfReport, aot, showHelp)
     }
 
-    public static func GetHelpText(): string {
-        return "N# Build\n"
-            + "\n"
-            + "Usage: nlc build [file.nl] [options]\n"
-            + "\n"
-            + "Build a project or a single N# source file.\n"
-            + "\n"
-            + "When run in a directory with project.yml, compiles directly from project.yml\n"
-            + "through the native IL backend. No user-authored .csproj is needed.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --backend <mode>   Compilation backend: il\n"
-            + "  --project <dir>    Project root directory (default: current directory)\n"
-            + "  --release          Build with Release configuration/output layout (default: Debug)\n"
-            + "  --verbose          Show detailed build output\n"
-            + "  --timings          Emit per-phase timing breakdown after build\n"
-            + "  --perf-report      Emit a versioned JSON performance report after build\n"
-            + "  --aot              Analyze for Native AOT safety; AOT blockers become build errors\n"
-            + "  --output <path>    Output directory for build artifacts (-o shorthand)\n"
-            + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n"
-            + "                     repeatable, and accepts comma-separated lists\n"
-            + "  --help, -h         Show this help text\n"
-            + "\n"
-            + "Conditional compilation:\n"
-            + "  DEBUG is defined automatically for debug builds (omitted with --release).\n"
-            + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc build              Build the current project\n"
-            + "  nlc build --backend il Build the current project with the IL backend\n"
-            + "  nlc build --release    Release configuration/output layout\n"
-            + "  nlc build --verbose    Show detailed build output\n"
-            + "  nlc build --timings    Show phase-level timing breakdown\n"
-            + "  nlc build --perf-report Emit a JSON performance report\n"
-            + "  nlc build --aot        Fail the build on Native AOT blockers\n"
-            + "  nlc build -o ./dist    Build to a specific output directory\n"
-            + "  nlc build --define FEATURE_X  Build with FEATURE_X defined\n"
-            + "  nlc build Program.nl   Build a single file\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Build succeeded\n"
-            + "  1  Build failed"
+    static func GetHelpText(): string {
+        return "N# Build\n" + "\n" + "Usage: nlc build [file.nl] [options]\n" + "\n" + "Build a project or a single N# source file.\n" + "\n" + "When run in a directory with project.yml, compiles directly from project.yml\n" + "through the native IL backend. No user-authored .csproj is needed.\n" + "\n" + "Options:\n" + "  --backend <mode>   Compilation backend: il\n" + "  --project <dir>    Project root directory (default: current directory)\n" + "  --release          Build with Release configuration/output layout (default: Debug)\n" + "  --verbose          Show detailed build output\n" + "  --timings          Emit per-phase timing breakdown after build\n" + "  --perf-report      Emit a versioned JSON performance report after build\n" + "  --aot              Analyze for Native AOT safety; AOT blockers become build errors\n" + "  --output <path>    Output directory for build artifacts (-o shorthand)\n" + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n" + "                     repeatable, and accepts comma-separated lists\n" + "  --help, -h         Show this help text\n" + "\n" + "Conditional compilation:\n" + "  DEBUG is defined automatically for debug builds (omitted with --release).\n" + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n" + "\n" + "Examples:\n" + "  nlc build              Build the current project\n" + "  nlc build --backend il Build the current project with the IL backend\n" + "  nlc build --release    Release configuration/output layout\n" + "  nlc build --verbose    Show detailed build output\n" + "  nlc build --timings    Show phase-level timing breakdown\n" + "  nlc build --perf-report Emit a JSON performance report\n" + "  nlc build --aot        Fail the build on Native AOT blockers\n" + "  nlc build -o ./dist    Build to a specific output directory\n" + "  nlc build --define FEATURE_X  Build with FEATURE_X defined\n" + "  nlc build Program.nl   Build a single file\n" + "\n" + "Exit codes:\n" + "  0  Build succeeded\n" + "  1  Build failed"
     }
 
-    public static func GetFileNotFoundMessage(sourceFile: string): string {
+    static func GetFileNotFoundMessage(sourceFile: string): string {
         return "File not found: " + sourceFile
     }
 
-    public static func GetFailedMessage(message: string): string {
+    static func GetFailedMessage(message: string): string {
         return "Build failed: " + message
     }
 
-    public static func GetProjectStartMessage(projectRoot: string): string {
+    static func GetProjectStartMessage(projectRoot: string): string {
         return "Building project in " + projectRoot + " with the IL backend..."
     }
 
-    public static func GetSingleFileStartMessage(sourceFile: string): string {
+    static func GetSingleFileStartMessage(sourceFile: string): string {
         return "Building " + sourceFile + " with the IL backend..."
     }
 
-    public static func GetMissingProjectFileMessage(): string {
+    static func GetMissingProjectFileMessage(): string {
         return "No project.yml found in current directory. Run 'nlc new <name>' to create a project, or use 'nlc build <file.nl>' for a single file."
     }
 
-    public static func GetFailedElapsedMessage(elapsedText: string): string {
+    static func GetFailedElapsedMessage(elapsedText: string): string {
         return "  Build failed in " + elapsedText
     }
 
-    public static func GetSuccessElapsedMessage(release: bool, elapsedText: string): string {
+    static func GetSuccessElapsedMessage(release: bool, elapsedText: string): string {
         configuration := "debug"
         if release {
             configuration = "release"
@@ -287,7 +247,7 @@ public class BuildCommandKernels {
         return "Build successful! (il, " + configuration + ") [" + elapsedText + "]"
     }
 
-    public static func GetSuccessMessage(release: bool): string {
+    static func GetSuccessMessage(release: bool): string {
         configuration := "debug"
         if release {
             configuration = "release"
@@ -296,11 +256,11 @@ public class BuildCommandKernels {
         return "Build successful! (il, " + configuration + ")"
     }
 
-    public static func GetOutputPathMessage(outputPath: string): string {
+    static func GetOutputPathMessage(outputPath: string): string {
         return "Output: " + outputPath
     }
 
-    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
         if projectOption != null {
             return Path.GetFullPath(projectOption ?? "")
         }
@@ -308,11 +268,11 @@ public class BuildCommandKernels {
         return currentDirectory
     }
 
-    public static func GetSourceDirectory(sourceFile: string, currentDirectory: string): string {
+    static func GetSourceDirectory(sourceFile: string, currentDirectory: string): string {
         return Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? currentDirectory
     }
 
-    public static func GetSourceFileAssemblyName(sourceFile: string): string {
+    static func GetSourceFileAssemblyName(sourceFile: string): string {
         fileName := Path.GetFileName(sourceFile) ?? sourceFile
         dot := -1
         i := fileName.Length - 1
@@ -332,26 +292,23 @@ public class BuildCommandKernels {
         return fileName.Substring(0, dot)
     }
 
-    public static func NormalizeProjectRoot(projectRoot: string): string {
+    static func NormalizeProjectRoot(projectRoot: string): string {
         return Path.GetFullPath(projectRoot)
     }
 
-    public static func GetTempBuildDirectory(tempRoot: string, uniqueName: string): string {
+    static func GetTempBuildDirectory(tempRoot: string, uniqueName: string): string {
         return Path.Combine(tempRoot, "nlc-build-" + uniqueName)
     }
 
-    public static func GetTimingsMessage(resolveElapsed: string, compileElapsed: string, totalElapsed: string): string {
-        return "Build timings:\n"
-            + "  Resolve:    " + resolveElapsed + "\n"
-            + "  Emit IL:    " + compileElapsed + "\n"
-            + "  Total:      " + totalElapsed
+    static func GetTimingsMessage(resolveElapsed: string, compileElapsed: string, totalElapsed: string): string {
+        return "Build timings:\n" + "  Resolve:    " + resolveElapsed + "\n" + "  Emit IL:    " + compileElapsed + "\n" + "  Total:      " + totalElapsed
     }
 
-    public static func ShouldApplyDebugDefine(configuration: string): bool {
+    static func ShouldApplyDebugDefine(configuration: string): bool {
         return !string.Equals(configuration, "Release", StringComparison.OrdinalIgnoreCase)
     }
 
-    public static func GetOutputDirectory(projectRoot: string, configuration: string, targetFramework: string, outputDir: string?): string {
+    static func GetOutputDirectory(projectRoot: string, configuration: string, targetFramework: string, outputDir: string?): string {
         if outputDir != null {
             return Path.GetFullPath(outputDir)
         }
@@ -359,7 +316,7 @@ public class BuildCommandKernels {
         return CompilationReferenceResolverKernels.GetStableOutputDirectory(projectRoot, configuration, targetFramework)
     }
 
-    public static func ApplyEffectiveDefines(config: ProjectConfig, debug: bool, cliDefines: IReadOnlyList<string>?) {
+    static func ApplyEffectiveDefines(config: ProjectConfig, debug: bool, cliDefines: IReadOnlyList<string>?) {
         if debug && !ContainsDefine(config.Defines, "DEBUG") {
             config.Defines.Add("DEBUG")
         }
@@ -368,14 +325,14 @@ public class BuildCommandKernels {
             return
         }
 
-        foreach symbol in cliDefines {
+        for symbol in cliDefines {
             if !String.IsNullOrWhiteSpace(symbol) && !ContainsDefine(config.Defines, symbol) {
                 config.Defines.Add(symbol)
             }
         }
     }
 
-    public static func ToPerfReportFacts(report: SystemsReport): BuildPerfReportFacts {
+    static func ToPerfReportFacts(report: SystemsReport): BuildPerfReportFacts {
         allocationSites := new List<PerfReportSite>()
         delegateSites := new List<PerfReportSite>()
         boxingSites := new List<PerfReportSite>()
@@ -387,56 +344,18 @@ public class BuildCommandKernels {
         hotReadinessSites := new List<PerfReportSite>()
         implicitTrapSites := new List<PerfReportSite>()
 
-        foreach finding in report.Findings {
-            site := new PerfReportSite(
-                finding.Code,
-                finding.Effect,
-                finding.File,
-                finding.Line,
-                finding.Column,
-                finding.Message,
-                finding.Function,
-                finding.Suggestion)
+        for finding in report.Findings {
+            site := new PerfReportSite(finding.Code, finding.Effect, finding.File, finding.Line, finding.Column, finding.Message, finding.Function, finding.Suggestion)
 
-            AddPerfReportSite(site,
-                allocationSites,
-                delegateSites,
-                boxingSites,
-                dispatchSites,
-                closureCaptures,
-                poolSites,
-                resourceSites,
-                boundaryLeakSites,
-                hotReadinessSites,
-                implicitTrapSites)
+            AddPerfReportSite(site, allocationSites, delegateSites, boxingSites, dispatchSites, closureCaptures, poolSites, resourceSites, boundaryLeakSites, hotReadinessSites, implicitTrapSites)
         }
 
         trustedSites := new List<PerfReportTrustedSite>()
-        foreach site in report.TrustedSites {
-            trustedSites.Add(new PerfReportTrustedSite(
-                site.Function,
-                site.File,
-                site.Line,
-                site.Column,
-                site.Owner,
-                site.Review,
-                site.Expires,
-                site.HasUnsafe,
-                site.BodyStatementCount))
+        for site in report.TrustedSites {
+            trustedSites.Add(new PerfReportTrustedSite(site.Function, site.File, site.Line, site.Column, site.Owner, site.Review, site.Expires, site.HasUnsafe, site.BodyStatementCount))
         }
 
-        return new BuildPerfReportFacts(
-            allocationSites.ToArray(),
-            delegateSites.ToArray(),
-            boxingSites.ToArray(),
-            dispatchSites.ToArray(),
-            closureCaptures.ToArray(),
-            poolSites.ToArray(),
-            resourceSites.ToArray(),
-            boundaryLeakSites.ToArray(),
-            hotReadinessSites.ToArray(),
-            implicitTrapSites.ToArray(),
-            trustedSites.ToArray())
+        return new BuildPerfReportFacts(allocationSites.ToArray(), delegateSites.ToArray(), boxingSites.ToArray(), dispatchSites.ToArray(), closureCaptures.ToArray(), poolSites.ToArray(), resourceSites.ToArray(), boundaryLeakSites.ToArray(), hotReadinessSites.ToArray(), implicitTrapSites.ToArray(), trustedSites.ToArray())
     }
 
     static func BuildOptionSummaryKind(arg: string): int {
@@ -484,7 +403,7 @@ public class BuildCommandKernels {
     }
 
     static func ContainsDefine(defines: List<string>, symbol: string): bool {
-        foreach define in defines {
+        for define in defines {
             if define == symbol {
                 return true
             }
@@ -493,18 +412,7 @@ public class BuildCommandKernels {
         return false
     }
 
-    static func AddPerfReportSite(
-        site: PerfReportSite,
-        allocationSites: List<PerfReportSite>,
-        delegateSites: List<PerfReportSite>,
-        boxingSites: List<PerfReportSite>,
-        dispatchSites: List<PerfReportSite>,
-        closureCaptures: List<PerfReportSite>,
-        poolSites: List<PerfReportSite>,
-        resourceSites: List<PerfReportSite>,
-        boundaryLeakSites: List<PerfReportSite>,
-        hotReadinessSites: List<PerfReportSite>,
-        implicitTrapSites: List<PerfReportSite>) {
+    static func AddPerfReportSite(site: PerfReportSite, allocationSites: List<PerfReportSite>, delegateSites: List<PerfReportSite>, boxingSites: List<PerfReportSite>, dispatchSites: List<PerfReportSite>, closureCaptures: List<PerfReportSite>, poolSites: List<PerfReportSite>, resourceSites: List<PerfReportSite>, boundaryLeakSites: List<PerfReportSite>, hotReadinessSites: List<PerfReportSite>, implicitTrapSites: List<PerfReportSite>) {
         if site.Effect == "allocation" {
             allocationSites.Add(site)
         } else if site.Effect == "delegate" {
@@ -545,11 +453,7 @@ public class BuildCommandKernels {
             return 4
         }
 
-        if arg == "--aot"
-            || arg == "--release"
-            || arg == "--timings"
-            || arg == "--verbose"
-            || arg == "--perf-report" {
+        if arg == "--aot" || arg == "--release" || arg == "--timings" || arg == "--verbose" || arg == "--perf-report" {
             return 5
         }
 

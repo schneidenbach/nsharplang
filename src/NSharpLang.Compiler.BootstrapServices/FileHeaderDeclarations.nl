@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler.Ast
 
-public class PackageDeclaration {
+class PackageDeclaration {
     Name: string
     Line: int
     Column: int
@@ -12,7 +12,7 @@ public class PackageDeclaration {
     }
 }
 
-public class NamespaceDeclaration {
+class NamespaceDeclaration {
     Name: string
     Line: int
     Column: int

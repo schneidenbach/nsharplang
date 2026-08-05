@@ -1,6 +1,6 @@
 namespace NSharpLang.Compiler
 
-public enum DiagnosticSeverity {
+enum DiagnosticSeverity {
     Warning,
     Error,
     Info

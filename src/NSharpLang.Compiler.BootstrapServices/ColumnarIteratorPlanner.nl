@@ -4,6 +4,7 @@ import System
 import System.Reflection
 import System.Reflection.Emit
 
+
 // Sub-slice 3a: the DECISION layer of the synchronous iterator (func*) state machine. This planner owns
 // every structural decision — element type, field layout, state numbering, member/override identities,
 // dispatch shape, and the precise decline classification for shapes it cannot lower. It produces FACTS
@@ -14,51 +15,34 @@ import System.Reflection.Emit
 // running (set while MoveNext executes), -2 = done. Field layout order (hoist ordering): the state field,
 // the current field, then each captured parameter in signature order, then each hoisted local in first
 // declaration order.
-
-public class ColumnarIteratorShape {
-    public Supported: bool
-    public DeclineSite: string
-    public DeclineMessage: string
-    public TypeName: string
-    public ElementCanonical: string
-    public YieldReturnCount: int
-    public InitialState: int
-    public RunningState: int
-    public DoneState: int
-    public FieldCount: int
-    public FieldNames: string[]
-    public FieldCanonicals: string[]
-    public FieldRoles: int[]
-    public MemberCount: int
-    public MemberNames: string[]
-    public MemberSignatures: string[]
-    public MemberOverrides: string[]
+class ColumnarIteratorShape {
+    Supported: bool
+    DeclineSite: string
+    DeclineMessage: string
+    TypeName: string
+    ElementCanonical: string
+    YieldReturnCount: int
+    InitialState: int
+    RunningState: int
+    DoneState: int
+    FieldCount: int
+    FieldNames: string[]
+    FieldCanonicals: string[]
+    FieldRoles: int[]
+    MemberCount: int
+    MemberNames: string[]
+    MemberSignatures: string[]
+    MemberOverrides: string[]
     // Async-iterator classification facts (`async func*` returning IAsyncEnumerable<T>). IsAsync marks a
     // shape produced by the async classification path; AwaitResumeCount is the number of `await` suspension
     // points in the body. Each await, like each `yield return`, is a resume state — the state machine
     // resumes at its await-resume label after the awaited operation completes. The async state-machine
     // member surface (MoveNextAsync/DisposeAsync/GetAsyncEnumerator) and the awaiter/builder fields are the
     // async EMISSION slice; the classification here computes element type and resume counts only.
-    public IsAsync: bool
-    public AwaitResumeCount: int
+    IsAsync: bool
+    AwaitResumeCount: int
 
-    constructor(
-        supported: bool,
-        declineSite: string,
-        declineMessage: string,
-        typeName: string,
-        elementCanonical: string,
-        yieldReturnCount: int,
-        fieldCount: int,
-        fieldNames: string[],
-        fieldCanonicals: string[],
-        fieldRoles: int[],
-        memberCount: int,
-        memberNames: string[],
-        memberSignatures: string[],
-        memberOverrides: string[],
-        isAsync: bool,
-        awaitResumeCount: int) {
+    constructor(supported: bool, declineSite: string, declineMessage: string, typeName: string, elementCanonical: string, yieldReturnCount: int, fieldCount: int, fieldNames: string[], fieldCanonicals: string[], fieldRoles: int[], memberCount: int, memberNames: string[], memberSignatures: string[], memberOverrides: string[], isAsync: bool, awaitResumeCount: int) {
         Supported = supported
         DeclineSite = declineSite
         DeclineMessage = declineMessage
@@ -83,40 +67,31 @@ public class ColumnarIteratorShape {
 
 // Mutable accumulator for the single forward body walk.
 class ColumnarIteratorWalkState {
-    public YieldReturnCount: int
-    public AwaitCount: int
+    YieldReturnCount: int
+    AwaitCount: int
     // True while classifying an `async func*`: `await` expressions are then legal suspension points
     // (each counts an await-resume state); in a synchronous iterator an `await` declines.
-    public IsAsync: bool
-    public ForInCount: int
-    public EnumeratorCount: int
-    public LocalCount: int
-    public LocalNames: string[]
-    public LocalCanonicals: string[]
-    public LocalRoles: int[]
-    public Declined: bool
-    public DeclineSite: string
-    public DeclineMessage: string
-    public ParamNames: string[]
-    public ParamCanonicals: string[]
-    public TypeParamNames: string[]
+    IsAsync: bool
+    ForInCount: int
+    EnumeratorCount: int
+    LocalCount: int
+    LocalNames: string[]
+    LocalCanonicals: string[]
+    LocalRoles: int[]
+    Declined: bool
+    DeclineSite: string
+    DeclineMessage: string
+    ParamNames: string[]
+    ParamCanonicals: string[]
+    TypeParamNames: string[]
     // Enclosing-type member facts (instance iterators only; empty otherwise): readable public fields
     // and callable public methods of the receiver's type.
-    public MemberFieldNames: string[]
-    public MemberFieldCanonicals: string[]
-    public MemberMethodNames: string[]
-    public MemberMethodReturnCanonicals: string[]
+    MemberFieldNames: string[]
+    MemberFieldCanonicals: string[]
+    MemberMethodNames: string[]
+    MemberMethodReturnCanonicals: string[]
 
-    constructor(
-        capacity: int,
-        paramNames: string[],
-        paramCanonicals: string[],
-        typeParamNames: string[],
-        memberFieldNames: string[],
-        memberFieldCanonicals: string[],
-        memberMethodNames: string[],
-        memberMethodReturnCanonicals: string[],
-        isAsync: bool) {
+    constructor(capacity: int, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], memberFieldNames: string[], memberFieldCanonicals: string[], memberMethodNames: string[], memberMethodReturnCanonicals: string[], isAsync: bool) {
         YieldReturnCount = 0
         AwaitCount = 0
         IsAsync = isAsync
@@ -138,7 +113,7 @@ class ColumnarIteratorWalkState {
         MemberMethodReturnCanonicals = memberMethodReturnCanonicals
     }
 
-    public func Decline(site: string, message: string) {
+    func Decline(site: string, message: string) {
         if !Declined {
             Declined = true
             DeclineSite = site
@@ -148,7 +123,7 @@ class ColumnarIteratorWalkState {
 
     // The canonical type of a bound identifier: a parameter, or a local already declared earlier in the
     // walk. Returns "" when the name is unknown.
-    public func LookupCanonical(name: string): string {
+    func LookupCanonical(name: string): string {
         i := 0
         while i < ParamNames.Length {
             if ParamNames[i] == name {
@@ -167,7 +142,7 @@ class ColumnarIteratorWalkState {
     }
 
     // The canonical of an enclosing-type FIELD (instance mode); "" when unknown.
-    public func LookupMemberFieldCanonical(name: string): string {
+    func LookupMemberFieldCanonical(name: string): string {
         i := 0
         while i < MemberFieldNames.Length {
             if MemberFieldNames[i] == name {
@@ -179,7 +154,7 @@ class ColumnarIteratorWalkState {
     }
 
     // The return canonical of an enclosing-type METHOD (instance mode); "" when unknown.
-    public func LookupMemberMethodReturnCanonical(name: string): string {
+    func LookupMemberMethodReturnCanonical(name: string): string {
         i := 0
         while i < MemberMethodNames.Length {
             if MemberMethodNames[i] == name {
@@ -191,7 +166,7 @@ class ColumnarIteratorWalkState {
     }
 
     // Read resolution: parameters and locals first, then enclosing-type fields.
-    public func LookupReadCanonical(name: string): string {
+    func LookupReadCanonical(name: string): string {
         bound := LookupCanonical(name)
         if bound != "" {
             return bound
@@ -199,7 +174,7 @@ class ColumnarIteratorWalkState {
         return LookupMemberFieldCanonical(name)
     }
 
-    public func NameIsTypeParameter(name: string): bool {
+    func NameIsTypeParameter(name: string): bool {
         i := 0
         while i < TypeParamNames.Length {
             if TypeParamNames[i] == name {
@@ -210,17 +185,16 @@ class ColumnarIteratorWalkState {
         return false
     }
 
-    public func AddLocal(name: string, canonical: string) {
+    func AddLocal(name: string, canonical: string) {
         AddHoistedLocal(name, canonical, ColumnarIteratorPlanner.HoistedLocalFieldRole())
     }
 
-    public func AddHoistedLocal(name: string, canonical: string, role: int) {
+    func AddHoistedLocal(name: string, canonical: string, role: int) {
         // A local that re-declares a parameter name collides with its captured field.
         p := 0
         while p < ParamNames.Length {
             if ParamNames[p] == name {
-                Decline("emit.iterator.unsupported-shape",
-                    "a hoisted local shadows an existing binding ('" + name + "'); this shape is not yet lowered")
+                Decline("emit.iterator.unsupported-shape", "a hoisted local shadows an existing binding ('" + name + "'); this shape is not yet lowered")
                 return
             }
             p = p + 1
@@ -235,8 +209,7 @@ class ColumnarIteratorWalkState {
                 if LocalCanonicals[l] == canonical && LocalRoles[l] == role {
                     return
                 }
-                Decline("emit.iterator.unsupported-shape",
-                    "a hoisted local shadows an existing binding ('" + name + "'); this shape is not yet lowered")
+                Decline("emit.iterator.unsupported-shape", "a hoisted local shadows an existing binding ('" + name + "'); this shape is not yet lowered")
                 return
             }
             l = l + 1
@@ -248,60 +221,64 @@ class ColumnarIteratorWalkState {
     }
 }
 
-public class ColumnarIteratorPlanner {
-    public static func InitialState(): int { return 0 }
-    public static func RunningState(): int { return -1 }
-    public static func DoneState(): int { return -2 }
+class ColumnarIteratorPlanner {
+    static func InitialState(): int {
+        return 0
+    }
+    static func RunningState(): int {
+        return -1
+    }
+    static func DoneState(): int {
+        return -2
+    }
 
-    public static func StateFieldRole(): int { return 0 }
-    public static func CurrentFieldRole(): int { return 1 }
-    public static func CapturedParameterFieldRole(): int { return 2 }
-    public static func HoistedLocalFieldRole(): int { return 3 }
-    public static func HoistedEnumeratorFieldRole(): int { return 4 }
+    static func StateFieldRole(): int {
+        return 0
+    }
+    static func CurrentFieldRole(): int {
+        return 1
+    }
+    static func CapturedParameterFieldRole(): int {
+        return 2
+    }
+    static func HoistedLocalFieldRole(): int {
+        return 3
+    }
+    static func HoistedEnumeratorFieldRole(): int {
+        return 4
+    }
     // Async-machine roles: one hoisted TaskAwaiter per await site (role 5, `<>__awaiter{k}` in walk
     // order), the per-pending-call TaskCompletionSource<bool> promise (role 6), the synchronous-step
     // result flag (role 7), and the re-drive Action the suspension path registers (role 8).
-    public static func AwaiterFieldRole(): int { return 5 }
-    public static func PromiseFieldRole(): int { return 6 }
-    public static func ResultFieldRole(): int { return 7 }
-    public static func ContinuationFieldRole(): int { return 8 }
+    static func AwaiterFieldRole(): int {
+        return 5
+    }
+    static func PromiseFieldRole(): int {
+        return 6
+    }
+    static func ResultFieldRole(): int {
+        return 7
+    }
+    static func ContinuationFieldRole(): int {
+        return 8
+    }
 
     // Analyze a func* and produce its state-machine shape facts, or a precise decline. An INSTANCE
     // method supplies its receiver canonical plus the enclosing type's readable field and callable
     // method facts (public members only — the host filters); the receiver hoists as a `<>__this`
     // captured field so the factory (the method body) stores `ldarg.0` and the clone copies it.
-    public static func AnalyzeShape(
-        nodes: ColumnarNodeTable,
-        source: string,
-        bodyRoot: int,
-        funcName: string,
-        funcOrdinal: int,
-        returnCanonical: string,
-        paramNames: string[],
-        paramCanonicals: string[],
-        typeParamNames: string[],
-        isInstance: bool,
-        receiverCanonical: string = "",
-        enclosingFieldNames: string[]? = null,
-        enclosingFieldCanonicals: string[]? = null,
-        enclosingMethodNames: string[]? = null,
-        enclosingMethodReturnCanonicals: string[]? = null,
-        isAsync: bool = false): ColumnarIteratorShape {
+    static func AnalyzeShape(nodes: ColumnarNodeTable, source: string, bodyRoot: int, funcName: string, funcOrdinal: int, returnCanonical: string, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], isInstance: bool, receiverCanonical: string = "", enclosingFieldNames: string[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethodReturnCanonicals: string[]? = null, isAsync: bool = false): ColumnarIteratorShape {
         if isInstance && receiverCanonical == "" {
-            return Declined("emit.iterator.instance-unsupported",
-                "iterator methods with an instance receiver are not yet lowered")
+            return Declined("emit.iterator.instance-unsupported", "iterator methods with an instance receiver are not yet lowered")
         }
         if isInstance && typeParamNames.Length > 0 {
-            return Declined("emit.iterator.instance-unsupported",
-                "generic instance iterator methods are not yet lowered")
+            return Declined("emit.iterator.instance-unsupported", "generic instance iterator methods are not yet lowered")
         }
         if isAsync && isInstance {
-            return Declined("emit.iterator.async-unsupported",
-                "async iterator methods with an instance receiver are not yet lowered")
+            return Declined("emit.iterator.async-unsupported", "async iterator methods with an instance receiver are not yet lowered")
         }
         if isAsync && typeParamNames.Length > 0 {
-            return Declined("emit.iterator.async-unsupported",
-                "generic async iterator methods are not yet lowered")
+            return Declined("emit.iterator.async-unsupported", "generic async iterator methods are not yet lowered")
         }
 
         // Element-type inference. A synchronous iterator returns IEnumerable<X>; an `async func*` returns
@@ -312,28 +289,19 @@ public class ColumnarIteratorPlanner {
         element := SequenceElementOf(returnCanonical)
         if isAsync {
             if UnqualifiedName(sequenceName) != "IAsyncEnumerable" || element == "" {
-                return Declined("emit.iterator.async-return-unsupported",
-                    "an async iterator (`async func*`) must return IAsyncEnumerable<T>, not '" + returnCanonical + "'")
+                return Declined("emit.iterator.async-return-unsupported", "an async iterator (`async func*`) must return IAsyncEnumerable<T>, not '" + returnCanonical + "'")
             }
         } else {
             if UnqualifiedName(sequenceName) == "IAsyncEnumerable" {
-                return Declined("emit.iterator.async-unsupported",
-                    "IAsyncEnumerable<T> requires the 'async' modifier on the iterator")
+                return Declined("emit.iterator.async-unsupported", "IAsyncEnumerable<T> requires the 'async' modifier on the iterator")
             }
             if element == "" || UnqualifiedName(sequenceName) != "IEnumerable" {
-                return Declined("emit.iterator.return-unsupported",
-                    "only a typed IEnumerable<T> iterator return is lowered, not '" + returnCanonical + "'")
+                return Declined("emit.iterator.return-unsupported", "only a typed IEnumerable<T> iterator return is lowered, not '" + returnCanonical + "'")
             }
         }
 
         capacity := nodes.Kinds.Length + 1
-        state := new ColumnarIteratorWalkState(
-            capacity, paramNames, paramCanonicals, typeParamNames,
-            enclosingFieldNames ?? new string[](0),
-            enclosingFieldCanonicals ?? new string[](0),
-            enclosingMethodNames ?? new string[](0),
-            enclosingMethodReturnCanonicals ?? new string[](0),
-            isAsync)
+        state := new ColumnarIteratorWalkState(capacity, paramNames, paramCanonicals, typeParamNames, enclosingFieldNames ?? new string[](0), enclosingFieldCanonicals ?? new string[](0), enclosingMethodNames ?? new string[](0), enclosingMethodReturnCanonicals ?? new string[](0), isAsync)
         WalkStatement(nodes, source, bodyRoot, state)
         if state.Declined {
             return Declined(state.DeclineSite, state.DeclineMessage)
@@ -342,19 +310,10 @@ public class ColumnarIteratorPlanner {
         if isAsync {
             return BuildSupportedAsyncShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state)
         }
-        return BuildSupportedShape(
-            funcName, funcOrdinal, element, paramNames, paramCanonicals, state,
-            isInstance ? receiverCanonical : "")
+        return BuildSupportedShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state, isInstance ? receiverCanonical : "")
     }
 
-    static func BuildSupportedShape(
-        funcName: string,
-        funcOrdinal: int,
-        element: string,
-        paramNames: string[],
-        paramCanonicals: string[],
-        state: ColumnarIteratorWalkState,
-        receiverCanonical: string): ColumnarIteratorShape {
+    static func BuildSupportedShape(funcName: string, funcOrdinal: int, element: string, paramNames: string[], paramCanonicals: string[], state: ColumnarIteratorWalkState, receiverCanonical: string): ColumnarIteratorShape {
         receiverCount := 0
         if receiverCanonical != "" {
             receiverCount = 1
@@ -400,11 +359,7 @@ public class ColumnarIteratorPlanner {
         memberSignatures := BuildMemberSignatures(element)
         memberOverrides := BuildMemberOverrides()
 
-        return new ColumnarIteratorShape(
-            true, "", "", typeName, element, state.YieldReturnCount,
-            fieldCount, fieldNames, fieldCanonicals, fieldRoles,
-            memberNames.Length, memberNames, memberSignatures, memberOverrides,
-            false, 0)
+        return new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrides, false, 0)
     }
 
     // The async state-machine shape (`async func*` returning IAsyncEnumerable<T>). Field layout extends
@@ -413,13 +368,7 @@ public class ColumnarIteratorPlanner {
     // result flag, and the re-drive continuation. Resume states interleave: the k-th suspension point in
     // body walk order (a `yield return` OR an `await`) resumes at state k+1; MoveNextCore's dispatch treats
     // both kinds identically and the body planner assigns numbers with one shared counter.
-    static func BuildSupportedAsyncShape(
-        funcName: string,
-        funcOrdinal: int,
-        element: string,
-        paramNames: string[],
-        paramCanonicals: string[],
-        state: ColumnarIteratorWalkState): ColumnarIteratorShape {
+    static func BuildSupportedAsyncShape(funcName: string, funcOrdinal: int, element: string, paramNames: string[], paramCanonicals: string[], state: ColumnarIteratorWalkState): ColumnarIteratorShape {
         fieldCount := 2 + paramNames.Length + state.LocalCount + state.AwaitCount + 3
         fieldNames := new string[](fieldCount)
         fieldCanonicals := new string[](fieldCount)
@@ -469,11 +418,7 @@ public class ColumnarIteratorPlanner {
         memberNames := BuildAsyncMemberNames()
         memberSignatures := BuildAsyncMemberSignatures(element)
         memberOverrides := BuildAsyncMemberOverrides()
-        return new ColumnarIteratorShape(
-            true, "", "", typeName, element, state.YieldReturnCount,
-            fieldCount, fieldNames, fieldCanonicals, fieldRoles,
-            memberNames.Length, memberNames, memberSignatures, memberOverrides,
-            true, state.AwaitCount)
+        return new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrides, true, state.AwaitCount)
     }
 
     // The six async state-machine members. MoveNextCore is the plain synchronous-step method (no
@@ -555,11 +500,7 @@ public class ColumnarIteratorPlanner {
     }
 
     static func Declined(site: string, message: string): ColumnarIteratorShape {
-        return new ColumnarIteratorShape(
-            false, site, message, "", "", 0,
-            0, new string[](0), new string[](0), new int[](0),
-            0, new string[](0), new string[](0), new string[](0),
-            false, 0)
+        return new ColumnarIteratorShape(false, site, message, "", "", 0, 0, new string[](0), new string[](0), new int[](0), 0, new string[](0), new string[](0), new string[](0), false, 0)
     }
 
     // ---- body walk (single forward pass; collects locals + counts yields + classifies declines) ----
@@ -608,8 +549,7 @@ public class ColumnarIteratorPlanner {
                 inferred = InferCanonical(nodes, source, initNode, state)
             }
             if inferred == "?" {
-                state.Decline("emit.iterator.unsupported-shape",
-                    "the initializer type of local '" + name + "' could not be inferred for hoisting")
+                state.Decline("emit.iterator.unsupported-shape", "the initializer type of local '" + name + "' could not be inferred for hoisting")
                 return false
             }
             state.AddLocal(name, inferred)
@@ -626,8 +566,7 @@ public class ColumnarIteratorPlanner {
             // iterator; control falls through to the following statement at the await-resume label.
             if nodes.Kind(inner) == 53 {
                 if !state.IsAsync {
-                    state.Decline("emit.iterator.unsupported-shape",
-                        "`await` is only valid inside an async iterator body")
+                    state.Decline("emit.iterator.unsupported-shape", "`await` is only valid inside an async iterator body")
                     return false
                 }
                 WalkUnitAwait(nodes, source, inner, state)
@@ -651,8 +590,7 @@ public class ColumnarIteratorPlanner {
             name := nodes.Text(source, target)
             if state.LookupCanonical(name) == "" {
                 if state.LookupMemberFieldCanonical(name) != "" {
-                    state.Decline("emit.iterator.unsupported-shape",
-                        "assignment to enclosing member '" + name + "' is not lowered in an iterator body (reads only)")
+                    state.Decline("emit.iterator.unsupported-shape", "assignment to enclosing member '" + name + "' is not lowered in an iterator body (reads only)")
                     return false
                 }
                 state.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "'")
@@ -714,8 +652,7 @@ public class ColumnarIteratorPlanner {
             if !initFalls || !incrFalls {
                 // A non-falling initializer or increment (e.g. a clause-slot `yield break`) would leave
                 // dead rows after itself — decline the degenerate shape instead.
-                state.Decline("emit.iterator.unsupported-shape",
-                    "a for initializer or increment that cannot complete is not lowered in an iterator body")
+                state.Decline("emit.iterator.unsupported-shape", "a for initializer or increment that cannot complete is not lowered in an iterator body")
                 return false
             }
             WalkStatement(nodes, source, nodes.Child(node, 3), state)
@@ -751,8 +688,7 @@ public class ColumnarIteratorPlanner {
                     arrayElement := ArrayElementCanonicalOf(boundCanonical)
                     if arrayElement != "" {
                         if !IsLowerableArrayElementCanonical(arrayElement) {
-                            state.Decline("emit.iterator.for-in-unsupported",
-                                "array element type '" + arrayElement + "' is not yet lowered in an iterator for..in")
+                            state.Decline("emit.iterator.for-in-unsupported", "array element type '" + arrayElement + "' is not yet lowered in an iterator for..in")
                             return false
                         }
                         state.AddLocal("<>__index" + state.ForInCount.ToString(), "int")
@@ -769,13 +705,11 @@ public class ColumnarIteratorPlanner {
                 } else {
                     memberCanonical := state.LookupMemberFieldCanonical(sourceName)
                     if memberCanonical == "" {
-                        state.Decline("emit.iterator.unsupported-shape",
-                            "unbound identifier '" + sourceName + "' in an iterator body")
+                        state.Decline("emit.iterator.unsupported-shape", "unbound identifier '" + sourceName + "' in an iterator body")
                         return false
                     }
                     if ArrayElementCanonicalOf(memberCanonical) != "" {
-                        state.Decline("emit.iterator.for-in-unsupported",
-                            "`for..in` over a member array ('" + sourceName + "') is a later slice")
+                        state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a member array ('" + sourceName + "') is a later slice")
                         return false
                     }
                     sourceCanonical = memberCanonical
@@ -784,58 +718,46 @@ public class ColumnarIteratorPlanner {
                 // Member-call source: `receiver.Method()` with no arguments, resolved against the
                 // enclosing type's method facts (recursion resolves against the method being classified).
                 if nodes.ChildCount(sourceNode) != 1 {
-                    state.Decline("emit.iterator.for-in-unsupported",
-                        "`for..in` over a call with arguments is a later slice")
+                    state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a call with arguments is a later slice")
                     return false
                 }
                 callee := nodes.Child(sourceNode, 0)
                 if nodes.Kind(callee) != 8 || nodes.ChildCount(callee) != 1 {
-                    state.Decline("emit.iterator.for-in-unsupported",
-                        "`for..in` call sources must be a bound receiver's member call")
+                    state.Decline("emit.iterator.for-in-unsupported", "`for..in` call sources must be a bound receiver's member call")
                     return false
                 }
                 receiverNode := nodes.Child(callee, 0)
-                if nodes.Kind(receiverNode) != 6
-                    || state.LookupReadCanonical(nodes.Text(source, receiverNode)) == "" {
-                    state.Decline("emit.iterator.for-in-unsupported",
-                        "`for..in` call sources must be a bound receiver's member call")
+                if nodes.Kind(receiverNode) != 6 || state.LookupReadCanonical(nodes.Text(source, receiverNode)) == "" {
+                    state.Decline("emit.iterator.for-in-unsupported", "`for..in` call sources must be a bound receiver's member call")
                     return false
                 }
                 methodName := nodes.Text(source, callee)
                 returnCanonical := state.LookupMemberMethodReturnCanonical(methodName)
                 if returnCanonical == "" {
-                    state.Decline("emit.iterator.for-in-unsupported",
-                        "'" + methodName + "' is not a known enclosing member method for a for..in source")
+                    state.Decline("emit.iterator.for-in-unsupported", "'" + methodName + "' is not a known enclosing member method for a for..in source")
                     return false
                 }
                 sourceCanonical = returnCanonical
             } else {
-                state.Decline("emit.iterator.for-in-unsupported",
-                    "`for..in` sources must be a bound identifier or a member call; other sources are a later slice")
+                state.Decline("emit.iterator.for-in-unsupported", "`for..in` sources must be a bound identifier or a member call; other sources are a later slice")
                 return false
             }
             enumerableElement := EnumerableElementCanonicalOf(sourceCanonical)
             if enumerableElement == "" {
-                state.Decline("emit.iterator.for-in-unsupported",
-                    "`for..in` over a non-sequence value ('" + sourceCanonical + "') in an iterator body is a later slice")
+                state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a non-sequence value ('" + sourceCanonical + "') in an iterator body is a later slice")
                 return false
             }
             if state.IsAsync {
                 // The guarded try/FAULT enumerator layout and the async try/CATCH step core do not
                 // compose yet; async bodies keep the array index loop only.
-                state.Decline("emit.iterator.for-in-unsupported",
-                    "`for..in` over a sequence source in an async iterator body is a later slice")
+                state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a sequence source in an async iterator body is a later slice")
                 return false
             }
             if state.NameIsTypeParameter(enumerableElement) {
-                state.Decline("emit.iterator.for-in-unsupported",
-                    "`for..in` over a type-parameter element sequence is a later slice")
+                state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a type-parameter element sequence is a later slice")
                 return false
             }
-            state.AddHoistedLocal(
-                "<>__enum" + state.EnumeratorCount.ToString(),
-                "IEnumerator<" + enumerableElement + ">",
-                HoistedEnumeratorFieldRole())
+            state.AddHoistedLocal("<>__enum" + state.EnumeratorCount.ToString(), "IEnumerator<" + enumerableElement + ">", HoistedEnumeratorFieldRole())
             state.EnumeratorCount = state.EnumeratorCount + 1
             state.AddLocal(nodes.Text(source, node), enumerableElement)
             if state.Declined {
@@ -848,8 +770,7 @@ public class ColumnarIteratorPlanner {
         if kind == 73 {
             // AwaitForeachStatement: asynchronous enumeration INSIDE an async iterator body composes two
             // machines and is a later slice (consumer-side await foreach lowering is separate).
-            state.Decline("emit.iterator.async-await-unsupported",
-                "`await foreach` inside an iterator body is a later slice")
+            state.Decline("emit.iterator.async-await-unsupported", "`await foreach` inside an iterator body is a later slice")
             return false
         }
         if kind == 48 {
@@ -861,24 +782,18 @@ public class ColumnarIteratorPlanner {
             }
             creation := nodes.Child(node, 0)
             if nodes.Kind(creation) != 15 || nodes.ChildCount(creation) != 2 {
-                state.Decline("emit.iterator.unsupported-shape",
-                    "only `throw new <BclException>(\"message\")` is lowered in an iterator body")
+                state.Decline("emit.iterator.unsupported-shape", "only `throw new <BclException>(\"message\")` is lowered in an iterator body")
                 return false
             }
             typeNode := nodes.Child(creation, 0)
             messageNode := nodes.Child(creation, 1)
-            if nodes.Kind(typeNode) != 0
-                || !IsLowerableExceptionName(nodes.Text(source, typeNode))
-                || nodes.Kind(messageNode) != 3
-                || !IsPlainMessageLiteral(nodes.Text(source, messageNode)) {
-                state.Decline("emit.iterator.unsupported-shape",
-                    "only `throw new <BclException>(\"message\")` with a plain string literal is lowered in an iterator body")
+            if nodes.Kind(typeNode) != 0 || !IsLowerableExceptionName(nodes.Text(source, typeNode)) || nodes.Kind(messageNode) != 3 || !IsPlainMessageLiteral(nodes.Text(source, messageNode)) {
+                state.Decline("emit.iterator.unsupported-shape", "only `throw new <BclException>(\"message\")` with a plain string literal is lowered in an iterator body")
                 return false
             }
             return false
         }
-        state.Decline("emit.iterator.unsupported-shape",
-            "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
+        state.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
     }
 
@@ -914,8 +829,7 @@ public class ColumnarIteratorPlanner {
             }
             op := nodes.Text(source, node)
             if !IsSupportedBinaryOperator(op) {
-                state.Decline("emit.iterator.unsupported-shape",
-                    "binary operator '" + op + "' is not yet lowered in an iterator body")
+                state.Decline("emit.iterator.unsupported-shape", "binary operator '" + op + "' is not yet lowered in an iterator body")
                 return
             }
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
@@ -929,8 +843,7 @@ public class ColumnarIteratorPlanner {
             left := InferCanonical(nodes, source, nodes.Child(node, 0), state)
             right := InferCanonical(nodes, source, nodes.Child(node, 1), state)
             if !AreLowerableBinaryOperands(left, right, op) {
-                state.Decline("emit.iterator.unsupported-shape",
-                    "binary operator '" + op + "' over '" + left + "'/'" + right + "' operands is not yet lowered in an iterator body")
+                state.Decline("emit.iterator.unsupported-shape", "binary operator '" + op + "' over '" + left + "'/'" + right + "' operands is not yet lowered in an iterator body")
             }
             return
         }
@@ -938,12 +851,10 @@ public class ColumnarIteratorPlanner {
             // `await` reaches WalkExpression only in a VALUE position (initializer, yield value,
             // operand); suspension points are statement-position unit awaits handled by WalkStatement.
             if !state.IsAsync {
-                state.Decline("emit.iterator.unsupported-shape",
-                    "`await` is only valid inside an async iterator body")
+                state.Decline("emit.iterator.unsupported-shape", "`await` is only valid inside an async iterator body")
                 return
             }
-            state.Decline("emit.iterator.async-await-unsupported",
-                "`await` in a value position is not yet lowered in an async iterator body")
+            state.Decline("emit.iterator.async-await-unsupported", "`await` in a value position is not yet lowered in an async iterator body")
             return
         }
         if kind == 44 {
@@ -958,12 +869,10 @@ public class ColumnarIteratorPlanner {
             if IsAdmittedStringCall(nodes, source, node, state) {
                 return
             }
-            state.Decline("emit.iterator.nested-unsupported",
-                "method calls inside an iterator body are not yet lowered")
+            state.Decline("emit.iterator.nested-unsupported", "method calls inside an iterator body are not yet lowered")
             return
         }
-        state.Decline("emit.iterator.unsupported-shape",
-            "an iterator body expression (node kind " + kind.ToString() + ") is not yet lowered")
+        state.Decline("emit.iterator.unsupported-shape", "an iterator body expression (node kind " + kind.ToString() + ") is not yet lowered")
     }
 
     // `<ident>++` / `<ident>--`: a step of a bound (writable) int binding — the only stepped canonical
@@ -977,20 +886,17 @@ public class ColumnarIteratorPlanner {
         }
         target := nodes.Child(node, 0)
         if nodes.Kind(target) != 6 {
-            state.Decline("emit.iterator.unsupported-shape",
-                "a postfix step target must be a bound identifier in an iterator body")
+            state.Decline("emit.iterator.unsupported-shape", "a postfix step target must be a bound identifier in an iterator body")
             return
         }
         name := nodes.Text(source, target)
         canonical := state.LookupCanonical(name)
         if canonical == "" {
-            state.Decline("emit.iterator.unsupported-shape",
-                "postfix step of an unbound or read-only identifier '" + name + "' in an iterator body")
+            state.Decline("emit.iterator.unsupported-shape", "postfix step of an unbound or read-only identifier '" + name + "' in an iterator body")
             return
         }
         if canonical != "int" {
-            state.Decline("emit.iterator.unsupported-shape",
-                "postfix step over a non-int binding ('" + name + "': '" + canonical + "') is not yet lowered in an iterator body")
+            state.Decline("emit.iterator.unsupported-shape", "postfix step over a non-int binding ('" + name + "': '" + canonical + "') is not yet lowered in an iterator body")
         }
     }
 
@@ -1013,7 +919,7 @@ public class ColumnarIteratorPlanner {
     }
 
     // Zero-argument string→string instance methods the emit walk resolves via GetMethod(name, none).
-    public static func IsLowerableStringInstanceMethod(name: string): bool {
+    static func IsLowerableStringInstanceMethod(name: string): bool {
         return name == "ToUpper" || name == "ToLower" || name == "Trim"
     }
 
@@ -1023,32 +929,24 @@ public class ColumnarIteratorPlanner {
     // and emission stay in lockstep. Every other operand declines at a precise site.
     static func WalkUnitAwait(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
         if nodes.ChildCount(node) != 1 {
-            state.Decline("emit.iterator.async-await-unsupported",
-                "malformed await expression in an async iterator body")
+            state.Decline("emit.iterator.async-await-unsupported", "malformed await expression in an async iterator body")
             return
         }
         state.AwaitCount = state.AwaitCount + 1
         operand := nodes.Child(node, 0)
         if nodes.Kind(operand) != 9 || nodes.ChildCount(operand) != 2 {
-            state.Decline("emit.iterator.async-await-unsupported",
-                "only `await Task.Delay(<int>)` awaited operands are lowered in an async iterator body")
+            state.Decline("emit.iterator.async-await-unsupported", "only `await Task.Delay(<int>)` awaited operands are lowered in an async iterator body")
             return
         }
         callee := nodes.Child(operand, 0)
-        if nodes.Kind(callee) != 8 || nodes.ChildCount(callee) != 1
-            || nodes.Text(source, callee) != "Delay"
-            || nodes.Kind(nodes.Child(callee, 0)) != 6
-            || nodes.Text(source, nodes.Child(callee, 0)) != "Task"
-            || state.LookupReadCanonical("Task") != "" {
-            state.Decline("emit.iterator.async-await-unsupported",
-                "only `await Task.Delay(<int>)` awaited operands are lowered in an async iterator body")
+        if nodes.Kind(callee) != 8 || nodes.ChildCount(callee) != 1 || nodes.Text(source, callee) != "Delay" || nodes.Kind(nodes.Child(callee, 0)) != 6 || nodes.Text(source, nodes.Child(callee, 0)) != "Task" || state.LookupReadCanonical("Task") != "" {
+            state.Decline("emit.iterator.async-await-unsupported", "only `await Task.Delay(<int>)` awaited operands are lowered in an async iterator body")
             return
         }
         argNode := nodes.Child(operand, 1)
         WalkExpression(nodes, source, argNode, state)
         if !state.Declined && InferCanonical(nodes, source, argNode, state) != "int" {
-            state.Decline("emit.iterator.async-await-unsupported",
-                "the Task.Delay argument must be an int-typed expression in an async iterator body")
+            state.Decline("emit.iterator.async-await-unsupported", "the Task.Delay argument must be an int-typed expression in an async iterator body")
         }
     }
 
@@ -1097,8 +995,7 @@ public class ColumnarIteratorPlanner {
     }
 
     static func IsComparisonOperator(op: string): bool {
-        return op == "<" || op == ">" || op == "<=" || op == ">="
-            || op == "==" || op == "!="
+        return op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!="
     }
 
     static func IsNumericCanonical(canonical: string): bool {
@@ -1112,10 +1009,8 @@ public class ColumnarIteratorPlanner {
         return left == "bool" && right == "bool" && (op == "==" || op == "!=")
     }
 
-    public static func IsSupportedBinaryOperator(op: string): bool {
-        return op == "+" || op == "-" || op == "*" || op == "/" || op == "%"
-            || op == "<" || op == ">" || op == "<=" || op == ">="
-            || op == "==" || op == "!="
+    static func IsSupportedBinaryOperator(op: string): bool {
+        return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!="
     }
 
     // ---- return-canonical parsing ----
@@ -1157,10 +1052,8 @@ public class ColumnarIteratorPlanner {
     }
 
     // The element canonical of a single-dimensional array canonical ("int[]" -> "int"); "" otherwise.
-    public static func ArrayElementCanonicalOf(canonical: string): string {
-        if canonical.Length < 3
-            || canonical[canonical.Length - 2] != '['
-            || canonical[canonical.Length - 1] != ']' {
+    static func ArrayElementCanonicalOf(canonical: string): string {
+        if canonical.Length < 3 || canonical[canonical.Length - 2] != '[' || canonical[canonical.Length - 1] != ']' {
             return ""
         }
         return canonical.Substring(0, canonical.Length - 2)
@@ -1168,7 +1061,7 @@ public class ColumnarIteratorPlanner {
 
     // The element canonical of an enumerator-lowered sequence source: "IEnumerable<X>" or "List<X>"
     // (List<T> implements IEnumerable<T>, so both route through the same interface calls); "" otherwise.
-    public static func EnumerableElementCanonicalOf(canonical: string): string {
+    static func EnumerableElementCanonicalOf(canonical: string): string {
         element := GenericArgumentCanonicalOf(canonical, "IEnumerable<")
         if element != "" {
             return element
@@ -1177,14 +1070,12 @@ public class ColumnarIteratorPlanner {
     }
 
     // The element canonical of a hoisted enumerator field canonical ("IEnumerator<X>" -> "X").
-    public static func EnumeratorElementCanonicalOf(canonical: string): string {
+    static func EnumeratorElementCanonicalOf(canonical: string): string {
         return GenericArgumentCanonicalOf(canonical, "IEnumerator<")
     }
 
     static func GenericArgumentCanonicalOf(canonical: string, prefix: string): string {
-        if canonical.Length <= prefix.Length + 1
-            || canonical.Substring(0, prefix.Length) != prefix
-            || canonical[canonical.Length - 1] != '>' {
+        if canonical.Length <= prefix.Length + 1 || canonical.Substring(0, prefix.Length) != prefix || canonical[canonical.Length - 1] != '>' {
             return ""
         }
         inner := canonical.Substring(prefix.Length, canonical.Length - prefix.Length - 1)
@@ -1196,7 +1087,7 @@ public class ColumnarIteratorPlanner {
 
     // True when the body contains any yield statement (kind 72) — the structural mark of a generator
     // body, used to classify type-member generators whose modifier facts do not reach the emit host.
-    public static func ContainsYield(nodes: ColumnarNodeTable, node: int): bool {
+    static func ContainsYield(nodes: ColumnarNodeTable, node: int): bool {
         if nodes.Kind(node) == 72 {
             return true
         }
@@ -1211,37 +1102,22 @@ public class ColumnarIteratorPlanner {
     }
 
     // Array elements the MoveNext lowering has a typed ldelem opcode for.
-    public static func IsLowerableArrayElementCanonical(element: string): bool {
-        return element == "int" || element == "long" || element == "float" || element == "double"
-            || element == "bool" || element == "char" || element == "string"
+    static func IsLowerableArrayElementCanonical(element: string): bool {
+        return element == "int" || element == "long" || element == "float" || element == "double" || element == "bool" || element == "char" || element == "string"
     }
 
     // The System-namespace exception constructions the throw lowering resolves (mirrors the C#
     // emitter's BCL exception whitelist for the System namespace).
-    public static func IsLowerableExceptionName(name: string): bool {
+    static func IsLowerableExceptionName(name: string): bool {
         simple := SystemUnqualifiedExceptionName(name)
         if simple == "" {
             return false
         }
-        return simple == "Exception"
-            || simple == "InvalidOperationException"
-            || simple == "ArgumentException"
-            || simple == "ArgumentNullException"
-            || simple == "ArgumentOutOfRangeException"
-            || simple == "NotSupportedException"
-            || simple == "NotImplementedException"
-            || simple == "FormatException"
-            || simple == "IndexOutOfRangeException"
-            || simple == "InvalidCastException"
-            || simple == "TimeoutException"
-            || simple == "OverflowException"
-            || simple == "DivideByZeroException"
-            || simple == "ArithmeticException"
-            || simple == "NullReferenceException"
+        return simple == "Exception" || simple == "InvalidOperationException" || simple == "ArgumentException" || simple == "ArgumentNullException" || simple == "ArgumentOutOfRangeException" || simple == "NotSupportedException" || simple == "NotImplementedException" || simple == "FormatException" || simple == "IndexOutOfRangeException" || simple == "InvalidCastException" || simple == "TimeoutException" || simple == "OverflowException" || simple == "DivideByZeroException" || simple == "ArithmeticException" || simple == "NullReferenceException"
     }
 
     // A bare exception name, or one qualified exactly by `System.`; "" for any other qualification.
-    public static func SystemUnqualifiedExceptionName(name: string): string {
+    static func SystemUnqualifiedExceptionName(name: string): string {
         simple := name
         if name.Length > 7 && name.Substring(0, 7) == "System." {
             simple = name.Substring(7)
@@ -1253,7 +1129,7 @@ public class ColumnarIteratorPlanner {
     }
 
     // A plain (non-interpolated) quoted string literal span, exactly what StringLiteralDecoder decodes.
-    public static func IsPlainMessageLiteral(text: string): bool {
+    static func IsPlainMessageLiteral(text: string): bool {
         return text.Length >= 2 && text[0] == '"' && text[text.Length - 1] == '"'
     }
 
@@ -1291,48 +1167,30 @@ public class ColumnarIteratorPlanner {
 // The handles the C# host passes back after defining the state-machine type, its fields, and methods
 // from the 3a facts. Field handles are parallel to ColumnarIteratorShape.FieldNames (state, current, then
 // captured parameters, then hoisted locals), so a body identifier resolves to a field by that name.
-public class ColumnarIteratorEmitContext {
-    public Nodes: ColumnarNodeTable
-    public Source: string
-    public BodyRoot: int
-    public Shape: ColumnarIteratorShape
-    public StateMachineType: Type
-    public ElementType: Type
-    public FieldNames: string[]
-    public Fields: FieldInfo[]
-    public Constructor: ConstructorInfo?
+class ColumnarIteratorEmitContext {
+    Nodes: ColumnarNodeTable
+    Source: string
+    BodyRoot: int
+    Shape: ColumnarIteratorShape
+    StateMachineType: Type
+    ElementType: Type
+    FieldNames: string[]
+    Fields: FieldInfo[]
+    Constructor: ConstructorInfo?
     // Instance-iterator extras (empty for top-level machines): the enclosing type plus its readable
     // field / callable method handles, and the canonical->runtime-type table for sequence elements.
-    public EnclosingType: Type?
-    public EnclosingFieldNames: string[]
-    public EnclosingFields: FieldInfo[]
-    public EnclosingFieldCanonicals: string[]
-    public EnclosingMethodNames: string[]
-    public EnclosingMethods: MethodInfo[]
-    public KnownTypeNames: string[]
-    public KnownTypes: Type[]
+    EnclosingType: Type?
+    EnclosingFieldNames: string[]
+    EnclosingFields: FieldInfo[]
+    EnclosingFieldCanonicals: string[]
+    EnclosingMethodNames: string[]
+    EnclosingMethods: MethodInfo[]
+    KnownTypeNames: string[]
+    KnownTypes: Type[]
     // Async-machine extra: the MoveNextCore handle MoveNextAsync's plan drives (null for sync machines).
-    public CoreMethod: MethodInfo?
+    CoreMethod: MethodInfo?
 
-    constructor(
-        nodes: ColumnarNodeTable,
-        source: string,
-        bodyRoot: int,
-        shape: ColumnarIteratorShape,
-        stateMachineType: Type,
-        elementType: Type,
-        fieldNames: string[],
-        fields: FieldInfo[],
-        smConstructor: ConstructorInfo? = null,
-        enclosingType: Type? = null,
-        enclosingFieldNames: string[]? = null,
-        enclosingFields: FieldInfo[]? = null,
-        enclosingFieldCanonicals: string[]? = null,
-        enclosingMethodNames: string[]? = null,
-        enclosingMethods: MethodInfo[]? = null,
-        knownTypeNames: string[]? = null,
-        knownTypes: Type[]? = null,
-        coreMethod: MethodInfo? = null) {
+    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, knownTypeNames: string[]? = null, knownTypes: Type[]? = null, coreMethod: MethodInfo? = null) {
         Nodes = nodes
         Source = source
         BodyRoot = bodyRoot
@@ -1353,7 +1211,7 @@ public class ColumnarIteratorEmitContext {
         CoreMethod = coreMethod
     }
 
-    public func RequiredCoreMethod(): MethodInfo {
+    func RequiredCoreMethod(): MethodInfo {
         handle := CoreMethod
         if handle == null {
             throw new InvalidOperationException("Iterator emit context carries no MoveNextCore handle.")
@@ -1361,7 +1219,7 @@ public class ColumnarIteratorEmitContext {
         return handle
     }
 
-    public func HasHoistedField(name: string): bool {
+    func HasHoistedField(name: string): bool {
         i := 0
         while i < FieldNames.Length {
             if FieldNames[i] == name {
@@ -1372,7 +1230,7 @@ public class ColumnarIteratorEmitContext {
         return false
     }
 
-    public func EnclosingFieldIndex(name: string): int {
+    func EnclosingFieldIndex(name: string): int {
         i := 0
         while i < EnclosingFieldNames.Length {
             if EnclosingFieldNames[i] == name {
@@ -1383,7 +1241,7 @@ public class ColumnarIteratorEmitContext {
         return 0 - 1
     }
 
-    public func EnclosingMethodForName(name: string): MethodInfo {
+    func EnclosingMethodForName(name: string): MethodInfo {
         i := 0
         while i < EnclosingMethodNames.Length {
             if EnclosingMethodNames[i] == name {
@@ -1394,7 +1252,7 @@ public class ColumnarIteratorEmitContext {
         throw new InvalidOperationException("Iterator emit context has no enclosing method named '" + name + "'.")
     }
 
-    public func KnownTypeForCanonical(canonical: string): Type? {
+    func KnownTypeForCanonical(canonical: string): Type? {
         i := 0
         while i < KnownTypeNames.Length {
             if KnownTypeNames[i] == canonical {
@@ -1405,7 +1263,7 @@ public class ColumnarIteratorEmitContext {
         return null
     }
 
-    public func FieldForName(name: string): FieldInfo {
+    func FieldForName(name: string): FieldInfo {
         i := 0
         while i < FieldNames.Length {
             if FieldNames[i] == name {
@@ -1416,7 +1274,7 @@ public class ColumnarIteratorEmitContext {
         throw new InvalidOperationException("Iterator state machine has no field named '" + name + "'.")
     }
 
-    public func FieldCanonicalForName(name: string): string {
+    func FieldCanonicalForName(name: string): string {
         i := 0
         while i < FieldNames.Length {
             if FieldNames[i] == name {
@@ -1429,7 +1287,7 @@ public class ColumnarIteratorEmitContext {
 
     // The state machine's `.ctor(int)` handle — required by the clone and factory plans, optional for
     // contracts that exercise only the this-relative member bodies.
-    public func RequiredConstructor(): ConstructorInfo {
+    func RequiredConstructor(): ConstructorInfo {
         handle := Constructor
         if handle == null {
             throw new InvalidOperationException("Iterator emit context carries no state-machine constructor handle.")
@@ -1440,39 +1298,29 @@ public class ColumnarIteratorEmitContext {
 
 // Mutable state threaded through the recursive MoveNext lowering.
 class ColumnarMoveNextEmit {
-    public Plan: ColumnarCodePlan
-    public Context: ColumnarIteratorEmitContext
-    public ThisArg: int
-    public StateFieldPool: int
-    public ResumeLabels: int[]
-    public EndLabel: int
-    public NextYield: int
-    public NextForIn: int
-    public NextEnumerator: int
+    Plan: ColumnarCodePlan
+    Context: ColumnarIteratorEmitContext
+    ThisArg: int
+    StateFieldPool: int
+    ResumeLabels: int[]
+    EndLabel: int
+    NextYield: int
+    NextForIn: int
+    NextEnumerator: int
     // Region mode (any hoisted enumerator): the whole dispatch+body sits inside a try/FAULT region,
     // so every suspend/finish path stores the result local and `leave`s to the ret outside the region
     // (ECMA forbids `ret` inside a protected region; per-call re-entry through the try start plus an
     // in-region dispatch branch is how the machine legally resumes inside the region).
-    public RegionMode: bool
-    public ResultLocal: int
-    public RegionEndLabel: int
+    RegionMode: bool
+    ResultLocal: int
+    RegionEndLabel: int
     // Async mode: yields and awaits share ONE resume-state counter (walk order), awaits number their
     // awaiter fields with NextAwait, and suspension/completion go through the promise/result fields.
-    public IsAsync: bool
-    public NextResume: int
-    public NextAwait: int
+    IsAsync: bool
+    NextResume: int
+    NextAwait: int
 
-    constructor(
-        plan: ColumnarCodePlan,
-        context: ColumnarIteratorEmitContext,
-        thisArg: int,
-        stateFieldPool: int,
-        resumeLabels: int[],
-        endLabel: int,
-        regionMode: bool,
-        resultLocal: int,
-        regionEndLabel: int,
-        isAsync: bool = false) {
+    constructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, stateFieldPool: int, resumeLabels: int[], endLabel: int, regionMode: bool, resultLocal: int, regionEndLabel: int, isAsync: bool = false) {
         Plan = plan
         Context = context
         ThisArg = thisArg
@@ -1491,13 +1339,14 @@ class ColumnarMoveNextEmit {
     }
 }
 
-public class ColumnarIteratorBodyPlanner {
+class ColumnarIteratorBodyPlanner {
+
     // MoveNext(): the resumable state machine. A dispatch prologue routes each resume state to its label;
     // state 0 falls through to the body start (state set running = -1); every `yield return` stores current,
     // sets its resume state, returns true, then resumes by resetting to running; `yield break` and the
     // natural body end reach the shared end label that returns false. A body with hoisted enumerators
     // takes the guarded layout instead (the whole dispatch+body inside a try/FAULT region).
-    public static func BuildMoveNextPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildMoveNextPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         if HoistedEnumeratorFieldCount(context) > 0 {
             return BuildGuardedMoveNextPlan(context)
         }
@@ -1551,8 +1400,7 @@ public class ColumnarIteratorBodyPlanner {
         }
         endLabel := plan.DefineLabel()
         regionEnd := plan.DefineLabel()
-        emit := new ColumnarMoveNextEmit(
-            plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, resultLocal, regionEnd)
+        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, resultLocal, regionEnd)
 
         plan.AppendBeginExceptionBlock(regionEnd)
         AppendMoveNextDispatch(emit, yieldCount)
@@ -1580,7 +1428,7 @@ public class ColumnarIteratorBodyPlanner {
     // pending MoveNextAsync exists (a suspension created it), otherwise through the result field the
     // synchronous fast path reads. Suspension stores the awaiter, sets the await-resume state, ensures
     // the promise, registers the continuation (this.<>__continuation re-drives this core), and leaves.
-    public static func BuildAsyncMoveNextCorePlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildAsyncMoveNextCorePlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StateMachineType)
@@ -1598,8 +1446,7 @@ public class ColumnarIteratorBodyPlanner {
         }
         endLabel := plan.DefineLabel()
         regionEnd := plan.DefineLabel()
-        emit := new ColumnarMoveNextEmit(
-            plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, 0, regionEnd, true)
+        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, 0, regionEnd, true)
 
         plan.AppendBeginExceptionBlock(regionEnd)
         AppendMoveNextDispatch(emit, resumeCount)
@@ -1638,7 +1485,7 @@ public class ColumnarIteratorBodyPlanner {
     // MoveNextAsync(): the IAsyncEnumerator<T> surface. Guard the done state, clear any completed
     // promise, drive the step core once, then select the result: a suspension left a live promise
     // (return its pending/completed Task<bool>); a synchronous completion left the result flag.
-    public static func BuildMoveNextAsyncPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildMoveNextAsyncPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StateMachineType)
@@ -1649,8 +1496,7 @@ public class ColumnarIteratorBodyPlanner {
         boolCtorPool := plan.AddConstructor(ValueTaskOfBoolConstructor())
         taskCtorPool := plan.AddConstructor(ValueTaskOfTaskConstructor())
         noParams := new Type[](0)
-        corePool := plan.AddMethodWithSignature(
-            context.RequiredCoreMethod(), context.StateMachineType, noParams, VoidReturnType(), false, false)
+        corePool := plan.AddMethodWithSignature(context.RequiredCoreMethod(), context.StateMachineType, noParams, VoidReturnType(), false, false)
         driveLabel := plan.DefineLabel()
         syncLabel := plan.DefineLabel()
         // if state == done: return new ValueTask<bool>(false)
@@ -1689,7 +1535,7 @@ public class ColumnarIteratorBodyPlanner {
 
     // DisposeAsync(): mark the machine done and complete synchronously (default ValueTask). No async
     // machine holds a hoisted enumerator (the walk declines them), so there is nothing to release.
-    public static func BuildDisposeAsyncPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildDisposeAsyncPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StateMachineType)
@@ -1712,7 +1558,7 @@ public class ColumnarIteratorBodyPlanner {
     // GetAsyncEnumerator(CancellationToken): clone semantics, exactly the sync GetEnumerator discipline
     // — every call yields a FRESH machine at the initial state with captured parameters copied. The
     // token parameter is accepted (the interface signature) and unused: no admitted body reads it yet.
-    public static func BuildGetAsyncEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildGetAsyncEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         AppendEnumeratorClone(plan, context)
@@ -1775,7 +1621,7 @@ public class ColumnarIteratorBodyPlanner {
     }
 
     // get_Current(): return the hoisted current field.
-    public static func BuildGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StateMachineType)
@@ -1790,7 +1636,7 @@ public class ColumnarIteratorBodyPlanner {
 
     // System.Collections.IEnumerator.get_Current(): the object view of the hoisted current field —
     // a value-type element is boxed, a reference element returns as-is.
-    public static func BuildInterfaceGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildInterfaceGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StateMachineType)
@@ -1812,7 +1658,7 @@ public class ColumnarIteratorBodyPlanner {
     // System.IDisposable.Dispose(): dispose any live hoisted enumerator (the machine may be suspended
     // inside a guarded loop — this is the finally-equivalent path for consumer abandonment), then mark
     // the machine done.
-    public static func BuildDisposePlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildDisposePlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StateMachineType)
@@ -1830,7 +1676,7 @@ public class ColumnarIteratorBodyPlanner {
 
     // System.Collections.IEnumerator.Reset(): the interface contract's canonical iterator behavior —
     // throw NotSupportedException (exactly what C#-compiled iterators do).
-    public static func BuildResetPlan(): ColumnarCodePlan {
+    static func BuildResetPlan(): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         noTypes := new Type[](0)
@@ -1847,7 +1693,7 @@ public class ColumnarIteratorBodyPlanner {
 
     // GetEnumerator(): clone semantics — every call yields a FRESH machine at the initial state with the
     // captured parameters copied from the receiver; hoisted locals and current restart at default.
-    public static func BuildGetEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildGetEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         AppendEnumeratorClone(plan, context)
@@ -1857,7 +1703,7 @@ public class ColumnarIteratorBodyPlanner {
 
     // System.Collections.IEnumerable.GetEnumerator(): the identical clone body; only the declared result
     // view differs (the non-generic IEnumerator).
-    public static func BuildInterfaceGetEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildInterfaceGetEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         AppendEnumeratorClone(plan, context)
@@ -1867,7 +1713,7 @@ public class ColumnarIteratorBodyPlanner {
 
     // The FACTORY body for the original func* function: construct the machine at the initial state and
     // store each argument into its captured-parameter field (signature order = captured field order).
-    public static func BuildFactoryPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildFactoryPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         AppendFactoryBody(plan, context)
@@ -1877,7 +1723,7 @@ public class ColumnarIteratorBodyPlanner {
 
     // The async factory: the identical construct-and-capture body; only the declared result view
     // differs (the IAsyncEnumerable<T> surface the `async func*` method returns).
-    public static func BuildAsyncFactoryPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
+    static func BuildAsyncFactoryPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         AppendFactoryBody(plan, context)
@@ -2018,13 +1864,11 @@ public class ColumnarIteratorBodyPlanner {
         }
         memberIndex := emit.Context.EnclosingFieldIndex(name)
         if memberIndex < 0 {
-            throw new InvalidOperationException(
-                "Iterator MoveNext lowering reached an unbound identifier '" + name + "'.")
+            throw new InvalidOperationException("Iterator MoveNext lowering reached an unbound identifier '" + name + "'.")
         }
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, "<>__this"))
-        emit.Plan.AppendFieldInstruction(
-            ColumnarCodePlanContract.Ldfld(), emit.Plan.AddField(emit.Context.EnclosingFields[memberIndex]))
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.Plan.AddField(emit.Context.EnclosingFields[memberIndex]))
     }
 
     // Emits one statement and reports whether control can FALL THROUGH past it. The rules mirror
@@ -2213,8 +2057,7 @@ public class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
             return false
         }
-        throw new InvalidOperationException(
-            "Iterator MoveNext lowering reached an unsupported statement kind " + kind.ToString() + ".")
+        throw new InvalidOperationException("Iterator MoveNext lowering reached an unsupported statement kind " + kind.ToString() + ".")
     }
 
     // for..in over an IEnumerable<X>/List<X> source: hoisted-enumerator loop inside the guarded
@@ -2291,8 +2134,7 @@ public class ColumnarIteratorBodyPlanner {
         if elementCanonical == "string" {
             return typeof(string)
         }
-        throw new InvalidOperationException(
-            "Iterator for..in lowering has no runtime element type for '" + elementCanonical + "'.")
+        throw new InvalidOperationException("Iterator for..in lowering has no runtime element type for '" + elementCanonical + "'.")
     }
 
     // Push the sequence source value: a bound identifier/member read, or a member-call source
@@ -2325,8 +2167,7 @@ public class ColumnarIteratorBodyPlanner {
         }
         known := context.KnownTypeForCanonical(canonical)
         if known == null {
-            throw new InvalidOperationException(
-                "Iterator for..in lowering has no runtime type for element '" + canonical + "'.")
+            throw new InvalidOperationException("Iterator for..in lowering has no runtime type for element '" + canonical + "'.")
         }
         return known
     }
@@ -2343,8 +2184,7 @@ public class ColumnarIteratorBodyPlanner {
         if IsBuilderBoundElement(elementType) {
             handle := TypeBuilder.GetMethod(enumerableType, OpenSequenceMethod("System.Collections.Generic.IEnumerable`1", "GetEnumerator"))
             noParams := new Type[](0)
-            return emit.Plan.AddMethodWithSignature(
-                handle, enumerableType, noParams, EnumeratorInterfaceTypeOf(elementType), false, true)
+            return emit.Plan.AddMethodWithSignature(handle, enumerableType, noParams, EnumeratorInterfaceTypeOf(elementType), false, true)
         }
         method := enumerableType.GetMethod("GetEnumerator")
         if method == null {
@@ -2424,11 +2264,21 @@ public class ColumnarIteratorBodyPlanner {
         return RequiredRuntimeType(definitionName).MakeGenericType(typeArgs)
     }
 
-    static func ExceptionRuntimeType(): Type { return RequiredRuntimeType("System.Exception") }
-    static func TaskAwaiterRuntimeType(): Type { return RequiredRuntimeType("System.Runtime.CompilerServices.TaskAwaiter") }
-    static func ValueTaskRuntimeType(): Type { return RequiredRuntimeType("System.Threading.Tasks.ValueTask") }
-    static func ValueTaskOfBoolRuntimeType(): Type { return BoolClosedRuntimeType("System.Threading.Tasks.ValueTask`1") }
-    static func PromiseRuntimeType(): Type { return BoolClosedRuntimeType("System.Threading.Tasks.TaskCompletionSource`1") }
+    static func ExceptionRuntimeType(): Type {
+        return RequiredRuntimeType("System.Exception")
+    }
+    static func TaskAwaiterRuntimeType(): Type {
+        return RequiredRuntimeType("System.Runtime.CompilerServices.TaskAwaiter")
+    }
+    static func ValueTaskRuntimeType(): Type {
+        return RequiredRuntimeType("System.Threading.Tasks.ValueTask")
+    }
+    static func ValueTaskOfBoolRuntimeType(): Type {
+        return BoolClosedRuntimeType("System.Threading.Tasks.ValueTask`1")
+    }
+    static func PromiseRuntimeType(): Type {
+        return BoolClosedRuntimeType("System.Threading.Tasks.TaskCompletionSource`1")
+    }
 
     static func AsyncEnumeratorInterfaceTypeOf(elementType: Type): Type {
         typeArgs := new Type[](1)
@@ -2456,11 +2306,21 @@ public class ColumnarIteratorBodyPlanner {
         return RequiredMethodOf(RequiredRuntimeType("System.Threading.Tasks.Task"), "GetAwaiter")
     }
 
-    static func AwaiterIsCompletedGetter(): MethodInfo { return RequiredMethodOf(TaskAwaiterRuntimeType(), "get_IsCompleted") }
-    static func AwaiterGetResultMethod(): MethodInfo { return RequiredMethodOf(TaskAwaiterRuntimeType(), "GetResult") }
-    static func AwaiterOnCompletedMethod(): MethodInfo { return RequiredMethodOf(TaskAwaiterRuntimeType(), "OnCompleted") }
-    static func PromiseSetResultMethod(): MethodInfo { return RequiredMethodOf(PromiseRuntimeType(), "SetResult") }
-    static func PromiseTaskGetter(): MethodInfo { return RequiredMethodOf(PromiseRuntimeType(), "get_Task") }
+    static func AwaiterIsCompletedGetter(): MethodInfo {
+        return RequiredMethodOf(TaskAwaiterRuntimeType(), "get_IsCompleted")
+    }
+    static func AwaiterGetResultMethod(): MethodInfo {
+        return RequiredMethodOf(TaskAwaiterRuntimeType(), "GetResult")
+    }
+    static func AwaiterOnCompletedMethod(): MethodInfo {
+        return RequiredMethodOf(TaskAwaiterRuntimeType(), "OnCompleted")
+    }
+    static func PromiseSetResultMethod(): MethodInfo {
+        return RequiredMethodOf(PromiseRuntimeType(), "SetResult")
+    }
+    static func PromiseTaskGetter(): MethodInfo {
+        return RequiredMethodOf(PromiseRuntimeType(), "get_Task")
+    }
 
     static func PromiseSetExceptionMethod(): MethodInfo {
         exTypes := new Type[](1)
@@ -2504,7 +2364,9 @@ public class ColumnarIteratorBodyPlanner {
 
     // TaskCreationOptions.RunContinuationsAsynchronously: promise completions schedule the consumer's
     // continuation instead of running it inline inside the step frame.
-    static func RunContinuationsAsynchronouslyFlag(): int { return 64 }
+    static func RunContinuationsAsynchronouslyFlag(): int {
+        return 64
+    }
 
     // The typed ldelem for a lowerable array element canonical (the walk admitted exactly this set).
     static func AppendArrayElementLoad(emit: ColumnarMoveNextEmit, elementCanonical: string) {
@@ -2523,8 +2385,7 @@ public class ColumnarIteratorBodyPlanner {
         } else if elementCanonical == "string" {
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemRef())
         } else {
-            throw new InvalidOperationException(
-                "Iterator for..in lowering has no element load for '" + elementCanonical + "'.")
+            throw new InvalidOperationException("Iterator for..in lowering has no element load for '" + elementCanonical + "'.")
         }
     }
 
@@ -2696,13 +2557,10 @@ public class ColumnarIteratorBodyPlanner {
             // The walk-admitted argument-free string instance call: read the receiver, callvirt.
             callee := nodes.Child(node, 0)
             AppendIdentifierRead(emit, nodes.Text(source, nodes.Child(callee, 0)))
-            emit.Plan.AppendMethodInstruction(
-                ColumnarCodePlanContract.Callvirt(),
-                emit.Plan.AddMethod(StringInstanceMethod(nodes.Text(source, callee))))
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(StringInstanceMethod(nodes.Text(source, callee))))
             return
         }
-        throw new InvalidOperationException(
-            "Iterator MoveNext lowering reached an unsupported expression kind " + kind.ToString() + ".")
+        throw new InvalidOperationException("Iterator MoveNext lowering reached an unsupported expression kind " + kind.ToString() + ".")
     }
 
     // `<ident>++` / `<ident>--` on a hoisted int field. keepValue pushes the PRE-step value first

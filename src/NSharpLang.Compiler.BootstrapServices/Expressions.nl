@@ -2,8 +2,9 @@ namespace NSharpLang.Compiler.Ast
 
 import System.Collections.Generic
 
+
 // Base class for all AST nodes
-public class AstNode {
+class AstNode {
     Line: int
     Column: int
     // Last source line the node covers. The recovery parser stamps it from the final consumed
@@ -20,13 +21,13 @@ public class AstNode {
 }
 
 // Base class for all expressions
-public class Expression: AstNode {
+class Expression: AstNode {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Literals
-public class IntLiteralExpression: Expression {
+class IntLiteralExpression: Expression {
     Value: string
 
     constructor(Value: string, Line: int, Column: int): base(Line, Column) {
@@ -34,7 +35,7 @@ public class IntLiteralExpression: Expression {
     }
 }
 
-public class FloatLiteralExpression: Expression {
+class FloatLiteralExpression: Expression {
     Value: string
 
     constructor(Value: string, Line: int, Column: int): base(Line, Column) {
@@ -42,7 +43,7 @@ public class FloatLiteralExpression: Expression {
     }
 }
 
-public class CharLiteralExpression: Expression {
+class CharLiteralExpression: Expression {
     Value: string
 
     constructor(Value: string, Line: int, Column: int): base(Line, Column) {
@@ -50,7 +51,7 @@ public class CharLiteralExpression: Expression {
     }
 }
 
-public class StringLiteralExpression: Expression {
+class StringLiteralExpression: Expression {
     Value: string
 
     constructor(Value: string, Line: int, Column: int): base(Line, Column) {
@@ -60,7 +61,7 @@ public class StringLiteralExpression: Expression {
 
 // Interpolated string: $"Hello, {name}!"
 // Decomposed into text segments and expression holes for proper semantic analysis.
-public class InterpolatedStringExpression: Expression {
+class InterpolatedStringExpression: Expression {
     Parts: List<InterpolatedStringPart>
     IsRaw: bool
 
@@ -70,13 +71,13 @@ public class InterpolatedStringExpression: Expression {
     }
 }
 
-public class InterpolatedStringPart: AstNode {
+class InterpolatedStringPart: AstNode {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Literal text segment in an interpolated string
-public class InterpolatedStringText: InterpolatedStringPart {
+class InterpolatedStringText: InterpolatedStringPart {
     Text: string
 
     constructor(Text: string, Line: int, Column: int): base(Line, Column) {
@@ -85,7 +86,7 @@ public class InterpolatedStringText: InterpolatedStringPart {
 }
 
 // Expression hole in an interpolated string: {expr} or {expr:format}
-public class InterpolatedStringHole: InterpolatedStringPart {
+class InterpolatedStringHole: InterpolatedStringPart {
     Expression: Expression
     FormatClause: string?
 
@@ -95,7 +96,7 @@ public class InterpolatedStringHole: InterpolatedStringPart {
     }
 }
 
-public class BoolLiteralExpression: Expression {
+class BoolLiteralExpression: Expression {
     Value: bool
 
     constructor(Value: bool, Line: int, Column: int): base(Line, Column) {
@@ -103,13 +104,13 @@ public class BoolLiteralExpression: Expression {
     }
 }
 
-public class NullLiteralExpression: Expression {
+class NullLiteralExpression: Expression {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Identifier
-public class IdentifierExpression: Expression {
+class IdentifierExpression: Expression {
     Name: string
 
     constructor(Name: string, Line: int, Column: int): base(Line, Column) {
@@ -118,7 +119,7 @@ public class IdentifierExpression: Expression {
 }
 
 // Range expression (supports open-ended ranges: ..end, start.., start..end, ..)
-public class RangeExpression: Expression {
+class RangeExpression: Expression {
     Start: Expression?
     End: Expression?
 
@@ -129,7 +130,7 @@ public class RangeExpression: Expression {
 }
 
 // Binary operations
-public class BinaryExpression: Expression {
+class BinaryExpression: Expression {
     Left: Expression
     Operator: BinaryOperator
     Right: Expression
@@ -142,7 +143,7 @@ public class BinaryExpression: Expression {
 }
 
 // Unary operations
-public class UnaryExpression: Expression {
+class UnaryExpression: Expression {
     Operator: UnaryOperator
     Operand: Expression
 
@@ -153,7 +154,7 @@ public class UnaryExpression: Expression {
 }
 
 // Explicit nullable unwrap: must value
-public class MustExpression: Expression {
+class MustExpression: Expression {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -162,7 +163,7 @@ public class MustExpression: Expression {
 }
 
 // Member access
-public class MemberAccessExpression: Expression {
+class MemberAccessExpression: Expression {
     Object: Expression
     MemberName: string
     IsNullConditional: bool
@@ -175,7 +176,7 @@ public class MemberAccessExpression: Expression {
 }
 
 // Index access
-public class IndexAccessExpression: Expression {
+class IndexAccessExpression: Expression {
     Object: Expression
     Index: Expression
     IsNullConditional: bool
@@ -188,7 +189,7 @@ public class IndexAccessExpression: Expression {
 }
 
 // Function call
-public class CallExpression: Expression {
+class CallExpression: Expression {
     Callee: Expression
     Arguments: List<Argument>
     TypeArguments: List<TypeReference>?
@@ -201,7 +202,7 @@ public class CallExpression: Expression {
     }
 }
 
-public class Argument {
+class Argument {
     Name: string?
     Value: Expression
     Modifier: ArgumentModifier
@@ -214,7 +215,7 @@ public class Argument {
 }
 
 // Assignment
-public class AssignmentExpression: Expression {
+class AssignmentExpression: Expression {
     Target: Expression
     Operator: AssignmentOperator
     Value: Expression
@@ -227,7 +228,7 @@ public class AssignmentExpression: Expression {
 }
 
 // Lambda expression
-public class LambdaExpression: Expression {
+class LambdaExpression: Expression {
     Parameters: List<Parameter>
     ExpressionBody: Expression?
     BlockBody: BlockStatement?
@@ -240,7 +241,7 @@ public class LambdaExpression: Expression {
 }
 
 // Event subscription: `on target.Event (sender, args) => { ... }`
-public class OnSubscriptionExpression: Expression {
+class OnSubscriptionExpression: Expression {
     Target: Expression
     Handler: LambdaExpression
 
@@ -251,7 +252,7 @@ public class OnSubscriptionExpression: Expression {
 }
 
 // Ternary (conditional) expression
-public class TernaryExpression: Expression {
+class TernaryExpression: Expression {
     Condition: Expression
     ThenExpression: Expression
     ElseExpression: Expression
@@ -264,7 +265,7 @@ public class TernaryExpression: Expression {
 }
 
 // Array literal
-public class ArrayLiteralExpression: Expression {
+class ArrayLiteralExpression: Expression {
     Elements: List<Expression>
     IsImmutable: bool
 
@@ -275,7 +276,7 @@ public class ArrayLiteralExpression: Expression {
 }
 
 // Tuple expression
-public class TupleExpression: Expression {
+class TupleExpression: Expression {
     Elements: List<TupleElement>
 
     constructor(Elements: List<TupleElement>, Line: int, Column: int): base(Line, Column) {
@@ -283,7 +284,7 @@ public class TupleExpression: Expression {
     }
 }
 
-public class TupleElement {
+class TupleElement {
     Name: string?
     Value: Expression
 
@@ -294,7 +295,7 @@ public class TupleElement {
 }
 
 // Object initializer (for new expressions)
-public class ObjectInitializerExpression: Expression {
+class ObjectInitializerExpression: Expression {
     Properties: List<PropertyInitializer>
 
     constructor(Properties: List<PropertyInitializer>, Line: int, Column: int): base(Line, Column) {
@@ -303,7 +304,7 @@ public class ObjectInitializerExpression: Expression {
 }
 
 // Property or indexer initializer
-public class PropertyInitializer {
+class PropertyInitializer {
     Name: string?
     IndexExpression: Expression?
     Value: Expression
@@ -322,7 +323,7 @@ public class PropertyInitializer {
 }
 
 // New expression
-public class NewExpression: Expression {
+class NewExpression: Expression {
     Type: TypeReference?
     ConstructorArguments: List<Argument>
     Initializer: ObjectInitializerExpression?
@@ -337,7 +338,7 @@ public class NewExpression: Expression {
 }
 
 // Explicit systems allocation marker: alloc new Foo(), alloc [1, 2], alloc $"..."
-public class AllocExpression: Expression {
+class AllocExpression: Expression {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -346,7 +347,7 @@ public class AllocExpression: Expression {
 }
 
 // Safe systems stack allocation: stackalloc byte[64] -> Span<byte>.
-public class StackAllocExpression: Expression {
+class StackAllocExpression: Expression {
     ElementType: TypeReference
     LengthExpression: Expression
 
@@ -357,7 +358,7 @@ public class StackAllocExpression: Expression {
 }
 
 // Type casting
-public class CastExpression: Expression {
+class CastExpression: Expression {
     Expression: Expression
     TargetType: TypeReference
     Kind: CastKind
@@ -370,7 +371,7 @@ public class CastExpression: Expression {
 }
 
 // Type checking
-public class IsExpression: Expression {
+class IsExpression: Expression {
     Expression: Expression
     Type: TypeReference
     VariableName: string?
@@ -383,7 +384,7 @@ public class IsExpression: Expression {
 }
 
 // Match expression
-public class MatchExpression: Expression {
+class MatchExpression: Expression {
     Value: Expression
     Cases: List<MatchCase>
     IsExhaustive: bool
@@ -394,7 +395,7 @@ public class MatchExpression: Expression {
     }
 }
 
-public class MatchCase {
+class MatchCase {
     Pattern: Pattern
     Guard: Expression?
     Expression: Expression
@@ -407,7 +408,7 @@ public class MatchCase {
 }
 
 // Pattern base class
-public class Pattern {
+class Pattern {
     Line: int
     Column: int
 
@@ -417,7 +418,7 @@ public class Pattern {
     }
 }
 
-public class IdentifierPattern: Pattern {
+class IdentifierPattern: Pattern {
     Name: string
 
     constructor(Name: string, Line: int, Column: int): base(Line, Column) {
@@ -425,7 +426,7 @@ public class IdentifierPattern: Pattern {
     }
 }
 
-public class LiteralPattern: Pattern {
+class LiteralPattern: Pattern {
     Literal: Expression
 
     constructor(Literal: Expression, Line: int, Column: int): base(Line, Column) {
@@ -433,7 +434,7 @@ public class LiteralPattern: Pattern {
     }
 }
 
-public class UnionCasePattern: Pattern {
+class UnionCasePattern: Pattern {
     CaseName: string
     Properties: List<PropertyPattern>?
 
@@ -444,7 +445,7 @@ public class UnionCasePattern: Pattern {
 }
 
 // Property pattern for nested property matching
-public class PropertyPattern {
+class PropertyPattern {
     Name: string
     Pattern: Pattern?
     BindingName: string?
@@ -461,7 +462,7 @@ public class PropertyPattern {
 }
 
 // Relational pattern (< value, >= value, etc.)
-public class RelationalPattern: Pattern {
+class RelationalPattern: Pattern {
     Operator: string
     Value: Expression
 
@@ -472,7 +473,7 @@ public class RelationalPattern: Pattern {
 }
 
 // Logical patterns (and, or, not)
-public class AndPattern: Pattern {
+class AndPattern: Pattern {
     Left: Pattern
     Right: Pattern
 
@@ -482,7 +483,7 @@ public class AndPattern: Pattern {
     }
 }
 
-public class OrPattern: Pattern {
+class OrPattern: Pattern {
     Left: Pattern
     Right: Pattern
 
@@ -492,7 +493,7 @@ public class OrPattern: Pattern {
     }
 }
 
-public class NotPattern: Pattern {
+class NotPattern: Pattern {
     Pattern: Pattern
 
     constructor(Pattern: Pattern, Line: int, Column: int): base(Line, Column) {
@@ -501,7 +502,7 @@ public class NotPattern: Pattern {
 }
 
 // Positional pattern for tuples/deconstructable types
-public class PositionalPattern: Pattern {
+class PositionalPattern: Pattern {
     Patterns: List<Pattern>
 
     constructor(Patterns: List<Pattern>, Line: int, Column: int): base(Line, Column) {
@@ -510,7 +511,7 @@ public class PositionalPattern: Pattern {
 }
 
 // Object property pattern for matching arbitrary types (not just unions)
-public class ObjectPattern: Pattern {
+class ObjectPattern: Pattern {
     Properties: List<PropertyPattern>
 
     constructor(Properties: List<PropertyPattern>, Line: int, Column: int): base(Line, Column) {
@@ -519,7 +520,7 @@ public class ObjectPattern: Pattern {
 }
 
 // List pattern for array/list pattern matching (C# 11)
-public class ListPattern: Pattern {
+class ListPattern: Pattern {
     Elements: List<Pattern>
 
     constructor(Elements: List<Pattern>, Line: int, Column: int): base(Line, Column) {
@@ -528,7 +529,7 @@ public class ListPattern: Pattern {
 }
 
 // Slice pattern for capturing remaining elements in list patterns
-public class SlicePattern: Pattern {
+class SlicePattern: Pattern {
     BindingName: string?
 
     constructor(BindingName: string?, Line: int, Column: int): base(Line, Column) {
@@ -537,7 +538,7 @@ public class SlicePattern: Pattern {
 }
 
 // Type pattern for type checking and variable binding in match expressions
-public class TypePattern: Pattern {
+class TypePattern: Pattern {
     Type: TypeReference
     BindingName: string?
 
@@ -548,7 +549,7 @@ public class TypePattern: Pattern {
 }
 
 // Spread expression (for arrays and function calls)
-public class SpreadExpression: Expression {
+class SpreadExpression: Expression {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -557,7 +558,7 @@ public class SpreadExpression: Expression {
 }
 
 // With expression (for records)
-public class WithExpression: Expression {
+class WithExpression: Expression {
     Target: Expression
     Properties: List<PropertyInitializer>
 
@@ -568,7 +569,7 @@ public class WithExpression: Expression {
 }
 
 // Await expression
-public class AwaitExpression: Expression {
+class AwaitExpression: Expression {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -577,7 +578,7 @@ public class AwaitExpression: Expression {
 }
 
 // Throw expression
-public class ThrowExpression: Expression {
+class ThrowExpression: Expression {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -586,7 +587,7 @@ public class ThrowExpression: Expression {
 }
 
 // Typeof expression
-public class TypeOfExpression: Expression {
+class TypeOfExpression: Expression {
     Type: TypeReference
 
     constructor(Type: TypeReference, Line: int, Column: int): base(Line, Column) {
@@ -595,7 +596,7 @@ public class TypeOfExpression: Expression {
 }
 
 // Nameof expression
-public class NameofExpression: Expression {
+class NameofExpression: Expression {
     Target: Expression
 
     constructor(Target: Expression, Line: int, Column: int): base(Line, Column) {
@@ -604,7 +605,7 @@ public class NameofExpression: Expression {
 }
 
 // Sizeof expression
-public class SizeOfExpression: Expression {
+class SizeOfExpression: Expression {
     Type: TypeReference
 
     constructor(Type: TypeReference, Line: int, Column: int): base(Line, Column) {
@@ -613,7 +614,7 @@ public class SizeOfExpression: Expression {
 }
 
 // Checked expression - throws on arithmetic overflow
-public class CheckedExpression: Expression {
+class CheckedExpression: Expression {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -622,7 +623,7 @@ public class CheckedExpression: Expression {
 }
 
 // Unchecked expression - wraps on arithmetic overflow
-public class UncheckedExpression: Expression {
+class UncheckedExpression: Expression {
     Expression: Expression
 
     constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
@@ -631,25 +632,25 @@ public class UncheckedExpression: Expression {
 }
 
 // This expression
-public class ThisExpression: Expression {
+class ThisExpression: Expression {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Base expression
-public class BaseExpression: Expression {
+class BaseExpression: Expression {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Default expression: target-typed default value for any type
-public class DefaultExpression: Expression {
+class DefaultExpression: Expression {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Parenthesized expression: (expr)
-public class ParenthesizedExpression: Expression {
+class ParenthesizedExpression: Expression {
     Inner: Expression
 
     constructor(Inner: Expression, Line: int, Column: int): base(Line, Column) {

@@ -3,14 +3,14 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 
-public class StableDistinctStringScratch {
+class StableDistinctStringScratch {
     RanksByValue: Dictionary<string, int>
     Ranks: int[]
     ResultIndices: int[]
     SeenRanks: int[]
     UniqueRankCount: int
 
-    public func EnsureCapacity(count: int) {
+    func EnsureCapacity(count: int) {
         EnsureInitialized()
         if Ranks.Length != count {
             Ranks = new int[](count)
@@ -18,7 +18,7 @@ public class StableDistinctStringScratch {
         }
     }
 
-    public func EnsureRankCapacity(uniqueRankCount: int) {
+    func EnsureRankCapacity(uniqueRankCount: int) {
         EnsureInitialized()
         rankCapacity := uniqueRankCount + 1
         if SeenRanks.Length != rankCapacity {
@@ -26,7 +26,7 @@ public class StableDistinctStringScratch {
         }
     }
 
-    public func Reset() {
+    func Reset() {
         EnsureInitialized()
         RanksByValue.Clear()
         UniqueRankCount = 0
@@ -44,14 +44,14 @@ public class StableDistinctStringScratch {
     }
 }
 
-public class StableDistinctTypeScratch {
+class StableDistinctTypeScratch {
     RanksByValue: Dictionary<Type, int>
     Ranks: int[]
     ResultIndices: int[]
     SeenRanks: int[]
     UniqueRankCount: int
 
-    public func EnsureCapacity(count: int) {
+    func EnsureCapacity(count: int) {
         EnsureInitialized()
         if Ranks.Length != count {
             Ranks = new int[](count)
@@ -59,7 +59,7 @@ public class StableDistinctTypeScratch {
         }
     }
 
-    public func EnsureRankCapacity(uniqueRankCount: int) {
+    func EnsureRankCapacity(uniqueRankCount: int) {
         EnsureInitialized()
         rankCapacity := uniqueRankCount + 1
         if SeenRanks.Length != rankCapacity {
@@ -67,7 +67,7 @@ public class StableDistinctTypeScratch {
         }
     }
 
-    public func Reset() {
+    func Reset() {
         EnsureInitialized()
         RanksByValue.Clear()
         UniqueRankCount = 0

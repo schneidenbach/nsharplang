@@ -4,8 +4,8 @@ import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
 
-public class TypeReferenceFacts {
-    public static func GetStartSpan(typeRef: TypeReference): SourceSpan {
+class TypeReferenceFacts {
+    static func GetStartSpan(typeRef: TypeReference): SourceSpan {
         if typeRef.Span.IsValid {
             return typeRef.Span
         }
@@ -61,7 +61,7 @@ public class TypeReferenceFacts {
         return SourceSpan.None
     }
 
-    public static func IsValidParamsType(typeRef: TypeReference): bool {
+    static func IsValidParamsType(typeRef: TypeReference): bool {
         array := typeRef as ArrayTypeReference
         if array != null {
             return true
@@ -73,25 +73,53 @@ public class TypeReferenceFacts {
         }
 
         typeName := generic.Name
-        if typeName == "Span" { return true }
-        if typeName == "ReadOnlySpan" { return true }
-        if typeName == "IEnumerable" { return true }
-        if typeName == "IReadOnlyCollection" { return true }
-        if typeName == "IReadOnlyList" { return true }
-        if typeName == "ICollection" { return true }
-        if typeName == "IList" { return true }
-        if typeName == "List" { return true }
-        if typeName == "HashSet" { return true }
-        if typeName == "Queue" { return true }
-        if typeName == "Stack" { return true }
-        if typeName == "ArraySegment" { return true }
-        if typeName == "Memory" { return true }
-        if typeName == "ReadOnlyMemory" { return true }
+        if typeName == "Span" {
+            return true
+        }
+        if typeName == "ReadOnlySpan" {
+            return true
+        }
+        if typeName == "IEnumerable" {
+            return true
+        }
+        if typeName == "IReadOnlyCollection" {
+            return true
+        }
+        if typeName == "IReadOnlyList" {
+            return true
+        }
+        if typeName == "ICollection" {
+            return true
+        }
+        if typeName == "IList" {
+            return true
+        }
+        if typeName == "List" {
+            return true
+        }
+        if typeName == "HashSet" {
+            return true
+        }
+        if typeName == "Queue" {
+            return true
+        }
+        if typeName == "Stack" {
+            return true
+        }
+        if typeName == "ArraySegment" {
+            return true
+        }
+        if typeName == "Memory" {
+            return true
+        }
+        if typeName == "ReadOnlyMemory" {
+            return true
+        }
 
         return false
     }
 
-    public static func GetDisplayNameOrVoid(typeRef: TypeReference?): string {
+    static func GetDisplayNameOrVoid(typeRef: TypeReference?): string {
         if typeRef == null {
             return "void"
         }
@@ -99,7 +127,7 @@ public class TypeReferenceFacts {
         return GetDisplayName(typeRef)
     }
 
-    public static func GetDisplayName(typeRef: TypeReference): string {
+    static func GetDisplayName(typeRef: TypeReference): string {
         simple := typeRef as SimpleTypeReference
         if simple != null {
             return simple.Name
@@ -160,13 +188,13 @@ public class TypeReferenceFacts {
         return typeObject.GetType().Name
     }
 
-    public static func JoinDisplayNames(types: List<TypeReference>, separator: string): string {
+    static func JoinDisplayNames(types: List<TypeReference>, separator: string): string {
         builder := new StringBuilder()
         AppendDisplayNameList(builder, types, separator)
         return builder.ToString()
     }
 
-    public static func JoinTupleElementDisplayNames(elements: List<TupleTypeElement>): string {
+    static func JoinTupleElementDisplayNames(elements: List<TupleTypeElement>): string {
         builder := new StringBuilder()
         AppendTupleElementDisplayNameList(builder, elements)
         return builder.ToString()

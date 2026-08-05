@@ -3,11 +3,11 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.Collections.Generic
 
-public class SafetyFilterScratch {
+class SafetyFilterScratch {
     ResultIndices: int[]
     SafetyRanks: int[]
 
-    public func EnsureCapacity(fixCount: int) {
+    func EnsureCapacity(fixCount: int) {
         EnsureInitialized()
         if SafetyRanks.Length != fixCount {
             SafetyRanks = new int[](fixCount)
@@ -25,7 +25,7 @@ public class SafetyFilterScratch {
     }
 }
 
-public class AppliedFileGroupingScratch {
+class AppliedFileGroupingScratch {
     fileRanks: Dictionary<string, int>
 
     CountsByRank: int[]
@@ -39,7 +39,7 @@ public class AppliedFileGroupingScratch {
     UniqueFileRankCount: int
     WriteOffsetsByRank: int[]
 
-    public func EnsureCapacity(appliedCount: int) {
+    func EnsureCapacity(appliedCount: int) {
         EnsureInitialized()
         if FileRanks.Length != appliedCount {
             FileRanks = new int[](appliedCount)
@@ -58,7 +58,7 @@ public class AppliedFileGroupingScratch {
         }
     }
 
-    public func GetOrAddFileRank(filePath: string): int {
+    func GetOrAddFileRank(filePath: string): int {
         EnsureInitialized()
         rank := 0
         if fileRanks.TryGetValue(filePath, out rank) {
@@ -72,7 +72,7 @@ public class AppliedFileGroupingScratch {
         return rank
     }
 
-    public func Reset() {
+    func Reset() {
         EnsureInitialized()
         fileRanks.Clear()
         if UniqueFileRankCount > 0 {

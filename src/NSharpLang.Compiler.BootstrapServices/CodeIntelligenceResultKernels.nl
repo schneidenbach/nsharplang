@@ -3,19 +3,15 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 
-public class CodeIntelligenceResultKernels {
-    public static func SuppressLintShadowingDiagnosticResults(
-        diagnostics: List<DiagnosticResult>,
-        shadowedFiles: IReadOnlyList<string>): List<DiagnosticResult> {
+class CodeIntelligenceResultKernels {
+    static func SuppressLintShadowingDiagnosticResults(diagnostics: List<DiagnosticResult>, shadowedFiles: IReadOnlyList<string>): List<DiagnosticResult> {
         selection := SuppressLintShadowingDiagnostics(diagnostics, shadowedFiles)
         return MaterializeDiagnosticResults(diagnostics, selection.Item1, selection.Item2)
     }
 
-    public static func SuppressLintShadowingDiagnostics(
-        diagnostics: IReadOnlyList<DiagnosticResult>,
-        shadowedFiles: IReadOnlyList<string>): ValueTuple<int[], int> {
+    static func SuppressLintShadowingDiagnostics(diagnostics: IReadOnlyList<DiagnosticResult>, shadowedFiles: IReadOnlyList<string>): ValueTuple<int[], int> {
         shadowed := new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-        foreach fileValue in shadowedFiles {
+        for fileValue in shadowedFiles {
             shadowedFile := (string)fileValue
             if !shadowed.ContainsKey(shadowedFile) {
                 shadowed.Add(shadowedFile, 1)
@@ -24,7 +20,7 @@ public class CodeIntelligenceResultKernels {
 
         result := new List<int>()
         index := 0
-        foreach diagnosticValue in diagnostics {
+        for diagnosticValue in diagnostics {
             diagnostic := (DiagnosticResult)diagnosticValue
             suppress := false
             if diagnostic.Code == "NL020" {
@@ -41,8 +37,7 @@ public class CodeIntelligenceResultKernels {
         return new ValueTuple<int[], int>(values, values.Length)
     }
 
-    public static func DeduplicateDiagnostics(
-        diagnostics: IReadOnlyList<DiagnosticResult>): ValueTuple<int[], int> {
+    static func DeduplicateDiagnostics(diagnostics: IReadOnlyList<DiagnosticResult>): ValueTuple<int[], int> {
         items := DiagnosticList(diagnostics)
         result := UniqueDiagnosticIndices(items)
         values := result.ToArray()
@@ -50,8 +45,7 @@ public class CodeIntelligenceResultKernels {
         return new ValueTuple<int[], int>(values, values.Length)
     }
 
-    public static func DeduplicateDiagnosticResults(
-        diagnostics: IReadOnlyList<DiagnosticResult>): List<DiagnosticResult> {
+    static func DeduplicateDiagnosticResults(diagnostics: IReadOnlyList<DiagnosticResult>): List<DiagnosticResult> {
         items := DiagnosticList(diagnostics)
         result := UniqueDiagnosticIndices(items)
         values := result.ToArray()
@@ -59,34 +53,30 @@ public class CodeIntelligenceResultKernels {
         return MaterializeDiagnosticResults(items, values, values.Length)
     }
 
-    public static func DeduplicateDiagnosticsPreservingOrder(
-        diagnostics: IReadOnlyList<DiagnosticResult>): ValueTuple<int[], int> {
+    static func DeduplicateDiagnosticsPreservingOrder(diagnostics: IReadOnlyList<DiagnosticResult>): ValueTuple<int[], int> {
         items := DiagnosticList(diagnostics)
         result := UniqueDiagnosticIndices(items)
         values := result.ToArray()
         return new ValueTuple<int[], int>(values, values.Length)
     }
 
-    public static func DeduplicateDiagnosticsPreservingOrderResults(
-        diagnostics: List<DiagnosticResult>): List<DiagnosticResult> {
+    static func DeduplicateDiagnosticsPreservingOrderResults(diagnostics: List<DiagnosticResult>): List<DiagnosticResult> {
         selection := DeduplicateDiagnosticsPreservingOrder(diagnostics)
         return MaterializeDiagnosticResults(diagnostics, selection.Item1, selection.Item2)
     }
 
-    public static func DeduplicateReferences(
-        references: IReadOnlyList<ReferenceResult>): ValueTuple<int[], int> {
+    static func DeduplicateReferences(references: IReadOnlyList<ReferenceResult>): ValueTuple<int[], int> {
         items := ReferenceList(references)
         return DeduplicateReferenceSelection(items)
     }
 
-    public static func DeduplicateReferenceResults(
-        references: IReadOnlyList<ReferenceResult>): List<ReferenceResult> {
+    static func DeduplicateReferenceResults(references: IReadOnlyList<ReferenceResult>): List<ReferenceResult> {
         items := ReferenceList(references)
         selection := DeduplicateReferenceSelection(items)
         return MaterializeReferenceResults(items, selection.Item1, selection.Item2)
     }
 
-    public static func MatchesFilePath(fullPath: string, queryPath: string): bool {
+    static func MatchesFilePath(fullPath: string, queryPath: string): bool {
         if PathEqualsNormalizedIgnoreCase(fullPath, queryPath) {
             return true
         }
@@ -103,10 +93,7 @@ public class CodeIntelligenceResultKernels {
         return NormalizeSlash(fullPath[charBeforeIndex]) == '/'
     }
 
-    static func MaterializeDiagnosticResults(
-        diagnostics: List<DiagnosticResult>,
-        indices: int[],
-        count: int): List<DiagnosticResult> {
+    static func MaterializeDiagnosticResults(diagnostics: List<DiagnosticResult>, indices: int[], count: int): List<DiagnosticResult> {
         results := new List<DiagnosticResult>(count)
         i := 0
         while i < count {
@@ -118,10 +105,7 @@ public class CodeIntelligenceResultKernels {
         return results
     }
 
-    static func MaterializeReferenceResults(
-        references: List<ReferenceResult>,
-        indices: int[],
-        count: int): List<ReferenceResult> {
+    static func MaterializeReferenceResults(references: List<ReferenceResult>, indices: int[], count: int): List<ReferenceResult> {
         results := new List<ReferenceResult>(count)
         i := 0
         while i < count {
@@ -135,7 +119,7 @@ public class CodeIntelligenceResultKernels {
 
     static func DiagnosticList(diagnostics: IReadOnlyList<DiagnosticResult>): List<DiagnosticResult> {
         items := new List<DiagnosticResult>()
-        foreach diagnosticValue in diagnostics {
+        for diagnosticValue in diagnostics {
             items.Add((DiagnosticResult)diagnosticValue)
         }
 
@@ -144,7 +128,7 @@ public class CodeIntelligenceResultKernels {
 
     static func ReferenceList(references: IReadOnlyList<ReferenceResult>): List<ReferenceResult> {
         items := new List<ReferenceResult>()
-        foreach referenceValue in references {
+        for referenceValue in references {
             items.Add((ReferenceResult)referenceValue)
         }
 
@@ -193,17 +177,11 @@ public class CodeIntelligenceResultKernels {
     }
 
     static func DiagnosticKey(diagnostic: DiagnosticResult): string {
-        return KeyPart(diagnostic.Code)
-            + "|" + KeyPart(diagnostic.File)
-            + "|" + diagnostic.Line.ToString()
-            + "|" + diagnostic.Column.ToString()
-            + "|" + KeyPart(diagnostic.Message)
+        return KeyPart(diagnostic.Code) + "|" + KeyPart(diagnostic.File) + "|" + diagnostic.Line.ToString() + "|" + diagnostic.Column.ToString() + "|" + KeyPart(diagnostic.Message)
     }
 
     static func ReferenceKey(reference: ReferenceResult): string {
-        return KeyPart(reference.File)
-            + "|" + reference.Line.ToString()
-            + "|" + reference.Column.ToString()
+        return KeyPart(reference.File) + "|" + reference.Line.ToString() + "|" + reference.Column.ToString()
     }
 
     static func KeyPart(value: string): string {

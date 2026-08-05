@@ -5,16 +5,16 @@ import System.Collections
 import System.Collections.Generic
 import System.Text
 
-public class CodeFixProvider {
-    public FixableDiagnosticCodes: IEnumerable<string> => new string[](0)
+class CodeFixProvider {
+    FixableDiagnosticCodes: IEnumerable<string> => new string[](0)
 
-    public func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         return new List<CodeAction>()
     }
 }
 
-public class CodeFixService {
-    public func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+class CodeFixService {
+    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
 
         if String.Compare(diagnostic.Code, "NL002", StringComparison.Ordinal) == 0 {
@@ -43,10 +43,10 @@ public class CodeFixService {
     }
 }
 
-public class AddMissingImportCodeFixProvider {
-    public FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL002")
+class AddMissingImportCodeFixProvider {
+    FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL002")
 
-    public func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         lastImportLine := CodeFixActionHelpers.GetLastImportLine(ast)
         hasImports := lastImportLine > 0
@@ -56,15 +56,7 @@ public class AddMissingImportCodeFixProvider {
         importText := ""
         title := ""
         suggestion := diagnostic.Suggestion ?? ""
-        if suggestion.Length > 0
-            && CodeFixActionHelpers.TryGetMissingImportEdit(
-                suggestion,
-                hasImports,
-                lastImportLine,
-                out insertLine,
-                out insertColumn,
-                out importText,
-                out title) {
+        if suggestion.Length > 0 && CodeFixActionHelpers.TryGetMissingImportEdit(suggestion, hasImports, lastImportLine, out insertLine, out insertColumn, out importText, out title) {
             edits := new List<TextEdit>()
             edits.Add(new TextEdit(insertLine, insertColumn, insertLine, insertColumn, importText))
             actions.Add(new CodeAction(title, "NL002", edits, CodeActionKind.QuickFix))
@@ -74,10 +66,10 @@ public class AddMissingImportCodeFixProvider {
     }
 }
 
-public class RemoveUnusedVariableCodeFixProvider {
-    public FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL001")
+class RemoveUnusedVariableCodeFixProvider {
+    FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL001")
 
-    public func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
 
@@ -92,97 +84,57 @@ public class RemoveUnusedVariableCodeFixProvider {
     }
 }
 
-public class RemoveUnnecessaryNullCheckCodeFixProvider {
-    public FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL003")
+class RemoveUnnecessaryNullCheckCodeFixProvider {
+    FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL003")
 
-    public func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
 
         conditionStart := 0
         conditionEnd := 0
         newCondition := ""
-        if CodeFixActionHelpers.TryGetUnnecessaryNullCheckEdit(
-            sourceCode,
-            line,
-            out conditionStart,
-            out conditionEnd,
-            out newCondition) {
+        if CodeFixActionHelpers.TryGetUnnecessaryNullCheckEdit(sourceCode, line, out conditionStart, out conditionEnd, out newCondition) {
             edits := new List<TextEdit>()
             edits.Add(new TextEdit(line, conditionStart, line, conditionEnd, newCondition))
-            actions.Add(new CodeAction(
-                "Remove unnecessary null check (always " + newCondition + ")",
-                "NL003",
-                edits,
-                CodeActionKind.QuickFix,
-                FixSafety.Safe))
+            actions.Add(new CodeAction("Remove unnecessary null check (always " + newCondition + ")", "NL003", edits, CodeActionKind.QuickFix, FixSafety.Safe))
         }
 
         return actions
     }
 }
 
-public class PossibleNullAccessCodeFixProvider {
-    public FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL905")
+class PossibleNullAccessCodeFixProvider {
+    FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL905")
 
-    public func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
 
         operatorColumn := 0
         replacementText := ""
-        if CodeFixActionHelpers.TryGetPossibleNullAccessEdit(
-            sourceCode,
-            line,
-            diagnostic.Location.Column,
-            out operatorColumn,
-            out replacementText) {
+        if CodeFixActionHelpers.TryGetPossibleNullAccessEdit(sourceCode, line, diagnostic.Location.Column, out operatorColumn, out replacementText) {
             edits := new List<TextEdit>()
             edits.Add(new TextEdit(line, operatorColumn, line, operatorColumn + 1, replacementText))
             if String.Compare(replacementText, "?.", StringComparison.Ordinal) == 0 {
-                actions.Add(new CodeAction(
-                    "Use null-conditional access (review result nullability)",
-                    "NL905",
-                    edits,
-                    CodeActionKind.QuickFix,
-                    FixSafety.ReviewNeeded))
+                actions.Add(new CodeAction("Use null-conditional access (review result nullability)", "NL905", edits, CodeActionKind.QuickFix, FixSafety.ReviewNeeded))
             } else if String.Compare(replacementText, "?[", StringComparison.Ordinal) == 0 {
-                actions.Add(new CodeAction(
-                    "Use null-conditional index access (review result nullability)",
-                    "NL905",
-                    edits,
-                    CodeActionKind.QuickFix,
-                    FixSafety.ReviewNeeded))
+                actions.Add(new CodeAction("Use null-conditional index access (review result nullability)", "NL905", edits, CodeActionKind.QuickFix, FixSafety.ReviewNeeded))
             }
         }
 
-        actions.Add(new CodeAction(
-            "Add a guard before using the maybe-null value",
-            "NL905",
-            new List<TextEdit>(),
-            CodeActionKind.QuickFix,
-            FixSafety.SuggestionOnly))
-        actions.Add(new CodeAction(
-            "Add a fallback with ?? after a safe access",
-            "NL905",
-            new List<TextEdit>(),
-            CodeActionKind.QuickFix,
-            FixSafety.SuggestionOnly))
-        actions.Add(new CodeAction(
-            "Assert non-null only after proving the value is present",
-            "NL905",
-            new List<TextEdit>(),
-            CodeActionKind.QuickFix,
-            FixSafety.SuggestionOnly))
+        actions.Add(new CodeAction("Add a guard before using the maybe-null value", "NL905", new List<TextEdit>(), CodeActionKind.QuickFix, FixSafety.SuggestionOnly))
+        actions.Add(new CodeAction("Add a fallback with ?? after a safe access", "NL905", new List<TextEdit>(), CodeActionKind.QuickFix, FixSafety.SuggestionOnly))
+        actions.Add(new CodeAction("Assert non-null only after proving the value is present", "NL905", new List<TextEdit>(), CodeActionKind.QuickFix, FixSafety.SuggestionOnly))
 
         return actions
     }
 }
 
-public class AddCommentToEmptyCatchCodeFixProvider {
-    public FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL011")
+class AddCommentToEmptyCatchCodeFixProvider {
+    FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL011")
 
-    public func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
 
@@ -191,22 +143,17 @@ public class AddCommentToEmptyCatchCodeFixProvider {
         if CodeFixActionHelpers.TryGetEmptyCatchCommentEdit(sourceCode, line, out column, out newText) {
             edits := new List<TextEdit>()
             edits.Add(new TextEdit(line, column, line, column, newText))
-            actions.Add(new CodeAction(
-                "Add TODO comment to empty catch block",
-                "NL011",
-                edits,
-                CodeActionKind.QuickFix,
-                FixSafety.Safe))
+            actions.Add(new CodeAction("Add TODO comment to empty catch block", "NL011", edits, CodeActionKind.QuickFix, FixSafety.Safe))
         }
 
         return actions
     }
 }
 
-public class RemoveUnusedImportCodeFixProvider {
-    public FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL010")
+class RemoveUnusedImportCodeFixProvider {
+    FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL010")
 
-    public func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
         if line <= 0 {
@@ -215,24 +162,19 @@ public class RemoveUnusedImportCodeFixProvider {
 
         edits := new List<TextEdit>()
         edits.Add(new TextEdit(line, 0, line + 1, 0, ""))
-        actions.Add(new CodeAction(
-            "Remove unused import",
-            "NL010",
-            edits,
-            CodeActionKind.SourceOrganizeImports,
-            FixSafety.ReviewNeeded))
+        actions.Add(new CodeAction("Remove unused import", "NL010", edits, CodeActionKind.SourceOrganizeImports, FixSafety.ReviewNeeded))
         return actions
     }
 }
 
 class CodeFixActionHelpers {
-    public static func SingleDiagnosticCode(code: string): string[] {
+    static func SingleDiagnosticCode(code: string): string[] {
         codes := new string[](1)
         codes[0] = code
         return codes
     }
 
-    public static func GetLastImportLine(ast: object): int {
+    static func GetLastImportLine(ast: object): int {
         if ast == null {
             return 0
         }
@@ -278,14 +220,7 @@ class CodeFixActionHelpers {
         return null
     }
 
-    public static func TryGetMissingImportEdit(
-        suggestion: string,
-        hasImports: bool,
-        lastImportLine: int,
-        out insertLine: int,
-        out insertColumn: int,
-        out importText: string,
-        out title: string): bool {
+    static func TryGetMissingImportEdit(suggestion: string, hasImports: bool, lastImportLine: int, out insertLine: int, out insertColumn: int, out importText: string, out title: string): bool {
         insertLine = 0
         insertColumn = 0
         importText = ""
@@ -314,11 +249,7 @@ class CodeFixActionHelpers {
         return true
     }
 
-    public static func TryGetRemoveUnusedVariableEdit(
-        message: string,
-        source: string,
-        line: int,
-        out title: string): bool {
+    static func TryGetRemoveUnusedVariableEdit(message: string, source: string, line: int, out title: string): bool {
         title = ""
 
         nameStartQuote := message.IndexOf('\'')
@@ -333,9 +264,7 @@ class CodeFixActionHelpers {
             return false
         }
 
-        if sourceLine.IndexOf("let " + variableName, StringComparison.Ordinal) < 0
-            && sourceLine.IndexOf("var " + variableName, StringComparison.Ordinal) < 0
-            && sourceLine.IndexOf("const " + variableName, StringComparison.Ordinal) < 0 {
+        if sourceLine.IndexOf("let " + variableName, StringComparison.Ordinal) < 0 && sourceLine.IndexOf("var " + variableName, StringComparison.Ordinal) < 0 && sourceLine.IndexOf("const " + variableName, StringComparison.Ordinal) < 0 {
             return false
         }
 
@@ -343,12 +272,7 @@ class CodeFixActionHelpers {
         return true
     }
 
-    public static func TryGetUnnecessaryNullCheckEdit(
-        source: string,
-        line: int,
-        out startColumn: int,
-        out endColumn: int,
-        out newText: string): bool {
+    static func TryGetUnnecessaryNullCheckEdit(source: string, line: int, out startColumn: int, out endColumn: int, out newText: string): bool {
         startColumn = 0
         endColumn = 0
         newText = ""
@@ -383,11 +307,7 @@ class CodeFixActionHelpers {
         return true
     }
 
-    public static func TryGetEmptyCatchCommentEdit(
-        source: string,
-        line: int,
-        out column: int,
-        out newText: string): bool {
+    static func TryGetEmptyCatchCommentEdit(source: string, line: int, out column: int, out newText: string): bool {
         column = 0
         newText = ""
 
@@ -412,12 +332,7 @@ class CodeFixActionHelpers {
         return true
     }
 
-    public static func TryGetPossibleNullAccessEdit(
-        source: string,
-        line: int,
-        column: int,
-        out operatorColumn: int,
-        out newText: string): bool {
+    static func TryGetPossibleNullAccessEdit(source: string, line: int, column: int, out operatorColumn: int, out newText: string): bool {
         operatorColumn = 0
         newText = ""
 
@@ -529,11 +444,7 @@ class CodeFixActionHelpers {
         return -1
     }
 
-    static func TryFindStatementConditionRange(
-        sourceLine: string,
-        patternStart: int,
-        out startColumn: int,
-        out endColumn: int): bool {
+    static func TryFindStatementConditionRange(sourceLine: string, patternStart: int, out startColumn: int, out endColumn: int): bool {
         startColumn = 0
         endColumn = 0
 

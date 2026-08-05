@@ -8,7 +8,7 @@ import System.Text.Json
 import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 
-public class FixEntry {
+class FixEntry {
     File: string
     DiagnosticCode: string
     Title: string
@@ -24,7 +24,7 @@ public class FixEntry {
     }
 }
 
-public class FixAppliedFileGrouping {
+class FixAppliedFileGrouping {
     Files: string[]
     Starts: int[]
     Counts: int[]
@@ -39,8 +39,8 @@ public class FixAppliedFileGrouping {
     }
 }
 
-public class FixCommandKernels {
-    public static func GetProjectDirectory(projectOption: string?, positionalProject: string?, currentDirectory: string): string {
+class FixCommandKernels {
+    static func GetProjectDirectory(projectOption: string?, positionalProject: string?, currentDirectory: string): string {
         if !string.IsNullOrWhiteSpace(projectOption ?? "") {
             return Path.GetFullPath(projectOption)
         }
@@ -48,7 +48,7 @@ public class FixCommandKernels {
         return Path.GetFullPath(positionalProject ?? currentDirectory)
     }
 
-    public static func ResolveFilePath(projectDirectory: string, filePath: string): string {
+    static func ResolveFilePath(projectDirectory: string, filePath: string): string {
         if Path.IsPathRooted(filePath) {
             return Path.GetFullPath(filePath)
         }
@@ -56,25 +56,25 @@ public class FixCommandKernels {
         return Path.GetFullPath(Path.Combine(projectDirectory, filePath))
     }
 
-    public static func GetSourceFilePath(sourceFile: string): string {
+    static func GetSourceFilePath(sourceFile: string): string {
         return Path.GetFullPath(sourceFile)
     }
 
-    public static func GetRelativeFile(projectDirectory: string, filePath: string): string {
+    static func GetRelativeFile(projectDirectory: string, filePath: string): string {
         return Path.GetRelativePath(projectDirectory, filePath)
     }
 
-    public static func GetAtomicTempPath(path: string, currentDirectory: string, uniqueName: string): string {
+    static func GetAtomicTempPath(path: string, currentDirectory: string, uniqueName: string): string {
         directory := Path.GetDirectoryName(path) ?? currentDirectory
         fileName := Path.GetFileName(path) ?? ""
         return Path.Combine(directory, "." + fileName + "." + uniqueName + ".tmp")
     }
 
-    public static func ToFixEntry(relativeFile: string, fix: CodeAction): FixEntry {
+    static func ToFixEntry(relativeFile: string, fix: CodeAction): FixEntry {
         return new FixEntry(NormalizePath(relativeFile), fix.DiagnosticCode, fix.Title, fix.Edits, GetFixSafetyJsonName(fix.Safety))
     }
 
-    public static func FilterBySafety(fixes: IReadOnlyList<CodeAction>, includeReviewNeeded: bool): List<CodeAction> {
+    static func FilterBySafety(fixes: IReadOnlyList<CodeAction>, includeReviewNeeded: bool): List<CodeAction> {
         items := CodeActionList(fixes)
         fixCount := items.Count
         safetyRanks := new int[](fixCount)
@@ -106,7 +106,7 @@ public class FixCommandKernels {
         return safeActions
     }
 
-    public static func SelectSkippedEntries(results: IReadOnlyList<FixEntry>, includeReviewNeeded: bool): List<FixEntry> {
+    static func SelectSkippedEntries(results: IReadOnlyList<FixEntry>, includeReviewNeeded: bool): List<FixEntry> {
         items := FixEntryList(results)
         resultCount := items.Count
         safetyRanks := new int[](resultCount)
@@ -138,7 +138,7 @@ public class FixCommandKernels {
         return skipped
     }
 
-    public static func GroupAppliedEntriesByFile(applied: IReadOnlyList<FixEntry>): FixAppliedFileGrouping {
+    static func GroupAppliedEntriesByFile(applied: IReadOnlyList<FixEntry>): FixAppliedFileGrouping {
         items := FixEntryList(applied)
         appliedCount := items.Count
         scratch := new AppliedFileGroupingScratch()
@@ -151,20 +151,9 @@ public class FixCommandKernels {
             i = i + 1
         }
 
-        groupCount := AppliedFileGroups(
-            scratch.FileRanks,
-            scratch.UniqueFileRankCount,
-            scratch.CountsByRank,
-            scratch.OffsetsByRank,
-            scratch.WriteOffsetsByRank,
-            scratch.ResultRanks,
-            scratch.ResultStarts,
-            scratch.ResultCounts,
-            scratch.ResultIndices)
+        groupCount := AppliedFileGroups(scratch.FileRanks, scratch.UniqueFileRankCount, scratch.CountsByRank, scratch.OffsetsByRank, scratch.WriteOffsetsByRank, scratch.ResultRanks, scratch.ResultStarts, scratch.ResultCounts, scratch.ResultIndices)
 
-        if groupCount < 0
-            || groupCount > scratch.UniqueFileRankCount
-            || groupCount > appliedCount {
+        if groupCount < 0 || groupCount > scratch.UniqueFileRankCount || groupCount > appliedCount {
             throw new InvalidOperationException("N# fix applied-file grouping kernel rejected the fixes.")
         }
 
@@ -178,11 +167,7 @@ public class FixCommandKernels {
             rank := scratch.ResultRanks[groupIndex]
             start := scratch.ResultStarts[groupIndex]
             count := scratch.ResultCounts[groupIndex]
-            if rank <= 0
-                || rank > scratch.UniqueFileRankCount
-                || start < 0
-                || count < 0
-                || start + count > appliedCount {
+            if rank <= 0 || rank > scratch.UniqueFileRankCount || start < 0 || count < 0 || start + count > appliedCount {
                 throw new InvalidOperationException("N# fix applied-file grouping kernel returned an invalid group.")
             }
 
@@ -206,12 +191,7 @@ public class FixCommandKernels {
         return new FixAppliedFileGrouping(files, starts, counts, indices)
     }
 
-    public static func ResultText(
-        results: IReadOnlyList<FixEntry>,
-        applied: IReadOnlyList<FixEntry>,
-        filesModified: int,
-        dryRun: bool,
-        includeReviewNeeded: bool): string {
+    static func ResultText(results: IReadOnlyList<FixEntry>, applied: IReadOnlyList<FixEntry>, filesModified: int, dryRun: bool, includeReviewNeeded: bool): string {
         resultItems := FixEntryList(results)
         appliedItems := FixEntryList(applied)
         builder := new StringBuilder()
@@ -247,7 +227,7 @@ public class FixCommandKernels {
             AppendLine(builder, "")
             AppendLine(builder, GetSkippedHeader(skipped.Count))
 
-            foreach fix in skipped {
+            for fix in skipped {
                 reason := GetSkippedReason(fix.Safety)
                 AppendLine(builder, GetSkippedLine(fix.DiagnosticCode, fix.Title, reason))
             }
@@ -256,13 +236,7 @@ public class FixCommandKernels {
         return builder.ToString()
     }
 
-    public static func ResultJson(
-        projectDir: string,
-        dryRun: bool,
-        includeReviewNeeded: bool,
-        results: IReadOnlyList<FixEntry>,
-        applied: IReadOnlyList<FixEntry>,
-        filesModified: int): string {
+    static func ResultJson(projectDir: string, dryRun: bool, includeReviewNeeded: bool, results: IReadOnlyList<FixEntry>, applied: IReadOnlyList<FixEntry>, filesModified: int): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 2
         envelope["command"] = "fix"
@@ -276,7 +250,7 @@ public class FixCommandKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func GetExitCode(dryRun: bool, filesModified: int): int {
+    static func GetExitCode(dryRun: bool, filesModified: int): int {
         if dryRun && filesModified > 0 {
             return 1
         }
@@ -331,54 +305,31 @@ public class FixCommandKernels {
         return payload
     }
 
-    public static func GetHelpText(): string {
-        return "N# Auto-Fix\n"
-            + "\n"
-            + "Usage: nlc fix [options] [project-dir]\n"
-            + "\n"
-            + "Options:\n"
-            + "  --json                    Output as JSON (default)\n"
-            + "  --text                    Output as human-readable summary\n"
-            + "  --project                 Project root directory (default: current directory)\n"
-            + "  --file                    Fix a single file\n"
-            + "  --dry-run                 Preview fixes without writing files\n"
-            + "  --include-review-needed   Also apply fixes that may need review (e.g. unused import removal)\n"
-            + "  --help, -h                Show this help text\n"
-            + "\n"
-            + "Safety levels:\n"
-            + "  Safe              Always applied by default\n"
-            + "  ReviewNeeded      Only applied with --include-review-needed flag\n"
-            + "  SuggestionOnly    Never applied automatically — reported in results only\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc fix\n"
-            + "  nlc fix --dry-run --text\n"
-            + "  nlc fix --include-review-needed\n"
-            + "  nlc fix --file Program.nl\n"
-            + "  nlc fix --project examples/16-task-cli"
+    static func GetHelpText(): string {
+        return "N# Auto-Fix\n" + "\n" + "Usage: nlc fix [options] [project-dir]\n" + "\n" + "Options:\n" + "  --json                    Output as JSON (default)\n" + "  --text                    Output as human-readable summary\n" + "  --project                 Project root directory (default: current directory)\n" + "  --file                    Fix a single file\n" + "  --dry-run                 Preview fixes without writing files\n" + "  --include-review-needed   Also apply fixes that may need review (e.g. unused import removal)\n" + "  --help, -h                Show this help text\n" + "\n" + "Safety levels:\n" + "  Safe              Always applied by default\n" + "  ReviewNeeded      Only applied with --include-review-needed flag\n" + "  SuggestionOnly    Never applied automatically — reported in results only\n" + "\n" + "Examples:\n" + "  nlc fix\n" + "  nlc fix --dry-run --text\n" + "  nlc fix --include-review-needed\n" + "  nlc fix --file Program.nl\n" + "  nlc fix --project examples/16-task-cli"
     }
 
-    public static func GetProjectDirectoryNotFoundMessage(projectDir: string): string {
+    static func GetProjectDirectoryNotFoundMessage(projectDir: string): string {
         return "Directory not found: " + projectDir
     }
 
-    public static func GetFileNotFoundMessage(filePath: string): string {
+    static func GetFileNotFoundMessage(filePath: string): string {
         return "File not found: " + filePath
     }
 
-    public static func GetNoFilesFoundMessage(): string {
+    static func GetNoFilesFoundMessage(): string {
         return "No .nl files found."
     }
 
-    public static func GetFailedMessage(message: string): string {
+    static func GetFailedMessage(message: string): string {
         return "Fix failed: " + message
     }
 
-    public static func GetNothingToFixMessage(): string {
+    static func GetNothingToFixMessage(): string {
         return "Nothing to fix."
     }
 
-    public static func GetAppliedHeader(appliedCount: int, filesModified: int, dryRun: bool): string {
+    static func GetAppliedHeader(appliedCount: int, filesModified: int, dryRun: bool): string {
         verb := "Fixed"
         if dryRun {
             verb = "Would fix"
@@ -397,15 +348,15 @@ public class FixCommandKernels {
         return verb + " " + appliedCount.ToString() + " issue" + issueSuffix + " in " + filesModified.ToString() + " " + fileWord + ":"
     }
 
-    public static func GetAppliedFileHeader(filePath: string): string {
+    static func GetAppliedFileHeader(filePath: string): string {
         return "  " + filePath + ":"
     }
 
-    public static func GetEntryLine(diagnosticCode: string, title: string): string {
+    static func GetEntryLine(diagnosticCode: string, title: string): string {
         return "    [" + diagnosticCode + "] " + title
     }
 
-    public static func GetSkippedHeader(skippedCount: int): string {
+    static func GetSkippedHeader(skippedCount: int): string {
         suffix := "es"
         if skippedCount == 1 {
             suffix = ""
@@ -414,7 +365,7 @@ public class FixCommandKernels {
         return "Skipped " + skippedCount.ToString() + " fix" + suffix + ":"
     }
 
-    public static func GetSkippedReason(safety: string): string {
+    static func GetSkippedReason(safety: string): string {
         if safety == "suggestionOnly" {
             return "suggestion only — manual review required"
         }
@@ -422,7 +373,7 @@ public class FixCommandKernels {
         return "requires --include-review-needed flag"
     }
 
-    public static func GetSkippedLine(diagnosticCode: string, title: string, reason: string): string {
+    static func GetSkippedLine(diagnosticCode: string, title: string, reason: string): string {
         return "  [" + diagnosticCode + "] " + title + " (" + reason + ")"
     }
 
@@ -474,16 +425,7 @@ public class FixCommandKernels {
         return skippedCount
     }
 
-    static func AppliedFileGroups(
-        fileRanks: int[],
-        uniqueFileRankCount: int,
-        countsByRank: int[],
-        offsetsByRank: int[],
-        writeOffsetsByRank: int[],
-        resultRanks: int[],
-        resultStarts: int[],
-        resultCounts: int[],
-        resultIndices: int[]): int {
+    static func AppliedFileGroups(fileRanks: int[], uniqueFileRankCount: int, countsByRank: int[], offsetsByRank: int[], writeOffsetsByRank: int[], resultRanks: int[], resultStarts: int[], resultCounts: int[], resultIndices: int[]): int {
         if uniqueFileRankCount < 0 {
             return -1
         }
@@ -497,13 +439,7 @@ public class FixCommandKernels {
         }
 
         rankCapacity := uniqueFileRankCount + 1
-        if countsByRank.Length < rankCapacity
-            || offsetsByRank.Length < rankCapacity
-            || writeOffsetsByRank.Length < rankCapacity
-            || resultRanks.Length < uniqueFileRankCount
-            || resultStarts.Length < uniqueFileRankCount
-            || resultCounts.Length < uniqueFileRankCount
-            || resultIndices.Length < fileRanks.Length {
+        if countsByRank.Length < rankCapacity || offsetsByRank.Length < rankCapacity || writeOffsetsByRank.Length < rankCapacity || resultRanks.Length < uniqueFileRankCount || resultStarts.Length < uniqueFileRankCount || resultCounts.Length < uniqueFileRankCount || resultIndices.Length < fileRanks.Length {
             return -1
         }
 
@@ -610,7 +546,7 @@ public class FixCommandKernels {
 
     static func CodeActionList(fixes: IReadOnlyList<CodeAction>): List<CodeAction> {
         items := new List<CodeAction>()
-        foreach fix in fixes {
+        for fix in fixes {
             items.Add((CodeAction)fix)
         }
 
@@ -619,7 +555,7 @@ public class FixCommandKernels {
 
     static func FixEntryList(results: IReadOnlyList<FixEntry>): List<FixEntry> {
         items := new List<FixEntry>()
-        foreach result in results {
+        for result in results {
             items.Add((FixEntry)result)
         }
 

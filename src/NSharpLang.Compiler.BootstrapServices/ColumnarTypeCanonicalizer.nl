@@ -3,9 +3,9 @@ namespace NSharpLang.Compiler.Columnar
 import System.Collections.Generic
 import System.Text
 
-public class ColumnarTupleElementNameStripResult {
-    public Canonical: string
-    public Names: string[]?
+class ColumnarTupleElementNameStripResult {
+    Canonical: string
+    Names: string[]?
 
     constructor(canonical: string, names: string[]? = null) {
         Canonical = canonical
@@ -13,8 +13,8 @@ public class ColumnarTupleElementNameStripResult {
     }
 }
 
-public class ColumnarTypeCanonicalizer {
-    public static func UnqualifiedTypeName(name: string): string {
+class ColumnarTypeCanonicalizer {
+    static func UnqualifiedTypeName(name: string): string {
         lastDot := -1
         i := 0
         while i < name.Length {
@@ -32,7 +32,7 @@ public class ColumnarTypeCanonicalizer {
         return name
     }
 
-    public static func RemoveWhitespace(s: string): string {
+    static func RemoveWhitespace(s: string): string {
         sb := new StringBuilder(s.Length)
         i := 0
         while i < s.Length {
@@ -47,7 +47,7 @@ public class ColumnarTypeCanonicalizer {
         return sb.ToString()
     }
 
-    public static func StripTupleElementNames(canonical: string): ColumnarTupleElementNameStripResult {
+    static func StripTupleElementNames(canonical: string): ColumnarTupleElementNameStripResult {
         if canonical.Length < 2 || canonical[0] != '(' || canonical[canonical.Length - 1] != ')' {
             return new ColumnarTupleElementNameStripResult(canonical)
         }
@@ -81,7 +81,7 @@ public class ColumnarTypeCanonicalizer {
         return new ColumnarTupleElementNameStripResult("(" + string.Join(",", stripped) + ")", collected)
     }
 
-    public static func SplitTopLevelCommas(s: string): List<string> {
+    static func SplitTopLevelCommas(s: string): List<string> {
         parts := new List<string>()
         depth := 0
         start := 0

@@ -1,6 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
-public class EnvOptionSummary {
+class EnvOptionSummary {
     Json: bool
     ShowHelp: bool
 
@@ -10,8 +10,8 @@ public class EnvOptionSummary {
     }
 }
 
-public class EnvCommandKernels {
-    public static func GetOptionSummary(args: string[]): EnvOptionSummary {
+class EnvCommandKernels {
+    static func GetOptionSummary(args: string[]): EnvOptionSummary {
         json := false
         showHelp := false
 
@@ -34,7 +34,7 @@ public class EnvCommandKernels {
         return new EnvOptionSummary(json, showHelp)
     }
 
-    public static func GetOutputMode(json: bool): int {
+    static func GetOutputMode(json: bool): int {
         if json {
             return 1
         }
@@ -42,26 +42,11 @@ public class EnvCommandKernels {
         return 2
     }
 
-    public static func GetHelpText(): string {
-        return "N# Environment Info\n"
-            + "\n"
-            + "Usage: nlc env [options]\n"
-            + "\n"
-            + "Show toolchain and environment information.\n"
-            + "\n"
-            + "Options:\n"
-            + "  --json          Output as JSON envelope\n"
-            + "  --help, -h      Show this help text\n"
-            + "\n"
-            + "Examples:\n"
-            + "  nlc env\n"
-            + "  nlc env --json\n"
-            + "\n"
-            + "Exit codes:\n"
-            + "  0  Always succeeds"
+    static func GetHelpText(): string {
+        return "N# Environment Info\n" + "\n" + "Usage: nlc env [options]\n" + "\n" + "Show toolchain and environment information.\n" + "\n" + "Options:\n" + "  --json          Output as JSON envelope\n" + "  --help, -h      Show this help text\n" + "\n" + "Examples:\n" + "  nlc env\n" + "  nlc env --json\n" + "\n" + "Exit codes:\n" + "  0  Always succeeds"
     }
 
-    public static func GetTextLine(kind: int, value: string): string {
+    static func GetTextLine(kind: int, value: string): string {
         if kind == 1 {
             return "nlc version:    " + value
         }

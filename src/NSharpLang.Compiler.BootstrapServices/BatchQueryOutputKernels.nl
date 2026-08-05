@@ -3,7 +3,7 @@ namespace NSharpLang.Cli
 import System.Collections.Generic
 import System.Text.Json
 
-public class BatchQueryOutputRequest {
+class BatchQueryOutputRequest {
     commandValue: string
     fileValue: string?
     posValue: string?
@@ -28,18 +28,7 @@ public class BatchQueryOutputRequest {
     Compact: bool? => compactValue
     Clusters: bool? => clustersValue
 
-    constructor(
-        command: string,
-        filePath: string?,
-        pos: string?,
-        name: string?,
-        query: string?,
-        kind: string?,
-        severity: string?,
-        includeKeywords: bool?,
-        summary: bool?,
-        compact: bool?,
-        clusters: bool?) {
+    constructor(command: string, filePath: string?, pos: string?, name: string?, query: string?, kind: string?, severity: string?, includeKeywords: bool?, summary: bool?, compact: bool?, clusters: bool?) {
         commandValue = command
         fileValue = filePath
         posValue = pos
@@ -54,7 +43,7 @@ public class BatchQueryOutputRequest {
     }
 }
 
-public class BatchQueryNormalizedRequest {
+class BatchQueryNormalizedRequest {
     commandValue: string
     idValue: string?
     fileValue: string?
@@ -81,19 +70,7 @@ public class BatchQueryNormalizedRequest {
     Compact: bool? => compactValue
     Clusters: bool? => clustersValue
 
-    constructor(
-        command: string,
-        id: string?,
-        filePath: string?,
-        pos: string?,
-        name: string?,
-        query: string?,
-        kind: string?,
-        severity: string?,
-        includeKeywords: bool?,
-        summary: bool?,
-        compact: bool?,
-        clusters: bool?) {
+    constructor(command: string, id: string?, filePath: string?, pos: string?, name: string?, query: string?, kind: string?, severity: string?, includeKeywords: bool?, summary: bool?, compact: bool?, clusters: bool?) {
         commandValue = command
         idValue = id
         fileValue = filePath
@@ -109,7 +86,7 @@ public class BatchQueryNormalizedRequest {
     }
 }
 
-public class BatchQueryOutputItem {
+class BatchQueryOutputItem {
     indexValue: int
     idValue: string?
     requestValue: BatchQueryOutputRequest
@@ -122,12 +99,7 @@ public class BatchQueryOutputItem {
     Ok: bool => okValue
     Response: JsonElement => responseValue
 
-    constructor(
-        index: int,
-        id: string?,
-        request: BatchQueryOutputRequest,
-        ok: bool,
-        response: JsonElement) {
+    constructor(index: int, id: string?, request: BatchQueryOutputRequest, ok: bool, response: JsonElement) {
         indexValue = index
         idValue = id
         requestValue = request
@@ -136,16 +108,12 @@ public class BatchQueryOutputItem {
     }
 }
 
-public class BatchQueryOutputKernels {
+class BatchQueryOutputKernels {
     static func CreateWriteIndentedOptions(): JsonSerializerOptions {
         return new JsonSerializerOptions { WriteIndented: true }
     }
 
-    public static func BuildExecutionResultJson(
-        projectRoot: string?,
-        items: IReadOnlyList<BatchQueryOutputItem>,
-        successCount: int,
-        failureCount: int): string {
+    static func BuildExecutionResultJson(projectRoot: string?, items: IReadOnlyList<BatchQueryOutputItem>, successCount: int, failureCount: int): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "batch"
@@ -163,58 +131,12 @@ public class BatchQueryOutputKernels {
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 
-    public static func NormalizeForOutput(
-        command: string?,
-        filePath: string?,
-        pos: string?,
-        name: string?,
-        query: string?,
-        kind: string?,
-        severity: string?,
-        includeKeywords: bool,
-        summary: bool,
-        compact: bool,
-        clusters: bool): BatchQueryOutputRequest {
-        return new BatchQueryOutputRequest(
-            BatchQueryKernels.NormalizeCommand(command),
-            OutputFormatterNormalizationKernels.NormalizePath(filePath),
-            pos,
-            name,
-            query,
-            kind,
-            severity,
-            OptionalBool(includeKeywords),
-            OptionalBool(summary),
-            OptionalBool(compact),
-            OptionalBool(clusters))
+    static func NormalizeForOutput(command: string?, filePath: string?, pos: string?, name: string?, query: string?, kind: string?, severity: string?, includeKeywords: bool, summary: bool, compact: bool, clusters: bool): BatchQueryOutputRequest {
+        return new BatchQueryOutputRequest(BatchQueryKernels.NormalizeCommand(command), OutputFormatterNormalizationKernels.NormalizePath(filePath), pos, name, query, kind, severity, OptionalBool(includeKeywords), OptionalBool(summary), OptionalBool(compact), OptionalBool(clusters))
     }
 
-    public static func NormalizeForErrorDetails(
-        command: string?,
-        id: string?,
-        filePath: string?,
-        pos: string?,
-        name: string?,
-        query: string?,
-        kind: string?,
-        severity: string?,
-        includeKeywords: bool,
-        summary: bool,
-        compact: bool,
-        clusters: bool): BatchQueryNormalizedRequest {
-        return new BatchQueryNormalizedRequest(
-            BatchQueryKernels.NormalizeCommand(command),
-            id,
-            OutputFormatterNormalizationKernels.NormalizePath(filePath),
-            pos,
-            name,
-            query,
-            kind,
-            severity,
-            OptionalBool(includeKeywords),
-            OptionalBool(summary),
-            OptionalBool(compact),
-            OptionalBool(clusters))
+    static func NormalizeForErrorDetails(command: string?, id: string?, filePath: string?, pos: string?, name: string?, query: string?, kind: string?, severity: string?, includeKeywords: bool, summary: bool, compact: bool, clusters: bool): BatchQueryNormalizedRequest {
+        return new BatchQueryNormalizedRequest(BatchQueryKernels.NormalizeCommand(command), id, OutputFormatterNormalizationKernels.NormalizePath(filePath), pos, name, query, kind, severity, OptionalBool(includeKeywords), OptionalBool(summary), OptionalBool(compact), OptionalBool(clusters))
     }
 
     static func OptionalBool(value: bool): bool? {

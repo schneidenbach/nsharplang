@@ -2,8 +2,8 @@ namespace NSharpLang.Compiler
 
 import System.Collections.Generic
 
-public class NullabilityTypeDisplay {
-    public static func TryFormatTypeInfo(typeInfo: TypeInfo): string? {
+class NullabilityTypeDisplay {
+    static func TryFormatTypeInfo(typeInfo: TypeInfo): string? {
         simple := typeInfo as SimpleTypeInfo
         if simple != null {
             return simple.Name
@@ -107,7 +107,7 @@ public class NullabilityTypeDisplay {
         return null
     }
 
-    public static func FormatTypeInfo(typeInfo: TypeInfo): string {
+    static func FormatTypeInfo(typeInfo: TypeInfo): string {
         formatted := TryFormatTypeInfo(typeInfo)
         if formatted != null {
             return formatted
@@ -122,7 +122,7 @@ public class NullabilityTypeDisplay {
         return text
     }
 
-    public static func StripMetadata(typeInfo: TypeInfo): TypeInfo {
+    static func StripMetadata(typeInfo: TypeInfo): TypeInfo {
         oblivious := typeInfo as ObliviousTypeInfo
         if oblivious != null {
             return StripMetadata(oblivious.InnerType)

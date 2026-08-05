@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // THE FOUR STEPS A LOCAL DECLARATION CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
 //
 // The walk owns what N#'s TWO local-declaration statements MEAN — `let x: T = e` and
@@ -39,16 +40,15 @@ import NSharpLang.Compiler.Ast
 // The numbering keeps its GAPS at 2 and 3 rather than closing up: the kind number is a protocol
 // between this walk and one driver, and a renumber would silently re-point every contract that pins
 // a step's kind.
-public class VariableDeclarationRequest {
-
-    public Kind: int
-    public Node: Expression?
-    public Name: string?
-    public CarriedType: TypeInfo
-    public ExpectedType: TypeInfo?
-    public Text: string?
-    public Line: int
-    public Column: int
+class VariableDeclarationRequest {
+    Kind: int
+    Node: Expression?
+    Name: string?
+    CarriedType: TypeInfo
+    ExpectedType: TypeInfo?
+    Text: string?
+    Line: int
+    Column: int
 
     constructor(kind: int, carriedType: TypeInfo) {
         Kind = kind
@@ -84,31 +84,28 @@ public class VariableDeclarationRequest {
 // `TargetTypes` is the deconstruction's answer to "what is each name", settled once at phase 12 —
 // either the source's element types or ONE shared unknown instance repeated, which is what
 // `Analyzer.cs` passed when it fell back.
-public class VariableDeclarationState {
-
+class VariableDeclarationState {
     declarationValue: VariableDeclarationStatement?
     tupleValue: TupleDeconstructionStatement?
 
     Declaration: VariableDeclarationStatement? => declarationValue
     Tuple: TupleDeconstructionStatement? => tupleValue
 
-    public Phase: int
-    public Pending: int
+    Phase: int
+    Pending: int
 
-    public DeclaredType: TypeInfo?
-    public InferredType: TypeInfo?
-    public FinalType: TypeInfo
+    DeclaredType: TypeInfo?
+    InferredType: TypeInfo?
+    FinalType: TypeInfo
 
-    public ErrorForm: bool
-    public EscapeFired: bool
-    public TargetTypes: List<TypeInfo>
-    public TargetIndex: int
-    public PendingName: string?
-    public PendingType: TypeInfo
+    ErrorForm: bool
+    EscapeFired: bool
+    TargetTypes: List<TypeInfo>
+    TargetIndex: int
+    PendingName: string?
+    PendingType: TypeInfo
 
-    constructor(
-        declaration: VariableDeclarationStatement?,
-        tuple: TupleDeconstructionStatement?) {
+    constructor(declaration: VariableDeclarationStatement?, tuple: TupleDeconstructionStatement?) {
         declarationValue = declaration
         tupleValue = tuple
         Phase = 0
@@ -178,8 +175,7 @@ public class VariableDeclarationState {
 // more, both NL103 and both underlining the INITIALIZER: a source that is not a tuple, and a tuple
 // whose element count disagrees with the target count. Both then give every target `unknown` rather
 // than abandoning the statement, so the names still exist for the rest of the scope.
-public class AnalyzerVariableDeclaration {
-
+class AnalyzerVariableDeclaration {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     typeResolverValue: AnalyzerTypeResolver
@@ -189,15 +185,7 @@ public class AnalyzerVariableDeclaration {
     declarationContextValue: AnalyzerDeclarationContext
     soaEscapeValue: AnalyzerSoaEscape
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        typeResolver: AnalyzerTypeResolver,
-        assignability: AnalyzerAssignability,
-        nullFlow: AnalyzerNullFlow,
-        scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext,
-        soaEscape: AnalyzerSoaEscape) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, assignability: AnalyzerAssignability, nullFlow: AnalyzerNullFlow, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
@@ -208,13 +196,13 @@ public class AnalyzerVariableDeclaration {
         soaEscapeValue = soaEscape
     }
 
-    public func Begin(declaration: VariableDeclarationStatement): VariableDeclarationState {
+    func Begin(declaration: VariableDeclarationStatement): VariableDeclarationState {
         return new VariableDeclarationState(declaration, null)
     }
 
     // THE DECONSTRUCTION FORM'S ENTRY. Same state, same `NextStep`, same `Supply`, same driver — only
     // the phase family differs.
-    public func BeginTuple(tuple: TupleDeconstructionStatement): VariableDeclarationState {
+    func BeginTuple(tuple: TupleDeconstructionStatement): VariableDeclarationState {
         return new VariableDeclarationState(null, tuple)
     }
 
@@ -222,7 +210,7 @@ public class AnalyzerVariableDeclaration {
     // either decides something and advances, or emits exactly one request; the walk never advances
     // past a point whose answer it has not been given. The type diagnostics land HERE, between the
     // kind-1 step and the SoA step, which is exactly where `Analyzer.cs` reported them.
-    public func NextStep(state: VariableDeclarationState): VariableDeclarationRequest? {
+    func NextStep(state: VariableDeclarationState): VariableDeclarationRequest? {
         while state.Phase != 99 {
             request := Advance(state)
             if request != null {
@@ -237,7 +225,7 @@ public class AnalyzerVariableDeclaration {
     // initializer's type, which settles the declaration's type and three later operands. The two
     // declaration steps answer nothing, and nothing is folded in for them. The escape answer used to
     // arrive here as a second parameter; the reports are direct calls now, so the flag is gone.
-    public func Supply(state: VariableDeclarationState, answer: TypeInfo?) {
+    func Supply(state: VariableDeclarationState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -261,9 +249,7 @@ public class AnalyzerVariableDeclaration {
         return null
     }
 
-    func AdvanceAnnotated(
-        state: VariableDeclarationState,
-        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
+    func AdvanceAnnotated(state: VariableDeclarationState, declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         phase := state.Phase
         if phase == 0 {
             return AdvanceAnnotation(state, declaration)
@@ -295,9 +281,7 @@ public class AnalyzerVariableDeclaration {
 
     // PHASE 0 — the annotation, and the one step whose answer everything else depends on. A
     // declaration with no initializer skips straight to the type decision with no answer to wait for.
-    func AdvanceAnnotation(
-        state: VariableDeclarationState,
-        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
+    func AdvanceAnnotation(state: VariableDeclarationState, declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         typeReference := declaration.Type
         if typeReference != null {
             state.DeclaredType = typeResolverValue.ResolveDeclaredType(typeReference)
@@ -318,9 +302,7 @@ public class AnalyzerVariableDeclaration {
 
     // PHASE 1 — THE FOUR TYPE OUTCOMES, in the order `Analyzer.cs` tested them. Exactly one arm runs
     // and at most one diagnostic is reported.
-    func AdvanceType(
-        state: VariableDeclarationState,
-        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
+    func AdvanceType(state: VariableDeclarationState, declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         declaredType := state.DeclaredType
         inferredType := state.InferredType
         initializer := declaration.Initializer
@@ -361,9 +343,7 @@ public class AnalyzerVariableDeclaration {
     // PHASE 2 — THE SoA ESCAPE REPORT THE RESULTING TYPE SELECTS. A row view stored in a variable is
     // always an escape; anything else has to be asked. A declaration with no initializer has no
     // expression to report on and asks for neither.
-    func AdvanceEscape(
-        state: VariableDeclarationState,
-        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
+    func AdvanceEscape(state: VariableDeclarationState, declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         initializer := declaration.Initializer
         state.Phase = 3
         if initializer == null {
@@ -376,17 +356,13 @@ public class AnalyzerVariableDeclaration {
             return null
         }
 
-        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-            initializer,
-            "stored in a variable")
+        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(initializer, "stored in a variable")
         return null
     }
 
     // PHASE 3 — the local enters the analyzer's scope stack under the declaration kind `local`, which
     // is what makes it a local rather than a parameter or a field to everything that reads the scope.
-    func AdvanceDeclare(
-        state: VariableDeclarationState,
-        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
+    func AdvanceDeclare(state: VariableDeclarationState, declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         state.Phase = 4
         state.Pending = 4
         request := new VariableDeclarationRequest(4, state.FinalType)
@@ -400,9 +376,7 @@ public class AnalyzerVariableDeclaration {
     // PHASE 4 — the semantic model the IDE's hover and completion read. This is a SEPARATE step from
     // the scope declaration because it writes a different store and, unlike the scope, it is scoped
     // by the semantic scope id rather than by the analyzer's own stack.
-    func AdvanceRecord(
-        state: VariableDeclarationState,
-        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
+    func AdvanceRecord(state: VariableDeclarationState, declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         state.Phase = 5
         state.Pending = 5
         request := new VariableDeclarationRequest(5, state.FinalType)
@@ -418,9 +392,7 @@ public class AnalyzerVariableDeclaration {
     // state from the SYNTAX of the initializer (a literal `null` is null, anything else is
     // maybe-null); everything else asks the null-state owner, about the INITIALIZER'S type when there
     // is an initializer and about the declaration's own type when there is not.
-    func AdvanceNullState(
-        state: VariableDeclarationState,
-        declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
+    func AdvanceNullState(state: VariableDeclarationState, declaration: VariableDeclarationStatement): VariableDeclarationRequest? {
         initializer := declaration.Initializer
         finalType := state.FinalType
         state.Phase = 99
@@ -443,21 +415,15 @@ public class AnalyzerVariableDeclaration {
             // reports NL202 on the call below rather than narrowing it.
             inferredType := state.InferredType
             if inferredType != null {
-                scopesValue.SetNullStateInCurrentScope(
-                    declaration.Name,
-                    nullFlowValue.GetExpressionNullState(initializer, inferredType))
+                scopesValue.SetNullStateInCurrentScope(declaration.Name, nullFlowValue.GetExpressionNullState(initializer, inferredType))
                 return null
             }
 
-            scopesValue.SetNullStateInCurrentScope(
-                declaration.Name,
-                nullFlowValue.GetExpressionNullState(initializer, finalType))
+            scopesValue.SetNullStateInCurrentScope(declaration.Name, nullFlowValue.GetExpressionNullState(initializer, finalType))
             return null
         }
 
-        scopesValue.SetNullStateInCurrentScope(
-            declaration.Name,
-            nullFlowValue.GetDefaultNullState(finalType))
+        scopesValue.SetNullStateInCurrentScope(declaration.Name, nullFlowValue.GetDefaultNullState(finalType))
         return null
     }
 
@@ -466,9 +432,7 @@ public class AnalyzerVariableDeclaration {
     // Six phases, and the only structural difference from the annotated form is that the last three
     // are a LOOP: a deconstruction declares N names, and each one replays the same declare / record
     // pair before the walk writes its null state itself.
-    func AdvanceTuple(
-        state: VariableDeclarationState,
-        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+    func AdvanceTuple(state: VariableDeclarationState, tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
         phase := state.Phase
         if phase == 10 {
             return AdvanceTupleInitializer(state, tuple)
@@ -504,9 +468,7 @@ public class AnalyzerVariableDeclaration {
     // never reports, and it gives its second name the type `Exception?` regardless of the source.
     // The initializer is analysed with kind 6, NOT kind 1: a deconstruction has no annotation to
     // target-type with, and it must not overwrite whatever target typing already surrounds it.
-    func AdvanceTupleInitializer(
-        state: VariableDeclarationState,
-        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+    func AdvanceTupleInitializer(state: VariableDeclarationState, tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
         names := tuple.Names
         if names.Count == 2 {
             secondName := names[1]
@@ -524,9 +486,7 @@ public class AnalyzerVariableDeclaration {
     // agree completely. A row view is always an escape and the direct-column probe is then NOT run
     // at all — `Analyzer.cs` joined the two with `||`, so the row report short-circuits it — and
     // EITHER firing makes the source `unknown`, which is folded in at phase 12.
-    func AdvanceTupleEscape(
-        state: VariableDeclarationState,
-        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+    func AdvanceTupleEscape(state: VariableDeclarationState, tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
         answered := state.InferredType
         if answered != null {
             state.FinalType = answered
@@ -540,9 +500,7 @@ public class AnalyzerVariableDeclaration {
             return null
         }
 
-        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-            tuple.Initializer,
-            "deconstructed")
+        state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(tuple.Initializer, "deconstructed")
         return null
     }
 
@@ -552,9 +510,7 @@ public class AnalyzerVariableDeclaration {
     // whose element count disagrees with the target count reports NL103 and does the same; and only
     // a matching tuple hands each name its own element type. The error form skips all of it — its
     // two names' types are decided per-target at phase 13.
-    func AdvanceTupleTargets(
-        state: VariableDeclarationState,
-        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+    func AdvanceTupleTargets(state: VariableDeclarationState, tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
         state.Phase = 13
         state.TargetIndex = 0
         if state.EscapeFired {
@@ -592,9 +548,7 @@ public class AnalyzerVariableDeclaration {
     // PHASE 13 — the next name that actually becomes a symbol. `_` is a discard: `Analyzer.cs`
     // neither declared it, nor recorded it, nor gave it a null state, so the loop skips it whole
     // rather than declaring it under its own name.
-    func AdvanceTupleDeclare(
-        state: VariableDeclarationState,
-        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+    func AdvanceTupleDeclare(state: VariableDeclarationState, tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
         names := tuple.Names
         targetCount := names.Count
         index := state.TargetIndex
@@ -636,9 +590,7 @@ public class AnalyzerVariableDeclaration {
     // of that registration in the whole analyzer — its SECOND name is maybe-null because an
     // `Exception?` that has not been checked may be anything, and every ordinary target takes the
     // default state its own type implies.
-    func AdvanceTupleAfterTarget(
-        state: VariableDeclarationState,
-        tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
+    func AdvanceTupleAfterTarget(state: VariableDeclarationState, tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
         name := state.PendingName
         if name != null {
             if state.ErrorForm {
@@ -650,9 +602,7 @@ public class AnalyzerVariableDeclaration {
                     scopesValue.SetNullStateInCurrentScope(name, NullState.MaybeNull)
                 }
             } else {
-                scopesValue.SetNullStateInCurrentScope(
-                    name,
-                    nullFlowValue.GetDefaultNullState(state.PendingType))
+                scopesValue.SetNullStateInCurrentScope(name, nullFlowValue.GetDefaultNullState(state.PendingType))
             }
         }
 
@@ -791,30 +741,14 @@ public class AnalyzerVariableDeclaration {
     // because the initializer is what has to change.
     func ReportNotATuple(tuple: TupleDeconstructionStatement, sourceType: TypeInfo) {
         span := spansValue.GetExpressionDiagnosticSpan(tuple.Initializer)
-        diagnosticsValue.Report(
-            ErrorCode.InvalidSyntax,
-            "Tuple deconstruction needs a tuple value, but this initializer is '" + TypeText(sourceType) + "'",
-            span.Line,
-            span.Column,
-            "Return or construct a tuple with the same number of elements as the deconstruction targets.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Tuple deconstruction needs a tuple value, but this initializer is '" + TypeText(sourceType) + "'", span.Line, span.Column, "Return or construct a tuple with the same number of elements as the deconstruction targets.", span.Length)
     }
 
     // NL103 — THE COUNTS DISAGREE. Both counts are named, because which side is wrong is the
     // author's call.
-    func ReportTupleArityMismatch(
-        tuple: TupleDeconstructionStatement,
-        targetCount: int,
-        elementCount: int) {
+    func ReportTupleArityMismatch(tuple: TupleDeconstructionStatement, targetCount: int, elementCount: int) {
         span := spansValue.GetExpressionDiagnosticSpan(tuple.Initializer)
-        diagnosticsValue.Report(
-            ErrorCode.InvalidSyntax,
-            "Tuple deconstruction has " + targetCount.ToString() + " target(s), but the initializer has "
-                + elementCount.ToString() + " element(s)",
-            span.Line,
-            span.Column,
-            "Match the number of target names to the tuple element count.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Tuple deconstruction has " + targetCount.ToString() + " target(s), but the initializer has " + elementCount.ToString() + " element(s)", span.Line, span.Column, "Match the number of target names to the tuple element count.", span.Length)
     }
 
     // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. `Analyzer.cs` wrote `$"{type}"` and
@@ -836,11 +770,7 @@ public class AnalyzerVariableDeclaration {
     // snippet for that line; a diagnostic with either missing falls back to the detail-only shape,
     // which names the variable rather than underlining the expression. Both are the same report in
     // the same position.
-    func ReportIfNotAssignable(
-        declaration: VariableDeclarationStatement,
-        declaredType: TypeInfo,
-        inferredType: TypeInfo,
-        initializer: Expression) {
+    func ReportIfNotAssignable(declaration: VariableDeclarationStatement, declaredType: TypeInfo, inferredType: TypeInfo, initializer: Expression) {
         if assignabilityValue.IsAssignable(declaredType, inferredType) {
             return
         }
@@ -851,76 +781,36 @@ public class AnalyzerVariableDeclaration {
         declaredText := TypeText(declaredType)
         inferredText := TypeText(inferredType)
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(
-                currentFilePath,
-                span.Line,
-                span.Column,
-                sourceSnippet,
-                span.Length,
-                inferredText,
-                declaredText))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, inferredText, declaredText))
             return
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            "Variable '" + declaration.Name + "' is typed as '" + declaredText
-                + "', but the value is '" + inferredText + "'",
-            declaration.Line,
-            declaration.Column,
-            null,
-            0)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "Variable '" + declaration.Name + "' is typed as '" + declaredText + "', but the value is '" + inferredText + "'", declaration.Line, declaration.Column, null, 0)
     }
 
     // NL103 — a `const` is a compile-time value, so a `const` without one has nothing to be.
-    func ReportConstWithoutInitializer(
-        declaration: VariableDeclarationStatement,
-        declaredType: TypeInfo) {
+    func ReportConstWithoutInitializer(declaration: VariableDeclarationStatement, declaredType: TypeInfo) {
         span := AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(declaration)
         declaredText := TypeText(declaredType)
-        diagnosticsValue.Report(
-            ErrorCode.InvalidSyntax,
-            "A 'const' must have an initial value — the compiler needs to know its value at compile time",
-            span.Line,
-            span.Column,
-            "Add an initializer, for example `const " + declaration.Name + ": " + declaredText + " = 42`.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "A 'const' must have an initial value — the compiler needs to know its value at compile time", span.Line, span.Column, "Add an initializer, for example `const " + declaration.Name + ": " + declaredText + " = 42`.", span.Length)
     }
 
     // NL202 — a void call produces nothing, so there is nothing to store. The report underlines the
     // initializer when there is one; the fallback anchor is the declaration's own name, which is
     // unreachable from source (this arm is only entered with an inferred type) and is preserved
     // rather than dropped.
-    func ReportVoidInitializer(
-        declaration: VariableDeclarationStatement,
-        initializer: Expression?) {
-        span := new DiagnosticSpan(
-            declaration.Line,
-            declaration.Column,
-            Math.Max(1, declaration.Name.Length))
+    func ReportVoidInitializer(declaration: VariableDeclarationStatement, initializer: Expression?) {
+        span := new DiagnosticSpan(declaration.Line, declaration.Column, Math.Max(1, declaration.Name.Length))
         if initializer != null {
             span = spansValue.GetExpressionDiagnosticSpan(initializer)
         }
 
-        diagnosticsValue.Report(
-            ErrorCode.TypeMismatch,
-            "This expression doesn't return a value (it's void) — you can't assign it to a variable",
-            span.Line,
-            span.Column,
-            null,
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "This expression doesn't return a value (it's void) — you can't assign it to a variable", span.Line, span.Column, null, span.Length)
     }
 
     // NL103 — no annotation and no initializer leaves nothing to infer from.
     func ReportUndeterminedType(declaration: VariableDeclarationStatement) {
         span := AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(declaration)
-        diagnosticsValue.Report(
-            ErrorCode.InvalidSyntax,
-            "I can't determine the type of this variable — give it a type annotation or an initial value",
-            span.Line,
-            span.Column,
-            "Add a type annotation like `let " + declaration.Name + ": int`, or add an initializer like `let "
-                + declaration.Name + " := 0`.",
-            span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "I can't determine the type of this variable — give it a type annotation or an initial value", span.Line, span.Column, "Add a type annotation like `let " + declaration.Name + ": int`, or add an initializer like `let " + declaration.Name + " := 0`.", span.Length)
     }
 }

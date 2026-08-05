@@ -4,11 +4,8 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler
 
-public class BindingLookupKernels {
-    public static func TryGetBindingCandidateColumns(
-        column: int,
-        span: ValueTuple<int, int>?,
-        out candidateColumns: int[]): bool {
+class BindingLookupKernels {
+    static func TryGetBindingCandidateColumns(column: int, span: ValueTuple<int, int>?, out candidateColumns: int[]): bool {
         spanStart := -1
         spanEnd := -1
 
@@ -46,12 +43,7 @@ public class BindingLookupKernels {
         return true
     }
 
-    public static func TryResolveBindingDeclaration(
-        bindingMap: BindingMap,
-        filePathValue: string,
-        line: int,
-        candidateColumns: int[],
-        out declaration: SymbolDeclaration?): bool {
+    static func TryResolveBindingDeclaration(bindingMap: BindingMap, filePathValue: string, line: int, candidateColumns: int[], out declaration: SymbolDeclaration?): bool {
         declaration = null
 
         if candidateColumns.Length == 0 {
@@ -84,9 +76,7 @@ public class BindingLookupKernels {
         i := 0
         while i < values.Count {
             declaration := values[i]
-            if declaration.Line == line
-                && declaration.Column == column
-                && FilesEqualExact(declaration.File, filePathValue) {
+            if declaration.Line == line && declaration.Column == column && FilesEqualExact(declaration.File, filePathValue) {
                 return declaration
             }
 
@@ -102,9 +92,7 @@ public class BindingLookupKernels {
         while enumerator.MoveNext() {
             entry := enumerator.Current
             usage := entry.Key
-            if usage.Line == line
-                && usage.Col == column
-                && FilesEqualExact(usage.File, filePathValue) {
+            if usage.Line == line && usage.Col == column && FilesEqualExact(usage.File, filePathValue) {
                 return entry.Value
             }
         }

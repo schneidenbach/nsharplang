@@ -3,7 +3,7 @@ namespace NSharpLang.Cli
 import System.IO
 import System.Text
 
-public class PublishArgumentSummary {
+class PublishArgumentSummary {
     validationErrorValue: string?
     projectOptionValue: string?
     backendOptionValue: string?
@@ -24,16 +24,7 @@ public class PublishArgumentSummary {
     Aot: bool => aotValue
     ShowHelp: bool => showHelpValue
 
-    constructor(
-        validationError: string?,
-        projectOption: string?,
-        backendOption: string?,
-        configuration: string,
-        output: string?,
-        runtime: string?,
-        selfContained: bool,
-        aot: bool,
-        showHelp: bool) {
+    constructor(validationError: string?, projectOption: string?, backendOption: string?, configuration: string, output: string?, runtime: string?, selfContained: bool, aot: bool, showHelp: bool) {
         validationErrorValue = validationError
         projectOptionValue = projectOption
         backendOptionValue = backendOption
@@ -46,8 +37,8 @@ public class PublishArgumentSummary {
     }
 }
 
-public class PublishCommandKernels {
-    public static func GetArgumentSummary(args: string[]): PublishArgumentSummary {
+class PublishCommandKernels {
+    static func GetArgumentSummary(args: string[]): PublishArgumentSummary {
         showHelp := HasHelp(args)
         projectOption: string? = null
         backendOption: string? = null
@@ -162,16 +153,7 @@ public class PublishCommandKernels {
         }
 
         if validationError != null {
-            return new PublishArgumentSummary(
-                validationError,
-                null,
-                null,
-                "Release",
-                null,
-                null,
-                false,
-                false,
-                showHelp)
+            return new PublishArgumentSummary(validationError, null, null, "Release", null, null, false, false, showHelp)
         }
 
         configuration := configurationShort
@@ -189,25 +171,14 @@ public class PublishCommandKernels {
             runtime = runtimeLong
         }
 
-        return new PublishArgumentSummary(
-            null,
-            projectOption,
-            backendOption,
-            configuration ?? "Release",
-            output,
-            runtime,
-            selfContained,
-            aot,
-            showHelp)
+        return new PublishArgumentSummary(null, projectOption, backendOption, configuration ?? "Release", output, runtime, selfContained, aot, showHelp)
     }
 
-    public static func GetAotAnalysisOnlyNotice(): string {
-        return "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe "
-            + "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, "
-            + "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly."
+    static func GetAotAnalysisOnlyNotice(): string {
+        return "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe " + "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, " + "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly."
     }
 
-    public static func GetHelpText(): string {
+    static func GetHelpText(): string {
         builder := new StringBuilder()
         AppendLine(builder, "N# Publish")
         AppendLine(builder, "")
@@ -253,22 +224,15 @@ public class PublishCommandKernels {
         return builder.ToString()
     }
 
-    public static func GetSelfContainedUnsupportedMessage(): string {
-        return "Self-contained publish is not available in nlc publish yet. "
-            + "Today nlc publish produces framework-dependent artifacts. "
-            + "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle."
+    static func GetSelfContainedUnsupportedMessage(): string {
+        return "Self-contained publish is not available in nlc publish yet. " + "Today nlc publish produces framework-dependent artifacts. " + "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle."
     }
 
-    public static func GetCrossRuntimeUnsupportedMessage(requestedRuntime: string, currentRuntime: string): string {
-        return "Cross-runtime publish is not available in nlc publish yet. Requested runtime '"
-            + requestedRuntime
-            + "', but this machine is '"
-            + currentRuntime
-            + "'. Today --runtime only supports the current host runtime to add a framework-dependent launcher. "
-            + "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime."
+    static func GetCrossRuntimeUnsupportedMessage(requestedRuntime: string, currentRuntime: string): string {
+        return "Cross-runtime publish is not available in nlc publish yet. Requested runtime '" + requestedRuntime + "', but this machine is '" + currentRuntime + "'. Today --runtime only supports the current host runtime to add a framework-dependent launcher. " + "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime."
     }
 
-    public static func GetBuildFailureMessage(aotMode: bool): string {
+    static func GetBuildFailureMessage(aotMode: bool): string {
         if aotMode {
             return "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again."
         }
@@ -276,27 +240,27 @@ public class PublishCommandKernels {
         return "Publish failed"
     }
 
-    public static func GetExceptionFailureMessage(exceptionMessage: string): string {
+    static func GetExceptionFailureMessage(exceptionMessage: string): string {
         return "Publish failed: " + exceptionMessage
     }
 
-    public static func GetStartMessage(projectRoot: string): string {
+    static func GetStartMessage(projectRoot: string): string {
         return "Publishing project in " + projectRoot + "..."
     }
 
-    public static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
+    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
         return Path.GetFullPath(projectOption ?? currentDirectory)
     }
 
-    public static func GetMissingProjectFileMessage(): string {
+    static func GetMissingProjectFileMessage(): string {
         return "No project.yml found in current directory. Run 'nlc new <name>' to create a project."
     }
 
-    public static func GetSuccessMessage(): string {
+    static func GetSuccessMessage(): string {
         return "Publish successful!"
     }
 
-    public static func RuntimeMatchesRequestedRuntime(requestedRuntime: string?, currentRuntime: string): bool {
+    static func RuntimeMatchesRequestedRuntime(requestedRuntime: string?, currentRuntime: string): bool {
         if string.IsNullOrWhiteSpace(requestedRuntime ?? "") {
             return true
         }
@@ -304,15 +268,11 @@ public class PublishCommandKernels {
         return string.Equals(requestedRuntime ?? "", currentRuntime, StringComparison.OrdinalIgnoreCase)
     }
 
-    public static func ShouldWriteRuntimeLauncher(requestedRuntime: string?): bool {
+    static func ShouldWriteRuntimeLauncher(requestedRuntime: string?): bool {
         return !string.IsNullOrWhiteSpace(requestedRuntime ?? "")
     }
 
-    public static func GetPublishDirectory(
-        projectRoot: string,
-        configuration: string,
-        targetFramework: string,
-        output: string?): string {
+    static func GetPublishDirectory(projectRoot: string, configuration: string, targetFramework: string, output: string?): string {
         if output != null {
             return Path.GetFullPath(output)
         }
@@ -320,23 +280,20 @@ public class PublishCommandKernels {
         return Path.Combine(Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), configuration), targetFramework), "publish")
     }
 
-    public static func GetWindowsLauncherPath(outputDirectory: string, assemblyName: string): string {
+    static func GetWindowsLauncherPath(outputDirectory: string, assemblyName: string): string {
         return Path.Combine(outputDirectory, assemblyName + ".cmd")
     }
 
-    public static func GetUnixLauncherPath(outputDirectory: string, assemblyName: string): string {
+    static func GetUnixLauncherPath(outputDirectory: string, assemblyName: string): string {
         return Path.Combine(outputDirectory, assemblyName)
     }
 
-    public static func GetWindowsLauncherText(assemblyName: string): string {
+    static func GetWindowsLauncherText(assemblyName: string): string {
         return "@echo off\r\ndotnet \"%~dp0" + assemblyName + ".dll\" %*\r\n"
     }
 
-    public static func GetUnixLauncherText(assemblyName: string): string {
-        return "#!/usr/bin/env sh\n"
-            + "set -eu\n"
-            + "DIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n"
-            + "exec dotnet \"$DIR/" + assemblyName + ".dll\" \"$@\"\n"
+    static func GetUnixLauncherText(assemblyName: string): string {
+        return "#!/usr/bin/env sh\n" + "set -eu\n" + "DIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n" + "exec dotnet \"$DIR/" + assemblyName + ".dll\" \"$@\"\n"
     }
 
     static func HasHelp(args: string[]): bool {

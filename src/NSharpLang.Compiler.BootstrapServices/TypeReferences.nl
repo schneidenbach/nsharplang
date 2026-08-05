@@ -3,7 +3,7 @@ namespace NSharpLang.Compiler.Ast
 import System.Collections.Generic
 import NSharpLang.Compiler
 
-public class TypeReference {
+class TypeReference {
     spanValue: SourceSpan
     spanAssignedValue: bool
 
@@ -22,7 +22,7 @@ public class TypeReference {
     }
 }
 
-public class SimpleTypeReference: TypeReference {
+class SimpleTypeReference: TypeReference {
     Name: string
     Line: int
     Column: int
@@ -40,7 +40,7 @@ public class SimpleTypeReference: TypeReference {
     }
 }
 
-public class ArrayTypeReference: TypeReference {
+class ArrayTypeReference: TypeReference {
     ElementType: TypeReference
 
     constructor(elementType: TypeReference) {
@@ -52,7 +52,7 @@ public class ArrayTypeReference: TypeReference {
     }
 }
 
-public class NullableTypeReference: TypeReference {
+class NullableTypeReference: TypeReference {
     InnerType: TypeReference
 
     constructor(innerType: TypeReference) {
@@ -64,7 +64,7 @@ public class NullableTypeReference: TypeReference {
     }
 }
 
-public class TupleTypeElement {
+class TupleTypeElement {
     Type: TypeReference
     Name: string?
 
@@ -74,7 +74,7 @@ public class TupleTypeElement {
     }
 }
 
-public class TupleTypeReference: TypeReference {
+class TupleTypeReference: TypeReference {
     Elements: List<TupleTypeElement>
 
     constructor(elements: List<TupleTypeElement>) {
@@ -86,7 +86,7 @@ public class TupleTypeReference: TypeReference {
     }
 }
 
-public class GenericTypeReference: TypeReference {
+class GenericTypeReference: TypeReference {
     Name: string
     TypeArguments: List<TypeReference>
     Line: int
@@ -106,7 +106,7 @@ public class GenericTypeReference: TypeReference {
     }
 }
 
-public class FunctionTypeReference: TypeReference {
+class FunctionTypeReference: TypeReference {
     ParameterTypes: List<TypeReference>
     ReturnType: TypeReference
 
@@ -120,7 +120,7 @@ public class FunctionTypeReference: TypeReference {
     }
 }
 
-public class UnionTypeReference: TypeReference {
+class UnionTypeReference: TypeReference {
     Arms: List<TypeReference>
 
     constructor(arms: List<TypeReference>) {
@@ -132,7 +132,7 @@ public class UnionTypeReference: TypeReference {
     }
 }
 
-public class ByRefTypeReference: TypeReference {
+class ByRefTypeReference: TypeReference {
     InnerType: TypeReference
 
     constructor(innerType: TypeReference) {

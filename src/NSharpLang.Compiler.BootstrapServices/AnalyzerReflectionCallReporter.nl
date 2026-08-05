@@ -4,6 +4,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // THE NL411 REPORT LOG — one anchor, one squiggle.
 //
 // A method group can be reached more than once for a single written occurrence: the callee walk sees
@@ -20,8 +21,7 @@ import NSharpLang.Compiler.Ast
 // The key is `line:column:name`. That spelling is injective because the two leading fields are
 // written by `int.ToString()` and can contain no `:`, so the first two separators are unambiguous
 // and everything after them is the name, however the name is spelled.
-public class AnalyzerCallableReferenceReportLog {
-
+class AnalyzerCallableReferenceReportLog {
     reported: HashSet<string>
 
     constructor() {
@@ -30,7 +30,7 @@ public class AnalyzerCallableReferenceReportLog {
 
     // True when this anchor and name have NOT been reported before and have now been recorded.
     // False means the caller must stay silent.
-    public func TryBeginReport(line: int, column: int, name: string): bool {
+    func TryBeginReport(line: int, column: int, name: string): bool {
         return reported.Add(line.ToString() + ":" + column.ToString() + ":" + name)
     }
 }
@@ -60,8 +60,7 @@ public class AnalyzerCallableReferenceReportLog {
 //
 // THE NL411 DEDUPE IS THE ANALYZER-LIFETIME LOG ABOVE, handed in rather than owned here, because
 // this reporter is rebuilt with the toolset and the log must outlive that.
-public class AnalyzerReflectionCallReporter {
-
+class AnalyzerReflectionCallReporter {
     scopes: AnalyzerScopeStack
     declarationContext: AnalyzerDeclarationContext
     assignabilityFacts: AnalyzerAssignabilityFacts
@@ -69,13 +68,7 @@ public class AnalyzerReflectionCallReporter {
     diagnostics: AnalyzerDiagnosticSink
     reportLog: AnalyzerCallableReferenceReportLog
 
-    constructor(
-        scopeStack: AnalyzerScopeStack,
-        declarations: AnalyzerDeclarationContext,
-        facts: AnalyzerAssignabilityFacts,
-        spanResolver: AnalyzerDiagnosticSpans,
-        diagnosticSink: AnalyzerDiagnosticSink,
-        callableReferenceLog: AnalyzerCallableReferenceReportLog) {
+    constructor(scopeStack: AnalyzerScopeStack, declarations: AnalyzerDeclarationContext, facts: AnalyzerAssignabilityFacts, spanResolver: AnalyzerDiagnosticSpans, diagnosticSink: AnalyzerDiagnosticSink, callableReferenceLog: AnalyzerCallableReferenceReportLog) {
         scopes = scopeStack
         declarationContext = declarations
         assignabilityFacts = facts
@@ -87,10 +80,7 @@ public class AnalyzerReflectionCallReporter {
     // THE VERDICT ON A REFLECTED CALL THAT BOUND TO NOTHING. Chooses the arm and answers `unknown`,
     // which is the type the call expression takes from here: the analysis continues so the rest of
     // the statement is still checked, but nothing downstream may claim to know the result's type.
-    public func ReportUnboundCall(
-        call: CallExpression,
-        candidateMethods: IReadOnlyList<MethodInfo>,
-        argTypes: IReadOnlyList<TypeInfo>): TypeInfo {
+    func ReportUnboundCall(call: CallExpression, candidateMethods: IReadOnlyList<MethodInfo>, argTypes: IReadOnlyList<TypeInfo>): TypeInfo {
         methodGroupArgumentName := ""
         if TryGetNSharpMethodGroupArgumentName(call, out methodGroupArgumentName) {
             ReportNoMatchingMethodGroupOverload(call, candidateMethods, methodGroupArgumentName)
@@ -105,10 +95,7 @@ public class AnalyzerReflectionCallReporter {
     // at eight, in that order, so the cap counts eight DIFFERENT signatures rather than eight
     // candidates — an overload group that differs only in a generic arity would otherwise fill the
     // hint with one repeated line.
-    public func ReportNoMatchingOverload(
-        call: CallExpression,
-        candidateMethods: IReadOnlyList<MethodInfo>,
-        argTypes: IReadOnlyList<TypeInfo>) {
+    func ReportNoMatchingOverload(call: CallExpression, candidateMethods: IReadOnlyList<MethodInfo>, argTypes: IReadOnlyList<TypeInfo>) {
         if candidateMethods.Count == 0 {
             return
         }
@@ -127,8 +114,7 @@ public class AnalyzerReflectionCallReporter {
         candidateSignatures := new List<string>()
         candidateIndex := 0
         while candidateIndex < candidateMethods.Count && candidateSignatures.Count < 8 {
-            signature := AnalyzerOverloadFacts.FormatReflectionMethodSignature(
-                candidateMethods[candidateIndex], call)
+            signature := AnalyzerOverloadFacts.FormatReflectionMethodSignature(candidateMethods[candidateIndex], call)
             candidateIndex = candidateIndex + 1
             if !candidateSignatures.Contains(signature) {
                 candidateSignatures.Add(signature)
@@ -138,49 +124,24 @@ public class AnalyzerReflectionCallReporter {
         filePath := ""
         snippet := ""
         if TryGetRichContext(span.Line, out filePath, out snippet) {
-            diagnostics.ReportBuilt(ErrorMessageBuilder.NoMatchingOverload(
-                filePath,
-                span.Line,
-                span.Column,
-                snippet,
-                span.Length,
-                functionName,
-                call.Arguments.Count,
-                argumentTypes,
-                candidateSignatures))
+            diagnostics.ReportBuilt(ErrorMessageBuilder.NoMatchingOverload(filePath, span.Line, span.Column, snippet, span.Length, functionName, call.Arguments.Count, argumentTypes, candidateSignatures))
             return
         }
 
-        diagnostics.Report(
-            ErrorCode.NoMatchingOverload,
-            "No overload of '" + functionName + "' accepts " + call.Arguments.Count.ToString()
-                + " argument(s) with these types",
-            span.Line,
-            span.Column,
-            "Check the argument count and types against the available overloads.",
-            span.Length)
+        diagnostics.Report(ErrorCode.NoMatchingOverload, "No overload of '" + functionName + "' accepts " + call.Arguments.Count.ToString() + " argument(s) with these types", span.Line, span.Column, "Check the argument count and types against the available overloads.", span.Length)
     }
 
     // The method-group arm. There is no rich form here on purpose: the reader's problem is a SHAPE
     // mismatch between a named method and a delegate parameter, and a snippet with a type list would
     // point at the argument types, which are not what failed.
-    public func ReportNoMatchingMethodGroupOverload(
-        call: CallExpression,
-        candidateMethods: IReadOnlyList<MethodInfo>,
-        methodGroupArgumentName: string) {
+    func ReportNoMatchingMethodGroupOverload(call: CallExpression, candidateMethods: IReadOnlyList<MethodInfo>, methodGroupArgumentName: string) {
         if candidateMethods.Count == 0 {
             return
         }
 
         functionName := ResolveReflectionCallName(call, candidateMethods)
         span := spans.GetCallDiagnosticSpan(call, functionName)
-        diagnostics.Report(
-            ErrorCode.NoMatchingOverload,
-            "No overload of '" + functionName + "' matches method group '" + methodGroupArgumentName + "'",
-            span.Line,
-            span.Column,
-            "Check that the method group's parameters and return type match one of the delegate parameter types.",
-            span.Length)
+        diagnostics.Report(ErrorCode.NoMatchingOverload, "No overload of '" + functionName + "' matches method group '" + methodGroupArgumentName + "'", span.Line, span.Column, "Check that the method group's parameters and return type match one of the delegate parameter types.", span.Length)
     }
 
     // WHAT TO CALL THE FAILED CALL. What the user WROTE wins — an identifier names itself, a member
@@ -233,10 +194,7 @@ public class AnalyzerReflectionCallReporter {
     // THE GUARD ON NL411. A lambda is a value already. A position that EXPECTS a delegate binds the
     // reference rather than rejecting it, and that is the only thing the expected type is consulted
     // for. Everything else that names code without calling it is unbound.
-    public func IsUnboundCallableReference(
-        expression: Expression,
-        candidate: TypeInfo,
-        expectedType: TypeInfo?): bool {
+    func IsUnboundCallableReference(expression: Expression, candidate: TypeInfo, expectedType: TypeInfo?): bool {
         lambda := expression as LambdaExpression
         if lambda != null {
             return false
@@ -252,7 +210,7 @@ public class AnalyzerReflectionCallReporter {
 
     // NL411. The DEDUPE happens before either report shape is built, so the choice of shape can
     // never change how many diagnostics a given anchor produces.
-    public func ReportMethodGroupUsedAsValue(expression: Expression, candidate: TypeInfo) {
+    func ReportMethodGroupUsedAsValue(expression: Expression, candidate: TypeInfo) {
         span := spans.GetExpressionDiagnosticSpan(expression)
         name := AnalyzerCallableReferenceFacts.GetCallableReferenceName(expression, candidate)
         if !reportLog.TryBeginReport(span.Line, span.Column, name) {
@@ -262,23 +220,11 @@ public class AnalyzerReflectionCallReporter {
         filePath := ""
         snippet := ""
         if TryGetRichContext(span.Line, out filePath, out snippet) {
-            diagnostics.ReportBuilt(ErrorMessageBuilder.MethodGroupUsedAsValue(
-                filePath,
-                span.Line,
-                span.Column,
-                snippet,
-                span.Length,
-                name))
+            diagnostics.ReportBuilt(ErrorMessageBuilder.MethodGroupUsedAsValue(filePath, span.Line, span.Column, snippet, span.Length, name))
             return
         }
 
-        diagnostics.Report(
-            ErrorCode.MethodGroupUsedAsValue,
-            "Method '" + name + "' must be called or passed to a delegate",
-            span.Line,
-            span.Column,
-            "Call `" + name + "(...)`, or pass `" + name + "` to a parameter with a delegate type.",
-            span.Length)
+        diagnostics.Report(ErrorCode.MethodGroupUsedAsValue, "Method '" + name + "' must be called or passed to a delegate", span.Line, span.Column, "Call `" + name + "(...)`, or pass `" + name + "` to a parameter with a delegate type.", span.Length)
     }
 
     // The two values every rich report needs: the analysed file's path and the offending line's

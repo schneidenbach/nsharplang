@@ -3,11 +3,11 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System.Collections.Generic
 import NSharpLang.Compiler
 
-public class FixApplicatorTextEditOrderer {
-    public static func OrderTextEdits(edits: IReadOnlyCollection<TextEdit>): List<TextEdit> {
+class FixApplicatorTextEditOrderer {
+    static func OrderTextEdits(edits: IReadOnlyCollection<TextEdit>): List<TextEdit> {
         count := edits.Count
         editList := new List<TextEdit>()
-        foreach edit in edits {
+        for edit in edits {
             editList.Add(edit as TextEdit)
         }
 
@@ -34,13 +34,7 @@ public class FixApplicatorTextEditOrderer {
 
             while j > 0 {
                 previousIndex := resultIndices[j - 1]
-                if !TextEditOrderIndexComesBefore(
-                    currentIndex,
-                    previousIndex,
-                    startLines,
-                    startColumns,
-                    endLines,
-                    endColumns) {
+                if !TextEditOrderIndexComesBefore(currentIndex, previousIndex, startLines, startColumns, endLines, endColumns) {
                     break
                 }
 
@@ -62,13 +56,7 @@ public class FixApplicatorTextEditOrderer {
         return ordered
     }
 
-    static func TextEditOrderIndexComesBefore(
-        leftIndex: int,
-        rightIndex: int,
-        startLines: int[],
-        startColumns: int[],
-        endLines: int[],
-        endColumns: int[]): bool {
+    static func TextEditOrderIndexComesBefore(leftIndex: int, rightIndex: int, startLines: int[], startColumns: int[], endLines: int[], endColumns: int[]): bool {
         leftStartLine := startLines[leftIndex]
         rightStartLine := startLines[rightIndex]
         if leftStartLine != rightStartLine {
