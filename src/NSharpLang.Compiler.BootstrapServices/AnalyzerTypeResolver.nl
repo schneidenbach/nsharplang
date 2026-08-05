@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
 
+
 // The analyzer's type-reference resolution walk: the sole authority for turning a `TypeReference`
 // into a `TypeInfo`, for every diagnostic that walk reports, and for every semantic-model and
 // binding-map record it writes.
@@ -30,15 +31,15 @@ import NSharpLang.Compiler.Ast
 // outside this walk, so the first report at a position suppresses every later one there. The SoA-row
 // set is separate because its report is not an unresolved-type report. Both are cleared once per
 // analysis, and `reportUnresolvedTypes` starts every analysis OFF.
-public class AnalyzerTypeResolver {
+class AnalyzerTypeResolver {
     scopesValue: AnalyzerScopeStack
     declarationContextValue: AnalyzerDeclarationContext
     projectDiscoveryValue: AnalyzerProjectTypeDiscovery
     externalTypeProbeValue: AnalyzerExternalTypeProbe
     diagnosticsValue: AnalyzerDiagnosticSink
     usingAliasesValue: Dictionary<string, string>
-    importedSymbolsByAliasValue: Dictionary<string, Dictionary<string, TypeInfo> >
-    importedDeclarationsByAliasValue: Dictionary<string, Dictionary<string, SymbolDeclaration> >
+    importedSymbolsByAliasValue: Dictionary<string, Dictionary<string, TypeInfo>>
+    importedDeclarationsByAliasValue: Dictionary<string, Dictionary<string, SymbolDeclaration>>
     wellKnownTypesValue: AnalyzerWellKnownTypes?
     semanticModelValue: SemanticModel
     bindingsValue: BindingMap
@@ -48,17 +49,7 @@ public class AnalyzerTypeResolver {
     reportedUnresolvedTypeRefsValue: Dictionary<(Name: string, Line: int, Column: int), bool>
     reportedSoaRowTypeRefsValue: Dictionary<(Name: string, Line: int, Column: int), bool>
 
-    constructor(
-        scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext,
-        projectDiscovery: AnalyzerProjectTypeDiscovery,
-        externalTypeProbe: AnalyzerExternalTypeProbe,
-        diagnostics: AnalyzerDiagnosticSink,
-        usingAliases: Dictionary<string, string>,
-        importedSymbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo> >,
-        importedDeclarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration> >,
-        semanticModel: SemanticModel,
-        bindings: BindingMap) {
+    constructor(scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, projectDiscovery: AnalyzerProjectTypeDiscovery, externalTypeProbe: AnalyzerExternalTypeProbe, diagnostics: AnalyzerDiagnosticSink, usingAliases: Dictionary<string, string>, importedSymbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo>>, importedDeclarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration>>, semanticModel: SemanticModel, bindings: BindingMap) {
         scopesValue = scopes
         declarationContextValue = declarationContext
         projectDiscoveryValue = projectDiscovery
@@ -80,11 +71,7 @@ public class AnalyzerTypeResolver {
     // One call per analysis, from the analyzer's own reset block. The semantic model and the binding
     // map are REPLACED per analysis, not cleared, so they arrive here rather than being held from
     // construction.
-    public func BeginAnalysis(
-        filePath: string?,
-        unit: CompilationUnit?,
-        semanticModel: SemanticModel,
-        bindings: BindingMap) {
+    func BeginAnalysis(filePath: string?, unit: CompilationUnit?, semanticModel: SemanticModel, bindings: BindingMap) {
         currentFilePathValue = filePath
         compilationUnitValue = unit
         semanticModelValue = semanticModel
@@ -96,7 +83,7 @@ public class AnalyzerTypeResolver {
 
     // The well-known-type bag is rebuilt, never mutated, so the resolver is told about the new bag
     // rather than being rebuilt itself: rebuilding would drop the dedupe sets mid-analysis.
-    public func SetWellKnownTypes(wellKnownTypes: AnalyzerWellKnownTypes?) {
+    func SetWellKnownTypes(wellKnownTypes: AnalyzerWellKnownTypes?) {
         wellKnownTypesValue = wellKnownTypes
     }
 
@@ -105,7 +92,7 @@ public class AnalyzerTypeResolver {
     // resolves through no channel. Only these positions opt in: pass-1 signature collection and lazy
     // cross-file member resolution run without generic type parameters in scope and must stay lenient
     // to avoid false positives.
-    public func ResolveDeclaredType(typeRef: TypeReference): TypeInfo {
+    func ResolveDeclaredType(typeRef: TypeReference): TypeInfo {
         previous := reportUnresolvedTypesValue
         reportUnresolvedTypesValue = true
         resolved: TypeInfo = BuiltInTypes.Unknown
@@ -118,19 +105,19 @@ public class AnalyzerTypeResolver {
         return resolved
     }
 
-    public func ResolveType(typeRef: TypeReference): TypeInfo {
+    func ResolveType(typeRef: TypeReference): TypeInfo {
         resolved := ResolveTypeCore(typeRef)
         RecordResolvedTypeReference(typeRef, resolved)
         return resolved
     }
 
-    public func ResolveTypeIfPresent(typeReference: TypeReference?) {
+    func ResolveTypeIfPresent(typeReference: TypeReference?) {
         if typeReference != null {
             ResolveType(typeReference)
         }
     }
 
-    public func ResolveTypeReferences(typeReferences: List<TypeReference>) {
+    func ResolveTypeReferences(typeReferences: List<TypeReference>) {
         index := 0
         while index < typeReferences.Count {
             ResolveType(typeReferences[index])
@@ -138,7 +125,7 @@ public class AnalyzerTypeResolver {
         }
     }
 
-    public func ResolveGenericConstraintTypes(constraints: List<GenericConstraint>?) {
+    func ResolveGenericConstraintTypes(constraints: List<GenericConstraint>?) {
         if constraints == null {
             return
         }
@@ -279,13 +266,9 @@ public class AnalyzerTypeResolver {
         knownGenericHeadArities: List<int>? = null
         resolvedReflection := resolvedName as ReflectionTypeInfo
         if resolvedExternal != null || resolvedReflection != null {
-            arityQualifiedExternalType = AnalyzerWellKnownTypeFacts.KnownOpenGenericType(
-                wellKnownTypesValue,
-                generic.Name,
-                generic.TypeArguments.Count)
+            arityQualifiedExternalType = AnalyzerWellKnownTypeFacts.KnownOpenGenericType(wellKnownTypesValue, generic.Name, generic.TypeArguments.Count)
             if arityQualifiedExternalType == null {
-                arityQualified := externalTypeProbeValue.ResolveExternalType(
-                    generic.Name + "`" + generic.TypeArguments.Count.ToString())
+                arityQualified := externalTypeProbeValue.ResolveExternalType(generic.Name + "`" + generic.TypeArguments.Count.ToString())
                 arityQualifiedExternal := arityQualified as ReflectionTypeInfo
                 if arityQualifiedExternal != null {
                     arityQualifiedExternalType = arityQualifiedExternal.Type
@@ -296,9 +279,7 @@ public class AnalyzerTypeResolver {
                 genericHeadArity = generic.TypeArguments.Count
                 genericDefinition = new ReflectionTypeInfo(arityQualifiedExternalType)
             } else {
-                knownGenericHeadArities = externalTypeProbeValue.KnownGenericHeadArities(
-                    wellKnownTypesValue,
-                    generic.Name)
+                knownGenericHeadArities = externalTypeProbeValue.KnownGenericHeadArities(wellKnownTypesValue, generic.Name)
                 if knownGenericHeadArities.Count == 1 {
                     genericHeadArity = knownGenericHeadArities[0]
                 }
@@ -309,33 +290,15 @@ public class AnalyzerTypeResolver {
         // (Result, Task, Func, ...) and the arity-qualified external probe also misses
         // (e.g. `Lst<int>` instead of `List<int>`).
         noKnownArities := knownGenericHeadArities == null || knownGenericHeadArities.Count == 0
-        if previousReport && resolvedExternal != null && !generic.Name.Contains(".")
-            && arityQualifiedExternalType == null && noKnownArities {
+        if previousReport && resolvedExternal != null && !generic.Name.Contains(".") && arityQualifiedExternalType == null && noKnownArities {
             if MarkUnresolvedTypeReported(generic.Name, generic.Line, generic.Column) {
-                diagnosticsValue.Report(
-                    ErrorCode.TypeNotFound,
-                    "Type '" + generic.Name + "' not found",
-                    generic.Line,
-                    generic.Column,
-                    AnalyzerDiagnostics.UnresolvedTypeSuggestion(
-                        generic.Name,
-                        scopesValue.AllTypeNamesInScope()),
-                    generic.Name.Length)
+                diagnosticsValue.Report(ErrorCode.TypeNotFound, "Type '" + generic.Name + "' not found", generic.Line, generic.Column, AnalyzerDiagnostics.UnresolvedTypeSuggestion(generic.Name, scopesValue.AllTypeNamesInScope()), generic.Name.Length)
             }
         }
 
         if previousReport && knownGenericHeadArities != null && knownGenericHeadArities.Count > 1 {
             if MarkUnresolvedTypeReported(generic.Name, generic.Line, generic.Column) {
-                diagnosticsValue.Report(
-                    ErrorCode.InvalidTypeArgument,
-                    "Generic type '" + generic.Name + "' does not take "
-                        + generic.TypeArguments.Count.ToString()
-                        + " type argument(s); available arities are "
-                        + JoinArities(knownGenericHeadArities),
-                    generic.Line,
-                    generic.Column,
-                    "Use one of the supported type-argument counts for '" + generic.Name + "'.",
-                    generic.Name.Length)
+                diagnosticsValue.Report(ErrorCode.InvalidTypeArgument, "Generic type '" + generic.Name + "' does not take " + generic.TypeArguments.Count.ToString() + " type argument(s); available arities are " + JoinArities(knownGenericHeadArities), generic.Line, generic.Column, "Use one of the supported type-argument counts for '" + generic.Name + "'.", generic.Name.Length)
             }
         }
 
@@ -343,27 +306,16 @@ public class AnalyzerTypeResolver {
         // through analysis and the emitter produced an unloadable assembly (TypeLoadException at
         // runtime). Reported at declared-type positions only, with the same dedupe as NL201 (this
         // resolver runs in both analysis passes).
-        if previousReport && genericHeadArity >= 0
-            && genericHeadArity != generic.TypeArguments.Count {
+        if previousReport && genericHeadArity >= 0 && genericHeadArity != generic.TypeArguments.Count {
             if MarkUnresolvedTypeReported(generic.Name, generic.Line, generic.Column) {
-                message := "Generic type '" + generic.Name + "' takes "
-                    + genericHeadArity.ToString() + " type argument(s), but "
-                    + generic.TypeArguments.Count.ToString() + " were provided"
+                message := "Generic type '" + generic.Name + "' takes " + genericHeadArity.ToString() + " type argument(s), but " + generic.TypeArguments.Count.ToString() + " were provided"
                 suggestion := "Match the declaration's type parameter count for '" + generic.Name + "'"
                 if genericHeadArity == 0 {
-                    message = "'" + generic.Name + "' is not generic, but "
-                        + generic.TypeArguments.Count.ToString()
-                        + " type argument(s) were provided"
+                    message = "'" + generic.Name + "' is not generic, but " + generic.TypeArguments.Count.ToString() + " type argument(s) were provided"
                     suggestion = "Remove the type arguments: '" + generic.Name + "'"
                 }
 
-                diagnosticsValue.Report(
-                    ErrorCode.InvalidTypeArgument,
-                    message,
-                    generic.Line,
-                    generic.Column,
-                    suggestion,
-                    generic.Name.Length)
+                diagnosticsValue.Report(ErrorCode.InvalidTypeArgument, message, generic.Line, generic.Column, suggestion, generic.Name.Length)
             }
         }
 
@@ -374,7 +326,7 @@ public class AnalyzerTypeResolver {
     // exist only as `table[index].column` projection syntax, so a row-typed parameter, field or
     // local is refused rather than silently emitted. Gated on the experimental SoA feature, on a
     // real source position, and on the prefix actually naming a SoA table.
-    public func ReportSoaRowTypeReferenceIfNeeded(name: string, line: int, column: int): bool {
+    func ReportSoaRowTypeReferenceIfNeeded(name: string, line: int, column: int): bool {
         rowSuffix := ".Row"
         if !SoaFeature.IsEnabled || line <= 0 || !name.EndsWith(rowSuffix, StringComparison.Ordinal) {
             return false
@@ -398,14 +350,7 @@ public class AnalyzerTypeResolver {
         }
 
         if MarkSoaRowTypeReported(name, line, column) {
-            diagnosticsValue.Report(
-                ErrorCode.InvalidSyntax,
-                "SoA row type '" + name + "' is not part of this lowering",
-                line,
-                column,
-                "Pass the '" + tableName
-                    + "' table and an int row index instead; row views exist only as table[index].column projection syntax.",
-                name.Length)
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "SoA row type '" + name + "' is not part of this lowering", line, column, "Pass the '" + tableName + "' table and an int row index instead; row views exist only as table[index].column projection syntax.", name.Length)
         }
 
         return true
@@ -440,13 +385,7 @@ public class AnalyzerTypeResolver {
             if ContainsArm(uniqueArms, arm) {
                 armObject := arm as object
                 span := TypeReferenceFacts.GetStartSpan(unionReference)
-                diagnosticsValue.Report(
-                    ErrorCode.DuplicateDeclaration,
-                    "Anonymous union type repeats arm '" + armObject.ToString() + "'. Each arm must be unique.",
-                    span.StartLine,
-                    span.StartColumn,
-                    "Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.",
-                    UnionReportLength(unionReference))
+                diagnosticsValue.Report(ErrorCode.DuplicateDeclaration, "Anonymous union type repeats arm '" + armObject.ToString() + "'. Each arm must be unique.", span.StartLine, span.StartColumn, "Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.", UnionReportLength(unionReference))
                 continue
             }
 
@@ -455,14 +394,7 @@ public class AnalyzerTypeResolver {
 
         if uniqueArms.Count > 2 {
             span := TypeReferenceFacts.GetStartSpan(unionReference)
-            diagnosticsValue.Report(
-                ErrorCode.InvalidTypeArgument,
-                "Anonymous union types support exactly two arms in v1; this union has "
-                    + uniqueArms.Count.ToString() + " arms.",
-                span.StartLine,
-                span.StartColumn,
-                "Declare a named `union` for larger variants.",
-                UnionReportLength(unionReference))
+            diagnosticsValue.Report(ErrorCode.InvalidTypeArgument, "Anonymous union types support exactly two arms in v1; this union has " + uniqueArms.Count.ToString() + " arms.", span.StartLine, span.StartColumn, "Declare a named `union` for larger variants.", UnionReportLength(unionReference))
         }
 
         return new AnonymousUnionTypeInfo(uniqueArms)
@@ -470,15 +402,9 @@ public class AnalyzerTypeResolver {
 
     // The eight-channel name walk. `line <= 0` means "no source position": the walk still resolves,
     // but records no binding and reports nothing.
-    public func ResolveSimpleType(name: string, line: int, column: int): TypeInfo {
+    func ResolveSimpleType(name: string, line: int, column: int): TypeInfo {
         if name == "var" && line > 0 {
-            diagnosticsValue.Report(
-                ErrorCode.InvalidSyntax,
-                "'var' is not a type; use ':=' for type inference",
-                line,
-                column,
-                null,
-                0)
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'var' is not a type; use ':=' for type inference", line, column, null, 0)
             return BuiltInTypes.Unknown
         }
 
@@ -498,21 +424,9 @@ public class AnalyzerTypeResolver {
         fileAliasType: TypeInfo = BuiltInTypes.Unknown
         fileAliasDeclaration: SymbolDeclaration? = null
         fileAliasClaimed := false
-        if declarationContextValue.TryResolveFileImportAliasType(
-                name,
-                currentFilePathValue,
-                importedSymbolsByAliasValue,
-                importedDeclarationsByAliasValue,
-                out fileAliasType,
-                out fileAliasDeclaration,
-                out fileAliasClaimed) {
+        if declarationContextValue.TryResolveFileImportAliasType(name, currentFilePathValue, importedSymbolsByAliasValue, importedDeclarationsByAliasValue, out fileAliasType, out fileAliasDeclaration, out fileAliasClaimed) {
             if line > 0 && fileAliasDeclaration != null {
-                bindingsValue.RecordBinding(
-                    currentFilePathValue,
-                    line,
-                    column,
-                    name.Length,
-                    fileAliasDeclaration)
+                bindingsValue.RecordBinding(currentFilePathValue, line, column, name.Length, fileAliasDeclaration)
             }
             semanticModelValue.RecordType(name, fileAliasType)
             return fileAliasType
@@ -520,13 +434,7 @@ public class AnalyzerTypeResolver {
         if fileAliasClaimed {
             if reportUnresolvedTypesValue && line > 0 {
                 if MarkUnresolvedTypeReported(name, line, column) {
-                    diagnosticsValue.Report(
-                        ErrorCode.TypeNotFound,
-                        "Type '" + name + "' not found in the imported file alias",
-                        line,
-                        column,
-                        "Use a public type exported by that file, or correct the alias-qualified type name.",
-                        name.Length)
+                    diagnosticsValue.Report(ErrorCode.TypeNotFound, "Type '" + name + "' not found in the imported file alias", line, column, "Use a public type exported by that file, or correct the alias-qualified type name.", name.Length)
                 }
             }
             return BuiltInTypes.Unknown
@@ -540,13 +448,7 @@ public class AnalyzerTypeResolver {
         projectType: TypeInfo = BuiltInTypes.Unknown
         projectDeclaration: SymbolDeclaration? = null
         inaccessibleProjectFile: string? = null
-        if projectDiscoveryValue.ResolveVisibleProjectType(
-                name,
-                AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue),
-                line > 0,
-                out projectType,
-                out projectDeclaration,
-                out inaccessibleProjectFile) {
+        if projectDiscoveryValue.ResolveVisibleProjectType(name, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), line > 0, out projectType, out projectDeclaration, out inaccessibleProjectFile) {
             if line > 0 {
                 // `ResolveVisibleProjectType` materialises the declaration BEFORE it answers true
                 // (`TryMaterializeProjectTypeSelection` assigns one on its only success path), so the
@@ -586,13 +488,7 @@ public class AnalyzerTypeResolver {
         // and `new Union.Case` references legitimately resolve through other channels.
         if reportUnresolvedTypesValue && line > 0 && !name.Contains(".") {
             if MarkUnresolvedTypeReported(name, line, column) {
-                diagnosticsValue.Report(
-                    ErrorCode.TypeNotFound,
-                    "Type '" + name + "' not found",
-                    line,
-                    column,
-                    AnalyzerDiagnostics.UnresolvedTypeSuggestion(name, scopesValue.AllTypeNamesInScope()),
-                    name.Length)
+                diagnosticsValue.Report(ErrorCode.TypeNotFound, "Type '" + name + "' not found", line, column, AnalyzerDiagnostics.UnresolvedTypeSuggestion(name, scopesValue.AllTypeNamesInScope()), name.Length)
             }
         }
 
@@ -602,7 +498,7 @@ public class AnalyzerTypeResolver {
     // `Outer.Inner.Leaf`: the root must be a type IN SCOPE (a project or CLR type is a different
     // channel), and every remaining segment must be a nested member of the previous one. Exported-ness
     // is not required — a nested type is as visible as its owner.
-    public func TryResolveDottedNestedType(name: string, out typeInfo: TypeInfo): bool {
+    func TryResolveDottedNestedType(name: string, out typeInfo: TypeInfo): bool {
         parts := SplitNonEmpty(name)
         if parts.Count < 2 {
             typeInfo = BuiltInTypes.Unknown
@@ -640,7 +536,7 @@ public class AnalyzerTypeResolver {
     // call is the first one at that position. Two report sites outside this walk — the `new
     // Union.Case` inaccessible probe and the identifier-binding inaccessible probe — share the set,
     // so a later NL201 at the same position stays suppressed.
-    public func MarkUnresolvedTypeReported(name: string, line: int, column: int): bool {
+    func MarkUnresolvedTypeReported(name: string, line: int, column: int): bool {
         key := (Name: name, Line: line, Column: column)
         if reportedUnresolvedTypeRefsValue.ContainsKey(key) {
             return false

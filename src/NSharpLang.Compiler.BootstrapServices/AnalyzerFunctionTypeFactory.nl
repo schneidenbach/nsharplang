@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // Every `FunctionTypeInfo` the analyzer builds is built here.
 //
 // Four sources, and they are not interchangeable:
@@ -26,8 +27,7 @@ import NSharpLang.Compiler.Ast
 //
 // This owner reports nothing and records nothing; resolution is delegated to the declaration context
 // and the substitution walk, which own those effects.
-public class AnalyzerFunctionTypeFactory {
-
+class AnalyzerFunctionTypeFactory {
     declarationContext: AnalyzerDeclarationContext
     typeSubstitution: AnalyzerTypeSubstitution
 
@@ -40,7 +40,7 @@ public class AnalyzerFunctionTypeFactory {
     // encodes first. The `Func`/`Action` arity tables answer WITHOUT consulting nullability metadata,
     // exactly as the C# did — the type arguments are converted plainly — and everything else goes
     // through `Invoke`, where the annotations do apply.
-    public static func CreateFromRuntimeDelegate(delegateType: Type): FunctionTypeInfo {
+    static func CreateFromRuntimeDelegate(delegateType: Type): FunctionTypeInfo {
         effectiveType := delegateType
         unwrapped: Type = typeof(object)
         if TryGetExpressionTreeDelegateType(effectiveType, out unwrapped) {
@@ -115,25 +115,18 @@ public class AnalyzerFunctionTypeFactory {
 
     // A signature for a declaration resolved against the file being analysed. `containingType` is the
     // type whose body the declaration is being read in, or null for a free function.
-    public func CreateFromDeclaration(
-        declaration: FunctionDeclaration,
-        containingType: string?): FunctionTypeInfo {
+    func CreateFromDeclaration(declaration: FunctionDeclaration, containingType: string?): FunctionTypeInfo {
         return BuildFromDeclaration(declaration, containingType, null)
     }
 
     // The same declaration resolved against ANOTHER file's declaration context. The containing type
     // is deliberately not carried across: the signature belongs to the declaring file, not to
     // whatever type body the reader happens to be inside.
-    public func CreateFromDeclarationInFile(
-        declaration: FunctionDeclaration,
-        declarationFile: string): FunctionTypeInfo {
+    func CreateFromDeclarationInFile(declaration: FunctionDeclaration, declarationFile: string): FunctionTypeInfo {
         return BuildFromDeclaration(declaration, null, declarationFile)
     }
 
-    func BuildFromDeclaration(
-        declaration: FunctionDeclaration,
-        containingType: string?,
-        declarationFile: string?): FunctionTypeInfo {
+    func BuildFromDeclaration(declaration: FunctionDeclaration, containingType: string?, declarationFile: string?): FunctionTypeInfo {
         methodSubstitution := CreateMethodSubstitution(declaration.TypeParameters)
         parameters := declaration.Parameters
 
@@ -165,10 +158,7 @@ public class AnalyzerFunctionTypeFactory {
         declaredReturnType := declaration.ReturnType
         sourceReturnType: TypeInfo = BuiltInTypes.Void
         if declaredReturnType != null {
-            sourceReturnType = ResolveDeclarationReference(
-                declaredReturnType,
-                methodSubstitution,
-                declarationFile)
+            sourceReturnType = ResolveDeclarationReference(declaredReturnType, methodSubstitution, declarationFile)
         }
 
         requiredCount: int? = requiredParameterCount
@@ -193,29 +183,19 @@ public class AnalyzerFunctionTypeFactory {
         signature.HasParamsParameter = hasParamsParameter
         signature.TypeParameters = declaration.TypeParameters
         signature.GenericConstraints = declaration.Constraints
-        signature.ResolvedGenericConstraintTypes = ResolveDeclarationConstraints(
-            declaration.Constraints,
-            methodSubstitution,
-            declarationFile)
+        signature.ResolvedGenericConstraintTypes = ResolveDeclarationConstraints(declaration.Constraints, methodSubstitution, declarationFile)
         signature.HasMustUseAttribute = HasMustUseAttribute(declaration.Attributes)
-        signature.ReturnType = ResolveFunctionCallReturnType(
-            declaration.Name,
-            isAsync,
-            isGenerator,
-            sourceReturnType)
+        signature.ReturnType = ResolveFunctionCallReturnType(declaration.Name, isAsync, isGenerator, sourceReturnType)
         return signature
     }
 
     // A signature for a member read off a type's member table. With a declaration owner every
     // reference is resolved AS SEEN FROM that owner; without one it is resolved under the
     // substitution alone.
-    public func CreateFromDeclaredMember(
-        member: DeclaredMemberInfo,
-        substitution: Dictionary<string, TypeInfo>?,
-        declarationOwner: TypeInfo?): FunctionTypeInfo {
+    func CreateFromDeclaredMember(member: DeclaredMemberInfo, substitution: Dictionary<string, TypeInfo>?, declarationOwner: TypeInfo?): FunctionTypeInfo {
         effectiveSubstitution := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
         if substitution != null {
-            foreach entry in substitution {
+            for entry in substitution {
                 effectiveSubstitution[entry.Key] = entry.Value
             }
         }
@@ -232,10 +212,7 @@ public class AnalyzerFunctionTypeFactory {
         memberReturnType := member.ReturnType
         sourceReturnType: TypeInfo = BuiltInTypes.Void
         if memberReturnType != null {
-            sourceReturnType = ResolveMemberReference(
-                memberReturnType,
-                declarationOwner,
-                effectiveSubstitution)
+            sourceReturnType = ResolveMemberReference(memberReturnType, declarationOwner, effectiveSubstitution)
         }
 
         memberParameterTypes := member.ParameterTypes
@@ -267,26 +244,15 @@ public class AnalyzerFunctionTypeFactory {
         signature.HasParamsParameter = member.HasParamsParameter
         signature.TypeParameters = ToTypeParameterList(memberTypeParameters)
         signature.GenericConstraints = ToConstraintList(member.GenericConstraints)
-        signature.ResolvedGenericConstraintTypes = ResolveMemberConstraints(
-            member.GenericConstraints,
-            declarationOwner,
-            effectiveSubstitution)
+        signature.ResolvedGenericConstraintTypes = ResolveMemberConstraints(member.GenericConstraints, declarationOwner, effectiveSubstitution)
         signature.HasMustUseAttribute = member.HasMustUseAttribute
-        signature.ReturnType = ResolveFunctionCallReturnType(
-            member.Name,
-            member.IsAsync,
-            member.IsGenerator,
-            sourceReturnType)
+        signature.ReturnType = ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType)
         return signature
     }
 
     // The type a CALL to this function answers with. Only an async non-generator differs from its
     // declared return type, and a declared type that is already task-like is left exactly as written.
-    public static func ResolveFunctionCallReturnType(
-        functionName: string,
-        isAsync: bool,
-        isGenerator: bool,
-        sourceReturnType: TypeInfo): TypeInfo {
+    static func ResolveFunctionCallReturnType(functionName: string, isAsync: bool, isGenerator: bool, sourceReturnType: TypeInfo): TypeInfo {
         if !isAsync || isGenerator {
             return sourceReturnType
         }
@@ -307,30 +273,23 @@ public class AnalyzerFunctionTypeFactory {
                 return unitTask
             }
 
-            unitValueTask: TypeInfo = new ReflectionTypeInfo(
-                RequiredCoreType("System.Threading.Tasks.ValueTask"))
+            unitValueTask: TypeInfo = new ReflectionTypeInfo(RequiredCoreType("System.Threading.Tasks.ValueTask"))
             return unitValueTask
         }
 
         arguments := new List<TypeInfo>()
         arguments.Add(sourceReturnType)
         if usesTaskFamily {
-            wrappedTask: TypeInfo = new GenericTypeInfo(
-                "Task",
-                arguments,
-                new ReflectionTypeInfo(RequiredCoreType("System.Threading.Tasks.Task`1")))
+            wrappedTask: TypeInfo = new GenericTypeInfo("Task", arguments, new ReflectionTypeInfo(RequiredCoreType("System.Threading.Tasks.Task`1")))
             return wrappedTask
         }
 
-        wrappedValueTask: TypeInfo = new GenericTypeInfo(
-            "ValueTask",
-            arguments,
-            new ReflectionTypeInfo(RequiredCoreType("System.Threading.Tasks.ValueTask`1")))
+        wrappedValueTask: TypeInfo = new GenericTypeInfo("ValueTask", arguments, new ReflectionTypeInfo(RequiredCoreType("System.Threading.Tasks.ValueTask`1")))
         return wrappedValueTask
     }
 
     // The unit task-likes: the source-declared ones the pure facts know, plus the two runtime types.
-    public static func IsUnitTaskLikeTypeInfo(candidate: TypeInfo): bool {
+    static func IsUnitTaskLikeTypeInfo(candidate: TypeInfo): bool {
         if TaskLikeTypeFacts.IsUnitTaskLikeType(candidate) {
             return true
         }
@@ -352,7 +311,7 @@ public class AnalyzerFunctionTypeFactory {
 
     // The awaited result of a task-like type: the source-declared arm first, then the two runtime
     // generic definitions.
-    public static func TryGetTaskLikeResultTypeInfo(candidate: TypeInfo, out resultType: TypeInfo): bool {
+    static func TryGetTaskLikeResultTypeInfo(candidate: TypeInfo, out resultType: TypeInfo): bool {
         sourceResult := TaskLikeTypeFacts.GetTaskLikeResultType(candidate)
         declaredResult := sourceResult.SourceResultType
         if declaredResult != null {
@@ -384,7 +343,7 @@ public class AnalyzerFunctionTypeFactory {
     }
 
     // A by-ref reflection parameter carries its direction; everything else has none.
-    public static func GetReflectionParameterModifier(parameter: ParameterInfo): ParameterModifier {
+    static func GetReflectionParameterModifier(parameter: ParameterInfo): ParameterModifier {
         parameterType := parameter.get_ParameterType()
         if !parameterType.get_IsByRef() {
             return ParameterModifier.None
@@ -399,7 +358,7 @@ public class AnalyzerFunctionTypeFactory {
 
     // `Expression<TDelegate>` unwraps to `TDelegate` when that argument really is a delegate. The
     // by-ref shell is stripped first, so `in Expression<Func<int,int>>` unwraps too.
-    public static func TryGetExpressionTreeDelegateType(clrType: Type, out delegateType: Type): bool {
+    static func TryGetExpressionTreeDelegateType(clrType: Type, out delegateType: Type): bool {
         delegateType = typeof(object)
         effectiveType := clrType
         if effectiveType.get_IsByRef() {
@@ -448,7 +407,7 @@ public class AnalyzerFunctionTypeFactory {
     // THE CLR SPELLING is the whole predicate: an expression-tree target is exactly an
     // `Expression<TDelegate>` whose argument is a delegate, which the unwrapper above already
     // decides.
-    public static func IsExpressionTreeLambdaTarget(clrType: Type): bool {
+    static func IsExpressionTreeLambdaTarget(clrType: Type): bool {
         delegateType := typeof(object)
         return TryGetExpressionTreeDelegateType(clrType, out delegateType)
     }
@@ -463,10 +422,7 @@ public class AnalyzerFunctionTypeFactory {
     // the SCC is rebuilt and would answer from a disposed MetadataLoadContext; taken as a
     // parameter, the caller necessarily passes the live one, so staleness is impossible rather
     // than merely managed.
-    public static func IsExpressionTreeLambdaTargetTypeInfo(
-        expectedType: TypeInfo?,
-        declaration: AnalyzerDeclarationContext,
-        conversion: AnalyzerClrTypeConversion): bool {
+    static func IsExpressionTreeLambdaTargetTypeInfo(expectedType: TypeInfo?, declaration: AnalyzerDeclarationContext, conversion: AnalyzerClrTypeConversion): bool {
         if expectedType == null {
             return false
         }
@@ -485,30 +441,20 @@ public class AnalyzerFunctionTypeFactory {
         return IsExpressionTreeLambdaTarget(clrType)
     }
 
-    func ResolveDeclarationReference(
-        typeReference: TypeReference,
-        methodSubstitution: Dictionary<string, TypeInfo>,
-        declarationFile: string?): TypeInfo {
+    func ResolveDeclarationReference(typeReference: TypeReference, methodSubstitution: Dictionary<string, TypeInfo>, declarationFile: string?): TypeInfo {
         if declarationFile == null {
             return typeSubstitution.ResolveTypeWithSubstitution(typeReference, methodSubstitution)
         }
 
-        return declarationContext.ResolveTypeReference(
-            typeReference,
-            declarationFile,
-            methodSubstitution,
-            null)
+        return declarationContext.ResolveTypeReference(typeReference, declarationFile, methodSubstitution, null)
     }
 
-    func ResolveDeclarationConstraints(
-        constraints: List<GenericConstraint>?,
-        methodSubstitution: Dictionary<string, TypeInfo>,
-        declarationFile: string?): Dictionary<string, List<TypeInfo> >? {
+    func ResolveDeclarationConstraints(constraints: List<GenericConstraint>?, methodSubstitution: Dictionary<string, TypeInfo>, declarationFile: string?): Dictionary<string, List<TypeInfo>>? {
         if constraints == null {
             return null
         }
 
-        grouped := new Dictionary<string, List<TypeInfo> >(StringComparer.Ordinal)
+        grouped := new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
         index := 0
         while index < constraints.Count {
             constraint := constraints[index]
@@ -516,8 +462,7 @@ public class AnalyzerFunctionTypeFactory {
             inner := constraint.Constraints
             innerIndex := 0
             while innerIndex < inner.Count {
-                bucket.Add(
-                    ResolveDeclarationReference(inner[innerIndex], methodSubstitution, declarationFile))
+                bucket.Add(ResolveDeclarationReference(inner[innerIndex], methodSubstitution, declarationFile))
                 innerIndex = innerIndex + 1
             }
 
@@ -527,10 +472,7 @@ public class AnalyzerFunctionTypeFactory {
         return grouped
     }
 
-    func ResolveMemberReference(
-        typeReference: TypeReference,
-        declarationOwner: TypeInfo?,
-        substitution: Dictionary<string, TypeInfo>): TypeInfo {
+    func ResolveMemberReference(typeReference: TypeReference, declarationOwner: TypeInfo?, substitution: Dictionary<string, TypeInfo>): TypeInfo {
         if declarationOwner == null {
             return typeSubstitution.ResolveTypeWithSubstitution(typeReference, substitution)
         }
@@ -538,11 +480,8 @@ public class AnalyzerFunctionTypeFactory {
         return typeSubstitution.ResolveTypeForSourceOwner(typeReference, declarationOwner, substitution)
     }
 
-    func ResolveMemberConstraints(
-        constraints: GenericConstraint[],
-        declarationOwner: TypeInfo?,
-        substitution: Dictionary<string, TypeInfo>): Dictionary<string, List<TypeInfo> > {
-        grouped := new Dictionary<string, List<TypeInfo> >(StringComparer.Ordinal)
+    func ResolveMemberConstraints(constraints: GenericConstraint[], declarationOwner: TypeInfo?, substitution: Dictionary<string, TypeInfo>): Dictionary<string, List<TypeInfo>> {
+        grouped := new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
         index := 0
         while index < constraints.Length {
             constraint := constraints[index]
@@ -560,9 +499,7 @@ public class AnalyzerFunctionTypeFactory {
         return grouped
     }
 
-    static func GetConstraintBucket(
-        grouped: Dictionary<string, List<TypeInfo> >,
-        typeParameter: string): List<TypeInfo> {
+    static func GetConstraintBucket(grouped: Dictionary<string, List<TypeInfo>>, typeParameter: string): List<TypeInfo> {
         existing: List<TypeInfo>? = null
         if grouped.TryGetValue(typeParameter, out existing) {
             if existing != null {
@@ -576,8 +513,7 @@ public class AnalyzerFunctionTypeFactory {
     }
 
     // A function's own type parameters shadow whatever the enclosing scope binds them to.
-    static func CreateMethodSubstitution(
-        typeParameters: List<TypeParameter>?): Dictionary<string, TypeInfo> {
+    static func CreateMethodSubstitution(typeParameters: List<TypeParameter>?): Dictionary<string, TypeInfo> {
         substitution := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
         if typeParameters == null {
             return substitution
@@ -617,7 +553,7 @@ public class AnalyzerFunctionTypeFactory {
         return false
     }
 
-    public static func RepeatNoModifier(count: int): List<ParameterModifier> {
+    static func RepeatNoModifier(count: int): List<ParameterModifier> {
         modifiers := new List<ParameterModifier>()
         index := 0
         while index < count {
@@ -628,23 +564,20 @@ public class AnalyzerFunctionTypeFactory {
         return modifiers
     }
 
-    public static func IsActionDefinitionName(definitionName: string?): bool {
+    static func IsActionDefinitionName(definitionName: string?): bool {
         if definitionName == null {
             return false
         }
 
-        return definitionName == "System.Action`1" || definitionName == "System.Action`2"
-            || definitionName == "System.Action`3" || definitionName == "System.Action`4"
+        return definitionName == "System.Action`1" || definitionName == "System.Action`2" || definitionName == "System.Action`3" || definitionName == "System.Action`4"
     }
 
-    public static func IsFuncDefinitionName(definitionName: string?): bool {
+    static func IsFuncDefinitionName(definitionName: string?): bool {
         if definitionName == null {
             return false
         }
 
-        return definitionName == "System.Func`1" || definitionName == "System.Func`2"
-            || definitionName == "System.Func`3" || definitionName == "System.Func`4"
-            || definitionName == "System.Func`5"
+        return definitionName == "System.Func`1" || definitionName == "System.Func`2" || definitionName == "System.Func`3" || definitionName == "System.Func`4" || definitionName == "System.Func`5"
     }
 
     static func ToStringList(values: string[]): List<string> {

@@ -2,14 +2,15 @@ namespace NSharpLang.Compiler.Ast
 
 import System.Collections.Generic
 
+
 // Base class for declarations
-public class Declaration: AstNode {
+class Declaration: AstNode {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
 
 // Compilation unit (file)
-public class CompilationUnit: AstNode {
+class CompilationUnit: AstNode {
     Namespace: NamespaceDeclaration?
     Imports: List<ImportDirective>
     FileImports: List<Statement>
@@ -26,7 +27,7 @@ public class CompilationUnit: AstNode {
 }
 
 // Function declaration
-public class FunctionDeclaration: Declaration {
+class FunctionDeclaration: Declaration {
     Name: string
     Parameters: List<Parameter>
     ReturnType: TypeReference?
@@ -61,7 +62,7 @@ public class FunctionDeclaration: Declaration {
     }
 }
 
-public class Parameter {
+class Parameter {
     Name: string
     Type: TypeReference
     DefaultValue: Expression?
@@ -88,7 +89,7 @@ public class Parameter {
 }
 
 // Class declaration
-public class ClassDeclaration: Declaration {
+class ClassDeclaration: Declaration {
     Name: string
     TypeParameters: List<TypeParameter>?
     BaseClass: TypeReference?
@@ -111,7 +112,7 @@ public class ClassDeclaration: Declaration {
 }
 
 // Struct declaration
-public class StructDeclaration: Declaration {
+class StructDeclaration: Declaration {
     Name: string
     TypeParameters: List<TypeParameter>?
     Interfaces: List<TypeReference>
@@ -134,7 +135,7 @@ public class StructDeclaration: Declaration {
 }
 
 // Record declaration (can be record class or record struct - C# 10)
-public class RecordDeclaration: Declaration {
+class RecordDeclaration: Declaration {
     Name: string
     TypeParameters: List<TypeParameter>?
     Interfaces: List<TypeReference>
@@ -157,7 +158,7 @@ public class RecordDeclaration: Declaration {
 }
 
 // Struct-of-arrays record declaration.
-public class SoaRecordDeclaration: Declaration {
+class SoaRecordDeclaration: Declaration {
     Name: string
     Columns: List<SoaColumnDeclaration>
     Modifiers: Modifiers
@@ -172,7 +173,7 @@ public class SoaRecordDeclaration: Declaration {
 }
 
 // Interface declaration
-public class InterfaceDeclaration: Declaration {
+class InterfaceDeclaration: Declaration {
     Name: string
     TypeParameters: List<TypeParameter>?
     BaseInterfaces: List<TypeReference>
@@ -193,7 +194,7 @@ public class InterfaceDeclaration: Declaration {
 }
 
 // Union declaration
-public class UnionDeclaration: Declaration {
+class UnionDeclaration: Declaration {
     Name: string
     TypeParameters: List<TypeParameter>?
     Cases: List<UnionCase>
@@ -210,7 +211,7 @@ public class UnionDeclaration: Declaration {
 }
 
 // Enum declaration
-public class EnumDeclaration: Declaration {
+class EnumDeclaration: Declaration {
     Name: string
     Members: List<EnumMember>
     Type: EnumType
@@ -226,7 +227,7 @@ public class EnumDeclaration: Declaration {
     }
 }
 
-public class EnumMember {
+class EnumMember {
     Name: string
     Value: Expression?
     Line: int
@@ -240,7 +241,7 @@ public class EnumMember {
     }
 }
 
-public class FieldDeclaration: Declaration {
+class FieldDeclaration: Declaration {
     Name: string
     Type: TypeReference?
     Initializer: Expression?
@@ -259,7 +260,7 @@ public class FieldDeclaration: Declaration {
 }
 
 // Property declaration with custom get/set
-public class PropertyDeclaration: Declaration {
+class PropertyDeclaration: Declaration {
     Name: string
     Type: TypeReference
     GetBody: BlockStatement?
@@ -282,7 +283,7 @@ public class PropertyDeclaration: Declaration {
 }
 
 // Constructor declaration
-public class ConstructorDeclaration: Declaration {
+class ConstructorDeclaration: Declaration {
     Parameters: List<Parameter>
     Body: BlockStatement
     Initializer: Expression?
@@ -299,7 +300,7 @@ public class ConstructorDeclaration: Declaration {
 }
 
 // Indexer declaration
-public class IndexerDeclaration: Declaration {
+class IndexerDeclaration: Declaration {
     Parameters: List<Parameter>
     Type: TypeReference
     GetBody: BlockStatement?
@@ -318,7 +319,7 @@ public class IndexerDeclaration: Declaration {
 }
 
 // Type alias
-public class TypeAliasDeclaration: Declaration {
+class TypeAliasDeclaration: Declaration {
     Name: string
     Type: TypeReference
 
@@ -329,7 +330,7 @@ public class TypeAliasDeclaration: Declaration {
 }
 
 // Newtype declaration (distinct wrapper type)
-public class NewtypeDeclaration: Declaration {
+class NewtypeDeclaration: Declaration {
     Name: string
     UnderlyingType: TypeReference
 
@@ -340,7 +341,7 @@ public class NewtypeDeclaration: Declaration {
 }
 
 // Preprocessor directive wrapper (for top-level preprocessor directives)
-public class PreprocessorDeclaration: Declaration {
+class PreprocessorDeclaration: Declaration {
     Directive: string
 
     constructor(Directive: string, Line: int, Column: int): base(Line, Column) {
@@ -349,7 +350,7 @@ public class PreprocessorDeclaration: Declaration {
 }
 
 // Attributes
-public class AttributeNode {
+class AttributeNode {
     Name: string
     Arguments: List<Argument>
     Line: int
@@ -364,14 +365,14 @@ public class AttributeNode {
 }
 
 // Test declaration (for .tests.nl files)
-public class TestDeclaration: Declaration {
+class TestDeclaration: Declaration {
     Description: string
     Body: BlockStatement
     TableParameters: List<Parameter>?
-    TableCases: List<List<Expression> >?
+    TableCases: List<List<Expression>>?
     SkipReason: string?
 
-    constructor(Description: string, Body: BlockStatement, TableParameters: List<Parameter>?, TableCases: List<List<Expression> >?, SkipReason: string?, Line: int, Column: int): base(Line, Column) {
+    constructor(Description: string, Body: BlockStatement, TableParameters: List<Parameter>?, TableCases: List<List<Expression>>?, SkipReason: string?, Line: int, Column: int): base(Line, Column) {
         this.Description = Description
         this.Body = Body
         this.TableParameters = TableParameters
@@ -381,7 +382,7 @@ public class TestDeclaration: Declaration {
 }
 
 // Setup block declaration (for .tests.nl files) - shared setup for all tests in a file
-public class SetupDeclaration: Declaration {
+class SetupDeclaration: Declaration {
     Body: BlockStatement
 
     constructor(Body: BlockStatement, Line: int, Column: int): base(Line, Column) {
@@ -390,7 +391,7 @@ public class SetupDeclaration: Declaration {
 }
 
 // Teardown block declaration (for .tests.nl files) - shared cleanup for all tests in a file
-public class TeardownDeclaration: Declaration {
+class TeardownDeclaration: Declaration {
     Body: BlockStatement
 
     constructor(Body: BlockStatement, Line: int, Column: int): base(Line, Column) {
