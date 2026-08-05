@@ -10,6 +10,16 @@ namespace NSharpLang.Tests;
 
 internal static class TestSdkFeed
 {
+    // The feed build shells out to the repo's own project graph, and the Build.Tasks step pulls
+    // in the full compiler including the BootstrapServices N# self-emit: ~6m20s serially on a
+    // quiet machine (measured 2026-08-02), longer under concurrent gate load. Each step gets the
+    // same generous ceiling; hitting it means a hang, not a slow build.
+    private static readonly TimeSpan SdkFeedCommandTimeout = TimeSpan.FromMinutes(20);
+
+    // A waiter must outlast a peer process holding the lock through the whole feed build
+    // (all SdkFeedCommandTimeout steps), not just one step.
+    private static readonly TimeSpan CacheLockTimeout = TimeSpan.FromMinutes(45);
+
     private static readonly Lazy<PackedSdkInfo> PackedSdk = new(BuildSdkFeed);
 
     public static string Version => PackedSdk.Value.Version;
@@ -36,7 +46,7 @@ targetFramework: net10.0
             var exitCode = RunDotnetNoCapture(
                 warmupDir,
                 $"restore \"{Path.Combine(warmupDir, "Warmup.csproj")}\" -v q --disable-build-servers",
-                timeout: TimeSpan.FromMinutes(5));
+                timeout: SdkFeedCommandTimeout);
             if (exitCode != 0)
             {
                 throw new InvalidOperationException("SDK feed warm-up restore failed.");
@@ -120,7 +130,7 @@ targetFramework: net10.0
             var buildTasksExitCode = RunDotnetNoCapture(
                 repoRoot,
                 $"build \"{Path.Combine(repoRoot, "src", "NSharpLang.Build.Tasks", "NSharpLang.Build.Tasks.csproj")}\" -c Release -v q --disable-build-servers",
-                timeout: TimeSpan.FromMinutes(5));
+                timeout: SdkFeedCommandTimeout);
             if (buildTasksExitCode != 0)
             {
                 throw new InvalidOperationException("Failed to build NSharp build tasks.");
@@ -129,7 +139,7 @@ targetFramework: net10.0
             var runtimePackExitCode = RunDotnetNoCapture(
                 repoRoot,
                 $"pack \"{Path.Combine(repoRoot, "src", "NSharpLang.Runtime", "NSharpLang.Runtime.csproj")}\" -c Release -o \"{tempFeedDir}\" -p:Version={runtimeVersion} -v q --disable-build-servers",
-                timeout: TimeSpan.FromMinutes(5));
+                timeout: SdkFeedCommandTimeout);
             if (runtimePackExitCode != 0)
             {
                 throw new InvalidOperationException("Failed to pack NSharp runtime.");
@@ -138,7 +148,7 @@ targetFramework: net10.0
             var packExitCode = RunDotnetNoCapture(
                 repoRoot,
                 $"pack \"{Path.Combine(repoRoot, "src", "NSharpLang.Sdk", "NSharpLang.Sdk.csproj")}\" -c Release -o \"{tempFeedDir}\" -p:Version={version} -v q --disable-build-servers",
-                timeout: TimeSpan.FromMinutes(5));
+                timeout: SdkFeedCommandTimeout);
             if (packExitCode != 0)
             {
                 throw new InvalidOperationException("Failed to pack NSharp SDK.");
@@ -171,7 +181,7 @@ targetFramework: net10.0
             {
                 return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             }
-            catch (IOException) when (stopwatch.Elapsed < TimeSpan.FromMinutes(10))
+            catch (IOException) when (stopwatch.Elapsed < CacheLockTimeout)
             {
                 Thread.Sleep(100);
             }
