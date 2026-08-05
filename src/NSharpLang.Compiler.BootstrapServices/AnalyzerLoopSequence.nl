@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // THE STEP THE `yield` WALK CANNOT TAKE FOR ITSELF.
 //
 //   1  analyse the YIELDED expression. ANSWERS a type, and that type is the operand of the row-escape
@@ -16,12 +17,11 @@ import NSharpLang.Compiler.Ast
 // record must not also be measured against the sequence element type. The walk stays a suspendable
 // walk rather than one call because the answer to step 1 is the operand of both reports and of the
 // rule that follows them.
-public class YieldStatementRequest {
-
-    public Kind: int
-    public Node: Expression?
-    public Text: string?
-    public CarriedType: TypeInfo
+class YieldStatementRequest {
+    Kind: int
+    Node: Expression?
+    Text: string?
+    CarriedType: TypeInfo
 
     constructor(kind: int) {
         Kind = kind
@@ -45,20 +45,19 @@ public class YieldStatementRequest {
 //
 // The assignability oracle is carried on the state for the reason `ReturnStatementState` records:
 // `Analyzer.cs` rebuilds it at metadata-load and dispose, so it is read at `Begin` rather than held.
-public class YieldStatementState {
-
+class YieldStatementState {
     statementValue: YieldStatement
     assignabilityValue: AnalyzerAssignability
 
     Statement: YieldStatement => statementValue
     Assignability: AnalyzerAssignability => assignabilityValue
 
-    public Phase: int
-    public Pending: int
-    public DeclaresGenerator: bool
-    public YieldedType: TypeInfo
-    public EscapedAsRow: bool
-    public EscapedAsDirectColumn: bool
+    Phase: int
+    Pending: int
+    DeclaresGenerator: bool
+    YieldedType: TypeInfo
+    EscapedAsRow: bool
+    EscapedAsDirectColumn: bool
 
     constructor(statement: YieldStatement, assignability: AnalyzerAssignability) {
         statementValue = statement
@@ -115,15 +114,14 @@ public class YieldStatementState {
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1 with no gaps; the
 // other walks' numbers mean different operations, and none of them is a shared vocabulary.
-public class LoopStatementRequest {
-
-    public Kind: int
-    public Node: Expression?
-    public Body: Statement?
-    public Name: string?
-    public CarriedType: TypeInfo
-    public Line: int
-    public Column: int
+class LoopStatementRequest {
+    Kind: int
+    Node: Expression?
+    Body: Statement?
+    Name: string?
+    CarriedType: TypeInfo
+    Line: int
+    Column: int
 
     constructor(kind: int, carriedType: TypeInfo) {
         Kind = kind
@@ -163,8 +161,7 @@ public class LoopStatementRequest {
 // `Analyzer.cs` REBUILDS it when the metadata load context opens and again when it is disposed —
 // it holds assignability, which the rebuild replaces — so an owner constructed once may not keep a
 // reference to it. The iteration family passes null: neither `foreach` arm ever narrowed anything.
-public class LoopStatementState {
-
+class LoopStatementState {
     formValue: int
     variableNameValue: string?
     collectionValue: Expression?
@@ -189,26 +186,15 @@ public class LoopStatementState {
     IsAsync: bool => isAsyncValue
     Narrowing: AnalyzerFlowNarrowing? => narrowingValue
 
-    public Phase: int
-    public Pending: int
-    public CollectionType: TypeInfo
-    public ElementType: TypeInfo
-    public ConditionType: TypeInfo
-    public BodyNarrowings: List<FlowNarrowing>?
-    public LoopFrame: AmbientContextFrame?
+    Phase: int
+    Pending: int
+    CollectionType: TypeInfo
+    ElementType: TypeInfo
+    ConditionType: TypeInfo
+    BodyNarrowings: List<FlowNarrowing>?
+    LoopFrame: AmbientContextFrame?
 
-    constructor(
-        form: int,
-        variableName: string?,
-        collection: Expression?,
-        condition: Expression?,
-        initializer: Statement?,
-        iterator: Expression?,
-        body: Statement,
-        line: int,
-        column: int,
-        isAsync: bool,
-        narrowing: AnalyzerFlowNarrowing?) {
+    constructor(form: int, variableName: string?, collection: Expression?, condition: Expression?, initializer: Statement?, iterator: Expression?, body: Statement, line: int, column: int, isAsync: bool, narrowing: AnalyzerFlowNarrowing?) {
         formValue = form
         variableNameValue = variableName
         collectionValue = collection
@@ -284,8 +270,7 @@ public class LoopStatementState {
 // `while` and `for` arms each ran by hand. The two things `Analyzer.cs` DOES rebuild are handed in at
 // `Begin` instead: the assignability oracle for `yield`, and the flow-narrowing writer for `while`
 // and `for`.
-public class AnalyzerLoopSequence {
-
+class AnalyzerLoopSequence {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     scopesValue: AnalyzerScopeStack
@@ -295,15 +280,7 @@ public class AnalyzerLoopSequence {
     soaEscapeValue: AnalyzerSoaEscape
     conditionsValue: AnalyzerBooleanConditions
 
-    constructor(
-        diagnostics: AnalyzerDiagnosticSink,
-        spans: AnalyzerDiagnosticSpans,
-        scopes: AnalyzerScopeStack,
-        declarationContext: AnalyzerDeclarationContext,
-        typeResolver: AnalyzerTypeResolver,
-        ambient: AnalyzerAmbientContext,
-        soaEscape: AnalyzerSoaEscape,
-        conditions: AnalyzerBooleanConditions) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, conditions: AnalyzerBooleanConditions) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -318,35 +295,17 @@ public class AnalyzerLoopSequence {
     // variable's type is `unknown` when the collection is not enumerable, and the report is SILENT
     // for a collection whose type is already unknown or still external — a second complaint about a
     // value nothing could type is noise.
-    public func ResolveForeachElementType(collection: Expression, collectionType: TypeInfo): TypeInfo {
-        return ResolveLoopElementType(
-            collection,
-            collectionType,
-            false,
-            "foreach",
-            "enumerable",
-            "Use an array, Span<T>, or IEnumerable<T> value as the foreach collection.")
+    func ResolveForeachElementType(collection: Expression, collectionType: TypeInfo): TypeInfo {
+        return ResolveLoopElementType(collection, collectionType, false, "foreach", "enumerable", "Use an array, Span<T>, or IEnumerable<T> value as the foreach collection.")
     }
 
     // THE `await foreach` COLLECTION'S ELEMENT TYPE. Same shape, different question: only an async
     // sequence answers, so an array or a `List<T>` reaches the report here.
-    public func ResolveAwaitForeachElementType(collection: Expression, collectionType: TypeInfo): TypeInfo {
-        return ResolveLoopElementType(
-            collection,
-            collectionType,
-            true,
-            "await foreach",
-            "async enumerable",
-            "Use an IAsyncEnumerable<T> value as the await foreach collection.")
+    func ResolveAwaitForeachElementType(collection: Expression, collectionType: TypeInfo): TypeInfo {
+        return ResolveLoopElementType(collection, collectionType, true, "await foreach", "async enumerable", "Use an IAsyncEnumerable<T> value as the await foreach collection.")
     }
 
-    func ResolveLoopElementType(
-        collection: Expression,
-        collectionType: TypeInfo,
-        requireAsync: bool,
-        loopKind: string,
-        expectedKind: string,
-        suggestion: string): TypeInfo {
+    func ResolveLoopElementType(collection: Expression, collectionType: TypeInfo, requireAsync: bool, loopKind: string, expectedKind: string, suggestion: string): TypeInfo {
         elementType := GetLoopSequenceElementType(collectionType, requireAsync)
         if elementType != null {
             return elementType
@@ -354,14 +313,7 @@ public class AnalyzerLoopSequence {
 
         if ShouldReportLoopSequenceTypeMismatch(collectionType) {
             span := spansValue.GetExpressionDiagnosticSpan(collection)
-            diagnosticsValue.Report(
-                ErrorCode.TypeMismatch,
-                loopKind + " collection must be " + expectedKind + ", but this collection is '"
-                    + TypeText(collectionType) + "'",
-                span.Line,
-                span.Column,
-                suggestion,
-                span.Length)
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, loopKind + " collection must be " + expectedKind + ", but this collection is '" + TypeText(collectionType) + "'", span.Line, span.Column, suggestion, span.Length)
         }
 
         return BuiltInTypes.Unknown
@@ -369,7 +321,7 @@ public class AnalyzerLoopSequence {
 
     // WHETHER A FAILED LOOKUP IS WORTH REPORTING. An unknown type already carries whatever error made
     // it unknown, and an external type is one the analyzer has not finished resolving.
-    public func ShouldReportLoopSequenceTypeMismatch(collectionType: TypeInfo): bool {
+    func ShouldReportLoopSequenceTypeMismatch(collectionType: TypeInfo): bool {
         resolved := NormalizeShapeType(collectionType)
         if BuiltInTypes.IsUnknown(resolved) {
             return false
@@ -383,7 +335,7 @@ public class AnalyzerLoopSequence {
     // between the two questions; it is not a preference but a filter, and the synchronous arms are
     // gated on it individually rather than up front because a reflected type reaches the SAME probe
     // list either way.
-    public func GetLoopSequenceElementType(collectionType: TypeInfo, requireAsync: bool): TypeInfo? {
+    func GetLoopSequenceElementType(collectionType: TypeInfo, requireAsync: bool): TypeInfo? {
         resolved := NormalizeShapeType(collectionType)
 
         arrayType := resolved as ArrayTypeInfo
@@ -446,7 +398,7 @@ public class AnalyzerLoopSequence {
     // The nullable unwrap resolves aliases FIRST and then returns the ORIGINAL type when the result
     // is not nullable, which is what `Analyzer.cs` did; the outer resolve then runs on that original.
     // The double resolve is not redundant — it is the reason an alias for a nullable alias settles.
-    public func NormalizeShapeType(candidate: TypeInfo): TypeInfo {
+    func NormalizeShapeType(candidate: TypeInfo): TypeInfo {
         resolved := declarationContextValue.ResolveDeclaredAlias(NonNullableType(candidate))
         settled := false
         while !settled {
@@ -507,9 +459,7 @@ public class AnalyzerLoopSequence {
 
     // THE FIRST DECLARED INTERFACE THAT ANSWERS, in declaration order. The recursion is through the
     // top-level question, so an interface that inherits a sequence interface answers too.
-    func GetSourceLoopSequenceElementType(
-        interfaceReferences: TypeReference[],
-        requireAsync: bool): TypeInfo? {
+    func GetSourceLoopSequenceElementType(interfaceReferences: TypeReference[], requireAsync: bool): TypeInfo? {
         index := 0
         while index < interfaceReferences.Length {
             interfaceType := typeResolverValue.ResolveType(interfaceReferences[index])
@@ -619,8 +569,7 @@ public class AnalyzerLoopSequence {
         index := 0
         while index < interfaces.Length {
             candidate := interfaces[index]
-            if candidate.get_IsGenericType()
-                && candidate.GetGenericTypeDefinition() == expectedInterfaceDefinition {
+            if candidate.get_IsGenericType() && candidate.GetGenericTypeDefinition() == expectedInterfaceDefinition {
                 return candidate
             }
 
@@ -681,8 +630,7 @@ public class AnalyzerLoopSequence {
     static func AsynchronousSequenceDefinition(): Type {
         definition := Type.GetType("System.Collections.Generic.IAsyncEnumerable`1")
         if definition == null {
-            throw new InvalidOperationException(
-                "Required async sequence interface System.Collections.Generic.IAsyncEnumerable`1 was not found.")
+            throw new InvalidOperationException("Required async sequence interface System.Collections.Generic.IAsyncEnumerable`1 was not found.")
         }
 
         return definition
@@ -691,8 +639,7 @@ public class AnalyzerLoopSequence {
     static func NonGenericSequenceType(): Type {
         sequence := Type.GetType("System.Collections.IEnumerable")
         if sequence == null {
-            throw new InvalidOperationException(
-                "Required sequence interface System.Collections.IEnumerable was not found.")
+            throw new InvalidOperationException("Required sequence interface System.Collections.IEnumerable was not found.")
         }
 
         return sequence
@@ -701,20 +648,18 @@ public class AnalyzerLoopSequence {
     // WHAT A GENERATOR'S `yield` MUST PRODUCE: the element type of the function's own declared return
     // type, asked as an ASYNC sequence when the function is `async func*` and as a synchronous one
     // otherwise. The `async` modifier is read from the ambient context at the moment of asking.
-    public func GetGeneratorYieldElementType(returnType: TypeInfo): TypeInfo? {
+    func GetGeneratorYieldElementType(returnType: TypeInfo): TypeInfo? {
         return GetLoopSequenceElementType(returnType, ambientValue.CurrentFunctionDeclaresAsync)
     }
 
     // THE `yield` STATEMENT'S ENTRY. The assignability oracle is read from the caller's field HERE,
     // for the reason `YieldStatementState` records.
-    public func BeginYield(
-        statement: YieldStatement,
-        assignability: AnalyzerAssignability): YieldStatementState {
+    func BeginYield(statement: YieldStatement, assignability: AnalyzerAssignability): YieldStatementState {
         return new YieldStatementState(statement, assignability)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this `yield` is finished.
-    public func NextStep(state: YieldStatementState): YieldStatementRequest? {
+    func NextStep(state: YieldStatementState): YieldStatementRequest? {
         while state.Phase != 99 {
             request := Advance(state)
             if request != null {
@@ -727,7 +672,7 @@ public class AnalyzerLoopSequence {
 
     // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 remains, and it answers the yielded type. The
     // two escape answers used to arrive here; they are read directly from the reporters now.
-    public func Supply(state: YieldStatementState, answer: TypeInfo?) {
+    func Supply(state: YieldStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -767,13 +712,7 @@ public class AnalyzerLoopSequence {
         statement := state.Statement
         state.DeclaresGenerator = ambientValue.CurrentFunctionDeclaresGenerator
         if !state.DeclaresGenerator {
-            diagnosticsValue.Report(
-                ErrorCode.InvalidSyntax,
-                "'yield' can only be used inside a generator function",
-                statement.Line,
-                statement.Column,
-                "Mark the function as `func*`/`async func*`, or replace `yield` with `return` in an ordinary function.",
-                5)
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'yield' can only be used inside a generator function", statement.Line, statement.Column, "Mark the function as `func*`/`async func*`, or replace `yield` with `return` in an ordinary function.", 5)
         }
 
         value := statement.Value
@@ -797,10 +736,7 @@ public class AnalyzerLoopSequence {
         }
 
         state.Phase = 2
-        state.EscapedAsRow = soaEscapeValue.ReportSoaRowEscapeIfNeeded(
-            value,
-            state.YieldedType,
-            "yielded")
+        state.EscapedAsRow = soaEscapeValue.ReportSoaRowEscapeIfNeeded(value, state.YieldedType, "yielded")
         return null
     }
 
@@ -812,9 +748,7 @@ public class AnalyzerLoopSequence {
         }
 
         state.Phase = 3
-        state.EscapedAsDirectColumn = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
-            value,
-            "yielded")
+        state.EscapedAsDirectColumn = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(value, "yielded")
         return null
     }
 
@@ -852,15 +786,7 @@ public class AnalyzerLoopSequence {
         if value != null {
             elementText := TypeText(elementType)
             span := spansValue.GetExpressionDiagnosticSpan(value)
-            diagnosticsValue.Report(
-                ErrorCode.TypeMismatch,
-                "Generator yield value is '" + TypeText(yieldedType)
-                    + "', but the sequence element type is '" + elementText + "'",
-                span.Line,
-                span.Column,
-                "Yield a value assignable to '" + elementText
-                    + "', or change the generator return type.",
-                span.Length)
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, "Generator yield value is '" + TypeText(yieldedType) + "', but the sequence element type is '" + elementText + "'", span.Line, span.Column, "Yield a value assignable to '" + elementText + "', or change the generator return type.", span.Length)
         }
 
         return null
@@ -868,79 +794,31 @@ public class AnalyzerLoopSequence {
 
     // THE `foreach` STATEMENT'S ENTRY. The operands are read off the node here, so the walk never
     // holds an AST node whose type is one of four unrelated classes.
-    public func BeginForeach(statement: ForeachStatement): LoopStatementState {
-        return new LoopStatementState(
-            0,
-            statement.VariableName,
-            statement.Collection,
-            null,
-            null,
-            null,
-            statement.Body,
-            statement.Line,
-            statement.Column,
-            false,
-            null)
+    func BeginForeach(statement: ForeachStatement): LoopStatementState {
+        return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, statement.Line, statement.Column, false, null)
     }
 
     // THE `await foreach` STATEMENT'S ENTRY — the same walk with `IsAsync` set, which is the whole
     // difference between the two arms.
-    public func BeginAwaitForeach(statement: AwaitForEachStatement): LoopStatementState {
-        return new LoopStatementState(
-            0,
-            statement.VariableName,
-            statement.Collection,
-            null,
-            null,
-            null,
-            statement.Body,
-            statement.Line,
-            statement.Column,
-            true,
-            null)
+    func BeginAwaitForeach(statement: AwaitForEachStatement): LoopStatementState {
+        return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, statement.Line, statement.Column, true, null)
     }
 
     // THE `while` STATEMENT'S ENTRY. It carries no position of its own: the only scope a `while` ever
     // opens is the narrowing scope, and that opens at the BODY's position rather than the keyword's.
-    public func BeginWhile(
-        statement: WhileStatement,
-        narrowing: AnalyzerFlowNarrowing): LoopStatementState {
-        return new LoopStatementState(
-            1,
-            null,
-            null,
-            statement.Condition,
-            null,
-            null,
-            statement.Body,
-            statement.Line,
-            statement.Column,
-            false,
-            narrowing)
+    func BeginWhile(statement: WhileStatement, narrowing: AnalyzerFlowNarrowing): LoopStatementState {
+        return new LoopStatementState(1, null, null, statement.Condition, null, null, statement.Body, statement.Line, statement.Column, false, narrowing)
     }
 
     // THE `for` STATEMENT'S ENTRY. All three clauses are OPTIONAL and each one's absence changes the
     // walk: no initializer skips a statement, no condition skips both the boolean gate AND the
     // narrowing that a condition would otherwise prove, and no iterator skips the nested walk.
-    public func BeginFor(
-        statement: ForStatement,
-        narrowing: AnalyzerFlowNarrowing): LoopStatementState {
-        return new LoopStatementState(
-            2,
-            null,
-            null,
-            statement.Condition,
-            statement.Initializer,
-            statement.Iterator,
-            statement.Body,
-            statement.Line,
-            statement.Column,
-            false,
-            narrowing)
+    func BeginFor(statement: ForStatement, narrowing: AnalyzerFlowNarrowing): LoopStatementState {
+        return new LoopStatementState(2, null, null, statement.Condition, statement.Initializer, statement.Iterator, statement.Body, statement.Line, statement.Column, false, narrowing)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this loop is finished.
-    public func NextLoopStep(state: LoopStatementState): LoopStatementRequest? {
+    func NextLoopStep(state: LoopStatementState): LoopStatementRequest? {
         while state.Phase != 99 {
             request := AdvanceLoop(state)
             if request != null {
@@ -955,7 +833,7 @@ public class AnalyzerLoopSequence {
     // is the FORM's business: the iteration family folds a collection type, `while` and `for` fold a
     // condition type. The replayed operations, the body walk and the nested iterator walk answer
     // nothing, and nothing is folded in for them.
-    public func SupplyLoop(state: LoopStatementState, answer: TypeInfo?) {
+    func SupplyLoop(state: LoopStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -1178,11 +1056,7 @@ public class AnalyzerLoopSequence {
             state.BodyNarrowings = narrowing.ExtractFlowNarrowings(condition).Then
         }
 
-        conditionsValue.ReportConditionTypeMismatchIfNeeded(
-            condition,
-            "a 'while' loop",
-            "used as a 'while' condition",
-            state.ConditionType)
+        conditionsValue.ReportConditionTypeMismatchIfNeeded(condition, "a 'while' loop", "used as a 'while' condition", state.ConditionType)
         state.LoopFrame = ambientValue.EnterLoop()
 
         if NarrowingCount(state) > 0 {
@@ -1323,11 +1197,7 @@ public class AnalyzerLoopSequence {
             return null
         }
 
-        conditionsValue.ReportConditionTypeMismatchIfNeeded(
-            condition,
-            "a 'for' loop",
-            "used as a 'for' condition",
-            state.ConditionType)
+        conditionsValue.ReportConditionTypeMismatchIfNeeded(condition, "a 'for' loop", "used as a 'for' condition", state.ConditionType)
         return null
     }
 
