@@ -1,6 +1,56 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-04 (**TASK 017 SLICE 39 LANDED (no commit — mandate) — N# OWNS WHAT IT MEANS
+Last updated: 2026-08-04 (**TASK 017 SLICE 41 LANDED (no commit — mandate) — N# OWNS WHAT A GUARDED
+REGION IS, AND `IsThrowableType` IS DELETED FROM `Analyzer.cs`.** Two new files —
+`AnalyzerResourceStatements.nl` (**1,065 lines, THREE types, 33 members, 5 public**) and
+`AnalyzerThrowability.nl` (**137 lines, ONE type, 3 members**) — become the sole authority for
+`try`, `using` and `lock` and for the `System.Exception` predicate all three of the language's
+throwability questions ask. **SIXTEEN C# MEMBERS DIE, 396 NAMED LINES**: `AnalyzeTryStatement` (35),
+`ReportNonThrowableCatchTypeIfNeeded` (16), **`IsThrowableType` (60)**, `AnalyzeUsingStatement` (31),
+BOTH `ReportNonDisposableUsingResourceIfNeeded` overloads, `ReportNonDisposableUsingResource`,
+`IsDisposableUsingResourceType`, `HasDisposePattern`, `HasDisposePatternMember`,
+`HasReflectionDisposePattern`, `IsNominallyIDisposable`, `AnalyzeLockStatement` (33),
+`ReportLockRequiresReferenceType` (22), `TryGetEnclosingTypeParameter` (45) and
+`IsKnownValueTypeLockee` (44) — plus the three dispatch arms and `DriveExpressionStatement`'s KIND 7,
+which dies because the predicate moved rather than being relayed. **THE BRIEF WAS WRONG IN BOTH
+DIRECTIONS**: the three arms are 99 lines but their EXCLUSIVE helpers are another 297, four times the
+brief's estimate; and the brief's warning that "a body is a LIST here" was BACKWARDS — all five bodies
+in this family are handed to `AnalyzeStatement` SINGULAR and re-enter the dispatch's own block arm, so
+taking the list walk would have double-applied the unreachable-code rule and skipped the block scope.
+**ONE C# MEMBER IS ADDED**, the 52-line zero-policy `DriveResourceStatement`, whose kind 7 is the
+estate's SECOND driver-drives-a-driver step (the nested local-declaration walk for a `using` resource
+declaration). **THE SHARED-DRIVER OPTION WAS MEASURED AND REFUSED WITH THE MEASUREMENT**: extending
+`LoopStatementState` would have cost +8 C# instead of +52 but would carry a loop's seven operands into
+a `lock` and couple two statement families through one request type — slices 33/35/38's argument, for
+a 44-line delta against a 405-line deletion. `git diff` **+79 / −425 = net −346** over 15 hunks,
+`Analyzer.cs` **12,694 → 12,348** (non-blank 11,213 → **10,913**), declarations 545 → **532**, and
+**compiler warnings fell 11 → 10** — the one that died is the possibly-null `typeName` at the old
+`:3892`, named by the slice-40 brief. PROOFS: the semantic-diagnostic oracle over **ALL 71 targets
+with BOTH CLIs on the SAME worktree — ORACLE_DIFFS = 0 over 906 lines, 890 checked files, 835
+diagnostics across 23 codes**, md5 identical, ZERO stderr bytes on all 142 runs, ZERO PARSE-FAIL, plus
+TWO supplementary passes that closed all seven pristine-worktree targets (**SUPP_ORACLE_DIFFS = 0**,
+all seven now analyse cleanly); an **emission-order protocol differential of two step rows plus TWELVE
+decision rows, each carrying the error count AND the ambient finally depth — 5,295 corpus rows, 0
+MISMATCHES** (which PROVES the corpus reaches NONE of the family's told paths: zero `using` statements
+at all, all 165 written catch types throwable, all 21 lockees clean) and **2,238 env-gated fixture
+rows, 0 MISMATCHES** reaching every told path, with **T-2 = T-6, T-3 = T-4 and U-2 = U-6** balanced in
+both runs; **444 fixtures** (409 accumulated + 35 new) with **FX_CHECK_ENV_DIFFS = 0** over 952 lines
+and **FX_CHECK_PLAIN_DIFFS = 0** over 1,037, **FX_BUILD_DIFFS = 0 over 8,277 UNSORTED lines** and
+**FX_TEST_DIFFS = 0**; the IL normaliser **re-derived from scratch** with a **CONTROL that ran FIRST
+and passed 128/128**, after which **ALL 71 N#-emitted assemblies were BYTE-IDENTICAL** (the 57 that
+differ are one copied C# support library, root-caused to an embedded PDB path, 0 source files
+differing); **corpus build transcripts identical in all THREE trees, TRANSCRIPT_DIFFS = 0 over 1,585
+lines**; **51 new contracts** (2,792 → 2,843); ownership audit **18 / 18** against the freshly
+repinned manifest (still **391** lines, no BOM); `nlc check` **ZERO findings** in all four touched
+files against an unchanged estate baseline of 282. The parse-error census over the whole accumulated
+set is **21 and stays 21** across all four passes — the 35 new fixtures add ZERO, after three of them
+were rewritten when the first draft produced some. The FULL VS Code-enabled gate **ALL TESTS PASSED in
+32m 47s** (3,194/3,194 unit, 2,843/2,843 native contracts, VS Code integration 36 passing, IL
+verification green over 67 assemblies), `dev.sh --since` chose the FULL unit suite (fail-safe) and
+passed it 3,194/3,194 with zero flakes, and the VSIX was repackaged and reinstalled. No toolset repin,
+no wall.
+
+Last updated (prior): 2026-08-04 (**TASK 017 SLICE 39 LANDED (no commit — mandate) — N# OWNS WHAT IT MEANS
 FOR A CONDITION TO BE A CONDITION, AND THE FAMILY IS TERMINAL.** A new
 `AnalyzerBooleanConditions.nl` (**211 lines, ONE type, 9 members, 3 of them public**) becomes the
 sole authority for all five of the analyzer's boolean questions — the `if`, `while`, `for` and
@@ -1640,7 +1690,328 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 40 — THE `while` AND `for` ARMS ON ONE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 41 — THE RESOURCE FAMILY: `try` / `using` /
+  `lock` ON ONE DRIVER, TOGETHER, TERMINAL — AND `IsThrowableType` DELETED FROM `Analyzer.cs`.**
+  Target recorded BEFORE any production edit, at `917cdfef7` (`Analyzer.cs` **12,694** lines,
+  non-blank **11,213**, declarations **545**; BootstrapServices contracts **2,792**; unit suite
+  **3,194**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint
+  head-v1:d3528f6aca637ee4`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE — AND THE BRIEF WAS WRONG IN BOTH DIRECTIONS AGAIN.** The
+  three dispatch arms are `try` `:3239–:3241`, `using` `:3242–:3244`, `lock` `:3245–:3247` (3 lines
+  each). The named members and their EXCLUSIVE helpers, every one of which has ZERO callers outside
+  `Analyzer.cs`, measured at this tree: `AnalyzeTryStatement` `:3603–:3637` (**35**),
+  `ReportNonThrowableCatchTypeIfNeeded` `:3639–:3654` (**16**, 1 call site), `IsThrowableType`
+  `:3656–:3715` (**60**), `AnalyzeUsingStatement` `:3717–:3747` (**31**), the TWO overloads of
+  `ReportNonDisposableUsingResourceIfNeeded` `:3749–:3758` and `:3760–:3769` (**10** each),
+  `ReportNonDisposableUsingResource` `:3771–:3780` (**10**), `IsDisposableUsingResourceType`
+  `:3782–:3806` (**25**), `HasDisposePattern` `:3808–:3820` (**13**), `HasDisposePatternMember`
+  `:3822–:3841` (**20**), `HasReflectionDisposePattern` `:3843–:3853` (**11**),
+  `IsNominallyIDisposable` `:3855–:3865` (**11**), `AnalyzeLockStatement` `:3867–:3899` (**33**),
+  `ReportLockRequiresReferenceType` `:3901–:3922` (**22**), `TryGetEnclosingTypeParameter`
+  `:3924–:3968` (**45** incl. doc) and `IsKnownValueTypeLockee` `:3970–:4013` (**44** incl. doc) —
+  **396 named lines, SIXTEEN members**, four times the 99 the brief named. The brief said "`lock`
+  reports `ReportLockRequiresReferenceType`, which is one C# private": it is THREE (the reporter plus
+  the two classifiers), and `using`'s disposability question is SIX, not one.
+
+  **`IsThrowableType`'s CALLERS, RE-VERIFIED: the brief's claim HOLDS.** 6 name occurrences = 1
+  declaration + 3 RECURSIVE self-calls (`:3677`, `:3694`, `:3708`) + 2 real callers —
+  `ReportNonThrowableCatchTypeIfNeeded` `:3641` and `DriveExpressionStatement`'s **kind 7** `:3311`,
+  which serves BOTH expression-statement questions (`throw` and `assert throws`). So the deletion is
+  possible only if the PREDICATE ITSELF moves, not just the catch clause; every one of its
+  collaborators is already N#-owned (`AnalyzerDeclarationContext.ResolveDeclaredAlias`,
+  `BuiltInTypes`, `AnalyzerConversionFacts.IsReflectionAssignableFrom`, `AnalyzerScopeStack.LookupType`,
+  `AnalyzerClrTypeConversion.TryConvertTypeInfoToClrType`, `AnalyzerTypeSubstitution.ResolveTypeForSourceOwner`),
+  so it moves whole and kind 7 dies with it.
+
+  **THE BODY-WALK QUESTION, SETTLED BY READING RATHER THAN BY THE BRIEF — AND THE BRIEF HAD IT
+  BACKWARDS.** The brief warned that "a body is a LIST here, unlike loop bodies". It is NOT. Every
+  one of the five bodies in this family is handed to `AnalyzeStatement` (SINGULAR):
+  `AnalyzeStatement(tryStmt.TryBlock)`, `AnalyzeStatement(catchClause.Block)`,
+  `AnalyzeStatement(tryStmt.FinallyBlock)`, `AnalyzeStatement(usingStmt.Body)` and
+  `AnalyzeStatement(lockStmt.Body)` — each is a `BlockStatement` that re-enters the dispatch's OWN
+  block arm, which is what pushes the block scope and calls `AnalyzeStatements`. The unreachable-code
+  rule therefore still reaches their contents, through the block arm, exactly as before; taking the
+  LIST walk here would have DOUBLE-applied it and skipped the block scope. So this family needs the
+  loop driver's single-statement kind, not `DriveExpressionStatement`'s kind 5 — slice 38's gotcha 2
+  in the opposite direction, checked rather than assumed.
+
+  **THE PROTOCOL: ONE REQUEST, ONE STATE, ONE DRIVER, THREE STATEMENTS — AND A NEW FAMILY RATHER THAN
+  AN EXTENSION.** `ResourceStatementRequest` / `ResourceStatementState` / `NextResourceStep` /
+  `SupplyResource` / `DriveResourceStatement`, with a `Form` discriminator (0 `try`, 1 `using`,
+  2 `lock`) and a PHASE BAND per form — `try` 0..7, `using` 10..15, `lock` 20..23 — so a phase number
+  never means two things. **SIX KINDS ARE SEMANTICALLY THE LOOP DRIVER'S 1..6** (analyse an
+  expression, open a block scope, declare a symbol, record a variable, analyse ONE statement, close a
+  scope) and **EXACTLY ONE IS NEW: kind 7**, the nested
+  `DriveLocalDeclaration(_variableDeclaration.Begin(step.Declaration!))` — the SECOND
+  driver-drives-a-driver step in this estate after slice 40's `for` iterator.
+  **THE SHARED-DRIVER OPTION WAS MEASURED AND REFUSED, AND THE MEASUREMENT IS THE ARGUMENT**: adding
+  forms 3/4/5 to `LoopStatementState` would have cost **+8 C#** (one `case 8:` on the existing switch)
+  against the new driver's **+52**, but it would carry `Collection`, `Condition`, `Initializer`,
+  `Iterator`, `ElementType`, `LoopFrame` and `BodyNarrowings` into a `lock`, force a catch-clause
+  cursor into a type named `LoopStatementState`, and couple two statement families through one request
+  type — slices 33, 35 and 38's argument, for a 44-line delta against a 405-line deletion.
+
+  **THE THROWABILITY QUESTION MOVED WHOLE, AND THAT IS WHAT DELETES `IsThrowableType`.** A new
+  `AnalyzerThrowability.nl` (**137 lines, ONE type, 3 members, 1 of them public**) owns the predicate
+  all three of the language's `System.Exception` questions ask. Placement was measured rather than
+  assumed: it is NOT the resource family (a `throw` and an `assert throws` are not resource
+  statements) and NOT `AnalyzerConversionFacts` (the answer is not a function of the type alone — it
+  consults the scope stack, the declaration context and the type-substitution engine). It is
+  constructed exactly once and HELD by both `AnalyzerExpressionStatements` and
+  `AnalyzerResourceStatements`; the CLR conversion funnel, which `Analyzer.cs` REBUILDS with the
+  metadata load context, is handed in AT THE CALL. **`DriveExpressionStatement`'s kind 7 dies with
+  it**, `Supply` loses its `flag` parameter, and the `throw` and `assert throws` walks each lose a
+  suspension (the `throw` family is now 30..31 and `assert throws` keeps a GAP at 21).
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHAT A GUARDED REGION IS.** `Analyzer.cs` keeps no
+  part of any of the three statements — not what a bare `catch` catches, not that a catch clause's
+  scope and its variable are positioned at the TRY keyword rather than at the clause, not that the
+  catch loop replays six operations per clause, not that a `finally` raises the ambient depth for
+  exactly its own body (which is what makes NL319 fire on a `return` inside one), not which of
+  `using`'s two resource forms is taken, not that a declared resource is measured only when its own
+  declaration was clean, not what makes a type disposable (structurally OR nominally), not the
+  else-if CHAIN in the `lock` gate, not what counts as a known value-type lockee, and not whether an
+  enclosing type parameter is provably a reference. It also keeps no part of what it means for a type
+  to be throwable, for ANY of the three questions that ask.
+
+  **THE CUT — SIXTEEN MEMBERS, THREE ARMS, ONE DRIVER KIND.** `git diff` on `Analyzer.cs`
+  **+79 / −425 = net −346** across **15 hunks**; the file goes **12,694 → 12,348** and non-blank
+  **11,213 → 10,913 (−300)**. Declarations **545 → 532**. GONE: `AnalyzeTryStatement` (35),
+  `ReportNonThrowableCatchTypeIfNeeded` (16), **`IsThrowableType` (60)**, `AnalyzeUsingStatement`
+  (31), BOTH `ReportNonDisposableUsingResourceIfNeeded` overloads (10 each),
+  `ReportNonDisposableUsingResource` (10), `IsDisposableUsingResourceType` (25), `HasDisposePattern`
+  (13), `HasDisposePatternMember` (20), `HasReflectionDisposePattern` (11), `IsNominallyIDisposable`
+  (11), `AnalyzeLockStatement` (33), `ReportLockRequiresReferenceType` (22),
+  `TryGetEnclosingTypeParameter` (45) and `IsKnownValueTypeLockee` (44) — **396 named lines** — plus
+  the three dispatch arms (9 → 3) and `DriveExpressionStatement`'s kind 7. ADDED: **ONE C# member**,
+  the 52-line `DriveResourceStatement` (34 of them its doc comment), two fields with their banners and
+  two construction lines. N# calls nothing back. **COMPILER WARNINGS FELL 11 → 10, AND THE ONE THAT
+  DIED IS NAMED**: `Analyzer.cs(3892,66): warning CS8604` — the possibly-null `typeName` the slice-40
+  brief pointed at — is gone because the site is N# now.
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE, ALL 71 TARGETS, BOTH CLIs ON THE SAME SOURCE COPY.**
+  `nlc check --json`, fresh Release CLIs at baseline `917cdfef7` and at the working tree, both pointed
+  at the SAME `git worktree` copy. **ORACLE_DIFFS = 0 over 906 lines**, md5
+  `1a7551e35d46265f503796e3d6308817` in BOTH: **64 HEAD rows + 7 missing-`results` rows = 71**, **890
+  checked files, 835 diagnostics across 23 codes**, exits identical (0 × 59, 1 × 12),
+  `stderrBytes = 0` on every one of the 142 runs, **ZERO `PARSE-FAIL` rows**. **THE SEVEN SILENT
+  TARGETS ARE CLOSED**: two supplementary passes placed the missing `Compiler.dll` /
+  `BootstrapServices.dll` / `YamlDotNet.dll` and the `refint` reference and re-ran them on both sides
+  — **SUPP_ORACLE_DIFFS = 0** (md5 `21be21bdad11b3d3b277f41605679248` for six,
+  `c4ecfc79ca1555acfcf0bde50d6862e7` for the seventh), and **all seven now analyse cleanly**.
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, ROW BY ROW, WITH PER-ROW ERROR COUNTS AND THE
+  AMBIENT FINALLY DEPTH.** Both trees were instrumented at the SAME probe points with the SAME line
+  format, in SEPARATE copies that never shipped. Two row kinds per step —
+  `STEP|<site>|<kind>|<line>|<col>|<hasNode>|<hasBody>|<hasDecl>|<name>|<finallyDepth>|<err>` captured
+  BEFORE the operation and `ANS|<site>|<kind>|<finallyDepth>|<err>` after — plus TWELVE decision rows
+  the walk makes between steps (`CTYPE`, `THROWABLE`, `UDECL`, `UDISP`, `UTYPE`, `UROW`, `UCOL`,
+  `LTYPE`, `LROW`, `LCOL`, `LTP`, `LVAL`), every one carrying the error count at that instant, and
+  every diagnostic read back off `_errors` at the end of each `Analyze`. On the WORK side the walk
+  cannot probe itself, so the throwaway state carries a row list the driver DRAINS at each suspension
+  (slice 38's gotcha 3); the base side emits the same rows by hand, with its `&&` chains HOISTED so
+  the two are comparable (slice 39's gotcha 7). **THE HARNESS WAS PROVED NON-VACUOUS FIRST**: run
+  against a known-bad fixture it emitted 16 rows on each side, byte-identical.
+  * **THE CORPUS RUN over all 71 targets — 5,295 rows, 0 MISMATCHES**, md5
+    `c5bf4eddb99064c46f618acec19929ac` in BOTH: 985 analysis ends, 675 diagnostics, and a census that
+    pins the protocol — **T-5 536, T-2 283, T-6 283, T-3 165, T-4 165, L-1/L-2/L-5/L-6 21 each**.
+    Three invariants fall out of the census itself: **T-2 = T-6 exactly (283 catch-scope opens, 283
+    closes)**, **T-3 = T-4 exactly (165)** so every catch that declares also records, and
+    **L-2 = L-6 (21)**. It also PROVES the corpus reaches **NONE** of the family's told paths: zero
+    `using` statements at all (`UDECL` 0, `UTYPE` 0), every one of the 165 written catch types
+    throwable, every one of the 21 lockees neither an escape nor a value type.
+  * **THE ENV-GATED FIXTURE RUN reaches everything the corpus cannot: 2,238 rows, 0 MISMATCHES** over
+    all **444** fixtures under `NSHARP_EXPERIMENTAL_SOA=1`, md5 `78cf5d9891edae67c49eb95b240265bc` in
+    BOTH — 581 analyses, 521 diagnostics, and every told path lit: **THROWABLE 0 × 3**, **UDISP 0 × 3**,
+    **UROW 1 × 1**, **UCOL 1 × 1**, **LROW 1 × 2**, **LCOL 1 × 2**, **LTP 3**, **LVAL 1 × 4** — with
+    **T-2 = T-6 = 18**, **T-3 = T-4 = 13** and **U-2 = U-6 = 15** still balanced.
+
+  **PROOF — 444 FIXTURES, TWO FULL PASSES, AND A PARSE-ERROR CENSUS THAT DID NOT MOVE.** 35 new
+  fixtures (29 plain + 6 env-gated) run TOGETHER WITH the **409 accumulated on disk from slices 24 and
+  32–40**. The 29 plain ones cover every path the three arms own: a non-throwable catch type, a
+  throwable one, a bare `catch`, a catch variable read INSIDE its block and read AFTER the try (NL301
+  — the scope-closure proof no unit test can give), a transitive user exception hierarchy, TWO refused
+  catch clauses in one `try`, a `return` inside a `finally` (NL319) against a `return` inside the
+  `try` block (silent) and a NESTED finally, both `using` resource forms refused and accepted, a
+  `using` whose declaration already failed (the suppression proof), a `using` resource read after its
+  block, a struct resource with `Dispose`, an `int` resource, and nine `lock` shapes — `int`, `struct`,
+  `enum`, `bool`, an unconstrained `T`, a `where T: class` `T`, a class, a `string` and the body's own
+  scope closure. The 6 env-gated ones cover every SoA path the new walks own: a row view and a column
+  read AS A USING RESOURCE (the two `used as a using resource` wordings only this walk produces), both
+  LOCKED, a column in a `using` declaration, and a row view thrown from inside a `try`.
+  **`nlc check --json` under `NSHARP_EXPERIMENTAL_SOA=1`: FX_CHECK_ENV_DIFFS = 0 over 952 lines**, md5
+  `63d6fd700c465383442b51209228f615` in BOTH (444 HEAD rows, 508 diagnostics across 30 codes). **The
+  SAME 444 run again WITHOUT the variable: FX_CHECK_PLAIN_DIFFS = 0 over 1,037 lines**, md5
+  `14136f05e9b045e0872511f5b5b66722` in BOTH, **593 diagnostics across 30 codes**, `stderrBytes = 0`
+  on all 444, **ZERO `PARSE-FAIL` and ZERO missing-`results` keys**.
+  **THE CENSUS OVER THE WHOLE ACCUMULATED SET IS 21 AND STAYS 21** — NL101 × 12, NL102 × 8, NL109 × 1,
+  in the SAME 9 fixtures slices 38–40 named — identical across ALL FOUR passes (base/work ×
+  env/plain). **The 35 new fixtures add ZERO parse errors**, and three of them were REWRITTEN when the
+  first draft produced some (see gotcha 2).
+  **`nlc build`, which renders `_errors` in LIST order with NO dedup and NO sort: FX_BUILD_DIFFS = 0
+  over 8,277 UNSORTED lines**, md5 `b21df452de1701fd5d10edfd7c958e43`, identical exits (0 × 89,
+  1 × 355), from two PRISTINE staging copies verified `diff -rq` identical before either was built.
+  **`nlc test` over the 14 fixtures that carry a `.tests.nl`: FX_TEST_DIFFS = 0 over 138 lines**, md5
+  `a02908d480c86aca453ccbbcbde5cf77` in BOTH.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED FROM SCRATCH, AND THE CONTROL RAN FIRST AND PASSED.** The
+  normaliser was rewritten rather than reused, zeroing the PE COFF `TimeDateStamp` at **COFF+4** (not
+  COFF+8, which is `PointerToSymbolTable` and already zero — slice 40's silent trap) and the metadata
+  `#GUID` heap, and nothing else. **THE CONTROL RAN FIRST**: the BASELINE CLI building TWO IDENTICAL
+  COPIES of the whole 71-target corpus reported **compared 128, SAME 128, DIFFERENT 0, ONLY_IN 0 / 0**.
+  Only then was the test comparison taken.
+
+  **PROOF — CORPUS BUILD TRANSCRIPTS AND THE IL SWEEP, FROM THREE SWEEPS OVER IDENTICAL SOURCES.** All
+  three staging copies were byte-identical (`diff -rq` clean) before any build. **`nlc build`:
+  CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS = 0 over 1,585 lines**, md5
+  `dc5e230fc3c92babc2758265aa4847f8` in ALL THREE, with **identical exit codes (0 × 57, 1 × 14)**. The
+  same passes produced the IL: **128 assemblies compared, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0, and ALL
+  71 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**. The 57 that differ are ONE file — the COPIED C# support
+  library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference is **ROOT-CAUSED,
+  NOT WAVED THROUGH**: exactly ONE distinct content per tree (57 copies each), **1,133 normalised
+  differing byte positions**, `strings` finds the embedded PDB path
+  `/private/tmp/nl41base/…/NSharpLang.Runtime.pdb` in one and `/private/tmp/nl41work/…` in the other,
+  and `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports **0 SOURCE
+  files**.
+
+  **N# ADDED — 1,404 production lines across THREE files, TWO of them new.**
+  `AnalyzerResourceStatements.nl` **1,065 lines** (THREE types, 33 members, 5 public): the request, the
+  state with its `Form` discriminator and phase bands, `BeginTry` / `BeginUsing` / `BeginLock`,
+  `AdvanceTry`'s eight phases, `AdvanceUsing`'s six, `AdvanceLock`'s four, the three reports, the
+  disposability question in its structural and nominal halves, the value-type lockee classifier and the
+  enclosing-type-parameter kind. `AnalyzerThrowability.nl` **137 lines** (ONE type, 3 members).
+  `AnalyzerExpressionStatements.nl` **+74 / −53** (1,099 → 1,120): the held throwability owner, the
+  carried CLR funnel, and the two walks that lost their kind-7 suspension.
+  **51 NEW CONTRACTS** — `AnalyzerResourceStatements.tests.nl` **888 lines, 35 contracts** written
+  around the five things sharing one protocol makes easy to get wrong (the catch clause's TRY-anchored
+  positions, the suspended catch loop, the finally depth's extent and balance, `using`'s two forms and
+  its error-count guard, and the `lock` gate's else-if chain); `AnalyzerThrowability.tests.nl`
+  **242 lines, 14 contracts** covering all four widenings, the oblivious LOOP, both well-known
+  spellings, the transitive base-class walk, the self-resolving-name guard and the reflected arm; and
+  `AnalyzerExpressionStatements.tests.nl` **+129 / −65** (90 → 92 contracts) rewritten so the
+  throwability rule is MEASURED against real declared types rather than injected through a driver
+  boolean — a strictly stronger pinning than the flag it replaced.
+  Contracts: BootstrapServices **2,792 → 2,843 (+51)**, 0 failed.
+
+  **THE COMPILER'S OWN `nlc check` GRADED THE NEW CODE, AND IT PASSED CLEAN.** `nlc check --json` over
+  `NSharpLang.Compiler.BootstrapServices` (318 checked files) reports **ZERO findings in all four
+  touched `.nl` files**, against an unchanged estate baseline of **282**.
+
+  **RATCHET REPIN** — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 12,694 → **12,348**, currentNonBlankLines
+  11,213 → **10,913**, fingerprint `text-v1:fee5528802bfc493` → **`text-v1:a524166d315a688c`** (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **11,103 / 9,624**);
+  `reviewedHeadFingerprint head-v1:d3528f6aca637ee4` → **`head-v1:edd14706179a8243`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value untouched. The recomputation was VALIDATED BEFORE it was
+  applied: an independent FNV-1a walk reproduced the OLD `text-v1:fee5528802bfc493` from the baseline
+  file and the OLD `head-v1:d3528f6aca637ee4` from the unmodified manifest exactly. **FORMAT
+  DISCIPLINE HELD: `wc -l` on the manifest is 391 before AND after**, the manifest `git diff` is
+  exactly 2 changed lines and `OwnershipAudit.nl`'s is exactly 1; neither file carries a BOM.
+
+  **NO TOOLSET REPIN WAS TAKEN, AND NONE WAS NEEDED.** Every type and member the new code names was
+  already self-consumed catalog surface. The reflection surface it does use was routed around rather
+  than extended: `Type.GetMethod(string, BindingFlags, null, Type[], null)` is the shape
+  `AnalyzerLoopSequence` already proved, `System.IDisposable` and `System.Void` are named through
+  `Type.GetType` because the columnar `typeof` surface carries a hardcoded well-known list, and
+  `typeof(Exception)` IS on that list (it is already used in `ColumnarConstructionPlanner`). **No wall
+  was met.**
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is every squiggle a developer gets from a guarded region:
+  NL202 on a catch type that is not an exception, with the underline on the written TYPE rather than
+  the `catch` keyword; NL103 on a `using` resource that is not disposable, spanned on the declared NAME
+  in one form and on the whole expression in the other; NL320 on a value-typed or unconstrained-generic
+  lockee, in its rich `ErrorMessageBuilder` shape with a constraint-aware hint; the SoA escape squiggles
+  in their `used as a using resource` and `locked` wordings; the completion and hover facts a catch
+  variable and a `using` resource have INSIDE their block and lose at the closing brace; and whether a
+  `return` inside a `finally` is legal — because the walk is what raises and lowers the ambient depth
+  NL319 reads.
+
+  **EVIDENCE.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` with
+  `NSHARP_TEST_STEP_CACHE_OFF=1` — a FRESH ISOLATED run, no cached whole-gate or per-step result —
+  **ALL TESTS PASSED in 32m 47s (1,967 s), 106 `✓ PASSED` and ZERO `✗`**, with **Step 2 Build N#
+  Compiler 3m44s, Step 2b Format Contract Gate green, Step 3 Unit Tests 11m04s (3,194 / 3,194, 0
+  failed), Step 3a Native N# Tests 5m59s (compiler-service contracts 2,843 / 2,843, 0 failed, plus the
+  whole native estate including ownership-audit 18 / 18), Step 3b VS CODE INTEGRATION TESTS 4m26s (36
+  passing), Step 4 Pack and Install MSBuild SDK 6m48s, Steps 4b–10 template pack / install / creation /
+  template build / example builds / single-file examples / `nlc check` all green, and Step 10b IL
+  VERIFICATION green over 67 assemblies**. The unit count is the `917cdfef7` baseline COUNT with ZERO
+  drift. `./scripts/dev.sh --since` selected the **FULL unit suite (fail-safe)** — naming the six `.nl`
+  files and `OwnershipAudit.nl` as unmapped paths — and passed it **3,194 / 3,194 with zero flakes**.
+  **THE GATE RAN OVER THE FINAL SOURCE TREE**: every compiler, contract and manifest file was
+  byte-final before it started.
+
+  **VSIX RELOADED**: `./scripts/reload-vscode-extension.sh` rebuilt the language server, repackaged
+  `nsharp-0.6.0.vsix` (289 files) and reinstalled it — the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is now the post-slice build and
+  SHRANK **820,224 → 814,592 bytes**. No computer-use was used.
+
+  **SIX GOTCHAS, AND FOUR ARE NEW TO THE ARC.**
+  **(1) A TYPED-LOCAL `new` WIDENING DECLINES INSIDE A `test` BODY BUT NOT INSIDE A `func`.**
+  `structType: TypeInfo = new StructTypeInfo(…8 args…)` written directly in a contract declines at
+  `emit.typed-local.initializer` naming the local; the IDENTICAL expression inside a helper `func`
+  that returns `TypeInfo` emits. Single-argument constructions (`new ExternalTypeInfo("x")`,
+  `new NullableTypeInfo(inner)`) are fine in either place, so the trap only appears once a contract
+  needs a multi-argument model — move it to a helper the moment it does.
+  **(2) N#'s `using` EXPRESSION FORM IS UNREACHABLE WHEN THE RESOURCE STARTS WITH AN IDENTIFIER, AND
+  `new` COLLIDES WITH THE OBJECT INITIALIZER.** `ParseUsingStatement` takes the DECLARATION path the
+  moment it sees an identifier or `let`, so `using Open() { … }` reports NL102 "Expected ':='"; and
+  `using new MemoryStream() { … }` parses the `{` as an object initializer and reports NL109/NL102.
+  The shape that reaches the expression form is a PARENTHESIZED resource with NO body:
+  `using (Open())`. Three fixtures were written wrong first, were caught by the census, and were
+  rewritten — a fixture that looks like coverage and reaches its arm zero times is slice 37's and
+  slice 38's finding in a third place.
+  **(3) `typeof` HAS A HARDCODED WELL-KNOWN LIST, AND `System.IO.MemoryStream` IS NOT ON IT.**
+  `typeof(Exception)` and `typeof(InvalidOperationException)` resolve (`ColumnarTypeOfPlanner`'s
+  exception table names them); `typeof(MemoryStream)` declines at `emit.typed-local.initializer` with
+  the SAME message gotcha 1 produces, which is why the two look alike and must be told apart by
+  swapping the ARGUMENT rather than the local. `Type.GetType("System.IO.MemoryStream")` is the door,
+  and it is the same one the production code uses for `System.IDisposable` and `System.Void`.
+  **(4) A REFLECTION PROPERTY READ NEEDS ITS `get_` SPELLING.** `clrType.IsClass`,
+  `clrType.IsValueType` and `dispose.IsStatic` all decline (at `emit.return.expression` and
+  `emit.if.condition` respectively); `get_IsClass()`, `get_IsValueType()` and `get_IsStatic()` emit.
+  The decline names the STATEMENT, not the member, so the first one costs a bisect and the rest are
+  free.
+  **(5) A MANIFEST FINGERPRINT MUST KEEP ITS `head-v1:` PREFIX, AND THE AUDIT'S ERROR LOOKS LIKE A
+  CONTRADICTION WHEN IT DOES NOT.** A repin script that writes the bare hex produced OWN008 reporting
+  "expected head-v1:edd14706179a8243" AND "observed head-v1:edd14706179a8243" — the same value twice
+  — because the two messages print the POLICY constant and the RECOMPUTED value while the manifest
+  FIELD is what actually differs. Read the manifest field, not the message.
+  **(6) `throws` IS RESERVED AS A LOCAL NAME.** `throws := …` inside a contract declines at
+  `parse.test` naming the test's FIRST line, exactly as `partial`, `type`, `newtype` and `match` do.
+  The arc's reserved-name list grows by one.
+
+  **THE WALKER TERRITORY AFTER ELEVEN CUTS, AND WHAT STANDS BETWEEN HERE AND `AnalyzeStatement`.**
+  `Analyzer.cs` holds **12,348 lines**; the territory has SIX zero-policy drivers (two of which call
+  another driver) and FIVE owned context objects. `AnalyzeStatement` is **91 lines with 27 arms**.
+  **TWENTY-FOUR ARMS ARE NOW A SINGLE ROUTING LINE** — the twenty-one slice 40 left plus `try`,
+  `using` and `lock`. **ONLY FOUR ARMS STILL HOLD INLINE POLICY, 6 LINES TOTAL**: `BlockStatement` (3)
+  and `alloc` / `allow` / `unsafe` (1 each), unchanged from slice 40 and deliberately so.
+  * **FOUR NAMED ARMS, 189 lines (was 288)**: `AnalyzeLocalFunction` (71), `AnalyzeIfStatement` (54),
+    `AnalyzeOffStatement` (33), `AnalyzeSwitchStatement` (31).
+  * **NEXT: `switch` AND `off` TOGETHER, for the reason `try`/`using`/`lock` went together.**
+    `AnalyzeSwitchStatement` is **`:3669–:3699`, 31 lines** re-measured at this tree, and its whole
+    non-driver surface is ALREADY N#-owned: both SoA escape reports with the `used as a switch value`
+    action word, the escape→`unknown` collapse, `_ambient.EnterSwitch`/`ExitSwitch` (the break-target
+    finally depth), and `AnalyzePattern` — which is the analyzer's OWN pattern walk and therefore a
+    NESTED-DRIVER step of exactly the shape kind 7 has now proved TWICE. Expect kinds 1 / 2 / 5 / 6 to
+    be shared again and expect ONE new kind (the pattern walk). `AnalyzeOffStatement` is
+    **`:6872–:6904`, 33 lines** and is the OTHER half only if its surface measures the same way —
+    **re-measure it rather than assuming**, because every brief in this arc has been wrong about sizes,
+    this one included. **THEN the local function, then `AnalyzeStatement` LAST**, at which point the
+    dispatch walk takes the four remaining inline arms with it.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl41fixtures` (29, this
+  slice) and `/private/tmp/nl41soafx` (6, this slice, env-gated `NSHARP_EXPERIMENTAL_SOA=1`) alongside
+  `/private/tmp/nl40fixtures` (24), `/private/tmp/nl40soafx` (7), `/private/tmp/nl39fixtures` (22),
+  `/private/tmp/nl39soafx` (7), `/private/tmp/nl38fixtures` (20), `/private/tmp/nl38soafx` (6),
+  `/private/tmp/nl37soafx` (54), `/private/tmp/nl36fixtures` (35), `/private/tmp/nl36soafx` (4),
+  `/private/tmp/nl35fixtures` (50), `/private/tmp/nl35soafx` (3), `/private/tmp/nl34fixtures` (63),
+  `/private/tmp/nl33fixtures` (47), `/private/tmp/nl32fixtures` (31) and `/private/tmp/s24fixtures`
+  (36) — **444 total**. The re-derived IL normaliser is at `/private/tmp/nl41-ilnorm.py`; the oracle,
+  fixture, protocol, build and IL-sweep harnesses are at `/private/tmp/nl41-*.sh`.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 40 — THE `while` AND `for` ARMS ON ONE
   LOOP-STATEMENT DRIVER, TOGETHER, TERMINAL — PLUS THE `throw` AND `print` ARMS ABSORBED ON KINDS
   THE DRIVERS ALREADY HAVE.** Target recorded BEFORE any production edit, at `781f5a470`
   (`Analyzer.cs` **12,768** lines, non-blank **11,279**; BootstrapServices contracts **2,772**; unit
@@ -1961,7 +2332,7 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   `/private/tmp/nl40-ilnorm.py`; the oracle, fixture, protocol and IL-sweep harnesses are at
   `/private/tmp/nl40-*.sh`.
 
-- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 39 — THE BOOLEAN-CONDITION FAMILY,
+- Active sub-slice (017 arc, EARLIER TURN, LANDED): **017 SLICE 39 — THE BOOLEAN-CONDITION FAMILY,
   TERMINAL, ALL FIVE SITES.** Target recorded BEFORE any production edit, at `a5f034cda`
   (`Analyzer.cs` **12,826** lines, non-blank **11,332**; BootstrapServices contracts **2,758**; unit
   suite **3,194**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint

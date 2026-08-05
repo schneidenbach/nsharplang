@@ -42,7 +42,7 @@ class EsHarness {
     Steps: List<EsStep>
     Answers: List<TypeInfo>
     AnswerIndex: int
-    Throwable: bool
+    Clr: AnalyzerClrTypeConversion
     CalleeType: TypeInfo?
     ErrorsOnAnalyze: int
 
@@ -50,15 +50,16 @@ class EsHarness {
         owner: AnalyzerExpressionStatements,
         diagnostics: AnalyzerDiagnosticSink,
         errors: List<CompilerError>,
-        scopes: AnalyzerScopeStack) {
+        scopes: AnalyzerScopeStack,
+        clr: AnalyzerClrTypeConversion) {
         Owner = owner
         Diagnostics = diagnostics
         Errors = errors
         Scopes = scopes
+        Clr = clr
         Steps = new List<EsStep>()
         Answers = new List<TypeInfo>()
         AnswerIndex = 0
-        Throwable = true
         CalleeType = null
         ErrorsOnAnalyze = 0
     }
@@ -134,11 +135,42 @@ func EsHarnessWith(sourceText: string?): EsHarness {
     resolver.BeginAnalysis(EsPath(), null, model, new BindingMap())
 
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
+    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
+    throwability := new AnalyzerThrowability(scopes, context, substitution)
+    clr := new AnalyzerClrTypeConversion(context, null)
+    EsDeclareThrowabilityTypes(scopes)
     return new EsHarness(
-        new AnalyzerExpressionStatements(diagnostics, spans, resolver, escape),
+        new AnalyzerExpressionStatements(diagnostics, spans, resolver, escape, throwability),
         diagnostics,
         errors,
-        scopes)
+        scopes,
+        clr)
+}
+
+// TWO REAL TYPES, so the throwability rule is measured rather than injected. The question stopped
+// being a driver-answered step when `AnalyzerThrowability` took the predicate whole, so a contract
+// that wants a non-throwable exception type must DECLARE one: `Widget` is a class with no base and
+// `AppError` derives from `Exception`, which is the shortest pair that separates the two answers.
+func EsDeclareThrowabilityTypes(scopes: AnalyzerScopeStack) {
+    types := scopes.Peek().Types
+    types["Widget"] = EsClassType("Widget", null)
+    types["AppError"] = EsClassType("AppError", new SimpleTypeReference("Exception", 1, 1))
+}
+
+func EsClassType(name: string, baseClass: TypeReference?): TypeInfo {
+    declared: TypeInfo = new ClassTypeInfo(
+        name,
+        1,
+        1,
+        false,
+        baseClass,
+        new TypeReference[](0),
+        new TypeParameter[](0),
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0),
+        true)
+    return declared
 }
 
 // A table declared in the harness's scope, and a `points.x` read against it — the only way to make
@@ -280,9 +312,10 @@ func EsStringMethod(name: string): MethodInfo {
 // ── the driver, exactly as `Analyzer.cs` writes it ────────────────────────
 
 // Runs the whole walk and records what was asked into the harness. Kind 1 is answered from the
-// `Answers` list in order (falling back to `unknown`), kind 7 from
-// `Throwable` and kind 8 from `CalleeType`. `ErrorsOnAnalyze` injects that many diagnostics DURING
-// the kind-1 step, which is how the discard walk's guard is exercised without an expression walker.
+// `Answers` list in order (falling back to `unknown`) and kind 8 from `CalleeType`.
+// `ErrorsOnAnalyze` injects that many diagnostics DURING the kind-1 step, which is how the discard
+// walk's guard is exercised without an expression walker. Kind 7 is GONE: the throwability question
+// is a direct call on `AnalyzerThrowability` now, so no driver answer can fake it.
 func EsRun(harness: EsHarness, state: ExpressionStatementState) {
     steps := harness.Steps
     steps.Clear()
@@ -307,7 +340,6 @@ func EsRun(harness: EsHarness, state: ExpressionStatementState) {
             harness.Errors.Count))
 
         supplied: TypeInfo? = null
-        flag := false
         if step.Kind == 1 {
             injected := 0
             while injected < harness.ErrorsOnAnalyze {
@@ -329,15 +361,11 @@ func EsRun(harness: EsHarness, state: ExpressionStatementState) {
             harness.AnswerIndex = harness.AnswerIndex + 1
         }
 
-        if step.Kind == 7 {
-            flag = harness.Throwable
-        }
-
         if step.Kind == 8 {
             supplied = harness.CalleeType
         }
 
-        harness.Owner.Supply(state, supplied, flag)
+        harness.Owner.Supply(state, supplied)
         step = harness.Owner.NextStep(state)
     }
 }
@@ -911,12 +939,14 @@ test "the assert steps carry the condition and the message nodes themselves" {
 
 // ── the assert-throws walk ────────────────────────────────────────────────
 
-test "assert throws asks for throwability, opens a scope, walks the body and closes it" {
+test "assert throws opens a scope, walks the body and closes it" {
     harness := EsDefault()
-    EsRun(harness, harness.Owner.BeginAssertThrows(EsAssertThrows("InvalidOperationException", 2)))
+    EsRun(harness, EsBeginAssertThrows(harness, EsAssertThrows("AppError", 2)))
 
-    assert EsKinds(harness.Steps) == "7,4,5,6"
-    assert harness.Steps[2].StatementCount == 2
+    // The throwability question was kind 7 and is a direct call now, so the walk suspends three
+    // times rather than four.
+    assert EsKinds(harness.Steps) == "4,5,6"
+    assert harness.Steps[1].StatementCount == 2
 }
 
 test "the SoA reports are no longer steps at all" {
@@ -932,33 +962,31 @@ test "the SoA reports are no longer steps at all" {
 
 test "the scope opens at the assert-throws statement's own position" {
     harness := EsDefault()
-    EsRun(harness, harness.Owner.BeginAssertThrows(EsAssertThrows("InvalidOperationException", 0)))
+    EsRun(harness, EsBeginAssertThrows(harness, EsAssertThrows("AppError", 0)))
 
-    assert harness.Steps[1].Kind == 4
-    assert harness.Steps[1].Line == 7
-    assert harness.Steps[1].Column == 5
+    assert harness.Steps[0].Kind == 4
+    assert harness.Steps[0].Line == 7
+    assert harness.Steps[0].Column == 5
 }
 
 test "an empty assert-throws body still opens and closes its scope" {
     harness := EsDefault()
-    EsRun(harness, harness.Owner.BeginAssertThrows(EsAssertThrows("InvalidOperationException", 0)))
+    EsRun(harness, EsBeginAssertThrows(harness, EsAssertThrows("AppError", 0)))
 
-    assert EsKinds(harness.Steps) == "7,4,5,6"
-    assert harness.Steps[2].StatementCount == 0
+    assert EsKinds(harness.Steps) == "4,5,6"
+    assert harness.Steps[1].StatementCount == 0
 }
 
 test "a throwable assert-throws type reports nothing" {
     harness := EsDefault()
-    harness.Throwable = true
-    EsRun(harness, harness.Owner.BeginAssertThrows(EsAssertThrows("InvalidOperationException", 1)))
+    EsRun(harness, EsBeginAssertThrows(harness, EsAssertThrows("AppError", 1)))
 
     assert EsAssertThrowsReports(harness).Count == 0
 }
 
 test "a non-throwable assert-throws type reports NL202" {
     harness := EsDefault()
-    harness.Throwable = false
-    EsRun(harness, harness.Owner.BeginAssertThrows(EsAssertThrows("Widget", 1)))
+    EsRun(harness, EsBeginAssertThrows(harness, EsAssertThrows("Widget", 1)))
 
     reports := EsAssertThrowsReports(harness)
     assert reports.Count == 1
@@ -968,8 +996,7 @@ test "a non-throwable assert-throws type reports NL202" {
 
 test "the non-throwable report underlines the exception type reference" {
     harness := EsDefault()
-    harness.Throwable = false
-    EsRun(harness, harness.Owner.BeginAssertThrows(EsAssertThrows("Widget", 0)))
+    EsRun(harness, EsBeginAssertThrows(harness, EsAssertThrows("Widget", 0)))
 
     reports := EsAssertThrowsReports(harness)
     assert reports[0].Line == 7
@@ -978,28 +1005,34 @@ test "the non-throwable report underlines the exception type reference" {
 
 test "the non-throwable report fires BEFORE the scope opens" {
     harness := EsDefault()
-    harness.Throwable = false
-    EsRun(harness, harness.Owner.BeginAssertThrows(EsAssertThrows("Widget", 1)))
+    EsRun(harness, EsBeginAssertThrows(harness, EsAssertThrows("Widget", 1)))
 
-    assert harness.Steps[1].Kind == 4
-    assert harness.Steps[1].ErrorsBefore == harness.Steps[0].ErrorsBefore + 1
+    // The very first step the driver sees is the scope open, and the report is already in the list.
+    assert harness.Steps[0].Kind == 4
+    assert harness.Steps[0].ErrorsBefore == 1
 }
 
-test "the throwability step carries the resolved exception type" {
-    harness := EsDefault()
-    EsRun(harness, harness.Owner.BeginAssertThrows(EsAssertThrows("InvalidOperationException", 0)))
+test "the exception type is RESOLVED before it is measured, and the resolution is what decides" {
+    // Both names resolve through the real type resolver against the same scope; only what they
+    // resolve TO separates them, which is the whole of what the deleted kind-7 relay used to carry.
+    throwable := EsDefault()
+    EsRun(throwable, EsBeginAssertThrows(throwable, EsAssertThrows("AppError", 0)))
+    refused := EsDefault()
+    EsRun(refused, EsBeginAssertThrows(refused, EsAssertThrows("Widget", 0)))
 
-    assert harness.Steps[0].Kind == 7
-    assert harness.Steps[0].CarriedType != null
+    assert EsAssertThrowsReports(throwable).Count == 0
+    assert EsAssertThrowsReports(refused).Count == 1
+    assert EsAssertThrowsReports(refused)[0].Message
+        == "Assert throws type must be assignable to System.Exception, but this type is 'Widget'"
 }
 
 test "the body step carries the body's own statement list" {
     harness := EsDefault()
-    statement := EsAssertThrows("InvalidOperationException", 3)
-    EsRun(harness, harness.Owner.BeginAssertThrows(statement))
+    statement := EsAssertThrows("AppError", 3)
+    EsRun(harness, EsBeginAssertThrows(harness, statement))
 
-    assert harness.Steps[2].Kind == 5
-    assert harness.Steps[2].StatementCount == 3
+    assert harness.Steps[1].Kind == 5
+    assert harness.Steps[1].StatementCount == 3
 }
 
 // ── how an expression is named in prose ───────────────────────────────────
@@ -1056,7 +1089,7 @@ test "every Begin hands back a fresh state at its own phase" {
     statementState := harness.Owner.BeginExpressionStatement(EsCall("Run"))
     iteratorState := harness.Owner.BeginForIterator(EsCall("Run"))
     assertState := harness.Owner.BeginAssert(EsAssert(EsBinary(), null))
-    throwsState := harness.Owner.BeginAssertThrows(EsAssertThrows("InvalidOperationException", 0))
+    throwsState := EsBeginAssertThrows(harness, EsAssertThrows("AppError", 0))
 
     assert statementState.Phase == 0
     assert iteratorState.Phase == 0
@@ -1077,10 +1110,10 @@ test "the two discard entries differ only in context and wording" {
 
 test "two walks over the same statement do not share state" {
     harness := EsDefault()
-    statement := EsAssertThrows("InvalidOperationException", 1)
-    EsRun(harness, harness.Owner.BeginAssertThrows(statement))
+    statement := EsAssertThrows("AppError", 1)
+    EsRun(harness, EsBeginAssertThrows(harness, statement))
     first := EsKinds(harness.Steps)
-    EsRun(harness, harness.Owner.BeginAssertThrows(statement))
+    EsRun(harness, EsBeginAssertThrows(harness, statement))
 
     assert first == EsKinds(harness.Steps)
 }
@@ -1095,35 +1128,46 @@ test "the sink's error count is what the guard reads" {
 
 // ── the `throw` and `print` walks ─────────────────────────────────────────
 
-// Both arrived from the statement dispatch on kinds this driver already had — kind 1 for the
-// operand and kind 7 for throwability — so nothing was added to the protocol for either. The
-// contracts below are written around the ONE thing that separates them, because five hand-written
-// escape gates in the estate are split on exactly this line: `throw` SHORT-CIRCUITS (a value refused
-// as a row view is not also probed as a column, and neither is measured against `Exception`) and
-// `print` DOES NOT (both reports always run).
+// Both arrived from the statement dispatch on kinds this driver already had, and both now suspend
+// EXACTLY ONCE — for the operand — because the throwability question stopped being a driver step.
+// The contracts below are written around the ONE thing that separates them, because five
+// hand-written escape gates in the estate are split on exactly this line: `throw` SHORT-CIRCUITS (a
+// value refused as a row view is not also probed as a column, and neither is measured against
+// `Exception`) and `print` DOES NOT (both reports always run).
+
+func EsBeginAssertThrows(harness: EsHarness, statement: AssertThrowsStatement): ExpressionStatementState {
+    return harness.Owner.BeginAssertThrows(statement, harness.Clr)
+}
 
 func EsRunThrow(harness: EsHarness, expression: Expression) {
-    EsRun(harness, harness.Owner.BeginThrow(expression))
+    EsRun(harness, harness.Owner.BeginThrow(expression, harness.Clr))
 }
 
 func EsRunPrint(harness: EsHarness, expression: Expression) {
     EsRun(harness, harness.Owner.BeginPrint(expression))
 }
 
-test "a throw asks for the operand and then for throwability" {
+test "a throw asks for the operand and nothing else" {
     harness := EsDefault()
-    harness.Throwable = true
+    // `unknown` is throwable, so an operand the walker could not type is not complained about.
     EsRunThrow(harness, EsName("failure"))
 
-    assert EsKinds(harness.Steps) == "1,7"
-    // The throwability question carries the ANSWERED type, not the expression's syntax.
-    assert harness.Steps[1].Node == null
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 0
+}
+
+test "a throw operand whose type is a declared Exception subclass is accepted" {
+    harness := EsDefault()
+    appError := harness.Scopes.LookupType("AppError")
+    assert appError != null
+    harness.Answers.Add(appError)
+    EsRunThrow(harness, EsName("failure"))
+
     assert harness.Errors.Count == 0
 }
 
 test "a non-throwable throw operand reports NL202 with the operand's own span" {
     harness := EsDefault()
-    harness.Throwable = false
     harness.Answers.Add(BuiltInTypes.Int)
     EsRunThrow(harness, EsName("failure"))
 
@@ -1138,12 +1182,11 @@ test "a non-throwable throw operand reports NL202 with the operand's own span" {
 
 test "a row-view throw operand escapes and is NOT also told it is not throwable" {
     harness := EsDefault()
-    harness.Throwable = false
     rowView: TypeInfo = EsRowType()
     harness.Answers.Add(rowView)
     EsRunThrow(harness, EsName("particle"))
 
-    // The throwability step is never even asked for.
+    // The throwability question is never even asked, and exactly one diagnostic lands.
     assert EsKinds(harness.Steps) == "1"
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message
@@ -1152,7 +1195,6 @@ test "a row-view throw operand escapes and is NOT also told it is not throwable"
 
 test "a direct column throw operand escapes on syntax with the throw's action word" {
     harness := EsDefault()
-    harness.Throwable = false
     EsDeclareSoaTable(harness)
     harness.Answers.Add(BuiltInTypes.Int)
     EsRunThrow(harness, EsSoaColumnRead())
@@ -1189,7 +1231,7 @@ test "print runs BOTH escape reports and neither short-circuits the other" {
 test "the five entries set exactly one operand each and select their own phase band" {
     harness := EsDefault()
     discard := harness.Owner.BeginExpressionStatement(EsCall("Run"))
-    thrown := harness.Owner.BeginThrow(EsName("failure"))
+    thrown := harness.Owner.BeginThrow(EsName("failure"), harness.Clr)
     printed := harness.Owner.BeginPrint(EsName("value"))
 
     assert discard.Phase == 0
@@ -1202,4 +1244,26 @@ test "the five entries set exactly one operand each and select their own phase b
     assert printed.Printed != null
     assert printed.Thrown == null
     assert printed.SoaUsage == "printed"
+}
+
+// ── the rebuilt CLR funnel is carried, not held ───────────────────────────
+
+// `Analyzer.cs` REBUILDS `AnalyzerClrTypeConversion` when the metadata load context opens and again
+// when it is disposed, so the throwability owner this walk holds may not keep a reference to it. It
+// arrives on the state instead, and ONLY for the two shapes that ask a throwability question.
+test "only the two throwability shapes carry the CLR conversion funnel" {
+    harness := EsDefault()
+    discard := harness.Owner.BeginExpressionStatement(EsCall("Run"))
+    iterator := harness.Owner.BeginForIterator(EsCall("Run"))
+    asserted := harness.Owner.BeginAssert(EsAssert(EsBinary(), null))
+    printed := harness.Owner.BeginPrint(EsName("value"))
+    thrown := harness.Owner.BeginThrow(EsName("failure"), harness.Clr)
+    assertThrowsState := EsBeginAssertThrows(harness, EsAssertThrows("AppError", 0))
+
+    assert discard.ClrTypeConversion == null
+    assert iterator.ClrTypeConversion == null
+    assert asserted.ClrTypeConversion == null
+    assert printed.ClrTypeConversion == null
+    assert thrown.ClrTypeConversion != null
+    assert assertThrowsState.ClrTypeConversion != null
 }

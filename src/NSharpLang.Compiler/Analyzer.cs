@@ -326,6 +326,17 @@ public class Analyzer : IDisposable
     // diagnostic sink, the span reader and the SoA escape owner, none of which the rebuild replaces;
     // the guard's assignability oracle is passed in at the call for exactly that reason.
     private readonly AnalyzerBooleanConditions _conditions;
+    // WHAT IT MEANS FOR A TYPE TO BE THROWABLE: the whole `System.Exception` predicate the `throw`,
+    // `assert throws` and `catch` questions shared. NOT rebuilt with the SCC: it holds the scope
+    // stack, the declaration context and the type substitution engine, none of which the rebuild
+    // replaces; the CLR conversion funnel, which the rebuild DOES replace, is passed in at the call.
+    private readonly AnalyzerThrowability _throwability;
+    // WHAT A GUARDED REGION IS: `try`, `using` and `lock` as one suspendable walk — the catch
+    // clauses and their scopes, the `finally` depth, both `using` resource forms and the
+    // disposability question, and the whole NL320 lockee gate. NOT rebuilt with the SCC: the two
+    // collaborators the rebuild DOES replace — the CLR conversion funnel and the assignability
+    // oracle — are passed in at `Begin`.
+    private readonly AnalyzerResourceStatements _resourceStatements;
     private bool _disposed;
 
     public Analyzer()
@@ -358,12 +369,16 @@ public class Analyzer : IDisposable
         _nullFlow = new AnalyzerNullFlow(_diagnostics, _spans, _scopes, _declarationContext);
         _soaEscape = new AnalyzerSoaEscape(_diagnostics, _spans, _scopes, _declarationContext);
         _conditions = new AnalyzerBooleanConditions(_diagnostics, _spans, _soaEscape);
+        _throwability = new AnalyzerThrowability(_scopes, _declarationContext, _typeSubstitution);
         _expressionStatements = new AnalyzerExpressionStatements(
-            _diagnostics, _spans, _typeResolver, _soaEscape);
+            _diagnostics, _spans, _typeResolver, _soaEscape, _throwability);
         _ambient = new AnalyzerAmbientContext(_diagnostics, _spans, _soaEscape);
         _loopSequence = new AnalyzerLoopSequence(
             _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _ambient, _soaEscape,
             _conditions);
+        _resourceStatements = new AnalyzerResourceStatements(
+            _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _typeSubstitution,
+            _ambient, _soaEscape, _throwability);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -3234,16 +3249,17 @@ public class Analyzer : IDisposable
                 _ambient.ReportContinueIfNeeded(stmt.Line, stmt.Column);
                 break;
             case ThrowStatement throwStmt:
-                DriveExpressionStatement(_expressionStatements.BeginThrow(throwStmt.Expression));
+                DriveExpressionStatement(
+                    _expressionStatements.BeginThrow(throwStmt.Expression, _clrTypeConversion));
                 break;
             case TryStatement tryStmt:
-                AnalyzeTryStatement(tryStmt);
+                DriveResourceStatement(_resourceStatements.BeginTry(tryStmt, _clrTypeConversion));
                 break;
             case UsingStatement usingStmt:
-                AnalyzeUsingStatement(usingStmt);
+                DriveResourceStatement(_resourceStatements.BeginUsing(usingStmt, _assignability));
                 break;
             case LockStatement lockStmt:
-                AnalyzeLockStatement(lockStmt);
+                DriveResourceStatement(_resourceStatements.BeginLock(lockStmt, _currentClass));
                 break;
             case SwitchStatement switchStmt:
                 AnalyzeSwitchStatement(switchStmt);
@@ -3282,8 +3298,9 @@ public class Analyzer : IDisposable
     /// Each walk suspends at every step and resumes with the answer, because whether the next step
     /// happens at all is decided by the previous step's answer. Which statement it is, which report
     /// fires and with what wording are all the walk's decisions; this loop performs the one operation
-    /// it is handed, with the operands it is handed. Kinds 2 and 3 were the two SoA escape reports
-    /// and are gone: those reporters are N#-owned, so the walk calls them itself.
+    /// it is handed, with the operands it is handed. Kinds 2, 3 and 7 are gone: 2 and 3 were the two
+    /// SoA escape reports and 7 was the throwability question, and all three of those are N#-owned
+    /// now, so the walk asks them itself.
     /// </summary>
     private void DriveExpressionStatement(ExpressionStatementState state)
     {
@@ -3292,7 +3309,6 @@ public class Analyzer : IDisposable
              step = _expressionStatements.NextStep(state))
         {
             TypeInfo? answer = null;
-            var flag = false;
             switch (step.Kind)
             {
                 case 1:
@@ -3307,9 +3323,6 @@ public class Analyzer : IDisposable
                 case 6:
                     PopScope();
                     break;
-                case 7:
-                    flag = IsThrowableType(step.CarriedType);
-                    break;
                 case 8:
                     answer = _semanticModel.ExpressionTypes.TryGetValue(
                         (step.Line, step.Column), out var recorded)
@@ -3318,7 +3331,7 @@ public class Analyzer : IDisposable
                     break;
             }
 
-            _expressionStatements.Supply(state, answer, flag);
+            _expressionStatements.Supply(state, answer);
         }
     }
 
@@ -3329,7 +3342,8 @@ public class Analyzer : IDisposable
         => DriveExpressionStatement(_expressionStatements.BeginAssert(assertStmt));
 
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
-        => DriveExpressionStatement(_expressionStatements.BeginAssertThrows(assertThrows));
+        => DriveExpressionStatement(
+            _expressionStatements.BeginAssertThrows(assertThrows, _clrTypeConversion));
 
     private void AnalyzeLocalFunction(LocalFunctionStatement localFunc)
     {
@@ -3560,6 +3574,58 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
+    /// The steps the N#-owned resource walks cannot take for themselves. All three of N#'s guarded
+    /// regions — <c>try</c>, <c>using</c> and <c>lock</c> — run in
+    /// <see cref="AnalyzerResourceStatements"/> and share this one loop, because they are the same
+    /// shape: open a scope, name what the region is guarded by, run a body inside it, close. Which
+    /// report fires and with which span and suggestion, what a bare <c>catch</c> catches, where a
+    /// catch variable is declared, that a <c>finally</c> body raises the ambient finally depth for
+    /// exactly its own extent, that a <c>using</c> resource is measured only when its own declaration
+    /// was clean, and the order of every operation are all the walk's decisions. Kind 5 is a SINGLE
+    /// statement, as <see cref="DriveLoopStatement"/>'s is: every body in this family is a
+    /// <c>BlockStatement</c> handed to the statement dispatch, which is what opens the block's own
+    /// scope and applies the unreachable-code rule to its contents. Kind 7 is the second place in
+    /// this estate where a driver drives a driver: a <c>using</c> resource DECLARATION belongs to the
+    /// local-declaration family, and constructing that family's state and running its loop are the
+    /// two things N# cannot do for itself.
+    /// </summary>
+    private void DriveResourceStatement(ResourceStatementState state)
+    {
+        for (var step = _resourceStatements.NextResourceStep(state);
+             step != null;
+             step = _resourceStatements.NextResourceStep(state))
+        {
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
+                    break;
+                case 3:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    break;
+                case 4:
+                    RecordVariableInCurrentScope(step.Name!, step.CarriedType);
+                    break;
+                case 5:
+                    AnalyzeStatement(step.Body!);
+                    break;
+                case 6:
+                    PopScope();
+                    break;
+                case 7:
+                    DriveLocalDeclaration(_variableDeclaration.Begin(step.Declaration!));
+                    break;
+            }
+
+            _resourceStatements.SupplyResource(state, answer);
+        }
+    }
+
+    /// <summary>
     /// The steps the N#-owned <c>yield</c> walk cannot take for itself. The walk runs in
     /// <see cref="AnalyzerLoopSequence"/> rather than in the ambient context, because the rule that
     /// ends it — does the yielded value fit the sequence — is a question about the ELEMENT TYPE, and
@@ -3597,418 +3663,6 @@ public class Analyzer : IDisposable
              step = _ambient.NextStep(state))
         {
             _ambient.Supply(state, AnalyzeExpression(step.Node!));
-        }
-    }
-
-    private void AnalyzeTryStatement(TryStatement tryStmt)
-    {
-        AnalyzeStatement(tryStmt.TryBlock);
-
-        foreach (var catchClause in tryStmt.CatchClauses)
-        {
-            PushScope(new Scope(ScopeKind.Block), tryStmt.Line, tryStmt.Column);
-
-            var exceptionType = catchClause.ExceptionType != null
-                ? _typeResolver.ResolveDeclaredType(catchClause.ExceptionType)
-                : new SimpleTypeInfo("Exception");
-            if (catchClause.ExceptionType != null)
-            {
-                ReportNonThrowableCatchTypeIfNeeded(catchClause.ExceptionType, exceptionType);
-            }
-
-            if (catchClause.VariableName != null)
-            {
-                DeclareSymbol(catchClause.VariableName, exceptionType, tryStmt.Line, tryStmt.Column);
-                RecordVariableInCurrentScope(catchClause.VariableName, exceptionType);
-            }
-
-            AnalyzeStatement(catchClause.Block);
-            PopScope();
-        }
-
-        if (tryStmt.FinallyBlock != null)
-        {
-            // NL319 context: any return — or break/continue targeting a loop/switch entered at a
-            // shallower depth — inside this block would leave the finally handler (illegal IL).
-            _ambient.EnterFinally();
-            AnalyzeStatement(tryStmt.FinallyBlock);
-            _ambient.ExitFinally();
-        }
-    }
-
-    private void ReportNonThrowableCatchTypeIfNeeded(TypeReference typeReference, TypeInfo exceptionType)
-    {
-        if (IsThrowableType(exceptionType))
-        {
-            return;
-        }
-
-        var span = TypeReferenceFacts.GetStartSpan(typeReference);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"Catch type must be assignable to System.Exception, but this type is '{exceptionType}'",
-            span.StartLine,
-            span.StartColumn,
-            "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions.",
-            span.Length);
-    }
-
-    private bool IsThrowableType(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-
-        while (resolved is ObliviousTypeInfo oblivious)
-        {
-            resolved = _declarationContext.ResolveDeclaredAlias(oblivious.InnerType);
-        }
-
-        if (BuiltInTypes.Is(resolved, BuiltInTypes.Null) || BuiltInTypes.Is(resolved, BuiltInTypes.Never))
-        {
-            return true;
-        }
-
-        if (BuiltInTypes.IsUnknown(resolved) || resolved is ExternalTypeInfo)
-        {
-            return true;
-        }
-
-        if (resolved is NullableTypeInfo nullable)
-        {
-            return IsThrowableType(nullable.InnerType);
-        }
-
-        if (resolved is ReflectionTypeInfo reflectionType)
-        {
-            return AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(Exception), reflectionType.Type);
-        }
-
-        if (resolved is SimpleTypeInfo simple)
-        {
-            if (simple.Name is "Exception" or "System.Exception")
-            {
-                return true;
-            }
-
-            if (_scopes.LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved))
-            {
-                return IsThrowableType(namedType);
-            }
-
-            if (_clrTypeConversion.TryConvertTypeInfoToClrType(resolved) is { } clrType)
-            {
-                return AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(Exception), clrType);
-            }
-
-            return false;
-        }
-
-        if (resolved is ClassTypeInfo classType)
-        {
-            return classType.BaseClass != null
-                && IsThrowableType(_typeSubstitution.ResolveTypeForSourceOwner(
-                    classType.BaseClass,
-                    classType,
-                    substitution: null));
-        }
-
-        return false;
-    }
-
-    private void AnalyzeUsingStatement(UsingStatement usingStmt)
-    {
-        PushScope(new Scope(ScopeKind.Block), usingStmt.Line, usingStmt.Column);
-
-        if (usingStmt.Declaration != null)
-        {
-            var resourceErrorsBefore = _errors.Count;
-            AnalyzeVariableDeclaration(usingStmt.Declaration);
-            if (_errors.Count == resourceErrorsBefore
-                && _scopes.LookupSymbol(usingStmt.Declaration.Name) is { } resourceType)
-            {
-                ReportNonDisposableUsingResourceIfNeeded(usingStmt.Declaration, resourceType);
-            }
-        }
-        else if (usingStmt.Expression != null)
-        {
-            var resourceType = AnalyzeExpression(usingStmt.Expression);
-            if (!_soaEscape.ReportSoaRowEscapeIfNeeded(usingStmt.Expression, resourceType, "used as a using resource")
-                && !_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(usingStmt.Expression, "used as a using resource"))
-            {
-                ReportNonDisposableUsingResourceIfNeeded(usingStmt.Expression, resourceType);
-            }
-        }
-
-        if (usingStmt.Body != null)
-        {
-            AnalyzeStatement(usingStmt.Body);
-        }
-
-        PopScope();
-    }
-
-    private void ReportNonDisposableUsingResourceIfNeeded(VariableDeclarationStatement declaration, TypeInfo resourceType)
-    {
-        if (IsDisposableUsingResourceType(resourceType))
-        {
-            return;
-        }
-
-        var (line, column, length) = AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(declaration);
-        ReportNonDisposableUsingResource(resourceType, line, column, length);
-    }
-
-    private void ReportNonDisposableUsingResourceIfNeeded(Expression expression, TypeInfo resourceType)
-    {
-        if (IsDisposableUsingResourceType(resourceType))
-        {
-            return;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        ReportNonDisposableUsingResource(resourceType, line, column, length);
-    }
-
-    private void ReportNonDisposableUsingResource(TypeInfo resourceType, int line, int column, int length)
-    {
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"Using resource of type '{resourceType}' must implement IDisposable or provide Dispose(): void",
-            line,
-            column,
-            "Use a resource type with a parameterless void Dispose method, or remove the using statement.",
-            length);
-    }
-
-    private bool IsDisposableUsingResourceType(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        if (BuiltInTypes.IsUnknown(resolved))
-        {
-            return true;
-        }
-
-        switch (resolved)
-        {
-            case ObliviousTypeInfo oblivious:
-                return IsDisposableUsingResourceType(oblivious.InnerType);
-            case ByRefTypeInfo byRef:
-                return IsDisposableUsingResourceType(byRef.InnerType);
-            case NullableTypeInfo nullable:
-                var innerType = _declarationContext.ResolveDeclaredAlias(nullable.InnerType);
-                return AnalyzerConversionFacts.IsReferenceType(innerType) && IsDisposableUsingResourceType(innerType);
-            case SimpleTypeInfo simple when _scopes.LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
-                return IsDisposableUsingResourceType(namedType);
-            case GenericTypeInfo generic when _typeSubstitution.ResolveGenericDefinition(generic) is { } genericDefinition:
-                return IsDisposableUsingResourceType(genericDefinition);
-        }
-
-        return HasDisposePattern(resolved) || IsNominallyIDisposable(resolved);
-    }
-
-    private bool HasDisposePattern(TypeInfo type)
-    {
-        type = _declarationContext.ResolveDeclaredAlias(type);
-        return type switch
-        {
-            ClassTypeInfo classType => HasDisposePatternMember(classType.DeclaredMembers),
-            StructTypeInfo structType => HasDisposePatternMember(structType.DeclaredMembers),
-            RecordTypeInfo recordType => HasDisposePatternMember(recordType.DeclaredMembers),
-            InterfaceTypeInfo interfaceType => HasDisposePatternMember(interfaceType.DeclaredMembers),
-            ReflectionTypeInfo reflectionType => HasReflectionDisposePattern(reflectionType.Type),
-            _ => false
-        };
-    }
-
-    private bool HasDisposePatternMember(IEnumerable<DeclaredMemberInfo> members)
-    {
-        foreach (var member in members)
-        {
-            if (member.Kind != DeclaredMemberKind.Function
-                || member.Name != nameof(IDisposable.Dispose)
-                || member.IsStatic
-                || member.ParameterCount != 0)
-            {
-                continue;
-            }
-
-            if (member.ReturnType == null || BuiltInTypes.Is(_typeResolver.ResolveType(member.ReturnType), BuiltInTypes.Void))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasReflectionDisposePattern(Type type)
-    {
-            var dispose = type.GetMethod(
-                nameof(IDisposable.Dispose),
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                binder: null,
-                types: Type.EmptyTypes,
-                modifiers: null);
-            return dispose is { IsStatic: false, ReturnType: { } returnType }
-                && returnType == typeof(void);
-    }
-
-    private bool IsNominallyIDisposable(TypeInfo type)
-    {
-        type = _declarationContext.ResolveDeclaredAlias(type);
-        return type switch
-        {
-            ReflectionTypeInfo reflectionType => AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(IDisposable), reflectionType.Type),
-            ClassTypeInfo or StructTypeInfo or RecordTypeInfo or InterfaceTypeInfo =>
-                _assignability.IsSubtypeOf(type, new ReflectionTypeInfo(typeof(IDisposable))),
-            _ => false
-        };
-    }
-
-    private void AnalyzeLockStatement(LockStatement lockStmt)
-    {
-        // NL320 (the CS0185 analog): the lockee must be a reference type. Monitor locks on object
-        // IDENTITY — a value-typed lockee has none (it would be boxed into a fresh object per lock,
-        // guarding nothing), and the IL emitter's `stloc` of a raw value into an object local is
-        // unverifiable IL that segfaults the process inside Monitor.Enter.
-        var lockeeType = _declarationContext.ResolveDeclaredAlias(AnalyzeExpression(lockStmt.LockObject));
-
-        if (lockeeType is SoaRowTypeInfo)
-        {
-            _soaEscape.ReportSoaRowEscape(lockStmt.LockObject, "locked");
-        }
-        else if (!_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(lockStmt.LockObject, "locked")
-                 && lockeeType is SimpleTypeInfo named
-                 && TryGetEnclosingTypeParameter(named.Name, out var isReferenceConstrained))
-        {
-            // Stricter by design: an unconstrained T would require boxing and could never
-            // provide mutual exclusion); N# requires the type parameter to be provably a reference.
-            if (!isReferenceConstrained)
-            {
-                ReportLockRequiresReferenceType(lockStmt.LockObject, named.Name, isTypeParameter: true);
-            }
-        }
-        else if (IsKnownValueTypeLockee(lockeeType))
-        {
-            ReportLockRequiresReferenceType(lockStmt.LockObject, lockeeType.ToString(), isTypeParameter: false);
-        }
-
-        // Analyze the body with a new scope
-        PushScope(new Scope(ScopeKind.Block), lockStmt.Line, lockStmt.Column);
-        AnalyzeStatement(lockStmt.Body);
-        PopScope();
-    }
-
-    private void ReportLockRequiresReferenceType(Expression lockee, string typeName, bool isTypeParameter)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(lockee);
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.LockRequiresReferenceType(
-                _currentFilePath, line, column, sourceSnippet, length, typeName, isTypeParameter));
-        }
-        else
-        {
-            Error(
-                ErrorCode.LockRequiresReferenceType,
-                $"'{typeName}' is not a reference type as required by the lock statement",
-                line,
-                column,
-                isTypeParameter
-                    ? $"Constrain `{typeName}` to a reference type (`where {typeName}: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`"
-                    : "Lock on a dedicated `object` field instead: `sync: object = new object()`",
-                length);
-        }
-    }
-
-    /// <summary>
-    /// Whether <paramref name="name"/> is a generic type parameter of the enclosing function or type,
-    /// and if so whether its constraints prove it is a reference type (`where T: class`, or a base
-    /// CLASS constraint — interface constraints prove nothing, since structs implement interfaces).
-    /// </summary>
-    private bool TryGetEnclosingTypeParameter(string name, out bool isReferenceConstrained)
-    {
-        isReferenceConstrained = false;
-
-        var declaredOnFunction = _ambient.CurrentFunction?.TypeParameters?.Any(tp => tp.Name == name) == true;
-        var declaredOnType = _currentClass?.TypeParameters?.Any(tp => tp.Name == name) == true;
-        if (!declaredOnFunction && !declaredOnType)
-            return false;
-
-        var constraint = declaredOnFunction
-            ? _ambient.CurrentFunction?.Constraints?.FirstOrDefault(c => c.TypeParameter == name)
-            : null;
-        if (constraint != null)
-        {
-            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
-            {
-                isReferenceConstrained = true;
-                return true;
-            }
-
-            foreach (var constraintTypeRef in constraint.Constraints)
-            {
-                var constraintType = _declarationContext.ResolveDeclaredAlias(_typeResolver.ResolveType(constraintTypeRef));
-                var isClassConstraint = constraintType switch
-                {
-                    ClassTypeInfo => true,
-                    RecordTypeInfo record => !record.IsStruct,
-                    ReflectionTypeInfo refl => refl.Type.IsClass,
-                    _ => false
-                };
-                if (isClassConstraint)
-                {
-                    isReferenceConstrained = true;
-                    return true;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Whether the type is a KNOWN value type for the NL320 lockee check. Deliberately conservative —
-    /// the inverse of <see cref="AnalyzerConversionFacts.IsReferenceType"/> would false-positive: that predicate answers
-    /// "can this be assigned null" and returns false for Unknown/External/GenericTypeInfo, which must
-    /// stay SILENT here (rejecting a type the analyzer cannot classify would break locks on external
-    /// .NET reference types).
-    /// </summary>
-    private bool IsKnownValueTypeLockee(TypeInfo type)
-    {
-        switch (type)
-        {
-            case SimpleTypeInfo simple:
-                if (simple.Name is "int" or "long" or "float" or "double" or "decimal"
-                    or "byte" or "sbyte" or "short" or "ushort"
-                    or "uint" or "ulong" or "char" or "bool" or "void")
-                {
-                    return true;
-                }
-                // A bare name can reach here for a user struct/enum the expression analysis did not
-                // materialize into its declaration-backed TypeInfo — resolve it and re-classify.
-                var resolved = _scopes.LookupType(simple.Name);
-                return resolved != null && resolved is not SimpleTypeInfo && IsKnownValueTypeLockee(resolved);
-            case StructTypeInfo:
-            case EnumTypeInfo:
-            case TupleTypeInfo: // ValueTuple
-                return true;
-            case RecordTypeInfo record:
-                return record.IsStruct;
-            case NullableTypeInfo nullable:
-                // `T?` over a value type is Nullable<T> — itself a struct. Over a reference type it
-                // is only a nullability annotation.
-                return IsKnownValueTypeLockee(nullable.InnerType);
-            case ObliviousTypeInfo oblivious:
-                return IsKnownValueTypeLockee(oblivious.InnerType);
-            case ByRefTypeInfo byRef:
-                // The byref loads the referenced value when used as an expression.
-                return IsKnownValueTypeLockee(byRef.InnerType);
-            case ReflectionTypeInfo refl:
-                return refl.Type.IsValueType;
-            default:
-                // Unknown / External / GenericTypeInfo / class-like: stay silent.
-                return false;
         }
     }
 

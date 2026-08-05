@@ -15,9 +15,8 @@ import NSharpLang.Compiler.Ast
 // EXPRESSION walk, open or close a scope on the
 // analyzer's scope stack, re-enter the STATEMENT dispatch for an `assert throws` body, read the
 // recorded type of an already-analysed callee out of the semantic model (which the analysis reset
-// REPLACES, so it cannot be captured here), or decide whether a type is throwable (a predicate the
-// catch-clause family in `Analyzer.cs` still shares) — so it ASKS: one request at a time, each naming a kind and carrying
-// every value the step needs. Nothing here is a policy the driver may reinterpret — the driver
+// REPLACES, so it cannot be captured here) — so it ASKS: one request at a time, each naming a kind
+// and carrying every value the step needs. Nothing here is a policy the driver may reinterpret — the driver
 // switches on `Kind`, performs exactly the one operation with exactly these operands, and hands the
 // answer back.
 //
@@ -35,18 +34,17 @@ import NSharpLang.Compiler.Ast
 //      and therefore this walk itself. Every `Begin` hands back a fresh state, so a nested
 //      `assert throws` suspends independently of the one that contains it.
 //   6  close the scope kind 4 opened.
-//   7  ANSWERS whether `CarriedType` is throwable. The predicate stays in `Analyzer.cs` because the
-//      catch-clause family still shares it; the DECISION to report, the wording, the suggestion and
-//      the span are here — for BOTH questions that ask it, an `assert throws` type and a `throw`
-//      operand, whose two reports differ in every one of those four things.
 //   8  ANSWERS the type the semantic model recorded for the expression at `Line` / `Column` — the
 //      callee of a discarded call — or null when nothing was recorded. The call was already
 //      analysed by kind 1, so re-analysing the AST would double-record bindings and references and
 //      corrupt find-references; this reads the answer back instead.
 //
-// The numbering has GAPS at 2 and 3 rather than closing up, because the kind number is a protocol
+// The numbering has GAPS at 2, 3 and 7 rather than closing up, because the kind number is a protocol
 // between this walk and one driver, and a renumber would silently re-point every contract that pins
-// a step's kind. The gaps say what left.
+// a step's kind. The gaps say what left: 2 and 3 were the two SoA escape reports, and 7 asked the
+// driver whether a type was throwable until `AnalyzerThrowability` took that predicate whole — this
+// walk holds that owner now and asks it directly, which is why the `throw` and `assert throws` walks
+// each lost a suspension.
 public class ExpressionStatementRequest {
 
     public Kind: int
@@ -79,14 +77,22 @@ public class ExpressionStatementRequest {
 // row-escape report and the column-escape report, 2 folds the escape answer and reaches the
 // validity decision, and 3 folds the recorded callee type and settles the must-use report. The
 // ASSERT family runs 10..13 — condition, condition escapes, message, message escapes. The
-// ASSERT-THROWS family runs 20..23 — throwability, report and scope open, body, scope close. The
-// THROW family runs 30..32 — the operand, its two escapes, the throwability rule. The PRINT family
-// runs 40..41 — the value and its two escapes. 99 is done for all five.
+// ASSERT-THROWS family runs 20, 22 and 23 — type resolution, the throwability report and the scope
+// open, then the body, then the scope close; 21 is a GAP, and it is the phase the throwability
+// round trip used to occupy. The THROW family runs 30..31 — the operand, then its two escapes and
+// the throwability rule together, for the same reason. The PRINT family runs 40..41 — the value and
+// its two escapes. 99 is done for all five.
 //
 // `ErrorsBefore` is the discard walk's guard, captured at phase 0 from the diagnostic sink's own
 // count. Every later report in that walk is suppressed the instant the count differs, which is what
 // keeps a statement from complaining that it "has no effect" on top of the real error inside it.
 // The sink OWNS the error list, so the count is its own answer and not something the driver carries.
+//
+// THE CLR CONVERSION FUNNEL IS PASSED IN AT `Begin` for the two shapes that ask about throwability
+// and is null for the other three. `Analyzer.cs` REBUILDS it when the metadata load context opens and
+// again when it is disposed, so the throwability owner this walk HOLDS may not keep a reference to
+// it — the same reason the loop family carries the flow-narrowing writer and the yield walk carries
+// the assignability oracle.
 public class ExpressionStatementState {
 
     discardedValue: Expression?
@@ -96,6 +102,7 @@ public class ExpressionStatementState {
     printedValue: Expression?
     contextValue: DiscardedExpressionContext
     soaUsageValue: string
+    clrTypeConversionValue: AnalyzerClrTypeConversion?
 
     Discarded: Expression? => discardedValue
     Assert: AssertStatement? => assertValue
@@ -104,6 +111,7 @@ public class ExpressionStatementState {
     Printed: Expression? => printedValue
     Context: DiscardedExpressionContext => contextValue
     SoaUsage: string => soaUsageValue
+    ClrTypeConversion: AnalyzerClrTypeConversion? => clrTypeConversionValue
 
     public Phase: int
     public Pending: int
@@ -111,7 +119,6 @@ public class ExpressionStatementState {
     public ErrorsBefore: int
     public AnsweredType: TypeInfo
     public EscapeFired: bool
-    public Throwable: bool
     public ExceptionType: TypeInfo
     public CalleeType: TypeInfo?
     public MustUseCandidate: CallExpression?
@@ -123,7 +130,8 @@ public class ExpressionStatementState {
         thrown: Expression?,
         printed: Expression?,
         context: DiscardedExpressionContext,
-        soaUsage: string) {
+        soaUsage: string,
+        clrTypeConversion: AnalyzerClrTypeConversion?) {
         discardedValue = discarded
         assertValue = assertStatement
         assertThrowsValue = assertThrows
@@ -131,6 +139,7 @@ public class ExpressionStatementState {
         printedValue = printed
         contextValue = context
         soaUsageValue = soaUsage
+        clrTypeConversionValue = clrTypeConversion
 
         Phase = 0
         if assertStatement != null {
@@ -153,7 +162,6 @@ public class ExpressionStatementState {
         ErrorsBefore = 0
         AnsweredType = BuiltInTypes.Unknown
         EscapeFired = false
-        Throwable = false
         ExceptionType = BuiltInTypes.Unknown
         CalleeType = null
         MustUseCandidate = null
@@ -190,6 +198,12 @@ public class ExpressionStatementState {
 // RESUMES WITH THE ANSWER, like slice 24's call walk, slice 29's pattern walk and slice 31/32's
 // local-declaration walk.
 //
+// THE THROWABILITY QUESTION IS NO LONGER A DRIVER STEP. It was kind 7, relayed to a predicate that
+// stayed in `Analyzer.cs` because the catch-clause family shared it; that predicate is
+// `AnalyzerThrowability` now, this walk holds it, and both questions ask it directly. The DECISION to
+// report, the wording, the suggestion and the span were always here and are unchanged — the two
+// reports differ in every one of those four things.
+//
 // THE FOUR DIAGNOSTICS ARE `Analyzer.cs`'s VERBATIM. NL313 has TWO forms selected by
 // `DiscardedExpressionContext` — the expression-statement form and the for-iterator form — each
 // with a rich `ErrorMessageBuilder` shape when the file has a snippet and a detail-only fallback
@@ -203,16 +217,19 @@ public class AnalyzerExpressionStatements {
     spansValue: AnalyzerDiagnosticSpans
     typeResolverValue: AnalyzerTypeResolver
     soaEscapeValue: AnalyzerSoaEscape
+    throwabilityValue: AnalyzerThrowability
 
     constructor(
         diagnostics: AnalyzerDiagnosticSink,
         spans: AnalyzerDiagnosticSpans,
         typeResolver: AnalyzerTypeResolver,
-        soaEscape: AnalyzerSoaEscape) {
+        soaEscape: AnalyzerSoaEscape,
+        throwability: AnalyzerThrowability) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
         soaEscapeValue = soaEscape
+        throwabilityValue = throwability
     }
 
     // A BARE EXPRESSION USED AS A STATEMENT. The SoA reports call it "discarded" and an invalid one
@@ -225,7 +242,8 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             DiscardedExpressionContext.ExpressionStatement,
-            "discarded")
+            "discarded",
+            null)
     }
 
     // THE `for` LOOP'S UPDATE CLAUSE. The same walk with two different constants: the SoA reports
@@ -238,7 +256,8 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             DiscardedExpressionContext.ForIterator,
-            "used as a 'for' iterator")
+            "used as a 'for' iterator",
+            null)
     }
 
     public func BeginAssert(assertStatement: AssertStatement): ExpressionStatementState {
@@ -249,10 +268,15 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             DiscardedExpressionContext.ExpressionStatement,
-            "asserted")
+            "asserted",
+            null)
     }
 
-    public func BeginAssertThrows(assertThrows: AssertThrowsStatement): ExpressionStatementState {
+    // AN `assert throws`. The CLR conversion funnel is read from the caller's field HERE, because the
+    // declared exception type is measured for throwability.
+    public func BeginAssertThrows(
+        assertThrows: AssertThrowsStatement,
+        clrTypeConversion: AnalyzerClrTypeConversion): ExpressionStatementState {
         return new ExpressionStatementState(
             null,
             null,
@@ -260,12 +284,15 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             DiscardedExpressionContext.ExpressionStatement,
-            "asserted")
+            "asserted",
+            clrTypeConversion)
     }
 
     // A `throw` STATEMENT'S OPERAND. The SoA reports call it "thrown", and a value that survives both
     // of them is measured against `System.Exception`.
-    public func BeginThrow(expression: Expression): ExpressionStatementState {
+    public func BeginThrow(
+        expression: Expression,
+        clrTypeConversion: AnalyzerClrTypeConversion): ExpressionStatementState {
         return new ExpressionStatementState(
             null,
             null,
@@ -273,7 +300,8 @@ public class AnalyzerExpressionStatements {
             expression,
             null,
             DiscardedExpressionContext.ExpressionStatement,
-            "thrown")
+            "thrown",
+            clrTypeConversion)
     }
 
     // A `print` STATEMENT'S VALUE. The shortest walk in the family: `print` has no rule of its own —
@@ -287,7 +315,8 @@ public class AnalyzerExpressionStatements {
             null,
             expression,
             DiscardedExpressionContext.ExpressionStatement,
-            "printed")
+            "printed",
+            null)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this statement is finished. Every phase
@@ -305,9 +334,9 @@ public class AnalyzerExpressionStatements {
     }
 
     // THE ANSWER TO THE OUTSTANDING STEP. Kind 1 answers a type — the discard walk's escape choice
-    // and the assert walk's escape choice both read it. Kind 7 answers throwability. Kind 8 answers
-    // the recorded callee type, which selects the must-use reason. Kinds 4, 5 and 6 answer nothing.
-    public func Supply(state: ExpressionStatementState, answer: TypeInfo?, flag: bool) {
+    // and the assert walk's escape choice both read it. Kind 8 answers the recorded callee type,
+    // which selects the must-use reason. Kinds 4, 5 and 6 answer nothing.
+    public func Supply(state: ExpressionStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
 
@@ -318,11 +347,6 @@ public class AnalyzerExpressionStatements {
                 state.AnsweredType = BuiltInTypes.Unknown
             }
 
-            return
-        }
-
-        if pending == 7 {
-            state.Throwable = flag
             return
         }
 
@@ -363,12 +387,13 @@ public class AnalyzerExpressionStatements {
 
     // ── THE `throw` WALK ───────────────────────────────────────────────────────────────────────
     //
-    // Three phases, and the middle one is the whole reason this is a walk rather than a call: the
+    // Two phases, and the second one is the whole reason this is a walk rather than a call: the
     // operand's ANSWERED type is what the row-escape report measures, and whether that report fired
     // is what decides if the column probe runs at all — which is what the `&&` chain in the arm this
     // replaced meant. A value already refused as a row view is not also told it is a direct column
     // read, and a value refused as either is not ALSO told it is not throwable: one bad operand is
-    // one diagnostic.
+    // one diagnostic. The throwability question used to be a THIRD phase and a driver round trip; it
+    // is a direct call on the owner now, so the walk suspends once instead of twice.
     func AdvanceThrow(
         state: ExpressionStatementState,
         expression: Expression): ExpressionStatementRequest? {
@@ -380,9 +405,9 @@ public class AnalyzerExpressionStatements {
         }
 
         if phase == 31 {
+            state.Phase = 99
             if soaEscapeValue.ReportSoaRowEscapeIfNeeded(expression, state.AnsweredType, "thrown") {
                 state.EscapeFired = true
-                state.Phase = 99
                 return null
             }
 
@@ -390,18 +415,10 @@ public class AnalyzerExpressionStatements {
                 expression,
                 "thrown") {
                 state.EscapeFired = true
-                state.Phase = 99
                 return null
             }
 
-            state.Phase = 32
-            state.Pending = 7
-            return new ExpressionStatementRequest(7, state.AnsweredType)
-        }
-
-        if phase == 32 {
-            state.Phase = 99
-            if !state.Throwable {
+            if !IsThrowable(state, state.AnsweredType) {
                 ReportNonThrowableThrowOperand(expression, state.AnsweredType)
             }
 
@@ -410,6 +427,18 @@ public class AnalyzerExpressionStatements {
 
         state.Phase = 99
         return null
+    }
+
+    // WHETHER THIS TYPE MAY BE THROWN OR CAUGHT, asked of the owner that answers it for all three of
+    // the language's questions. A state built without the CLR conversion funnel cannot reach here:
+    // only `BeginThrow` and `BeginAssertThrows` carry one, and they are the only two shapes that ask.
+    func IsThrowable(state: ExpressionStatementState, candidate: TypeInfo): bool {
+        clrTypeConversion := state.ClrTypeConversion
+        if clrTypeConversion == null {
+            return true
+        }
+
+        return throwabilityValue.IsThrowable(candidate, clrTypeConversion)
     }
 
     // NL202 ON A `throw` OPERAND. The span is the whole thrown expression, so the underline lands on
@@ -681,15 +710,7 @@ public class AnalyzerExpressionStatements {
         phase := state.Phase
         if phase == 20 {
             state.ExceptionType = typeResolverValue.ResolveDeclaredType(assertThrows.ExceptionType)
-            state.Phase = 21
-            state.Pending = 7
-
-            request := new ExpressionStatementRequest(7, state.ExceptionType)
-            return request
-        }
-
-        if phase == 21 {
-            if !state.Throwable {
+            if !IsThrowable(state, state.ExceptionType) {
                 ReportNonThrowableAssertThrowsType(assertThrows.ExceptionType, state.ExceptionType)
             }
 
