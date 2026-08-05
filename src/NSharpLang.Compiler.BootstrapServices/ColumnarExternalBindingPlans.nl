@@ -1154,6 +1154,11 @@ public class ColumnarExternalBindingPlans {
             if memberName == "get_Location" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.String")
             }
+            // Distinguishes a MetadataLoadContext assembly from a runtime one; the CLR-conversion
+            // funnel's mixed-context guard is built on this answer.
+            if memberName == "get_ReflectionOnly" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
             if memberName == "GetType"
                 && count == 1
                 && argumentTypeNames[0] == "System.String" {

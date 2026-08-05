@@ -968,6 +968,11 @@ test "external binding scopes own exact assembly type discovery calls" {
         new string[](0),
         "System.String")
     AssertVirtualCall(
+        "System.Reflection.Assembly",
+        "get_ReflectionOnly",
+        new string[](0),
+        "System.Boolean")
+    AssertVirtualCall(
         "System.Reflection.AssemblyName",
         "get_FullName",
         new string[](0),
