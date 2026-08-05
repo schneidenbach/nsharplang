@@ -1690,8 +1690,365 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   cutover + deletion, 762→1,554 contracts, 27,694-source cutover proof, all landed without a
   single toolset repin.)
 - Current iteration: one terminal slice
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 41 — THE RESOURCE FAMILY: `try` / `using` /
-  `lock` ON ONE DRIVER, TOGETHER, TERMINAL — AND `IsThrowableType` DELETED FROM `Analyzer.cs`.**
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 42 — `switch` AND `off`, TWO INDEPENDENT MOVES
+  IN ONE SLICE, TERMINAL. `switch` JOINS THE PATTERN FAMILY ON THE PATTERN DRIVER; `off` IS ABSORBED
+  ONTO THE STATEMENT-LEVEL EXPRESSION DRIVER WITH ZERO NEW KINDS; THE PATTERN DRIVER'S TWO SoA
+  RELAY KINDS DIE.** Target recorded BEFORE any production edit, at `8811585f4` (`Analyzer.cs`
+  **12,348** lines, non-blank **10,913**, declarations **532**; BootstrapServices contracts
+  **2,843**; unit suite **3,194**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:edd14706179a8243`).
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE — AND THIS TIME THE BRIEF'S SIZES HELD WHILE ITS FAMILY
+  CLAIM DID NOT.** `AnalyzeSwitchStatement` is `:3669–:3699`, **31 lines**, ONE call site (`:3265`),
+  and `AnalyzeOffStatement` is `:6872–:6904`, **33 lines**, ONE call site (`:3271`) — both exactly
+  as the slice-41 brief measured them. **NEITHER ARM HAS A SINGLE EXCLUSIVE C# HELPER**, which is
+  the first time in this arc that the re-measurement came back at 1.00x rather than 4x: every
+  non-driver call both make is already N#-owned (`_soaEscape.ReportSoaRowEscapeIfNeeded` /
+  `ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded`, `_ambient.EnterSwitch` / `ExitSwitch`,
+  `BuiltInTypes.IsUnknown`, `_spans.GetExpressionDiagnosticSpan`, `AnalyzerDiagnosticSink.Report`),
+  and the only two things left are the analyzer's own walks (`AnalyzeExpression`,
+  `AnalyzeStatements`, `PushScope`/`PopScope`, `AnalyzePattern`).
+
+  **THE FORK, STATED: `off` IS NOT SWITCH'S OTHER HALF.** The brief said to re-measure rather than
+  assume, and the measurement refutes the pairing. `off` is an EVENT statement — it lives 3,200
+  lines away in `Analyzer.cs`, next to `AnalyzeOnExpression`, and its whole content is: analyse ONE
+  expression, two SoA escape reports under the action word `used as an off handle`, a silence rule
+  for `unknown`, a single reflected-identity test against the runtime
+  `NSharpLang.Runtime.NSharpEventSubscription`, and NL318 with its rich suggestion. It shares NO
+  scope, NO ambient frame, NO pattern and NO statement list with `switch`. So this slice cuts TWO
+  INDEPENDENT MOVES rather than one family, and each is placed on its own measurement.
+
+  **`switch` → THE PATTERN FAMILY, ON THE PATTERN DRIVER, BECAUSE THE ARITHMETIC AND THE SHAPE AGREE
+  FOR ONCE.** A dedicated `AnalyzerSwitchStatement.nl` with its own `DriveSwitchStatement` was
+  measured first and REFUSED: the minimal driver plus its doc, field banner and construction is
+  **≈ +53 C#** against a **31-line** deletion — **net +22 in a slice whose whole purpose is C#
+  deletion**. On `AnalyzerPatternAnalysis`'s existing driver the same walk costs **+3 new kinds**
+  and reuses kind 5 — `AnalyzePattern(step.Pattern!, step.CarriedType)` — VERBATIM, because a switch
+  case's pattern step IS the nested-pattern step the driver already performs. And the family
+  genuinely coincides: a `switch` in N# is the pattern family's STATEMENT form, its per-case scope
+  exists for nothing but the bindings kind 4 declares into it, and this owner is already documented
+  as "the pattern family's LAST member and its root".
+
+  **`off` → ABSORBED ON `DriveExpressionStatement`, ZERO NEW KINDS.** It needs kind 1 and nothing
+  else, which is the `print` and `throw` measurement exactly. New Form, new phase band 50..51, and
+  the dispatch arm stays 3 lines.
+
+  **THE PATTERN DRIVER'S KINDS 2 AND 3 DIE WITH THIS SLICE, AND IT IS FORCED RATHER THAN OPPORTUNIST.**
+  The switch walk needs `AnalyzerSoaEscape` HELD (its own two reports), and once the owner holds it,
+  leaving the literal and relational arms' escape reports as driver RELAYS would be asking C# to
+  relay one N# call to another — the argument `AnalyzerExpressionStatements` already settled. So
+  kinds 2 and 3 go, `Supply` loses its `handled` parameter, and the numbering keeps GAPS at 2 and 3
+  rather than closing up.
+
+  **PLANNED CUT**: `AnalyzeSwitchStatement` (31) and `AnalyzeOffStatement` (33) DELETED — 64 named
+  lines, two members, two arms — against ≈ +3 in the pattern driver (three kinds added, two
+  removed, the `handled` local gone) and +2 in `CreatePatternAnalysis`. Both dispatch arms stay at
+  3 lines. **Expected net ≈ −59 C#, and not one new C# member.** `block` / `alloc` / `allow` /
+  `unsafe` are re-declined on slice 40's own arithmetic and shape arguments, re-measured below.
+
+  **RESULT: LANDED (no commit — mandate). N# OWNS WHAT PATTERN DISPATCH IS, AND WHAT DETACHING AN
+  EVENT MEANS.** `Analyzer.cs` keeps no part of the `switch` statement — not that its value is
+  measured for BOTH SoA escapes with the action word `used as a switch value`, not that the row
+  report short-circuits the column probe, not that an escaped value collapses to `unknown` for every
+  case pattern below it, not that the switch moves ONLY the break target's finally depth (which is
+  what NL319 reads) while leaving `continue` and the loop flag alone, not that a scope opens per
+  case and is positioned at the SWITCH keyword rather than at the case or at the pattern, not that
+  the `default` case opens one too, not that a case body is a statement LIST with the
+  unreachable-code rule applied to it, and not that the ambient frame is restored on the one path
+  out. It also keeps no part of `off` — not the action word, not the four silence rules or their
+  order, not that an `unknown` handle is silent, not what a subscription IS, and not NL318's
+  wording, span or suggestion.
+
+  **THE FORK, RESOLVED IN THE MEASUREMENT'S FAVOUR — AND `AnalyzeMatchExpression` STAYED PUT.** Two
+  independent moves landed in one slice. `switch` joined `AnalyzerPatternAnalysis` as **Form 1**,
+  phase band **70..75**, on the EXISTING pattern driver. `off` was absorbed onto
+  `DriveExpressionStatement` as the family's **sixth** shape, phase band **50..51**, with **ZERO new
+  kinds** — the `print` and `throw` measurement exactly. The match EXPRESSION was measured and left
+  alone: it is an expression with a result type, a guard clause and a per-arm scope positioned at the
+  PATTERN, and moving it is an expression-family slice rather than this one.
+
+  **THE CUT — TWO MEMBERS, TWO ARMS, THREE KINDS IN AND TWO OUT.** `git diff` on `Analyzer.cs`
+  **+35 / −91 = net −56** across **4 hunks**; the file goes **12,348 → 12,292** and non-blank
+  **10,913 → 10,868 (−45)**. Declarations **532 → 531**. GONE: `AnalyzeSwitchStatement` (31) and
+  `AnalyzeOffStatement` (33) — **64 named lines** — plus the pattern driver's kinds **2 and 3** and
+  its `handled` local. ADDED: kinds **6, 7 and 8** on that driver, two arguments on
+  `CreatePatternAnalysis`, and **ONE** C# member — `DrivePatternAnalysis`, which is the old
+  `AnalyzePattern` LOOP renamed and re-documented; `AnalyzePattern` survives as a two-line forwarder
+  because kind 5 and the match expression both still call it by that name. N# calls nothing back.
+  **Compiler warnings are 10 in BOTH trees.**
+
+  **PROOF — SEMANTIC-DIAGNOSTIC ORACLE, ALL 71 TARGETS, BOTH CLIs ON THE SAME SOURCE COPY.**
+  `nlc check --json`, fresh Release CLIs at baseline `8811585f4` and at the working tree, both
+  pointed at the SAME `git worktree` copy. **ORACLE_DIFFS = 0 over 906 lines**, md5
+  `be5ed3ace732475dc66714d89044810d` in BOTH: **71 HEAD rows, 835 diagnostics across 23 codes**,
+  exits identical (0 × 59, 1 × 12), `stderrBytes = 0` on every one of the 142 runs, **ZERO
+  `PARSE-FAIL` rows**. **THE SEVEN SILENT TARGETS ARE CLOSED**: a supplementary pass placed the
+  missing `Compiler.dll` / `BootstrapServices.dll` / `YamlDotNet.dll` and then the `refint`
+  reference and re-ran them on both sides — **SUPP_ORACLE_DIFFS = 0** (md5
+  `e43288edaa9d14b9ff41615402bc2e7e` for six, `d1a6014e33bf467226fc3e6af85260fe` for the seventh) —
+  and **all seven now analyse cleanly**.
+
+  **PROOF — EMISSION-ORDER PROTOCOL DIFFERENTIAL, ROW BY ROW, WITH PER-ROW ERROR COUNTS AND THE
+  AMBIENT BREAK DEPTH.** Both trees were instrumented at the SAME probe points with the SAME line
+  format, in SEPARATE copies that never shipped. `PAT|REQ|<kind>|<line>|<col>|<n>|<type>|<err>` is
+  captured BEFORE every driver operation and `PAT|ANS|<pending>|<type>|<err>` after it, plus
+  **fourteen decision rows** the two walks make between steps (`SW|ROWESC`, `SW|COLESC`,
+  `SW|VALTYPE`, `SW|ENTER`, `SW|CASE`, `SW|EXIT`, `PAT|ROW`, `PAT|COL`, `PAT|RELVALID`, `OFF|REQ`,
+  `OFF|ANS`, `OFF|ROWESC`, `OFF|COLESC`, `OFF|UNK`, `OFF|SUB`, `OFF|REPORT`), every one carrying the
+  error count at that instant, and every diagnostic read back off `_errors` at the end of each
+  `Analyze`. On the WORK side the N# walks cannot write for themselves — **`File.AppendAllText` is
+  NOT modeled by the columnar backend (gotcha 1)** — so each owner carries a row list the driver
+  DRAINS after every `NextStep` and every `Supply` (slice 38's gotcha 3); the base side emits the
+  same rows by hand from `AnalyzeSwitchStatement`, `AnalyzeOffStatement` and the driver's kind-2/3
+  cases, with its `||` chains HOISTED so the two are comparable. **THE HARNESS WAS PROVED
+  NON-VACUOUS AND THE COMPARATOR PROVED LIVE FIRST**: 58 byte-identical rows on a `switch` fixture,
+  15 on an `off` fixture, and a deliberate cross-fixture comparison that the differ DID report.
+  * **THE CORPUS RUN over all 71 targets — 2,651 rows, 0 MISMATCHES**, md5
+    `f7cdf3f63fbc289f8f80ace135355ad7` in BOTH: 989 analysis ends, 675 diagnostics, and a census
+    that pins the protocol — **PAT-REQ kind 1 = 32, kind 4 = 304, kind 5 = 90**, with
+    **PAT-ANS pending 1 = 32** and **PAT-ANS pending 0 = 394 = 304 + 90** exactly. It also PROVES
+    what the corpus CANNOT decide: **SW-ENTER 0, SW-EXIT 0, SW-VALTYPE 0, OFF-REQ 0** — the 71-target
+    corpus contains **not one `switch` and not one `off`** — and PAT-RELVALID 0 means all 32 analysed
+    bounds are LITERAL patterns, which is why PAT-ROW = PAT-COL = 32 with none firing.
+  * **THE ENV-GATED FIXTURE RUN reaches everything the corpus cannot: 2,966 rows, 0 MISMATCHES**
+    over all **480** fixtures under `NSHARP_EXPERIMENTAL_SOA=1`, md5
+    `9e6d04c7af1a847ddd92d249f7f94db1` in BOTH — 629 analyses, 549 diagnostics, and **FOUR BALANCE
+    INVARIANTS FALL OUT OF THE CENSUS ITSELF**: **SW-ENTER = SW-EXIT = SW-VALTYPE = 53** (53
+    switches, every ambient frame balanced); **PAT-REQ kind 6 = kind 7 = kind 8 = 78 = SW-CASE
+    (25 default + 53 patterned)** (every case opens exactly one scope, walks exactly one statement
+    list, and closes exactly one scope); **SW-CASE hasPattern True 53 = PAT-REQ kind 5 53** (a case
+    issues the nested-pattern step if and only if it has a pattern); and **PAT-ANS pending 0 = 322 =
+    35 + 53 + 78 + 78 + 78** exactly. **BOTH SHORT-CIRCUITS ARE PROVED BY ARITHMETIC RATHER THAN
+    ASSERTED**: 53 `SW-ROWESC` of which **3 fired**, and exactly **50** `SW-COLESC` probes ran; and
+    `off`'s exit chain runs **11 → 11 → 10 → 9 → 8 → 7**, one lost at each of the four silence rules
+    (`OFF-ROWESC True 1`, `OFF-COLESC True 1`, `OFF-UNK True 1`, `OFF-SUB True 1`), leaving
+    **OFF-REPORT 7**. `PAT-RELVALID 3` lights the relational judgement the corpus never reaches.
+
+  **PROOF — 480 FIXTURES, TWO FULL PASSES, AND A PARSE-ERROR CENSUS THAT DID NOT MOVE.** 36 new
+  fixtures (30 plain + 6 env-gated) run TOGETHER WITH the **444 accumulated on disk from slices 24
+  and 32–41**. The 30 plain ones cover every path the two arms own: a switch with no cases, a case
+  binding read INSIDE its case and read AFTER the switch (NL301 — the scope-closure proof no unit
+  test can give), a binding read in the NEXT case (NL301 again — the proof the scope closes BETWEEN
+  cases), a nested switch whose inner binding is gone outside it, a `default`-only switch, literal
+  cases, an empty braced body, a case body with unreachable code (NL312 — the proof kind 7 is the
+  LIST walk), `break` inside a case with and without an enclosing loop, `continue` inside a switch
+  inside a loop and outside one, a `return` inside a case inside a `finally` (NL319 — the ambient
+  proof) against the same return outside one, a type pattern, a union-case pattern and one naming no
+  such case (NL503), a relational case and one with a mismatched bound (NL202), an `off` on a REAL
+  `on` subscription (silent — the acceptance proof), on an `int`, a `string`, a call result, an
+  undeclared name, a reflected non-subscription, two in a row, and one inside a case body. The 6
+  env-gated ones cover every SoA path the new walks own: a row view and a column read AS A SWITCH
+  VALUE and AS AN OFF HANDLE (the four `used as a switch value` / `used as an off handle` wordings
+  only these walks produce), a column switch with a binding case, and a row-view switch inside a
+  loop. **`nlc check --json` under `NSHARP_EXPERIMENTAL_SOA=1`: FX_ENV_DIFFS = 0 over 1,038 lines**,
+  md5 `409a5e88dd5f5fd7721f407d31f50a7b` in BOTH (480 HEAD rows, 558 diagnostics across 33 codes).
+  **The SAME 480 run again WITHOUT the variable: FX_PLAIN_DIFFS = 0 over 1,129 lines**, md5
+  `6a1d7d1499e190ce4881b68943d5992a` in BOTH, **649 diagnostics across 33 codes**, exits identical
+  (0 × 89, 1 × 391), `stderrBytes = 0` on all 480, **ZERO `PARSE-FAIL` and ZERO missing-`results`
+  keys**.
+  **THE CENSUS OVER THE WHOLE ACCUMULATED SET IS 21 AND STAYS 21** — NL101 × 12, NL102 × 8,
+  NL109 × 1, in the SAME 9 fixtures slices 38–41 named — identical across ALL FOUR passes
+  (base/work × env/plain). **The 36 new fixtures add ZERO parse errors**, and one of them was
+  REWRITTEN when the first draft produced one (see gotcha 3).
+  **`nlc build`, which renders `_errors` in LIST order with NO dedup and NO sort: FX_BUILD_DIFFS = 0
+  over 8,731 UNSORTED lines**, md5 `e62b4a809d790f76cb4d107159cd76cb`, identical exits (0 × 89,
+  1 × 391), from two PRISTINE staging copies verified `diff -rq` identical before either was built.
+  **`nlc test` over the 14 fixtures that carry a `.tests.nl`: FX_TEST_DIFFS = 0 over 138 lines**,
+  md5 `a02908d480c86aca453ccbbcbde5cf77` in BOTH.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED FROM SCRATCH, AND THE CONTROL RAN FIRST AND PASSED.** The
+  normaliser was rewritten from the PE/CLI layout rather than reused, zeroing the COFF
+  `TimeDateStamp` at **peSig+8 (COFF+4)** — NOT COFF+8, which is `PointerToSymbolTable` and already
+  zero for a managed PE (slice 40's silent trap) — and the metadata `#GUID` heap reached through
+  data directory 14, and nothing else. **THE CONTROL RAN FIRST**: the BASELINE CLI building TWO
+  IDENTICAL COPIES of the whole 71-target corpus reported **compared 116, SAME 116, DIFFERENT 0,
+  ONLY_IN 0 / 0**. Only then was the test comparison taken.
+
+  **PROOF — CORPUS BUILD TRANSCRIPTS AND THE IL SWEEP, FROM THREE SWEEPS OVER IDENTICAL SOURCES.**
+  All three staging copies were byte-identical (`diff -rq` clean) before any build. **`nlc build`:
+  CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS = 0 over 1,561 lines**, md5
+  `9d8a96ad08042847e7f2aa1ca141e537` in ALL THREE, with **identical exit codes (0 × 54, 1 × 17)**.
+  The same passes produced the IL: **116 assemblies compared, ONLY_IN_BASE = 0, ONLY_IN_WORK = 0,
+  and ALL 62 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**. The 54 that differ are ONE file — the COPIED C#
+  support library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference is
+  **ROOT-CAUSED, NOT WAVED THROUGH**: exactly ONE distinct content per tree, **212 normalised
+  differing byte positions**, `strings` finds the embedded PDB path
+  `/private/tmp/nl42base/…/NSharpLang.Runtime.pdb` in one and `/Users/spencer/repos/nsharplang/…` in
+  the other, and `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports
+  **0 SOURCE files**.
+
+  **N# ADDED — +429 / −120 = 309 NET production lines across TWO files, BOTH of them existing
+  owners, and NOT ONE new file.**
+  `AnalyzerPatternAnalysis.nl` **+269 / −104** (759 → **924**; THREE types, 23 → **26** members,
+  3 → 4 public): the `Form` discriminator and its 70..75 phase band, `BeginSwitch`, `AdvanceSwitch`'s
+  six phases, the three new request shapes, the two escape reports converted from relays to direct
+  calls on the now-HELD `AnalyzerSoaEscape`, and the nullable pattern node's three read sites
+  re-anchored on locals. `AnalyzerExpressionStatements.nl` **+160 / −16** (1,120 → **1,264**; THREE
+  types, 30 → **34** members, 8 → 9 public): the sixth operand slot, the carried subscription root,
+  `BeginOff`, `AdvanceOff`'s two phases, the subscription predicate and NL318's reporter.
+  **20 NEW CONTRACTS** — `AnalyzerPatternAnalysis.tests.nl` **+365 / −82** (1,180 → 1,463, **50 → 62
+  contracts**): TWELVE new switch contracts around the five things the statement form makes easy to
+  get wrong (the SWITCH-anchored case scope, the `default` case's scope with no pattern between, the
+  per-case replay and its balance, the escape collapse to `unknown`, and the break-target
+  asymmetry — pinned by reading all three ambient fields before, during and after), and the literal
+  and relational contracts REWRITTEN so the escape rules are MEASURED against a real `SoaRowTypeInfo`
+  and a real RECORDED column read rather than injected through a driver boolean — a strictly
+  stronger pinning that can now catch a wrong action word or a wrong span, which the boolean could
+  not. `AnalyzerExpressionStatements.tests.nl` **+131 / −1** (1,269 → 1,399, **92 → 100 contracts**):
+  EIGHT `off` contracts covering the accept path, both reject paths, all four silence rules and both
+  escape wordings, plus the entry-shape contract widened to six.
+  Contracts: BootstrapServices **2,843 → 2,863 (+20)**, 0 failed.
+
+  **THE COMPILER'S OWN `nlc check` GRADED THE NEW CODE, AND IT PASSED CLEAN.** `nlc check --json`
+  over `NSharpLang.Compiler.BootstrapServices` (318 checked files) reports **ZERO findings in all
+  four touched `.nl` files**, against an unchanged estate baseline of **282**. **THE HARNESS WAS
+  PROVED NON-VACUOUS FIRST**: an injected undeclared-name read produced exactly ONE finding in the
+  file it was injected into (283 total), and the file was restored.
+
+  **RATCHET REPIN** — `current*` + fingerprints ONLY, **ONE row**:
+  `src/NSharpLang.Compiler/Analyzer.cs` currentLines 12,348 → **12,292**, currentNonBlankLines
+  10,913 → **10,868**, fingerprint `text-v1:a524166d315a688c` → **`text-v1:fd4bf876741197ca`** (epoch
+  ceilings 23,451 / 20,537 PRESERVED and now clear by **11,159 / 9,669**);
+  `reviewedHeadFingerprint head-v1:edd14706179a8243` → **`head-v1:bd624153e9645528`**, mirrored into
+  `OwnershipAudit.nl`. Every `epoch*` value untouched. The recomputation was VALIDATED BEFORE it was
+  applied: an independent FNV-1a walk reproduced the OLD `head-v1:edd14706179a8243` from the
+  unmodified manifest exactly, and its line counter was calibrated against the baseline file
+  (12,348 / 10,913, matching `wc -l` and the manifest). **FORMAT DISCIPLINE HELD: `wc -l` on the
+  manifest is 391 before AND after**, the manifest `git diff` is exactly 2 changed lines and
+  `OwnershipAudit.nl`'s is exactly 1; neither file carries a BOM.
+
+  **NO TOOLSET REPIN WAS TAKEN, AND NONE WAS NEEDED.** Every type and member the new code names was
+  already self-consumed catalog surface: `SwitchStatement` / `SwitchCase` are AST types the parser
+  already builds, `AnalyzerAmbientContext.EnterSwitch` / `ExitSwitch` were already N#-owned (they
+  were called from C#, and are now called from N#), `Type.IsAssignableFrom` is the shape
+  `AnalyzerConversionFacts` already proved, and `List<Statement>` on a request is the shape
+  `ExpressionStatementRequest` already carries. The pinned-toolset probe IS the BootstrapServices
+  build itself, which emits under the installed SDK and passed. **No wall was met.**
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is every squiggle and every completion a developer gets
+  from pattern dispatch: NL301 on a case binding used after its case ends, and the completion and
+  hover facts that binding HAS inside its own case and loses at the next one; NL312 on unreachable
+  code inside a case body; NL319 on a `return` inside a case inside a `finally`, and the `break`
+  and `continue` legality messages inside a switch; the SoA escape squiggles in their
+  `used as a switch value` and `used as an off handle` wordings; NL503 on a case naming no union
+  case; NL202 on a relational case whose bound cannot be compared; and NL318 on an `off` handle that
+  is not a subscription, with the underline on the handle rather than the keyword and the two-step
+  suggestion that fixes it.
+
+  **EVIDENCE.** The FULL VS Code-enabled `./scripts/test-all.sh --commit` with
+  `NSHARP_TEST_STEP_CACHE_OFF=1` — a FRESH ISOLATED run, no cached whole-gate or per-step result —
+  **ALL TESTS PASSED in 31m 36s (1,896 s), 106 `✓ PASSED` and ZERO `✗`**, with **Step 2 Build N#
+  Compiler 3m33s, Step 2b Format Contract Gate green, Step 3 Unit Tests 10m31s (3,194 / 3,194, 0
+  failed), Step 3a Native N# Tests 5m52s (compiler-service contracts 2,863 / 2,863, 0 failed, plus
+  the whole native estate including ownership-audit 18 / 18), Step 3b VS CODE INTEGRATION TESTS
+  4m18s (36 passing), Step 4 Pack and Install MSBuild SDK 6m37s, Steps 4b–10 template pack / install
+  / creation / template build / example builds / single-file examples / `nlc check` all green, and
+  Step 10b IL VERIFICATION green over 67 assemblies**. The unit count is the `8811585f4` baseline
+  COUNT with ZERO drift. `./scripts/dev.sh --since` selected the **FULL unit suite (fail-safe)** —
+  naming the four `.nl` files as unmapped paths — and passed it **3,194 / 3,194 with zero flakes**.
+  **THE GATE RAN OVER THE FINAL SOURCE TREE**: a FIRST launch was STOPPED during Step 2 — well
+  before `dotnet pack` — the moment a stale doc paragraph was found in `AnalyzerPatternAnalysis.nl`,
+  because the gate copies the tree into an isolated snapshot at launch and would otherwise have
+  measured a superseded copy; the recorded run was launched only after every compiler, contract and
+  manifest file was byte-final and the contracts had been re-run against it.
+
+  **VSIX RELOADED**: `./scripts/reload-vscode-extension.sh` rebuilt the language server, repackaged
+  `nsharp-0.6.0.vsix` (289 files) and reinstalled it — the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is now the post-slice build and
+  SHRANK **814,592 → 813,568 bytes**. No computer-use was used.
+
+  **SIX GOTCHAS, AND FIVE ARE NEW TO THE ARC.**
+  **(1) `File.AppendAllText` IS NOT MODELED BY THE COLUMNAR BACKEND, WHICH IS WHY THE PROTOCOL
+  HARNESS BUFFERS.** A `Nl42Probe` that wrote its own row declined at
+  `emit.call.static-member-unmodeled` naming the STATIC CALL, in both instrumented trees. The fix is
+  slice 38's drain protocol — the owner appends to a `List<string>` the driver empties after every
+  `NextStep` and every `Supply` — and it is a strictly better probe anyway, because the drain points
+  are exactly the suspension boundaries the differential is about.
+  **(2) A SHARED PROBE HELPER CANNOT READ A FIELD ONE SIDE DOES NOT HAVE.** The same `Nl42Req`
+  renderer compiled in the work tree and declined in the base tree at `emit.local.initializer`
+  naming the local — because `PatternAnalysisRequest.Statements` is a field this slice ADDS, so the
+  baseline request has no such member and the decline is a type error wearing an emit error's
+  clothes. Instrumentation that must run on both sides may only read the INTERSECTION of the two
+  shapes.
+  **(3) `base` IS RESERVED AS A UNION-CASE PROPERTY BINDING NAME.** `case Triangle { base } =>`
+  reports NL109 and would have grown the parse census; `case Triangle { width } =>` is clean. The
+  arc's reserved-name list grows by one, and the fixture was caught by the census rather than by
+  reading — the third slice running in which a fixture that LOOKED like coverage had to be rewritten.
+  **(4) N#'s `switch` SEPARATES A CASE FROM ITS BODY WITH `=>`, NOT `:`.** `case 1: …` reports NL102
+  "Expected '=>'" and the whole switch declines, so a fixture written with C# or Go muscle memory
+  reaches the arm ZERO times. Every case label — `case <pattern>` and bare `default` — takes the
+  arrow, and a braced body is FLATTENED into the case's statement list by the parser, so no
+  `BlockStatement` wrapper appears in the tree and the case's own scope is the only one there is.
+  **(5) `switch` DECLINES IN THE COLUMNAR BACKEND, AND ITS DECLINE SHARES NL103 WITH THE SoA ESCAPE
+  REPORTS.** `nlc check` over any file containing a `switch` reports
+  `Declined at parse.function` as **NL103**; `AnalyzerSoaEscape`'s two reports are **NL103**
+  (`InvalidSyntax`) as well. A fixture scan that triages by CODE will read every switch fixture as an
+  escape and every escape as a decline. They must be told apart by MESSAGE. (The analyzer still runs
+  in full — the decline is raised after analysis — so a declining fixture is still a valid
+  differential probe, which is what makes 20 of this slice's 30 plain fixtures useful at all.)
+  **(6) `BootstrapServices` DOES NOT CARRY `NSharpLang.Runtime.dll`, SO AN N# OWNER MUST NOT NAME IT
+  THROUGH `Type.GetType`.** `Type.GetType("NSharpLang.Runtime.NSharpEventSubscription, NSharpLang.Runtime")`
+  resolves at ANALYSIS time — the analyzer's host references the runtime — and returns null in the
+  CONTRACT host, where the assembly is not in the output directory. A rule written that way works in
+  production and cannot be measured by a contract, which is the worst combination available. The
+  identity is handed in at `BeginOff` instead, from the one place that already names it.
+
+  **THE WALKER TERRITORY AFTER TWELVE CUTS, AND WHAT STANDS BETWEEN HERE AND `AnalyzeStatement`.**
+  `Analyzer.cs` holds **12,292 lines**; the territory has **SEVEN zero-policy drivers** (three of
+  which call another driver) and FIVE owned context objects. `AnalyzeStatement` is **92 lines with 27
+  arms**. **TWENTY-SIX ARMS ARE NOW A SINGLE ROUTING LINE** — the twenty-four slice 41 left plus
+  `switch` and `off`. **ONLY FOUR ARMS STILL HOLD INLINE POLICY, 6 LINES TOTAL**: `BlockStatement`
+  (3) and `alloc` / `allow` / `unsafe` (1 each), unchanged since slice 40 and deliberately so —
+  re-measured this slice and re-declined on the same two arguments. `block` IS absorbable on the
+  pattern driver's NEW kinds 6 / 7 / 8, which are exactly its three operations, but the routing line
+  costs 3 of its 5 lines for a **net −2** against a new `Begin`, a new form and a new phase band, and
+  a block statement is not pattern dispatch, so it would have to be RE-CUT the moment the dispatch
+  walk takes the structural recursion. `alloc` / `allow` / `unsafe` are one line each and a `case`
+  plus a `Begin` costs 3 to delete 1: **net ZERO or POSITIVE**.
+  * **TWO NAMED ARMS REMAIN, 125 lines (was 189)**: `AnalyzeLocalFunction` `:3351–:3421` (**71**) and
+    `AnalyzeIfStatement` `:3472–:3525` (**54**). Each has exactly ONE call site plus its declaration,
+    and neither is named anywhere outside `Analyzer.cs`.
+  * **NEXT: `if`, THEN THE LOCAL FUNCTION, THEN `AnalyzeStatement` LAST.** `AnalyzeIfStatement`'s
+    whole non-driver surface is ALREADY N#-owned — `_flowNarrowing.ExtractFlowNarrowings` /
+    `ApplyNarrowingsToScope` and `_conditions.ReportIfConditionTypeMismatchIfNeeded` — so it needs
+    only kinds the LOOP driver already has (1 analyse an expression, 2 open a block scope, 5 analyse
+    ONE statement, 6 close a scope) plus ONE the estate has nowhere yet: **`StatementAlwaysReturns`,
+    which ANSWERS a bool**. That predicate is the blocker to inventory first: it is a large recursive
+    C# member with many callers (the unreachable-code rule reads it too), so either the `if` walk
+    relays it as a new answering kind — the first BOOLEAN-answering step in the estate, since every
+    kind so far answers a type or nothing — or the predicate moves whole and takes `AnalyzeStatements`
+    with it. **Measure that fork before designing.** Placement: `AnalyzerBooleanConditions` already
+    owns the condition report and `AnalyzerFlowNarrowing` the facts, but neither is a statement walk,
+    so expect a THIRD form on the loop driver (an `if` is a condition, a body and a scope — the
+    `while` walk minus the loop frame) rather than a new owner; the arithmetic will decide.
+    `AnalyzeLocalFunction` is the harder one and its blockers are named: it needs
+    `_scopes.DeclareTypeParameter`, `ValidateParameterDeclarations` (still C#),
+    `_ambient.EnterNestedBody` / `ExitNestedBody`, `_definiteAssignment.CheckLocals`,
+    `ReportGeneratorReturnTypeIfNeeded` and `ReportGeneratorExpressionBodyIfNeeded` (both still C#,
+    both shared with `AnalyzeFunctionDeclaration`), and an expression walk WITH an expected type —
+    which is a kind no driver in the estate has, because every existing kind-1 deliberately leaves the
+    ambient target-typing slot alone. **Then `AnalyzeStatement` itself**, at which point the dispatch
+    walk takes the four remaining inline arms with it.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl42fixtures` (30, this
+  slice) and `/private/tmp/nl42soafx` (6, this slice, env-gated `NSHARP_EXPERIMENTAL_SOA=1`)
+  alongside `/private/tmp/nl41fixtures` (29), `/private/tmp/nl41soafx` (6),
+  `/private/tmp/nl40fixtures` (24), `/private/tmp/nl40soafx` (7), `/private/tmp/nl39fixtures` (22),
+  `/private/tmp/nl39soafx` (7), `/private/tmp/nl38fixtures` (20), `/private/tmp/nl38soafx` (6),
+  `/private/tmp/nl37soafx` (54), `/private/tmp/nl36fixtures` (35), `/private/tmp/nl36soafx` (4),
+  `/private/tmp/nl35fixtures` (50), `/private/tmp/nl35soafx` (3), `/private/tmp/nl34fixtures` (63),
+  `/private/tmp/nl33fixtures` (47), `/private/tmp/nl32fixtures` (31) and `/private/tmp/s24fixtures`
+  (36) — **480 total**. The re-derived IL normaliser is at `/private/tmp/nl42-ilnorm.py`; the oracle,
+  fixture, protocol, build and IL-sweep harnesses are at `/private/tmp/nl42-*.sh`, and the ratchet
+  repin's validated recomputation is at `/private/tmp/nl42-repin-apply.py`. Two clean baseline
+  worktrees are left registered — `/private/tmp/nl42base` (the Release CLI at `8811585f4`) and
+  `/private/tmp/nl42corpus` (the corpus source both CLIs were pointed at). **THE TWO INSTRUMENTED
+  PROBE WORKTREES WERE DELETED** the moment their differentials were recorded: they carried
+  throwaway row-emitting code that must never be confused with product, and `git worktree list` now
+  shows only the two clean ones plus the untouched chip worktree.
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 41 — THE RESOURCE FAMILY: `try` /
+  `using` / `lock` ON ONE DRIVER, TOGETHER, TERMINAL — AND `IsThrowableType` DELETED FROM
+  `Analyzer.cs`.**
   Target recorded BEFORE any production edit, at `917cdfef7` (`Analyzer.cs` **12,694** lines,
   non-blank **11,213**, declarations **545**; BootstrapServices contracts **2,792**; unit suite
   **3,194**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint

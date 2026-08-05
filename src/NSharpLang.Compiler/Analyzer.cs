@@ -422,7 +422,9 @@ public class Analyzer : IDisposable
             _matchExhaustiveness,
             _patternShapes,
             _patternReachability,
-            _propertyPatternBinding);
+            _propertyPatternBinding,
+            _soaEscape,
+            _ambient);
 
     private AnalyzerCallAnalysis CreateCallAnalysis()
         => new(
@@ -3262,13 +3264,14 @@ public class Analyzer : IDisposable
                 DriveResourceStatement(_resourceStatements.BeginLock(lockStmt, _currentClass));
                 break;
             case SwitchStatement switchStmt:
-                AnalyzeSwitchStatement(switchStmt);
+                DrivePatternAnalysis(_patternAnalysis.BeginSwitch(switchStmt));
                 break;
             case PrintStatement printStmt:
                 DriveExpressionStatement(_expressionStatements.BeginPrint(printStmt.Value));
                 break;
             case OffStatement off:
-                AnalyzeOffStatement(off);
+                DriveExpressionStatement(_expressionStatements.BeginOff(
+                    off.Handle, typeof(NSharpLang.Runtime.NSharpEventSubscription)));
                 break;
             case AssertStatement assertStmt:
                 AnalyzeAssertStatement(assertStmt);
@@ -3666,71 +3669,34 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void AnalyzeSwitchStatement(SwitchStatement switchStmt)
-    {
-        var valueType = AnalyzeExpression(switchStmt.Value);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(switchStmt.Value, valueType, "used as a switch value")
-            || _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(switchStmt.Value, "used as a switch value"))
-        {
-            valueType = BuiltInTypes.Unknown;
-        }
-
-        // A `break` in a case body targets the switch itself (the emitter pushes a break label per
-        // switch), so for NL319 the break target's finally depth is the switch's entry depth.
-        // `continue` still targets the enclosing loop, so its depth is untouched.
-        var savedBreakDepth = _ambient.EnterSwitch();
-
-        foreach (var switchCase in switchStmt.Cases)
-        {
-            PushScope(new Scope(ScopeKind.Block), switchStmt.Line, switchStmt.Column);
-
-            // Analyze pattern if present
-            if (switchCase.Pattern != null)
-            {
-                AnalyzePattern(switchCase.Pattern, valueType);
-            }
-
-            AnalyzeStatements(switchCase.Statements);
-
-            PopScope();
-        }
-
-        _ambient.ExitSwitch(savedBreakDepth);
-    }
-
     /// <summary>
-    /// The five steps the N#-owned pattern walk cannot take for itself: the analyzer's own
-    /// expression walk, the scope stack's symbol declaration, and the two SoA escape reporters that
-    /// belong to a different family. The walk runs in <see cref="AnalyzerPatternAnalysis"/>,
-    /// suspends at each step and resumes WITH the answer, because both a step's operands and the
-    /// number of steps depend on answers it does not have until it has already suspended: a literal
-    /// pattern's row-escape report is passed the type the analysis before it produced, and a
-    /// relational pattern's two escape reports are joined by `&amp;&amp;` over their negations, so the
-    /// first answer decides whether the second step — and the comparability judgement after it —
-    /// happen at all. Which arm, which node, which binding, which report and in what order are all
-    /// the walk's decisions; this loop performs the one operation it is handed, with the operands it
-    /// is handed. A nested pattern comes back as a kind-5 request and recurses through here, so the
-    /// walk needs no stack of its own.
+    /// The steps the N#-owned pattern family cannot take for itself: the analyzer's own expression
+    /// walk, the scope stack's symbol declaration, its scope open and close, and the statement
+    /// dispatch. Both of the family's forms — a PATTERN node and the <c>switch</c> statement that
+    /// exists to dispatch on one — run in <see cref="AnalyzerPatternAnalysis"/> and share this one
+    /// loop. Each walk suspends at each step and resumes WITH the answer, because both a step's
+    /// operands and the number of steps depend on answers it does not have until it has already
+    /// suspended: a literal pattern's row-escape report is passed the type the analysis before it
+    /// produced, a relational pattern's two escape reports are joined by `&amp;&amp;` over their
+    /// negations, and a <c>switch</c>'s scrutinee type — the operand of every case pattern below it —
+    /// is the answer to its own first step. Which arm, which node, which binding, which report,
+    /// which scope and in what order are all the walk's decisions; this loop performs the one
+    /// operation it is handed, with the operands it is handed. A nested pattern comes back as a
+    /// kind-5 request and recurses through <see cref="AnalyzePattern"/>, so the walk needs no stack
+    /// of its own — and a <c>switch</c> case's own pattern is that SAME request, which is why the
+    /// statement form added no kind for it.
     /// </summary>
-    private void AnalyzePattern(Pattern pattern, TypeInfo valueType)
+    private void DrivePatternAnalysis(PatternAnalysisState state)
     {
-        var state = _patternAnalysis.Begin(pattern, valueType);
         for (var step = _patternAnalysis.NextStep(state);
              step != null;
              step = _patternAnalysis.NextStep(state))
         {
             TypeInfo? answer = null;
-            var handled = false;
             switch (step.Kind)
             {
                 case 1:
                     answer = AnalyzeExpression(step.Node!);
-                    break;
-                case 2:
-                    handled = _soaEscape.ReportSoaRowEscapeIfNeeded(step.Node!, step.CarriedType, step.Text!);
-                    break;
-                case 3:
-                    handled = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(step.Node!, step.Text!);
                     break;
                 case 4:
                     DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
@@ -3738,11 +3704,23 @@ public class Analyzer : IDisposable
                 case 5:
                     AnalyzePattern(step.Pattern!, step.CarriedType);
                     break;
+                case 6:
+                    PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
+                    break;
+                case 7:
+                    AnalyzeStatements(step.Statements!);
+                    break;
+                case 8:
+                    PopScope();
+                    break;
             }
 
-            _patternAnalysis.Supply(state, answer, handled);
+            _patternAnalysis.Supply(state, answer);
         }
     }
+
+    private void AnalyzePattern(Pattern pattern, TypeInfo valueType)
+        => DrivePatternAnalysis(_patternAnalysis.Begin(pattern, valueType));
 
     private TypeInfo AnalyzeExpression(Expression expr)
     {
@@ -6867,40 +6845,6 @@ public class Analyzer : IDisposable
 
         AnalyzeLambda(on.Handler, new ReflectionTypeInfo(handlerDelegateType));
         return subscriptionType;
-    }
-
-    private void AnalyzeOffStatement(OffStatement off)
-    {
-        var handleType = AnalyzeExpression(off.Handle);
-
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(off.Handle, handleType, "used as an off handle"))
-        {
-            return;
-        }
-        if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(off.Handle, "used as an off handle"))
-        {
-            return;
-        }
-
-        if (BuiltInTypes.IsUnknown(handleType))
-        {
-            return; // an earlier error already explained the problem
-        }
-
-        if (handleType is ReflectionTypeInfo reflection
-            && typeof(NSharpLang.Runtime.NSharpEventSubscription).IsAssignableFrom(reflection.Type))
-        {
-            return;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(off.Handle);
-        Error(
-            ErrorCode.InvalidEventSubscription,
-            "`off` expects a subscription returned by `on`",
-            line,
-            column,
-            "Capture the subscription first (`sub := on <object>.<Event> handler`), then detach it with `off sub`.",
-            length);
     }
 
     private void ReportEventAssignment(AssignmentExpression assignment, ReflectionEventInfo eventTarget)

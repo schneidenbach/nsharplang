@@ -1228,15 +1228,17 @@ test "print runs BOTH escape reports and neither short-circuits the other" {
     assert harness.Errors[1].Message == "SoA table member 'x' cannot be printed directly"
 }
 
-test "the five entries set exactly one operand each and select their own phase band" {
+test "the six entries set exactly one operand each and select their own phase band" {
     harness := EsDefault()
     discard := harness.Owner.BeginExpressionStatement(EsCall("Run"))
     thrown := harness.Owner.BeginThrow(EsName("failure"), harness.Clr)
     printed := harness.Owner.BeginPrint(EsName("value"))
+    detached := harness.Owner.BeginOff(EsName("sub"), EsSubscriptionRoot())
 
     assert discard.Phase == 0
     assert thrown.Phase == 30
     assert printed.Phase == 40
+    assert detached.Phase == 50
     assert thrown.Thrown != null
     assert thrown.Printed == null
     assert thrown.Discarded == null
@@ -1244,6 +1246,134 @@ test "the five entries set exactly one operand each and select their own phase b
     assert printed.Printed != null
     assert printed.Thrown == null
     assert printed.SoaUsage == "printed"
+    assert detached.OffHandle != null
+    assert detached.Printed == null
+    assert detached.Thrown == null
+    assert detached.Discarded == null
+    assert detached.SoaUsage == "used as an off handle"
+}
+
+// ── the `off` walk ────────────────────────────────────────────────────────
+//
+// `off sub` detaches an event subscription. Its handle is an expression in statement position, so it
+// is this family's sixth shape rather than a family of its own; what it adds is one rule about the
+// type that expression answers, and FOUR silence rules in a fixed order before the rule can fire.
+//
+// THE SUBSCRIPTION ROOT IS A STAND-IN HERE AND THAT IS THE POINT. `Analyzer.cs` hands in the runtime
+// `NSharpEventSubscription`; these contracts hand in a type whose assignability answers the same way,
+// which is what lets the rule be measured at all — this project does not reference the runtime
+// assembly, so a walk that named the type itself could not be driven from a contract.
+
+// `typeof` carries a hardcoded well-known list that does not name these, so they are resolved the way
+// the production owners resolve `System.IDisposable` and the non-generic sequence interfaces.
+func EsClrType(fullName: string): Type {
+    clrType := Type.GetType(fullName)
+    if clrType == null {
+        throw new InvalidOperationException("Required type " + fullName + " was not found.")
+    }
+
+    return clrType
+}
+
+func EsSubscriptionRoot(): Type {
+    return EsClrType("System.IO.Stream")
+}
+
+func EsReflected(fullName: string): TypeInfo {
+    result: TypeInfo = new ReflectionTypeInfo(EsClrType(fullName))
+    return result
+}
+
+func EsRunOff(harness: EsHarness, expression: Expression) {
+    EsRun(harness, harness.Owner.BeginOff(expression, EsSubscriptionRoot()))
+}
+
+test "an off asks for the handle and nothing else" {
+    harness := EsDefault()
+    harness.Answers.Add(EsReflected("System.IO.MemoryStream"))
+    EsRunOff(harness, EsName("sub"))
+
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 0
+}
+
+test "a handle assignable to the subscription root is accepted in silence" {
+    harness := EsDefault()
+    // A DERIVED reflected type: the rule is assignability, not identity, because `on` answers the
+    // generic `NSharpEventSubscription<THandler>` and the root it derives from is what `off` names.
+    harness.Answers.Add(EsReflected("System.IO.MemoryStream"))
+    EsRunOff(harness, EsName("sub"))
+
+    assert harness.Errors.Count == 0
+}
+
+test "a handle that is NOT a subscription reports NL318 on the whole handle expression" {
+    harness := EsDefault()
+    harness.Answers.Add(BuiltInTypes.Int)
+    EsRunOff(harness, EsName("counter"))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].DiagnosticId == "NL318"
+    assert harness.Errors[0].Message == "`off` expects a subscription returned by `on`"
+    assert harness.Errors[0].Suggestion
+        == "Capture the subscription first (`sub := on <object>.<Event> handler`), then detach it with `off sub`."
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 5
+}
+
+test "a REFLECTED handle the root cannot accept still reports" {
+    harness := EsDefault()
+    // Reflected, but not assignable: the walk reaches the root and the root says no.
+    harness.Answers.Add(EsReflected("System.StringComparer"))
+    EsRunOff(harness, EsName("wrong"))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].DiagnosticId == "NL318"
+}
+
+test "an UNKNOWN handle is silent — an earlier error already explained the problem" {
+    harness := EsDefault()
+    harness.Answers.Add(BuiltInTypes.Unknown)
+    EsRunOff(harness, EsName("broken"))
+
+    assert harness.Errors.Count == 0
+}
+
+test "a row-view off handle escapes with the off action word and is not ALSO told it is no subscription" {
+    harness := EsDefault()
+    rowView: TypeInfo = EsRowType()
+    harness.Answers.Add(rowView)
+    EsRunOff(harness, EsName("row"))
+
+    assert EsKinds(harness.Steps) == "1"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as an off handle; use the table and row index instead"
+}
+
+test "a direct column off handle escapes on syntax, and the row report does not fire with it" {
+    harness := EsDefault()
+    EsDeclareSoaTable(harness)
+    harness.Answers.Add(BuiltInTypes.Int)
+    EsRunOff(harness, EsSoaColumnRead())
+
+    // ONE diagnostic: the row report declined on the answered type, the column probe fired, and the
+    // subscription rule was never reached. `off` short-circuits like `throw`, unlike `print`.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA table member 'x' cannot be used as an off handle directly"
+}
+
+test "a row view that is ALSO a column read reports ONCE for off, where print reports twice" {
+    harness := EsDefault()
+    EsDeclareSoaTable(harness)
+    rowView: TypeInfo = EsRowType()
+    harness.Answers.Add(rowView)
+    EsRunOff(harness, EsSoaColumnRead())
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as an off handle; use the table and row index instead"
 }
 
 // ── the rebuilt CLR funnel is carried, not held ───────────────────────────

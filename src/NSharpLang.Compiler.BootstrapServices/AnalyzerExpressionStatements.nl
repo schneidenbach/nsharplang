@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections
 import System.Collections.Generic
 import System.Reflection
@@ -9,10 +10,10 @@ import NSharpLang.Compiler.Ast
 //
 // This walk owns what it MEANS to write an expression where a statement belongs — a bare `f()` or
 // `x = 1` as a statement, the update clause of a `for`, an `assert`, an `assert throws`, the operand
-// of a `throw` and the value of a `print` — which of those expressions actually DO anything, which
-// of the family's five diagnostics fires and with which span, suggestion and wording, and whether a
-// discarded result was one the callee said must be used. What it cannot do is run the analyzer's own
-// EXPRESSION walk, open or close a scope on the
+// of a `throw`, the value of a `print` and the handle of an `off` — which of those expressions
+// actually DO anything, which of the family's five diagnostics fires and with which span, suggestion
+// and wording, and whether a discarded result was one the callee said must be used. What it cannot
+// do is run the analyzer's own EXPRESSION walk, open or close a scope on the
 // analyzer's scope stack, re-enter the STATEMENT dispatch for an `assert throws` body, read the
 // recorded type of an already-analysed callee out of the semantic model (which the analysis reset
 // REPLACES, so it cannot be captured here) — so it ASKS: one request at a time, each naming a kind
@@ -68,9 +69,9 @@ public class ExpressionStatementRequest {
 
 // THE STATEMENT'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
-// ONE state serves all five statement shapes, because ONE driver serves them all: exactly one of
-// `discardedValue`, `assertValue`, `assertThrowsValue`, `thrownValue` and `printedValue` is set, and
-// which one is set selects the phase family.
+// ONE state serves all six statement shapes, because ONE driver serves them all: exactly one of
+// `discardedValue`, `assertValue`, `assertThrowsValue`, `thrownValue`, `printedValue` and
+// `offHandleValue` is set, and which one is set selects the phase family.
 //
 // `Phase` is the walk's program counter. The DISCARD family runs 0..3: 0 captures the error count
 // and asks for the expression, 1 folds the answer in and chooses between the placeholder exit, the
@@ -81,7 +82,8 @@ public class ExpressionStatementRequest {
 // open, then the body, then the scope close; 21 is a GAP, and it is the phase the throwability
 // round trip used to occupy. The THROW family runs 30..31 — the operand, then its two escapes and
 // the throwability rule together, for the same reason. The PRINT family runs 40..41 — the value and
-// its two escapes. 99 is done for all five.
+// its two escapes. The OFF family runs 50..51 — the handle, then its two escapes and the
+// subscription rule together. 99 is done for all six.
 //
 // `ErrorsBefore` is the discard walk's guard, captured at phase 0 from the diagnostic sink's own
 // count. Every later report in that walk is suppressed the instant the count differs, which is what
@@ -100,18 +102,22 @@ public class ExpressionStatementState {
     assertThrowsValue: AssertThrowsStatement?
     thrownValue: Expression?
     printedValue: Expression?
+    offHandleValue: Expression?
     contextValue: DiscardedExpressionContext
     soaUsageValue: string
     clrTypeConversionValue: AnalyzerClrTypeConversion?
+    subscriptionRootValue: Type?
 
     Discarded: Expression? => discardedValue
     Assert: AssertStatement? => assertValue
     AssertThrows: AssertThrowsStatement? => assertThrowsValue
     Thrown: Expression? => thrownValue
     Printed: Expression? => printedValue
+    OffHandle: Expression? => offHandleValue
     Context: DiscardedExpressionContext => contextValue
     SoaUsage: string => soaUsageValue
     ClrTypeConversion: AnalyzerClrTypeConversion? => clrTypeConversionValue
+    SubscriptionRoot: Type? => subscriptionRootValue
 
     public Phase: int
     public Pending: int
@@ -129,17 +135,21 @@ public class ExpressionStatementState {
         assertThrows: AssertThrowsStatement?,
         thrown: Expression?,
         printed: Expression?,
+        offHandle: Expression?,
         context: DiscardedExpressionContext,
         soaUsage: string,
-        clrTypeConversion: AnalyzerClrTypeConversion?) {
+        clrTypeConversion: AnalyzerClrTypeConversion?,
+        subscriptionRoot: Type?) {
         discardedValue = discarded
         assertValue = assertStatement
         assertThrowsValue = assertThrows
         thrownValue = thrown
         printedValue = printed
+        offHandleValue = offHandle
         contextValue = context
         soaUsageValue = soaUsage
         clrTypeConversionValue = clrTypeConversion
+        subscriptionRootValue = subscriptionRoot
 
         Phase = 0
         if assertStatement != null {
@@ -158,6 +168,10 @@ public class ExpressionStatementState {
             Phase = 40
         }
 
+        if offHandle != null {
+            Phase = 50
+        }
+
         Pending = 0
         ErrorsBefore = 0
         AnsweredType = BuiltInTypes.Unknown
@@ -172,8 +186,9 @@ public class ExpressionStatementState {
 // take itself.
 //
 // This is the analyzer's expression/statement walker territory, and it owns the family that has no
-// value to hand anywhere: the bare expression statement, the `for` loop's update clause, `assert`
-// and `assert throws`. `Analyzer.cs` kept the family as FOURTEEN members of which ELEVEN had no
+// value to hand anywhere: the bare expression statement, the `for` loop's update clause, `assert`,
+// `assert throws`, `throw`, `print` and `off`. `Analyzer.cs` kept the family as FOURTEEN members of
+// which ELEVEN had no
 // caller outside it — the must-use closure (unwrap, reason, the reflected-attribute test), the
 // validity predicate, the two rich invalid-statement reporters and their context selector, and the
 // assert-throws type reporter — so they are here rather than left behind as callbacks.
@@ -181,9 +196,9 @@ public class ExpressionStatementState {
 // WHY A SEPARATE DRIVER FROM `DriveLocalDeclaration`, WHICH THIS ONCE OVERLAPPED ON THREE KINDS.
 // Kind 1 here IS that driver's kind 6 — the same expression walk with the ambient target-typing slot
 // left alone. The other two shared kinds were the SoA escape reports, and they are gone from BOTH
-// drivers now that the reports are N#-owned; what is left, kinds 4, 5, 6 and 7, are re-entries NO
+// drivers now that the reports are N#-owned; what is left, kinds 4, 5, 6 and 8, are re-entries NO
 // local declaration makes: a `let` never opens a scope, never re-enters the statement dispatch and
-// never asks whether a type is throwable. Sharing would mean widening `VariableDeclarationState`
+// never reads a callee type back out of the semantic model. Sharing would mean widening `VariableDeclarationState`
 // with a statement list and a scope program counter it can never use, and coupling two statement
 // families through one request type. So the overlap is stated rather than forced, and this family
 // keeps its own request, its own state and its own loop.
@@ -204,7 +219,8 @@ public class ExpressionStatementState {
 // report, the wording, the suggestion and the span were always here and are unchanged — the two
 // reports differ in every one of those four things.
 //
-// THE FOUR DIAGNOSTICS ARE `Analyzer.cs`'s VERBATIM. NL313 has TWO forms selected by
+// THE FIVE DIAGNOSTICS ARE `Analyzer.cs`'s VERBATIM. NL318 is the `off` handle report, whose
+// suggestion names the two-step shape that works. NL313 has TWO forms selected by
 // `DiscardedExpressionContext` — the expression-statement form and the for-iterator form — each
 // with a rich `ErrorMessageBuilder` shape when the file has a snippet and a detail-only fallback
 // when it does not. NL315 is the must-use report, whose REASON has four shapes, one per callee kind.
@@ -241,8 +257,10 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             null,
+            null,
             DiscardedExpressionContext.ExpressionStatement,
             "discarded",
+            null,
             null)
     }
 
@@ -255,8 +273,10 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             null,
+            null,
             DiscardedExpressionContext.ForIterator,
             "used as a 'for' iterator",
+            null,
             null)
     }
 
@@ -267,8 +287,10 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             null,
+            null,
             DiscardedExpressionContext.ExpressionStatement,
             "asserted",
+            null,
             null)
     }
 
@@ -283,9 +305,11 @@ public class AnalyzerExpressionStatements {
             assertThrows,
             null,
             null,
+            null,
             DiscardedExpressionContext.ExpressionStatement,
             "asserted",
-            clrTypeConversion)
+            clrTypeConversion,
+            null)
     }
 
     // A `throw` STATEMENT'S OPERAND. The SoA reports call it "thrown", and a value that survives both
@@ -299,9 +323,11 @@ public class AnalyzerExpressionStatements {
             null,
             expression,
             null,
+            null,
             DiscardedExpressionContext.ExpressionStatement,
             "thrown",
-            clrTypeConversion)
+            clrTypeConversion,
+            null)
     }
 
     // A `print` STATEMENT'S VALUE. The shortest walk in the family: `print` has no rule of its own —
@@ -314,9 +340,40 @@ public class AnalyzerExpressionStatements {
             null,
             null,
             expression,
+            null,
             DiscardedExpressionContext.ExpressionStatement,
             "printed",
+            null,
             null)
+    }
+
+    // AN `off` STATEMENT'S HANDLE. `off sub` detaches an event subscription, and its handle is an
+    // expression in statement position exactly as a `throw` operand and a `print` value are — one
+    // keyword, one expression, and a rule about the type that expression answers. The SoA reports
+    // name it `used as an off handle`, and a handle that survives both of them is measured against
+    // the runtime subscription root.
+    //
+    // THE SUBSCRIPTION ROOT IS PASSED IN rather than named here, and the reason is agreement rather
+    // than convenience. `Analyzer.cs`'s `on` expression PRODUCES a handle's type as a reflection type
+    // over the RUNTIME `NSharpEventSubscription`; `off` must measure against that same identity, and
+    // handing it from the one place that already names it makes the two halves agree structurally
+    // instead of by two independent spellings. It is also the only door that is testable: this
+    // project does not reference `NSharpLang.Runtime`, so a `Type.GetType` here would resolve only
+    // because the analyzer's HOST happens to carry the assembly.
+    public func BeginOff(
+        expression: Expression,
+        subscriptionRoot: Type): ExpressionStatementState {
+        return new ExpressionStatementState(
+            null,
+            null,
+            null,
+            null,
+            null,
+            expression,
+            DiscardedExpressionContext.ExpressionStatement,
+            "used as an off handle",
+            null,
+            subscriptionRoot)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this statement is finished. Every phase
@@ -374,6 +431,11 @@ public class AnalyzerExpressionStatements {
         printed := state.Printed
         if printed != null {
             return AdvancePrint(state, printed)
+        }
+
+        offHandle := state.OffHandle
+        if offHandle != null {
+            return AdvanceOff(state, offHandle)
         }
 
         discarded := state.Discarded
@@ -487,6 +549,88 @@ public class AnalyzerExpressionStatements {
 
         state.Phase = 99
         return null
+    }
+
+    // ── THE `off` WALK ─────────────────────────────────────────────────────────────────────────
+    //
+    // Two phases, and FOUR silence rules in a fixed order before the one report it can make. The
+    // handle's answered type is what the row report measures, so the walk suspends once; everything
+    // after that is a chain of exits. A handle already refused as a row view is not ALSO probed as a
+    // direct column read — unlike `print`, and like `throw` — and a handle refused as either is not
+    // told it is not a subscription. An `unknown` handle is silent because an earlier error already
+    // explained the problem, and only a handle that is none of those four things reaches NL318.
+    func AdvanceOff(
+        state: ExpressionStatementState,
+        expression: Expression): ExpressionStatementRequest? {
+        phase := state.Phase
+        if phase == 50 {
+            state.Phase = 51
+            state.Pending = 1
+            return NewExpressionRequest(expression)
+        }
+
+        if phase == 51 {
+            state.Phase = 99
+            handleType := state.AnsweredType
+            if soaEscapeValue.ReportSoaRowEscapeIfNeeded(expression, handleType, state.SoaUsage) {
+                state.EscapeFired = true
+                return null
+            }
+
+            if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
+                expression,
+                state.SoaUsage) {
+                state.EscapeFired = true
+                return null
+            }
+
+            if BuiltInTypes.IsUnknown(handleType) {
+                return null
+            }
+
+            if IsEventSubscriptionHandle(handleType, state.SubscriptionRoot) {
+                return null
+            }
+
+            ReportInvalidOffHandle(expression)
+            return null
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // WHETHER A HANDLE IS A SUBSCRIPTION `on` PRODUCED. `AnalyzeOnExpression` types its result as the
+    // RUNTIME `NSharpEventSubscription`, so the test is RAW CLR assignability against that runtime
+    // identity — deliberately NOT `AnalyzerConversionFacts.IsReflectionAssignableFrom`, whose
+    // cross-context identity comparison would ALSO accept a type of the same name loaded into the
+    // analyzer's MetadataLoadContext. `Analyzer.cs` asked `typeof(...).IsAssignableFrom(...)` and that
+    // answered NO for an MLC twin; this answers NO for the same reason. A non-reflected handle never
+    // reaches the root at all, which is what keeps the whole question off `int` and `string`.
+    static func IsEventSubscriptionHandle(handleType: TypeInfo, subscriptionRoot: Type?): bool {
+        reflected := handleType as ReflectionTypeInfo
+        if reflected == null {
+            return false
+        }
+
+        if subscriptionRoot == null {
+            return false
+        }
+
+        return subscriptionRoot.IsAssignableFrom(reflected.Type)
+    }
+
+    // NL318. The span is the whole handle expression, so the underline lands on the value rather than
+    // on the `off` keyword, and the suggestion shows the two-step shape that works.
+    func ReportInvalidOffHandle(expression: Expression) {
+        span := spansValue.GetExpressionDiagnosticSpan(expression)
+        diagnosticsValue.Report(
+            ErrorCode.InvalidEventSubscription,
+            "`off` expects a subscription returned by `on`",
+            span.Line,
+            span.Column,
+            "Capture the subscription first (`sub := on <object>.<Event> handler`), then detach it with `off sub`.",
+            span.Length)
     }
 
     // ── THE DISCARD WALK ───────────────────────────────────────────────────────────────────────

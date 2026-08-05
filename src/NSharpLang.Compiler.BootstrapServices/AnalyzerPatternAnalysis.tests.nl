@@ -38,14 +38,23 @@ class PatternAnalysisHarness {
     Analysis: AnalyzerPatternAnalysis
     Errors: List<CompilerError>
     Context: AnalyzerDeclarationContext
+    SoaEscape: AnalyzerSoaEscape
+    Ambient: AnalyzerAmbientContext
+    Scopes: AnalyzerScopeStack
 
     constructor(
         analysis: AnalyzerPatternAnalysis,
         errors: List<CompilerError>,
-        context: AnalyzerDeclarationContext) {
+        context: AnalyzerDeclarationContext,
+        soaEscape: AnalyzerSoaEscape,
+        ambient: AnalyzerAmbientContext,
+        scopes: AnalyzerScopeStack) {
         Analysis = analysis
         Errors = errors
         Context = context
+        SoaEscape = soaEscape
+        Ambient = ambient
+        Scopes = scopes
     }
 }
 
@@ -92,6 +101,8 @@ func PatternAnalysisDefault(): PatternAnalysisHarness {
     shapes := new AnalyzerPatternShapes(diagnostics, spans, context, assignability)
     reachability := new AnalyzerPatternReachability(diagnostics, spans, context, assignability)
     propertyBinding := new AnalyzerPropertyPatternBinding(diagnostics, spans, context, substitution)
+    escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
+    ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
 
     return new PatternAnalysisHarness(
         new AnalyzerPatternAnalysis(
@@ -102,9 +113,14 @@ func PatternAnalysisDefault(): PatternAnalysisHarness {
             exhaustiveness,
             shapes,
             reachability,
-            propertyBinding),
+            propertyBinding,
+            escape,
+            ambient),
         errors,
-        context)
+        context,
+        escape,
+        ambient,
+        scopes)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -124,6 +140,16 @@ func PatternLiteralOf(value: int): Pattern {
 
 func PatternRelationalOf(op: string, value: int): Pattern {
     bound: Expression = new IntLiteralExpression(value.ToString(), 7, 11)
+    result: Pattern = new RelationalPattern(op, bound, 7, 9)
+    return result
+}
+
+func PatternLiteralOfNode(literal: Expression): Pattern {
+    result: Pattern = new LiteralPattern(literal, 7, 9)
+    return result
+}
+
+func PatternRelationalOfNode(op: string, bound: Expression): Pattern {
     result: Pattern = new RelationalPattern(op, bound, 7, 9)
     return result
 }
@@ -393,17 +419,22 @@ func PatternRenderStep(step: PatternAnalysisRequest): string {
         return "expr:" + nodeObject.GetType().Name
     }
 
-    if step.Kind == 2 {
-        return "soarow:" + PatternTypeName(step.CarriedType) + ":" + step.Text
-    }
-
-    if step.Kind == 3 {
-        return "soacol:" + step.Text
-    }
-
     if step.Kind == 4 {
         return "declare:" + step.Name + ":" + PatternTypeName(step.CarriedType)
             + ":" + step.Line.ToString() + ":" + step.Column.ToString()
+    }
+
+    if step.Kind == 6 {
+        return "scope+:" + step.Line.ToString() + ":" + step.Column.ToString()
+    }
+
+    if step.Kind == 7 {
+        statements := step.Statements
+        return "stmts:" + statements.Count.ToString()
+    }
+
+    if step.Kind == 8 {
+        return "scope-"
     }
 
     nested := step.Pattern
@@ -412,14 +443,13 @@ func PatternRenderStep(step: PatternAnalysisRequest): string {
 }
 
 // Pulls the walk the way the driver pulls it and renders the whole request sequence as one string.
-// `answer` is what every expression analysis is told the type is, and `escaped` is what every escape
-// report is told it did — the two answers the walk's schedule depends on.
+// `answer` is what every expression analysis is told the type is — the one answer the walk's
+// schedule depends on now that both escape reports are direct calls on the held reporter.
 func PatternTranscriptAnswering(
     harness: PatternAnalysisHarness,
     patternNode: Pattern,
     valueType: TypeInfo,
-    answer: TypeInfo?,
-    escaped: bool): string {
+    answer: TypeInfo?): string {
     state := harness.Analysis.Begin(patternNode, valueType)
     rendered := ""
     step := harness.Analysis.NextStep(state)
@@ -428,7 +458,7 @@ func PatternTranscriptAnswering(
             rendered = rendered + "|"
         }
         rendered = rendered + PatternRenderStep(step)
-        harness.Analysis.Supply(state, answer, escaped)
+        harness.Analysis.Supply(state, answer)
         step = harness.Analysis.NextStep(state)
     }
 
@@ -444,7 +474,91 @@ func PatternTranscript(
     harness: PatternAnalysisHarness,
     patternNode: Pattern,
     valueType: TypeInfo): string {
-    return PatternTranscriptAnswering(harness, patternNode, valueType, BuiltInTypes.Int, false)
+    return PatternTranscriptAnswering(harness, patternNode, valueType, BuiltInTypes.Int)
+}
+
+// The same pull over a `switch` STATEMENT rather than a pattern node. The value's answered type is
+// what every case pattern below it is measured against, so it is the one answer this driver gives.
+func PatternSwitchTranscript(
+    harness: PatternAnalysisHarness,
+    switchNode: SwitchStatement,
+    answer: TypeInfo?): string {
+    state := harness.Analysis.BeginSwitch(switchNode)
+    rendered := ""
+    step := harness.Analysis.NextStep(state)
+    while step != null {
+        if rendered.Length > 0 {
+            rendered = rendered + "|"
+        }
+        rendered = rendered + PatternRenderStep(step)
+        harness.Analysis.Supply(state, answer)
+        step = harness.Analysis.NextStep(state)
+    }
+
+    if rendered.Length == 0 {
+        return "<none>"
+    }
+
+    return rendered
+}
+
+// ---------------------------------------------------------------------------------------------
+// SWITCH AND SoA BUILDERS
+// ---------------------------------------------------------------------------------------------
+
+func PatternStatementList0(): List<Statement> {
+    return new List<Statement>()
+}
+
+func PatternPrintOf(text: string): Statement {
+    literal: Expression = new StringLiteralExpression(text, 9, 9)
+    result: Statement = new PrintStatement(literal, 9, 5)
+    return result
+}
+
+func PatternStatementList1(text: string): List<Statement> {
+    result := PatternStatementList0()
+    result.Add(PatternPrintOf(text))
+    return result
+}
+
+func PatternCaseOf(pattern: Pattern?, statements: List<Statement>, line: int, column: int): SwitchCase {
+    return new SwitchCase(pattern, statements, line, column)
+}
+
+func PatternSwitchCases0(): List<SwitchCase> {
+    return new List<SwitchCase>()
+}
+
+func PatternSwitchOf(cases: List<SwitchCase>): SwitchStatement {
+    value: Expression = new IdentifierExpression("scrutinee", 4, 12)
+    return new SwitchStatement(value, cases, 4, 5)
+}
+
+func PatternSoaColumns(): List<SoaColumnInfo> {
+    columns := new List<SoaColumnInfo>()
+    columns.Add(new SoaColumnInfo("x", new SimpleTypeReference("int", 0, 0), 1, 1))
+    return columns
+}
+
+func PatternRowType(): TypeInfo {
+    row: TypeInfo = new SoaRowTypeInfo(
+        new SoaRecordDeclarationInfo("Particle", PatternSoaColumns(), 1, 1))
+    return row
+}
+
+// A member access the SoA escape reporter has RECORDED as a resolved column read. The syntactic
+// probe consults that record, so registering the node is what makes the direct-column report fire.
+func PatternRecordedColumnRead(harness: PatternAnalysisHarness): Expression {
+    member := new MemberAccessExpression(
+        new IdentifierExpression("points", 7, 11),
+        "x",
+        false,
+        7,
+        11)
+    harness.SoaEscape.RecordColumnMemberAccess(member)
+    read: Expression = member
+    return read
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -680,7 +794,7 @@ test "a missing case property REPORTS WHERE IT SITS — between the step before 
     assert first.Kind == 5
     // Nothing has been reported yet: the walk has not passed the missing property.
     assert harness.Errors.Count == 0
-    harness.Analysis.Supply(state, null, false)
+    harness.Analysis.Supply(state, null)
 
     second := harness.Analysis.NextStep(state)
     assert second != null
@@ -691,7 +805,7 @@ test "a missing case property REPORTS WHERE IT SITS — between the step before 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message
         == "Union case 'Box' doesn't have a property named 'depth' — check the case definition for available properties"
-    harness.Analysis.Supply(state, null, false)
+    harness.Analysis.Supply(state, null)
     assert harness.Analysis.NextStep(state) == null
 }
 
@@ -783,103 +897,104 @@ test "a case property with no position of its own is anchored on the ENCLOSING p
 }
 
 // ---------------------------------------------------------------------------------------------
-// THE LITERAL ARM — THREE FIXED STEPS WHOSE SECOND CARRIES THE FIRST'S ANSWER
+// THE LITERAL ARM — ONE SUSPENSION, THEN TWO REPORTS THE WALK MAKES ITSELF
 // ---------------------------------------------------------------------------------------------
 
-test "a literal pattern analyses its literal, then asks both escape gates, in that order" {
+test "a literal pattern suspends ONCE — its two escape reports are no longer driver steps" {
     harness := PatternAnalysisDefault()
 
     assert PatternTranscript(harness, PatternLiteralOf(3), BuiltInTypes.Int)
-        == "expr:IntLiteralExpression|soarow:int:used as a pattern value|soacol:used as a pattern value"
+        == "expr:IntLiteralExpression"
     assert harness.Errors.Count == 0
 }
 
-test "the literal arm's row-escape step CARRIES the type the analysis before it answered" {
+test "the literal arm's row report MEASURES the type the analysis before it answered" {
     harness := PatternAnalysisDefault()
 
-    // The operand is the DRIVER's answer, not the scrutinee: a walk handed `string` passes `string`
-    // on, which is precisely why this schedule cannot be computed up front.
+    // The operand is the DRIVER's answer, not the scrutinee: a walk handed a row view reports even
+    // though the scrutinee is `int`, which is precisely why the report cannot be hoisted above the
+    // step. This is a strictly stronger pinning than the driver boolean it replaced — the reporter
+    // itself decides now.
     assert PatternTranscriptAnswering(
             harness,
             PatternLiteralOf(3),
             BuiltInTypes.Int,
-            BuiltInTypes.String,
-            false)
-        == "expr:IntLiteralExpression|soarow:string:used as a pattern value|soacol:used as a pattern value"
-    assert harness.Errors.Count == 0
+            PatternRowType())
+        == "expr:IntLiteralExpression"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as a pattern value; use the table and row index instead"
 }
 
-test "the literal arm never short-circuits — both escape answers are discarded" {
+test "the literal arm never short-circuits — a row view AND a column read both report" {
     harness := PatternAnalysisDefault()
+    columnRead := PatternRecordedColumnRead(harness)
 
     assert PatternTranscriptAnswering(
             harness,
-            PatternLiteralOf(3),
+            PatternLiteralOfNode(columnRead),
             BuiltInTypes.Int,
-            BuiltInTypes.Int,
-            true)
-        == "expr:IntLiteralExpression|soarow:int:used as a pattern value|soacol:used as a pattern value"
-    assert harness.Errors.Count == 0
+            PatternRowType())
+        == "expr:MemberAccessExpression"
+    // TWO diagnostics on one literal. Every other arm in this family and in the loop family stops at
+    // the first; the literal arm does not, and that is `Analyzer.cs`'s behaviour preserved.
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as a pattern value; use the table and row index instead"
+    assert harness.Errors[1].Message
+        == "SoA table member 'x' cannot be used as a pattern value directly"
 }
 
 // ---------------------------------------------------------------------------------------------
-// THE RELATIONAL ARM — A SCHEDULE WHOSE LENGTH IS A FUNCTION OF AN ANSWER
+// THE RELATIONAL ARM — A REPORT CHAIN WHOSE LENGTH IS A FUNCTION OF AN ANSWER
 // ---------------------------------------------------------------------------------------------
 
-test "a relational pattern analyses its bound, asks both gates, then judges comparability" {
+test "a relational pattern suspends once, then judges comparability" {
     harness := PatternAnalysisDefault()
 
     assert PatternTranscriptAnswering(
             harness,
             PatternRelationalOf(">", 3),
             BuiltInTypes.Int,
-            BuiltInTypes.Int,
-            false)
-        == "expr:IntLiteralExpression|soarow:int:used as a relational pattern value"
-            + "|soacol:used as a relational pattern value"
+            BuiltInTypes.Int)
+        == "expr:IntLiteralExpression"
     assert harness.Errors.Count == 0
 }
 
-test "an ESCAPING bound stops the walk before the direct-column step and before the judgement" {
+test "an ESCAPING bound stops the chain before the column probe and before the judgement" {
     harness := PatternAnalysisDefault()
 
-    // The row-escape report answered TRUE, so the schedule is TWO steps rather than three and the
-    // comparability judgement is not asked at all — no NL202 for the `int` versus `string` pair.
+    // The row report fires, so the direct-column probe is not run and the comparability judgement is
+    // not asked at all — ONE diagnostic, not two, and no NL202 for the `int` versus row-view pair.
     assert PatternTranscriptAnswering(
             harness,
             PatternRelationalOf(">", 3),
             BuiltInTypes.Int,
-            BuiltInTypes.String,
-            true)
-        == "expr:IntLiteralExpression|soarow:string:used as a relational pattern value"
-    assert harness.Errors.Count == 0
+            PatternRowType())
+        == "expr:IntLiteralExpression"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as a relational pattern value; use the table and row index instead"
 }
 
-test "a DIRECT-COLUMN bound stops the walk after the third step, with the row gate silent" {
+test "a DIRECT-COLUMN bound reports once, with the row report silent and the judgement skipped" {
     harness := PatternAnalysisDefault()
-    state := harness.Analysis.Begin(PatternRelationalOf(">", 3), BuiltInTypes.Int)
+    columnRead := PatternRecordedColumnRead(harness)
 
-    first := harness.Analysis.NextStep(state)
-    assert first != null
-    assert first.Kind == 1
-    harness.Analysis.Supply(state, BuiltInTypes.String, false)
-
-    second := harness.Analysis.NextStep(state)
-    assert second != null
-    assert second.Kind == 2
-    // The ROW gate declines, so the direct-column gate is still asked.
-    harness.Analysis.Supply(state, null, false)
-
-    third := harness.Analysis.NextStep(state)
-    assert third != null
-    assert third.Kind == 3
-    // The DIRECT-COLUMN gate fires. No pattern grammar reaches this answer — a relational bound is a
-    // primary expression and a column access is a member access — so it is pinned here rather than by
-    // a fixture, and what it must do is suppress the comparability report.
-    harness.Analysis.Supply(state, null, true)
-
-    assert harness.Analysis.NextStep(state) == null
-    assert harness.Errors.Count == 0
+    // The ROW report declines — the answered type is `string`, not a row view — so the column probe
+    // is still run, and IT fires. No pattern grammar reaches this shape (a relational bound is a
+    // primary expression and a column access is a member access), so it is pinned here rather than
+    // by a fixture, and what it must do is suppress the comparability report that `int` versus
+    // `string` would otherwise raise.
+    assert PatternTranscriptAnswering(
+            harness,
+            PatternRelationalOfNode(">", columnRead),
+            BuiltInTypes.Int,
+            BuiltInTypes.String)
+        == "expr:MemberAccessExpression"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA table member 'x' cannot be used as a relational pattern value directly"
 }
 
 test "the comparability judgement is handed the ANSWERED type, not the scrutinee" {
@@ -890,10 +1005,8 @@ test "the comparability judgement is handed the ANSWERED type, not the scrutinee
             harness,
             PatternRelationalOf(">", 3),
             BuiltInTypes.Int,
-            BuiltInTypes.String,
-            false)
-        == "expr:IntLiteralExpression|soarow:string:used as a relational pattern value"
-            + "|soacol:used as a relational pattern value"
+            BuiltInTypes.String)
+        == "expr:IntLiteralExpression"
     assert harness.Errors.Count == 1
     // The comparability report belongs to the SHAPE owner and carries the general type-mismatch
     // code, not the pattern family's own NL503/NL504.
@@ -981,7 +1094,7 @@ test "the property walk's own report lands between two forwarded steps" {
     assert first != null
     assert first.Kind == 5
     assert harness.Errors.Count == 0
-    harness.Analysis.Supply(state, null, false)
+    harness.Analysis.Supply(state, null)
 
     second := harness.Analysis.NextStep(state)
     assert second != null
@@ -1139,7 +1252,7 @@ test "an exhausted walk keeps answering null rather than restarting" {
     first := harness.Analysis.NextStep(state)
     assert first != null
     assert first.Kind == 4
-    harness.Analysis.Supply(state, null, false)
+    harness.Analysis.Supply(state, null)
 
     assert harness.Analysis.NextStep(state) == null
     assert harness.Analysis.NextStep(state) == null
@@ -1153,14 +1266,12 @@ test "a NULL answer to an analysis leaves the walk's carried type alone" {
     first := harness.Analysis.NextStep(state)
     assert first != null
     assert first.Kind == 1
-    harness.Analysis.Supply(state, null, false)
+    harness.Analysis.Supply(state, null)
 
-    second := harness.Analysis.NextStep(state)
-    assert second != null
-    assert second.Kind == 2
     // `unknown` is the state's own starting value — a driver that answers nothing does not make the
-    // walk carry a null type onwards.
-    assert PatternTypeName(second.CarriedType) == "unknown"
+    // walk carry a null type onwards, and the row report it is handed to therefore declines.
+    assert PatternTypeName(state.AnalyzedType) == "unknown"
+    assert harness.Analysis.NextStep(state) == null
     assert harness.Errors.Count == 0
 }
 
@@ -1168,6 +1279,7 @@ test "a fresh state starts at the dispatch and carries no arm's working set" {
     harness := PatternAnalysisDefault()
     state := harness.Analysis.Begin(PatternIdent("bound", 7, 9), BuiltInTypes.Int)
 
+    assert state.Form == 0
     assert state.Phase == 0
     assert state.Pending == 0
     assert state.Index == 0
@@ -1176,5 +1288,176 @@ test "a fresh state starts at the dispatch and carries no arm's working set" {
     assert state.PropertyState == null
     assert state.CaseProperties == null
     assert state.PatternProperties == null
+    assert state.SwitchNode == null
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE `switch` STATEMENT — THE PATTERN FAMILY'S SECOND FORM
+// ---------------------------------------------------------------------------------------------
+
+test "a fresh switch state opens in its own form and its own phase band" {
+    harness := PatternAnalysisDefault()
+    state := harness.Analysis.BeginSwitch(PatternSwitchOf(PatternSwitchCases0()))
+
+    assert state.Form == 1
+    assert state.Phase == 70
+    assert state.PatternNode == null
+    assert state.SwitchNode != null
+    // The scrutinee type is not known until the walk's own first step answers it.
+    assert PatternTypeName(state.SwitchValueType) == "unknown"
+    assert state.SavedBreakDepth == 0
+}
+
+test "a switch with no cases analyses its value and nothing else" {
+    harness := PatternAnalysisDefault()
+
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(PatternSwitchCases0()), BuiltInTypes.Int)
+        == "expr:IdentifierExpression"
+    assert harness.Errors.Count == 0
+}
+
+test "one case opens a scope, analyses its pattern, analyses its body, closes the scope" {
+    harness := PatternAnalysisDefault()
+    cases := PatternSwitchCases0()
+    cases.Add(PatternCaseOf(PatternIdent("bound", 7, 9), PatternStatementList1("hit"), 6, 5))
+
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int)
+        == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:int|stmts:1|scope-"
+    assert harness.Errors.Count == 0
+}
+
+test "the case scope is positioned at the SWITCH, not at the case and not at the pattern" {
+    harness := PatternAnalysisDefault()
+    cases := PatternSwitchCases0()
+    // The case is at 6:5 and its pattern at 7:9; the switch is at 4:5, and 4:5 is what the scope
+    // step carries. `AnalyzeMatchExpression` uses the PATTERN's position for its arms — this walk
+    // deliberately does not, because `Analyzer.cs` did not.
+    cases.Add(PatternCaseOf(PatternIdent("bound", 7, 9), PatternStatementList0(), 6, 5))
+
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int)
+        == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:int|stmts:0|scope-"
+}
+
+test "a DEFAULT case still opens and closes its own scope, with no pattern step between" {
+    harness := PatternAnalysisDefault()
+    cases := PatternSwitchCases0()
+    cases.Add(PatternCaseOf(null, PatternStatementList1("fallback"), 6, 5))
+
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int)
+        == "expr:IdentifierExpression|scope+:4:5|stmts:1|scope-"
+    assert harness.Errors.Count == 0
+}
+
+test "three cases replay the four operations three times, and every scope is balanced" {
+    harness := PatternAnalysisDefault()
+    cases := PatternSwitchCases0()
+    cases.Add(PatternCaseOf(PatternIdent("a", 7, 9), PatternStatementList1("a"), 6, 5))
+    cases.Add(PatternCaseOf(PatternIdent("b", 8, 9), PatternStatementList0(), 7, 5))
+    cases.Add(PatternCaseOf(null, PatternStatementList1("d"), 8, 5))
+
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int)
+        == "expr:IdentifierExpression"
+            + "|scope+:4:5|analyze:IdentifierPattern:int|stmts:1|scope-"
+            + "|scope+:4:5|analyze:IdentifierPattern:int|stmts:0|scope-"
+            + "|scope+:4:5|stmts:1|scope-"
+    assert harness.Errors.Count == 0
+}
+
+test "every case pattern is measured against the value's ANSWERED type, not the state's opening one" {
+    harness := PatternAnalysisDefault()
+    cases := PatternSwitchCases0()
+    cases.Add(PatternCaseOf(PatternIdent("a", 7, 9), PatternStatementList0(), 6, 5))
+
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.String)
+        == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:string|stmts:0|scope-"
+}
+
+test "a ROW-VIEW switch value reports once and collapses every case pattern to unknown" {
+    harness := PatternAnalysisDefault()
+    cases := PatternSwitchCases0()
+    cases.Add(PatternCaseOf(PatternIdent("a", 7, 9), PatternStatementList0(), 6, 5))
+
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), PatternRowType())
+        == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:unknown|stmts:0|scope-"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as a switch value; use the table and row index instead"
+}
+
+test "the switch value's row report SHORT-CIRCUITS the column probe" {
+    harness := PatternAnalysisDefault()
+    columnRead := PatternRecordedColumnRead(harness)
+    switchNode := new SwitchStatement(columnRead, PatternSwitchCases0(), 4, 5)
+
+    // The value is BOTH a row view by type and a recorded column read by syntax. `switch` joins its
+    // two reports with `||`, so only the first fires — unlike `print`, which reports both.
+    assert PatternSwitchTranscript(harness, switchNode, PatternRowType())
+        == "expr:MemberAccessExpression"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA row views cannot be used as a switch value; use the table and row index instead"
+}
+
+test "a DIRECT-COLUMN switch value reports the column form and also collapses to unknown" {
+    harness := PatternAnalysisDefault()
+    columnRead := PatternRecordedColumnRead(harness)
+    cases := PatternSwitchCases0()
+    cases.Add(PatternCaseOf(PatternIdent("a", 7, 9), PatternStatementList0(), 6, 5))
+    switchNode := new SwitchStatement(columnRead, cases, 4, 5)
+
+    assert PatternSwitchTranscript(harness, switchNode, BuiltInTypes.Int)
+        == "expr:MemberAccessExpression|scope+:4:5|analyze:IdentifierPattern:unknown|stmts:0|scope-"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message
+        == "SoA table member 'x' cannot be used as a switch value directly"
+}
+
+test "the switch moves ONLY the break target's finally depth, and restores it on the way out" {
+    harness := PatternAnalysisDefault()
+    harness.Ambient.EnterFinally()
+    cases := PatternSwitchCases0()
+    cases.Add(PatternCaseOf(null, PatternStatementList0(), 6, 5))
+    switchNode := PatternSwitchOf(cases)
+
+    beforeBreak := harness.Ambient.BreakTargetFinallyDepth
+    beforeContinue := harness.Ambient.ContinueTargetFinallyDepth
+    beforeInLoop := harness.Ambient.InLoop
+
+    state := harness.Analysis.BeginSwitch(switchNode)
+    step := harness.Analysis.NextStep(state)
+    harness.Analysis.Supply(state, BuiltInTypes.Int)
+
+    // Inside the walk the break target has moved to the switch's ENTRY depth — which is what makes
+    // NL319 fire on a `break` out of a `finally` — while `continue` and the loop flag are untouched.
+    step = harness.Analysis.NextStep(state)
+    assert harness.Ambient.BreakTargetFinallyDepth == harness.Ambient.FinallyDepth
+    assert harness.Ambient.ContinueTargetFinallyDepth == beforeContinue
+    assert harness.Ambient.InLoop == beforeInLoop
+
+    while step != null {
+        harness.Analysis.Supply(state, null)
+        step = harness.Analysis.NextStep(state)
+    }
+
+    assert harness.Ambient.BreakTargetFinallyDepth == beforeBreak
+    assert harness.Ambient.ContinueTargetFinallyDepth == beforeContinue
+    assert harness.Ambient.InLoop == beforeInLoop
+}
+
+test "an exhausted switch walk keeps answering null rather than replaying its cases" {
+    harness := PatternAnalysisDefault()
+    cases := PatternSwitchCases0()
+    cases.Add(PatternCaseOf(null, PatternStatementList0(), 6, 5))
+    state := harness.Analysis.BeginSwitch(PatternSwitchOf(cases))
+
+    step := harness.Analysis.NextStep(state)
+    while step != null {
+        harness.Analysis.Supply(state, BuiltInTypes.Int)
+        step = harness.Analysis.NextStep(state)
+    }
+
+    assert state.Phase == 99
+    assert harness.Analysis.NextStep(state) == null
+    assert harness.Analysis.NextStep(state) == null
 }
 
