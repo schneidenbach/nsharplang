@@ -282,7 +282,7 @@ class AnalyzerClrTypeConversion {
             index = index + 1
         }
 
-        return typeDefinition.MakeGenericType(arguments)
+        return CloseGenericDefinition(typeDefinition, genericType.Name, arguments)
     }
 
     // The surrogate half of generic construction. It reads the SMALLER surrogate vocabulary, and
@@ -317,7 +317,67 @@ class AnalyzerClrTypeConversion {
             index = index + 1
         }
 
-        return typeDefinition.MakeGenericType(arguments)
+        return CloseGenericDefinition(typeDefinition, genericType.Name, arguments)
+    }
+
+    // Closing a definition over converted arguments must stay INSIDE one reflection context. The
+    // definition can arrive from a different context than the arguments — the async call-return
+    // wrap carries the RUNTIME `Task´1`/`ValueTask´1` while a declared annotation's argument is its
+    // MetadataLoadContext twin — and `MakeGenericType` does not fail on the mix: it answers a
+    // `TypeBuilderInstantiation`, whose every member lookup throws NotSupportedException. That
+    // poisoned shape crashed `nlc check` on any member use of an `async func(): T` call result.
+    // The mix is detected on the RESULT and re-homed into the arguments' context through the
+    // compiler-known table; a close the CLR refuses outright (a metadata definition over a foreign
+    // argument throws instead of poisoning) or a mix the table cannot re-home is a null answer —
+    // never a poisoned instantiation.
+    func CloseGenericDefinition(typeDefinition: Type, genericName: string, arguments: Type[]): Type? {
+        closed: Type? = null
+        try {
+            closed = typeDefinition.MakeGenericType(arguments)
+        } catch {
+            closed = null
+        }
+
+        if closed != null {
+            if !IsPoisonedMixedInstantiation(closed) {
+                return closed
+            }
+        }
+
+        rehomed := NormalizeOpenDefinition(AnalyzerWellKnownTypeFacts.KnownOpenGenericType(wellKnownTypes, genericName, arguments.Length))
+        if rehomed == null {
+            return null
+        }
+
+        if rehomed.GetGenericArguments().Length != arguments.Length {
+            return null
+        }
+
+        reclosed: Type? = null
+        try {
+            reclosed = rehomed.MakeGenericType(arguments)
+        } catch {
+            reclosed = null
+        }
+
+        if reclosed == null {
+            return null
+        }
+
+        if IsPoisonedMixedInstantiation(reclosed) {
+            return null
+        }
+
+        return reclosed
+    }
+
+    // The CLR's answer for a generic instantiation whose definition and arguments come from
+    // different reflection universes, named by its implementation class because the platform
+    // exposes no public predicate for it. The mixed-context contract pins this detection, so a
+    // platform rename fails a test rather than silently reopening the crash.
+    static func IsPoisonedMixedInstantiation(closed: Type): bool {
+        boxed := closed as object
+        return boxed.GetType().Name == "TypeBuilderInstantiation"
     }
 
     // A built-in simple type read out of the metadata facts. A simple type that is not one of the

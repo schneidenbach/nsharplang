@@ -288,7 +288,8 @@ class AnalyzerFunctionTypeFactory {
         return wrappedValueTask
     }
 
-    // The unit task-likes: the source-declared ones the pure facts know, plus the two runtime types.
+    // The unit task-likes: the source-declared ones the pure facts know, plus the reflected core
+    // `Task`/`ValueTask` under ANY reflection context (see IsCoreTaskFamilyType).
     static func IsUnitTaskLikeTypeInfo(candidate: TypeInfo): bool {
         if TaskLikeTypeFacts.IsUnitTaskLikeType(candidate) {
             return true
@@ -300,17 +301,11 @@ class AnalyzerFunctionTypeFactory {
         }
 
         reflected := reflection.Type
-        unitTask := RequiredCoreType("System.Threading.Tasks.Task")
-        if Object.Equals(reflected, unitTask) {
-            return true
-        }
-
-        unitValueTask := RequiredCoreType("System.Threading.Tasks.ValueTask")
-        return Object.Equals(reflected, unitValueTask)
+        return IsCoreTaskFamilyType(reflected, "System.Threading.Tasks.Task") || IsCoreTaskFamilyType(reflected, "System.Threading.Tasks.ValueTask")
     }
 
-    // The awaited result of a task-like type: the source-declared arm first, then the two runtime
-    // generic definitions.
+    // The awaited result of a task-like type: the source-declared arm first, then the reflected
+    // core generic definitions under ANY reflection context (see IsCoreTaskFamilyType).
     static func TryGetTaskLikeResultTypeInfo(candidate: TypeInfo, out resultType: TypeInfo): bool {
         sourceResult := TaskLikeTypeFacts.GetTaskLikeResultType(candidate)
         declaredResult := sourceResult.SourceResultType
@@ -331,9 +326,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         definition := reflected.GetGenericTypeDefinition()
-        genericTask := RequiredCoreType("System.Threading.Tasks.Task`1")
-        genericValueTask := RequiredCoreType("System.Threading.Tasks.ValueTask`1")
-        if !Object.Equals(definition, genericTask) && !Object.Equals(definition, genericValueTask) {
+        if !IsCoreTaskFamilyType(definition, "System.Threading.Tasks.Task`1") && !IsCoreTaskFamilyType(definition, "System.Threading.Tasks.ValueTask`1") {
             return false
         }
 
@@ -622,6 +615,25 @@ class AnalyzerFunctionTypeFactory {
         }
 
         return result
+    }
+
+    // Task-family identity ACROSS reflection contexts. The analyzer sees `Task` under more than one
+    // identity — the runtime type, and the MetadataLoadContext twin a declared `: Task` annotation
+    // resolves to through the reference scan — and a reference-equality check against the runtime
+    // type answers NO for the metadata twin. That NO used to send an `async func(): Task` call
+    // result through the ValueTask<...> wrap below, and converting that mixed-context instantiation
+    // produced a TypeBuilderInstantiation whose every member lookup throws NotSupportedException —
+    // `nlc check` crashed instead of analyzing. Identity here is the full name plus a core-library
+    // home, which every twin of the BCL task family carries.
+    static func IsCoreTaskFamilyType(candidate: Type, fullName: string): bool {
+        if candidate.get_FullName() != fullName {
+            return false
+        }
+
+        assembly := candidate.get_Assembly()
+        identity := assembly.GetName()
+        assemblyName := identity.get_Name()
+        return assemblyName == "System.Private.CoreLib" || assemblyName == "System.Runtime" || assemblyName == "netstandard" || assemblyName == "mscorlib"
     }
 
     // The two task families live in the core library. They are read by NAME rather than through

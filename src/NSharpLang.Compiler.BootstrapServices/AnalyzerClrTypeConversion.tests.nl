@@ -295,10 +295,14 @@ test "a carried generic definition overrides the table and is normalized to an o
         funnel := new AnalyzerClrTypeConversion(ClrConversionContext("/tmp/clr-carried.nl"), facts)
 
         // A CLOSED definition gives up its open definition rather than being rejected, and the NAME
-        // is ignored entirely once a definition is carried.
+        // is ignored entirely once a definition is carried. The argument is spelled as the RUNTIME
+        // `int` so definition and argument share a context: a built-in argument would convert to
+        // the METADATA `Int32`, and a mixed pair is no longer constructible (see the mixed-context
+        // contract below — this assertion used to pin a `TypeBuilderInstantiation`).
         closed := new ReflectionTypeInfo(typeof(List<string>)) as TypeInfo
+        runtimeInt := new ReflectionTypeInfo(typeof(int)) as TypeInfo
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("NotAKnownName", ClrConversionArgs(BuiltInTypes.Int), closed)))
+            new GenericTypeInfo("NotAKnownName", ClrConversionArgs(runtimeInt), closed)))
             == "System.Collections.Generic.List`1<System.Int32>"
 
         // A non-generic definition is not a definition at all.
@@ -318,6 +322,61 @@ test "a carried generic definition overrides the table and is normalized to an o
                 "NotAKnownName",
                 ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.Int),
                 closed)) == null
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "a mixed-context construction re-homes through the table or answers nothing" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        facts := ClrConversionFacts(context)
+        funnel := new AnalyzerClrTypeConversion(ClrConversionContext("/tmp/clr-mixed.nl"), facts)
+        core := context.LoadFromAssemblyName("System.Runtime")
+
+        // The async call-return wrap's exact shape: the RUNTIME `ValueTask´1` definition closed
+        // over a METADATA argument (a built-in converts to the metadata `Int32` once facts exist).
+        // `MakeGenericType` does not fail on this mix — it answers a `TypeBuilderInstantiation`,
+        // whose every member lookup throws NotSupportedException, and that poisoned shape crashed
+        // `nlc check` on any member use of an `async func(): T` call result. The funnel re-homes
+        // the definition into the arguments' context instead, so the answer is the METADATA
+        // `ValueTask´1<Int32>` — a shape member lookup can serve. The definition-identity asserts
+        // also pin the poison DETECTION: if the platform renamed its poisoned implementation
+        // class, the un-re-homed runtime definition would come back and fail here.
+        wrapDefinition := Type.GetType("System.Threading.Tasks.ValueTask`1, System.Private.CoreLib")
+        assert wrapDefinition != null
+        metadataValueTaskDefinition := core.GetType("System.Threading.Tasks.ValueTask`1")
+        assert metadataValueTaskDefinition != null
+        assert metadataValueTaskDefinition != wrapDefinition
+        rehomed := funnel.TryConvertTypeInfoToClrType(
+            new GenericTypeInfo(
+                "ValueTask",
+                ClrConversionArgs(BuiltInTypes.Int),
+                new ReflectionTypeInfo(wrapDefinition)))
+        assert rehomed != null
+        assert ClrGenericShape(rehomed) == "System.Threading.Tasks.ValueTask`1<System.Int32>"
+        assert rehomed.GetGenericTypeDefinition() == metadataValueTaskDefinition
+        assert rehomed.GetGenericTypeDefinition() != wrapDefinition
+
+        // Re-homing goes through the compiler-known table by NAME, so a name the table does not
+        // carry has nowhere to re-home and the mix is refused outright rather than constructed.
+        assert funnel.TryConvertTypeInfoToClrType(
+            new GenericTypeInfo(
+                "NotAKnownName",
+                ClrConversionArgs(BuiltInTypes.Int),
+                new ReflectionTypeInfo(wrapDefinition))) == null
+
+        // Arguments that disagree AMONG THEMSELVES cannot cohere in any context.
+        metadataString := core.GetType("System.String")
+        assert metadataString != null
+        assert funnel.TryConvertTypeInfoToClrType(
+            new GenericTypeInfo(
+                "Dictionary",
+                ClrConversionArgs2(
+                    new ReflectionTypeInfo(typeof(string)),
+                    new ReflectionTypeInfo(metadataString)))) == null
     } finally {
         scan.Dispose()
     }

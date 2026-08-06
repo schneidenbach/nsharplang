@@ -543,3 +543,170 @@ func FactoryClose(definition: Type, argument: Type): Type {
     arguments[0] = argument
     return definition.MakeGenericType(arguments)
 }
+
+// ── the MetadataLoadContext dimension of the task family ─────────────────────
+//
+// A declared `: Task` annotation resolves through the reference scan, so the factory routinely
+// sees the METADATA `Task` — the same full name as the runtime type, a different object. Both
+// twins must answer the task-family questions identically. The reference-identity comparison that
+// preceded these contracts answered NO for the metadata twin, so an `async func(): Task` call
+// result was wrapped into `ValueTask<metadata Task>`, and converting that mixed-context shape for
+// member lookup produced a `TypeBuilderInstantiation` whose every probe throws
+// NotSupportedException — `nlc check` crashed on ANY member use of such a call result. (The
+// slice-36/37 census fixtures — `d21-await-statement` and four `await foreach` fixtures — hit
+// exactly this, identically on both differential sides.)
+
+test "the metadata twins of the unit task family are unit task-like and stay as written" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+
+        metadataTask := core.GetType("System.Threading.Tasks.Task")
+        assert metadataTask != null
+        assert metadataTask != FactoryRuntimeType("System.Threading.Tasks.Task, System.Private.CoreLib")
+        metadataUnitTask: TypeInfo = new ReflectionTypeInfo(metadataTask)
+        assert AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(metadataUnitTask)
+
+        // The call-return rule leaves the declared type EXACTLY as written — no ValueTask wrap.
+        resolvedTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
+            "f", true, false, metadataUnitTask)
+        assert Object.ReferenceEquals(resolvedTask, metadataUnitTask)
+
+        metadataValueTask := core.GetType("System.Threading.Tasks.ValueTask")
+        assert metadataValueTask != null
+        metadataUnitValueTask: TypeInfo = new ReflectionTypeInfo(metadataValueTask)
+        assert AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(metadataUnitValueTask)
+        resolvedValueTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
+            "f", true, false, metadataUnitValueTask)
+        assert Object.ReferenceEquals(resolvedValueTask, metadataUnitValueTask)
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "the metadata generic task family answers its awaited result and stays as written" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataInt := core.GetType("System.Int32")
+        assert metadataInt != null
+
+        metadataTaskDefinition := core.GetType("System.Threading.Tasks.Task`1")
+        assert metadataTaskDefinition != null
+        metadataTaskOfInt: TypeInfo = new ReflectionTypeInfo(
+            FactoryClose(metadataTaskDefinition, metadataInt))
+        taskResult: TypeInfo = BuiltInTypes.Unknown
+        assert AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(metadataTaskOfInt, out taskResult)
+        assert FactoryTypeName(taskResult) == "int"
+        resolvedTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
+            "f", true, false, metadataTaskOfInt)
+        assert Object.ReferenceEquals(resolvedTask, metadataTaskOfInt)
+
+        metadataValueTaskDefinition := core.GetType("System.Threading.Tasks.ValueTask`1")
+        assert metadataValueTaskDefinition != null
+        metadataValueTaskOfInt: TypeInfo = new ReflectionTypeInfo(
+            FactoryClose(metadataValueTaskDefinition, metadataInt))
+        valueTaskResult: TypeInfo = BuiltInTypes.Unknown
+        assert AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(
+            metadataValueTaskOfInt, out valueTaskResult)
+        assert FactoryTypeName(valueTaskResult) == "int"
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "a metadata string is not unit task-like" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataString := core.GetType("System.String")
+        assert metadataString != null
+        metadataStringInfo: TypeInfo = new ReflectionTypeInfo(metadataString)
+        assert !AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(metadataStringInfo)
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "a metadata string answers no task result" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataString := core.GetType("System.String")
+        assert metadataString != null
+        metadataStringInfo: TypeInfo = new ReflectionTypeInfo(metadataString)
+        stringResult: TypeInfo = BuiltInTypes.Unknown
+        assert !AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(metadataStringInfo, out stringResult)
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "a metadata generic non-task answers no task result" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataSequenceDefinition := core.GetType("System.Collections.Generic.IEnumerable`1")
+        assert metadataSequenceDefinition != null
+        metadataInt := core.GetType("System.Int32")
+        assert metadataInt != null
+        metadataSequenceOfInt: TypeInfo = new ReflectionTypeInfo(
+            FactoryClose(metadataSequenceDefinition, metadataInt))
+        sequenceResult: TypeInfo = BuiltInTypes.Unknown
+        assert !AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(metadataSequenceOfInt, out sequenceResult)
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// The crash fix widens task IDENTITY, not the wrap rule: an async non-task declared return
+// still wraps into the ValueTask family, carrying the declared type as written.
+test "an async metadata non-task return still wraps into the ValueTask family" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataString := core.GetType("System.String")
+        assert metadataString != null
+        metadataStringInfo: TypeInfo = new ReflectionTypeInfo(metadataString)
+        wrapped := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
+            "f", true, false, metadataStringInfo)
+        wrappedGeneric := wrapped as GenericTypeInfo
+        assert wrappedGeneric != null
+        assert wrappedGeneric.Name == "ValueTask"
+        assert wrappedGeneric.TypeArguments.Count == 1
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "the ValueTask wrap carries the declared metadata type exactly as written" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataString := core.GetType("System.String")
+        assert metadataString != null
+        metadataStringInfo: TypeInfo = new ReflectionTypeInfo(metadataString)
+        wrapped := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
+            "f", true, false, metadataStringInfo)
+        wrappedGeneric := wrapped as GenericTypeInfo
+        assert wrappedGeneric != null
+        wrappedArgument: TypeInfo = wrappedGeneric.TypeArguments[0]
+        assert Object.ReferenceEquals(wrappedArgument, metadataStringInfo)
+    } finally {
+        scan.Dispose()
+    }
+}

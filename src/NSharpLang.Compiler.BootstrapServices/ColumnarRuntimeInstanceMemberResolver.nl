@@ -95,7 +95,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if typeof(Exception).IsAssignableFrom(receiverType) || IsSupportedAspNetReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) || IsSupportedNullableReceiver(receiverType) || IsSupportedResultReceiver(receiverType) || IsSupportedMemoryOwnerReceiver(receiverType) || IsSupportedMemoryReceiver(receiverType) || IsSupportedCountReceiver(receiverType) || IsSupportedKeyValuePairReceiver(receiverType) || IsSupportedSpanLikeReceiver(receiverType) || IsSupportedValueTupleReceiver(receiverType) {
+        if typeof(Exception).IsAssignableFrom(receiverType) || IsSupportedAspNetReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) || IsSupportedUnitTaskReceiver(receiverType) || IsSupportedNullableReceiver(receiverType) || IsSupportedResultReceiver(receiverType) || IsSupportedMemoryOwnerReceiver(receiverType) || IsSupportedMemoryReceiver(receiverType) || IsSupportedCountReceiver(receiverType) || IsSupportedKeyValuePairReceiver(receiverType) || IsSupportedSpanLikeReceiver(receiverType) || IsSupportedValueTupleReceiver(receiverType) {
             return true
         }
 
@@ -193,6 +193,14 @@ class ColumnarRuntimeInstanceMemberResolver {
         if IsSupportedTaskReceiver(receiverType) && member == "Result" {
             arguments := receiverType.GetGenericArguments()
             return TrySelectExpectedProperty(receiverType, receiverType, member, arguments[0], out selection)
+        }
+
+        // `IsCompleted` answers on both task shapes: the bare `Task` a unit async function
+        // returns, and the generic `Task<T>`.
+        if member == "IsCompleted" {
+            if IsSupportedUnitTaskReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(bool), out selection)
+            }
         }
 
         if receiverType == typeof(IList) && member == "Count" {
@@ -574,6 +582,12 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         return valueType.GetGenericTypeDefinition() == typeof(Task<int>).GetGenericTypeDefinition() && IsAdmittedValueType(valueType.GetGenericArguments()[0])
+    }
+
+    // The BARE `Task` a unit async function answers with. Read by name because the pinned
+    // toolset's `typeof` surface does not carry the non-generic task types.
+    static func IsSupportedUnitTaskReceiver(valueType: Type): bool {
+        return valueType == RequiredAssemblyType(typeof(object).get_Assembly(), "System.Threading.Tasks.Task")
     }
 
     static func IsSupportedNullableReceiver(valueType: Type): bool {
