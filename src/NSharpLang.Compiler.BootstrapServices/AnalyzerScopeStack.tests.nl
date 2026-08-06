@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
+
 // Native contracts for the analyzer's lexical scope stack.
 //
 // Every member here was `private` in Analyzer.cs behind a `Stack<Scope>` field, so no test named any
@@ -12,7 +13,6 @@ import NSharpLang.Compiler.Ast
 // the LIFO walk order, the two walks that SKIP the innermost scope, the walks that STOP at a scope
 // that binds the name under a different meaning, and the lockstep between the lexical scope stack and
 // the semantic-scope-id stack.
-
 func ScopeNameList(values: List<string>): string {
     text := ""
     index := 0
@@ -82,7 +82,8 @@ test "the stack is LIFO, and Peek and GlobalScope name the two ends of it" {
     assert Object.ReferenceEquals(stack.Peek(), body)
     assert Object.ReferenceEquals(stack.GlobalScope(), global)
 
-    stack.Pop(model, 9)
+    stack.NoteLine(9)
+    stack.Pop(model)
     assert stack.Count == 2
     assert Object.ReferenceEquals(stack.Peek(), typeScope)
 
@@ -114,7 +115,8 @@ test "an empty stack throws for Peek, Pop and GlobalScope exactly as the collect
     popThrew := false
     popMessage := ""
     try {
-        stack.Pop(model, 1)
+        stack.NoteLine(1)
+        stack.Pop(model)
     } catch ex: Exception {
         invalid := ex as InvalidOperationException
         popThrew = invalid != null
@@ -160,7 +162,8 @@ test "pushing opens a semantic scope parented to the current one; popping closes
     assert scopes[innerId].StartLine == 4
     assert scopes[innerId].StartColumn == 5
 
-    stack.Pop(model, 17)
+    stack.NoteLine(17)
+    stack.Pop(model)
     // A closing scope ends on the analyzer's current line and runs to the end of it.
     assert scopes[innerId].EndLine == 17
     assert scopes[innerId].EndColumn == 2147483647
@@ -238,7 +241,8 @@ test "the innermost recorded null fact wins, and a recorded Unknown is not the s
     stack.SetNullStateInCurrentScope("value", NullState.NotNull)
     assert stack.NullStateOrUnknown("value") == NullState.NotNull
     // The outer fact is untouched — it comes back when the narrowing scope closes.
-    stack.Pop(model, 5)
+    stack.NoteLine(5)
+    stack.Pop(model)
     assert stack.NullStateOrUnknown("value") == NullState.MaybeNull
 
     // A path recorded AS unknown is present; a path with no fact is absent. Both answer Unknown, so
@@ -336,7 +340,8 @@ test "an error-tuple guard is registered in the current scope, and '_' and blank
     assert stack.Peek().ErrorTupleResults.Count == 1
 
     // The guard dies with the scope that declared it.
-    stack.Pop(model, 10)
+    stack.NoteLine(10)
+    stack.Pop(model)
     assert stack.FindErrorTupleResultGuard("result") == null
 }
 
@@ -344,8 +349,7 @@ test "the guard walk stops at a scope that binds the name as a plain symbol" {
     model := new SemanticModel()
     stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function, ScopeKind.Block])
 
-    stack.GlobalScope().ErrorTupleResults["result"] =
-        new ErrorTupleResultGuard("result", "outerErr", 1, 1)
+    stack.GlobalScope().ErrorTupleResults["result"] = new ErrorTupleResultGuard("result", "outerErr", 1, 1)
 
     // A scope BETWEEN the guard and the use rebinds the name; past that point it is not the guarded
     // result any more, so the outer guard must not be found.
@@ -366,10 +370,8 @@ test "proving an error null marks its results available in the CURRENT scope" {
     model := new SemanticModel()
     stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])
 
-    stack.GlobalScope().ErrorTupleResults["value"] =
-        new ErrorTupleResultGuard("value", "err", 1, 1)
-    stack.GlobalScope().ErrorTupleResults["other"] =
-        new ErrorTupleResultGuard("other", "otherErr", 1, 1)
+    stack.GlobalScope().ErrorTupleResults["value"] = new ErrorTupleResultGuard("value", "err", 1, 1)
+    stack.GlobalScope().ErrorTupleResults["other"] = new ErrorTupleResultGuard("other", "otherErr", 1, 1)
 
     assert !stack.IsErrorTupleResultAvailable("value")
 
@@ -382,7 +384,8 @@ test "proving an error null marks its results available in the CURRENT scope" {
     // branch that established it.
     assert stack.Peek().AvailableErrorTupleResults.Contains("value")
     assert !stack.GlobalScope().AvailableErrorTupleResults.Contains("value")
-    stack.Pop(model, 4)
+    stack.NoteLine(4)
+    stack.Pop(model)
     assert !stack.IsErrorTupleResultAvailable("value")
 
     // Dotted, blank and empty-stack calls are refused outright.
@@ -407,8 +410,7 @@ test "availability is decided by whichever fact the walk meets first" {
 
     // An availability mark in an inner scope wins over the guard in an outer one.
     marked := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])
-    marked.GlobalScope().ErrorTupleResults["result"] =
-        new ErrorTupleResultGuard("result", "err", 1, 1)
+    marked.GlobalScope().ErrorTupleResults["result"] = new ErrorTupleResultGuard("result", "err", 1, 1)
     assert !marked.IsErrorTupleResultAvailable("result")
     marked.Peek().AvailableErrorTupleResults.Add("result")
     assert marked.IsErrorTupleResultAvailable("result")
@@ -417,8 +419,7 @@ test "availability is decided by whichever fact the walk meets first" {
 test "assigning over a guarded result makes it available; other targets are ignored" {
     model := new SemanticModel()
     stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])
-    stack.Peek().ErrorTupleResults["result"] =
-        new ErrorTupleResultGuard("result", "err", 1, 1)
+    stack.Peek().ErrorTupleResults["result"] = new ErrorTupleResultGuard("result", "err", 1, 1)
     assert !stack.IsErrorTupleResultAvailable("result")
 
     stack.MarkErrorTupleResultAvailableAfterAssignment(new IdentifierExpression("result", 1, 1))
@@ -668,7 +669,7 @@ class AnalyzerShadowProbe {
         model = semanticModel
     }
 
-    public func ReboundStack(): AnalyzerScopeStack {
+    func ReboundStack(): AnalyzerScopeStack {
         stack := new AnalyzerScopeStack()
         outer := new Scope(ScopeKind.Global)
         outer.ErrorTupleResults["result"] = new ErrorTupleResultGuard("result", "err", 1, 1)

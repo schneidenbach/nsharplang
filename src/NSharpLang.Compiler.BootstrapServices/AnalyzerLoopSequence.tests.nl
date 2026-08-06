@@ -1322,7 +1322,8 @@ func LoopRunIf(harness: LoopHarness, state: LoopStatementState, answer: TypeInfo
         }
 
         if step.Kind == 6 {
-            harness.Scopes.Pop(harness.Model, 99)
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(harness.Model)
         }
 
         harness.Sequence.SupplyLoop(state, answer)

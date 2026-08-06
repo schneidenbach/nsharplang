@@ -182,7 +182,8 @@ func BodyRun(harness: FunctionBodyHarness, state: FunctionBodyState, answer: Typ
         }
 
         if step.Kind == 6 {
-            harness.Scopes.Pop(harness.Model, 99)
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(harness.Model)
         }
 
         harness.Bodies.Supply(state, answer)
@@ -476,7 +477,8 @@ test "THE AMBIENT FUNCTION IS THE LOCAL DECLARATION INSIDE, AND IS RESTORED AFTE
         }
 
         if step.Kind == 6 {
-            harness.Scopes.Pop(harness.Model, 99)
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(harness.Model)
         }
 
         harness.Bodies.Supply(state, null)
@@ -507,7 +509,8 @@ test "AN OMITTED RETURN TYPE MEANS void INSIDE THE BODY" {
         }
 
         if step.Kind == 6 {
-            harness.Scopes.Pop(harness.Model, 99)
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(harness.Model)
         }
 
         harness.Bodies.Supply(state, null)

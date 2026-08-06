@@ -237,7 +237,6 @@ public class Analyzer : IDisposable
     private AnalyzerSyntheticCallBinder _syntheticCallBinder;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
-    private int _currentLine; // Tracks last analyzed line for scope end positions
     private bool _suppressErrorTupleResultUse;
     private bool _allowUnboundCallableReference;
     private bool _allowSyntheticSoaOperationReference;
@@ -350,6 +349,10 @@ public class Analyzer : IDisposable
     // in the language that has a parameter list. NOT rebuilt with the SCC: it holds only the
     // diagnostic sink, which the rebuild does not replace.
     private readonly AnalyzerParameterDeclarations _parameterDeclarations;
+    // WHAT A SEQUENCE OF STATEMENTS MEANS: the unreachable-code rule, the block statement's own
+    // scope, and the transparency of `alloc`, `allow` and `unsafe`. NOT rebuilt with the SCC: it
+    // holds only the diagnostic sink and the span reader, neither of which the rebuild replaces.
+    private readonly AnalyzerStatementSequence _statementSequence;
     private bool _disposed;
 
     public Analyzer()
@@ -396,6 +399,7 @@ public class Analyzer : IDisposable
             _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _functionTypeFactory,
             _ambient, _soaEscape, _definiteAssignment);
         _parameterDeclarations = new AnalyzerParameterDeclarations(_diagnostics);
+        _statementSequence = new AnalyzerStatementSequence(_diagnostics, _spans);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -610,7 +614,6 @@ public class Analyzer : IDisposable
         _semanticModel = new SemanticModel();  // Reset semantic model for new analysis
         _bindingMap = new BindingMap(); // Reset binding map for new analysis
         _soaEscape.BeginAnalysis();
-        _currentLine = 0;
         _nullFlow.BeginAnalysis();
         _suppressErrorTupleResultUse = false;
         _reportedUnverifiedErrorResultDiagnostics.Clear();
@@ -721,7 +724,7 @@ public class Analyzer : IDisposable
         // Second pass: analyze all declarations
         foreach (var decl in unit.Declarations)
         {
-            _currentLine = decl.Line;
+            _scopes.NoteLine(decl.Line);
             AnalyzeDeclaration(decl);
         }
 
@@ -1902,7 +1905,7 @@ public class Analyzer : IDisposable
         foreach (var (name, type, line, column) in _setupSymbols)
         {
             DeclareSymbol(name, type, line, column);
-            RecordVariableInCurrentScope(name, type);
+            _scopes.RecordVariable(_semanticModel, name, type);
         }
 
         // If table-driven, declare parameters in scope
@@ -1921,7 +1924,7 @@ public class Analyzer : IDisposable
                     test.Line,
                     test.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-                RecordVariableInCurrentScope(param.Name, paramType);
+                _scopes.RecordVariable(_semanticModel, param.Name, paramType);
             }
 
             // Validate test case row counts match parameter count
@@ -1953,7 +1956,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        AnalyzeStatements(test.Body.Statements);
+        DriveStatementSequence(_statementSequence.BeginList(test.Body.Statements));
 
         PopScope();
     }
@@ -2049,7 +2052,7 @@ public class Analyzer : IDisposable
         // but symbols are already collected via CollectSetupSymbols
         PushScope(new Scope(ScopeKind.Function), setup.Line, setup.Column);
 
-        AnalyzeStatements(setup.Body.Statements);
+        DriveStatementSequence(_statementSequence.BeginList(setup.Body.Statements));
 
         PopScope();
     }
@@ -2063,10 +2066,10 @@ public class Analyzer : IDisposable
         foreach (var (name, type, line, column) in _setupSymbols)
         {
             DeclareSymbol(name, type, line, column);
-            RecordVariableInCurrentScope(name, type);
+            _scopes.RecordVariable(_semanticModel, name, type);
         }
 
-        AnalyzeStatements(teardown.Body.Statements);
+        DriveStatementSequence(_statementSequence.BeginList(teardown.Body.Statements));
 
         PopScope();
     }
@@ -2214,7 +2217,7 @@ public class Analyzer : IDisposable
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
 
             // Record parameter in semantic model for IDE features (scoped)
-            RecordVariableInCurrentScope(param.Name, paramType);
+            _scopes.RecordVariable(_semanticModel, param.Name, paramType);
         }
 
         // Set expected return type
@@ -2224,7 +2227,7 @@ public class Analyzer : IDisposable
         _functionBodies.ReportGeneratorReturnTypeIfNeeded(func, functionReturnType);
 
         // Record full function facts in the semantic model for IDE/tooling features.
-        RecordFunctionInCurrentScope(func.Name, funcType);
+        _scopes.RecordFunction(_semanticModel, func.Name, funcType);
 
         // Analyze body
         if (func.Body != null)
@@ -2353,7 +2356,7 @@ public class Analyzer : IDisposable
                     classDecl.Line,
                     classDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-                RecordVariableInCurrentScope(param.Name, paramType);
+                _scopes.RecordVariable(_semanticModel, param.Name, paramType);
             }
         }
 
@@ -2423,7 +2426,7 @@ public class Analyzer : IDisposable
                     structDecl.Line,
                     structDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-                RecordVariableInCurrentScope(param.Name, paramType);
+                _scopes.RecordVariable(_semanticModel, param.Name, paramType);
             }
         }
 
@@ -2478,7 +2481,7 @@ public class Analyzer : IDisposable
                     recordDecl.Line,
                     recordDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-                RecordVariableInCurrentScope(param.Name, paramType);
+                _scopes.RecordVariable(_semanticModel, param.Name, paramType);
             }
         }
 
@@ -2953,7 +2956,7 @@ public class Analyzer : IDisposable
             var prevReturnType = _ambient.EnterAccessorReturnType(BuiltInTypes.Void); // Setter returns void
             // Implicitly declare 'value' parameter
             DeclareSymbol("value", propType, prop.Line, prop.Column, recordBindingDeclaration: false);
-            RecordVariableInCurrentScope("value", propType);
+            _scopes.RecordVariable(_semanticModel, "value", propType);
             AnalyzeStatement(prop.SetBody);
             _ambient.ExitAccessorReturnType(prevReturnType);
             PopScope();
@@ -2984,7 +2987,7 @@ public class Analyzer : IDisposable
 
             var previousReturnType = _ambient.EnterAccessorReturnType(BuiltInTypes.Void);
             DeclareSymbol("value", indexerType, indexer.Line, indexer.Column, recordBindingDeclaration: false);
-            RecordVariableInCurrentScope("value", indexerType);
+            _scopes.RecordVariable(_semanticModel, "value", indexerType);
             AnalyzeStatement(indexer.SetBody);
             _ambient.ExitAccessorReturnType(previousReturnType);
 
@@ -3003,7 +3006,7 @@ public class Analyzer : IDisposable
                 indexer.Line,
                 indexer.Column);
             DeclareSymbol(parameter.Name, parameterType, parameterLine, parameterColumn);
-            RecordVariableInCurrentScope(parameter.Name, parameterType);
+            _scopes.RecordVariable(_semanticModel, parameter.Name, parameterType);
         }
     }
 
@@ -3024,7 +3027,7 @@ public class Analyzer : IDisposable
                 ctor.Line,
                 ctor.Column);
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-            RecordVariableInCurrentScope(param.Name, paramType);
+            _scopes.RecordVariable(_semanticModel, param.Name, paramType);
         }
 
         // Analyze initializer if present
@@ -3046,55 +3049,43 @@ public class Analyzer : IDisposable
         _inConstructor = false;
     }
 
-    private void AnalyzeStatements(IReadOnlyList<Statement> statements)
-    {
-        var terminated = false;
-        foreach (var stmt in statements)
-        {
-            if (terminated)
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetStatementDiagnosticSpan(stmt);
-                Error(
-                    ErrorCode.UnreachableStatement,
-                    "This code will never run — there's a 'return' or 'throw' above it",
-                    diagnosticLine,
-                    diagnosticColumn,
-                    length: diagnosticLength);
-                break;
-            }
-            AnalyzeStatement(stmt);
-            if (AnalyzerStatementTermination.AlwaysReturns(stmt))
-                terminated = true;
-        }
-    }
-
+    /// <summary>
+    /// Which walk a statement IS. Every arm is a single route: it names the N#-owned walk the
+    /// statement belongs to, hands that walk the typed node plus whichever collaborators this host
+    /// holds and the walk cannot reach for itself, and runs the matching driver. No arm branches,
+    /// computes, orders or words anything, and the compiler checks each route end to end — the arm's
+    /// pattern type is the <c>Begin</c>'s parameter type, and the state it answers is the driver's.
+    /// The 30 concrete <see cref="Statement"/> shapes account for exactly: 26 routes, two shapes with
+    /// no semantic content, and <see cref="FileImport"/> / <see cref="NamespaceImport"/>, which are
+    /// statements only so they can sit in <c>CompilationUnit.FileImports</c> and never reach a
+    /// statement list.
+    /// </summary>
     private void AnalyzeStatement(Statement stmt)
     {
-        _currentLine = stmt.Line;
+        _scopes.NoteLine(stmt.Line);
         switch (stmt)
         {
             case ExpressionStatement exprStmt:
-                AnalyzeExpressionStatement(exprStmt);
+                DriveExpressionStatement(
+                    _expressionStatements.BeginExpressionStatement(exprStmt.Expression));
                 break;
             case VariableDeclarationStatement varDecl:
-                AnalyzeVariableDeclaration(varDecl);
+                DriveLocalDeclaration(_variableDeclaration.Begin(varDecl));
                 break;
             case TupleDeconstructionStatement tupleDecl:
-                AnalyzeTupleDeconstruction(tupleDecl);
+                DriveLocalDeclaration(_variableDeclaration.BeginTuple(tupleDecl));
                 break;
             case BlockStatement block:
-                PushScope(new Scope(ScopeKind.Block), block.Line, block.Column);
-                AnalyzeStatements(block.Statements);
-                PopScope();
+                DriveStatementSequence(_statementSequence.BeginBlock(block));
                 break;
             case AllocBlockStatement allocBlock:
-                AnalyzeStatement(allocBlock.Body);
+                DriveStatementSequence(_statementSequence.BeginTransparent(allocBlock.Body));
                 break;
             case AllowStatement allow:
-                AnalyzeStatement(allow.Body);
+                DriveStatementSequence(_statementSequence.BeginTransparent(allow.Body));
                 break;
             case UnsafeBlockStatement unsafeBlock:
-                AnalyzeStatement(unsafeBlock.Body);
+                DriveStatementSequence(_statementSequence.BeginTransparent(unsafeBlock.Body));
                 break;
             case IfStatement ifStmt:
                 DriveLoopStatement(_loopSequence.BeginIf(ifStmt, _flowNarrowing));
@@ -3147,13 +3138,16 @@ public class Analyzer : IDisposable
                     off.Handle, typeof(NSharpLang.Runtime.NSharpEventSubscription)));
                 break;
             case AssertStatement assertStmt:
-                AnalyzeAssertStatement(assertStmt);
+                DriveExpressionStatement(_expressionStatements.BeginAssert(assertStmt));
                 break;
             case AssertThrowsStatement assertThrows:
-                AnalyzeAssertThrowsStatement(assertThrows);
+                DriveExpressionStatement(
+                    _expressionStatements.BeginAssertThrows(assertThrows, _clrTypeConversion));
                 break;
+            case EmptyStatement:
             case PreprocessorDirective:
-                // Preprocessor directives don't need analysis - they're pass-through
+                // No semantic content: a stray `;` binds nothing, and a preprocessor directive was
+                // already resolved by the time the semantic phase runs.
                 break;
             case LocalFunctionStatement localFunc:
                 DriveFunctionBody(_functionBodies.BeginLocalFunction(
@@ -3162,8 +3156,39 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void AnalyzeExpressionStatement(ExpressionStatement exprStmt)
-        => DriveExpressionStatement(_expressionStatements.BeginExpressionStatement(exprStmt.Expression));
+    /// <summary>
+    /// The three steps the N#-owned statement-sequence walk cannot take for itself. Every sequence of
+    /// statements in the language — a bare list, a <c>{ … }</c> block, and the body of an
+    /// <c>alloc</c>, <c>allow</c> or <c>unsafe</c> wrapper — runs in
+    /// <see cref="AnalyzerStatementSequence"/> and shares this one loop. The unreachable-code rule
+    /// (that only the FIRST dead statement is reported, that the walk stops there, and that nothing
+    /// below it is analysed at all), the block's own scope and its position, and the transparency of
+    /// the three wrappers are all the walk's decisions; this loop performs the one operation it is
+    /// handed, with the operands it is handed. Kind 1 re-enters the statement dispatch, which is what
+    /// makes a nested block suspend independently of the one containing it. It is the estate's only
+    /// driver with NO <c>Supply</c>: not one of the three operations answers anything, so there is
+    /// nothing to hand back and the walk advances its own phase.
+    /// </summary>
+    private void DriveStatementSequence(StatementSequenceState state)
+    {
+        for (var step = _statementSequence.NextStep(state);
+             step != null;
+             step = _statementSequence.NextStep(state))
+        {
+            switch (step.Kind)
+            {
+                case 1:
+                    AnalyzeStatement(step.Body!);
+                    break;
+                case 2:
+                    PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
+                    break;
+                case 3:
+                    PopScope();
+                    break;
+            }
+        }
+    }
 
     /// <summary>
     /// The steps the N#-owned statement-level expression walks cannot take for themselves. The bare
@@ -3195,7 +3220,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
                     break;
                 case 5:
-                    AnalyzeStatements(step.Statements!);
+                    DriveStatementSequence(_statementSequence.BeginList(step.Statements!));
                     break;
                 case 6:
                     PopScope();
@@ -3214,13 +3239,6 @@ public class Analyzer : IDisposable
 
     private static bool IsDiscardTarget(Expression target)
         => target is IdentifierExpression { Name: "_" };
-
-    private void AnalyzeAssertStatement(AssertStatement assertStmt)
-        => DriveExpressionStatement(_expressionStatements.BeginAssert(assertStmt));
-
-    private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
-        => DriveExpressionStatement(
-            _expressionStatements.BeginAssertThrows(assertThrows, _clrTypeConversion));
 
     /// <summary>
     /// The steps the N#-owned declared-function walk cannot take for itself. A local function runs in
@@ -3261,10 +3279,10 @@ public class Analyzer : IDisposable
                     DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
                     break;
                 case 4:
-                    RecordVariableInCurrentScope(step.Name!, step.CarriedType);
+                    _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
                     break;
                 case 5:
-                    AnalyzeStatements(step.Statements!);
+                    DriveStatementSequence(_statementSequence.BeginList(step.Statements!));
                     break;
                 case 6:
                     PopScope();
@@ -3277,12 +3295,6 @@ public class Analyzer : IDisposable
             _functionBodies.Supply(state, answer);
         }
     }
-
-    private void AnalyzeVariableDeclaration(VariableDeclarationStatement varDecl)
-        => DriveLocalDeclaration(_variableDeclaration.Begin(varDecl));
-
-    private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
-        => DriveLocalDeclaration(_variableDeclaration.BeginTuple(tupleDecl));
 
     /// <summary>
     /// The steps the N#-owned local-declaration walks cannot take for themselves. Both of N#'s
@@ -3316,7 +3328,7 @@ public class Analyzer : IDisposable
                     DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, step.Text);
                     break;
                 case 5:
-                    RecordVariableInCurrentScope(step.Name!, step.CarriedType);
+                    _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
                     break;
                 case 6:
                     answer = AnalyzeExpression(step.Node!);
@@ -3365,7 +3377,7 @@ public class Analyzer : IDisposable
                     DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
                     break;
                 case 4:
-                    RecordVariableInCurrentScope(step.Name!, step.CarriedType);
+                    _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
                     break;
                 case 5:
                     AnalyzeStatement(step.Body!);
@@ -3417,7 +3429,7 @@ public class Analyzer : IDisposable
                     DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
                     break;
                 case 4:
-                    RecordVariableInCurrentScope(step.Name!, step.CarriedType);
+                    _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
                     break;
                 case 5:
                     AnalyzeStatement(step.Body!);
@@ -3514,7 +3526,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
                     break;
                 case 7:
-                    AnalyzeStatements(step.Statements!);
+                    DriveStatementSequence(_statementSequence.BeginList(step.Statements!));
                     break;
                 case 8:
                     PopScope();
@@ -7975,7 +7987,7 @@ public class Analyzer : IDisposable
             }
 
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-            RecordVariableInCurrentScope(param.Name, paramType);
+            _scopes.RecordVariable(_semanticModel, param.Name, paramType);
             parameterTypes.Add(paramType);
         }
 
@@ -10450,37 +10462,7 @@ public class Analyzer : IDisposable
 
     private void PopScope()
     {
-        _scopes.Pop(_semanticModel, _currentLine);
-    }
-
-    /// <summary>
-    /// Record a variable in the current semantic scope (for position-aware lookups).
-    /// </summary>
-    private void RecordVariableInCurrentScope(string name, TypeInfo type)
-    {
-        if (_scopes.HasSemanticScope())
-        {
-            _semanticModel.RecordScopedVariable(_scopes.CurrentSemanticScopeId(), name, type);
-        }
-        else
-        {
-            _semanticModel.RecordVariable(name, type);
-        }
-    }
-
-    /// <summary>
-    /// Record a function in the current semantic scope (for position-aware lookups).
-    /// </summary>
-    private void RecordFunctionInCurrentScope(string name, TypeInfo type)
-    {
-        if (_scopes.HasSemanticScope())
-        {
-            _semanticModel.RecordScopedFunction(_scopes.CurrentSemanticScopeId(), name, type);
-        }
-        else
-        {
-            _semanticModel.RecordFunction(name, type);
-        }
+        _scopes.Pop(_semanticModel);
     }
 
     private void DeclareSymbol(

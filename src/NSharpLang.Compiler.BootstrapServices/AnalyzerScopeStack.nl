@@ -47,20 +47,35 @@ class AnalyzerScopeStack {
     scopes: List<Scope>
     semanticScopeIds: List<int>
 
+    // THE ANALYSIS CURSOR: the line of the last declaration or statement the walk reached. It exists
+    // for exactly one reason — a closing scope's recorded END position is that line — so it belongs
+    // with the stack that closes scopes rather than with the shell that walks. It is written from two
+    // places, the declaration loop and the statement dispatch, and read from one, `Pop`.
+    currentLine: int
+
     // The number of open scopes, exactly as `Stack<Scope>.Count`.
     Count: int => scopes.Count
 
     constructor() {
         scopes = new List<Scope>()
         semanticScopeIds = new List<int>()
+        currentLine = 0
     }
 
     // ---- the stack itself ---------------------------------------------------------------------
 
-    // Resets BOTH stacks: an analysis run starts with no lexical scope and no semantic scope.
+    // Resets BOTH stacks AND the cursor: an analysis run starts with no lexical scope, no semantic
+    // scope and no line reached.
     func Clear() {
         scopes.Clear()
         semanticScopeIds.Clear()
+        currentLine = 0
+    }
+
+    // The walk reached this line. Every declaration and every statement announces itself, so a scope
+    // that closes here ends where the last thing inside it was written.
+    func NoteLine(line: int) {
+        currentLine = line
     }
 
     // The innermost open scope.
@@ -95,8 +110,9 @@ class AnalyzerScopeStack {
     }
 
     // Closes the innermost lexical scope, and the innermost semantic scope if there is one. The
-    // semantic scope's end column is the maximum int: a closing scope runs to the end of its line.
-    func Pop(model: SemanticModel, currentLine: int) {
+    // semantic scope ends at the CURSOR — the last line the walk reached — and its end column is the
+    // maximum int: a closing scope runs to the end of its line.
+    func Pop(model: SemanticModel) {
         if scopes.Count == 0 {
             throw new InvalidOperationException("Stack empty.")
         }
@@ -108,6 +124,34 @@ class AnalyzerScopeStack {
             semanticScopeIds.RemoveAt(semanticScopeIds.Count - 1)
             model.CloseScope(scopeId, currentLine, 2147483647)
         }
+    }
+
+    // A VARIABLE'S POSITION-AWARE RECORD. It goes against the innermost SEMANTIC scope when there is
+    // one and against the model's flat table when there is not, and the choice is this stack's to
+    // make: the id stack is what knows whether a semantic scope is open, and it is legally at a
+    // different depth from the lexical stack. Every declaration in the language that binds a name to
+    // a value — a parameter, a local, a loop variable, a pattern binding, a `value` in an accessor —
+    // reaches the semantic model through this one door, so the two shapes cannot drift apart.
+    func RecordVariable(model: SemanticModel, name: string, typeInfo: TypeInfo) {
+        if HasSemanticScope() {
+            model.RecordScopedVariable(CurrentSemanticScopeId(), name, typeInfo)
+            return
+        }
+
+        model.RecordVariable(name, typeInfo)
+    }
+
+    // A FUNCTION'S POSITION-AWARE RECORD, and the same decision over the other table. It is here
+    // rather than left behind because the two are one rule about one id stack: a shell that kept
+    // half of it could drift into recording a local function against a scope its locals do not
+    // share.
+    func RecordFunction(model: SemanticModel, name: string, typeInfo: TypeInfo) {
+        if HasSemanticScope() {
+            model.RecordScopedFunction(CurrentSemanticScopeId(), name, typeInfo)
+            return
+        }
+
+        model.RecordFunction(name, typeInfo)
     }
 
     func HasSemanticScope(): bool {
