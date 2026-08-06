@@ -347,6 +347,14 @@ public class Analyzer : IDisposable
     // owner and the live extension-method list, none of which the rebuild replaces; the assignability
     // oracle, which the rebuild DOES replace, is passed in at `Begin`.
     private readonly AnalyzerFunctionBodies _functionBodies;
+    // WHAT A PROPERTY'S AND AN INDEXER'S ACCESSORS MEAN, as one suspendable walk in two forms: the
+    // property's entry, the indexer's entry, and the accessor PAIR they share, where each accessor
+    // opens a function scope of its own, enters the accessor return-type boundary, declares the
+    // indexer's parameters and the setter's implicit `value`, walks its block through the statement
+    // dispatch, and closes both again. NOT rebuilt with the SCC: it holds the diagnostic sink, the
+    // span reader, the type resolver, the ambient context and the SoA escape owner, none of which the
+    // rebuild replaces; the assignability oracle, which it DOES replace, is passed in at `Begin`.
+    private readonly AnalyzerAccessorBodies _accessorBodies;
     // WHAT A DECLARED PARAMETER LIST MUST SATISFY: both `params` rules, shared by every declaration
     // in the language that has a parameter list. NOT rebuilt with the SCC: it holds only the
     // diagnostic sink, which the rebuild does not replace.
@@ -400,6 +408,8 @@ public class Analyzer : IDisposable
         _functionBodies = new AnalyzerFunctionBodies(
             _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _functionTypeFactory,
             _ambient, _soaEscape, _definiteAssignment, _extensionMethods);
+        _accessorBodies = new AnalyzerAccessorBodies(
+            _diagnostics, _spans, _typeResolver, _ambient, _soaEscape);
         _parameterDeclarations = new AnalyzerParameterDeclarations(_diagnostics);
         _statementSequence = new AnalyzerStatementSequence(_diagnostics, _spans);
         _assignability = CreateAssignability();
@@ -825,13 +835,15 @@ public class Analyzer : IDisposable
                 AnalyzeFieldDeclaration(field);
                 break;
             case PropertyDeclaration prop:
-                AnalyzePropertyDeclaration(prop);
+                DriveAccessorBody(_accessorBodies.BeginProperty(
+                    prop, _currentTypeName, _assignability));
                 break;
             case ConstructorDeclaration ctor:
                 AnalyzeConstructorDeclaration(ctor);
                 break;
             case IndexerDeclaration indexer:
-                AnalyzeIndexerDeclaration(indexer);
+                DriveAccessorBody(_accessorBodies.BeginIndexer(
+                    indexer, _currentTypeName, _assignability));
                 break;
             case PreprocessorDeclaration:
                 // Preprocessor directives don't need analysis - they're pass-through
@@ -2729,125 +2741,6 @@ public class Analyzer : IDisposable
         _semanticModel.RecordField(field.Name, fieldType);
     }
 
-    private void AnalyzePropertyDeclaration(PropertyDeclaration prop)
-    {
-        CheckVisibilityConvention(prop.Name, prop.Modifiers, prop.Line, prop.Column);
-
-        var propType = _typeResolver.ResolveDeclaredType(prop.Type!);
-        DeclareSymbol(prop.Name, propType, prop.Line, prop.Column);
-
-        // Record property type into SemanticModel for completion support
-        if (_currentTypeName != null)
-        {
-            _semanticModel.RecordTypeMember(_currentTypeName, prop.Name, propType);
-        }
-
-        // Also record in top-level Properties dict so LookupIdentifier can find it
-        _semanticModel.RecordProperty(prop.Name, propType);
-
-        // Expression-bodied property: validate expression type matches property type
-        if (prop.ExpressionBody != null)
-        {
-            var exprType = AnalyzeExpressionWithExpectedType(prop.ExpressionBody, propType);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(prop.ExpressionBody, exprType, "returned");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(prop.ExpressionBody, "returned");
-            if (!_assignability.IsAssignable(propType, exprType))
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                    _spans.GetExpressionDiagnosticSpan(prop.ExpressionBody);
-                var sourceSnippet = GetSourceSnippet(diagnosticLine);
-
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    var error = ErrorMessageBuilder.TypeMismatch(
-                        _currentFilePath,
-                        diagnosticLine,
-                        diagnosticColumn,
-                        sourceSnippet,
-                        diagnosticLength,
-                        exprType.ToString(),
-                        propType.ToString()
-                    );
-                    _errors.Add(error);
-                }
-                else
-                {
-                    Error($"Property '{prop.Name}' is typed as '{propType}', but the expression body returns '{exprType}'", prop.Line, prop.Column);
-                }
-            }
-        }
-
-        // Analyze getter
-        if (prop.GetBody != null)
-        {
-            PushScope(new Scope(ScopeKind.Function), prop.Line, prop.Column);
-            var prevReturnType = _ambient.EnterAccessorReturnType(propType); // Getter should return the property type
-            AnalyzeStatement(prop.GetBody);
-            _ambient.ExitAccessorReturnType(prevReturnType);
-            PopScope();
-        }
-
-        // Analyze setter
-        if (prop.SetBody != null)
-        {
-            PushScope(new Scope(ScopeKind.Function), prop.Line, prop.Column);
-            var prevReturnType = _ambient.EnterAccessorReturnType(BuiltInTypes.Void); // Setter returns void
-            // Implicitly declare 'value' parameter
-            DeclareSymbol("value", propType, prop.Line, prop.Column, recordBindingDeclaration: false);
-            _scopes.RecordVariable(_semanticModel, "value", propType);
-            AnalyzeStatement(prop.SetBody);
-            _ambient.ExitAccessorReturnType(prevReturnType);
-            PopScope();
-        }
-    }
-
-    private void AnalyzeIndexerDeclaration(IndexerDeclaration indexer)
-    {
-        var indexerType = _typeResolver.ResolveDeclaredType(indexer.Type);
-        ValidateParameterDeclarations(indexer.Parameters, indexer.Line, indexer.Column);
-
-        if (indexer.GetBody != null)
-        {
-            PushScope(new Scope(ScopeKind.Function), indexer.Line, indexer.Column);
-            DeclareIndexerParameters(indexer);
-
-            var previousReturnType = _ambient.EnterAccessorReturnType(indexerType);
-            AnalyzeStatement(indexer.GetBody);
-            _ambient.ExitAccessorReturnType(previousReturnType);
-
-            PopScope();
-        }
-
-        if (indexer.SetBody != null)
-        {
-            PushScope(new Scope(ScopeKind.Function), indexer.Line, indexer.Column);
-            DeclareIndexerParameters(indexer);
-
-            var previousReturnType = _ambient.EnterAccessorReturnType(BuiltInTypes.Void);
-            DeclareSymbol("value", indexerType, indexer.Line, indexer.Column, recordBindingDeclaration: false);
-            _scopes.RecordVariable(_semanticModel, "value", indexerType);
-            AnalyzeStatement(indexer.SetBody);
-            _ambient.ExitAccessorReturnType(previousReturnType);
-
-            PopScope();
-        }
-    }
-
-    private void DeclareIndexerParameters(IndexerDeclaration indexer)
-    {
-        foreach (var parameter in indexer.Parameters)
-        {
-            var parameterType = _typeResolver.ResolveDeclaredType(parameter.Type);
-            var (parameterLine, parameterColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                parameter.Line,
-                parameter.Column,
-                indexer.Line,
-                indexer.Column);
-            DeclareSymbol(parameter.Name, parameterType, parameterLine, parameterColumn);
-            _scopes.RecordVariable(_semanticModel, parameter.Name, parameterType);
-        }
-    }
-
     private void AnalyzeConstructorDeclaration(ConstructorDeclaration ctor)
     {
         _inConstructor = true;
@@ -3152,6 +3045,59 @@ public class Analyzer : IDisposable
             }
 
             _functionBodies.Supply(state, answer);
+        }
+    }
+
+    /// <summary>
+    /// The steps the N#-owned accessor walks cannot take for themselves. Both of N#'s accessor-bearing
+    /// declarations — the property and the indexer — run in <see cref="AnalyzerAccessorBodies"/> and
+    /// share this one loop. Which form it is, which accessor is next, which scope opens, which name is
+    /// declared and with what type, whether a binding declaration is recorded for it, which semantic
+    /// model table is written and which report fires are all the walk's decisions; this loop performs
+    /// the one operation it is handed, with the operands it is handed, and hands the answer back.
+    /// </summary>
+    private void DriveAccessorBody(AccessorBodyState state)
+    {
+        for (var step = _accessorBodies.NextStep(state);
+             step != null;
+             step = _accessorBodies.NextStep(state))
+        {
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpressionWithExpectedType(step.Node!, step.ExpectedType);
+                    break;
+                case 2:
+                    PushScope(new Scope(ScopeKind.Function), step.Line, step.Column);
+                    break;
+                case 3:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, step.RecordsBinding);
+                    break;
+                case 4:
+                    _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
+                    break;
+                case 5:
+                    PopScope();
+                    break;
+                case 6:
+                    ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    break;
+                case 7:
+                    AnalyzeStatement(step.Body!);
+                    break;
+                case 8:
+                    _semanticModel.RecordTypeMember(step.ContainingType!, step.Name!, step.CarriedType);
+                    break;
+                case 9:
+                    _semanticModel.RecordProperty(step.Name!, step.CarriedType);
+                    break;
+                case 10:
+                    CheckVisibilityConvention(step.Name!, step.CarriedModifiers, step.Line, step.Column);
+                    break;
+            }
+
+            _accessorBodies.Supply(state, answer);
         }
     }
 
@@ -9801,8 +9747,10 @@ public class Analyzer : IDisposable
     /// (<c>IsUpper</c>, <c>IsLetter</c>, <c>IsDigit</c>, <c>IsLetterOrDigit</c>, <c>IsWhiteSpace</c>
     /// and both invariant case transforms are), and no published predicate distinguishes a lowercase
     /// letter from a title-case, modifier or other-category one, so no rewrite preserves the
-    /// behaviour. It is therefore RELAYED — the declared-function walk asks for it as kind 10 — until
-    /// the catalog admits the predicate. Eight of its nine callers are the sibling declaration walks.
+    /// behaviour. It is therefore RELAYED — the declared-function walk and the accessor walk each ask
+    /// for it as their kind 10 — until the catalog admits the predicate. Its seven remaining direct
+    /// callers are the class, struct, record, interface, union, enum and field walks, and it moves
+    /// with them in the slice that can pay for the toolset repin.
     /// </summary>
     private void CheckVisibilityConvention(string name, Modifiers modifiers, int line, int column)
     {

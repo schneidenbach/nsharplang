@@ -1,6 +1,34 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-06 (**TASK 017 SLICE 46 LANDED (no commit — mandate) — N# OWNS WHAT A
+Last updated: 2026-08-06 (**TASK 017 SLICE 47 LANDED (no commit — mandate) — N# OWNS WHAT A PROPERTY
+AND AN INDEXER MEAN, AND THE ACCESSOR PAIR GETS THE OWNER IT WAS DECLINED A FORM FOR.**
+`AnalyzePropertyDeclaration`, `AnalyzeIndexerDeclaration` and `DeclareIndexerParameters` become
+`AnalyzerAccessorBodies` — **two entry bands and ONE shared accessor band driven by an accessor
+index**, ten kinds, and a `RecordsBinding` operand that slice 46 costed as prohibitive in the function
+walk and that costs nothing in a new protocol. The slice-46 brief was wrong in four ways and the
+re-verification caught all four: **116 lines not ~127**, and **TWO call sites not three — both arms of
+the ONE `AnalyzeDeclaration` dispatch, none of them in a member walk**. The decisive finding is that
+**the scope balance is per ACCESSOR**: a `{ get set }` property opens two scopes and closes two, which
+is the invariant three slice-44 contracts state absolutely and the reason a third Form was refused.
+Four more measured findings: an indexer **declares its parameters once per accessor but validates its
+list once for both**; the setter holds **two types at one instant** (`void` boundary, property-typed
+`value`); the expression-body mismatch carries **two different error codes** in its two shapes; and a
+property with no accessors at all is reachable. **THREE C# MEMBERS DIE, 116 NAMED LINES.**
+`Analyzer.cs` **11,791 → 11,739**, non-blank **10,441 → 10,403**, declarations **515 → 514**,
+`git diff` **+71 / −123 = net −52** — both ratchet ceilings fall. Contracts **3,004 → 3,036 (+32)**,
+four of them balance invariants over an eight-shape matrix; **emission-order protocol differential
+12,910 corpus rows + 443 fixture rows, 0 MISMATCHES, 1,198 opens == 1,198 closes per target — and the
+census found the corpus contains NO INDEXER AT ALL**, which is why the 34 new fixtures were not
+optional; corpus oracle **0 diffs over 906 lines / 835 diagnostics / 23 codes**, the same md5 slice 46
+recorded; fixture oracle **0 diffs over 265 targets / 586 lines**; SoA env-gated **0 diffs**, same md5;
+parse-error census **4, unchanged**; unsorted build transcripts **0 non-path diffs, counted**; corpus
+IL **63 / 63 N#-emitted assemblies byte-identical** with the control run FIRST and clean; `nlc check`
+over the compiler's own sources **282 findings, 0 in the new file**; ownership audit **18 / 18**.
+`EnterAccessorReturnType`'s two C# callers are retired and the member is KEPT, because the N# owner is
+now its caller. **No new wall; slice 46's `char.IsLower` wall is unchanged and one caller closer.**
+Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-06 (**TASK 017 SLICE 46 LANDED (no commit — mandate) — N# OWNS WHAT A
 TOP-LEVEL `func` DECLARATION MEANS, THE DECLARATION-WALKER TERRITORY OPENS, AND THE ARC MEETS ITS
 FIRST REAL WALL.** `AnalyzeFunctionDeclaration` joins `AnalyzerFunctionBodies` as **Form 1** — one walk,
 two forms, **six of seven existing kinds reused and the per-parameter phase pair SHARED OUTRIGHT** — and
@@ -1775,7 +1803,381 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 46 — `AnalyzeFunctionDeclaration` JOINS
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 47 — THE PROPERTY / INDEXER ACCESSOR FAMILY,
+  ITS OWN OWNER, TERMINAL.** Target recorded BEFORE any production edit, at `13950c477`
+  (`Analyzer.cs` **11,791** lines, non-blank **10,441**, declarations **515**; unit suite baseline
+  **3,194**; contracts baseline **3,004**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:31bdb1b506ce6b38`). THE TARGET: `AnalyzePropertyDeclaration`
+  (`:2732–:2802`, **71 lines**), `AnalyzeIndexerDeclaration` (`:2804–:2834`, **31 lines**) and
+  `DeclareIndexerParameters` (`:2836–:2849`, **14 lines**) — **116 named lines**, routed from
+  `AnalyzeDeclaration`'s two arms (`:828`, `:834`). The plan: one new owner
+  (`AnalyzerAccessorBodies.nl`) with its OWN state shape — an accessor PAIR rather than a body — a
+  shared accessor band driven by an accessor index, two entry bands (property / indexer), and one new
+  zero-policy driver `DriveAccessorBody`. `EnterAccessorReturnType`'s two C# callers are retired.
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE, AND THE SLICE-46 BRIEF WAS WRONG IN FOUR WAYS.** The brief
+  said "~127 lines, three call sites, all inside the class/struct/record member walks". Measured:
+  **116 lines** (71 + 31 + 14 against the briefed 68 + 44 + 15 — the property is LONGER than briefed
+  and the indexer is 13 lines SHORTER), and **TWO call sites, not three, and neither is in a member
+  walk**: both are arms of the ONE `AnalyzeDeclaration` dispatch (`:828` property, `:834` indexer).
+  The member walks reach them INDIRECTLY through `AnalyzeDeclaration(member)` — class `:2217`,
+  struct `:2273`, record `:2328`, interface `:2514` — plus the top-level loop `:730`.
+  `DeclareIndexerParameters` has two callers, both inside `AnalyzeIndexerDeclaration`. Neither name
+  appears anywhere outside `Analyzer.cs`, repo-wide. **The brief's SHAPE claims were all correct**: an
+  accessor pair, each accessor its own FUNCTION scope, `EnterAccessorReturnType`'s bare `TypeInfo?`,
+  a block through the DISPATCH, the setter's implicit `value` under `recordBindingDeclaration: false`.
+
+  **FIVE THINGS THE MEASUREMENT FOUND THAT THE BRIEF DID NOT.**
+  **(1) AN INDEXER DECLARES ITS PARAMETERS ONCE PER ACCESSOR BUT VALIDATES ITS LIST ONCE FOR BOTH.**
+  `DeclareIndexerParameters` is called from INSIDE each accessor's scope — twice for a `{ get set }`
+  indexer — while `ValidateParameterDeclarations` runs ONCE, at the top, OUTSIDE both. A function does
+  the exact opposite (validates inside its one scope, declares once), so the parameter band could not
+  be borrowed from the function walk even in principle. The corpus probe measured **30 parameter
+  declare/record pairs across 22 indexer accessors** in the fixture set — the doubling, in the row
+  stream.
+  **(2) THE SETTER HOLDS TWO TYPES AT ONE INSTANT.** `EnterAccessorReturnType(Void)` runs BEFORE
+  `DeclareSymbol("value", propType, …)`, so at the moment `value` is declared the ambient return type
+  is `void` and the declared type is the PROPERTY's. Both are asserted on the same contract row.
+  **(3) THE PROPERTY'S EXPRESSION-BODY MISMATCH USES TWO DIFFERENT ERROR CODES.** The rich shape is
+  `ErrorMessageBuilder.TypeMismatch` at the EXPRESSION; the detail-only fallback went through the
+  THREE-ARGUMENT `Error` overload, which defaults to **`ErrorCode.InvalidSyntax`** — not
+  `TypeMismatch` — at the DECLARATION. That asymmetry is shipped behaviour (the detail-only shape is
+  exactly what an unsaved editor buffer produces) and is preserved verbatim and pinned by a contract.
+  **(4) A PROPERTY WITH NO ACCESSORS AND NO EXPRESSION BODY IS REACHABLE.** `X: int { }` parses to a
+  `PropertyDeclaration` with all three bodies null; it checks its convention, declares its name and
+  writes both IDE records, and opens no scope at all. An "auto-property" is NOT this shape — the
+  parser builds a `FieldDeclaration` for `X: int`, so the property walk never sees one.
+  **(5) THE PARAMETER-LIST RELAY IS UNCONDITIONALLY SILENT FOR AN INDEXER AS THE PARSER BUILDS ONE.**
+  `ParseIndexerMember` constructs every `Parameter` with `ParameterModifier.None` and a `null` default
+  value, so neither the `params` rule nor the default-value rule can fire. The step is kept because
+  the behaviour is kept, not because it can report.
+
+  **THE SHAPE, MEASURED, AND WHY IT IS ITS OWN OWNER RATHER THAN A THIRD FORM.** Slice 46 declined the
+  absorb with arithmetic; this slice confirms the arithmetic and adds the decisive one: **the balance
+  invariant is per ACCESSOR, not per declaration.** Three slice-44 contracts state "exactly one scope
+  opens and one closes" absolutely; a `{ get set }` property opens TWO and closes TWO. Relaxing that
+  in the function walk would have weakened three passing contracts to buy one shared band. Instead:
+  **two entry bands and ONE shared accessor band.** Form 0 (property) owns phases 0..5 — the naming
+  convention, the type + name, the type-member record, the property record, the expression-body
+  dispatch and its rules. Form 1 (indexer) owns phase 10 — the type and the list relay, in that order.
+  **Phases 20..26 are SHARED OUTRIGHT** and are driven by an ACCESSOR INDEX (0 getter, 1 setter,
+  2 done) rather than by two phase bands: 20 selects the next accessor that has a body and opens its
+  scope; 21/22 are the per-parameter declare/record pair (a property falls straight through); 23
+  enters the boundary and declares the setter's `value`; 24 records it; 25 walks the body through the
+  dispatch; 26 leaves the boundary, closes the scope and returns to 20. **TEN KINDS**, of which the
+  two that are new to this arc are the two semantic-model writes: kind 8 `RecordTypeMember` and kind 9
+  `RecordProperty` — different tables through different members, and the model is REPLACED at the
+  start of every analysis, so no owner may hold it (the same reason `AnalyzerFunctionBodies`' kinds 4
+  and 8 exist). Kind 3 carries a **`RecordsBinding`** operand, which slice 46 costed as prohibitive
+  *there* (six existing call sites would have had to pass it) and which costs nothing *here*, because
+  this protocol is new.
+
+  **THE CUT — THREE MEMBERS, 116 NAMED LINES, AND ONE NEW C# DRIVER.** GONE:
+  `AnalyzePropertyDeclaration` (71), `AnalyzeIndexerDeclaration` (31) and `DeclareIndexerParameters`
+  (14) — **116 lines**. ADDED: the zero-policy `DriveAccessorBody` loop (**44 lines**) plus its 8-line
+  doc, the owner field and its 7-line doc, the construction (2), the two routing arms (+4 / −2) and a
+  4-line correction to the wall note at `CheckVisibilityConvention`.
+  `git diff` on `Analyzer.cs` **+71 / −123 = net −52**; the file goes **11,791 → 11,739**, non-blank
+  **10,441 → 10,403 (−38)** and declarations **515 → 514 (−1)**. **BOTH RATCHET CEILINGS FALL.**
+
+  **`EnterAccessorReturnType` DOES NOT DIE, AND THE HONEST REASON IS RECORDED.** Its two C# callers
+  are gone — the brief's claim, verified: `AnalyzeAccessorBodies` is now its only production caller,
+  and `grep` over `src` and `tests` finds it in exactly three files (`AnalyzerAmbientContext.nl` where
+  it is declared, `AnalyzerAmbientContext.tests.nl` where it is contracted, and the new owner). The
+  member itself is **KEPT**: it is already N#-owned, its contracts already exist, and the accessor
+  walk is exactly the boundary it was written for. What is retired is the C#-side boundary, not the
+  boundary; and the bare-`TypeInfo?` hand-back now lives on `AccessorBodyState.SavedReturnType`, which
+  is the state shape the function walk's `AmbientContextFrame?` slot could not hold.
+
+  **N# ADDED — 697 PRODUCTION LINES ON ONE NEW FILE.** `AnalyzerAccessorBodies.nl`, **26 members**:
+  the request, the state, both entries, `NextStep` / `Supply` / `Advance`, the six property phases,
+  the indexer entry, the seven accessor-band phases, the mismatch report in both shapes, and three
+  helpers (`AccessorBody`, `IndexerParameters`, `TypeText`). It holds five collaborators — the sink,
+  the span reader, the type resolver, the ambient context and the SoA escape reporter — and
+  **deliberately NOT the scope stack**, which is a fact rather than an oversight: nothing in this
+  family declares a type parameter or reads a symbol back, so every scope operation is a step.
+
+  **32 NEW CONTRACTS.** `AnalyzerAccessorBodies.tests.nl`, **827 lines, 32 contracts**. Every replayed
+  step records the scope DEPTH, the **ambient RETURN TYPE** and the error count AS THE STEP WAS HANDED
+  OUT — the return type is on every row because the Enter/Exit transitions ARE protocol events, which
+  is the whole reason this family did not fit the function walk's state. Four are BALANCE INVARIANTS
+  over a matrix of **eight shapes** (property with neither accessor / get only / set only / both /
+  expression-bodied outside any type; indexer with both accessors / with neither / setter-only outside
+  any type): opens == closes in every shape and the depth returns to its start; the running balance
+  never goes negative and **never exceeds one** — accessors do not nest — and the last step of every
+  shape that opens anything is its CLOSE; no shape asks for a kind outside 1..10; and at most one
+  `value` is declared per accessor, never in a getter, always with the boundary holding `void`.
+  Contracts: BootstrapServices **3,004 → 3,036 (+32)**, 0 failed. **THREE CONTRACTS WERE WRONG ON
+  FIRST WRITE AND THE IMPLEMENTATION WAS RIGHT** — all three recorded as gotchas.
+
+  **PROOF — THE EMISSION-ORDER PROTOCOL DIFFERENTIAL, WITH THE BASELINE INSTRUMENTED AT THE
+  EQUIVALENT POINTS.** A temporary env-gated probe (`NL47_PROBE=1`, stderr, removed before the final
+  bytes) emitted one row per accessor-walk operation carrying the KIND, the ERROR COUNT, the SCOPE
+  DEPTH, the ambient RETURN TYPE, the name, the carried type, the expected type, the position, the
+  parameter count, the **`RecordsBinding` flag** and the containing type at the instant the operation
+  was about to happen — in the BASELINE from **24** points inside the three deleted members (13 in the
+  property walk, 9 in the indexer's, 2 in `DeclareIndexerParameters`), in the WORK tree from the single
+  row at the head of `DriveAccessorBody`'s loop. Because the ambient return type is carried on every row, the
+  `EnterAccessorReturnType` / `ExitAccessorReturnType` transitions are protocol events: the rows before
+  a scope opens read the ENCLOSING value, a getter's body row reads the MEMBER type, a setter's body
+  row reads `void`, and the close row reads the enclosing value again. Over the 71-target corpus:
+  **12,910 rows, 0 MISMATCHES**, md5 `6a18f55043e7fa24673dcdb2a0b96cd8` in BOTH — **1,198 scope opens
+  and 1,198 scope closes, balanced PER TARGET across all 8 targets that produce rows, with the running
+  balance never negative and never above one**. Over the 265 accumulated fixtures: **443 rows, 0
+  MISMATCHES**, md5 `1ae54149ba349a8b3da28f9afa2e61ce`, **57 opens / 57 closes**, balanced per target.
+  **THE CENSUS IS ITSELF A FINDING, AND IT IS THE REASON THE FIXTURES WERE NOT OPTIONAL: THE CORPUS
+  CONTAINS NO INDEXER AT ALL.** Kind 6 (the indexer's list relay) fires **ZERO** times over 12,910
+  corpus rows; the corpus's 1,759 properties are ALL inside a containing type (kind 8 == kind 9 ==
+  kind 10 == 1,759), 1,134 have expression bodies, and of 1,198 accessors **625 are getters and 573
+  are setters** — every one of the 573 declaring `value` with `RecordsBinding` false, checked as an
+  equality rather than asserted. The indexer arm is exercised only by the new fixtures: **22 indexer
+  accessors, 30 per-accessor parameter declarations, 22 `value` declarations**. The probe was applied,
+  measured, REVERTED and both CLIs REBUILT before any of the evidence below was taken, and both
+  reverted trees were proved byte-clean (`git status` clean in the baseline worktree, and the work
+  tree's `git diff` back to exactly **+71 / −123** with `grep -c Nl47Probe` == 0).
+
+  **PROOF — CORPUS ORACLE DIFFERENTIAL OVER 71 TARGETS, BOTH CLIs ON THE SAME SOURCE COPY.**
+  `nlc check --json` with fresh **Release** CLIs at the pristine tip `13950c477`
+  (`/private/tmp/nl47base`) and at the working tree, both pointed at the SAME `git worktree` copy
+  (`/private/tmp/nl47corpus`). **ORACLE_DIFFS = 0 over 906 lines, md5
+  `b0ca02d7f95708138f06d2fd91b8697e` in BOTH — the SAME md5 slice 46 recorded**: **71 HEAD rows over
+  70 distinct targets**, **835 diagnostics across 23 codes** (NL402 × 187, NL202 × 186, NL201 × 115,
+  NL012 × 65, NL301 × 50, NL905 × 48, NL011 × 34, NSYS050 × 24, NSYS001 × 18, NL303 × 18, NL010 × 16,
+  NL412 × 15, NL701 × 13, NL704 × 13, NL203 × 8, NSYS070 × 7, NL207 × 6, NSYS110 × 3, NL506 × 3,
+  NL316 × 2, NL002 × 2, NSYS080 × 1, NL001 × 1) — **the slice-45/46 distribution to the row** — exits
+  identical (**0 × 59, 1 × 12**), `stderrBytes = 0` on every one of the 142 runs, **ZERO `PARSE-FAIL`**.
+  The seven targets that answer with no `results` key on both sides are the same seven slices 42–46
+  named, and a **SUPPLEMENTARY PASS against the real checkout closed all eight of their project
+  directories: SUPP_ORACLE_DIFFS = 0, NO-RESULTS = 0, PARSE-FAIL = 0**, md5
+  `c2217e803b837cd679d5650229c8959f` in both.
+
+  **PROOF — FIXTURE ORACLE DIFFERENTIAL, ORDER-PRESERVING, OVER THE WHOLE ACCUMULATED SET.**
+  **FX_PLAIN_DIFFS = 0 over 586 lines**, md5 `afd0e0756ed6c2ec2923de8677131566` in BOTH: **265 HEAD
+  rows, 321 diagnostics across 36 codes**, `stderrBytes = 0` on all 530 runs, **ZERO `PARSE-FAIL` and
+  ZERO missing-`results` keys**. The set is this slice's **34** plus the accumulated **231**.
+  **PARSE-ERROR CENSUS: 4 (NL101 × 4) in ONE fixture (`fx18-newtype-construction`), IDENTICAL on both
+  sides and EXACTLY the census slices 43–46 recorded. The 34 new fixtures add ZERO** — and the census
+  earned its place again: the first draft of the two-parameter indexer fixture called it as
+  `g[1, 2]`, which the parser refuses (**NL102 + NL101**; a multi-argument indexer ACCESS does not
+  parse, though the multi-parameter DECLARATION does), and nothing else in the harness would have
+  flagged it, because a fixture that fails to parse still produces diagnostics and still diffs clean.
+
+  **PROOF — THE 34 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT: WHOLE-PROGRAM BEHAVIOUR.** The
+  property expression body: a fit and a widening fit, both **silent**, and a mismatch (**NL202**). The
+  accessors: a getter returning the property's type (silent) and one returning the wrong type
+  (**NL202** "should return int but returns string"); a setter assigning `value` (silent), a setter
+  assigning `value` to a `string` field (**NL202**, which is what proves `value` carries the PROPERTY's
+  type), and a setter that `return`s a value (**NL202** "returns a value but is declared void", which
+  is what proves the boundary is `void`). The scope: a getter's local is **not** visible in the setter
+  (**NL301**), `value` is **not** visible in the getter (**NL301**) and **not** visible in a sibling
+  method (**NL301**), and both accessors may declare the same local name. The entry: `_hidden` reports
+  **NL903** and `private _hidden` does not; a property with no accessors still declares a name a
+  sibling method resolves; a property's name resolves inside a method (the `RecordProperty` /
+  `DeclareSymbol` pair, end to end); a struct property walks identically. The indexer: a getter using
+  its parameter (silent), the parameter **not** visible in a sibling method (**NL301**), a setter using
+  both `value` and the parameter, `value` typed by the INDEXER (**NL202**), a setter returning a value
+  (**NL202**), a two-parameter declaration, an unknown parameter type, an unknown indexer type, no
+  accessors at all, a getter-only indexer, a struct indexer, and a parameter that shadows a field of
+  the same name.
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS, WHICH IS THE EMISSION-ORDER PROOF AT BUILD LEVEL.**
+  Both Release CLIs built the 34 new fixtures from two staging copies proved `diff -rq` identical
+  first. The raw transcripts differed on **136 content lines and EVERY ONE of them was the
+  staging-copy path** (`nl47bldA` vs `nl47bldB`) — **ZERO non-path lines differed at all**, counted
+  rather than assumed, so the normaliser was proved not to be hiding anything rather than trusted.
+  With the path normalised, **BLD_NORM_DIFFS = 0 over 404 unsorted lines**, md5
+  `6410af3588c25f06ee3053882ca85454` in BOTH, identical exits (**0 × 8, 1 × 26**).
+
+  **PROOF — THE ENV-GATED SoA PATHS.** The 27 accumulated env-gated fixtures under
+  `NSHARP_EXPERIMENTAL_SOA=1`: **SOA_ENV_DIFFS = 0 over 73 lines**, md5
+  `3c616bc32bb29ed2056c4e9362298c47` in BOTH — the SAME md5 slices 44, 45 and 46 recorded. This slice
+  adds none: the accessor family's SoA surface is the two escape reports on a property's expression
+  body, which are the same two reports the function walk already shares.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **323 checked files** (the 322 baseline plus
+  the new owner; `.tests.nl` files are not in `check`'s input set), **282 findings estate-wide — the
+  unchanged slice-42/43/44/45/46 baseline — and ZERO in `AnalyzerAccessorBodies.nl`**,
+  `stderrBytes = 0`, against a baseline re-measured on the pristine worktree at **322 / 282**.
+  **THE HARNESS PROVED ITSELF NON-VACUOUS BY ITS OWN FAILURE**: the first pass reported **283**
+  findings, the extra one an **NL010 unused `import System`** in the new file. Removed, and the count
+  returned to 282.
+
+  **PROOF — THE IL NORMALISER, AND THE CONTROL RAN FIRST.** Three staging copies of the corpus proved
+  `diff -rq` identical before any build. **THE CONTROL RAN FIRST**: the BASELINE CLI building TWO
+  IDENTICAL COPIES reported **compared 118, SAME 118, DIFFERENT 0, ONLY_IN 0 / 0** — and **118
+  artifacts were actually produced in each**, checked rather than inferred. Only then the test
+  comparison: **compared 118, ONLY_IN 0 / 0, and ALL 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL.** The 55
+  that differ are ONE file — the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does
+  not emit — and the difference is **ROOT-CAUSED, NOT WAVED THROUGH**: exactly ONE distinct normalised
+  content per tree, both 14,848 bytes, **212 differing byte positions**, `strings` finds the embedded
+  PDB path `/private/tmp/nl47base/src/NSharpLang.Runtime/obj/Release/net10.0/NSharpLang.Runtime.pdb`
+  in one and `/Users/spencer/repos/nsharplang/…` in the other, and `diff -rq -x bin -x obj` over
+  `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **FORMAT CANON.** Both new `.nl` files pass `nlc format` and the whole
+  `src/NSharpLang.Compiler.BootstrapServices` directory passes the gate's Step 2b contract
+  (**"All files are properly formatted"**). **`tests/native/ownership-audit/OwnershipAudit.nl` FAILS
+  that check AND DID SO BEFORE THIS SLICE** — proved by running the same check with the pristine CLI
+  against the pristine worktree, where it fails identically. That directory is in NO format-gate input
+  set; this slice's edit to the file is the **one-line** head-fingerprint mirror, which cannot change
+  its formatting; and running `nlc format` on it was tried and REVERTED, because it rewrites **535
+  lines** of another concern's file (stripping `public` modifiers and collapsing a nine-line
+  constructor signature). Recorded rather than absorbed.
+
+  **THE RATCHET.** An independent FNV-1a walk over UTF-16 code units, reading every file as
+  **utf-8-sig** per the slice-43 rule, reproduced the stored `head-v1:31bdb1b506ce6b38` from the
+  UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 11,791 →
+  **11,739**, currentNonBlankLines 10,441 → **10,403**, fingerprint → **`text-v1:669d42ab0341071e`**;
+  `reviewedHeadFingerprint` → **`head-v1:78f9c42afad9908b`**, mirrored into `OwnershipAudit.nl` by
+  regexing the stored head rather than string-matching it. Epoch ceilings 23,451 / 20,537 PRESERVED,
+  now clear by **11,712 / 10,134**. **`wc -l` on the manifest is 391 before AND after**, its `git diff`
+  is exactly 2 changed lines and `OwnershipAudit.nl`'s exactly 1; neither carries a BOM. The audit on
+  the final tree is **18 / 18**. **ONE PRE-EXISTING DRIFTED ROW WAS FOUND AND DELIBERATELY LEFT
+  ALONE**: `editors/vscode/test/suite/edgeCases.test.ts` stores `text-v1:1f02d760bcc15e0c` and
+  observes `text-v1:bac41cb42d8f1de6` at the SAME 358 / 327 line counts — a content-only edit from
+  `6c852f840` that was never repinned. It is NOT a BOM phantom (the file has no BOM and no CR) and it
+  is present identically in the pristine baseline worktree, so it is not this slice's. The head
+  recomputation uses the STORED fingerprint for every row it does not repin, so the head stays
+  self-consistent; taking someone else's drift into this slice would have been the wrong repair.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED, in 12m 18s.** The TOTAL is the `13950c477`
+  baseline exactly — this slice adds and removes no unit test — and `./scripts/dev.sh --since` over
+  the byte-final tree correctly took its **FAIL-SAFE** path, naming all four changed `.nl` files as
+  unmapped and running the FULL suite: **3,194 / 3,194, 0 failed, 12m 05s, exit 0, zero flakes**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS AND ZERO FAILURES, 48m 12s.** `./scripts/test-all.sh --commit` — VS Code
+  tests NOT skipped — snapshotted the tree into `/private/tmp/nsharp-test-all.72de7e2a0ae5.E7KMQn/repo`
+  and ran every step, with the per-step wall clock it reported: clean 0m 00s; **build N# compiler
+  5m 09s**; **Step 2b's format contract over the compiler's own N# sources 0m 03s** ("All files are
+  properly formatted"); **unit tests 15m 45s (3,194 / 3,194)**; **native N# tests 9m 16s** — the
+  BootstrapServices contracts at **3,036 / 3,036** plus every native project individually,
+  `tests/native/ownership-audit` among them; **VS Code integration tests 6m 27s** against a freshly
+  built extension and language server; **pack and install the MSBuild SDK 10m 24s**; pack templates
+  0m 03s; install the `dotnet new` template 0m 02s; template creation 0m 01s; build the
+  template-generated project 0m 03s; build the example projects 0m 11s; build the single-file examples
+  0m 08s; `nlc check` on examples 0m 09s (**23 targets, all ✓**); and **the IL verification gate
+  0m 31s — `All 67 N# assemblies pass IL verification (no new errors vs baseline)`**. The run stored
+  its validated isolated cache result `72de7e2a0ae517fe (2893s)`. **`systems-language-closeout/` is in
+  NO gate input set**, so this record's own prose is provably not a gate input and the run measured
+  the final production and contract bytes. **THE FIRST ATTEMPT WAS KILLED AT STEP 3b, NOT FAILED**:
+  it had been launched as a child of a chained wait command, and stopping that parent took the gate
+  with it; the run recorded here is a FRESH, DETACHED re-run from Step 1, not a resumption.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (289 files, 3.98 MB) and installed with `--force` — so the editor a
+  developer opens is running this slice's language server. No computer-use verification was taken: this slice
+  changes no LSP handler, no VS Code extension code and no IDE protocol surface; what it changes is
+  what the analyzer reports, which the gate's VS Code integration suite and the 906-line diagnostic
+  oracle both cover.
+
+  **COMPILER WARNINGS ARE UNCHANGED AND NOTHING IS NEW.** A warning-code inventory over
+  `dotnet build Cli.csproj -c Release`: `CS8601 × 2, CS8604 × 8, CS8625 × 8` — identical to the
+  slice-44, slice-45 and slice-46 exit state.
+
+  **GOTCHAS.**
+  **(1) A WRONG-ARITY CALL IN `.nl` DECLINES COLUMNAR EMISSION RATHER THAN REPORTING A TYPE ERROR.**
+  A contract helper called with its last two arguments swapped (an `Expression` where a `Modifiers`
+  was wanted) produced **NL103 `emit.expression-statement.call: call expression statement could not be
+  emitted`** — pointing at the STATEMENT, naming neither the argument nor the parameter. The build is
+  the only thing that catches it and the message does not say what is wrong. Bind the call to a local
+  if you need the error to name the call.
+  **(2) `ErrorCode.ToString()` ON AN ENUM DECLINES COLUMNAR EMISSION.** A probe that interpolated a
+  diagnostic's `Code` declined at `emit.statement.block-child`; the same probe with the enum removed
+  emitted fine. Enum `ToString` is not in the columnar catalog.
+  **(3) THE SINK NORMALISES A ZERO LENGTH TO 1.** `Report(code, msg, line, col, null, 0)` produces a
+  `CompilerError` with `Length == 1`, because `AnalyzerDiagnostics.Create` floors it. A contract that
+  asserts the reported length must assert **1**, not the 0 the caller passed — and that is true of the
+  C# this replaces too, so it is a fact about the sink rather than a change.
+  **(4) A SOURCE TEXT SHORTER THAN THE DIAGNOSTIC'S LINE SILENTLY TAKES THE DETAIL-ONLY PATH.** A
+  contract handing the harness a one-line source and asserting the RICH shape at line 7 got the
+  detail-only shape instead, because `SourceSnippet(7)` answers null. Give the harness as many lines
+  as the fixture's positions claim.
+  **(5) `nlc format` ON `tests/native/ownership-audit/OwnershipAudit.nl` REWRITES 535 LINES.** It
+  strips `public` modifiers and collapses multi-line signatures. The file has failed the format check
+  since before this slice; do not "fix" it as a side effect of a one-line ratchet mirror.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is every squiggle a property or an indexer produces and
+  every completion fact its declaration decides: the NL202 on an expression body that does not fit,
+  underlined on the EXPRESSION, and its detail-only NL103 twin when there is no readable source text;
+  the NL903 on a property name the convention cannot classify; whether the property's name lands in
+  the enclosing scope at all, which is what makes a sibling method resolve it; the two semantic-model
+  records — the containing type's member table that member completion reads and the top-level property
+  table that bare-identifier lookup reads; whether `value` appears in completion inside a setter and
+  under which type; whether an indexer's parameters resolve inside each accessor; and the fact that
+  go-to-definition on `value` lands nowhere, because it is declared without a binding declaration.
+
+  **WALL STATUS: NO NEW WALL, AND SLICE 46'S IS UNCHANGED AND ONE CALLER CLOSER.** `char.IsLower` is
+  still absent from the columnar `System.Char` catalog, so `CheckVisibilityConvention` stays in
+  `Analyzer.cs` and this walk asks for it as **kind 10** — the second relay of the same member. Its
+  direct callers fall **9 → 7** (class, struct, record, interface, union, enum, field); the function
+  walk and the accessor walk hold the other two as relays. **No catalog surface was added, so no
+  toolset repin was taken**, and the packaged 0.1.0 SDK self-emits the new production code and all 32
+  contracts.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl47fixtures` (34, this
+  slice) alongside `nl46fixtures` (32), `nl45fixtures` (30), `nl44fixtures` (26), `nl43fixtures` (24),
+  `nl42fixtures` (30), `nl41fixtures` (29), `nl40fixtures` (24), `s24fixtures` (36) and the
+  `nl40`–`nl44` `soafx` sets (27) — **265 plain + 27 env-gated**. The harnesses are at
+  `.../scratchpad/nl44-oracle.sh`, `nl44-build.sh`, `nl44-ilbuild.sh` + `nl44-ilnorm.py`,
+  `nl47-repin.py`, and `/private/tmp/nl47-probe.sh` / `nl47-probe-abs.sh` (the emission-order protocol
+  differential) with `/private/tmp/nl47-make-fixtures.py` regenerating the fixture set from source.
+  Three worktrees are left registered: `/private/tmp/nl47base` (pristine `13950c477` + Release CLI),
+  `/private/tmp/nl47corpus` (the shared source copy) and `/private/tmp/nl47ilsrc` (the clean source
+  the three IL staging copies were made from).
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 11,739 LINES, 10,403 NON-BLANK, 514
+  DECLARATIONS.** Three things:
+  * **THE REMAINING DECLARATION WALKERS.** The six type walkers, the SoA record walker, the field
+    declaration, the constructor, the test / setup / teardown declarations and the import walk — plus
+    the declaration-side shared members `DeclareSymbol` (**20** call sites, counted at this tree),
+    `ValidateParameterDeclarations` (**7** call sites, two of them driver relays) and
+    `CheckVisibilityConvention` (**7** direct callers plus the function walk's and this slice's
+    relays, **9** call sites in all).
+  * **THE EXPRESSION WALK.** `AnalyzeExpression`'s 41-arm switch and everything under it. This remains
+    the LARGEST thing in the file by a wide margin.
+  * **THE MECHANICAL HOST.** The ten zero-policy driver loops, the reviewed statement dispatch, the
+    declaration dispatch, the owner construction block, the analysis reset and the four one-line
+    aliases.
+
+  * **NEXT: THE TYPE-DECLARATION WALKERS, WHERE `CheckVisibilityConvention` FINALLY MOVES — AND THE
+    `char.IsLower` CATALOG ROW PLUS THE TOOLSET REPIN IS WHAT PAYS FOR IT.** The inventory, measured at
+    this tree, each with exactly ONE call site (all of them arms of `AnalyzeDeclaration`):
+    `AnalyzeClassDeclaration` (`:2163–:2235`, **73 lines**), `AnalyzeFieldDeclaration`
+    (`:2661–:2742`, **82**), `AnalyzeEnumDeclaration` (`:2598–:2659`, **62**),
+    `AnalyzeUnionDeclaration` (`:2542–:2596`, **55**), `AnalyzeStructDeclaration` (`:2237–:2290`,
+    **54**), `AnalyzeRecordDeclaration` (`:2292–:2345`, **54**), `AnalyzeSoaRecordDeclaration`
+    (`:2392–:2442`, **51**) and `AnalyzeInterfaceDeclaration` (`:2501–:2531`, **31**) — **462 lines
+    across eight members**, of which the seven that call `CheckVisibilityConvention` directly are all
+    but the SoA record.
+    **THE SHARED SHAPE, WHICH IS WHY THEY ARE ONE FAMILY AND NOT EIGHT SLICES.** Read at
+    `AnalyzeClassDeclaration`, the pattern is: save `_currentClass` and `_currentTypeName` and set
+    them; check the convention; look the declared type up; push a **CLASS** scope (not a function
+    scope — a new kind); declare the type parameters; resolve the base class and the interfaces;
+    declare the nested types and **`this`** (again `recordBindingDeclaration: false`, so this slice's
+    kind-3 operand is already the right shape); validate and declare the primary-constructor
+    parameters (the SAME declare/record pair this slice and slice 46 both already own); a **FIRST
+    PASS** that declares every member function's symbol so forward references resolve; a **SECOND
+    PASS** that re-enters `AnalyzeDeclaration` per member; pop; restore. The struct, record and
+    interface walkers are that walk with pieces removed; the enum and union walkers have their own
+    member rules.
+    **THE THREE BLOCKERS, NAMED.** (a) **`char.IsLower`** — the slice-46 wall. The fix is a one-line
+    `"IsLower" => typeof(char).GetMethod(…)` arm in `ColumnarIlEmitter.cs`'s `System.Char` catalog
+    switch (`:14286`), and because the compiler's own `.nl` is built by the PACKAGED SDK, admitting it
+    requires a **repack plus a toolset repin** — which is exactly the licence this next slice has and
+    slices 46 and 47 did not. (b) **THE AMBIENT `_currentClass` / `_currentTypeName` PAIR** is
+    save/set/restore analyzer state that no existing owner holds and that the member walk MUTATES
+    across the second pass; it needs either two new kinds or a decision to pass it at `Begin` and
+    write it back, and the two are not equivalent because `AnalyzeDeclaration` re-entry can nest.
+    (c) **THE SECOND PASS RE-ENTERS THE DECLARATION DISPATCH**, which is a kind (the same shape as
+    this slice's kind 7 and slice 46's kind 9) but is the first one that re-enters a dispatch the
+    walker itself is reached through — so the driver must be re-entrant, and the contracts must say so.
+    **Expected cut: ~462 lines against one new owner, one driver, and the first toolset repin of the
+    017 arc.**
+  * **THEN: the expression walk**, which decides whether `Analyzer.cs` is deleted or is signed off as
+    a reviewed zero-policy mechanical host.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 46 — `AnalyzeFunctionDeclaration` JOINS
   `AnalyzerFunctionBodies` AS FORM 1, THE DECLARATION-WALKER TERRITORY OPENS, AND THE ARC REACHES ITS
   FIRST REAL WALL.** Target recorded BEFORE any production edit, at `077d02c5e` (`Analyzer.cs`
   **12,048** lines, non-blank **10,671**, declarations **518**; unit suite baseline **3,194**;

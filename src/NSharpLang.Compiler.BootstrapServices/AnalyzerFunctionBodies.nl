@@ -68,8 +68,9 @@ import NSharpLang.Compiler.Ast
 //      recorded as one: the `params` half of those rules is N#-owned and is called directly by the
 //      analyzer, but the DEFAULT-VALUE half re-enters the analyzer's target-typed expression walk
 //      whenever an SoA record types a defaulted parameter, and that walk is not N#'s to run. The
-//      composite has eight callers, seven of them outside this family and none of them driven, so
-//      turning it into a suspendable walk is a slice of its own rather than a step of this one.
+//      composite has seven callers, six of them outside this family — five direct and the accessor
+//      walk's own relay — so turning it into a suspendable walk is a slice of its own rather than a
+//      step of this one.
 //   8  record a FUNCTION in the semantic model the IDE's hover, completion and signature help read.
 //      It is a separate kind from 4 rather than an operand on it because it writes a DIFFERENT table
 //      through a different member, and because the semantic model itself is REBUILT at the start of
