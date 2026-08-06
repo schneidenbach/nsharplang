@@ -1803,8 +1803,41 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 47 — THE PROPERTY / INDEXER ACCESSOR FAMILY,
-  ITS OWN OWNER, TERMINAL.** Target recorded BEFORE any production edit, at `13950c477`
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 48 — THE TYPE-DECLARATION WALKERS, IN TWO
+  STAGES, WITH THE ARC'S FIRST TOOLSET REPIN BETWEEN THEM.** Plan recorded BEFORE any production
+  edit, at `97bb14ecc` (`Analyzer.cs` **11,739** lines, non-blank **10,403**, declarations **514**;
+  `ColumnarIlEmitter.cs` **21,470** lines, non-blank **20,411**, epoch ceilings **21,723 / 20,646**;
+  unit suite baseline **3,194**; contracts baseline **3,036**; ownership audit **18 / 18**; manifest
+  **391** lines; `reviewedHeadFingerprint head-v1:78f9c42afad9908b`).
+
+  **WHY TWO STAGES.** The slice-46 wall — `char.IsLower` absent from the columnar `System.Char`
+  catalog — is what keeps `CheckVisibilityConvention` (`:9755`, 16 lines, **7 direct callers** plus
+  the function walk's and the accessor walk's kind-10 relays) in `Analyzer.cs`. Seven of those direct
+  callers are the eight walkers this slice targets, so the catalog row must be COMMITTED and the
+  toolset REPACKED FROM THE COMMITTED TIP before the N# owner that calls `char.IsLower` can be built
+  by the packaged SDK. Packing mid-slice from a working tree is forbidden, so the slice splits:
+
+  **STAGE 1 — THE CATALOG ROW (this stage).** Add `"IsLower"` to `ColumnarIlEmitter.cs`'s
+  `System.Char` catalog switch (`:14286`), exactly parallel to its published siblings
+  (`IsLetterOrDigit`, `IsLetter`, `IsDigit`, `IsWhiteSpace`, `IsUpper`, `ToLowerInvariant`,
+  `ToUpperInvariant`); mirror every paired surface the siblings carry; prove it with a native
+  contract over the Unicode categories that made this a wall (ASCII lower, ASCII upper, `é`, `ß`,
+  the title-case `ǅ`, a digit) plus the two failed approximations slice 46 named; repin the
+  `ColumnarIlEmitter.cs` ratchet row and the head. NO analyzer edit in this stage. Then STOP: the
+  coordinator commits and repins the toolset.
+
+  **STAGE 2 — THE EIGHT WALKERS, TERMINAL (after the repin).** `AnalyzeClassDeclaration`
+  (`:2163`, 73), `AnalyzeFieldDeclaration` (`:2661`, 82), `AnalyzeEnumDeclaration` (`:2598`, 62),
+  `AnalyzeUnionDeclaration` (`:2542`, 55), `AnalyzeStructDeclaration` (`:2237`, 54),
+  `AnalyzeRecordDeclaration` (`:2292`, 54), `AnalyzeSoaRecordDeclaration` (`:2392`, 51) and
+  `AnalyzeInterfaceDeclaration` (`:2501`, 31) — **462 lines**, each with exactly one call site (all
+  arms of `AnalyzeDeclaration`) — plus `CheckVisibilityConvention` MOVING WHOLE and both kind-10
+  relays retiring. The named blockers to measure before designing: the `_currentClass` /
+  `_currentTypeName` save-set-restore pair, and the second pass RE-ENTERING the declaration dispatch
+  the walker is itself reached through (the arc's first re-entrant driver).
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 47 — THE PROPERTY / INDEXER ACCESSOR
+  FAMILY, ITS OWN OWNER, TERMINAL.** Target recorded BEFORE any production edit, at `13950c477`
   (`Analyzer.cs` **11,791** lines, non-blank **10,441**, declarations **515**; unit suite baseline
   **3,194**; contracts baseline **3,004**; ownership audit **18 / 18**; manifest **391** lines;
   `reviewedHeadFingerprint head-v1:31bdb1b506ce6b38`). THE TARGET: `AnalyzePropertyDeclaration`

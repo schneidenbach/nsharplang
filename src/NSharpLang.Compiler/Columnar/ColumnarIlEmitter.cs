@@ -14289,6 +14289,7 @@ internal sealed class ColumnarIlEmitter
                 "IsLetter" => typeof(char).GetMethod(nameof(char.IsLetter), new[] { typeof(char) }),
                 "IsDigit" => typeof(char).GetMethod(nameof(char.IsDigit), new[] { typeof(char) }),
                 "IsWhiteSpace" => typeof(char).GetMethod(nameof(char.IsWhiteSpace), new[] { typeof(char) }),
+                "IsLower" => typeof(char).GetMethod(nameof(char.IsLower), new[] { typeof(char) }),
                 "IsUpper" => typeof(char).GetMethod(nameof(char.IsUpper), new[] { typeof(char) }),
                 "ToLowerInvariant" => typeof(char).GetMethod(nameof(char.ToLowerInvariant), new[] { typeof(char) }),
                 "ToUpperInvariant" => typeof(char).GetMethod(nameof(char.ToUpperInvariant), new[] { typeof(char) }),
