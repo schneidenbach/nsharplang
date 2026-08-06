@@ -10,14 +10,10 @@ namespace NSharpLang.Tests;
 
 internal static class TestSdkFeed
 {
-    // The feed build shells out to the repo's own project graph, and the Build.Tasks step pulls
-    // in the full compiler including the BootstrapServices N# self-emit: ~6m20s serially on a
-    // quiet machine (measured 2026-08-02), longer under concurrent gate load. Each step gets the
-    // same generous ceiling; hitting it means a hang, not a slow build.
+    // Each feed step gets one generous ceiling: the Build.Tasks step self-emits BootstrapServices
+    // (~6m20s quiet, measured 2026-08-02; longer under gate load), so hitting it means a hang, not
+    // a slow build. A cache-lock waiter must outlast a peer through the WHOLE feed build.
     private static readonly TimeSpan SdkFeedCommandTimeout = TimeSpan.FromMinutes(20);
-
-    // A waiter must outlast a peer process holding the lock through the whole feed build
-    // (all SdkFeedCommandTimeout steps), not just one step.
     private static readonly TimeSpan CacheLockTimeout = TimeSpan.FromMinutes(45);
 
     private static readonly Lazy<PackedSdkInfo> PackedSdk = new(BuildSdkFeed);
@@ -25,11 +21,9 @@ internal static class TestSdkFeed
     public static string Version => PackedSdk.Value.Version;
     public static string FeedPath => PackedSdk.Value.FeedPath;
 
-    // Serializes the COLD-START package extraction. The toolchain test classes run concurrently, and
-    // their first dotnet restores would otherwise race to extract the same NSharpLang.Sdk/Runtime
-    // nupkgs into a cold NUGET_PACKAGES (the gate's isolated run starts empty) — MSBuild's SDK
-    // resolver intermittently fails on that race. One warm-up restore runs before any concurrent
-    // spawn; every later restore hits the extracted cache.
+    // Serializes COLD-START package extraction: concurrent toolchain classes' first restores race
+    // to extract the same Sdk/Runtime nupkgs into a cold NUGET_PACKAGES and MSBuild's SDK resolver
+    // intermittently fails on that race. One warm-up restore runs first; later restores hit the cache.
     private static readonly Lazy<bool> ColdStartWarmup = new(() =>
     {
         var warmupDir = Path.Combine(Path.GetTempPath(), $"nsharp-sdk-feed-warmup-{Guid.NewGuid():N}");
@@ -47,10 +41,7 @@ targetFramework: net10.0
                 warmupDir,
                 $"restore \"{Path.Combine(warmupDir, "Warmup.csproj")}\" -v q --disable-build-servers",
                 timeout: SdkFeedCommandTimeout);
-            if (exitCode != 0)
-            {
-                throw new InvalidOperationException("SDK feed warm-up restore failed.");
-            }
+            if (exitCode != 0) throw new InvalidOperationException("SDK feed warm-up restore failed.");
             return true;
         }
         finally
@@ -131,10 +122,7 @@ targetFramework: net10.0
                 repoRoot,
                 $"build \"{Path.Combine(repoRoot, "src", "NSharpLang.Build.Tasks", "NSharpLang.Build.Tasks.csproj")}\" -c Release -v q --disable-build-servers",
                 timeout: SdkFeedCommandTimeout);
-            if (buildTasksExitCode != 0)
-            {
-                throw new InvalidOperationException("Failed to build NSharp build tasks.");
-            }
+            if (buildTasksExitCode != 0) throw new InvalidOperationException("Failed to build NSharp build tasks.");
 
             var runtimePackExitCode = RunDotnetNoCapture(
                 repoRoot,

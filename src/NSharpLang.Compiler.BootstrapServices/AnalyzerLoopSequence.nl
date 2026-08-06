@@ -71,38 +71,43 @@ class YieldStatementState {
     }
 }
 
-// THE SEVEN STEPS A LOOP STATEMENT CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP NEEDS.
+// THE SEVEN STEPS A CONDITION-AND-BODY STATEMENT CANNOT TAKE FOR ITSELF, AND EVERYTHING EACH STEP
+// NEEDS.
 //
 // The walk owns what ALL FOUR of N#'s loop statements MEAN — `foreach x in e { … }`,
-// `await foreach x in e { … }`, `while c { … }` and `for i := 0; c; u { … }`: which escape report an
-// iterated collection's type selects and with which action word, that an escaped collection
-// collapses to `unknown` before anything else looks at it, which of the two element-type questions
-// is asked, what the loop variable's type therefore is, which scope kind opens and at which
-// position, whether a condition is asked to be a boolean and under whose name, what a condition
-// PROVES about the body it guards and in which scope those facts are installed, the ORDER of every
-// replayed operation, and that the body — and only the body — runs inside an open loop. What it
-// cannot do is run the analyzer's own EXPRESSION walk, open or close a scope on the analyzer's scope
-// stack, declare a name into that stack, write the semantic model the IDE reads, re-enter the
-// STATEMENT dispatch, or run the statement-level expression walk that owns a `for` iterator — so it
-// ASKS: one request at a time, each naming a kind and carrying every value the step needs. Nothing
-// here is a policy the driver may reinterpret — the driver switches on `Kind`, performs exactly the
-// one operation with exactly these operands, and hands the answer back.
+// `await foreach x in e { … }`, `while c { … }` and `for i := 0; c; u { … }` — AND what `if c { … }
+// else { … }` means, because an `if` is the `while` walk with a second branch and no loop frame:
+// which escape report an iterated collection's type selects and with which action word, that an
+// escaped collection collapses to `unknown` before anything else looks at it, which of the two
+// element-type questions is asked, what the loop variable's type therefore is, which scope kind
+// opens and at which position, whether a condition is asked to be a boolean and under whose name,
+// what a condition PROVES about the branch it guards and in which scope those facts are installed,
+// that a branch which always leaves hands the SURVIVING flow the OTHER branch's facts, the ORDER of
+// every replayed operation, and that a loop body — and only a loop body — runs inside an open loop.
+// What it cannot do is run the analyzer's own EXPRESSION walk, open or close a scope on the
+// analyzer's scope stack, declare a name into that stack, write the semantic model the IDE reads,
+// re-enter the STATEMENT dispatch, or run the statement-level expression walk that owns a `for`
+// iterator — so it ASKS: one request at a time, each naming a kind and carrying every value the step
+// needs. Nothing here is a policy the driver may reinterpret — the driver switches on `Kind`,
+// performs exactly the one operation with exactly these operands, and hands the answer back.
 //
 // The kinds:
-//   1  analyse an EXPRESSION — a `foreach` collection or a `while`/`for` condition — WITHOUT
-//      touching the analyzer's ambient target-typing slot, which no loop arm ever set. ANSWERS a
-//      type: for `foreach` it is the operand of both escape reports and of the element-type question
-//      that settles every step after it; for a condition it is the operand of the boolean gate.
+//   1  analyse an EXPRESSION — a `foreach` collection or a `while`/`for`/`if` condition — WITHOUT
+//      touching the analyzer's ambient target-typing slot, which no arm in this family ever set.
+//      ANSWERS a type: for `foreach` it is the operand of both escape reports and of the
+//      element-type question that settles every step after it; for a condition it is the operand of
+//      the boolean gate.
 //   2  open a block scope on the analyzer's scope stack at `Line` / `Column`.
 //   3  declare the loop variable into the analyzer's scope stack, under `CarriedType`. No
 //      declaration kind is carried: no arm tagged one, so the analyzer derives it. `foreach` only.
 //   4  record the loop variable in the semantic model the IDE's hover and completion read.
 //      `foreach` only.
-//   5  analyse ONE STATEMENT — a loop body, or a `for` initializer — which re-enters the statement
-//      dispatch and therefore this walk itself. This is ONE statement, not a list: it is
-//      deliberately NOT `ExpressionStatementRequest`'s kind 5, because the list walk also runs the
-//      unreachable-code rule, and neither a loop body nor a `for` initializer ever had that rule
-//      applied to it.
+//   5  analyse ONE STATEMENT — a loop body, a `for` initializer, or an `if` branch — which re-enters
+//      the statement dispatch and therefore this walk itself. This is ONE statement, not a list: it
+//      is deliberately NOT `ExpressionStatementRequest`'s kind 5, because the list walk also runs the
+//      unreachable-code rule, and none of a loop body, a `for` initializer or an `if` branch ever had
+//      that rule applied to it. An `else if` needs nothing of its own: it IS an `if` statement in the
+//      else slot, so this step hands it back to the dispatch and the chain walks itself.
 //   6  close a scope kind 2 opened.
 //   7  run the STATEMENT-LEVEL EXPRESSION walk over a `for` loop's update clause — the one step in
 //      this estate where a driver drives a driver. It is here rather than in the dispatch because
@@ -134,27 +139,31 @@ class LoopStatementRequest {
     }
 }
 
-// THE LOOP'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
+// THE WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
 //
-// ONE state serves ALL FOUR loop statements, because ONE driver serves them all. The four AST nodes
-// are structurally unrelated — `ForeachStatement` and `AwaitForEachStatement` share no base beyond
-// `Statement`, and `WhileStatement` and `ForStatement` share none with them — so the state carries
-// the OPERANDS rather than the node, and `Form` says which of the four walks is running: 0 is the
-// iteration family (`IsAsync` separates its two members), 1 is `while`, 2 is `for`. Exactly the
-// operands that form uses are non-null.
+// ONE state serves ALL FIVE statements, because ONE driver serves them all. The five AST nodes are
+// structurally unrelated — `ForeachStatement` and `AwaitForEachStatement` share no base beyond
+// `Statement`, and `WhileStatement`, `ForStatement` and `IfStatement` share none with them — so the
+// state carries the OPERANDS rather than the node, and `Form` says which walk is running: 0 is the
+// iteration family (`IsAsync` separates its two members), 1 is `while`, 2 is `for`, 3 is `if`.
+// Exactly the operands that form uses are non-null.
 //
 // `Phase` is the walk's program counter, and each form owns a BAND of it so a phase number never
 // means two things. The ITERATION family runs 0..6: 0 asks for the collection; 1 folds the answer
 // in, runs the two escape reports in order and settles the element type; 2 through 5 are the four
 // replayed operations, with the loop opened at 4 and closed at 5; and 6 finishes. `while` runs
-// 10..14. `for` runs 20..29. 99 is done for all three.
+// 10..14. `for` runs 20..29. `if` runs 30..37. 99 is done for all four.
 //
 // `LoopFrame` is the ambient snapshot `EnterLoop` hands back. It is held on the state rather than in
 // a local because the walk SUSPENDS between opening the loop and closing it — the body runs in the
-// driver — and it is nullable only because a state exists before the loop has been opened.
+// driver — and it is nullable only because a state exists before the loop has been opened. An `if`
+// never opens one: `break` and `continue` are no more legal inside an `if` than outside it.
 //
-// `BodyNarrowings` is what the condition PROVED, held for the same reason: the facts are extracted
-// at one phase, installed at a second and the body runs at a third, with the driver in between.
+// `BodyNarrowings` is what the condition PROVED when it is TRUE, held because the facts are
+// extracted at one phase, installed at a second and the branch runs at a third, with the driver in
+// between. `ElseNarrowings` is what it proved when it is FALSE, and only `if` has one — a loop's
+// false branch is the code after the loop, which no loop arm ever narrowed. `ElseBody` is the `if`'s
+// second branch, and it is the ONLY optional body in the family.
 //
 // THE FLOW-NARROWING WRITER IS PASSED IN AT `Begin` RATHER THAN HELD, and it is the third member of
 // this estate to be handed that way after the assignability oracle in `BeginYield` and `BeginReturn`.
@@ -169,6 +178,7 @@ class LoopStatementState {
     initializerValue: Statement?
     iteratorValue: Expression?
     bodyValue: Statement
+    elseBodyValue: Statement?
     lineValue: int
     columnValue: int
     isAsyncValue: bool
@@ -181,6 +191,7 @@ class LoopStatementState {
     Initializer: Statement? => initializerValue
     Iterator: Expression? => iteratorValue
     Body: Statement => bodyValue
+    ElseBody: Statement? => elseBodyValue
     Line: int => lineValue
     Column: int => columnValue
     IsAsync: bool => isAsyncValue
@@ -192,9 +203,10 @@ class LoopStatementState {
     ElementType: TypeInfo
     ConditionType: TypeInfo
     BodyNarrowings: List<FlowNarrowing>?
+    ElseNarrowings: List<FlowNarrowing>?
     LoopFrame: AmbientContextFrame?
 
-    constructor(form: int, variableName: string?, collection: Expression?, condition: Expression?, initializer: Statement?, iterator: Expression?, body: Statement, line: int, column: int, isAsync: bool, narrowing: AnalyzerFlowNarrowing?) {
+    constructor(form: int, variableName: string?, collection: Expression?, condition: Expression?, initializer: Statement?, iterator: Expression?, body: Statement, elseBody: Statement?, line: int, column: int, isAsync: bool, narrowing: AnalyzerFlowNarrowing?) {
         formValue = form
         variableNameValue = variableName
         collectionValue = collection
@@ -202,6 +214,7 @@ class LoopStatementState {
         initializerValue = initializer
         iteratorValue = iterator
         bodyValue = body
+        elseBodyValue = elseBody
         lineValue = line
         columnValue = column
         isAsyncValue = isAsync
@@ -215,11 +228,16 @@ class LoopStatementState {
             Phase = 20
         }
 
+        if form == 3 {
+            Phase = 30
+        }
+
         Pending = 0
         CollectionType = BuiltInTypes.Unknown
         ElementType = BuiltInTypes.Unknown
         ConditionType = BuiltInTypes.Unknown
         BodyNarrowings = null
+        ElseNarrowings = null
         LoopFrame = null
     }
 }
@@ -254,14 +272,16 @@ class LoopStatementState {
 // identity. That is the behaviour `Analyzer.cs` had, character for character, and it is preserved
 // rather than "fixed": widening it here would change which foreach loops compile.
 //
-// EVERY STATEMENT THAT LOOPS LIVES HERE, and so does the `yield` that feeds one. `foreach`,
-// `await foreach`, `while`, `for` and `yield` are five walks over one request type, one state and one
-// driver. The element-type question is why the iteration arms are here; `while` and `for` are here
-// because they are the SAME WALK as `foreach` with a condition in place of a collection, and cutting
-// a second protocol for them would have been two request types for one shape. The family therefore
-// owns the whole of what a loop is in N#: not just what iterating a value produces, but what a loop
-// condition must be, what it proves about the body, and that `break` and `continue` are legal inside
-// exactly the body and nothing else.
+// EVERY STATEMENT BUILT FROM A CONDITION AND A BODY LIVES HERE, and so does the `yield` that feeds a
+// generator. `foreach`, `await foreach`, `while`, `for`, `if` and `yield` are six walks over one
+// request type, one state and one driver. The element-type question is why the iteration arms are
+// here; `while` and `for` are here because they are the SAME WALK as `foreach` with a condition in
+// place of a collection, and `if` is here because it is the `while` walk with a second branch and no
+// loop frame — cutting a second protocol for any of them would have been more request types for one
+// shape. The family therefore owns the whole of what a loop is in N# — what iterating a value
+// produces, what a loop condition must be, what it proves about the body, and that `break` and
+// `continue` are legal inside exactly the body and nothing else — and the whole of what a
+// CONDITIONAL is: what each branch is told, and what survives the statement when a branch leaves.
 //
 // WHAT IT HOLDS AND WHAT IT IS HANDED. Every collaborator below is constructed exactly once by
 // `Analyzer.cs` and never rebuilt with the metadata load context, which is why holding them is safe:
@@ -795,26 +815,35 @@ class AnalyzerLoopSequence {
     // THE `foreach` STATEMENT'S ENTRY. The operands are read off the node here, so the walk never
     // holds an AST node whose type is one of four unrelated classes.
     func BeginForeach(statement: ForeachStatement): LoopStatementState {
-        return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, statement.Line, statement.Column, false, null)
+        return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, null, statement.Line, statement.Column, false, null)
     }
 
     // THE `await foreach` STATEMENT'S ENTRY — the same walk with `IsAsync` set, which is the whole
     // difference between the two arms.
     func BeginAwaitForeach(statement: AwaitForEachStatement): LoopStatementState {
-        return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, statement.Line, statement.Column, true, null)
+        return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, null, statement.Line, statement.Column, true, null)
     }
 
     // THE `while` STATEMENT'S ENTRY. It carries no position of its own: the only scope a `while` ever
     // opens is the narrowing scope, and that opens at the BODY's position rather than the keyword's.
     func BeginWhile(statement: WhileStatement, narrowing: AnalyzerFlowNarrowing): LoopStatementState {
-        return new LoopStatementState(1, null, null, statement.Condition, null, null, statement.Body, statement.Line, statement.Column, false, narrowing)
+        return new LoopStatementState(1, null, null, statement.Condition, null, null, statement.Body, null, statement.Line, statement.Column, false, narrowing)
     }
 
     // THE `for` STATEMENT'S ENTRY. All three clauses are OPTIONAL and each one's absence changes the
     // walk: no initializer skips a statement, no condition skips both the boolean gate AND the
     // narrowing that a condition would otherwise prove, and no iterator skips the nested walk.
     func BeginFor(statement: ForStatement, narrowing: AnalyzerFlowNarrowing): LoopStatementState {
-        return new LoopStatementState(2, null, null, statement.Condition, statement.Initializer, statement.Iterator, statement.Body, statement.Line, statement.Column, false, narrowing)
+        return new LoopStatementState(2, null, null, statement.Condition, statement.Initializer, statement.Iterator, statement.Body, null, statement.Line, statement.Column, false, narrowing)
+    }
+
+    // THE `if` STATEMENT'S ENTRY, AND THE FAMILY'S ONLY TWO-BRANCH FORM. It carries no position of
+    // its own for the same reason `while` does not: the only scopes an `if` ever opens are its two
+    // narrowing scopes, and each opens at ITS OWN BRANCH's position rather than at the keyword's.
+    // `else if` needs no entry of its own — the parser puts an `IfStatement` in the else slot, and
+    // the branch step hands it back to the statement dispatch, which arrives here again.
+    func BeginIf(statement: IfStatement, narrowing: AnalyzerFlowNarrowing): LoopStatementState {
+        return new LoopStatementState(3, null, null, statement.Condition, null, null, statement.ThenStatement, statement.ElseStatement, statement.Line, statement.Column, false, narrowing)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this loop is finished.
@@ -830,9 +859,9 @@ class AnalyzerLoopSequence {
     }
 
     // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 answers anything, and which slot it lands in
-    // is the FORM's business: the iteration family folds a collection type, `while` and `for` fold a
-    // condition type. The replayed operations, the body walk and the nested iterator walk answer
-    // nothing, and nothing is folded in for them.
+    // is the FORM's business: the iteration family folds a collection type, and `while`, `for` and
+    // `if` fold a condition type. The replayed operations, the branch walks and the nested iterator
+    // walk answer nothing, and nothing is folded in for them.
     func SupplyLoop(state: LoopStatementState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
@@ -864,6 +893,10 @@ class AnalyzerLoopSequence {
 
         if form == 2 {
             return AdvanceFor(state)
+        }
+
+        if form == 3 {
+            return AdvanceIf(state)
         }
 
         return AdvanceForeach(state)
@@ -1268,10 +1301,213 @@ class AnalyzerLoopSequence {
         return null
     }
 
-    // ── WHAT `while` AND `for` SHARE ───────────────────────────────────────────────────────────
+    // ── THE `if` WALK ──────────────────────────────────────────────────────────────────────────
+    //
+    // THE `while` WALK WITH A SECOND BRANCH AND NO LOOP FRAME, which is why it is here rather than in
+    // an owner of its own. It asks the same condition question of the same gate, extracts the same
+    // narrowings from the same writer, and opens the same kind of narrowing scope at the same kind of
+    // position — and it differs in exactly three things.
+    //
+    // FIRST, IT NEVER OPENS A LOOP. `break` and `continue` are no more legal inside an `if` than
+    // outside one, so no ambient frame is entered and none is restored; the branch simply runs in
+    // whatever frame the `if` was written in.
+    //
+    // SECOND, IT HAS TWO BRANCHES AND EACH GETS ITS OWN FACTS. `ExtractFlowNarrowings` yields both
+    // lists at once — what the condition proves when TRUE and what it proves when FALSE — and each
+    // branch is walked inside its own scope only when its own list is non-empty. An `if` whose
+    // condition proves nothing opens NO scope at all, which is why a variable declared directly in an
+    // un-narrowed branch behaves differently from one declared in a narrowed branch; that is the
+    // behaviour `Analyzer.cs` had and it is preserved rather than regularised.
+    //
+    // THIRD, AND ONLY HERE IN THE WHOLE FAMILY, A BRANCH THAT ALWAYS LEAVES CHANGES THE FLOW AFTER
+    // THE STATEMENT. `if x == null { return }` is a GUARD CLAUSE: the reader experiences its facts
+    // AFTER the `if` rather than inside it, so when the then-branch always leaves and the else-branch
+    // does not, the ELSE facts are installed into the surviving flow — into the ENCLOSING scope, with
+    // no scope of their own, because there is no branch left to scope them to. The mirror case
+    // installs the THEN facts when the else-branch always leaves. The two are NOT symmetric: the
+    // first arm additionally requires that the else-branch does NOT always leave, so an `if` whose
+    // BOTH branches leave installs nothing — there is no surviving flow to inform. That asymmetry is
+    // `Analyzer.cs`'s, character for character.
+    //
+    // THE TERMINATION QUESTION IS ASKED LAST, AFTER BOTH BRANCHES HAVE BEEN WALKED, because that is
+    // where `Analyzer.cs` asked it. It is a PURE question about the AST — `AnalyzerStatementTermination`
+    // reads no analysis state — so the position is preserved for readability rather than for
+    // behaviour, and it is a direct call rather than a step because nothing about it needs the driver.
+    //
+    // AN `else if` IS NOT A SHAPE THIS WALK KNOWS. The parser puts an `IfStatement` in the else slot,
+    // so the else branch step hands it to the statement dispatch and this walk is entered again for
+    // it, one level down, with its own condition, its own two narrowing lists and its own guard-clause
+    // rule. A chain of any length therefore needs nothing here at all.
+    func AdvanceIf(state: LoopStatementState): LoopStatementRequest? {
+        phase := state.Phase
+        if phase == 30 {
+            return AdvanceIfCondition(state)
+        }
 
-    // HOW MANY FACTS THE CONDITION PROVED. Zero when it proved none and zero when there was no
-    // narrowing writer to ask, which is the same answer for the walk's purposes: no narrowing scope.
+        if phase == 31 {
+            return AdvanceIfGate(state)
+        }
+
+        if phase == 32 {
+            return AdvanceIfThenNarrowedBody(state)
+        }
+
+        if phase == 33 {
+            return AdvanceIfThenNarrowedClose(state)
+        }
+
+        if phase == 34 {
+            return AdvanceIfElse(state)
+        }
+
+        if phase == 35 {
+            return AdvanceIfElseNarrowedBody(state)
+        }
+
+        if phase == 36 {
+            return AdvanceIfElseNarrowedClose(state)
+        }
+
+        if phase == 37 {
+            return AdvanceIfGuardClause(state)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // PHASE 30 — the condition, and nothing before it.
+    func AdvanceIfCondition(state: LoopStatementState): LoopStatementRequest? {
+        condition := state.Condition
+        if condition == null {
+            state.Phase = 99
+            return null
+        }
+
+        state.Phase = 31
+        state.Pending = 1
+        request := new LoopStatementRequest(1, BuiltInTypes.Unknown)
+        request.Node = condition
+        return request
+    }
+
+    // PHASE 31 — WHAT THE CONDITION IS AND WHAT IT PROVES, IN THAT ORDER OF EXECUTION AND NOT OF
+    // READING. BOTH narrowing lists are extracted BEFORE the boolean gate reports, which is the order
+    // `Analyzer.cs` wrote and is preserved rather than tidied: the extractor consults the scope stack,
+    // and a report that changed it would change what a later extraction saw. The gate is the RICH `if`
+    // report — the only one of the five conditions that earns the underline and the conversion hint.
+    // Then the then-branch runs, inside its proved facts when it has any.
+    func AdvanceIfGate(state: LoopStatementState): LoopStatementRequest? {
+        condition := state.Condition
+        if condition == null {
+            state.Phase = 99
+            return null
+        }
+
+        narrowing := state.Narrowing
+        if narrowing != null {
+            split := narrowing.ExtractFlowNarrowings(condition)
+            state.BodyNarrowings = split.Then
+            state.ElseNarrowings = split.Else
+        }
+
+        conditionsValue.ReportIfConditionTypeMismatchIfNeeded(condition, state.ConditionType)
+
+        if NarrowingCount(state) > 0 {
+            state.Phase = 32
+            request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+            request.Line = state.Body.Line
+            request.Column = state.Body.Column
+            return request
+        }
+
+        state.Phase = 34
+        return NewBodyRequest(state)
+    }
+
+    // PHASE 32 — the true-branch facts are installed in the scope phase 31 just opened, and then the
+    // then-branch runs inside them.
+    func AdvanceIfThenNarrowedBody(state: LoopStatementState): LoopStatementRequest? {
+        ApplyBodyNarrowings(state)
+        state.Phase = 33
+        return NewBodyRequest(state)
+    }
+
+    // PHASE 33 — the then-branch's narrowing scope closes, and the facts it carried die with it.
+    func AdvanceIfThenNarrowedClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 34
+        return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // PHASE 34 — the else branch, which is the family's only optional body. No else branch skips
+    // straight to the guard-clause rule; an else branch with proved facts opens its own scope at ITS
+    // OWN position rather than at the then-branch's.
+    func AdvanceIfElse(state: LoopStatementState): LoopStatementRequest? {
+        elseBody := state.ElseBody
+        if elseBody == null {
+            state.Phase = 37
+            return null
+        }
+
+        if ElseNarrowingCount(state) > 0 {
+            state.Phase = 35
+            request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+            request.Line = elseBody.Line
+            request.Column = elseBody.Column
+            return request
+        }
+
+        state.Phase = 37
+        return NewElseBodyRequest(elseBody)
+    }
+
+    // PHASE 35 — the false-branch facts are installed in the scope phase 34 just opened, and then the
+    // else branch runs inside them.
+    func AdvanceIfElseNarrowedBody(state: LoopStatementState): LoopStatementRequest? {
+        ApplyElseNarrowings(state)
+        state.Phase = 36
+        elseBody := state.ElseBody
+        if elseBody == null {
+            return null
+        }
+
+        return NewElseBodyRequest(elseBody)
+    }
+
+    // PHASE 36 — the else branch's narrowing scope closes.
+    func AdvanceIfElseNarrowedClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 37
+        return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // PHASE 37 — THE GUARD-CLAUSE RULE, and the one place in this family where facts outlive the
+    // statement that proved them. Both branches have already been walked; what is decided here is
+    // what the code AFTER the `if` knows. The termination questions are asked in the then/else order
+    // `Analyzer.cs` asked them, and the else question is not asked at all when there is no else
+    // branch — which is the same answer, and is preserved as the same shape.
+    func AdvanceIfGuardClause(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 99
+        thenAlwaysReturns := AnalyzerStatementTermination.AlwaysReturns(state.Body)
+        elseBody := state.ElseBody
+        elseAlwaysReturns := elseBody != null && AnalyzerStatementTermination.AlwaysReturns(elseBody)
+
+        if thenAlwaysReturns && !elseAlwaysReturns && ElseNarrowingCount(state) > 0 {
+            ApplyElseNarrowings(state)
+            return null
+        }
+
+        if elseAlwaysReturns && NarrowingCount(state) > 0 {
+            ApplyBodyNarrowings(state)
+        }
+
+        return null
+    }
+
+    // ── WHAT THE CONDITION FORMS SHARE ─────────────────────────────────────────────────────────
+
+    // HOW MANY FACTS THE CONDITION PROVED WHEN TRUE. Zero when it proved none and zero when there was
+    // no narrowing writer to ask, which is the same answer for the walk's purposes: no narrowing
+    // scope.
     func NarrowingCount(state: LoopStatementState): int {
         narrowings := state.BodyNarrowings
         if narrowings == null {
@@ -1281,7 +1517,20 @@ class AnalyzerLoopSequence {
         return narrowings.Count
     }
 
-    // INSTALL WHAT THE CONDITION PROVED into the scope that was just opened for it.
+    // HOW MANY FACTS THE CONDITION PROVED WHEN FALSE. Only `if` ever has any: a loop's false branch is
+    // the code after the loop, and no loop arm ever narrowed it.
+    func ElseNarrowingCount(state: LoopStatementState): int {
+        narrowings := state.ElseNarrowings
+        if narrowings == null {
+            return 0
+        }
+
+        return narrowings.Count
+    }
+
+    // INSTALL WHAT THE CONDITION PROVED WHEN TRUE into the scope that is currently open for it — the
+    // branch's own narrowing scope for `while`, `for` and an `if`'s then-branch, and the ENCLOSING
+    // scope when an `if`'s else-branch always leaves and the facts outlive the statement.
     func ApplyBodyNarrowings(state: LoopStatementState) {
         narrowings := state.BodyNarrowings
         narrowing := state.Narrowing
@@ -1290,10 +1539,29 @@ class AnalyzerLoopSequence {
         }
     }
 
-    // THE BODY STEP, which is the same request for both walks.
+    // INSTALL WHAT THE CONDITION PROVED WHEN FALSE, into the else-branch's own narrowing scope or —
+    // for a guard clause whose then-branch always leaves — into the enclosing scope.
+    func ApplyElseNarrowings(state: LoopStatementState) {
+        narrowings := state.ElseNarrowings
+        narrowing := state.Narrowing
+        if narrowings != null && narrowing != null {
+            narrowing.ApplyNarrowingsToScope(narrowings)
+        }
+    }
+
+    // THE BODY STEP, which is the same request for every walk: a loop body, a `for` initializer, or
+    // an `if`'s then-branch.
     func NewBodyRequest(state: LoopStatementState): LoopStatementRequest {
         request := new LoopStatementRequest(5, BuiltInTypes.Unknown)
         request.Body = state.Body
+        return request
+    }
+
+    // THE ELSE-BRANCH STEP. It is the same kind as the body step and differs only in which statement
+    // it carries, which is why it takes the statement rather than reading it back off the state.
+    func NewElseBodyRequest(elseBody: Statement): LoopStatementRequest {
+        request := new LoopStatementRequest(5, BuiltInTypes.Unknown)
+        request.Body = elseBody
         return request
     }
 

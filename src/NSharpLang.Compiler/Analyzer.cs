@@ -2220,8 +2220,8 @@ public class Analyzer : IDisposable
             // Missing return (all-paths) check for non-void functions.
             // Iterator functions (func* / async*) use yield, not explicit return.
             var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
-            var isAsyncUnitTask = func.Modifiers.HasFlag(Modifiers.Async) && (AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(functionReturnType) || IsUnitTaskLikeTypeReference(func.ReturnType));
-            if (BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) && !isIterator && !isAsyncUnitTask && !StatementAlwaysReturns(func.Body))
+            var isAsyncUnitTask = func.Modifiers.HasFlag(Modifiers.Async) && (AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(functionReturnType) || TaskLikeTypeFacts.IsUnitTaskLikeTypeReference(func.ReturnType));
+            if (BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) && !isIterator && !isAsyncUnitTask && !AnalyzerStatementTermination.AlwaysReturns(func.Body))
             {
                 var sourceSnippet = GetSourceSnippet(func.Line);
 
@@ -2370,68 +2370,6 @@ public class Analyzer : IDisposable
             || definition == typeof(IList<>)
             || definition == typeof(IReadOnlyCollection<>)
             || definition == typeof(IReadOnlyList<>);
-    }
-
-    private static bool IsUnitTaskLikeTypeReference(TypeReference? typeRef)
-        => TaskLikeTypeFacts.IsUnitTaskLikeTypeReference(typeRef);
-
-    private static bool StatementAlwaysReturns(Statement statement)
-    {
-        switch (statement)
-        {
-            case ReturnStatement { Value: { } value }:
-                return !AnalyzerParserErrorPlaceholders.ContainsInExpression(value);
-
-            case ReturnStatement:
-                return true;
-
-            case ThrowStatement throwStmt:
-                return !AnalyzerParserErrorPlaceholders.ContainsInExpression(throwStmt.Expression);
-
-            case BlockStatement block:
-                // If any statement always returns, the remainder of the block is unreachable,
-                // so the block always returns.
-                foreach (var stmt in block.Statements)
-                {
-                    if (StatementAlwaysReturns(stmt))
-                        return true;
-                }
-                return false;
-
-            case AllocBlockStatement allocBlock:
-                return StatementAlwaysReturns(allocBlock.Body);
-
-            case AllowStatement allow:
-                return StatementAlwaysReturns(allow.Body);
-
-            case UnsafeBlockStatement unsafeBlock:
-                return StatementAlwaysReturns(unsafeBlock.Body);
-
-            case IfStatement ifStmt:
-                return ifStmt.ElseStatement != null &&
-                       StatementAlwaysReturns(ifStmt.ThenStatement) &&
-                       StatementAlwaysReturns(ifStmt.ElseStatement);
-
-            case LockStatement lockStmt:
-                return StatementAlwaysReturns(lockStmt.Body);
-
-            case SwitchStatement switchStmt:
-                // Switch always returns if it has a default case and all cases return
-                var hasDefault = switchStmt.Cases.Any(c => c.Pattern == null);
-                return hasDefault && switchStmt.Cases.All(c =>
-                    c.Statements.Any(s => StatementAlwaysReturns(s)));
-
-            case TryStatement tryStmt:
-                // Try always returns if the try block returns and all catch blocks return
-                if (!StatementAlwaysReturns(tryStmt.TryBlock))
-                    return false;
-                if (tryStmt.CatchClauses.Count == 0)
-                    return false;
-                return tryStmt.CatchClauses.All(c => StatementAlwaysReturns(c.Block));
-
-            default:
-                return false;
-        }
     }
 
     private void AnalyzeClassDeclaration(ClassDeclaration classDecl)
@@ -3190,7 +3128,7 @@ public class Analyzer : IDisposable
                 break;
             }
             AnalyzeStatement(stmt);
-            if (StatementAlwaysReturns(stmt))
+            if (AnalyzerStatementTermination.AlwaysReturns(stmt))
                 terminated = true;
         }
     }
@@ -3224,7 +3162,7 @@ public class Analyzer : IDisposable
                 AnalyzeStatement(unsafeBlock.Body);
                 break;
             case IfStatement ifStmt:
-                AnalyzeIfStatement(ifStmt);
+                DriveLoopStatement(_loopSequence.BeginIf(ifStmt, _flowNarrowing));
                 break;
             case ForStatement forStmt:
                 DriveLoopStatement(_loopSequence.BeginFor(forStmt, _flowNarrowing));
@@ -3469,76 +3407,24 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void AnalyzeIfStatement(IfStatement ifStmt)
-    {
-        var condType = AnalyzeExpression(ifStmt.Condition);
-        // Allow unknown types (they might be boolean from external methods we can't fully resolve)
-        // Extract flow-sensitive type narrowings from the condition (null checks, is-patterns, && chains)
-        var conditionNarrowings = _flowNarrowing.ExtractFlowNarrowings(ifStmt.Condition);
-        var thenNarrowings = conditionNarrowings.Then;
-        var elseNarrowings = conditionNarrowings.Else;
-        _conditions.ReportIfConditionTypeMismatchIfNeeded(ifStmt.Condition, condType);
-
-        // Apply then-branch narrowings (null checks, is-patterns, && chains)
-        if (thenNarrowings.Count > 0)
-        {
-            PushScope(new Scope(ScopeKind.Block), ifStmt.ThenStatement.Line, ifStmt.ThenStatement.Column);
-            _flowNarrowing.ApplyNarrowingsToScope(thenNarrowings);
-            AnalyzeStatement(ifStmt.ThenStatement);
-            PopScope();
-        }
-        else
-        {
-            AnalyzeStatement(ifStmt.ThenStatement);
-        }
-
-        if (ifStmt.ElseStatement != null)
-        {
-            // Apply else-branch narrowings (from == null checks, || chains)
-            if (elseNarrowings.Count > 0)
-            {
-                PushScope(new Scope(ScopeKind.Block), ifStmt.ElseStatement.Line, ifStmt.ElseStatement.Column);
-                _flowNarrowing.ApplyNarrowingsToScope(elseNarrowings);
-                AnalyzeStatement(ifStmt.ElseStatement);
-                PopScope();
-            }
-            else
-            {
-                AnalyzeStatement(ifStmt.ElseStatement);
-            }
-        }
-
-        var thenAlwaysReturns = StatementAlwaysReturns(ifStmt.ThenStatement);
-        var elseAlwaysReturns = ifStmt.ElseStatement != null && StatementAlwaysReturns(ifStmt.ElseStatement);
-
-        // Guard clauses are experienced after the if, not inside it:
-        // if x == null { return } x.Member
-        // If the null branch exits, the surviving path inherits the opposite facts.
-        if (thenAlwaysReturns && !elseAlwaysReturns && elseNarrowings.Count > 0)
-        {
-            _flowNarrowing.ApplyNarrowingsToScope(elseNarrowings);
-        }
-        else if (elseAlwaysReturns && thenNarrowings.Count > 0)
-        {
-            _flowNarrowing.ApplyNarrowingsToScope(thenNarrowings);
-        }
-    }
-
     /// <summary>
-    /// The steps the N#-owned loop walks cannot take for themselves. All four of N#'s loop
-    /// statements — <c>foreach</c>, <c>await foreach</c>, <c>while</c> and <c>for</c> — run in
-    /// <see cref="AnalyzerLoopSequence"/> and share this one loop, because they are the same walk
-    /// with and without a collection, an initializer and an update clause. Each walk suspends at
-    /// every step, because the answered type is the operand of the escape reports, of the
-    /// element-type question and of the boolean gate. Which escape fires and with which action word,
-    /// which question is asked, whether a condition is gated and under whose name, what the
-    /// condition proves and in which scope those facts are installed, which scope opens and where,
-    /// and the order of every operation are all the walk's decisions. Kind 5 is a SINGLE statement
-    /// rather than <see cref="DriveExpressionStatement"/>'s statement LIST, because neither a loop
-    /// body nor a <c>for</c> initializer ever had the unreachable-code rule applied to it. Kind 7 is
-    /// the one place in this estate where a driver drives a driver: a <c>for</c> loop's update clause
-    /// belongs to the statement-level expression family, and constructing that family's state and
-    /// running its loop are the two things N# cannot do for itself.
+    /// The steps the N#-owned condition-and-body walks cannot take for themselves. All four of N#'s
+    /// loop statements — <c>foreach</c>, <c>await foreach</c>, <c>while</c> and <c>for</c> — and
+    /// <c>if</c> run in <see cref="AnalyzerLoopSequence"/> and share this one loop, because they are
+    /// the same walk with and without a collection, an initializer, an update clause and a second
+    /// branch. Each walk suspends at every step, because the answered type is the operand of the
+    /// escape reports, of the element-type question and of the boolean gate. Which escape fires and
+    /// with which action word, which question is asked, whether a condition is gated and under whose
+    /// name, what the condition proves about each branch and in which scope those facts are
+    /// installed, whether a branch that always leaves hands its facts to the surviving flow, which
+    /// scope opens and where, and the order of every operation are all the walk's decisions. Kind 5
+    /// is a SINGLE statement rather than <see cref="DriveExpressionStatement"/>'s statement LIST,
+    /// because none of a loop body, a <c>for</c> initializer or an <c>if</c> branch ever had the
+    /// unreachable-code rule applied to it; an <c>else if</c> arrives back at this dispatch through
+    /// that same kind and needs nothing of its own. Kind 7 is the one place in this estate where a
+    /// driver drives a driver: a <c>for</c> loop's update clause belongs to the statement-level
+    /// expression family, and constructing that family's state and running its loop are the two
+    /// things N# cannot do for itself.
     /// </summary>
     private void DriveLoopStatement(LoopStatementState state)
     {
