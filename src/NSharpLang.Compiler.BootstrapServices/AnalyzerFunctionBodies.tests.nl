@@ -49,14 +49,18 @@ class FunctionBodyHarness {
     Errors: List<CompilerError>
     Assignability: AnalyzerAssignability
     Model: SemanticModel
+    Extensions: List<FunctionDeclaration>
+    Factory: AnalyzerFunctionTypeFactory
 
-    constructor(bodies: AnalyzerFunctionBodies, ambient: AnalyzerAmbientContext, scopes: AnalyzerScopeStack, errors: List<CompilerError>, assignability: AnalyzerAssignability, model: SemanticModel) {
+    constructor(bodies: AnalyzerFunctionBodies, ambient: AnalyzerAmbientContext, scopes: AnalyzerScopeStack, errors: List<CompilerError>, assignability: AnalyzerAssignability, model: SemanticModel, extensions: List<FunctionDeclaration>, factory: AnalyzerFunctionTypeFactory) {
         Bodies = bodies
         Ambient = ambient
         Scopes = scopes
         Errors = errors
         Assignability = assignability
         Model = model
+        Extensions = extensions
+        Factory = factory
     }
 }
 
@@ -123,8 +127,9 @@ func BodyHarnessWith(sourceText: string?): FunctionBodyHarness {
     ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
     factory := new AnalyzerFunctionTypeFactory(context, substitution)
     definite := new AnalyzerDefiniteAssignment(diagnostics, resolver)
-    bodies := new AnalyzerFunctionBodies(diagnostics, spans, scopes, context, resolver, factory, ambient, escape, definite)
-    return new FunctionBodyHarness(bodies, ambient, scopes, errors, assignability, model)
+    extensions := new List<FunctionDeclaration>()
+    bodies := new AnalyzerFunctionBodies(diagnostics, spans, scopes, context, resolver, factory, ambient, escape, definite, extensions)
+    return new FunctionBodyHarness(bodies, ambient, scopes, errors, assignability, model, extensions, factory)
 }
 
 func BodyDefault(): FunctionBodyHarness {
@@ -760,6 +765,21 @@ test "THE EXPECTED TYPE IS THE RETURN TYPE, EXCEPT FOR A GENERATOR OR A void" {
 // THE BALANCE INVARIANTS, ASSERTED OVER EVERY SHAPE THE WALK HAS
 // ---------------------------------------------------------------------------------------------
 
+// The index of the FIRST step of a kind, or -1. It is what pins a step's place in the order without
+// spelling the whole transcript out, which matters where a shape matrix has different transcripts.
+func BodyIndexOfKind(steps: List<FunctionBodyStep>, kind: int): int {
+    index := 0
+    while index < steps.Count {
+        if steps[index].Kind == kind {
+            return index
+        }
+
+        index = index + 1
+    }
+
+    return -1
+}
+
 func BodyCountKind(steps: List<FunctionBodyStep>, kind: int): int {
     count := 0
     index := 0
@@ -848,6 +868,583 @@ test "NO REPORT IS RAISED BEFORE THE BODY IS REACHED, IN ANY SHAPE" {
             stepIndex = stepIndex + 1
         }
 
+        index = index + 1
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// FORM 1 — THE TOP-LEVEL `func` DECLARATION
+// ---------------------------------------------------------------------------------------------
+//
+// `AnalyzeFunctionDeclaration` was `private` in `Analyzer.cs` too, and it is the widest thing this
+// family does. What follows is written around the six things it is easy to get wrong, and every one
+// of them is a decision the C# made silently.
+//
+// (1) THE NAME IS NOT ALWAYS DECLARED. A class's first pass registers its methods before their bodies
+// are walked, so the walk asks the ENCLOSING scope what it already holds: a method group means the
+// overloads are already merged, an identically-signed function means this is that declaration, and
+// anything else means declare. Declaring unconditionally would either duplicate a symbol or re-merge
+// a group, and neither shows up until a program has two overloads.
+//
+// (2) AN OPERATOR OVERLOAD TAKES A DIFFERENT ENTRY. Its three rules run before anything else, and it
+// takes NO naming-convention step at all — an operator has no name of its own to get right.
+//
+// (3) THE BLOCK BODY GOES THROUGH THE DISPATCH, NOT THROUGH THE STATEMENT LIST. The step carries the
+// BLOCK, so the block arm opens a block scope inside the function scope; a local function's body
+// carries the LIST and opens none. That single difference is why the two forms cannot share phase 6.
+//
+// (4) LEAVING RESTORES THE RETURN TYPE TO NULL RATHER THAN TO THE SAVED ONE. That asymmetry is the
+// original behaviour: leaving a declaration leaves "inside a function" entirely, so a stray `return`
+// between two declarations is told it has no function to return from. A symmetric restore would look
+// more correct and would be a behaviour change.
+//
+// (5) THE MISSING-RETURN RULE IS THIS FORM'S ALONE, AND IT HAS FOUR SILENCERS: a `void` return type,
+// a generator, an `async` function owing a unit task, and a body that already always returns.
+//
+// (6) THE SCOPE AND THE BOUNDARY ARE OPENED FOR A DECLARATION WITH NO BODY AT ALL, and both are
+// closed again — an interface member or an abstract method still balances.
+
+func BodyOperator(symbol: string?, parameters: List<Parameter>, modifiers: Modifiers): FunctionDeclaration {
+    return new FunctionDeclaration("op", parameters, BodyIntType(), BodyBlock(), null, null, null, modifiers, new List<AttributeNode>(), true, symbol, false, false, 7, 10)
+}
+
+func BodyConstrained(typeParameters: List<TypeParameter>?, constraints: List<GenericConstraint>?): FunctionDeclaration {
+    return new FunctionDeclaration("gen", BodyParameters(), BodyIntType(), BodyBlock(), null, typeParameters, constraints, Modifiers.None, new List<AttributeNode>(), false, null, false, false, 7, 10)
+}
+
+func BodyTypeParameters(names: List<string>): List<TypeParameter> {
+    parameters := new List<TypeParameter>()
+    index := 0
+    while index < names.Count {
+        parameters.Add(new TypeParameter(names[index]))
+        index = index + 1
+    }
+
+    return parameters
+}
+
+func BodyNames(first: string, second: string?): List<string> {
+    names := new List<string>()
+    names.Add(first)
+    if second != null {
+        names.Add(second)
+    }
+
+    return names
+}
+
+func BodyConstraint(typeParameter: string, target: string): GenericConstraint {
+    targets := new List<TypeReference>()
+    reference: TypeReference = new SimpleTypeReference(target, 7, 20)
+    targets.Add(reference)
+    return new GenericConstraint(typeParameter, targets, SpecialConstraintKind.None)
+}
+
+func BodyConstraints(first: GenericConstraint, second: GenericConstraint?): List<GenericConstraint> {
+    constraints := new List<GenericConstraint>()
+    constraints.Add(first)
+    if second != null {
+        constraints.Add(second)
+    }
+
+    return constraints
+}
+
+// A NON-VOID return type nothing in the harness can resolve. It is what separates a rule silenced by
+// the void check from one silenced by its own modifier.
+func BodyUnknownType(): TypeReference {
+    reference: TypeReference = new SimpleTypeReference("Widget", 7, 20)
+    return reference
+}
+
+// Seven blank lines and a declaration on line 7, so the reports that need a source line have one.
+func BodySourceText(): string {
+    return "\n\n\n\n\n\n    func Top(): string => 1\n"
+}
+
+func BodyCountCode(harness: FunctionBodyHarness, code: ErrorCode): int {
+    total := 0
+    index := 0
+    while index < harness.Errors.Count {
+        if harness.Errors[index].Code == code {
+            total = total + 1
+        }
+
+        index = index + 1
+    }
+
+    return total
+}
+
+func BodyThisParameter(): Parameter {
+    return new Parameter("self", new SimpleTypeReference("int", 7, 20), null, true, ParameterModifier.None, null, 7, 20, false, null)
+}
+
+// A block that does NOT always return: one bare expression statement and nothing else.
+func BodyOpenBlock(): BlockStatement {
+    statements := new List<Statement>()
+    statements.Add(new ExpressionStatement(BodyIntLiteral(), 8, 9))
+    return new BlockStatement(statements, 8, 5)
+}
+
+func BodyDeclarationBegin(harness: FunctionBodyHarness, declaration: FunctionDeclaration): FunctionBodyState {
+    return harness.Bodies.BeginFunctionDeclaration(declaration, null, harness.Assignability)
+}
+
+// The eight declaration shapes the balance invariants are asserted over.
+func BodyDeclarationShapes(): List<FunctionDeclaration> {
+    shapes := new List<FunctionDeclaration>()
+    shapes.Add(BodyDeclaration("plain", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None))
+    shapes.Add(BodyDeclaration("withParam", BodyOneParameter(BodyParameter("a", "int", 7, 20)), BodyIntType(), BodyBlock(), null, null, Modifiers.None))
+    shapes.Add(BodyDeclaration("voidBody", BodyParameters(), null, BodyOpenBlock(), null, null, Modifiers.None))
+    shapes.Add(BodyDeclaration("expression", BodyParameters(), BodyIntType(), null, BodyIntLiteral(), null, Modifiers.None))
+    shapes.Add(BodyDeclaration("empty", BodyParameters(), BodyIntType(), null, null, null, Modifiers.None))
+    shapes.Add(BodyDeclaration("generator", BodyParameters(), null, BodyBlock(), null, null, Modifiers.Generator))
+    shapes.Add(BodyOperator("+", BodyOneParameter(BodyParameter("a", "int", 7, 20)), Modifiers.Static))
+    shapes.Add(BodyConstrained(BodyTypeParameters(BodyNames("T", null)), BodyConstraints(BodyConstraint("T", "T"), null)))
+    return shapes
+}
+
+test "A PLAIN BLOCK-BODIED DECLARATION ASKS FOR SEVEN STEPS IN ONE ORDER" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    // Declare the name, check the naming convention, open the function scope, validate the list,
+    // record the function for the IDE, hand the BLOCK to the dispatch, close.
+    assert BodyStepKinds(steps) == "3,10,2,7,8,9,6"
+}
+
+test "A PARAMETER ADDS THE DECLARE/RECORD PAIR BETWEEN THE LIST RULES AND THE IDE RECORD" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyOneParameter(BodyParameter("a", "int", 7, 20)), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    assert BodyStepKinds(steps) == "3,10,2,7,3,4,8,9,6"
+    // The parameter is declared at ITS OWN position, inside the function scope.
+    assert steps[4].Name == "a"
+    assert steps[4].Line == 7
+    assert steps[4].Column == 20
+    assert steps[4].Depth == 2
+}
+
+test "AN EXPRESSION BODY REPLACES THE DISPATCH STEP WITH THE TARGET-TYPED WALK" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyParameters(), BodyIntType(), null, BodyIntLiteral(), null, Modifiers.None)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), BuiltInTypes.Int)
+
+    assert BodyStepKinds(steps) == "3,10,2,7,8,1,6"
+    // Walked UNDER the declared return type, exactly as the nested form is.
+    assert steps[5].ExpectedType == "int"
+}
+
+test "A DECLARATION WITH NEITHER BODY STILL OPENS AND CLOSES BOTH THE SCOPE AND THE BOUNDARY" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Abstract", BodyParameters(), BodyIntType(), null, null, null, Modifiers.None)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    assert BodyStepKinds(steps) == "3,10,2,7,8,6"
+    assert harness.Scopes.Count == 1
+    assert harness.Ambient.CurrentFunction == null
+    // No body means no missing-return report: there is no code path to judge.
+    assert harness.Errors.Count == 0
+}
+
+test "THE BLOCK BODY IS HANDED OVER AS A BLOCK, NOT AS A STATEMENT LIST" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    // Kind 9 carries the block itself and NO statement list — which is what makes the dispatch open a
+    // block scope inside the function scope. A local function's kind 5 does the opposite.
+    assert steps[5].Kind == 9
+    assert steps[5].StatementCount == -1
+    assert BodyCountKind(steps, 5) == 0
+}
+
+test "THE NAME IS DECLARED AT THE DECLARATION'S POSITION, ONE STEP BEFORE ANYTHING ELSE" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    assert steps[0].Kind == 3
+    assert steps[0].Name == "Top"
+    assert steps[0].Line == 7
+    assert steps[0].Column == 10
+    assert steps[0].Depth == 1
+    assert steps[0].CarriedType != "<null>"
+}
+
+test "A NAME ALREADY HELD AS A METHOD GROUP IS NOT DECLARED AGAIN" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Merged", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+    group: TypeInfo = NSharpMethodGroupInfoFactory.FromFunctions(new List<FunctionTypeInfo>())
+    harness.Scopes.Peek().Symbols["Merged"] = group
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    // The first pass already merged every overload of this name; declaring into it again is what the
+    // merge would have to undo.
+    assert BodyStepKinds(steps) == "10,2,7,8,9,6"
+}
+
+test "A NAME ALREADY HELD AS AN IDENTICALLY-SIGNED FUNCTION IS NOT DECLARED AGAIN" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Same", BodyOneParameter(BodyParameter("a", "int", 7, 20)), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+    existing := BodyDeclaration("Same", BodyOneParameter(BodyParameter("b", "int", 7, 20)), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+    existingType: TypeInfo = harness.Factory.CreateFromDeclaration(existing, null)
+    harness.Scopes.Peek().Symbols["Same"] = existingType
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    // Parameter NAMES do not distinguish signatures — this is the same declaration, already
+    // registered by the first pass.
+    assert BodyCountKind(steps, 3) == 1
+    assert steps[0].Kind == 10
+}
+
+test "A NAME HELD AS A DIFFERENTLY-SIGNED FUNCTION IS DECLARED, AND SO IS ONE HELD AS A VALUE" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Over", BodyOneParameter(BodyParameter("a", "int", 7, 20)), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+    other := BodyDeclaration("Over", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+    otherType: TypeInfo = harness.Factory.CreateFromDeclaration(other, null)
+    harness.Scopes.Peek().Symbols["Over"] = otherType
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    // A real overload: the declaration still lands, and DeclareSymbol is what merges the group.
+    assert steps[0].Kind == 3
+
+    valueHarness := BodyDefault()
+    valueHarness.Scopes.Peek().Symbols["Over"] = BuiltInTypes.Int
+    valueSteps := BodyRun(valueHarness, BodyDeclarationBegin(valueHarness, declaration), null)
+
+    // A field or property under the same name is not this rule's business — the duplicate is
+    // DeclareSymbol's decision, not the walk's.
+    assert valueSteps[0].Kind == 3
+}
+
+test "A FIRST PARAMETER MARKED `this` REGISTERS THE DECLARATION AS AN EXTENSION METHOD" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Ext", BodyOneParameter(BodyThisParameter()), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+
+    BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    assert harness.Extensions.Count == 1
+    assert harness.Extensions[0].Name == "Ext"
+}
+
+test "A PARAMETERLESS DECLARATION AND A PLAIN FIRST PARAMETER REGISTER NOTHING" {
+    bare := BodyDefault()
+    BodyRun(bare, BodyDeclarationBegin(bare, BodyDeclaration("Plain", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None)), null)
+    assert bare.Extensions.Count == 0
+
+    plain := BodyDefault()
+    BodyRun(plain, BodyDeclarationBegin(plain, BodyDeclaration("Plain", BodyOneParameter(BodyParameter("a", "int", 7, 20)), BodyIntType(), BodyBlock(), null, null, Modifiers.None)), null)
+    assert plain.Extensions.Count == 0
+}
+
+test "THE NAMING-CONVENTION RELAY CARRIES THE NAME, THE MODIFIERS AND THE DECLARATION'S POSITION" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.Static)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    assert steps[1].Kind == 10
+    assert steps[1].Name == "Top"
+    assert steps[1].Line == 7
+    assert steps[1].Column == 10
+    // It is asked BEFORE the scope opens, so the report lands outside the function's own scope.
+    assert steps[1].Depth == 1
+}
+
+test "AN OPERATOR OVERLOAD TAKES NO NAMING-CONVENTION STEP AT ALL" {
+    harness := BodyDefault()
+    declaration := BodyOperator("+", BodyOneParameter(BodyParameter("a", "int", 7, 20)), Modifiers.Static)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    assert BodyCountKind(steps, 10) == 0
+    assert BodyStepKinds(steps) == "3,2,7,3,4,8,9,6"
+}
+
+test "AN OPERATOR THAT IS NOT `static` IS REPORTED ON THE `operator` KEYWORD, BEFORE ANY STEP" {
+    harness := BodyDefault()
+    declaration := BodyOperator("+", BodyOneParameter(BodyParameter("a", "int", 7, 20)), Modifiers.None)
+
+    steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.InvalidOperatorOverload
+    // The very first step was already handed out with the report in place: the operator rules run
+    // before the name is even computed.
+    assert steps[0].ErrorsBefore == 1
+}
+
+test "AN UNSUPPORTED OPERATOR SYMBOL IS REPORTED ONCE AND SILENCES THE ARITY RULE" {
+    harness := BodyDefault()
+    declaration := BodyOperator("**", BodyParameters(), Modifiers.Static)
+
+    BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    // One complaint about one mistake: there is no arity to check for an operator the language does
+    // not have.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.InvalidOperatorOverload
+}
+
+test "`+` AND `-` MAY BE UNARY OR BINARY AND NOTHING ELSE MAY" {
+    unary := BodyDefault()
+    BodyRun(unary, BodyDeclarationBegin(unary, BodyOperator("-", BodyOneParameter(BodyParameter("a", "int", 7, 20)), Modifiers.Static)), null)
+    assert unary.Errors.Count == 0
+
+    ternary := BodyDefault()
+    three := BodyOneParameter(BodyParameter("a", "int", 7, 20))
+    three.Add(BodyParameter("b", "int", 7, 24))
+    three.Add(BodyParameter("c", "int", 7, 28))
+    BodyRun(ternary, BodyDeclarationBegin(ternary, BodyOperator("+", three, Modifiers.Static)), null)
+    assert ternary.Errors.Count == 1
+    assert ternary.Errors[0].Code == ErrorCode.OperatorParameterCount
+
+    binaryOnly := BodyDefault()
+    BodyRun(binaryOnly, BodyDeclarationBegin(binaryOnly, BodyOperator("==", BodyOneParameter(BodyParameter("a", "int", 7, 20)), Modifiers.Static)), null)
+    assert binaryOnly.Errors.Count == 1
+    assert binaryOnly.Errors[0].Code == ErrorCode.OperatorParameterCount
+
+    unaryOnly := BodyDefault()
+    BodyRun(unaryOnly, BodyDeclarationBegin(unaryOnly, BodyOperator("!", BodyOneParameter(BodyParameter("a", "int", 7, 20)), Modifiers.Static)), null)
+    assert unaryOnly.Errors.Count == 0
+}
+
+test "TWO TYPE PARAMETERS CONSTRAINED TO EACH OTHER ARE REPORTED ONCE" {
+    harness := BodyDefault()
+    declaration := BodyConstrained(BodyTypeParameters(BodyNames("T", "U")), BodyConstraints(BodyConstraint("T", "U"), BodyConstraint("U", "T")))
+
+    BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    // Two parameters are in the cycle and it is ONE mistake in one `where` clause set.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.GenericConstraintViolation
+}
+
+test "A TYPE PARAMETER CONSTRAINED TO ITSELF IS A CYCLE AND A CONSTRAINT TO A TYPE IS NOT" {
+    direct := BodyDefault()
+    BodyRun(direct, BodyDeclarationBegin(direct, BodyConstrained(BodyTypeParameters(BodyNames("T", null)), BodyConstraints(BodyConstraint("T", "T"), null))), null)
+    assert direct.Errors.Count == 1
+    assert direct.Errors[0].Code == ErrorCode.GenericConstraintViolation
+
+    // `where T: IComparable` names a TYPE, not a sibling parameter, so it is not an edge and cannot
+    // close a cycle.
+    named := BodyDefault()
+    BodyRun(named, BodyDeclarationBegin(named, BodyConstrained(BodyTypeParameters(BodyNames("T", "U")), BodyConstraints(BodyConstraint("T", "IComparable"), BodyConstraint("U", "T")))), null)
+    assert named.Errors.Count == 0
+
+    // A constraint naming a parameter this declaration does not have is not this rule's business.
+    foreign := BodyDefault()
+    BodyRun(foreign, BodyDeclarationBegin(foreign, BodyConstrained(BodyTypeParameters(BodyNames("T", null)), BodyConstraints(BodyConstraint("V", "T"), null))), null)
+    assert foreign.Errors.Count == 0
+
+    // No type parameters at all, or no constraints at all, is silent before anything is built.
+    none := BodyDefault()
+    BodyRun(none, BodyDeclarationBegin(none, BodyConstrained(null, BodyConstraints(BodyConstraint("T", "T"), null))), null)
+    assert none.Errors.Count == 0
+}
+
+test "LEAVING A DECLARATION SETS THE RETURN TYPE TO NULL RATHER THAN RESTORING THE SAVED ONE" {
+    harness := BodyDefault()
+    outer := BodyDeclaration("Outer", BodyParameters(), BodyStringType(), BodyBlock(), null, null, Modifiers.None)
+    harness.Ambient.EnterFunctionDeclaration(outer, BuiltInTypes.String)
+    assert BodyTypeText(harness.Ambient.CurrentReturnType) == "string"
+
+    declaration := BodyDeclaration("Inner", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
+    BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    // THE ASYMMETRY, PINNED. The enclosing FUNCTION and its flags come back, but the return type does
+    // NOT: leaving a declaration leaves "inside a function" entirely, so a stray `return` written
+    // between two declarations is told it has no function to return from.
+    assert harness.Ambient.CurrentReturnType == null
+    assert harness.Ambient.CurrentFunction != null
+    assert harness.Ambient.CurrentFunction.Name == "Outer"
+}
+
+test "THE BOUNDARY IS ENTERED BEFORE THE BODY AND CARRIES THE DECLARED RETURN TYPE" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyParameters(), BodyStringType(), BodyBlock(), null, null, Modifiers.None)
+    state := BodyDeclarationBegin(harness, declaration)
+
+    // Walk to the IDE record — the last step before the body — and read the ambient there.
+    step := harness.Bodies.NextStep(state)
+    seen := 0
+    while step != null && step.Kind != 8 {
+        if step.Kind == 2 {
+            harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Function), step.Line, step.Column)
+        }
+
+        seen = seen + 1
+        harness.Bodies.Supply(state, null)
+        step = harness.Bodies.NextStep(state)
+    }
+
+    assert step != null
+    assert step.Kind == 8
+    assert step.Name == "Top"
+    assert BodyTypeText(harness.Ambient.CurrentReturnType) == "string"
+    assert harness.Ambient.CurrentFunction != null
+}
+
+test "A NON-VOID BODY THAT DOES NOT ALWAYS RETURN IS REPORTED, AND FOUR SHAPES SILENCE IT" {
+    open := BodyDefault()
+    BodyRun(open, BodyDeclarationBegin(open, BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyOpenBlock(), null, null, Modifiers.None)), null)
+    assert open.Errors.Count == 1
+    assert open.Errors[0].Code == ErrorCode.MissingReturn
+
+    // (a) every path already returns.
+    closed := BodyDefault()
+    BodyRun(closed, BodyDeclarationBegin(closed, BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.None)), null)
+    assert BodyCountCode(closed, ErrorCode.MissingReturn) == 0
+
+    // (b) the function returns nothing.
+    voided := BodyDefault()
+    BodyRun(voided, BodyDeclarationBegin(voided, BodyDeclaration("Top", BodyParameters(), null, BodyOpenBlock(), null, null, Modifiers.None)), null)
+    assert BodyCountCode(voided, ErrorCode.MissingReturn) == 0
+
+    // (c) a generator produces its values with `yield` and never returns one. Its return type is a
+    // NON-VOID one the walk cannot resolve, so the rule has to be silenced by the generator modifier
+    // rather than by the void check — which is the thing being pinned.
+    generator := BodyDefault()
+    BodyRun(generator, BodyDeclarationBegin(generator, BodyDeclaration("Top", BodyParameters(), BodyUnknownType(), BodyOpenBlock(), null, null, Modifiers.Generator)), null)
+    assert BodyCountCode(generator, ErrorCode.MissingReturn) == 0
+
+    // (d) an `async` function whose declared type is a unit task owes no value.
+    asyncUnit := BodyDefault()
+    taskType: TypeReference = new SimpleTypeReference("Task", 7, 20)
+    BodyRun(asyncUnit, BodyDeclarationBegin(asyncUnit, BodyDeclaration("Top", BodyParameters(), taskType, BodyOpenBlock(), null, null, Modifiers.Async)), null)
+    assert BodyCountCode(asyncUnit, ErrorCode.MissingReturn) == 0
+
+    // An `async` function owing a VALUE-carrying task is not silenced.
+    asyncValue := BodyDefault()
+    BodyRun(asyncValue, BodyDeclarationBegin(asyncValue, BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyOpenBlock(), null, null, Modifiers.Async)), null)
+    assert BodyCountCode(asyncValue, ErrorCode.MissingReturn) == 1
+}
+
+test "THE MISSING-RETURN REPORT UNDERLINES `func ` PLUS THE NAME ON THE DECLARATION'S LINE" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Total", BodyParameters(), BodyIntType(), BodyOpenBlock(), null, null, Modifiers.None)
+
+    BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 10
+}
+
+test "AN EXPRESSION BODY THAT DOES NOT FIT ITS RETURN TYPE REPORTS IN BOTH SHAPES, ONE POSITION EACH" {
+    // WITH source text: the RICH builder, pointing at the EXPRESSION's own span.
+    rich := BodyHarnessWith(BodySourceText())
+    declaration := BodyDeclaration("Top", BodyParameters(), BodyStringType(), null, BodyIntLiteral(), null, Modifiers.None)
+    BodyRun(rich, BodyDeclarationBegin(rich, declaration), BuiltInTypes.Int)
+
+    assert rich.Errors.Count == 1
+    assert rich.Errors[0].Code == ErrorCode.TypeMismatch
+    assert rich.Errors[0].Line == 7
+    assert rich.Errors[0].Column == 30
+
+    // WITHOUT it: the detail-only shape, pointing at the DECLARATION, because there is no source line
+    // to narrow to. Same report, same code, one door.
+    plain := BodyDefault()
+    BodyRun(plain, BodyDeclarationBegin(plain, declaration), BuiltInTypes.Int)
+
+    assert plain.Errors.Count == 1
+    assert plain.Errors[0].Code == ErrorCode.TypeMismatch
+    assert plain.Errors[0].Line == 7
+    assert plain.Errors[0].Column == 10
+
+    fits := BodyDefault()
+    BodyRun(fits, BodyDeclarationBegin(fits, BodyDeclaration("Top", BodyParameters(), BodyIntType(), null, BodyIntLiteral(), null, Modifiers.None)), BuiltInTypes.Int)
+    assert fits.Errors.Count == 0
+}
+
+test "A VOID DECLARATION WHOSE EXPRESSION BODY HANDS BACK A VALUE IS TOLD SO, UNLIKE A LOCAL FUNCTION" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyParameters(), null, null, BodyIntLiteral(), null, Modifiers.None)
+
+    BodyRun(harness, BodyDeclarationBegin(harness, declaration), BuiltInTypes.Int)
+
+    // The nested form is SILENT here; this form reports through the ambient context. That difference
+    // is the reason the two phases are separate.
+    assert harness.Errors.Count == 1
+
+    local := BodyDefault()
+    BodyRun(local, BodyBegin(local, BodyDeclaration("helper", BodyParameters(), null, null, BodyIntLiteral(), null, Modifiers.None)), BuiltInTypes.Int)
+    assert local.Errors.Count == 0
+
+    // A void declaration whose expression body hands back nothing is silent in both.
+    silent := BodyDefault()
+    BodyRun(silent, BodyDeclarationBegin(silent, BodyDeclaration("Top", BodyParameters(), null, null, BodyIntLiteral(), null, Modifiers.None)), BuiltInTypes.Void)
+    assert silent.Errors.Count == 0
+}
+
+test "A GENERATOR'S EXPRESSION BODY IS REFUSED ONCE AND SILENCES THE RETURN-TYPE RULE" {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("Top", BodyParameters(), BodyStringType(), null, BodyIntLiteral(), null, Modifiers.Generator)
+
+    BodyRun(harness, BodyDeclarationBegin(harness, declaration), BuiltInTypes.Int)
+
+    // The generator RETURN-TYPE report fires at phase 15 and the expression-body refusal at phase 18;
+    // the type mismatch that would otherwise follow does not, because one mistake gets one complaint.
+    assert harness.Errors.Count == 2
+    assert harness.Errors[1].Code == ErrorCode.InvalidSyntax
+}
+
+test "EVERY DECLARATION SHAPE OPENS EXACTLY ONE SCOPE, CLOSES IT LAST, AND RETURNS TO ITS DEPTH" {
+    index := 0
+    shapes := BodyDeclarationShapes()
+    while index < shapes.Count {
+        harness := BodyDefault()
+        before := harness.Scopes.Count
+        steps := BodyRun(harness, BodyDeclarationBegin(harness, shapes[index]), BuiltInTypes.Int)
+
+        assert BodyCountKind(steps, 2) == 1
+        assert BodyCountKind(steps, 6) == 1
+        assert steps[steps.Count - 1].Kind == 6
+        assert harness.Scopes.Count == before
+        index = index + 1
+    }
+}
+
+test "EVERY DECLARATION SHAPE VALIDATES ITS LIST ONCE, RECORDS ITSELF ONCE, AND LEAVES NO FUNCTION BEHIND" {
+    index := 0
+    shapes := BodyDeclarationShapes()
+    while index < shapes.Count {
+        harness := BodyDefault()
+        steps := BodyRun(harness, BodyDeclarationBegin(harness, shapes[index]), BuiltInTypes.Int)
+
+        assert BodyCountKind(steps, 7) == 1
+        assert BodyCountKind(steps, 8) == 1
+        // The list rules are asked before any parameter exists, and the IDE record after all of them.
+        assert BodyIndexOfKind(steps, 7) < BodyIndexOfKind(steps, 8)
+        assert harness.Ambient.CurrentReturnType == null
+        assert harness.Ambient.CurrentFunction == null
+        index = index + 1
+    }
+}
+
+test "EVERY DECLARATION SHAPE ASKS FOR AT MOST ONE BODY STEP, AND NEVER BOTH SHAPES" {
+    index := 0
+    shapes := BodyDeclarationShapes()
+    while index < shapes.Count {
+        harness := BodyDefault()
+        steps := BodyRun(harness, BodyDeclarationBegin(harness, shapes[index]), BuiltInTypes.Int)
+
+        assert BodyCountKind(steps, 9) + BodyCountKind(steps, 1) <= 1
+        // A local function's statement-LIST step never appears in this form.
+        assert BodyCountKind(steps, 5) == 0
         index = index + 1
     }
 }

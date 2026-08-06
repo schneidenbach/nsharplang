@@ -336,13 +336,15 @@ public class Analyzer : IDisposable
     // collaborators the rebuild DOES replace — the CLR conversion funnel and the assignability
     // oracle — are passed in at `Begin`.
     private readonly AnalyzerResourceStatements _resourceStatements;
-    // WHAT A DECLARED FUNCTION'S BODY IS: the local function statement as one suspendable walk — the
-    // name declared into the enclosing scope, the function scope, the type parameters, the parameter
-    // declarations, the nested-body ambient boundary, both body shapes and the expression body's
-    // return-type rule — plus the two generator reports every declared function shares. NOT rebuilt
-    // with the SCC: it holds the diagnostic sink, the span reader, the scope stack, the declaration
-    // context, the type resolver, the function-type factory, the ambient context, the SoA escape
-    // owner and the definite-assignment owner, none of which the rebuild replaces; the assignability
+    // WHAT A DECLARED FUNCTION'S BODY IS: the local function statement AND the top-level `func`
+    // declaration as one suspendable walk in two forms — the name declared into the enclosing scope,
+    // the operator rules, extension-method tracking, the naming convention, the function scope, the
+    // type parameters and their constraints, the parameter declarations, the ambient boundary, both
+    // body shapes, the missing-return rule and the expression body's return-type rule — plus the two
+    // generator reports every declared function shares. NOT rebuilt with the SCC: it holds the
+    // diagnostic sink, the span reader, the scope stack, the declaration context, the type resolver,
+    // the function-type factory, the ambient context, the SoA escape owner, the definite-assignment
+    // owner and the live extension-method list, none of which the rebuild replaces; the assignability
     // oracle, which the rebuild DOES replace, is passed in at `Begin`.
     private readonly AnalyzerFunctionBodies _functionBodies;
     // WHAT A DECLARED PARAMETER LIST MUST SATISFY: both `params` rules, shared by every declaration
@@ -397,7 +399,7 @@ public class Analyzer : IDisposable
             _ambient, _soaEscape, _throwability);
         _functionBodies = new AnalyzerFunctionBodies(
             _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _functionTypeFactory,
-            _ambient, _soaEscape, _definiteAssignment);
+            _ambient, _soaEscape, _definiteAssignment, _extensionMethods);
         _parameterDeclarations = new AnalyzerParameterDeclarations(_diagnostics);
         _statementSequence = new AnalyzerStatementSequence(_diagnostics, _spans);
         _assignability = CreateAssignability();
@@ -789,7 +791,8 @@ public class Analyzer : IDisposable
                 AnalyzeTeardownDeclaration(teardown);
                 break;
             case FunctionDeclaration func:
-                AnalyzeFunctionDeclaration(func);
+                DriveFunctionBody(_functionBodies.BeginFunctionDeclaration(
+                    func, _currentTypeName, _assignability));
                 break;
             case ClassDeclaration classDecl:
                 AnalyzeClassDeclaration(classDecl);
@@ -2145,171 +2148,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void AnalyzeFunctionDeclaration(FunctionDeclaration func)
-    {
-        // Validate operator overloads
-        if (func.IsOperatorOverload)
-        {
-            ValidateOperatorOverload(func);
-        }
-
-        // Declare function in current scope if not already registered (e.g., by a first pass).
-        // DeclareSymbol handles overload merging into NSharpMethodGroupInfo.
-        var funcType = _functionTypeFactory.CreateFromDeclaration(func, _currentTypeName);
-        var existingSymbol = _scopes.CurrentScopeSymbol(func.Name);
-        if (existingSymbol == null)
-        {
-            DeclareSymbol(func.Name, funcType, func.Line, func.Column);
-        }
-        else if (existingSymbol is NSharpMethodGroupInfo group)
-        {
-            // Already in a method group (registered by class first pass) — skip
-        }
-        else if (existingSymbol is FunctionTypeInfo existingFunction
-                 && AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(existingFunction, funcType))
-        {
-            // Same function already declared (by class first pass) — skip
-        }
-        else
-        {
-            // Not yet declared (struct/record/top-level) — declare now
-            DeclareSymbol(func.Name, funcType, func.Line, func.Column);
-        }
-
-        // Track extension methods (first parameter has IsThis = true)
-        if (func.Parameters.Count > 0 && func.Parameters[0].IsThis)
-        {
-            _extensionMethods.Add(func);
-        }
-
-        // Check visibility convention (skip for operator overloads - they must be public static)
-        if (!func.IsOperatorOverload)
-        {
-            CheckVisibilityConvention(func.Name, func.Modifiers, func.Line, func.Column);
-        }
-
-        PushScope(new Scope(ScopeKind.Function), func.Line, func.Column);
-
-        // Add generic type parameters to both type and symbol namespaces
-        // so they are resolvable as types (via LookupType) and as identifiers
-        if (func.TypeParameters != null)
-        {
-            foreach (var tp in func.TypeParameters)
-            {
-                _scopes.DeclareTypeParameter(tp.Name);
-            }
-        }
-
-        _typeResolver.ResolveGenericConstraintTypes(func.Constraints);
-        CheckCircularGenericConstraints(func.TypeParameters, func.Constraints, func.Name, func.Line, func.Column);
-
-        ValidateParameterDeclarations(func.Parameters, func.Line, func.Column);
-
-        // Add parameters to scope
-        foreach (var param in func.Parameters)
-        {
-            var paramType = _typeResolver.ResolveDeclaredType(param.Type);
-            var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                param.Line,
-                param.Column,
-                func.Line,
-                func.Column);
-            DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-
-            // Record parameter in semantic model for IDE features (scoped)
-            _scopes.RecordVariable(_semanticModel, param.Name, paramType);
-        }
-
-        // Set expected return type
-        var functionReturnType = func.ReturnType != null ? _typeResolver.ResolveDeclaredType(func.ReturnType) : BuiltInTypes.Void;
-        var ambientFrame = _ambient.EnterFunctionDeclaration(func, functionReturnType);
-
-        _functionBodies.ReportGeneratorReturnTypeIfNeeded(func, functionReturnType);
-
-        // Record full function facts in the semantic model for IDE/tooling features.
-        _scopes.RecordFunction(_semanticModel, func.Name, funcType);
-
-        // Analyze body
-        if (func.Body != null)
-        {
-            AnalyzeStatement(func.Body);
-
-            // Definite-assignment for locals (NL304): reads before assignment.
-            _definiteAssignment.CheckLocals(func.Body);
-
-            // Missing return (all-paths) check for non-void functions.
-            // Iterator functions (func* / async*) use yield, not explicit return.
-            var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
-            var isAsyncUnitTask = func.Modifiers.HasFlag(Modifiers.Async) && (AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(functionReturnType) || TaskLikeTypeFacts.IsUnitTaskLikeTypeReference(func.ReturnType));
-            if (BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) && !isIterator && !isAsyncUnitTask && !AnalyzerStatementTermination.AlwaysReturns(func.Body))
-            {
-                var sourceSnippet = GetSourceSnippet(func.Line);
-
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    var error = ErrorMessageBuilder.MissingReturn(
-                        _currentFilePath,
-                        func.Line,
-                        func.Column,
-                        sourceSnippet,
-                        func.Name.Length + 5, // "func " + name
-                        functionReturnType.ToString()
-                    );
-                    _errors.Add(error);
-                }
-                else
-                {
-                    Error(
-                        ErrorCode.MissingReturn,
-                        $"This function should return '{functionReturnType}', but not all code paths return a value — make sure every branch ends with a 'return'",
-                        func.Line,
-                        func.Column);
-                }
-            }
-        }
-        else if (func.ExpressionBody != null)
-        {
-            // Expression-bodied method: check expression type matches return type
-            var isGenerator = func.Modifiers.HasFlag(Modifiers.Generator);
-            var expectedExpressionType = !isGenerator && BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) ? functionReturnType : null;
-            var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(func.ExpressionBody, "returned");
-            var reportedGeneratorExpressionBody = _functionBodies.ReportGeneratorExpressionBodyIfNeeded(func);
-            if (!reportedGeneratorExpressionBody && BuiltInTypes.Is(functionReturnType, BuiltInTypes.Void) && BuiltInTypes.IsNot(exprType, BuiltInTypes.Void))
-            {
-                _ambient.ReportExpressionBodyReturn(func, exprType);
-            }
-            else if (!reportedGeneratorExpressionBody && BuiltInTypes.IsNot(functionReturnType, BuiltInTypes.Void) && !_assignability.IsAssignable(functionReturnType, exprType))
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(func.ExpressionBody);
-                var sourceSnippet = GetSourceSnippet(diagnosticLine);
-
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    var error = ErrorMessageBuilder.ReturnTypeMismatch(
-                        _currentFilePath,
-                        diagnosticLine,
-                        diagnosticColumn,
-                        sourceSnippet,
-                        diagnosticLength,
-                        func.Name,
-                        exprType.ToString(),
-                        functionReturnType.ToString()
-                    );
-                    _errors.Add(error);
-                }
-                else
-                {
-                    Error(ErrorCode.TypeMismatch, $"This function should return '{functionReturnType}', but the expression body gives '{exprType}'", func.Line, func.Column);
-                }
-            }
-        }
-
-        _ambient.ExitFunctionDeclaration(ambientFrame);
-        PopScope();
-    }
-
     private void AnalyzeClassDeclaration(ClassDeclaration classDecl)
     {
         var previousClass = _currentClass;
@@ -3241,24 +3079,36 @@ public class Analyzer : IDisposable
         => target is IdentifierExpression { Name: "_" };
 
     /// <summary>
-    /// The steps the N#-owned declared-function walk cannot take for itself. A local function runs in
-    /// <see cref="AnalyzerFunctionBodies"/>, which owns everything about it that is a decision: that
-    /// its own name is declared into the ENCLOSING scope before its body scope opens, which is what
-    /// makes a recursive call resolve and a sibling call below it resolve — and, because the name
-    /// lands when the STATEMENT is walked rather than when the enclosing body is entered, what makes a
-    /// call written ABOVE it NOT resolve; that the scope it then opens is a FUNCTION scope; that its type
-    /// parameters go in before any parameter type is resolved; that the parameter list is validated
-    /// before any name in it exists; where each parameter is declared when it carries no position of
-    /// its own; that its return type is resolved with the plain resolver rather than the declared-type
-    /// one; that entering it zeroes the ambient loop and <c>finally</c> state; which of the two body
-    /// shapes runs; and what an expression body is measured against. Kind 1 is the ESTATE'S FIRST
-    /// TARGET-TYPED walk step and is a kind of its own rather than a widening of any other driver's
-    /// kind 1, every one of which deliberately leaves the ambient target-typing slot alone. Kind 5 is
-    /// a statement LIST rather than <see cref="DriveLoopStatement"/>'s single statement, because a
-    /// function body is walked as its statements — handing the block itself to the dispatch would open
-    /// a second scope inside the function scope. Kind 7 is a RELAY and is the only one: the
-    /// default-value half of the parameter-list rules re-enters this analyzer's target-typed
-    /// expression walk under SoA, and its eight callers are not driven.
+    /// The steps the N#-owned declared-function walk cannot take for itself. BOTH declared-function
+    /// forms — the local function statement and the top-level <c>func</c> declaration — run in
+    /// <see cref="AnalyzerFunctionBodies"/>, which owns everything about them that is a decision: that
+    /// a local function's own name is declared into the ENCLOSING scope before its body scope opens,
+    /// which is what makes a recursive call resolve and a sibling call below it resolve — and, because
+    /// the name lands when the STATEMENT is walked rather than when the enclosing body is entered,
+    /// what makes a call written ABOVE it NOT resolve; that a top-level declaration's name is declared
+    /// only when the scope does not already hold it as a method group or an identically-signed
+    /// function; that an operator overload is checked for <c>static</c>, for a symbol the language
+    /// overloads and for its arity; that a first parameter marked <c>this</c> makes the declaration an
+    /// extension method; that the naming convention is checked for everything except an operator
+    /// overload; that the scope either form opens is a FUNCTION scope; that type parameters go in
+    /// before any parameter type is resolved and before the constraints are resolved and checked for
+    /// cycles; that the parameter list is validated before any name in it exists; where each parameter
+    /// is declared when it carries no position of its own; which resolver reads the return type; which
+    /// ambient boundary is entered; which of the two body shapes runs; that a non-void declaration
+    /// whose body does not always return is told so; and what an expression body is measured against.
+    /// Kind 1 is the ESTATE'S FIRST TARGET-TYPED walk step and is a kind of its own rather than a
+    /// widening of any other driver's kind 1, every one of which deliberately leaves the ambient
+    /// target-typing slot alone. Kind 5 is a statement LIST rather than
+    /// <see cref="DriveLoopStatement"/>'s single statement, because a LOCAL function's body is walked
+    /// as its statements — handing the block itself to the dispatch would open a second scope inside
+    /// the function scope. Kind 9 is that same dispatch re-entry and is what a TOP-LEVEL declaration's
+    /// block body takes instead, because that form's body IS a block: it advances the analysis cursor
+    /// and opens a block scope, and the two forms differ there deliberately. Kind 7 is a RELAY and is
+    /// one of two RELAYS: the default-value half of the parameter-list rules re-enters this analyzer's
+    /// target-typed expression walk under SoA, and its eight callers are not driven. Kind 10 is the
+    /// other, and it relays for a different reason — <see cref="CheckVisibilityConvention"/>'s closure
+    /// is already N#-owned, but the columnar backend's <c>System.Char</c> catalog does not publish
+    /// <c>char.IsLower</c>, and no published predicate reproduces it.
     /// </summary>
     private void DriveFunctionBody(FunctionBodyState state)
     {
@@ -3289,6 +3139,15 @@ public class Analyzer : IDisposable
                     break;
                 case 7:
                     ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    break;
+                case 8:
+                    _scopes.RecordFunction(_semanticModel, step.Name!, step.CarriedType);
+                    break;
+                case 9:
+                    AnalyzeStatement(step.Body!);
+                    break;
+                case 10:
+                    CheckVisibilityConvention(step.Name!, step.CarriedModifiers, step.Line, step.Column);
                     break;
             }
 
@@ -6067,67 +5926,6 @@ public class Analyzer : IDisposable
     /// Only BARE type-parameter constraints form edges: F-bounded shapes (`where T: IComparable&lt;T&gt;`)
     /// are legal and untouched. Mirrors N#'s CS0454.
     /// </summary>
-    private void CheckCircularGenericConstraints(
-        List<TypeParameter>? typeParameters, List<GenericConstraint>? constraints, string declName, int line, int column)
-    {
-        if (typeParameters == null || typeParameters.Count == 0 || constraints == null || constraints.Count == 0)
-            return;
-
-        // successor[i] = the type parameters parameter i is DIRECTLY constrained to (bare names only).
-        var names = new List<string>(typeParameters.Count);
-        foreach (var tp in typeParameters)
-            names.Add(tp.Name);
-        var successors = new List<int>[names.Count];
-        foreach (var constraint in constraints)
-        {
-            var from = names.IndexOf(constraint.TypeParameter);
-            if (from < 0)
-                continue;
-            foreach (var constraintTypeRef in constraint.Constraints)
-            {
-                if (constraintTypeRef is SimpleTypeReference simple)
-                {
-                    var to = names.IndexOf(simple.Name);
-                    if (to >= 0)
-                        (successors[from] ??= new List<int>()).Add(to);
-                }
-            }
-        }
-
-        // A successor chain longer than the parameter count must revisit a node — a cycle. Walking
-        // every simple path is exponential in pathological cases, so mark each parameter that can
-        // reach itself via a bounded depth-first walk over at most N distinct steps per path.
-        var reported = false;
-        for (var start = 0; start < names.Count && !reported; start++)
-        {
-            var stack = new Stack<(int Node, int Depth)>();
-            stack.Push((start, 0));
-            while (stack.Count > 0)
-            {
-                var (node, depth) = stack.Pop();
-                if (depth >= names.Count)
-                    continue;
-                var next = successors[node];
-                if (next == null)
-                    continue;
-                foreach (var to in next)
-                {
-                    if (to == start)
-                    {
-                        Error(ErrorCode.GenericConstraintViolation,
-                            $"Type parameter `{names[start]}` of `{declName}` has a circular constraint dependency",
-                            line, column,
-                            $"Remove the cycle in the `where` clauses of `{declName}` — a type parameter cannot be constrained to itself, directly or through other type parameters.");
-                        reported = true;
-                        stack.Clear();
-                        break;
-                    }
-                    stack.Push((to, depth + 1));
-                }
-            }
-        }
-    }
-
     private TypeInfo ResolveDeclaredFunctionCallReturnType(FunctionDeclaration decl)
     {
         var sourceReturnType = decl.ReturnType != null
@@ -9994,7 +9792,18 @@ public class Analyzer : IDisposable
         return currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown;
     }
 
-    // Convention-based visibility checking
+    /// <summary>
+    /// The naming convention every declaration is held to: PascalCase exports, camelCase does not, an
+    /// explicit visibility modifier opts out, and a name the convention can classify as neither is
+    /// reported. THIS IS A MEASURED WALL RATHER THAN A POLICY THAT BELONGS HERE. Its closure is
+    /// otherwise N#-complete — <see cref="VisibilityConventions"/> and the diagnostic sink are both
+    /// N#-owned — but <c>char.IsLower</c> is not in the columnar backend's <c>System.Char</c> catalog
+    /// (<c>IsUpper</c>, <c>IsLetter</c>, <c>IsDigit</c>, <c>IsLetterOrDigit</c>, <c>IsWhiteSpace</c>
+    /// and both invariant case transforms are), and no published predicate distinguishes a lowercase
+    /// letter from a title-case, modifier or other-category one, so no rewrite preserves the
+    /// behaviour. It is therefore RELAYED — the declared-function walk asks for it as kind 10 — until
+    /// the catalog admits the predicate. Eight of its nine callers are the sibling declaration walks.
+    /// </summary>
     private void CheckVisibilityConvention(string name, Modifiers modifiers, int line, int column)
     {
         if (string.IsNullOrEmpty(name) || VisibilityConventions.HasExplicitVisibility(modifiers))
@@ -10760,72 +10569,6 @@ public class Analyzer : IDisposable
         if (ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, name, out var runtimeType))
             return new ReflectionTypeInfo(runtimeType);
         return _typeResolver.ResolveSimpleType(name, 0, 0);
-    }
-
-    private void ValidateOperatorOverload(FunctionDeclaration func)
-    {
-        var (operatorKeywordLine, operatorKeywordColumn, operatorKeywordLength) = AnalyzerDiagnosticSpanFacts.GetSourceSpanDiagnosticSpan(
-            func.OperatorKeywordSpan,
-            func.Line,
-            func.Column,
-            "operator".Length);
-        var (operatorSymbolLine, operatorSymbolColumn, operatorSymbolLength) = AnalyzerDiagnosticSpanFacts.GetSourceSpanDiagnosticSpan(
-            func.OperatorSymbolSpan,
-            func.Line,
-            func.Column,
-            func.OperatorSymbol?.Length ?? 1);
-
-        if (!func.Modifiers.HasFlag(Modifiers.Static))
-        {
-            Error(
-                ErrorCode.InvalidOperatorOverload,
-                "Operator overloads must be declared 'static' — they don't belong to a specific instance",
-                operatorKeywordLine,
-                operatorKeywordColumn,
-                length: operatorKeywordLength);
-        }
-
-        var expectedParams = func.OperatorSymbol switch
-        {
-            "!" or "~" or "++" or "--" or "true" or "false" => 1,
-            "+" or "-" or "*" or "/" or "%" or
-            "==" or "!=" or "<" or ">" or "<=" or ">=" or
-            "&" or "|" or "^" or "<<" or ">>" => 2,
-            _ => -1 // Unknown operator
-        };
-
-        if (expectedParams == -1)
-        {
-            Error(
-                ErrorCode.InvalidOperatorOverload,
-                $"The operator '{func.OperatorSymbol}' cannot be overloaded — only arithmetic, comparison, bitwise, and logical operators are supported",
-                operatorSymbolLine,
-                operatorSymbolColumn,
-                length: operatorSymbolLength);
-            return;
-        }
-
-        if (func.OperatorSymbol is "+" or "-")
-        {
-            if (func.Parameters.Count != 1 && func.Parameters.Count != 2)
-            {
-                Error(
-                    ErrorCode.OperatorParameterCount,
-                    $"Operator '{func.OperatorSymbol}' can be unary (1 parameter) or binary (2 parameters), but you declared {func.Parameters.Count}",
-                    operatorSymbolLine,
-                    operatorSymbolColumn,
-                    length: operatorSymbolLength);
-            }
-        }
-        else if (func.Parameters.Count != expectedParams)
-        {
-            Error(
-                ErrorCode.OperatorParameterCount,
-                $"Operator '{func.OperatorSymbol}' requires exactly {expectedParams} parameter(s), but you declared {func.Parameters.Count}",
-                operatorSymbolLine,
-                operatorSymbolColumn,
-                length: operatorSymbolLength);
-        }
     }
 
     private void Error(string message, int line, int column)

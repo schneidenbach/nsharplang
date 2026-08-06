@@ -1,6 +1,31 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-06 (**TASK 017 SLICE 45 LANDED (no commit — mandate) — `AnalyzeStatement` IS
+Last updated: 2026-08-06 (**TASK 017 SLICE 46 LANDED (no commit — mandate) — N# OWNS WHAT A
+TOP-LEVEL `func` DECLARATION MEANS, THE DECLARATION-WALKER TERRITORY OPENS, AND THE ARC MEETS ITS
+FIRST REAL WALL.** `AnalyzeFunctionDeclaration` joins `AnalyzerFunctionBodies` as **Form 1** — one walk,
+two forms, **six of seven existing kinds reused and the per-parameter phase pair SHARED OUTRIGHT** — and
+takes its two exclusive helpers with it. The slice-45 brief predicted ONE new kind; measurement says
+**THREE**, and each is a different finding: the body walk is the statement DISPATCH (not a block-scope
+push, because the two differ by the analysis cursor); the semantic-model FUNCTION record needs its own
+kind because the model is rebuilt every analysis; and the naming convention **cannot move at all** —
+`char.IsLower` is absent from the columnar `System.Char` catalog while `IsUpper` is there, no published
+predicate reproduces it, and admitting it needs an SDK repack. **STOPPED AT THE WALL AND RELAYED**,
+with the one-line fix named for the slice that can pay for it. **THREE C# MEMBERS DIE, 289 NAMED
+LINES**: `AnalyzeFunctionDeclaration` (164), `ValidateOperatorOverload` (65) and
+`CheckCircularGenericConstraints` (60). `Analyzer.cs` **12,048 → 11,791**, non-blank
+**10,671 → 10,441**, declarations **518 → 515**, `git diff` **+63 / −320 = net −257** — both ratchet
+ceilings fall. Contracts **2,976 → 3,004 (+28)**, including the slice-34 restore-to-null asymmetry
+pinned by a test rather than a comment; unit suite **3,194 / 3,194**; ownership audit **18 / 18**;
+corpus oracle **0 diffs over 906 lines / 835 diagnostics / 23 codes**; fixture oracle **0 diffs over
+231 targets**; SoA env-gated **0 diffs**; **emission-order protocol differential 124,549 corpus rows +
+3,337 fixture rows, 0 MISMATCHES, 12,684 scope opens == 12,684 closes per target — and the census
+showed only 151 of 12,684 declarations ever declare their own name**; parse-error census **4,
+unchanged**; corpus IL **63 / 63 N#-emitted assemblies byte-identical** with the control run FIRST and
+clean; and the **full VS Code-enabled `test-all.sh --commit` gate ALL GREEN, 16 timed steps, exit 0,
+38m 04s**.
+Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-06 (**TASK 017 SLICE 45 LANDED (no commit — mandate) — `AnalyzeStatement` IS
 REVIEWED ZERO-POLICY AND THE STATEMENT TERRITORY CLOSES.** The three-way shape fork was MEASURED —
 (a) an N#-answered discriminated route, (b) one collapsed driver loop, (c) the dispatch is already
 terminal — and (c) was taken with a five-part policy-freedom proof, while the policy that was
@@ -1750,7 +1775,346 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 45 — `AnalyzeStatement` FALLS, AND THE STATEMENT
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 46 — `AnalyzeFunctionDeclaration` JOINS
+  `AnalyzerFunctionBodies` AS FORM 1, THE DECLARATION-WALKER TERRITORY OPENS, AND THE ARC REACHES ITS
+  FIRST REAL WALL.** Target recorded BEFORE any production edit, at `077d02c5e` (`Analyzer.cs`
+  **12,048** lines, non-blank **10,671**, declarations **518**; unit suite baseline **3,194**;
+  contracts baseline **2,976**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:4b6d2e1e960ce9a8`). THE TARGET: `AnalyzeFunctionDeclaration`
+  (`:2148–:2311`, **164 lines**, ONE call site `:792`), plus the two helpers it is the ONLY caller of
+  — `ValidateOperatorOverload` (`:10765–:10829`, **65 lines**, one caller `:2153`) and
+  `CheckCircularGenericConstraints` (`:6070–:6129`, **60 lines**, one caller `:2204`). **289 named
+  lines.**
+
+  **THE TARGET, RE-VERIFIED AT THIS TREE, AND THE SLICE-45 BRIEF WAS WRONG ABOUT THE JOIN IN THREE
+  WAYS.** The extent was right — 164 lines, one call site, named nowhere outside `Analyzer.cs`
+  repo-wide — and the collaborator census was right that almost everything is already N#-owned:
+  `AnalyzerScopeStack.CurrentScopeSymbol` and `.RecordFunction` (the latter N# only since slice 45),
+  `AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch`, `AnalyzerTypeResolver.ResolveDeclaredType`
+  and `.ResolveGenericConstraintTypes`, `AnalyzerFunctionTypeFactory` (including
+  `IsUnitTaskLikeTypeInfo`), `TaskLikeTypeFacts`, `AnalyzerStatementTermination.AlwaysReturns`,
+  `AnalyzerAmbientContext.EnterFunctionDeclaration` / `ExitFunctionDeclaration` /
+  `ReportExpressionBodyReturn`, `AnalyzerSoaEscape`, `AnalyzerDefiniteAssignment`,
+  `AnalyzerDiagnosticSpans`, `ErrorMessageBuilder` and the sink. **BUT THE BRIEF PREDICTED ONE NEW
+  KIND AND THE MEASUREMENT SAYS THREE**, and each of the three is a different kind of finding.
+  **(1) THE BODY WALK IS NOT A BLOCK-SCOPE PUSH.** The brief offered a choice — keep
+  `AnalyzeStatement(func.Body)` or take `AnalyzerStatementSequence.BeginBlock` directly — and said to
+  measure which. Measured: they differ by the dispatch's cursor advance (`_scopes.NoteLine(stmt.Line)`,
+  slice 45's route), which for an EMPTY body is the difference between the block scope's recorded END
+  being the brace's line and being whatever line was last analysed anywhere. Taking `BeginBlock`
+  directly would also have COPIED what a `{ … }` block means into this walk, when slice 45 had just
+  made `AnalyzerStatementSequence` its sole owner. So the new kind is the DISPATCH RE-ENTRY (kind 9),
+  not a Block-scope push. **(2) THE SEMANTIC-MODEL FUNCTION RECORD NEEDS ITS OWN KIND.**
+  `_scopes.RecordFunction(_semanticModel, …)` writes a DIFFERENT table through a different member than
+  kind 4's `RecordVariable`, and `_semanticModel` is REPLACED at the start of every analysis
+  (`Analyzer.cs:614`), so no owner may hold it — the same reason kind 4 exists. Kind 8.
+  **(3) THE NAMING CONVENTION IS A WALL.** See below.
+
+  **THE WALL — THE FIRST ONE THIS ARC HAS REACHED, AND IT IS A CATALOG GAP RATHER THAN A CLOSURE ONE.**
+  `CheckVisibilityConvention` (`:9998`, 16 lines, **NINE** call sites — this arm plus the class,
+  struct, record, interface, union, enum, field and property arms) must be called from INSIDE the
+  walk, between the extension-method registration and the scope push, because that is where its report
+  lands in the order. Its closure is **N#-COMPLETE**: `VisibilityConventions` is already an N# file and
+  the report is the N#-owned sink. It was moved — a whole `AnalyzerDeclarationConventions.nl` was
+  written and all nine call sites routed — and the build REFUSED it: **`char.IsLower` is not in the
+  columnar backend's `System.Char` catalog.** `ColumnarIlEmitter.cs:14286` publishes
+  `IsLetterOrDigit`, `IsLetter`, `IsDigit`, `IsWhiteSpace`, **`IsUpper`**, `ToLowerInvariant` and
+  `ToUpperInvariant`; `IsLower` is simply absent, and the string `IsLower` appears NOWHERE in the
+  columnar emitter. **NO PUBLISHED PREDICATE REPRODUCES IT.** `IsLetter && !IsUpper` accepts
+  title-case, modifier and other-category letters that `IsLower` refuses (so a CJK or Hebrew identifier
+  would stop being reported); `ToUpperInvariant(c) != c` refuses `ß`, which `IsLower` accepts; an
+  ASCII range test refuses `é`. Every approximation is a SILENT change to which identifiers get NL903.
+  The one-line fix is a `"IsLower" => typeof(char).GetMethod(…)` arm in that switch — but the
+  compiler's own `.nl` is built by the PACKAGED SDK, so admitting it requires a repack, and
+  **packing the SDK mid-slice is forbidden**. **STOPPED AT THE WALL, AND RELAYED INSTEAD**: the member
+  stays in `Analyzer.cs`, the walk asks for it as **kind 10**, and the reason is written at the member
+  and at the kind. It moves with the sibling declaration arms — where eight of its nine callers live —
+  in the slice that can afford the repin.
+
+  **THE JOIN, MEASURED. FIVE OF THE SEVEN EXISTING KINDS ARE REUSED UNCHANGED AND TWO PHASES ARE
+  SHARED OUTRIGHT.** Form 1 reuses kind 1 (the target-typed expression walk, for an expression body),
+  kind 2 (the FUNCTION scope), kind 3 (declare a name — for the function's own name AND for every
+  parameter), kind 4 (record a parameter for the IDE), kind 6 (close the scope) and kind 7 (the
+  parameter-list relay) — **six of seven, with only kind 5 (the statement LIST) unused, and its
+  absence is exactly the local-vs-declaration body difference.** Phases **3 and 4 — the per-parameter
+  declare/record pair — are SHARED BY BOTH FORMS**, written once, with phase 3's exhaustion the single
+  place the pair asks which form it is running. Form 1 owns phases 10..13 and 15..19; Form 0's 0..8
+  are untouched and **not one character of the seven existing kinds changed**, so all 41 slice-44
+  contracts pass unmodified.
+
+  **THE SIBLING-ARM ABSORB: MEASURED AND DECLINED, WITH THE ARITHMETIC.** The property and indexer
+  accessors (`AnalyzePropertyDeclaration` `:2894`, `AnalyzeIndexerDeclaration` `:2966`,
+  `DeclareIndexerParameters`) were costed against this Form vocabulary. They need: a DIFFERENT ambient
+  boundary (`EnterAccessorReturnType` saves a bare `TypeInfo?`, not an `AmbientContextFrame`, so the
+  state's frame slot does not fit); `DeclareSymbol` with **`recordBindingDeclaration: false`** for the
+  implicit `value` parameter, which is a NEW OPERAND on kind 3 that all six existing kind-3 call sites
+  would have to pass; two direct semantic-model writes (`RecordTypeMember`, `RecordProperty`) that are
+  neither kind 4 nor kind 8; TWO accessor bodies walked in sequence, each opening and closing its own
+  FUNCTION scope, which the single-scope balance the eight slice-44 contracts assert would have to be
+  relaxed for; and a property expression-body rule with its OWN wording ("Property 'x' is typed as …")
+  that is not the function's. That is **two more Forms, two more phase bands, ≥3 new kinds and a new
+  operand on the most-used existing one, to delete ~95 lines** — and it would weaken an invariant three
+  contracts currently state absolutely. **DECLINED**, and named as the next arm instead, where the
+  accessor family can have its own state shape rather than borrowing one built for a function.
+
+  **THE CUT — FOUR MEMBERS, 305 NAMED LINES, AND THREE NEW C# CASES.** GONE:
+  `AnalyzeFunctionDeclaration` (164), `ValidateOperatorOverload` (65) and
+  `CheckCircularGenericConstraints` (60) — 289 lines — plus the 16-line `CheckVisibilityConvention`
+  which was deleted, rewritten in N#, and then RESTORED when the catalog wall was proved, so the file
+  carries it again with the wall documented at the member. ADDED: **THREE** `case` arms on
+  `DriveFunctionBody` (9 lines), one constructor argument, and a two-line routing call at `:792`.
+  `git diff` on `Analyzer.cs` **+63 / −320 = net −257**; the file goes **12,048 → 11,791**, non-blank
+  **10,671 → 10,441 (−230)** and declarations **518 → 515 (−3)**. **BOTH RATCHET CEILINGS FALL.**
+
+  **N# ADDED — 615 PRODUCTION LINES ON ONE EXISTING FILE, AND NO NEW FILE.**
+  `AnalyzerFunctionBodies.nl` **653 → 1,268 lines**, **26 → 43 members (+17)**: `BeginFunctionDeclaration`,
+  the nine Form-1 phase members, the declaration decision (`DeclaresFunctionSymbol`), the missing-return
+  rule and its async-unit-task silencer, both report shapes (`ReportMissingReturn`,
+  `ReportExpressionBodyTypeMismatch`), the operator rules (`ValidateOperatorOverload`,
+  `OperatorParameterArity`, `OperatorSymbolText`) and the constraint-cycle rule
+  (`CheckCircularGenericConstraints`, `CollectConstraintEdges`, `HasConstraintCycle`). The request
+  gains two fields (`Body`, `CarriedModifiers`) and the state one (`SymbolType`). **THE BOUNDED
+  DEPTH-FIRST WALK KEPT ITS SHAPE**: `Stack<(int, int)>` became two parallel `List<int>` used as one
+  stack, and `List<int>[]` became `List<List<int>>` with pre-created buckets — the C# used `null` to
+  mean "no successors" and skipped it, which an empty list does for free.
+
+  **28 NEW CONTRACTS.** `AnalyzerFunctionBodies.tests.nl` **853 → 1,450 lines, 41 → 69 contracts**.
+  Every replayed step still records the scope DEPTH, the ambient loop flag and the error count AS THE
+  STEP WAS HANDED OUT. Three are BALANCE INVARIANTS over a matrix of **eight declaration shapes**
+  (plain, parameterised, void-bodied, expression-bodied, bodiless, generator, operator overload and
+  constrained-generic): exactly one scope opens and one closes in every shape, the close is always the
+  LAST step, the depth returns to its start, the list is validated once and the function recorded once
+  in that order, at most one body step is asked for and never both, and the statement-LIST kind never
+  appears. **THE RESTORE-TO-NULL ASYMMETRY IS PINNED DIRECTLY**: an enclosing declaration is entered
+  with return type `string`, the walk runs, and the contract asserts the enclosing FUNCTION comes back
+  while the return type is **`null`** — the slice-34 finding, now stated by a test rather than by a
+  comment. Contracts: BootstrapServices **2,976 → 3,004 (+28)**, 0 failed. **TWO CONTRACTS WERE WRONG
+  ON FIRST WRITE AND THE IMPLEMENTATION WAS RIGHT** — both recorded as gotchas.
+
+  **PROOF — THE EMISSION-ORDER PROTOCOL DIFFERENTIAL, WITH THE BASELINE INSTRUMENTED AT THE EQUIVALENT
+  POINTS.** A temporary env-gated probe (`NL46_PROBE=1`, stderr, removed before the final bytes) emitted
+  one row per Form-1 operation carrying the KIND, the ERROR COUNT, the SCOPE DEPTH, the ambient RETURN
+  TYPE, the ambient FUNCTION NAME and the EXTENSION-METHOD COUNT at the instant the operation was about
+  to happen — in the BASELINE from eight points inside `AnalyzeFunctionDeclaration`, in the WORK tree
+  from `DriveFunctionBody`. Because the ambient state is carried on every row, the
+  `EnterFunctionDeclaration` / `ExitFunctionDeclaration` transitions ARE protocol events: the rows
+  before the IDE record read `<null>`, the body rows read the declared return type, and **the POP row
+  reads `<null>` again — the restore-to-null asymmetry, visible in the row stream**. Over the
+  71-target corpus: **124,549 rows, 0 MISMATCHES**, md5 `c189e72c012bba158ffd9537f8d09017` in BOTH —
+  **12,684 scope opens and 12,684 scope closes, balanced PER TARGET across all 59 targets that produce
+  rows**. Over the 231 accumulated fixtures: **3,337 rows, 0 MISMATCHES**, md5
+  `98bcfdd6a743bbf2538b2be12605c5fd`, **492 opens / 492 closes**, balanced per target. **THE KIND
+  CENSUS IS ITSELF A FINDING**: of **12,684** declarations walked in the corpus, only **151** declared
+  their own name — 24,337 kind-3 steps minus 24,186 parameters — so **98.8% of all top-level
+  declarations take the method-group / identical-signature SKIP path**, which is exactly the branch
+  that would have been easiest to get wrong and hardest to notice. **12,653** took the naming-convention
+  relay and **31** did not (the operator overloads); **12,599** had a block body, **38** an expression
+  body, and **47** neither. The probe was applied, measured, REVERTED and both CLIs REBUILT before any
+  of the evidence below was taken, and both reverted trees were proved byte-clean by `git status`.
+
+  **PROOF — CORPUS ORACLE DIFFERENTIAL OVER 71 TARGETS, BOTH CLIs ON THE SAME SOURCE COPY.**
+  `nlc check --json` with fresh **Release** CLIs at the pristine tip `077d02c5e`
+  (`/private/tmp/nl46base`) and at the working tree, both pointed at the SAME `git worktree` copy
+  (`/private/tmp/nl46corpus`). **ORACLE_DIFFS = 0 over 906 lines, md5
+  `b0ca02d7f95708138f06d2fd91b8697e` in BOTH**: **71 HEAD rows over 70 distinct targets**,
+  **835 diagnostics across 23 codes** (NL402 × 187, NL202 × 186, NL201 × 115, NL012 × 65, NL301 × 50,
+  NL905 × 48, NL011 × 34, NSYS050 × 24, NSYS001 × 18, NL303 × 18, NL010 × 16, NL412 × 15, NL704 × 13,
+  NL701 × 13, NL203 × 8, NSYS070 × 7, NL207 × 6, NSYS110 × 3, NL506 × 3, NL316 × 2, NL002 × 2,
+  NSYS080 × 1, NL001 × 1) — **the slice-45 distribution to the row** — exits identical
+  (**0 × 59, 1 × 12**), `stderrBytes = 0` on every one of the 142 runs, **ZERO `PARSE-FAIL`**. The seven
+  targets that answer with no `results` key on both sides are the same seven slices 42–45 named, and a
+  **SUPPLEMENTARY PASS against the real checkout closed all seven: SUPP_ORACLE_DIFFS = 0,
+  NO-RESULTS = 0.**
+
+  **PROOF — FIXTURE ORACLE DIFFERENTIAL, ORDER-PRESERVING, OVER THE WHOLE ACCUMULATED SET.**
+  **FX_PLAIN_DIFFS = 0 over 526 lines**, md5 `acc36762165bd558e78f56581b70411c` in BOTH: **231 HEAD
+  rows, 295 diagnostics across 36 codes**, `stderrBytes = 0` on all 462 runs, **ZERO `PARSE-FAIL` and
+  ZERO missing-`results` keys**. The set is this slice's **32** plus the accumulated **199**.
+  **PARSE-ERROR CENSUS: 4 (NL101 × 4) in ONE fixture (`fx18-newtype-construction`), IDENTICAL on both
+  sides and EXACTLY the census slices 43, 44 and 45 recorded. The 32 new fixtures add ZERO** — and the
+  census earned its place twice over: the first draft of the operator fixtures spelled the
+  declaration `operator +(…)` and the census caught the malformed parse in **all six** of them (the
+  spelling is `static func operator +`), and the definite-assignment fixture wrote `total: int` where
+  the language wants `let total: int` — neither of which any other check would have flagged, because
+  a fixture that fails to parse still produces diagnostics and still diffs clean.
+
+  **PROOF — THE 32 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT: WHOLE-PROGRAM BEHAVIOUR.** The
+  operator rules through the parser: not `static` (**NL601**), a unary operator given two parameters and
+  `+` given three and `==` given one (**NL602** × 3), and a legal unary-plus-binary pair that is
+  **silent**. The constraint-cycle rule at three lengths: `T: U, U: T`, `T: T`, and a THREE-parameter
+  chain `T: U, U: V, V: T` (**NL208** × 3, one report each), against a non-cycle and a constraint naming
+  a real type, both silent. The missing-return rule and all four silencers: a body that does not always
+  return (**NL305**), one that does, a `void` function, a generator, an `async` function owing a unit
+  `Task` — all silent — and an `async Task<int>` that owes a value (**NL305**). Both expression-body
+  rules: a mismatch (**NL202**), a fit (silent), a `void` declaration handing back a value
+  (**NL202**, the ambient wording), a generator with an expression body (**NL103**, and NO type
+  mismatch after it — the silencing, proved end to end) and a generator with a scalar return type
+  (**NL202**). The declaration decision: a class with two same-named methods is **silent**, which is
+  the method-group skip path. The naming convention through the relay: `_hidden` reports **NL903** and
+  an operator overload does not. And the scope: a parameter (**NL301**) and a body local (**NL301**)
+  both stop resolving outside, a type parameter types a parameter, recursion resolves, a function
+  declared LATER is callable, and definite assignment fires inside the body (**NL304**).
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS, WHICH IS THE EMISSION-ORDER PROOF AT BUILD LEVEL.**
+  Both Release CLIs built the 32 new fixtures from two staging copies proved `diff -rq` identical
+  first. The raw transcripts differed on **260 lines and EVERY ONE of them was the staging-copy path**
+  (`nl46bldA` vs `nl46bldB`) — **ZERO non-path lines differed at all**, so the normaliser was proved
+  not to be hiding anything rather than trusted. With the path normalised, **BLD_NORM_DIFFS = 0 over
+  347 unsorted lines**, md5 `5cc5eee6b7fe79b4b2a83c9a1aeabfcf` in BOTH, identical exits
+  (**0 × 12, 1 × 20**).
+
+  **PROOF — THE ENV-GATED SoA PATHS.** The 27 accumulated env-gated fixtures under
+  `NSHARP_EXPERIMENTAL_SOA=1`: **SOA_ENV_DIFFS = 0 over 73 lines**, md5
+  `3c616bc32bb29ed2056c4e9362298c47` in BOTH — the SAME md5 slices 44 and 45 recorded. This slice adds
+  none: the declaration walk's SoA surface is the two escape reports it already shared with the nested
+  form, and saying so is cheaper than pretending otherwise.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **322 checked files**, **282 findings
+  estate-wide — the unchanged slice-42/43/44/45 baseline — and ZERO in `AnalyzerFunctionBodies.nl`**,
+  `stderrBytes = 0`. **THE HARNESS PROVED ITSELF NON-VACUOUS BY ITS OWN FAILURE, AND THE FAILURE WAS A
+  REAL BUG**: the first pass reported **283** findings, the extra one an **NL303 `Member 'None' not
+  found on type 'Modifiers'`** on the new request field — because a field NAMED `Modifiers` of type
+  `Modifiers` SHADOWS its own type inside the class, so `Modifiers.None` resolved to the field. The
+  build accepted it; only `check` caught it. Renamed to `CarriedModifiers`, and the count returned to
+  282. Recorded as gotcha 1.
+
+  **PROOF — THE IL NORMALISER, AND THE CONTROL RAN FIRST.** Three staging copies of the corpus proved
+  `diff -rq` identical before any build. **THE CONTROL RAN FIRST**: the BASELINE CLI building TWO
+  IDENTICAL COPIES reported **compared 118, SAME 118, DIFFERENT 0,
+  ONLY_IN 0 / 0** — and **118 artifacts were actually produced in each**, checked rather than inferred,
+  because a harness that reports zero differences over zero artifacts is the most dangerous shape of
+  evidence in this arc. Only then the test comparison: **compared 118, ONLY_IN 0 / 0, and ALL 63
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL.** The 55 that differ are ONE file — the COPIED C# support
+  library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference is **ROOT-CAUSED,
+  NOT WAVED THROUGH**: exactly ONE distinct normalised content per tree, both 14,848 bytes,
+  **212 differing byte positions**, `strings` finds the embedded PDB path
+  `/private/tmp/nl46base/src/NSharpLang.Runtime/obj/Release/net10.0/NSharpLang.Runtime.pdb` in one and
+  `/Users/spencer/repos/nsharplang/…` in the other, and `diff -rq -x bin -x obj` over
+  `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **FORMAT CANON.** All the touched `.nl` files pass `nlc format`, and the whole
+  `src/NSharpLang.Compiler.BootstrapServices` directory passes the gate's Step 2b contract
+  (**"All files are properly formatted"**).
+
+  **THE RATCHET.** An independent FNV-1a walk over UTF-16 code units, reading every file as
+  **utf-8-sig** per the slice-43 rule, reproduced the stored `head-v1:4b6d2e1e960ce9a8` from the
+  UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 12,048 → **11,791**,
+  currentNonBlankLines 10,671 → **10,441**, fingerprint → **`text-v1:2a35c41e94681707`**;
+  `reviewedHeadFingerprint` → **`head-v1:31bdb1b506ce6b38`**, mirrored into `OwnershipAudit.nl` by
+  regexing the stored head rather than string-matching it. Epoch ceilings 23,451 / 20,537 PRESERVED,
+  now clear by **11,660 / 10,096**. **`wc -l` on the manifest is 391 before AND after**, its `git diff`
+  is exactly 2 changed lines and `OwnershipAudit.nl`'s exactly 1; neither carries a BOM. The audit on
+  the final tree is **18 / 18**.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED, in 8m 56s.** The TOTAL is the `077d02c5e`
+  baseline exactly — this slice adds and removes no unit test — and `./scripts/dev.sh --since` over the
+  byte-final tree correctly took its FAIL-SAFE path (three of the four changed files are unmapped, so
+  it ran the FULL suite and said which ones), exit 0 with zero flakes.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS AND ZERO FAILURES, 38m 04s.** `./scripts/test-all.sh --commit` — VS Code tests
+  NOT skipped — snapshotted the tree into `/private/tmp/nsharp-test-all.b6a929c030d6.mgFVQB/repo` and
+  ran every step, with the per-step wall clock it reported: clean 0m 00s; **build N# compiler 5m 02s**;
+  **Step 2b's format contract over the compiler's own N# sources 0m 03s**; **unit tests 13m 11s**;
+  **native N# tests 6m 50s** (the BootstrapServices contracts plus every native project individually,
+  `tests/native/ownership-audit` among them); **VS Code integration tests 4m 49s** against a freshly
+  built extension and language server; **pack and install the MSBuild SDK 7m 19s**; pack templates
+  0m 04s; install the `dotnet new` template 0m 01s; template creation 0m 01s; build the
+  template-generated project 0m 02s; build the example projects 0m 07s; build the single-file examples
+  0m 05s; `nlc check` on examples 0m 07s (**24 targets, all ✓**); and **the IL verification gate
+  0m 22s — `All 67 N# assemblies pass IL verification (no new errors vs baseline)`**. The run stored
+  its validated isolated cache result `b6a929c030d69a24 (2284s)`. **`systems-language-closeout/` is in
+  NO gate input set**, so this record's own prose is provably not a gate input and the run measured the
+  final production and contract bytes. The wall clocks are longer than slice 45's throughout because
+  the machine was carrying an unrelated ~300% CPU load for the whole run; every step still passed.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (289 files, 3.98 MB) and installed with `--force` — so the editor a
+  developer opens is running this slice's language server. No computer-use verification was taken:
+  this slice changes no LSP handler, no VS Code extension code and no IDE protocol surface; what it
+  changes is what the analyzer reports, which the gate's 4m 49s VS Code integration suite and the
+  906-line diagnostic oracle both cover.
+
+  **COMPILER WARNINGS ARE UNCHANGED AND NOTHING IS NEW.** A warning-code inventory over
+  `dotnet build Cli.csproj`: `CS8601 × 2, CS8604 × 8, CS8625 × 8` — identical to the slice-44 and
+  slice-45 exit state.
+
+  **GOTCHAS.**
+  **(1) A FIELD NAMED AFTER ITS OWN TYPE SHADOWS THAT TYPE INSIDE THE CLASS.** `Modifiers: Modifiers`
+  makes `Modifiers.None` resolve to the FIELD, and the analyzer reports **NL303 `Member 'None' not
+  found on type 'Modifiers'`** — while the columnar backend accepts the file and emits it. It is a
+  finding-only failure, which is why `nlc check` over the compiler's own sources is not optional
+  evidence. Renaming the field fixed it.
+  **(2) `char.IsLower` IS NOT IN THE COLUMNAR `System.Char` CATALOG.** `IsUpper` is. The decline is
+  `emit.if.condition: if condition could not be emitted as a bool`, which points at the `if` rather
+  than at the call, so the first fix attempted (splitting the `||` into separate guards) moved the
+  error without explaining it. Binding the call to a local would have made the message name the call.
+  **(3) THE OPERATOR-OVERLOAD SPELLING IS `static func operator +(…)`, NOT `operator +(…)`.** The
+  short form parses as a FIELD declaration and reports **NL109 `Expected field name. Got the reserved
+  keyword 'operator'`** — a message that names the wrong construct entirely.
+  **(4) TWO CONTRACTS WERE WRONG ON FIRST WRITE AND THE IMPLEMENTATION WAS RIGHT.** A generator
+  fixture asserted silence for a declaration whose return type was `int`, forgetting that
+  `ReportGeneratorReturnTypeIfNeeded` fires first — the missing-return silencer had to be pinned
+  against a NON-VOID return type the harness cannot resolve, so that the silencing is attributable to
+  the generator modifier rather than to the void check. And the expression-body mismatch was asserted
+  at the EXPRESSION's span in a harness with NO source text, where the report correctly falls back to
+  the detail-only shape at the DECLARATION's position; both shapes are now pinned in one contract.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is every squiggle a top-level `func` produces and every
+  completion fact its signature decides: the NL305 on a function whose paths do not all return,
+  underlined on `func ` plus the name; the NL202 on an expression body that does not fit, underlined on
+  the EXPRESSION; the NL903 on a name the convention cannot classify; the NL601/NL602 pair on an
+  operator overload, underlined on the `operator` keyword and on the SYMBOL respectively; the NL208 on
+  a circular `where` clause; whether a function's name lands in the enclosing scope at all, which is
+  what makes a class's overloads resolve as ONE method group instead of a duplicate; whether a `this`
+  first parameter makes the function appear in member completion on its receiver type; and the function
+  record the language server reads for hover and signature help.
+
+  **WALL STATUS: ONE WALL REACHED AND STOPPED AT** — `char.IsLower`, above. No catalog surface was
+  added, so **no toolset repin was taken**, and the packaged 0.1.0 SDK self-emits the new production
+  code and all 28 contracts.
+
+  **FIXTURES LEFT ON DISK FOR THE NEXT SLICE TO ACCUMULATE**: `/private/tmp/nl46fixtures` (32, this
+  slice) alongside `nl45fixtures` (30), `nl44fixtures` (26), `nl43fixtures` (24), `nl42fixtures` (30),
+  `nl41fixtures` (29), `nl40fixtures` (24), `s24fixtures` (36) and the `nl40`–`nl44` `soafx` sets (27)
+  — **231 plain + 27 env-gated**. The harnesses are at `.../scratchpad/nl44-oracle.sh`,
+  `nl44-build.sh`, `nl44-ilbuild.sh` + `nl44-ilnorm.py`, `nl46-repin.py`, and `/private/tmp/nl46-probe.sh`
+  (the emission-order protocol differential). Three worktrees are left registered: `/private/tmp/nl46base`
+  (pristine `077d02c5e` + Release CLI), `/private/tmp/nl46corpus` (the shared source copy) and
+  `/private/tmp/nl46ilsrc` (the clean source the three IL staging copies were made from).
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 11,791 LINES, 10,441 NON-BLANK, 515
+  DECLARATIONS.** Three things:
+  * **THE REMAINING DECLARATION WALKERS.** `AnalyzeClassDeclaration`, `AnalyzeStructDeclaration`,
+    `AnalyzeRecordDeclaration`, `AnalyzeInterfaceDeclaration`, `AnalyzeEnumDeclaration`,
+    `AnalyzeUnionDeclaration`, the property and indexer accessors, the field declaration, the
+    constructor, the test / setup / teardown declarations and the import walk — plus the
+    declaration-side shared members `DeclareSymbol` (27 callers), `ValidateParameterDeclarations`
+    (8 callers, relayed since slice 44) and `CheckVisibilityConvention` (9 callers, relayed since this
+    slice).
+  * **THE EXPRESSION WALK.** `AnalyzeExpression`'s 41-arm switch and everything under it. This remains
+    the LARGEST thing in the file by a wide margin.
+  * **THE MECHANICAL HOST.** The nine zero-policy driver loops, the reviewed statement dispatch, the
+    owner construction block, the analysis reset and the four one-line aliases.
+
+  * **NEXT: THE PROPERTY AND INDEXER ACCESSORS, AS THEIR OWN FAMILY.** `AnalyzePropertyDeclaration`
+    (`:2894`, ~68 lines), `AnalyzeIndexerDeclaration` (`:2966`, ~44) and `DeclareIndexerParameters`
+    (~15) — ~127 lines, three call sites, all inside the class/struct/record member walks. They share a
+    shape with each other that neither shares with a function: an ACCESSOR PAIR, each accessor opening
+    its own FUNCTION scope, entering `EnterAccessorReturnType` (which saves a bare `TypeInfo?`), walking
+    a BLOCK through the dispatch and closing again — with the setter additionally declaring an implicit
+    `value` under `recordBindingDeclaration: false`. Give them their OWN owner and driver rather than a
+    third Form here, for the reason recorded above: the accessor state is a pair, not a body. Their
+    remaining C# collaborators are `DeclareSymbol`, `AnalyzeExpression`, the scope operations and the
+    two `_semanticModel` member writes — every one of them either an existing kind or a one-line
+    semantic-model write that needs a kind of its own. **Expected cut: ~127 lines against ~15 new C#**,
+    and it retires the last two callers of `EnterAccessorReturnType`.
+  * **THEN: the class / struct / record / interface / union / enum walkers**, which is where
+    `CheckVisibilityConvention` finally moves (with the `char.IsLower` catalog addition and the toolset
+    repin that pays for it), **and then the expression walk**, which decides whether `Analyzer.cs` is
+    deleted or is signed off as a reviewed zero-policy mechanical host.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 45 — `AnalyzeStatement` FALLS, AND THE STATEMENT
   TERRITORY CLOSES. THE THREE-WAY SHAPE FORK IS MEASURED AND THE DISPATCH IS PROVED TERMINAL AS A
   REVIEWED ZERO-POLICY HOST; THE POLICY THAT WAS ACTUALLY HIDING IN THE TERRITORY — THE
   UNREACHABLE-CODE RULE, THE BLOCK'S SCOPE AND THE THREE TRANSPARENCIES — MOVES WHOLE.** Target
