@@ -337,6 +337,19 @@ public class Analyzer : IDisposable
     // collaborators the rebuild DOES replace — the CLR conversion funnel and the assignability
     // oracle — are passed in at `Begin`.
     private readonly AnalyzerResourceStatements _resourceStatements;
+    // WHAT A DECLARED FUNCTION'S BODY IS: the local function statement as one suspendable walk — the
+    // name declared into the enclosing scope, the function scope, the type parameters, the parameter
+    // declarations, the nested-body ambient boundary, both body shapes and the expression body's
+    // return-type rule — plus the two generator reports every declared function shares. NOT rebuilt
+    // with the SCC: it holds the diagnostic sink, the span reader, the scope stack, the declaration
+    // context, the type resolver, the function-type factory, the ambient context, the SoA escape
+    // owner and the definite-assignment owner, none of which the rebuild replaces; the assignability
+    // oracle, which the rebuild DOES replace, is passed in at `Begin`.
+    private readonly AnalyzerFunctionBodies _functionBodies;
+    // WHAT A DECLARED PARAMETER LIST MUST SATISFY: both `params` rules, shared by every declaration
+    // in the language that has a parameter list. NOT rebuilt with the SCC: it holds only the
+    // diagnostic sink, which the rebuild does not replace.
+    private readonly AnalyzerParameterDeclarations _parameterDeclarations;
     private bool _disposed;
 
     public Analyzer()
@@ -379,6 +392,10 @@ public class Analyzer : IDisposable
         _resourceStatements = new AnalyzerResourceStatements(
             _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _typeSubstitution,
             _ambient, _soaEscape, _throwability);
+        _functionBodies = new AnalyzerFunctionBodies(
+            _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _functionTypeFactory,
+            _ambient, _soaEscape, _definiteAssignment);
+        _parameterDeclarations = new AnalyzerParameterDeclarations(_diagnostics);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -2204,7 +2221,7 @@ public class Analyzer : IDisposable
         var functionReturnType = func.ReturnType != null ? _typeResolver.ResolveDeclaredType(func.ReturnType) : BuiltInTypes.Void;
         var ambientFrame = _ambient.EnterFunctionDeclaration(func, functionReturnType);
 
-        ReportGeneratorReturnTypeIfNeeded(func, functionReturnType);
+        _functionBodies.ReportGeneratorReturnTypeIfNeeded(func, functionReturnType);
 
         // Record full function facts in the semantic model for IDE/tooling features.
         RecordFunctionInCurrentScope(func.Name, funcType);
@@ -2255,7 +2272,7 @@ public class Analyzer : IDisposable
             var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
             _soaEscape.ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
             _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(func.ExpressionBody, "returned");
-            var reportedGeneratorExpressionBody = ReportGeneratorExpressionBodyIfNeeded(func);
+            var reportedGeneratorExpressionBody = _functionBodies.ReportGeneratorExpressionBodyIfNeeded(func);
             if (!reportedGeneratorExpressionBody && BuiltInTypes.Is(functionReturnType, BuiltInTypes.Void) && BuiltInTypes.IsNot(exprType, BuiltInTypes.Void))
             {
                 _ambient.ReportExpressionBodyReturn(func, exprType);
@@ -2288,88 +2305,6 @@ public class Analyzer : IDisposable
 
         _ambient.ExitFunctionDeclaration(ambientFrame);
         PopScope();
-    }
-
-    private bool ReportGeneratorExpressionBodyIfNeeded(FunctionDeclaration func)
-    {
-        if (!func.Modifiers.HasFlag(Modifiers.Generator) || func.ExpressionBody == null)
-        {
-            return false;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(func.ExpressionBody);
-        Error(
-            ErrorCode.InvalidSyntax,
-            "Generator functions must use a block body",
-            line,
-            column,
-            "Use `{ yield value }` to produce sequence values from a generator.",
-            length);
-        return true;
-    }
-
-    private bool ReportGeneratorReturnTypeIfNeeded(FunctionDeclaration func, TypeInfo returnType)
-    {
-        if (!func.Modifiers.HasFlag(Modifiers.Generator))
-        {
-            return false;
-        }
-
-        var resolvedReturnType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(returnType));
-        var isAsyncGenerator = func.Modifiers.HasFlag(Modifiers.Async);
-        if (BuiltInTypes.IsUnknown(resolvedReturnType)
-            || IsGeneratorSequenceReturnType(resolvedReturnType, isAsyncGenerator))
-        {
-            return false;
-        }
-
-        var sequenceKind = GeneratorSequenceTypeFacts.ExpectedSequenceKind(isAsyncGenerator);
-        var suggestion = GeneratorSequenceTypeFacts.ReturnTypeSuggestion(isAsyncGenerator);
-        var (line, column, length) = func.ReturnType != null
-            ? AnalyzerDiagnosticSpanFacts.GetSourceSpanDiagnosticSpan(
-                TypeReferenceFacts.GetStartSpan(func.ReturnType),
-                func.Line,
-                func.Column,
-                Math.Max(1, returnType.ToString().Length))
-            : _spans.GetFunctionNameDiagnosticSpan(func);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"Generator function '{func.Name}' must return {sequenceKind}, but it returns '{returnType}'",
-            line,
-            column,
-            suggestion,
-            length);
-        return true;
-    }
-
-    private bool IsGeneratorSequenceReturnType(TypeInfo type, bool isAsyncGenerator)
-    {
-        if (GeneratorSequenceTypeFacts.IsSequenceReturnType(type, isAsyncGenerator))
-            return true;
-
-        return type is ReflectionTypeInfo reflection
-            && IsGeneratorSequenceReflectionType(reflection.Type, isAsyncGenerator);
-    }
-
-    private static bool IsGeneratorSequenceReflectionType(Type type, bool isAsyncGenerator)
-    {
-        if (type.IsArray || !type.IsGenericType)
-        {
-            return false;
-        }
-
-        var definition = type.GetGenericTypeDefinition();
-        if (isAsyncGenerator)
-        {
-            return definition == typeof(IAsyncEnumerable<>);
-        }
-
-        return definition == typeof(List<>)
-            || definition == typeof(IEnumerable<>)
-            || definition == typeof(ICollection<>)
-            || definition == typeof(IList<>)
-            || definition == typeof(IReadOnlyCollection<>)
-            || definition == typeof(IReadOnlyList<>);
     }
 
     private void AnalyzeClassDeclaration(ClassDeclaration classDecl)
@@ -3221,7 +3156,8 @@ public class Analyzer : IDisposable
                 // Preprocessor directives don't need analysis - they're pass-through
                 break;
             case LocalFunctionStatement localFunc:
-                AnalyzeLocalFunction(localFunc);
+                DriveFunctionBody(_functionBodies.BeginLocalFunction(
+                    localFunc, _currentTypeName, _assignability));
                 break;
         }
     }
@@ -3286,76 +3222,60 @@ public class Analyzer : IDisposable
         => DriveExpressionStatement(
             _expressionStatements.BeginAssertThrows(assertThrows, _clrTypeConversion));
 
-    private void AnalyzeLocalFunction(LocalFunctionStatement localFunc)
+    /// <summary>
+    /// The steps the N#-owned declared-function walk cannot take for itself. A local function runs in
+    /// <see cref="AnalyzerFunctionBodies"/>, which owns everything about it that is a decision: that
+    /// its own name is declared into the ENCLOSING scope before its body scope opens, which is what
+    /// makes a recursive call resolve and a sibling call below it resolve — and, because the name
+    /// lands when the STATEMENT is walked rather than when the enclosing body is entered, what makes a
+    /// call written ABOVE it NOT resolve; that the scope it then opens is a FUNCTION scope; that its type
+    /// parameters go in before any parameter type is resolved; that the parameter list is validated
+    /// before any name in it exists; where each parameter is declared when it carries no position of
+    /// its own; that its return type is resolved with the plain resolver rather than the declared-type
+    /// one; that entering it zeroes the ambient loop and <c>finally</c> state; which of the two body
+    /// shapes runs; and what an expression body is measured against. Kind 1 is the ESTATE'S FIRST
+    /// TARGET-TYPED walk step and is a kind of its own rather than a widening of any other driver's
+    /// kind 1, every one of which deliberately leaves the ambient target-typing slot alone. Kind 5 is
+    /// a statement LIST rather than <see cref="DriveLoopStatement"/>'s single statement, because a
+    /// function body is walked as its statements — handing the block itself to the dispatch would open
+    /// a second scope inside the function scope. Kind 7 is a RELAY and is the only one: the
+    /// default-value half of the parameter-list rules re-enters this analyzer's target-typed
+    /// expression walk under SoA, and its eight callers are not driven.
+    /// </summary>
+    private void DriveFunctionBody(FunctionBodyState state)
     {
-        var func = localFunc.Function;
-
-        // Register the local function in the current scope
-        // This allows it to be called later in the same scope.
-        var funcType = _functionTypeFactory.CreateFromDeclaration(func, _currentTypeName);
-        DeclareSymbol(func.Name, funcType, localFunc.Line, localFunc.Column);
-
-        // Analyze the local function body in a new scope
-        PushScope(new Scope(ScopeKind.Function), localFunc.Line, localFunc.Column);
-
-        // Add generic type parameters to both type and symbol namespaces (mirrors
-        // AnalyzeFunctionDeclaration) so they resolve as types inside the local function.
-        if (func.TypeParameters != null)
+        for (var step = _functionBodies.NextStep(state);
+             step != null;
+             step = _functionBodies.NextStep(state))
         {
-            foreach (var tp in func.TypeParameters)
+            TypeInfo? answer = null;
+            switch (step.Kind)
             {
-                _scopes.DeclareTypeParameter(tp.Name);
+                case 1:
+                    answer = AnalyzeExpressionWithExpectedType(step.Node!, step.ExpectedType);
+                    break;
+                case 2:
+                    PushScope(new Scope(ScopeKind.Function), step.Line, step.Column);
+                    break;
+                case 3:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    break;
+                case 4:
+                    RecordVariableInCurrentScope(step.Name!, step.CarriedType);
+                    break;
+                case 5:
+                    AnalyzeStatements(step.Statements!);
+                    break;
+                case 6:
+                    PopScope();
+                    break;
+                case 7:
+                    ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    break;
             }
+
+            _functionBodies.Supply(state, answer);
         }
-
-        ValidateParameterDeclarations(func.Parameters, localFunc.Line, localFunc.Column);
-
-        // Add parameters to scope
-        foreach (var param in func.Parameters)
-        {
-            var paramType = _typeResolver.ResolveDeclaredType(param.Type);
-            var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                param.Line,
-                param.Column,
-                localFunc.Line,
-                localFunc.Column);
-            DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-            RecordVariableInCurrentScope(param.Name, paramType);
-        }
-
-        // Save current function context
-        TypeInfo? returnType = func.ReturnType != null ? _typeResolver.ResolveType(func.ReturnType) : BuiltInTypes.Void;
-        var ambientFrame = _ambient.EnterNestedBody(func, returnType);
-
-        ReportGeneratorReturnTypeIfNeeded(func, returnType);
-
-        // Analyze body
-        if (func.Body != null)
-        {
-            AnalyzeStatements(func.Body.Statements);
-            _definiteAssignment.CheckLocals(func.Body);
-        }
-        else if (func.ExpressionBody != null)
-        {
-            var isGenerator = func.Modifiers.HasFlag(Modifiers.Generator);
-            var expectedExpressionType = !isGenerator && BuiltInTypes.IsNot(returnType, BuiltInTypes.Void) ? returnType : null;
-            var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(func.ExpressionBody, "returned");
-            var reportedGeneratorExpressionBody = ReportGeneratorExpressionBodyIfNeeded(func);
-            // Verify expression type matches return type
-            if (!reportedGeneratorExpressionBody && BuiltInTypes.IsNot(returnType, BuiltInTypes.Void) && !_assignability.IsAssignable(returnType, exprType))
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(func.ExpressionBody);
-                Error(ErrorCode.TypeMismatch, $"Function '{func.Name}' should return '{returnType}' but the expression body gives '{exprType}'",
-                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
-            }
-        }
-
-        // Restore function context
-        _ambient.ExitNestedBody(ambientFrame);
-
-        PopScope();
     }
 
     private void AnalyzeVariableDeclaration(VariableDeclarationStatement varDecl)
@@ -10703,41 +10623,9 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void ValidateParamsParameters(List<Parameter> parameters, int line, int column)
-    {
-        for (int i = 0; i < parameters.Count; i++)
-        {
-            var param = parameters[i];
-            if (param.Modifier == Ast.ParameterModifier.Params)
-            {
-                var (paramLine, paramColumn, paramLength) = AnalyzerDiagnosticSpanFacts.GetParameterDiagnosticSpan(param, line, column);
-
-                if (i != parameters.Count - 1)
-                {
-                    Error(
-                        ErrorCode.ParamsNotLast,
-                        "A 'params' parameter must come last in the parameter list — move it to the end",
-                        paramLine,
-                        paramColumn,
-                        length: paramLength);
-                }
-
-                if (!TypeReferenceFacts.IsValidParamsType(param.Type))
-                {
-                    Error(
-                        ErrorCode.InvalidParameter,
-                        $"A 'params' parameter must be an array or collection type — '{TypeReferenceFacts.GetDisplayName(param.Type)}' is not a valid params type",
-                        paramLine,
-                        paramColumn,
-                        length: paramLength);
-                }
-            }
-        }
-    }
-
     private void ValidateParameterDeclarations(List<Parameter> parameters, int line, int column)
     {
-        ValidateParamsParameters(parameters, line, column);
+        _parameterDeclarations.ValidateParamsParameters(parameters, line, column);
         ValidateDefaultParameters(parameters, line, column);
     }
 
