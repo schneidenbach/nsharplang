@@ -6,6 +6,7 @@ import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+
 // Native contracts for WHERE THE WALK CURRENTLY IS.
 //
 // THE SAVE/RESTORE TRANSITIONS ARE THE CONTRACT. Eight ambient values used to live as fields on
@@ -31,18 +32,13 @@ import NSharpLang.Compiler.Ast
 // THE CORPUS DOES NOT REACH THE DIAGNOSTICS. `break`/`continue` outside a loop, all three NL319
 // shapes and all four return-value-mismatch wordings are compile errors, so a corpus of COMPILING
 // sources fires none of them. They exist here and in the fixtures.
-
 class AmbientHarness {
     Context: AnalyzerAmbientContext
     Errors: List<CompilerError>
     Assignability: AnalyzerAssignability
     Scopes: AnalyzerScopeStack
 
-    constructor(
-        context: AnalyzerAmbientContext,
-        errors: List<CompilerError>,
-        assignability: AnalyzerAssignability,
-        scopes: AnalyzerScopeStack) {
+    constructor(context: AnalyzerAmbientContext, errors: List<CompilerError>, assignability: AnalyzerAssignability, scopes: AnalyzerScopeStack) {
         Context = context
         Errors = errors
         Assignability = assignability
@@ -86,18 +82,12 @@ func AmbientHarnessWith(sourceText: string?): AmbientHarness {
     escapeScopes := new AnalyzerScopeStack()
     escapeScopes.Push(new SemanticModel(), new Scope(ScopeKind.Global), 1, 1)
     escape := new AnalyzerSoaEscape(diagnostics, spans, escapeScopes, escapeContext)
-    return new AmbientHarness(
-        new AnalyzerAmbientContext(diagnostics, spans, escape),
-        errors,
-        AmbientAssignability(provider, diagnostics),
-        escapeScopes)
+    return new AmbientHarness(new AnalyzerAmbientContext(diagnostics, spans, escape), errors, AmbientAssignability(provider, diagnostics), escapeScopes)
 }
 
 // The assignability oracle the `return` walk is HANDED at `BeginReturn` — built here exactly as
 // `Analyzer.cs` builds the instance it passes, and deliberately NOT held by the context.
-func AmbientAssignability(
-    provider: AnalyzerProjectSourceProvider,
-    diagnostics: AnalyzerDiagnosticSink): AnalyzerAssignability {
+func AmbientAssignability(provider: AnalyzerProjectSourceProvider, diagnostics: AnalyzerDiagnosticSink): AnalyzerAssignability {
     context := new AnalyzerDeclarationContext()
     assemblies := new List<Assembly>()
     assemblies.Add(typeof(List<int>).get_Assembly())
@@ -105,23 +95,9 @@ func AmbientAssignability(
     model := new SemanticModel()
     scopes := new AnalyzerScopeStack()
     scopes.Push(model, new Scope(ScopeKind.Global), 1, 1)
-    discovery := new AnalyzerProjectTypeDiscovery(
-        provider,
-        context,
-        new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+    discovery := new AnalyzerProjectTypeDiscovery(provider, context, new List<string>(), new Dictionary<string, string>(StringComparer.Ordinal))
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
-    resolver := new AnalyzerTypeResolver(
-        scopes,
-        context,
-        discovery,
-        probe,
-        diagnostics,
-        new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
-        model,
-        new BindingMap())
+    resolver := new AnalyzerTypeResolver(scopes, context, discovery, probe, diagnostics, new Dictionary<string, string>(StringComparer.Ordinal), new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal), new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal), model, new BindingMap())
     resolver.BeginAnalysis(AmbientPath(), null, model, new BindingMap())
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
@@ -154,14 +130,7 @@ func AmbientState(context: AnalyzerAmbientContext): string {
         functionText = declaration.Name
     }
 
-    return returnTypeText
-        + "|" + functionText
-        + "|" + AmbientFlag(context.CurrentFunctionReturnTypeWasOmitted)
-        + "|" + AmbientFlag(context.CurrentFunctionIsAsync)
-        + "|" + AmbientFlag(context.InLoop)
-        + "|" + context.FinallyDepth.ToString()
-        + "|" + context.BreakTargetFinallyDepth.ToString()
-        + "|" + context.ContinueTargetFinallyDepth.ToString()
+    return returnTypeText + "|" + functionText + "|" + AmbientFlag(context.CurrentFunctionReturnTypeWasOmitted) + "|" + AmbientFlag(context.CurrentFunctionIsAsync) + "|" + AmbientFlag(context.InLoop) + "|" + context.FinallyDepth.ToString() + "|" + context.BreakTargetFinallyDepth.ToString() + "|" + context.ContinueTargetFinallyDepth.ToString()
 }
 
 func AmbientFlag(value: bool): string {
@@ -173,22 +142,7 @@ func AmbientFlag(value: bool): string {
 }
 
 func AmbientFunction(name: string, returnType: TypeReference?, modifiers: Modifiers): FunctionDeclaration {
-    return new FunctionDeclaration(
-        name,
-        new List<Parameter>(),
-        returnType,
-        null,
-        null,
-        null,
-        null,
-        modifiers,
-        new List<AttributeNode>(),
-        false,
-        null,
-        false,
-        false,
-        7,
-        1)
+    return new FunctionDeclaration(name, new List<Parameter>(), returnType, null, null, null, null, modifiers, new List<AttributeNode>(), false, null, false, false, 7, 1)
 }
 
 func AmbientIntType(): TypeReference {
@@ -240,20 +194,12 @@ func AmbientExpected(context: AnalyzerAmbientContext): string {
 // as it stood when the step was handed out. It asks for ONE step now: kinds 2 and 3 were the two SoA
 // escape reports, which the walk performs itself against the real `AnalyzerSoaEscape`, so a contract
 // that wants one to fire supplies a row-view TYPE or returns a real declared-table column read.
-func AmbientRunReturn(
-    harness: AmbientHarness,
-    statement: ReturnStatement,
-    answer: TypeInfo?): List<AmbientStep> {
+func AmbientRunReturn(harness: AmbientHarness, statement: ReturnStatement, answer: TypeInfo?): List<AmbientStep> {
     steps := new List<AmbientStep>()
     state := harness.Context.BeginReturn(statement, harness.Assignability)
     step := harness.Context.NextStep(state)
     while step != null {
-        steps.Add(new AmbientStep(
-            step.Kind,
-            step.Node,
-            step.Text,
-            AmbientExpected(harness.Context),
-            harness.Errors.Count))
+        steps.Add(new AmbientStep(step.Kind, step.Node, step.Text, AmbientExpected(harness.Context), harness.Errors.Count))
 
         harness.Context.Supply(state, answer)
         step = harness.Context.NextStep(state)
@@ -271,14 +217,12 @@ func AmbientSoaColumns(): List<SoaColumnInfo> {
 }
 
 func AmbientDeclareSoaTable(harness: AmbientHarness) {
-    table: TypeInfo = new SoaRecordTypeInfo(
-        new SoaRecordDeclarationInfo("Points", AmbientSoaColumns(), 1, 1))
+    table: TypeInfo = new SoaRecordTypeInfo(new SoaRecordDeclarationInfo("Points", AmbientSoaColumns(), 1, 1))
     harness.Scopes.Peek().Symbols["points"] = table
 }
 
 func AmbientSoaColumnRead(): Expression {
-    read: Expression = new MemberAccessExpression(
-        new IdentifierExpression("points", 9, 12), "x", false, 9, 12)
+    read: Expression = new MemberAccessExpression(new IdentifierExpression("points", 9, 12), "x", false, 9, 12)
     return read
 }
 
@@ -1000,8 +944,7 @@ test "A ROW-VIEW ANSWER SELECTS THE ROW REPORT INSTEAD OF THE DIRECT-COLUMN ONE"
     // The ROW report speaks, not the column one — and, exactly as before, it suppresses nothing, so
     // the value rule still finds a row view where an `int` was owed.
     assert harness.Errors.Count == 2
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be returned; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be returned; use the table and row index instead"
     assert harness.Errors[1].Code == ErrorCode.TypeMismatch
 }
 
@@ -1313,4 +1256,77 @@ test "TWO return STATEMENTS IN A ROW ARE INDEPENDENT WALKS" {
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.MissingReturn
     assert AmbientExpected(harness.Context) == "<null>"
+}
+// ---------------------------------------------------------------------------------------------
+// THE TYPE-DECLARATION FAMILY
+// ---------------------------------------------------------------------------------------------
+
+func AmbientClass(name: string): ClassDeclaration {
+    return new ClassDeclaration(name, null, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), 7, 10)
+}
+
+test "THE TYPE-CONTEXT SLOTS HAND THE PREVIOUS VALUE BACK TO THE CALLER AND NEST" {
+    harness := AmbientDefault()
+    assert harness.Context.CurrentClass == null
+    assert harness.Context.CurrentTypeName == null
+
+    outer := AmbientClass("Outer")
+    savedOuterClass := harness.Context.EnterClassDeclaration(outer)
+    savedOuterName := harness.Context.EnterTypeName("Outer")
+    assert savedOuterClass == null
+    assert savedOuterName == null
+    assert harness.Context.CurrentTypeName == "Outer"
+
+    inner := AmbientClass("Inner")
+    savedInnerClass := harness.Context.EnterClassDeclaration(inner)
+    savedInnerName := harness.Context.EnterTypeName("Inner")
+    assert savedInnerName == "Outer"
+    assert savedInnerClass != null
+    assert harness.Context.CurrentTypeName == "Inner"
+
+    harness.Context.ExitClassDeclaration(savedInnerClass)
+    harness.Context.ExitTypeName(savedInnerName)
+    assert harness.Context.CurrentTypeName == "Outer"
+
+    harness.Context.ExitClassDeclaration(savedOuterClass)
+    harness.Context.ExitTypeName(savedOuterName)
+    assert harness.Context.CurrentTypeName == null
+    assert harness.Context.CurrentClass == null
+}
+
+test "THE TWO TYPE-CONTEXT SLOTS ARE INDEPENDENT, WHICH IS WHAT A NESTED STRUCT DEPENDS ON" {
+    harness := AmbientDefault()
+    savedClass := harness.Context.EnterClassDeclaration(AmbientClass("Outer"))
+    savedName := harness.Context.EnterTypeName("Outer")
+
+    // A struct declared inside that class moves ONLY the name.
+    savedStructName := harness.Context.EnterTypeName("Point")
+    assert harness.Context.CurrentTypeName == "Point"
+    assert harness.Context.CurrentClass != null
+
+    harness.Context.ExitTypeName(savedStructName)
+    assert harness.Context.CurrentTypeName == "Outer"
+
+    harness.Context.ExitTypeName(savedName)
+    harness.Context.ExitClassDeclaration(savedClass)
+}
+
+test "NEITHER TYPE-CONTEXT SLOT IS RESET BY BeginAnalysis, WHICH IS THE SHELL'S OWN ASYMMETRY" {
+    harness := AmbientDefault()
+    harness.Context.EnterClassDeclaration(AmbientClass("Outer"))
+    harness.Context.EnterTypeName("Outer")
+    harness.Context.EnterLoop()
+
+    harness.Context.BeginAnalysis()
+
+    // The eight fields `Analyzer.cs` reset in its prologue are reset; the two it left alone are
+    // left alone. They are only ever written inside a matched pair, so they are already null
+    // wherever a new analysis can begin — and resetting them here would be a write this family
+    // never performed.
+    assert !harness.Context.InLoop
+    assert harness.Context.CurrentTypeName == "Outer"
+    assert harness.Context.CurrentClass != null
+
+    harness.Context.ExitTypeName(null)
+    harness.Context.ExitClassDeclaration(null)
 }

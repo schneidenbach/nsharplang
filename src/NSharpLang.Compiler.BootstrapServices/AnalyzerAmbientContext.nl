@@ -160,6 +160,8 @@ class AnalyzerAmbientContext {
     breakTargetFinallyDepthValue: int
     continueTargetFinallyDepthValue: int
     currentExpectedTypeValue: TypeInfo?
+    currentClassValue: ClassDeclaration?
+    currentTypeNameValue: string?
 
     // THE ENCLOSING FUNCTION'S RETURN TYPE, and `null` when there is no enclosing function at all —
     // which is the ONLY thing that distinguishes "a `return` is illegal here" from "a `return` must
@@ -216,6 +218,19 @@ class AnalyzerAmbientContext {
     // nested walk.
     CurrentExpectedType: TypeInfo? => currentExpectedTypeValue
 
+    // THE CLASS DECLARATION THE WALK IS INSIDE, or `null` outside every class. Read by the
+    // constructor's definite-assignment walk, by the `lock` rule's value-type judgement and by the
+    // implicit-field lookups that let a bare name resolve to a field of the enclosing class. A struct,
+    // record or interface nested in a class does NOT clear it.
+    CurrentClass: ClassDeclaration? => currentClassValue
+
+    // THE NAME OF THE TYPE THE WALK IS INSIDE, or `null` at top level. This is what makes a member
+    // declaration a MEMBER: the function walk records its function under it, the field walk records
+    // its field under it, the property walk records both of its IDE tables under it, member resolution
+    // asks it whether a private member is reachable, and the SoA walk refuses a table declared under
+    // one.
+    CurrentTypeName: string? => currentTypeNameValue
+
     constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
@@ -229,6 +244,8 @@ class AnalyzerAmbientContext {
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
         currentExpectedTypeValue = null
+        currentClassValue = null
+        currentTypeNameValue = null
     }
 
     // One call per analysis, from the same reset block that clears the scope stack and the null-flow
@@ -291,6 +308,47 @@ class AnalyzerAmbientContext {
 
     func ExitAccessorReturnType(saved: TypeInfo?) {
         currentReturnTypeValue = saved
+    }
+
+    // THE TYPE-DECLARATION FAMILY, WHICH IS TWO INDEPENDENT SLOTS RATHER THAN ONE FRAME, BECAUSE THE
+    // WALKS THAT MOVE THEM DO NOT MOVE THEM TOGETHER. A class declaration saves and sets BOTH: the
+    // declaration itself, which the constructor's definite-assignment walk, the `lock` rule and the
+    // implicit-field lookups read, and the type NAME, which every member declaration reads to know
+    // what it is a member OF. A struct, a record and an interface save and set ONLY THE NAME — so a
+    // struct nested inside a class is analysed with the CLASS still current, which is the shipped
+    // behaviour and is preserved verbatim rather than tidied into a single frame that would clear it.
+    //
+    // A union, an enum and a `soa record` move neither: a union's cases and an enum's members are not
+    // members OF a containing type in this sense, and the SoA walk READS the name to refuse a nested
+    // table.
+    //
+    // NEITHER SLOT IS RESET BY `BeginAnalysis`, and that is deliberate for the reason the
+    // expected-type slot records: `Analyzer.cs` reset its other ambient state in the `Analyze`
+    // prologue and left these two fields alone. They are only ever written inside a matched
+    // save/restore pair, so they are already `null` wherever a new analysis can begin, and resetting
+    // them here would be a write this family never performed.
+    //
+    // THE SNAPSHOT GOES TO THE CALLER, exactly as every other boundary here: the walk holds the saved
+    // value on its own state and restores it on the straight line. A throw abandons the restore
+    // precisely as the C# locals were abandoned.
+    func EnterClassDeclaration(declaration: ClassDeclaration?): ClassDeclaration? {
+        saved := currentClassValue
+        currentClassValue = declaration
+        return saved
+    }
+
+    func ExitClassDeclaration(saved: ClassDeclaration?) {
+        currentClassValue = saved
+    }
+
+    func EnterTypeName(name: string?): string? {
+        saved := currentTypeNameValue
+        currentTypeNameValue = name
+        return saved
+    }
+
+    func ExitTypeName(saved: string?) {
+        currentTypeNameValue = saved
     }
 
     // A NESTED BODY — a local function, or a lambda's block body. Sets the function family from the

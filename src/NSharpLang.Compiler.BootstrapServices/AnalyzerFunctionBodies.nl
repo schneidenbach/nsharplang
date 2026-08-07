@@ -82,16 +82,10 @@ import NSharpLang.Compiler.Ast
 //      scope as ending on the brace's line instead of on whatever line was last analysed. Sending the
 //      block through the dispatch also keeps ONE owner for what a `{ … }` block means; opening the
 //      scope here instead would have copied that rule into this walk.
-//  10  run the NAMING-CONVENTION rule over `Name` and `CarriedModifiers` at `Line` / `Column`. This is the
-//      SECOND RELAY and, unlike kind 7, it is a relay for a CATALOG reason rather than a closure one:
-//      the rule's whole closure is already N#-owned, but it asks `char.IsLower` of the name's first
-//      character and the columnar backend's `System.Char` catalog does not publish that predicate —
-//      `IsUpper`, `IsLetter`, `IsDigit`, `IsLetterOrDigit`, `IsWhiteSpace` and both invariant case
-//      transforms are all there and `IsLower` is not. No published predicate separates a lowercase
-//      letter from a title-case, modifier or other-category one, so there is no rewrite that keeps the
-//      behaviour, and approximating it would silently change which identifiers are reported. The rule
-//      moves when the catalog admits the predicate; eight of its nine callers are the sibling
-//      declaration walks, which is where that slice will be.
+// THE WALK ONCE ASKED FOR AN ELEVENTH THING AND NO LONGER DOES: the NAMING CONVENTION was kind 10,
+// relayed for a CATALOG reason rather than a closure one, because the columnar backend's
+// `System.Char` catalog did not publish `char.IsLower`. It does now, so the rule moved whole to
+// `AnalyzerDeclarationConventions` and this walk calls it directly. There is no kind 10.
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1 with no gaps; the
 // other walks' numbers mean different operations, and none of them is a shared vocabulary.
@@ -104,7 +98,6 @@ class FunctionBodyRequest {
     Parameters: List<Parameter>?
     Name: string?
     CarriedType: TypeInfo
-    CarriedModifiers: Modifiers
     Line: int
     Column: int
 
@@ -117,7 +110,6 @@ class FunctionBodyRequest {
         Parameters = null
         Name = null
         CarriedType = carriedType
-        CarriedModifiers = Modifiers.None
         Line = 0
         Column = 0
     }
@@ -674,12 +666,8 @@ class AnalyzerFunctionBodies {
             return null
         }
 
-        request := new FunctionBodyRequest(10, BuiltInTypes.Unknown)
-        request.Name = declaration.Name
-        request.CarriedModifiers = declaration.Modifiers
-        request.Line = declaration.Line
-        request.Column = declaration.Column
-        return request
+        AnalyzerDeclarationConventions.CheckVisibilityConvention(diagnosticsValue, declaration.Name, declaration.Modifiers, declaration.Line, declaration.Column)
+        return null
     }
 
     // PHASE 12 — the body's own scope, which is a FUNCTION scope and opens at the declaration's

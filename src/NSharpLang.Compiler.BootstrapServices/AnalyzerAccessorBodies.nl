@@ -84,12 +84,10 @@ import NSharpLang.Compiler.Ast
 //      identifier naming the property resolve. It is a different table through a different member
 //      from kind 8's and from kind 4's, which is why it is a kind of its own; and the model itself is
 //      REPLACED at the start of every analysis, so no owner here may hold it.
-//  10  run the NAMING-CONVENTION rule over `Name` and `CarriedModifiers` at `Line` / `Column`. This
-//      is the SECOND RELAY, and it is a relay for the CATALOG reason slice 46 recorded rather than a
-//      closure one: the rule's whole closure is already N#-owned, but it asks `char.IsLower` of the
-//      name's first character and the columnar backend's `System.Char` catalog does not publish that
-//      predicate. It moves with the sibling type-declaration walks, where the rest of its callers
-//      live, in the slice that can pay for the toolset repin.
+// THE WALK ONCE ASKED FOR A TENTH THING AND NO LONGER DOES: the NAMING CONVENTION was kind 10, and it
+// was a relay for a CATALOG reason rather than a closure one — the columnar backend's `System.Char`
+// catalog did not publish `char.IsLower`. It does now, so the rule moved whole to
+// `AnalyzerDeclarationConventions` and this walk calls it directly. There is no kind 10.
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1 with no gaps; the
 // other walks' numbers mean different operations, and none of them is a shared vocabulary.
@@ -102,7 +100,6 @@ class AccessorBodyRequest {
     Name: string?
     ContainingType: string?
     CarriedType: TypeInfo
-    CarriedModifiers: Modifiers
     RecordsBinding: bool
     Line: int
     Column: int
@@ -116,7 +113,6 @@ class AccessorBodyRequest {
         Name = null
         ContainingType = null
         CarriedType = carriedType
-        CarriedModifiers = Modifiers.None
         RecordsBinding = true
         Line = 0
         Column = 0
@@ -357,12 +353,8 @@ class AnalyzerAccessorBodies {
             return null
         }
 
-        request := new AccessorBodyRequest(10, BuiltInTypes.Unknown)
-        request.Name = property.Name
-        request.CarriedModifiers = property.Modifiers
-        request.Line = property.Line
-        request.Column = property.Column
-        return request
+        AnalyzerDeclarationConventions.CheckVisibilityConvention(diagnosticsValue, property.Name, property.Modifiers, property.Line, property.Column)
+        return null
     }
 
     // PHASE 1 — THE TYPE, THEN THE NAME. The type is resolved with the DECLARED-type resolver, which

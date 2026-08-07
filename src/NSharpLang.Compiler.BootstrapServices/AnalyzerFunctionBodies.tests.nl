@@ -1013,7 +1013,7 @@ test "A PLAIN BLOCK-BODIED DECLARATION ASKS FOR SEVEN STEPS IN ONE ORDER" {
 
     // Declare the name, check the naming convention, open the function scope, validate the list,
     // record the function for the IDE, hand the BLOCK to the dispatch, close.
-    assert BodyStepKinds(steps) == "3,10,2,7,8,9,6"
+    assert BodyStepKinds(steps) == "3,2,7,8,9,6"
 }
 
 test "A PARAMETER ADDS THE DECLARE/RECORD PAIR BETWEEN THE LIST RULES AND THE IDE RECORD" {
@@ -1022,12 +1022,12 @@ test "A PARAMETER ADDS THE DECLARE/RECORD PAIR BETWEEN THE LIST RULES AND THE ID
 
     steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
 
-    assert BodyStepKinds(steps) == "3,10,2,7,3,4,8,9,6"
+    assert BodyStepKinds(steps) == "3,2,7,3,4,8,9,6"
     // The parameter is declared at ITS OWN position, inside the function scope.
-    assert steps[4].Name == "a"
-    assert steps[4].Line == 7
-    assert steps[4].Column == 20
-    assert steps[4].Depth == 2
+    assert steps[3].Name == "a"
+    assert steps[3].Line == 7
+    assert steps[3].Column == 20
+    assert steps[3].Depth == 2
 }
 
 test "AN EXPRESSION BODY REPLACES THE DISPATCH STEP WITH THE TARGET-TYPED WALK" {
@@ -1036,9 +1036,9 @@ test "AN EXPRESSION BODY REPLACES THE DISPATCH STEP WITH THE TARGET-TYPED WALK" 
 
     steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), BuiltInTypes.Int)
 
-    assert BodyStepKinds(steps) == "3,10,2,7,8,1,6"
+    assert BodyStepKinds(steps) == "3,2,7,8,1,6"
     // Walked UNDER the declared return type, exactly as the nested form is.
-    assert steps[5].ExpectedType == "int"
+    assert steps[4].ExpectedType == "int"
 }
 
 test "A DECLARATION WITH NEITHER BODY STILL OPENS AND CLOSES BOTH THE SCOPE AND THE BOUNDARY" {
@@ -1047,7 +1047,7 @@ test "A DECLARATION WITH NEITHER BODY STILL OPENS AND CLOSES BOTH THE SCOPE AND 
 
     steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
 
-    assert BodyStepKinds(steps) == "3,10,2,7,8,6"
+    assert BodyStepKinds(steps) == "3,2,7,8,6"
     assert harness.Scopes.Count == 1
     assert harness.Ambient.CurrentFunction == null
     // No body means no missing-return report: there is no code path to judge.
@@ -1062,8 +1062,8 @@ test "THE BLOCK BODY IS HANDED OVER AS A BLOCK, NOT AS A STATEMENT LIST" {
 
     // Kind 9 carries the block itself and NO statement list — which is what makes the dispatch open a
     // block scope inside the function scope. A local function's kind 5 does the opposite.
-    assert steps[5].Kind == 9
-    assert steps[5].StatementCount == -1
+    assert steps[4].Kind == 9
+    assert steps[4].StatementCount == -1
     assert BodyCountKind(steps, 5) == 0
 }
 
@@ -1091,7 +1091,7 @@ test "A NAME ALREADY HELD AS A METHOD GROUP IS NOT DECLARED AGAIN" {
 
     // The first pass already merged every overload of this name; declaring into it again is what the
     // merge would have to undo.
-    assert BodyStepKinds(steps) == "10,2,7,8,9,6"
+    assert BodyStepKinds(steps) == "2,7,8,9,6"
 }
 
 test "A NAME ALREADY HELD AS AN IDENTICALLY-SIGNED FUNCTION IS NOT DECLARED AGAIN" {
@@ -1106,7 +1106,7 @@ test "A NAME ALREADY HELD AS AN IDENTICALLY-SIGNED FUNCTION IS NOT DECLARED AGAI
     // Parameter NAMES do not distinguish signatures — this is the same declaration, already
     // registered by the first pass.
     assert BodyCountKind(steps, 3) == 1
-    assert steps[0].Kind == 10
+    assert steps[0].Kind == 2
 }
 
 test "A NAME HELD AS A DIFFERENTLY-SIGNED FUNCTION IS DECLARED, AND SO IS ONE HELD AS A VALUE" {
@@ -1150,28 +1150,44 @@ test "A PARAMETERLESS DECLARATION AND A PLAIN FIRST PARAMETER REGISTER NOTHING" 
     assert plain.Extensions.Count == 0
 }
 
-test "THE NAMING-CONVENTION RELAY CARRIES THE NAME, THE MODIFIERS AND THE DECLARATION'S POSITION" {
+test "THE NAMING CONVENTION IS CHECKED DIRECTLY, BEFORE THE SCOPE OPENS, AND IS NOT A STEP" {
     harness := BodyDefault()
-    declaration := BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.Static)
+    declaration := BodyDeclaration("_hidden", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.Static)
 
     steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
 
-    assert steps[1].Kind == 10
-    assert steps[1].Name == "Top"
-    assert steps[1].Line == 7
-    assert steps[1].Column == 10
-    // It is asked BEFORE the scope opens, so the report lands outside the function's own scope.
+    // The rule moved whole to `AnalyzerDeclarationConventions` when the columnar `System.Char`
+    // catalog published `char.IsLower`, so what used to be kind 10 is now a report the walk makes
+    // itself — at the DECLARATION's position, and BEFORE the scope opens, which is what keeps the
+    // report outside the function's own scope.
+    assert BodyCountKind(steps, 3) == 1
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.VisibilityConventionWarning
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 10
+    assert harness.Errors[0].Length == 7
+    // It is checked after the name is declared and before the scope opens: at the instant of the
+    // report the walk is still at depth 1.
+    assert steps[0].Kind == 3
+    assert steps[1].Kind == 2
     assert steps[1].Depth == 1
+
+    clean := BodyDefault()
+    BodyRun(clean, BodyDeclarationBegin(clean, BodyDeclaration("Top", BodyParameters(), BodyIntType(), BodyBlock(), null, null, Modifiers.Static)), null)
+    assert clean.Errors.Count == 0
 }
 
-test "AN OPERATOR OVERLOAD TAKES NO NAMING-CONVENTION STEP AT ALL" {
+test "AN OPERATOR OVERLOAD IS HELD TO NO NAMING CONVENTION AT ALL" {
     harness := BodyDefault()
     declaration := BodyOperator("+", BodyOneParameter(BodyParameter("a", "int", 7, 20)), Modifiers.Static)
 
     steps := BodyRun(harness, BodyDeclarationBegin(harness, declaration), null)
 
-    assert BodyCountKind(steps, 10) == 0
+    // `+` is not an identifier the convention can classify, and an operator opts out BEFORE the rule
+    // is asked rather than being reported by it. Now that the rule is a direct call, the proof is the
+    // SILENCE of the sink rather than a missing step.
     assert BodyStepKinds(steps) == "3,2,7,3,4,8,9,6"
+    assert harness.Errors.Count == 0
 }
 
 test "AN OPERATOR THAT IS NOT `static` IS REPORTED ON THE `operator` KEYWORD, BEFORE ANY STEP" {

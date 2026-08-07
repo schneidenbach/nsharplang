@@ -143,8 +143,6 @@ public class Analyzer : IDisposable
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
     private bool _inConstructor;
-    private ClassDeclaration? _currentClass;
-    private string? _currentTypeName;
     private string? _currentFilePath;
     private string? _declarationContextFilePath;
     private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
@@ -355,6 +353,17 @@ public class Analyzer : IDisposable
     // span reader, the type resolver, the ambient context and the SoA escape owner, none of which the
     // rebuild replaces; the assignability oracle, which it DOES replace, is passed in at `Begin`.
     private readonly AnalyzerAccessorBodies _accessorBodies;
+    // WHAT A TYPE DECLARATION MEANS, as one suspendable walk in EIGHT forms: the class, struct,
+    // record, interface, union, enum, `soa record` and field declarations — the naming convention
+    // every one of them is held to, the ambient type context four of them enter, the scope five of
+    // them open, the type parameters, the generic-static rule, the bases, the nested types, `this`,
+    // the primary-constructor list, the class's forward-reference pass, the member walk, the union's
+    // case rules, the enum's member rules, the SoA column rules and the whole of what a field is. NOT
+    // rebuilt with the SCC: it holds the diagnostic sink, the span reader, the scope stack, the
+    // declaration context, the type resolver, the function-type factory, the ambient context and the
+    // SoA escape owner, none of which the rebuild replaces; the assignability oracle, which the
+    // rebuild DOES replace, is passed in at `Begin`.
+    private readonly AnalyzerTypeDeclarations _typeDeclarations;
     // WHAT A DECLARED PARAMETER LIST MUST SATISFY: both `params` rules, shared by every declaration
     // in the language that has a parameter list. NOT rebuilt with the SCC: it holds only the
     // diagnostic sink, which the rebuild does not replace.
@@ -410,6 +419,9 @@ public class Analyzer : IDisposable
             _ambient, _soaEscape, _definiteAssignment, _extensionMethods);
         _accessorBodies = new AnalyzerAccessorBodies(
             _diagnostics, _spans, _typeResolver, _ambient, _soaEscape);
+        _typeDeclarations = new AnalyzerTypeDeclarations(
+            _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _functionTypeFactory,
+            _ambient, _soaEscape);
         _parameterDeclarations = new AnalyzerParameterDeclarations(_diagnostics);
         _statementSequence = new AnalyzerStatementSequence(_diagnostics, _spans);
         _assignability = CreateAssignability();
@@ -690,7 +702,7 @@ public class Analyzer : IDisposable
             else if (decl is FunctionDeclaration func)
             {
                 // Add function signatures to enable forward references
-                var funcTypeInfo = _functionTypeFactory.CreateFromDeclaration(func, _currentTypeName);
+                var funcTypeInfo = _functionTypeFactory.CreateFromDeclaration(func, _ambient.CurrentTypeName);
                 DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
             }
         }
@@ -802,28 +814,28 @@ public class Analyzer : IDisposable
                 break;
             case FunctionDeclaration func:
                 DriveFunctionBody(_functionBodies.BeginFunctionDeclaration(
-                    func, _currentTypeName, _assignability));
+                    func, _ambient.CurrentTypeName, _assignability));
                 break;
             case ClassDeclaration classDecl:
-                AnalyzeClassDeclaration(classDecl);
+                DriveTypeDeclaration(_typeDeclarations.BeginClass(classDecl, _assignability));
                 break;
             case StructDeclaration structDecl:
-                AnalyzeStructDeclaration(structDecl);
+                DriveTypeDeclaration(_typeDeclarations.BeginStruct(structDecl, _assignability));
                 break;
             case RecordDeclaration recordDecl:
-                AnalyzeRecordDeclaration(recordDecl);
+                DriveTypeDeclaration(_typeDeclarations.BeginRecord(recordDecl, _assignability));
                 break;
             case SoaRecordDeclaration soaRecordDecl:
-                AnalyzeSoaRecordDeclaration(soaRecordDecl);
+                DriveTypeDeclaration(_typeDeclarations.BeginSoaRecord(soaRecordDecl, _assignability));
                 break;
             case InterfaceDeclaration interfaceDecl:
-                AnalyzeInterfaceDeclaration(interfaceDecl);
+                DriveTypeDeclaration(_typeDeclarations.BeginInterface(interfaceDecl, _assignability));
                 break;
             case UnionDeclaration unionDecl:
-                AnalyzeUnionDeclaration(unionDecl);
+                DriveTypeDeclaration(_typeDeclarations.BeginUnion(unionDecl, _assignability));
                 break;
             case EnumDeclaration enumDecl:
-                AnalyzeEnumDeclaration(enumDecl);
+                DriveTypeDeclaration(_typeDeclarations.BeginEnum(enumDecl, _assignability));
                 break;
             case TypeAliasDeclaration aliasDecl:
                 _typeResolver.ResolveDeclaredType(aliasDecl.Type);
@@ -832,18 +844,18 @@ public class Analyzer : IDisposable
                 _typeResolver.ResolveDeclaredType(newtypeDecl.UnderlyingType);
                 break;
             case FieldDeclaration field:
-                AnalyzeFieldDeclaration(field);
+                DriveTypeDeclaration(_typeDeclarations.BeginField(field, _assignability));
                 break;
             case PropertyDeclaration prop:
                 DriveAccessorBody(_accessorBodies.BeginProperty(
-                    prop, _currentTypeName, _assignability));
+                    prop, _ambient.CurrentTypeName, _assignability));
                 break;
             case ConstructorDeclaration ctor:
                 AnalyzeConstructorDeclaration(ctor);
                 break;
             case IndexerDeclaration indexer:
                 DriveAccessorBody(_accessorBodies.BeginIndexer(
-                    indexer, _currentTypeName, _assignability));
+                    indexer, _ambient.CurrentTypeName, _assignability));
                 break;
             case PreprocessorDeclaration:
                 // Preprocessor directives don't need analysis - they're pass-through
@@ -2160,587 +2172,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void AnalyzeClassDeclaration(ClassDeclaration classDecl)
-    {
-        var previousClass = _currentClass;
-        var previousTypeName = _currentTypeName;
-        _currentClass = classDecl;
-        _currentTypeName = classDecl.Name;
-
-        CheckVisibilityConvention(classDecl.Name, classDecl.Modifiers, classDecl.Line, classDecl.Column);
-
-        var declaredClassType = _scopes.LookupType(classDecl.Name);
-        PushScope(new Scope(ScopeKind.Class), classDecl.Line, classDecl.Column);
-
-        // Add generic type parameters to both type and symbol namespaces
-        if (classDecl.TypeParameters != null)
-        {
-            foreach (var tp in classDecl.TypeParameters)
-            {
-                _scopes.DeclareTypeParameter(tp.Name);
-            }
-        }
-
-        ValidateNoStaticMembersOnGenericType(classDecl.Name, classDecl.TypeParameters, classDecl.Members);
-
-        _typeResolver.ResolveTypeIfPresent(classDecl.BaseClass);
-        _typeResolver.ResolveTypeReferences(classDecl.Interfaces);
-
-        // Add 'this' to scope
-        var classType = declaredClassType
-            ?? NominalTypeInfoFactory.FromClassDeclaration(classDecl);
-        DeclareNestedTypesInCurrentScope(classType);
-        DeclareSymbol("this", classType, classDecl.Line, classDecl.Column, recordBindingDeclaration: false);
-
-        // Add primary constructor parameters to scope.
-        if (classDecl.PrimaryConstructorParameters != null)
-        {
-            ValidateParameterDeclarations(classDecl.PrimaryConstructorParameters, classDecl.Line, classDecl.Column);
-
-            foreach (var param in classDecl.PrimaryConstructorParameters)
-            {
-                var paramType = _typeResolver.ResolveDeclaredType(param.Type);
-                var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                    param.Line,
-                    param.Column,
-                    classDecl.Line,
-                    classDecl.Column);
-                DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-                _scopes.RecordVariable(_semanticModel, param.Name, paramType);
-            }
-        }
-
-        // Two-pass analysis for forward references
-        // First pass: Collect all function signatures (including overloads)
-        foreach (var member in classDecl.Members)
-        {
-            if (member is FunctionDeclaration func)
-            {
-                // Add function to scope so it can be referenced by other members.
-                // DeclareSymbol handles overload merging into NSharpMethodGroupInfo.
-                var funcTypeInfo = _functionTypeFactory.CreateFromDeclaration(func, classDecl.Name);
-                DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
-            }
-        }
-
-        // Second pass: Analyze all members
-        foreach (var member in classDecl.Members)
-        {
-            AnalyzeDeclaration(member);
-        }
-
-        PopScope();
-        _currentClass = previousClass;
-        _currentTypeName = previousTypeName;
-    }
-
-    private void AnalyzeStructDeclaration(StructDeclaration structDecl)
-    {
-        var previousTypeName = _currentTypeName;
-        _currentTypeName = structDecl.Name;
-
-        CheckVisibilityConvention(structDecl.Name, structDecl.Modifiers, structDecl.Line, structDecl.Column);
-
-        var declaredStructType = _scopes.LookupType(structDecl.Name);
-        PushScope(new Scope(ScopeKind.Struct), structDecl.Line, structDecl.Column);
-
-        // Add generic type parameters to both type and symbol namespaces
-        if (structDecl.TypeParameters != null)
-        {
-            foreach (var tp in structDecl.TypeParameters)
-            {
-                _scopes.DeclareTypeParameter(tp.Name);
-            }
-        }
-
-        ValidateNoStaticMembersOnGenericType(structDecl.Name, structDecl.TypeParameters, structDecl.Members);
-
-        _typeResolver.ResolveTypeReferences(structDecl.Interfaces);
-
-        var structType = declaredStructType
-            ?? NominalTypeInfoFactory.FromStructDeclaration(structDecl);
-        DeclareNestedTypesInCurrentScope(structType);
-        DeclareSymbol("this", structType, structDecl.Line, structDecl.Column, recordBindingDeclaration: false);
-
-        // Add primary constructor parameters to scope.
-        if (structDecl.PrimaryConstructorParameters != null)
-        {
-            ValidateParameterDeclarations(structDecl.PrimaryConstructorParameters, structDecl.Line, structDecl.Column);
-
-            foreach (var param in structDecl.PrimaryConstructorParameters)
-            {
-                var paramType = _typeResolver.ResolveDeclaredType(param.Type);
-                var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                    param.Line,
-                    param.Column,
-                    structDecl.Line,
-                    structDecl.Column);
-                DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-                _scopes.RecordVariable(_semanticModel, param.Name, paramType);
-            }
-        }
-
-        foreach (var member in structDecl.Members)
-        {
-            AnalyzeDeclaration(member);
-        }
-
-        PopScope();
-        _currentTypeName = previousTypeName;
-    }
-
-    private void AnalyzeRecordDeclaration(RecordDeclaration recordDecl)
-    {
-        var previousTypeName = _currentTypeName;
-        _currentTypeName = recordDecl.Name;
-
-        CheckVisibilityConvention(recordDecl.Name, recordDecl.Modifiers, recordDecl.Line, recordDecl.Column);
-
-        var declaredRecordType = _scopes.LookupType(recordDecl.Name);
-        PushScope(new Scope(ScopeKind.Record), recordDecl.Line, recordDecl.Column);
-
-        // Add generic type parameters to both type and symbol namespaces
-        if (recordDecl.TypeParameters != null)
-        {
-            foreach (var tp in recordDecl.TypeParameters)
-            {
-                _scopes.DeclareTypeParameter(tp.Name);
-            }
-        }
-
-        ValidateNoStaticMembersOnGenericType(recordDecl.Name, recordDecl.TypeParameters, recordDecl.Members);
-
-        _typeResolver.ResolveTypeReferences(recordDecl.Interfaces);
-
-        var recordType = declaredRecordType
-            ?? NominalTypeInfoFactory.FromRecordDeclaration(recordDecl);
-        DeclareNestedTypesInCurrentScope(recordType);
-        DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column, recordBindingDeclaration: false);
-
-        // Add primary constructor parameters to scope.
-        if (recordDecl.PrimaryConstructorParameters != null)
-        {
-            ValidateParameterDeclarations(recordDecl.PrimaryConstructorParameters, recordDecl.Line, recordDecl.Column);
-
-            foreach (var param in recordDecl.PrimaryConstructorParameters)
-            {
-                var paramType = _typeResolver.ResolveDeclaredType(param.Type);
-                var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                    param.Line,
-                    param.Column,
-                    recordDecl.Line,
-                    recordDecl.Column);
-                DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-                _scopes.RecordVariable(_semanticModel, param.Name, paramType);
-            }
-        }
-
-        foreach (var member in recordDecl.Members)
-        {
-            AnalyzeDeclaration(member);
-        }
-
-        PopScope();
-        _currentTypeName = previousTypeName;
-    }
-
-    private void ValidateNoStaticMembersOnGenericType(
-        string typeName,
-        IReadOnlyList<TypeParameter>? typeParameters,
-        IEnumerable<Declaration> members)
-    {
-        if (typeParameters == null || typeParameters.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var member in members)
-        {
-            switch (member)
-            {
-                case FieldDeclaration field when field.Modifiers.HasFlag(Modifiers.Static):
-                    ReportUnsupportedGenericStaticMember(typeName, typeParameters, "field", field.Name, field.Line, field.Column);
-                    break;
-                case PropertyDeclaration property when property.Modifiers.HasFlag(Modifiers.Static):
-                    ReportUnsupportedGenericStaticMember(typeName, typeParameters, "property", property.Name, property.Line, property.Column);
-                    break;
-                case FunctionDeclaration function when function.Modifiers.HasFlag(Modifiers.Static):
-                    ReportUnsupportedGenericStaticMember(typeName, typeParameters, "method", function.Name, function.Line, function.Column);
-                    break;
-            }
-        }
-    }
-
-    private void ReportUnsupportedGenericStaticMember(
-        string typeName,
-        IReadOnlyList<TypeParameter> typeParameters,
-        string memberKind,
-        string memberName,
-        int line,
-        int column)
-    {
-        var typeDisplay = $"{typeName}<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
-        Error(
-            ErrorCode.FeatureNotImplemented,
-            $"Static {memberKind} '{memberName}' is not supported on generic type '{typeDisplay}' yet",
-            line,
-            column,
-            "Move the static member to a non-generic helper type, or make it an instance member.",
-            Math.Max(1, memberName.Length));
-    }
-
-    private void AnalyzeSoaRecordDeclaration(SoaRecordDeclaration soaRecordDecl)
-    {
-        if (!SoaFeature.IsEnabled)
-        {
-            Error(
-                ErrorCode.FeatureNotImplemented,
-                $"soa record '{soaRecordDecl.Name}' is parsed but not available in production builds yet",
-                soaRecordDecl.Line,
-                soaRecordDecl.Column,
-                suggestion: "Set NSHARP_EXPERIMENTAL_SOA=1 only for the compiler table migration gate; otherwise keep using regular records",
-                length: "soa".Length);
-            return;
-        }
-
-        if (_currentTypeName != null)
-        {
-            Error(
-                ErrorCode.FeatureNotImplemented,
-                $"nested soa record '{soaRecordDecl.Name}' is not part of the experimental lowering slice yet",
-                soaRecordDecl.Line,
-                soaRecordDecl.Column,
-                suggestion: "Move the soa record to top level while the wrapper ABI is being proven",
-                length: "soa".Length);
-            return;
-        }
-
-        var columnTypes = new List<(SoaColumnDeclaration Column, TypeInfo Type)>(soaRecordDecl.Columns.Count);
-        foreach (var column in soaRecordDecl.Columns)
-        {
-            columnTypes.Add((column, _typeResolver.ResolveDeclaredType(column.Type)));
-        }
-
-        ValidateSoaColumnNames(soaRecordDecl);
-
-        foreach (var (column, columnType) in columnTypes)
-        {
-            var resolvedColumnType = _declarationContext.ResolveDeclaredAlias(columnType);
-            if (IsSupportedSoaColumnType(resolvedColumnType))
-                continue;
-
-            var (line, columnPosition, length) = AnalyzerDiagnosticSpanFacts.GetSoaColumnTypeDiagnosticSpan(column);
-            Error(
-                ErrorCode.FeatureNotImplemented,
-                $"SoA column type '{resolvedColumnType}' is not supported in this lowering",
-                line,
-                columnPosition,
-                "Use int, uint, long, bool, char, string, string?, or int-backed enum columns until this table " +
-                "migration verifies another element shape",
-                length);
-        }
-    }
-
-    private void ValidateSoaColumnNames(SoaRecordDeclaration soaRecordDecl)
-    {
-        var columnNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var column in soaRecordDecl.Columns)
-        {
-            var (line, columnPosition, length) = AnalyzerDiagnosticSpanFacts.GetSoaColumnNameDiagnosticSpan(column, soaRecordDecl);
-            if (!columnNames.Add(column.Name))
-            {
-                Error(
-                    ErrorCode.DuplicateDeclaration,
-                    $"SoA column '{column.Name}' is already defined — each column in a soa record must have a unique name",
-                    line,
-                    columnPosition,
-                    "Rename one of the columns so every table member has one storage slot.",
-                    length);
-            }
-
-            if (IsReservedSoaTableMemberName(column.Name))
-            {
-                Error(
-                    ErrorCode.DuplicateDeclaration,
-                    $"SoA column '{column.Name}' conflicts with a generated table member",
-                    line,
-                    columnPosition,
-                    "Rename the column; SoA tables reserve length, capacity, add, clear, ensureCapacity, copyRow, and wrap.",
-                    length);
-            }
-        }
-    }
-
-    private static bool IsReservedSoaTableMemberName(string name)
-        => name is "length" or "capacity" or "add" or "clear" or "ensureCapacity" or "copyRow" or "wrap";
-
-    private bool IsSupportedSoaColumnType(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        if (BuiltInTypes.IsUnknown(resolved))
-            return true;
-
-        if (resolved is NullableTypeInfo nullable)
-            return BuiltInTypes.Is(_declarationContext.ResolveDeclaredAlias(nullable.InnerType), BuiltInTypes.String);
-
-        if (resolved is EnumTypeInfo enumType)
-            return enumType.Declaration.Type == EnumType.Int;
-
-        if (resolved is ReflectionTypeInfo reflectionType
-            && TypeInfoIdentityFacts.IsInt32BackedRuntimeEnum(reflectionType.Type))
-            return true;
-
-        return BuiltInTypes.Is(resolved, BuiltInTypes.Int)
-            || BuiltInTypes.Is(resolved, BuiltInTypes.UInt)
-            || BuiltInTypes.Is(resolved, BuiltInTypes.Long)
-            || BuiltInTypes.Is(resolved, BuiltInTypes.Bool)
-            || BuiltInTypes.Is(resolved, BuiltInTypes.Char)
-            || BuiltInTypes.Is(resolved, BuiltInTypes.String);
-    }
-
-    private void AnalyzeInterfaceDeclaration(InterfaceDeclaration interfaceDecl)
-    {
-        var previousTypeName = _currentTypeName;
-        _currentTypeName = interfaceDecl.Name;
-
-        CheckVisibilityConvention(interfaceDecl.Name, interfaceDecl.Modifiers, interfaceDecl.Line, interfaceDecl.Column);
-
-        var declaredInterfaceType = _scopes.LookupType(interfaceDecl.Name);
-        PushScope(new Scope(ScopeKind.Interface), interfaceDecl.Line, interfaceDecl.Column);
-
-        // Add generic type parameters to both type and symbol namespaces
-        if (interfaceDecl.TypeParameters != null)
-        {
-            foreach (var tp in interfaceDecl.TypeParameters)
-            {
-                _scopes.DeclareTypeParameter(tp.Name);
-            }
-        }
-
-        _typeResolver.ResolveTypeReferences(interfaceDecl.BaseInterfaces);
-        DeclareNestedTypesInCurrentScope(
-            declaredInterfaceType ?? NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl));
-
-        foreach (var member in interfaceDecl.Members)
-        {
-            AnalyzeDeclaration(member);
-        }
-
-        PopScope();
-        _currentTypeName = previousTypeName;
-    }
-
-    private void DeclareNestedTypesInCurrentScope(TypeInfo owner)
-    {
-        if (!_declarationContext.TryGetSourceMemberShape(owner, null, out var shape))
-            return;
-
-        foreach (var nested in shape.NestedTypes)
-            _scopes.DeclareNestedTypeIfAbsent(nested.Name, nested.Type);
-    }
-
-    private void AnalyzeUnionDeclaration(UnionDeclaration unionDecl)
-    {
-        CheckVisibilityConvention(unionDecl.Name, unionDecl.Modifiers, unionDecl.Line, unionDecl.Column);
-
-        PushScope(new Scope(ScopeKind.Block), unionDecl.Line, unionDecl.Column);
-
-        // Add generic type parameters to both type and symbol namespaces
-        if (unionDecl.TypeParameters != null)
-        {
-            foreach (var tp in unionDecl.TypeParameters)
-            {
-                _scopes.DeclareTypeParameter(tp.Name);
-            }
-        }
-
-        // Validate union cases
-        var caseNames = new HashSet<string>();
-        foreach (var unionCase in unionDecl.Cases)
-        {
-            if (!caseNames.Add(unionCase.Name))
-            {
-                var caseLine = unionCase.Line > 0 ? unionCase.Line : unionDecl.Line;
-                var caseCol = unionCase.Column > 0 ? unionCase.Column : unionDecl.Column;
-                var sourceSnippet = GetSourceSnippet(caseLine);
-
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    var error = ErrorMessageBuilder.DuplicateDeclaration(
-                        _currentFilePath,
-                        caseLine,
-                        caseCol,
-                        sourceSnippet,
-                        unionCase.Name.Length,
-                        unionCase.Name,
-                        "union case"
-                    );
-                    _errors.Add(error);
-                }
-                else
-                {
-                    Error(ErrorCode.DuplicateDeclaration, $"Union case '{unionCase.Name}' is already defined — each case in a union must have a unique name", caseLine, caseCol, length: Math.Max(1, unionCase.Name.Length));
-                }
-            }
-
-            if (unionCase.Properties != null)
-            {
-                foreach (var property in unionCase.Properties)
-                {
-                    _typeResolver.ResolveDeclaredType(property.Type);
-                }
-            }
-        }
-
-        PopScope();
-    }
-
-    private void AnalyzeEnumDeclaration(EnumDeclaration enumDecl)
-    {
-        CheckVisibilityConvention(enumDecl.Name, enumDecl.Modifiers, enumDecl.Line, enumDecl.Column);
-
-        // Validate enum members
-        var memberNames = new HashSet<string>();
-        foreach (var member in enumDecl.Members)
-        {
-            if (!memberNames.Add(member.Name))
-            {
-                var memLine = member.Line > 0 ? member.Line : enumDecl.Line;
-                var memCol = member.Column > 0 ? member.Column : enumDecl.Column;
-                var sourceSnippet = GetSourceSnippet(memLine);
-
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    var error = ErrorMessageBuilder.DuplicateDeclaration(
-                        _currentFilePath,
-                        memLine,
-                        memCol,
-                        sourceSnippet,
-                        member.Name.Length,
-                        member.Name,
-                        "enum member"
-                    );
-                    _errors.Add(error);
-                }
-                else
-                {
-                    Error(ErrorCode.DuplicateDeclaration, $"Enum member '{member.Name}' is already defined — each member in an enum must have a unique name", memLine, memCol, length: Math.Max(1, member.Name.Length));
-                }
-            }
-
-            // Type check initializers
-            if (member.Value != null)
-            {
-                var valueType = AnalyzeExpression(member.Value);
-                if (enumDecl.Type == EnumType.Int && !IsNumericType(valueType))
-                {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(member.Value);
-                    Error(
-                        ErrorCode.TypeMismatch,
-                        $"Enum member '{member.Name}' must have a numeric value — this enum uses int values",
-                        diagnosticLine,
-                        diagnosticColumn,
-                        $"Use a numeric value for '{member.Name}', or change the enum backing type to 'string'",
-                        diagnosticLength);
-                }
-                else if (enumDecl.Type == EnumType.String && !IsStringType(valueType))
-                {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(member.Value);
-                    Error(
-                        ErrorCode.TypeMismatch,
-                        $"Enum member '{member.Name}' must have a string value — this enum uses string values",
-                        diagnosticLine,
-                        diagnosticColumn,
-                        $"Use a string value for '{member.Name}', or change the enum backing type to 'int'",
-                        diagnosticLength);
-                }
-            }
-        }
-    }
-
-    private void AnalyzeFieldDeclaration(FieldDeclaration field)
-    {
-        CheckVisibilityConvention(field.Name, field.Modifiers, field.Line, field.Column);
-
-        TypeInfo fieldType;
-
-        // Handle type inference (when Type is null and Initializer exists)
-        if (field.Type == null)
-        {
-            if (field.Initializer == null)
-            {
-                Error($"I can't determine the type of '{field.Name}' — give it a type annotation or an initial value so I know what it is", field.Line, field.Column);
-                fieldType = BuiltInTypes.Unknown;
-            }
-            else
-            {
-                // Infer type from initializer
-                fieldType = AnalyzeExpression(field.Initializer);
-
-                if (_soaEscape.ReportSoaRowEscapeIfNeeded(field.Initializer, fieldType, "stored in a field"))
-                {
-                    fieldType = BuiltInTypes.Unknown;
-                }
-                else if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(field.Initializer, "stored in a field"))
-                {
-                    fieldType = BuiltInTypes.Unknown;
-                }
-                else if (BuiltInTypes.IsUnknown(fieldType))
-                {
-                    Error($"I can't figure out the type of '{field.Name}' from its initializer — try adding an explicit type annotation", field.Line, field.Column);
-                }
-            }
-        }
-        else
-        {
-            fieldType = _typeResolver.ResolveDeclaredType(field.Type);
-
-            if (field.Initializer != null)
-            {
-                var previousExpectedType = _ambient.EnterExpectedType(fieldType);
-                var initType = AnalyzeExpression(field.Initializer);
-                _ambient.ExitExpectedType(previousExpectedType);
-                var isSoaRowInitializer = _soaEscape.ReportSoaRowEscapeIfNeeded(field.Initializer, initType, "stored in a field");
-                var isSoaDirectColumnInitializer = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(field.Initializer, "stored in a field");
-                if (!isSoaRowInitializer && !isSoaDirectColumnInitializer && !_assignability.IsAssignable(fieldType, initType))
-                {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                        _spans.GetExpressionDiagnosticSpan(field.Initializer);
-                    var sourceSnippet = GetSourceSnippet(diagnosticLine);
-
-                    if (sourceSnippet != null && _currentFilePath != null)
-                    {
-                        var error = ErrorMessageBuilder.TypeMismatch(
-                            _currentFilePath,
-                            diagnosticLine,
-                            diagnosticColumn,
-                            sourceSnippet,
-                            diagnosticLength,
-                            initType.ToString(),
-                            fieldType.ToString()
-                        );
-                        _errors.Add(error);
-                    }
-                    else
-                    {
-                        Error($"Field '{field.Name}' is typed as '{fieldType}', but the initializer gives '{initType}'", field.Line, field.Column);
-                    }
-                }
-            }
-        }
-
-        DeclareSymbol(field.Name, fieldType, field.Line, field.Column);
-
-        // Record field type into SemanticModel for completion support
-        if (_currentTypeName != null)
-        {
-            _semanticModel.RecordTypeMember(_currentTypeName, field.Name, fieldType);
-        }
-
-        // Also record in top-level Fields dict so LookupIdentifier can find it
-        _semanticModel.RecordField(field.Name, fieldType);
-    }
-
     private void AnalyzeConstructorDeclaration(ConstructorDeclaration ctor)
     {
         _inConstructor = true;
@@ -2771,9 +2202,9 @@ public class Analyzer : IDisposable
         AnalyzeStatement(ctor.Body);
 
         // Check definite assignment only if no initializer (this/base handles assignment)
-        if (_currentClass != null && ctor.Initializer == null)
+        if (_ambient.CurrentClass != null && ctor.Initializer == null)
         {
-            _definiteAssignment.CheckConstructorFields(ctor, _currentClass);
+            _definiteAssignment.CheckConstructorFields(ctor, _ambient.CurrentClass);
         }
 
         PopScope();
@@ -2856,7 +2287,7 @@ public class Analyzer : IDisposable
                 DriveResourceStatement(_resourceStatements.BeginUsing(usingStmt, _assignability));
                 break;
             case LockStatement lockStmt:
-                DriveResourceStatement(_resourceStatements.BeginLock(lockStmt, _currentClass));
+                DriveResourceStatement(_resourceStatements.BeginLock(lockStmt, _ambient.CurrentClass));
                 break;
             case SwitchStatement switchStmt:
                 DrivePatternAnalysis(_patternAnalysis.BeginSwitch(switchStmt));
@@ -2882,7 +2313,7 @@ public class Analyzer : IDisposable
                 break;
             case LocalFunctionStatement localFunc:
                 DriveFunctionBody(_functionBodies.BeginLocalFunction(
-                    localFunc, _currentTypeName, _assignability));
+                    localFunc, _ambient.CurrentTypeName, _assignability));
                 break;
         }
     }
@@ -2997,11 +2428,11 @@ public class Analyzer : IDisposable
     /// the function scope. Kind 9 is that same dispatch re-entry and is what a TOP-LEVEL declaration's
     /// block body takes instead, because that form's body IS a block: it advances the analysis cursor
     /// and opens a block scope, and the two forms differ there deliberately. Kind 7 is a RELAY and is
-    /// one of two RELAYS: the default-value half of the parameter-list rules re-enters this analyzer's
-    /// target-typed expression walk under SoA, and its eight callers are not driven. Kind 10 is the
-    /// other, and it relays for a different reason — <see cref="CheckVisibilityConvention"/>'s closure
-    /// is already N#-owned, but the columnar backend's <c>System.Char</c> catalog does not publish
-    /// <c>char.IsLower</c>, and no published predicate reproduces it.
+    /// the walk's ONE remaining RELAY: the default-value half of the parameter-list rules re-enters this
+    /// analyzer's target-typed expression walk under SoA, and its callers are not driven. The naming
+    /// convention was the second relay and is GONE — it moved whole to
+    /// <see cref="AnalyzerDeclarationConventions"/> once the columnar <c>System.Char</c> catalog
+    /// published <c>char.IsLower</c>, so this walk now calls it directly.
     /// </summary>
     private void DriveFunctionBody(FunctionBodyState state)
     {
@@ -3038,9 +2469,6 @@ public class Analyzer : IDisposable
                     break;
                 case 9:
                     AnalyzeStatement(step.Body!);
-                    break;
-                case 10:
-                    CheckVisibilityConvention(step.Name!, step.CarriedModifiers, step.Line, step.Column);
                     break;
             }
 
@@ -3092,12 +2520,65 @@ public class Analyzer : IDisposable
                 case 9:
                     _semanticModel.RecordProperty(step.Name!, step.CarriedType);
                     break;
-                case 10:
-                    CheckVisibilityConvention(step.Name!, step.CarriedModifiers, step.Line, step.Column);
-                    break;
             }
 
             _accessorBodies.Supply(state, answer);
+        }
+    }
+
+    /// <summary>
+    /// The steps the N#-owned type-declaration walks cannot take for themselves. All EIGHT of N#'s
+    /// declaration forms — class, struct, record, interface, union, enum, <c>soa record</c> and field
+    /// — run in <see cref="AnalyzerTypeDeclarations"/> and share this one loop, because they share one
+    /// vocabulary: the convention, the scope, the declare/record pair and the member walk. Which form
+    /// it is, which scope KIND opens, which name is declared and with what type, whether a binding
+    /// declaration is recorded for it, which semantic-model table is written, which report fires and
+    /// which members are walked are all the walk's decisions; this loop performs the one operation it
+    /// is handed, with the operands it is handed, and hands the answer back.
+    /// KIND 7 IS THE ESTATE'S FIRST RE-ENTRANT STEP: it hands a member back to
+    /// <see cref="AnalyzeDeclaration"/>, which for a nested type reaches this same loop again. That is
+    /// safe because it answers nothing and because every datum the walk holds lives on the state
+    /// object <c>Begin</c> created, so a nested walk is a second state and a second frame.
+    /// </summary>
+    private void DriveTypeDeclaration(TypeDeclarationState state)
+    {
+        for (var step = _typeDeclarations.NextStep(state);
+             step != null;
+             step = _typeDeclarations.NextStep(state))
+        {
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    PushScope(new Scope(step.CarriedScopeKind), step.Line, step.Column);
+                    break;
+                case 3:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, step.RecordsBinding);
+                    break;
+                case 4:
+                    _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
+                    break;
+                case 5:
+                    PopScope();
+                    break;
+                case 6:
+                    ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    break;
+                case 7:
+                    AnalyzeDeclaration(step.Member!);
+                    break;
+                case 8:
+                    _semanticModel.RecordTypeMember(step.ContainingType!, step.Name!, step.CarriedType);
+                    break;
+                case 9:
+                    _semanticModel.RecordField(step.Name!, step.CarriedType);
+                    break;
+            }
+
+            _typeDeclarations.Supply(state, answer);
         }
     }
 
@@ -4699,7 +4180,7 @@ public class Analyzer : IDisposable
         TryRecordMemberBinding(receiverType, member);
 
         var includeStaticMembers = IsStaticMemberAccessTarget(member.Object);
-        var memberType = _memberResolution.ResolveMember(receiverType, member.MemberName, includeStaticMembers, _currentTypeName);
+        var memberType = _memberResolution.ResolveMember(receiverType, member.MemberName, includeStaticMembers, _ambient.CurrentTypeName);
         if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member, includeStaticMembers))
         {
             ReportUndefinedMember(receiverType, member, includeStaticMembers);
@@ -5117,7 +4598,7 @@ public class Analyzer : IDisposable
         foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentUnitNamespace, _usingNamespaces))
             if (_projectDiscovery.TryResolveProjectTypeInNamespace(rootName, visibleNamespace, currentUnitNamespace, out _, out _)) return false;
         if (_scopes.LookupSymbol(rootName) != null || _scopes.LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
-            || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(currentType, rootName, true, _currentTypeName)))
+            || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(currentType, rootName, true, _ambient.CurrentTypeName)))
             || TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && _projectDiscovery.TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], currentUnitNamespace, out _, out _))
             || !ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, qualifiedName, out var runtimeType))
             return false;
@@ -7431,7 +6912,7 @@ public class Analyzer : IDisposable
             _ => string.Empty
         };
 
-        if (fieldName.Length == 0 || _currentClass == null)
+        if (fieldName.Length == 0 || _ambient.CurrentClass == null)
         {
             readonlyTarget = default;
             return false;
@@ -7445,12 +6926,12 @@ public class Analyzer : IDisposable
         out ReadonlyFieldTarget readonlyTarget)
     {
         readonlyTarget = default;
-        if (_currentClass == null)
+        if (_ambient.CurrentClass == null)
         {
             return false;
         }
 
-        foreach (var member in _currentClass.Members)
+        foreach (var member in _ambient.CurrentClass.Members)
         {
             if (member is FieldDeclaration field && field.Name == fieldName)
             {
@@ -7472,7 +6953,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        var currentType = _scopes.LookupType(_currentClass.Name);
+        var currentType = _scopes.LookupType(_ambient.CurrentClass.Name);
         if (currentType == null
             || !TryFindReadonlyInstanceField(currentType, fieldName, out var inheritedFieldName))
         {
@@ -8895,7 +8376,7 @@ public class Analyzer : IDisposable
                 // class would need its own substitution chain, so it suppresses instead).
                 var hasBaseClass = openType is ClassTypeInfo openClassType && openClassType.BaseClass != null;
                 if (!hasBaseClass
-                    && BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(openType, memberName, false, _currentTypeName))
+                    && BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(openType, memberName, false, _ambient.CurrentTypeName))
                     && ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
                 {
                     ReportUndefinedMember(
@@ -8924,7 +8405,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var resolved = _memberResolution.ResolveMember(constructedType, memberName, false, _currentTypeName);
+        var resolved = _memberResolution.ResolveMember(constructedType, memberName, false, _ambient.CurrentTypeName);
         if (BuiltInTypes.IsUnknown(resolved))
         {
             if (ShouldReportUndefinedMember(constructedType, memberName, includeStaticMembers: false))
@@ -9602,7 +9083,7 @@ public class Analyzer : IDisposable
         var currentType = _scopes.CurrentTypeScope();
         if (currentType != null)
         {
-            var memberType = _memberResolution.ResolveMember(currentType, name, true, _currentTypeName);
+            var memberType = _memberResolution.ResolveMember(currentType, name, true, _ambient.CurrentTypeName);
             if (!BuiltInTypes.IsUnknown(memberType))
             {
                 type = memberType;
@@ -9736,37 +9217,6 @@ public class Analyzer : IDisposable
             return shape.BaseType;
 
         return currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown;
-    }
-
-    /// <summary>
-    /// The naming convention every declaration is held to: PascalCase exports, camelCase does not, an
-    /// explicit visibility modifier opts out, and a name the convention can classify as neither is
-    /// reported. THIS IS A MEASURED WALL RATHER THAN A POLICY THAT BELONGS HERE. Its closure is
-    /// otherwise N#-complete — <see cref="VisibilityConventions"/> and the diagnostic sink are both
-    /// N#-owned — but <c>char.IsLower</c> is not in the columnar backend's <c>System.Char</c> catalog
-    /// (<c>IsUpper</c>, <c>IsLetter</c>, <c>IsDigit</c>, <c>IsLetterOrDigit</c>, <c>IsWhiteSpace</c>
-    /// and both invariant case transforms are), and no published predicate distinguishes a lowercase
-    /// letter from a title-case, modifier or other-category one, so no rewrite preserves the
-    /// behaviour. It is therefore RELAYED — the declared-function walk and the accessor walk each ask
-    /// for it as their kind 10 — until the catalog admits the predicate. Its seven remaining direct
-    /// callers are the class, struct, record, interface, union, enum and field walks, and it moves
-    /// with them in the slice that can pay for the toolset repin.
-    /// </summary>
-    private void CheckVisibilityConvention(string name, Modifiers modifiers, int line, int column)
-    {
-        if (string.IsNullOrEmpty(name) || VisibilityConventions.HasExplicitVisibility(modifiers))
-            return;
-
-        // Check convention: PascalCase = public/exported, camelCase = private/unexported.
-        if (VisibilityConventions.IsExportedIdentifier(name) || char.IsLower(name[0]))
-            return;
-
-        Error(
-            ErrorCode.VisibilityConventionWarning,
-            $"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means private",
-            line,
-            column,
-            length: Math.Max(1, name.Length));
     }
 
     // Type checking helpers

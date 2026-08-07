@@ -241,6 +241,13 @@ func AccessorIntType(): TypeReference {
     return reference
 }
 
+// A type reference nothing can resolve. The resolver REPORTS when it fails, which is what makes the
+// convention's ordering observable in the sink now that it is no longer a step.
+func AccessorMissingType(): TypeReference {
+    reference: TypeReference = new SimpleTypeReference("NoSuchTypeAnywhere", 7, 20)
+    return reference
+}
+
 func AccessorStringType(): TypeReference {
     reference: TypeReference = new SimpleTypeReference("string", 7, 20)
     return reference
@@ -310,33 +317,44 @@ func AccessorErrorText(harness: AccessorHarness, index: int): string {
 // THE PROPERTY ENTRY, AND THE ORDER THAT IS THE FEATURE
 // ---------------------------------------------------------------------------------------------
 
-test "A PROPERTY WITH NEITHER ACCESSOR STILL ASKS FOR ITS CONVENTION, ITS NAME AND BOTH IDE RECORDS" {
+test "A PROPERTY WITH NEITHER ACCESSOR STILL DECLARES ITS NAME AND WRITES BOTH IDE RECORDS" {
     harness := AccessorDefault()
     declaration := AccessorProperty("Total", AccessorIntType(), null, null, null, Modifiers.None)
 
     steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), null)
 
-    // The convention, the name, the type member, the property. No scope, no body, nothing else — and
-    // `X: int { }` is a shape the parser really does produce.
-    assert AccessorStepKinds(steps) == "10,3,8,9"
+    // The name, the type member, the property. No scope, no body, nothing else — and `X: int { }` is
+    // a shape the parser really does produce. The convention is checked too, but it is no longer a
+    // STEP: it moved to `AnalyzerDeclarationConventions` and this walk calls it directly, so a
+    // convention-clean name leaves no trace here at all.
+    assert AccessorStepKinds(steps) == "3,8,9"
     assert harness.Errors.Count == 0
 }
 
-test "THE NAMING CONVENTION IS ASKED FOR BEFORE THE TYPE IS RESOLVED, NOT AFTER" {
+test "THE NAMING CONVENTION IS CHECKED BEFORE THE TYPE IS RESOLVED, AND IT IS NO LONGER A STEP" {
     harness := AccessorDefault()
-    declaration := AccessorProperty("Total", AccessorIntType(), null, null, null, Modifiers.None)
+    unclassifiable := AccessorProperty("_hidden", AccessorMissingType(), null, null, null, Modifiers.None)
 
-    steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), null)
+    steps := AccessorRun(harness, AccessorBeginProperty(harness, unclassifiable, "Box"), null)
 
-    // Step 0 carries the name and the modifiers and NO resolved type: the resolver has not run yet,
-    // which is what keeps an unknown-type report from landing ahead of the convention report.
-    assert steps[0].Kind == 10
-    assert steps[0].Name == "Total"
-    assert steps[0].CarriedType == "unknown"
-    assert steps[0].Line == 7
-    assert steps[0].Column == 10
-    assert steps[1].Kind == 3
-    assert steps[1].CarriedType == "int"
+    // The convention report is made by the walk ITSELF now, so it lands in the sink rather than in
+    // the step stream — and it lands FIRST, ahead of the unresolved-type report the resolver makes,
+    // which is exactly the ordering the step used to guarantee. `_errors` is one list whose order is
+    // the reported order.
+    assert harness.Errors.Count >= 2
+    assert harness.Errors[0].Code == ErrorCode.VisibilityConventionWarning
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 10
+    assert harness.Errors[1].Code != ErrorCode.VisibilityConventionWarning
+    // And the FIRST step is the name declaration, carrying the resolved type: nothing precedes it.
+    assert steps[0].Kind == 3
+    assert steps[0].Name == "_hidden"
+
+    clean := AccessorDefault()
+    cleanSteps := AccessorRun(clean, AccessorBeginProperty(clean, AccessorProperty("Total", AccessorIntType(), null, null, null, Modifiers.None), "Box"), null)
+    assert clean.Errors.Count == 0
+    assert cleanSteps[0].Kind == 3
+    assert cleanSteps[0].CarriedType == "int"
 }
 
 test "THE PROPERTY'S NAME IS DECLARED IN THE ENCLOSING SCOPE, NOT IN EITHER ACCESSOR'S" {
@@ -346,9 +364,9 @@ test "THE PROPERTY'S NAME IS DECLARED IN THE ENCLOSING SCOPE, NOT IN EITHER ACCE
     steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), null)
 
     // The declare step is at the OUTER depth, before any scope has opened.
-    assert steps[1].Kind == 3
-    assert steps[1].Depth == 1
-    assert steps[1].RecordsBinding
+    assert steps[0].Kind == 3
+    assert steps[0].Depth == 1
+    assert steps[0].RecordsBinding
     // And it is still visible after the whole walk, while nothing the accessors declared is.
     assert harness.Scopes.Count == 1
     assert harness.Scopes.Peek().Symbols.ContainsKey("Total")
@@ -361,14 +379,14 @@ test "THE TWO IDE RECORDS HAPPEN IN ONE ORDER: THE TYPE MEMBER, THEN THE PROPERT
 
     steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), null)
 
-    assert steps[2].Kind == 8
-    assert steps[2].ContainingType == "Box"
+    assert steps[1].Kind == 8
+    assert steps[1].ContainingType == "Box"
+    assert steps[1].Name == "Total"
+    assert steps[1].CarriedType == "int"
+    assert steps[2].Kind == 9
+    assert steps[2].ContainingType == null
     assert steps[2].Name == "Total"
     assert steps[2].CarriedType == "int"
-    assert steps[3].Kind == 9
-    assert steps[3].ContainingType == null
-    assert steps[3].Name == "Total"
-    assert steps[3].CarriedType == "int"
     // Both tables the IDE reads, written for real by the replay driver.
     members := harness.Model.GetTypeMembers("Box")
     assert members != null
@@ -384,7 +402,7 @@ test "A PROPERTY OUTSIDE EVERY TYPE ASKS FOR NO TYPE-MEMBER STEP AT ALL" {
 
     // The step is not asked for and then ignored — it is never asked for, so the driver decides
     // nothing.
-    assert AccessorStepKinds(steps) == "10,3,9"
+    assert AccessorStepKinds(steps) == "3,9"
     assert AccessorCountKind(steps, 8) == 0
     assert harness.Model.Properties.ContainsKey("Total")
 }
@@ -399,11 +417,11 @@ test "AN EXPRESSION-BODIED PROPERTY IS WALKED UNDER ITS OWN TYPE, AFTER BOTH IDE
 
     steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), BuiltInTypes.Int)
 
-    assert AccessorStepKinds(steps) == "10,3,8,9,1"
-    assert steps[4].Kind == 1
-    assert steps[4].ExpectedType == "int"
-    assert steps[4].Node != null
-    assert steps[4].Depth == 1
+    assert AccessorStepKinds(steps) == "3,8,9,1"
+    assert steps[3].Kind == 1
+    assert steps[3].ExpectedType == "int"
+    assert steps[3].Node != null
+    assert steps[3].Depth == 1
     assert harness.Errors.Count == 0
 }
 
@@ -460,7 +478,7 @@ test "AN EXPRESSION BODY AND ACCESSORS COEXIST, AND THE EXPRESSION BODY GOES FIR
 
     steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), BuiltInTypes.Int)
 
-    assert AccessorStepKinds(steps) == "10,3,8,9,1,2,7,5"
+    assert AccessorStepKinds(steps) == "3,8,9,1,2,7,5"
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -473,15 +491,15 @@ test "A GETTER OPENS A FUNCTION SCOPE, WALKS ITS BLOCK THROUGH THE DISPATCH AND 
 
     steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), null)
 
-    assert AccessorStepKinds(steps) == "10,3,8,9,2,7,5"
-    assert steps[4].Kind == 2
-    assert steps[4].Line == 7
-    assert steps[4].Column == 10
+    assert AccessorStepKinds(steps) == "3,8,9,2,7,5"
+    assert steps[3].Kind == 2
+    assert steps[3].Line == 7
+    assert steps[3].Column == 10
     // The body is ONE statement through the dispatch, inside the accessor's own scope — not a list.
-    assert steps[5].Kind == 7
-    assert steps[5].HasBody
-    assert steps[5].Depth == 2
-    assert steps[6].Kind == 5
+    assert steps[4].Kind == 7
+    assert steps[4].HasBody
+    assert steps[4].Depth == 2
+    assert steps[5].Kind == 5
 }
 
 test "A SETTER DECLARES `value` BETWEEN ITS BOUNDARY AND ITS BODY, AND RECORDS IT NEXT" {
@@ -490,12 +508,12 @@ test "A SETTER DECLARES `value` BETWEEN ITS BOUNDARY AND ITS BODY, AND RECORDS I
 
     steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), null)
 
-    assert AccessorStepKinds(steps) == "10,3,8,9,2,3,4,7,5"
-    assert steps[5].Kind == 3
+    assert AccessorStepKinds(steps) == "3,8,9,2,3,4,7,5"
+    assert steps[4].Kind == 3
+    assert steps[4].Name == "value"
+    assert steps[4].Depth == 2
+    assert steps[5].Kind == 4
     assert steps[5].Name == "value"
-    assert steps[5].Depth == 2
-    assert steps[6].Kind == 4
-    assert steps[6].Name == "value"
 }
 
 test "`value` IS DECLARED WITHOUT A BINDING DECLARATION, AND EVERY OTHER NAME WITH ONE" {
@@ -506,10 +524,10 @@ test "`value` IS DECLARED WITHOUT A BINDING DECLARATION, AND EVERY OTHER NAME WI
 
     // The property's own name records a binding; `value` does not, because there is no position in the
     // source for go-to-definition to land on.
-    assert steps[1].Name == "Total"
-    assert steps[1].RecordsBinding
-    assert steps[5].Name == "value"
-    assert !steps[5].RecordsBinding
+    assert steps[0].Name == "Total"
+    assert steps[0].RecordsBinding
+    assert steps[4].Name == "value"
+    assert !steps[4].RecordsBinding
 }
 
 test "`value` IS TYPED BY THE PROPERTY WHILE THE BOUNDARY HOLDS VOID — TWO TYPES AT ONE INSTANT" {
@@ -521,11 +539,11 @@ test "`value` IS TYPED BY THE PROPERTY WHILE THE BOUNDARY HOLDS VOID — TWO TYP
     // The declare step carries `string` — the property's type — while the ambient return type recorded
     // on the SAME row is `void`, which is what makes `return x` inside a setter wrong and `value = x`
     // right.
-    assert steps[5].Name == "value"
+    assert steps[4].Name == "value"
+    assert steps[4].CarriedType == "string"
+    assert steps[4].ReturnType == "void"
     assert steps[5].CarriedType == "string"
     assert steps[5].ReturnType == "void"
-    assert steps[6].CarriedType == "string"
-    assert steps[6].ReturnType == "void"
 }
 
 test "A GETTER'S BOUNDARY HOLDS THE PROPERTY TYPE AND A SETTER'S HOLDS VOID" {
@@ -536,10 +554,10 @@ test "A GETTER'S BOUNDARY HOLDS THE PROPERTY TYPE AND A SETTER'S HOLDS VOID" {
 
     // Row 5 is the getter's body and row 10 is the setter's; the boundary transition is visible in the
     // row stream rather than only in the implementation.
-    assert steps[5].Kind == 7
-    assert steps[5].ReturnType == "string"
-    assert steps[10].Kind == 7
-    assert steps[10].ReturnType == "void"
+    assert steps[4].Kind == 7
+    assert steps[4].ReturnType == "string"
+    assert steps[9].Kind == 7
+    assert steps[9].ReturnType == "void"
 }
 
 test "A GET-AND-SET PROPERTY OPENS TWO SCOPES AND CLOSES TWO, STRICTLY ALTERNATING" {
@@ -548,14 +566,14 @@ test "A GET-AND-SET PROPERTY OPENS TWO SCOPES AND CLOSES TWO, STRICTLY ALTERNATI
 
     steps := AccessorRun(harness, AccessorBeginProperty(harness, declaration, "Box"), null)
 
-    assert AccessorStepKinds(steps) == "10,3,8,9,2,7,5,2,3,4,7,5"
+    assert AccessorStepKinds(steps) == "3,8,9,2,7,5,2,3,4,7,5"
     assert AccessorCountKind(steps, 2) == 2
     assert AccessorCountKind(steps, 5) == 2
     // The getter's scope is CLOSED before the setter's opens: neither accessor can see the other's
     // names, which a single shared scope would silently allow.
-    assert steps[6].Kind == 5
-    assert steps[7].Kind == 2
-    assert steps[7].Depth == 1
+    assert steps[5].Kind == 5
+    assert steps[6].Kind == 2
+    assert steps[6].Depth == 1
 }
 
 test "THE GETTER IS WALKED BEFORE THE SETTER, AND A MISSING ACCESSOR IS SKIPPED ENTIRELY" {
@@ -587,8 +605,8 @@ test "THE BOUNDARY RESTORES THE ENCLOSING RETURN TYPE AFTER EVERY ACCESSOR" {
     // Inside the getter it is `int`, inside the setter `void`, and after the walk it is `double` again
     // — the enclosing value, restored rather than nulled. That is the difference from the FUNCTION
     // DECLARATION boundary, which deliberately restores null.
-    assert steps[5].ReturnType == "int"
-    assert steps[10].ReturnType == "void"
+    assert steps[4].ReturnType == "int"
+    assert steps[9].ReturnType == "void"
     assert AccessorTypeText(harness.Ambient.CurrentReturnType) == "double"
     harness.Ambient.ExitAccessorReturnType(saved)
 }
@@ -602,8 +620,8 @@ test "AN ACCESSOR ANALYSED OUTSIDE EVERY FUNCTION RESTORES A NULL RETURN TYPE, N
     // The rows before the scope opens read `<null>`, the body row reads the property's type, and the
     // close row reads `<null>` again — the save/restore is a bare `TypeInfo?` and its null is real.
     assert steps[0].ReturnType == "<null>"
-    assert steps[5].ReturnType == "int"
-    assert steps[6].ReturnType == "<null>"
+    assert steps[4].ReturnType == "int"
+    assert steps[5].ReturnType == "<null>"
     assert AccessorTypeText(harness.Ambient.CurrentReturnType) == "<null>"
 }
 
@@ -618,7 +636,6 @@ test "AN INDEXER DECLARES NO NAME, CHECKS NO CONVENTION AND RECORDS NOTHING FOR 
     steps := AccessorRun(harness, AccessorBeginIndexer(harness, declaration, "Box"), null)
 
     assert AccessorStepKinds(steps) == "6,2,3,4,7,5"
-    assert AccessorCountKind(steps, 10) == 0
     assert AccessorCountKind(steps, 8) == 0
     assert AccessorCountKind(steps, 9) == 0
 }
@@ -824,4 +841,3 @@ test "AT MOST ONE `value` IS DECLARED PER ACCESSOR, AND NEVER IN A GETTER" {
 
     assert valueDeclares == 1
 }
-
