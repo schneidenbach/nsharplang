@@ -1924,7 +1924,358 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 53 — THE OPERATOR EXPRESSION FAMILY (`unary` +
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 54 — THE IDENTIFIER ARM, THE RULE AND BOTH ITS
+  CONSUMERS, TERMINAL.** Target recorded BEFORE any production edit, at `3546a9e17` (`Analyzer.cs`
+  **9,611** lines, non-blank **8,576**, member declarations **371** by the narrow metric — lines
+  matching `^    (private|public|internal|protected).*\(` — and **436** by the broader modifier-line
+  metric, both applied identically to both trees; unit suite baseline **3,194**; contracts baseline
+  **3,256**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:90bbb5b8e0dca75b`; `Analyzer.cs` ratchet row currentLines
+  **9,611** / currentNonBlank **8,576**, fingerprint `text-v1:945829dbe24598d7`, epoch ceilings
+  **23,451 / 20,537**).
+
+  **THE THREE PRE-MEASUREMENTS THE SLICE-53 BRIEF NAMED, TAKEN AT THIS TIP BEFORE ANY DESIGN — AND
+  (b) OVERTURNS BOTH HORNS OF ITS FORK.**
+  * **(a) `ResolveIdentifier` TAKES NO EXPRESSION STEP AT ALL. IT IS A PURE LOOKUP, AND THE ARM
+    THEREFORE NEEDS NO REQUEST TYPE, NO STATE TYPE AND NO DRIVER LOOP.** A grep for
+    `AnalyzeExpression` / `AnalyzeExpressionWithExpectedType` across the whole measured closure
+    (`:7851`–`:8030` plus `:4402`–`:4412`) returns **ZERO** hits. Every question the arm asks it asks
+    of a collaborator that answers immediately: the scope stack, the current type scope's member
+    resolution, the built-in metadata name table, project discovery, the function-type factory and
+    the external metadata probe. **VERDICT: A RULE WITH TWO CONSUMERS, NOT A WALK — the arc's first
+    expression family to move with no driver loop whatsoever.**
+  * **(b) IT REACHES TWO REBUILT COLLABORATORS *AND* HOLDS PER-ANALYSIS DEDUPE STATE, SO NEITHER A
+    CONSTRUCTOR FIELD NOR A `Create…` FACTORY IS CORRECT — THE ANSWER IS THE TYPE RESOLVER'S SETTER
+    DISCIPLINE.** `_memberResolution` (`CreateMemberResolution()`) and `_wellKnownTypes` are BOTH
+    replaced at `LoadSystemAssemblies` (`:9075`, `:9068`) and at `Dispose` (`:9105`), so a constructor
+    field would go stale. But the arm also owns `_reportedUnverifiedErrorResultDiagnostics` (`:246`),
+    a `(line, column, name)` dedupe set cleared once per analysis at `:693` — so rebuilding the owner
+    through a factory, as `_operatorExpressions` and `_variableDeclaration` do, would DROP that set.
+    That is the exact hazard `AnalyzerTypeResolver` documents at its `SetWellKnownTypes` door ("the
+    resolver is told about the new bag rather than being rebuilt itself: rebuilding would drop the
+    dedupe sets mid-analysis"). **VERDICT: constructed ONCE, told about the replacements through a
+    setter, exactly as the type resolver is.**
+  * **(c) EVERY ONE OF ITS SEVEN REPORT SITES IS ITS OWN, AND THE METHOD-GROUP / EVENT / SoA REPORTS
+    ARE NOT — THEY BELONG TO THE DISPATCH HOST'S COMMON TAIL.** The arm raises **NL301**
+    (`UndefinedVariable`, in a RICH `ErrorMessageBuilder` shape and a simple fallback shape),
+    **NL412** (`UndefinedFunction`, likewise two shapes), **NL308** (`InaccessibleMember`, twice — the
+    project-TYPE path at `:7940` and the project-FUNCTION path at `:7994`, the second under the
+    `reportMissingAsFunction` fork only) and **NL314** (`UnverifiedErrorResult`). It raises **NO SoA
+    report and reads no narrowing explicitly** — narrowing reaches it through the scope stack's own
+    symbol table, which is where `AnalyzerFlowNarrowing` writes, so an identifier's answer is
+    narrowed WITHOUT the arm naming narrowing at all. `ReportMethodGroupUsedAsValue`,
+    `ReportEventUsedAsValue` and `ReportSyntheticSoaOperationUsedAsValue` — and with them
+    `_allowUnboundCallableReference` — all fire in `AnalyzeExpression`'s tail (`:3161`–`:3175`) AFTER
+    the arm has answered, so they are the HOST's, not the arm's. This is the third consecutive family
+    (51, 52, 54) whose consumer reports belong to a collaborator.
+
+  **THE ARM RE-VERIFIED AT THIS TIP — 5 MEMBERS, 188 LINES, AND EXACTLY THREE EXTERNAL REFERENCES.**
+  A mechanical brace-matched extent walk plus a caller-attribution pass over `Analyzer.cs` gives:
+  `ResolveIdentifier` (**66** — the brief's number is exact; the inventory's 155 did include
+  since-moved surface), `TryResolveIdentifierBindingTarget` (**69**, EXCLUSIVE — one caller),
+  `ReportUnverifiedErrorTupleResultUseIfNeeded` (**20**, EXCLUSIVE — one caller),
+  `TryResolveVisibleProjectFunction` (**22**, SHARED — `TryResolveQualifiedExternalType` at `:3798`
+  also asks it) and `AnalyzeIdentifierCallTarget` (**11** — the call arm's callee path, whose ONLY
+  caller is `AnalyzeCallCallee` at `:4397`). The three references in are the dispatch arm (`:3107`),
+  the qualified-external-type probe (`:3798`) and the call-callee fork (`:4397`).
+
+  **THE TWO-CONSUMER DESIGN.** The owner publishes **THREE** doors, so nothing is duplicated and the
+  call arm consumes the SAME resolution today that it will consume natively when it moves:
+  `Resolve(name, line, column, reportMissingAsFunction)` — the rule itself; `CallTarget(identifier)`
+  — the callee-position FORM of the same rule (`reportMissingAsFunction: true` plus the null-state
+  application and the two semantic-model records the call arm needs); and
+  `TryResolveVisibleProjectFunction(name, out type, out declaration)` — the shared probe, published
+  because a second host member asks it. The arm's two pieces of per-analysis state travel with it:
+  the `(line, column, name)` dedupe set, and `_suppressErrorTupleResultUse`, which the assignment arm
+  saves/sets/restores exactly as it already does for `_nullFlow.SuppressFlowType` — the same
+  precedent, so those three host lines become mechanical routes rather than new policy.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT A BARE NAME MEANS, BOTH CONSUMERS, AND THE ARC TAKES
+  ITS FIRST EXPRESSION FAMILY WITH NO DRIVER LOOP AT ALL.**
+
+  **THE CUT — 5 C# MEMBERS, 188 NAMED LINES, TWO FIELDS OF STATE AND THREE ROUTED CALL SITES.** GONE:
+  `ResolveIdentifier` (66), `TryResolveIdentifierBindingTarget` (69),
+  `TryResolveVisibleProjectFunction` (22), `ReportUnverifiedErrorTupleResultUseIfNeeded` (20) and
+  `AnalyzeIdentifierCallTarget` (11) — plus the two fields the arm alone read
+  (`_suppressErrorTupleResultUse` and the `(line, column, name)` dedupe set) and the two reset lines
+  that cleared them. ADDED: the owner field and its 5-line doc (6), the constructor wiring (4), the
+  `BeginAnalysis` call (1), the two `SetMetadataCollaborators` calls at the rebuild sites (2), and
+  SEVEN mechanical route lines — the collapsed dispatch arm (2), the call-callee route (1), the
+  qualified-external-type probe (1) and the assignment arm's three suppression lines (3). `git diff`
+  on `Analyzer.cs` **+20 / −203 = net −183**. The file goes **9,611 → 9,428**, non-blank
+  **8,576 → 8,416 (−160)**, member declarations **371 → 365 (−6)** and modifier lines
+  **436 → 430 (−6)**. **BOTH RATCHET CEILINGS FALL.**
+
+  **THERE IS NO DRIVER, AND THE PROTOCOL PROVES IT RATHER THAN ASSERTING IT.** Every expression family
+  the arc has moved so far is a suspendable walk with a `Drive…` loop, because every one of them has
+  operands. An identifier has none, so this slice adds NO request type, NO state type, NO phase and NO
+  driver: the dispatch arm is ONE expression and the call arm is ONE. **MAX NESTING IS 1 ON EVERY ONE
+  OF THE FIVE PROTOCOL RUNS** — the operator family's was 67 — because no identifier resolution can
+  ever open inside another.
+
+  **CONSTRUCTED ONCE, TOLD ABOUT THE REBUILT PAIR.** `SetMetadataCollaborators` is called from
+  `LoadSystemAssemblies` and `Dispose` only; the owner itself is `readonly` and never rebuilt, which is
+  what keeps the dedupe set alive across a metadata-load-context open or close.
+
+  **N# ADDED — 337 PRODUCTION LINES ON ONE NEW FILE.** `AnalyzerIdentifierResolution.nl`: **ONE type,
+  11 members** (a constructor and ten `func`s) — the rule (`Resolve`), the callee-position form
+  (`CallTarget`), the six-channel lookup (`TryResolveBindingTarget`), the published project-function
+  probe, the NL314 guard, the NL301/NL412 reporter, the unit-namespace read, `BeginAnalysis`,
+  `SetMetadataCollaborators` and the suppression setter. It holds **ELEVEN** permanent collaborators
+  handed in at construction — the diagnostic sink, the scope stack, the type resolver, project
+  discovery, the external metadata probe, the function-type factory, the ambient context, null flow,
+  the live extension-method list, the semantic model and the binding map, **every one of them already
+  N#-owned** — plus the TWO replaceable ones behind the setter.
+
+  **35 NEW CONTRACTS.** `AnalyzerIdentifierResolution.tests.nl` (**676 lines, 35 contracts**).
+  Contracts **3,256 → 3,291 (+35)**, 0 failed. They are the FIRST direct pinning of either member:
+  both were `private` in `Analyzer.cs`, so nothing named them and their behaviour was pinned only
+  indirectly through end-to-end diagnostics.
+
+  **PROOF — THE PROTOCOL DIFFERENTIAL, FIVE RUNS, 304,014 ROWS, 0 MISMATCHES.** A temporary env-gated
+  probe (`NL54_PROBE=1`, buffered stderr, never in the final bytes — it lives only in two throwaway
+  worktrees) emitted an ENTER row and a RESULT row per resolution from the THREE route points that are
+  identical on both sides, each carrying the name, the form, the position and **FIVE observable
+  counters at that instant** — errors, binding records, semantic-model TYPE records,
+  expression-TYPE records and expression-NULL-STATE records — with the RESULT row also carrying the
+  answer's type text. An answer that changes, a report that appears or moves, a binding that stops
+  being recorded or a model write that is lost all show up as a line diff at the row where it happened.
+  * 71-target corpus: **22,938 rows, 0 MISMATCHES**, md5 `df834ac3d3fc4f9fc874faeadaf60463` in BOTH.
+  * 588 accumulated fixtures: **4,996 rows, 0 MISMATCHES**, md5 `94f2824c004b8a7ae52513df445044d5`.
+  * 84 env-gated SoA fixtures: **380 rows, 0 MISMATCHES**, md5 `b667d1f55903884200503da444d00bd9`.
+  * The 9-target supplementary set: **396 rows, 0 MISMATCHES**, md5 `61c0534283ffad5b5e3b561b49fe5550`.
+  * The self-host target (`NSharpLang.Compiler.BootstrapServices`, 323 files) ALONE: **275,304 rows,
+    0 MISMATCHES**, md5 `5d07427b17f6f5252581c89c7c531bec`.
+  **ENTER == RESULT on every run** (11,469 / 2,498 / 190 / 198 / 137,652 — **152,007 resolutions**),
+  depth never negative and back to 0 at every target, **max nesting 1 everywhere**. The comparator was
+  proved NON-VACUOUS first: perturbing a single counter in one row of a 400-row slice reports
+  `MISMATCHES 1` at exactly that index.
+
+  **THE CENSUS IS THE SLICE'S SHARPEST FINDING: THE IDENTIFIER ARM IS 99.93% PURE LOOKUP, AND ITS REAL
+  PRODUCT IS THE BINDING MAP.** Across the five runs the rule is entered **152,007** times — **139,546**
+  from the dispatch arm, **12,163** from the call arm and **298** from the qualified-external-type
+  probe. Of those, only **271 answer `unknown`** and only **114 raise a report at all** — the four codes
+  it owns are reached once per 1,333 resolutions. What it does on nearly every other resolution is
+  RECORD: **128,034 resolutions (84.2%) write a binding**, which is what go-to-definition reads, making
+  this arm the single largest writer to the binding map in the analyzer. **THE MODEL-WRITE SPLIT IS
+  EXACTLY THE TWO FORMS, VISIBLE IN THE TRANSCRIPT**: all **593** semantic-model TYPE records come from
+  form 0 (channel 4's project-type discovery) and all **11,644** expression-TYPE records come from
+  form 1 — form 0 writes no expression type because the DISPATCH HOST's common tail does it for the
+  whole expression walk, and form 1 must, because the call arm never reaches that tail. **The published
+  project-function probe has 298 entries and ZERO effects of any kind** — it is a pure question, which
+  is why publishing it costs nothing.
+
+  **PROOF — FOUR ORACLE DIFFERENTIALS, ALL ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `3546a9e17` (`/private/tmp/nl54base`) and at the working tree.
+  * **CORPUS: DIFFS = 0 over 387 lines**, md5 `6db9946259b9bb9154afa3ca7d744f6f` in BOTH — 72 HEAD
+    rows, **315 diagnostics across 13 codes**, `stderrBytes = 0` on all 144 runs, ZERO `PARSE-FAIL`,
+    the 7 known no-`results` targets, both CLIs pointed at the SAME `git worktree` copy
+    (`/private/tmp/nl54corpus`).
+  * **SUPPLEMENTARY (the 7 no-`results` targets plus 2): DIFFS = 0** over 9 lines, md5
+    `fd2a6e7be640edfce368ea0916d30a8b`, NO-RESULTS = 0, PARSE-FAIL = 0.
+  * **FIXTURES: DIFFS = 0 over 1,172 lines**, md5 `07139f01851f0410ded615e0a67bdf06` — **588 HEAD
+    rows, 584 diagnostics across 43 codes**, all 1,176 runs `stderrBytes = 0`. The set is this slice's
+    **56** plus the accumulated **532**.
+  * **SoA (env-gated): DIFFS = 0 over 236 lines**, md5 `9d93a0780436f1765d629972adc1414f` — 84
+    targets, 152 diagnostics across 6 codes. The set is this slice's **10** plus the accumulated **74**.
+  **PARSE-ERROR CENSUS: 4 (NL101 × 4), IDENTICAL on both sides and EXACTLY the census slices 43–53
+  recorded — all four in the one known `fx18-newtype-construction` fixture. The 56 new fixtures and the
+  10 new SoA fixtures add ZERO.**
+
+  **PROOF — THE 66 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT.** The 56 plain fixtures raise **47
+  diagnostics across 11 codes**, including all four codes the arm owns — **NL301 × 11, NL412 × 4,
+  NL308 × 2, NL314 × 5** — and the reports that are the HOST's rather than the arm's (**NL411 × 2**).
+  Every channel is proved end to end: a local, a parameter and a locally declared type resolve; a local
+  declared LATER in the block is not yet in scope and one that left its block is gone; a bare field
+  resolves inside its own type and does not resolve inside another; a static member is visible bare; a
+  local SHADOWS an enclosing-type member, a built-in keyword and an external type of the same name;
+  `int.Parse` and `string.IsNullOrEmpty` have a receiver; a project type and a project function in
+  another file resolve WITHOUT an import while a file-private one does not; a non-exported type and a
+  non-exported function in another namespace each raise NL308; a project type OUTRANKS a CLR type of
+  the same name; `Console` resolves through the assembly probe; a project function used as a VALUE is a
+  method group the host refuses; a near-miss local is suggested and a near-miss FUNCTION is suggested
+  from a different pool that includes an extension method; a result read before its error is checked is
+  refused, is silent after a returning error branch, is SUPPRESSED under a plain assignment and is NOT
+  suppressed under a compound one, and is reported once per POSITION; a narrowed local answers the
+  narrowed type inside the branch and the nullable one outside it; and `using r { }` — the one source
+  shape that materialises an expression-position `<error>` identifier — reports its syntax error and
+  NOTHING else. The **10 env-gated SoA fixtures** raise **15 diagnostics** and prove the division of
+  labour the arm's design rests on: an identifier that answers a row view or a direct column is refused
+  by the HOST (**NL103 × 13**), told once per read, while an unknown name inside the same SoA walk is
+  still the ARM's own **NL301**.
+
+  **THE BARE REPORT SHAPES ARE CONTRACT-ONLY BY CONSTRUCTION, AND THAT IS WHY THE CONTRACTS EXIST.**
+  `nlc check` always has a file path and source text, so the fallback shapes of NL301 and NL412 — the
+  ones an editor sees on a buffer the analyzer has no text for, and the ones a synthesised node at
+  line 0 takes — are unreachable from ANY fixture. Three contracts pin them directly, including the
+  `Math.Max(1, length)` floor that makes the bare NL301 underline one caret where the rich one
+  underlines the name.
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS.** Both Release CLIs built the 56 new fixtures from two
+  staging copies proved `diff -rq` identical first. **BLD_NORM_DIFFS = 0 over 747 unsorted lines**,
+  md5 `655bf3ebd3cbd78782ede73b97a69702` in BOTH, identical exits (**0 × 16, 1 × 40**). The raw
+  transcripts differ on **232 content lines, 230 of which name the staging-copy path**, and the two
+  residual lines are byte-identical text realigned by the diff hunk.
+
+  **PROOF — THE IL NORMALISER, AND THE CONTROL RAN FIRST.** Three staging copies (examples, templates
+  and the systems samples — **45 projects**) proved `diff -rq` identical before any build. **THE
+  CONTROL RAN FIRST**: the BASELINE CLI building TWO IDENTICAL COPIES reported **compared 91, SAME 91,
+  DIFFERENT 0, ONLY_IN 0 / 0**. Then the test comparison: **compared 91, ONLY_IN 0 / 0, and ALL 48
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**. The 43 that differ are ONE file — the COPIED C# support
+  library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference is **ROOT-CAUSED**:
+  exactly ONE distinct content per tree, both 14,848 bytes, `strings` finds the embedded PDB path
+  `/private/tmp/nl54base/…` in one and `/Users/spencer/repos/nsharplang/…` in the other, and
+  `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **331 checked files** (the 330 baseline plus
+  the one new production file — the contract file is excluded from `check`), **282 findings
+  estate-wide — the unchanged slice-42…53 baseline — and ZERO in the new files**, `stderrBytes = 0`.
+
+  **FORMAT CANON.** Both new `.nl` files pass, and the whole `src/NSharpLang.Compiler.BootstrapServices`
+  directory passes the gate's Step 2b contract (**"All files are properly formatted"**).
+
+  **GOTCHAS.**
+  **(1) `RecordVariable` DOES NOT DECLARE A NAME INTO THE LEXICAL SCOPE.** `AnalyzerScopeStack`'s
+  `RecordVariable(model, name, type)` writes the SEMANTIC MODEL's scoped table only; channel 1 reads
+  `Scope.Symbols`, which is a different table. A contract that "declares" a local with `RecordVariable`
+  and then resolves it gets NL301 back. `scopes.Peek().Symbols[name] = type` is the door. **13 of this
+  slice's 17 first-run contract failures were this one fact**, and ZERO were production bugs.
+  **(2) THE DID-YOU-MEAN NAMES ARE `Suggestions`, NOT `Suggestion`.** `CompilerError` carries BOTH: a
+  `Suggestion` prose line (which the BARE shapes get from `ErrorSuggestions.GetSuggestion` when the
+  caller passes null) and a `Suggestions` LIST that only the RICH `ErrorMessageBuilder` shapes fill. A
+  contract asserting `Suggestion.Contains("counter")` on a rich NL301 passes the build and fails at
+  run time.
+  **(3) A BARE REPORT ASKED FOR LENGTH 0 UNDERLINES ONE CARET, NOT ZERO.**
+  `CompilerError.CreateDetailed` applies `Math.Max(1, length)`, so the bare NL301 — which the shell
+  raised with the default `length: 0` — has `Length == 1`. Preserving the 0 at the call site is still
+  right; the floor is the renderer's, not the caller's.
+  **(4) `Missing` IS A BCL TYPE.** `System.Reflection.Missing` exists, so `Missing()` in callee
+  position is answered by CHANNEL 6 and never reaches NL412 — the columnar backend then declines the
+  call. A fixture meaning to pin "unknown function" must use a name the BCL does not have
+  (`Nonesuch`); the shape is pinned as its own fixture because it is the channel order visible from
+  outside.
+  **(5) AN `out` PARAMETER MAY NOT BE NAMED `type`.** It joins `nameof`, `record`, `partial`, `match`,
+  `union`, `newtype`, `params`, `alloc`, `checked`, `unchecked`, `stackalloc`, `out`, `ref`, `let`,
+  `file`, `init` and `duck` on the reserved list; `resolvedType` is the spelling.
+  **(6) A NULLABLE `out` ANSWER STILL NEEDS A NESTED GUARD EVEN WHEN IT IS PROVABLY TOTAL.**
+  `ResolveVisibleProjectType` and `TryResolveVisibleProjectFunction` both materialise their symbol
+  BEFORE answering `true`, so the C# passed the `out` value straight into `RecordBinding` — but N#
+  wants a non-nullable, and a nested `if x != null` is the only narrowing that holds. Both guards are
+  annotated as total so a later reader does not mistake them for policy.
+  **(7) RUNNING BOTH SUGGESTION WALKS WOULD BE A SECOND OBSERVATION.** The C# selected one pool with a
+  ternary. Computing both and picking one afterwards builds, passes every contract, and adds a scope
+  walk that did not happen before — the `if`/`else` is the faithful shape, not the tidier one.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:90bbb5b8e0dca75b` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 9,611 →
+  **9,428**, currentNonBlankLines 8,576 → **8,416**, fingerprint → **`text-v1:7f6b1062a029ade9`**;
+  `reviewedHeadFingerprint` → **`head-v1:57f9dc5ec64128d4`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **14,023 / 12,121** — up from 13,840 / 11,961.
+  `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed
+  lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: both new files are
+  `.nl`, which the policy does not audit, and the 66 fixtures live outside the repository. The audit on
+  the final tree is **18 / 18**. The pre-existing `editors/vscode/test/suite/edgeCases.test.ts` drift
+  and the six `MISSING` rows for files task 016 deleted are present identically in the pristine
+  baseline and were again deliberately left alone.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `3546a9e17` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, naming three changed/added files as unmapped and running the FULL suite:
+  **3,194 / 3,194, 0 failed, 4 m 52 s of test time, exit 0**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 19m 08s.** `./scripts/test-all.sh --commit` —
+  VS Code tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 2m 05s;
+  **Step 2b's format contract over the compiler's own N# sources 0m 01s**; **unit tests 6m 24s
+  (3,194 / 3,194)**; **native N# tests 3m 35s** — the BootstrapServices contracts at **3,291 / 3,291**
+  plus every native project individually, `ownership-audit` **18 / 18** among them; **VS Code
+  integration tests 2m 49s, 36 passing**, against a freshly built extension and language server; pack
+  and install the MSBuild SDK 3m 48s; templates, template creation and the template-generated build;
+  the example builds; `nlc check` on examples; and **the IL verification gate 0m 11s — `All 67 N#
+  assemblies pass IL verification (no new errors vs baseline)`**. The run stored its validated
+  isolated cache result `1544e28bba4cf72b (1148s)`, and it ran from an isolated snapshot taken BEFORE
+  this record was finished — `systems-language-closeout/` is in NO gate input set, so this record's own
+  prose is provably not a gate input.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.98 MB**) and installed with `--force` (`successfully
+  installed`). No computer-use verification was taken: this slice changes no LSP handler, no VS Code
+  extension code and no IDE protocol surface; what it changes is WHO answers what a bare name means,
+  which the gate's VS Code integration suite (36 passing) and all four diagnostic oracles cover.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is what a name means, which is the most-used answer in the
+  editor. That hovering `count` shows its declared type and hovering it inside `if text != null { … }`
+  shows the NARROWED one; that go-to-definition on a local, a parameter, a project type in another file
+  and a project function in another file all land somewhere — 84% of all resolutions write the binding
+  that makes that work; that a typo on a variable gets did-you-mean names drawn from the SCOPE and a
+  typo on a call gets them from the CALLABLES plus the extension methods, so `Helpr()` offers `Helper`
+  and never offers an `int` local; that a name that is visible-but-not-exported is told THAT (NL308)
+  instead of "not found", which is the difference between a two-second fix and a hunt; that a result
+  read before its error is checked is told once per position rather than at every re-resolution; and —
+  the part a developer feels without naming — that a file being typed does NOT stack "I can't find
+  `<error>`" on top of every syntax error, because the placeholder answers in silence.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Fixtures: `/private/tmp/nl54fixtures` (56, this
+  slice) alongside `nl53fixtures` (55), `nl53fixtures2` (4), `nl52fixtures` (45), `nl51fixtures` (46),
+  `nl50fixtures` (40), `nl49fixtures` (41), `nl48fixtures` (36), `nl47fixtures` (34), `nl46fixtures`
+  (32), `nl45fixtures` (30), `nl44fixtures` (26), `nl43fixtures` (24), `nl42fixtures` (30),
+  `nl41fixtures` (29), `nl40fixtures` (24) and `s24fixtures` (36) — **588 plain** — plus
+  `/private/tmp/nl54soafx` (10) with the `nl40`–`nl44`, `nl49`–`nl53` `soafx` sets (**84 env-gated**).
+  The harnesses are at `.../scratchpad/nl44-oracle.sh`, `nl44-build.sh`, `nl44-ilbuild.sh` +
+  `nl44-ilnorm.py`, `nl53-members.py`, `nl54-closure.py` (the brace-matched extent walk plus
+  caller attribution), `nl54-repin.py`, `nl54-probe.sh` + `nl54-compare.py` (the ENTER/RESULT protocol
+  differential with the five observable counters and the form census), `nl54-probe-base.py` (ONE
+  instrumentation patch that emits both sides — `python3 nl54-probe-base.py <path> [work]`),
+  `nl54-run-probes.sh`, `nl54-run-probes-both.sh`, `nl54-run-oracles.sh`, `nl54-summarize.sh` (the
+  oracle diff + census in one call), `nl54-run-builds.sh`, `nl54-run-il.sh`, `nl54-ilstage.sh`,
+  `nl54-make-fixtures.py` and `nl54-make-soafx.py`. Five worktrees are left registered:
+  `/private/tmp/nl54base` (pristine `3546a9e17` + Release CLI), `/private/tmp/nl54corpus` (the shared
+  source copy), `/private/tmp/nl54ilsrc` (the clean source the three IL staging copies were made from)
+  and the two throwaway probe trees `/private/tmp/nl54probe` and `/private/tmp/nl54workprobe`.
+
+  **WALL STATUS: NO NEW WALL, AND NO TOOLSET REPIN WAS NEEDED.** Every collaborator this rule asks for
+  was ALREADY N#-owned and callable — the scope stack, the type resolver, project discovery, the
+  external metadata probe, member resolution, the function-type factory, the ambient context, null
+  flow, the diagnostic sink, the semantic model, the binding map and `ErrorMessageBuilder` — and every
+  member it spells is already spelled in existing `.nl` production files. **A 183-line net cut needed
+  exactly one new file and zero catalog rows.**
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 9,428 LINES, 8,416 NON-BLANK.** The same three
+  things: the SHORT list of remaining declaration walkers; **THE EXPRESSION WALK, now 19 arms of policy
+  instead of 20**; and the mechanical host — still SIXTEEN driver loops, of which exactly FIVE return.
+
+  * **NEXT: `member` (87 lines at `:3316`), AS THE SLICE-52 SEQUENCE NAMED, AND IT IS NOW THE SMALLEST
+    ARM LEFT.** `AnalyzeMemberAccess` has exactly ONE external reference — the dispatch arm at `:3121`
+    — which is the cleanest closure any remaining arm has. It had to wait for identifier because a
+    member's RECEIVER walk is the identifier walk, and that is now N#-owned and callable.
+    **THE THREE PRE-MEASUREMENTS TO TAKE AT THAT TIP BEFORE ANY DESIGN:** (a) how many expression STEPS
+    does it take — a member access has exactly ONE operand (the receiver) but the null-conditional form
+    (`a?.b`) may not walk it the same way, so measure whether the arm is a one-step walk or a two-form
+    one before choosing between a driver loop and this slice's no-driver shape; (b) what is its
+    EXCLUSIVE closure — `TryRecordMemberBinding` (`:3405`), `RecordMemberBinding` and
+    `TryFindMemberDeclaration` sit immediately after it and look exclusive, but slices 51–53 each found
+    a "helper" with a second caller that had to be ROUTED rather than deleted, so run the
+    caller-attribution pass before quoting a line count; (c) which of its reports are its own — NL303
+    ("member not found") is certainly one, but the SoA column-read registry, the null-dereference
+    report and the extension-method fall-through all live in collaborators, and this slice, 51 and 52
+    all found a family whose reports mostly belonged elsewhere. **A FOURTH, SPECIFIC TO THIS PAIR:**
+    measure whether `AnalyzeMemberAccess` still resolves its receiver by hand or can now route the
+    identifier receiver through `AnalyzerIdentifierResolution` — if it can, the member arm SHRINKS
+    before it moves, and the two owners compose instead of duplicating.
+  * **THEN, UNCHANGED FROM THE SLICE-52 SEQUENCE:** `new` (183 at `:7013`), which reads the
+    target-typing slot; `index` (70 at `:3404`) and `array` (57 at `:6747`), which are small and which
+    the assignment arm needs as TARGETS; `assignment` (207 at `:4669`, plus the five write-target
+    reporters slice 53's driver kinds 6–10 still route to — **taking assignment RETIRES FIVE OF SLICE
+    53'S TEN DRIVER KINDS**); `match` (72), `with` (54), `range` (27) and `on` (85); `call` (87 in its
+    own member at `:4098` but by far the most entangled — and it now has ONE fewer thing to do,
+    because its callee path is already N#); and **`lambda` (104 at `:6328`) LAST**, still the only arm
+    with TWO production entry points and now measured at **NINE call sites across four owners**
+    (`AnalyzeExpression`, `AnalyzeExpressionWithExpectedType`, `AnalyzeOnSubscription` and
+    `FinalizeBoundReflectionCall`).
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 53 — THE OPERATOR EXPRESSION FAMILY (`unary` +
   `binary`), BOTH ARMS AND THE NUMERIC TABLES, TERMINAL.** Target recorded BEFORE any production
   edit, at `e191ec36d` (`Analyzer.cs` **10,796** lines, non-blank **9,602**, member declarations
   **415** by the narrow metric — lines matching `^    (private|public|internal|protected).*\(` — and

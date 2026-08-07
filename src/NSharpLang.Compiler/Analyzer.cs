@@ -235,7 +235,6 @@ public class Analyzer : IDisposable
     private AnalyzerSyntheticCallBinder _syntheticCallBinder;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
-    private bool _suppressErrorTupleResultUse;
     private bool _allowUnboundCallableReference;
     private bool _allowSyntheticSoaOperationReference;
     private bool _analyzingCallCallee;
@@ -243,7 +242,6 @@ public class Analyzer : IDisposable
     // be used with `on`/`off`. AnalyzeOnSubscription and AnalyzeAssignment flip this while
     // resolving the event member so they can emit their own, more specific diagnostics.
     private bool _allowEventReference;
-    private readonly HashSet<(int Line, int Column, string Name)> _reportedUnverifiedErrorResultDiagnostics = new();
     // The NL411 report log. Like the implicit-conversion guard above it, this is deliberately NOT
     // part of the toolset rebuild: a log rebuilt with its reader would forget what it had already
     // said and report the same method group twice.
@@ -408,6 +406,12 @@ public class Analyzer : IDisposable
     // Rebuilt with the SCC: it holds assignability, the CLR type conversion and the flow-narrowing
     // extractor, all three of which the rebuild replaces.
     private AnalyzerOperatorExpressions _operatorExpressions;
+    // WHAT A BARE NAME MEANS: the identifier arm as a RULE rather than a walk — the six ordered
+    // resolution channels, the four codes they raise, and the callee-position form the call arm asks
+    // for. NOT rebuilt with the SCC: the two collaborators the rebuild DOES replace — member
+    // resolution and the well-known-type bag — arrive through `SetMetadataCollaborators`, because the
+    // rule holds the unverified-result dedupe set and rebuilding would drop it mid-analysis.
+    private readonly AnalyzerIdentifierResolution _identifierResolution;
     private bool _disposed;
 
     public Analyzer()
@@ -486,6 +490,10 @@ public class Analyzer : IDisposable
         _flowNarrowing = CreateFlowNarrowing();
         _variableDeclaration = CreateVariableDeclaration();
         _operatorExpressions = CreateOperatorExpressions();
+        _identifierResolution = new AnalyzerIdentifierResolution(
+            _diagnostics, _scopes, _typeResolver, _projectDiscovery, _externalTypeProbe,
+            _functionTypeFactory, _ambient, _nullFlow, _extensionMethods, _memberResolution,
+            _semanticModel, _bindingMap);
     }
 
     private AnalyzerFlowNarrowing CreateFlowNarrowing()
@@ -689,8 +697,6 @@ public class Analyzer : IDisposable
         _bindingMap = new BindingMap(); // Reset binding map for new analysis
         _soaEscape.BeginAnalysis();
         _nullFlow.BeginAnalysis();
-        _suppressErrorTupleResultUse = false;
-        _reportedUnverifiedErrorResultDiagnostics.Clear();
         _ambient.BeginAnalysis();
         _inConstructor = false;
         _currentFilePath = currentFilePath;
@@ -699,6 +705,7 @@ public class Analyzer : IDisposable
         _sourceText = sourceCode;
         _diagnostics.BeginAnalysis(currentFilePath, sourceCode);
         _typeResolver.BeginAnalysis(currentFilePath, unit, _semanticModel, _bindingMap);
+        _identifierResolution.BeginAnalysis(unit, _semanticModel, _bindingMap);
         _externalNamespaceCache.Clear();
         _typeDeclarationFiles.Clear();
 
@@ -3104,7 +3111,8 @@ public class Analyzer : IDisposable
             IntLiteralExpression or FloatLiteralExpression or CharLiteralExpression
                 or StringLiteralExpression or InterpolatedStringExpression or BoolLiteralExpression
                 or NullLiteralExpression => DriveLiteralExpression(_literalExpressions.Begin(expr)),
-            IdentifierExpression ident => ResolveIdentifier(ident.Name, ident.Line, ident.Column),
+            IdentifierExpression ident
+                => _identifierResolution.Resolve(ident.Name, ident.Line, ident.Column, false),
             BinaryExpression or UnaryExpression
                 => DriveOperatorExpression(_operatorExpressions.Begin(expr)),
             ThrowExpression or IsExpression or SpreadExpression or AllocExpression
@@ -3795,7 +3803,7 @@ public class Analyzer : IDisposable
             if (_projectDiscovery.TryResolveProjectTypeInNamespace(rootName, visibleNamespace, currentUnitNamespace, out _, out _)) return false;
         if (_scopes.LookupSymbol(rootName) != null || _scopes.LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
             || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(currentType, rootName, true, _ambient.CurrentTypeName)))
-            || TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && _projectDiscovery.TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], currentUnitNamespace, out _, out _))
+            || _identifierResolution.TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && _projectDiscovery.TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], currentUnitNamespace, out _, out _))
             || !ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, qualifiedName, out var runtimeType))
             return false;
         type = new ReflectionTypeInfo(runtimeType);
@@ -4394,21 +4402,9 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeCallCallee(Expression callee)
     {
         if (callee is IdentifierExpression identifier)
-            return AnalyzeIdentifierCallTarget(identifier);
+            return _identifierResolution.CallTarget(identifier);
 
         return AnalyzeCallCalleeExpression(callee);
-    }
-
-    private TypeInfo AnalyzeIdentifierCallTarget(IdentifierExpression identifier)
-    {
-        var type = ResolveIdentifier(identifier.Name, identifier.Line, identifier.Column, reportMissingAsFunction: true);
-        var nullState = _nullFlow.GetExpressionNullState(identifier, type);
-        var flowType = _nullFlow.ApplyNullabilityFlowType(type, nullState);
-
-        _semanticModel.RecordExpressionType(identifier.Line, identifier.Column, flowType);
-        _semanticModel.RecordExpressionNullState(identifier.Line, identifier.Column, nullState);
-
-        return flowType;
     }
 
     private TypeInfo AnalyzeExpressionWithExpectedType(
@@ -4709,14 +4705,14 @@ public class Analyzer : IDisposable
         }
 
         var previousSuppressNullabilityFlowType = _nullFlow.SuppressFlowType;
-        var previousSuppressErrorTupleResultUse = _suppressErrorTupleResultUse;
+        var previousSuppressErrorTupleResultUse = _identifierResolution.SuppressErrorTupleResultUse;
         var previousAllowEventReference = _allowEventReference;
         Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
         TypeInfo targetType;
         try
         {
             _nullFlow.SetSuppressFlowType(true);
-            _suppressErrorTupleResultUse = assignment.Operator == AssignmentOperator.Assign;
+            _identifierResolution.SetSuppressErrorTupleResultUse(assignment.Operator == AssignmentOperator.Assign);
             // Resolve the target without the bare-event guard so we can give a tailored
             // "use on/off" message instead of the generic one.
             _allowEventReference = true;
@@ -4732,7 +4728,7 @@ public class Analyzer : IDisposable
         {
             _assignmentTargetExpressionTypes = null;
             _allowEventReference = previousAllowEventReference;
-            _suppressErrorTupleResultUse = previousSuppressErrorTupleResultUse;
+            _identifierResolution.SetSuppressErrorTupleResultUse(previousSuppressErrorTupleResultUse);
             _nullFlow.SetSuppressFlowType(previousSuppressNullabilityFlowType);
         }
 
@@ -7848,187 +7844,6 @@ public class Analyzer : IDisposable
         return resultType ?? BuiltInTypes.Unknown;
     }
 
-    // The function half of project auto-discovery: exported (PascalCase) top-level functions
-    // are visible project-wide within visible namespaces without a file import, mirroring the
-    // type half in AnalyzerProjectTypeDiscovery. Non-exported top-level functions stay
-    // file-private, so they intentionally fall through to the undefined/inaccessible diagnostics.
-    private bool TryResolveVisibleProjectFunction(string name, out TypeInfo type, out SymbolDeclaration declaration)
-    {
-        if (_projectDiscovery.TryResolveVisibleProjectFunction(
-                name,
-                GetUnitNamespace(_compilationUnit),
-                out var declarationFile,
-                out var functionDeclaration,
-                out var functionSymbol))
-        {
-            type = _functionTypeFactory.CreateFromDeclarationInFile(functionDeclaration!, declarationFile!);
-            declaration = functionSymbol!;
-            return true;
-        }
-
-        type = BuiltInTypes.Unknown;
-        declaration = null!;
-        return false;
-    }
-
-    private void ReportUnverifiedErrorTupleResultUseIfNeeded(string name, int line, int column)
-    {
-        if (_suppressErrorTupleResultUse)
-            return;
-
-        if (_scopes.FindErrorTupleResultGuard(name) is not { } guard || _scopes.IsErrorTupleResultAvailable(name))
-            return;
-
-        var key = (line, column, name);
-        if (!_reportedUnverifiedErrorResultDiagnostics.Add(key))
-            return;
-
-        Error(
-            ErrorCode.UnverifiedErrorResult,
-            $"Result '{name}' may be unavailable because '{guard.ErrorName}' can be non-null",
-            line,
-            column,
-            $"Use '{name}' only after `if {guard.ErrorName} == null`, or return/throw from an `if {guard.ErrorName} != null` error branch before the result is used.",
-            Math.Max(1, name.Length));
-    }
-
-    private bool TryResolveIdentifierBindingTarget(string name, int line, int column, out TypeInfo type)
-    {
-        // Check local symbols first, then local types
-        if (_scopes.ResolveBindingTarget(_bindingMap, _currentFilePath, name, line, column) is { } scopeBinding)
-        {
-            type = scopeBinding;
-            return true;
-        }
-
-        var currentType = _scopes.CurrentTypeScope();
-        if (currentType != null)
-        {
-            var memberType = _memberResolution.ResolveMember(currentType, name, true, _ambient.CurrentTypeName);
-            if (!BuiltInTypes.IsUnknown(memberType))
-            {
-                type = memberType;
-                return true;
-            }
-        }
-
-        // Resolve built-in type keywords (int, string, bool, etc.) for static member access
-        // e.g., int.Parse(...), string.IsNullOrEmpty(...), int.TryParse(...)
-        var builtInClrType = AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, name);
-        if (builtInClrType != null)
-        {
-            type = new ReflectionTypeInfo(builtInClrType);
-            return true;
-        }
-
-        if (_projectDiscovery.ResolveVisibleProjectType(
-                name,
-                GetUnitNamespace(_compilationUnit),
-                line > 0,
-                out var projectType,
-                out var projectDeclaration,
-                out var inaccessibleProjectFile))
-        {
-            type = projectType;
-            _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, projectDeclaration);
-            _semanticModel.RecordType(name, projectType);
-            return true;
-        }
-
-        if (inaccessibleProjectFile != null)
-        {
-            _diagnostics.ReportInaccessibleMember(name, inaccessibleProjectFile, line, column);
-            _typeResolver.MarkUnresolvedTypeReported(name, line, column);
-        }
-
-        if (TryResolveVisibleProjectFunction(name, out var projectFunctionType, out var projectFunctionDeclaration))
-        {
-            type = projectFunctionType;
-            _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, projectFunctionDeclaration);
-            return true;
-        }
-
-        // Try to resolve as external type (for static class access like Console).
-        // This intentionally happens after current-type member lookup so instance
-        // members win over imported type names in instance scope.
-        var externalType = _externalTypeProbe.ResolveExternalType(name);
-        if (externalType != null)
-        {
-            type = externalType;
-            return true;
-        }
-
-        type = BuiltInTypes.Unknown;
-        return false;
-    }
-
-    private TypeInfo ResolveIdentifier(string name, int line, int column, bool reportMissingAsFunction = false)
-    {
-        if (name == "<error>")
-            return BuiltInTypes.Unknown;
-
-        if (TryResolveIdentifierBindingTarget(name, line, column, out var type))
-        {
-            ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column);
-            return type;
-        }
-
-        if (reportMissingAsFunction
-            && line > 0
-            && _projectDiscovery.TryFindInaccessibleVisibleFunction(
-                name,
-                GetUnitNamespace(_compilationUnit),
-                out var inaccessibleFunctionFile))
-        {
-            _diagnostics.ReportInaccessibleMember(name, inaccessibleFunctionFile!, line, column);
-            return BuiltInTypes.Unknown;
-        }
-
-        // Use ErrorMessageBuilder for better error message with suggestions
-        var similarNames = reportMissingAsFunction
-            ? _scopes.SuggestSimilarCallableNames(name, _extensionMethods.Select(method => method.Name).ToList())
-            : _scopes.SuggestSimilarVariableNames(name);
-        var sourceSnippet = GetSourceSnippet(line);
-
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            var error = reportMissingAsFunction
-                ? ErrorMessageBuilder.UndefinedFunction(
-                    _currentFilePath,
-                    line,
-                    column,
-                    sourceSnippet,
-                    name.Length,
-                    name,
-                    similarNames
-                )
-                : ErrorMessageBuilder.UndefinedVariable(
-                    _currentFilePath,
-                    line,
-                    column,
-                    sourceSnippet,
-                    name.Length,
-                    name,
-                    similarNames
-                );
-            _errors.Add(error);
-        }
-        else
-        {
-            // Fallback to simple error
-            if (reportMissingAsFunction)
-            {
-                Error(ErrorCode.UndefinedFunction, $"Function '{name}' not found", line, column, length: name.Length);
-            }
-            else
-            {
-                Error(ErrorCode.UndefinedVariable, $"I can't find '{name}' — it hasn't been declared in this scope", line, column);
-            }
-        }
-
-        return BuiltInTypes.Unknown;
-    }
-
     private TypeInfo AnalyzeBaseExpression()
     {
         var currentType = _scopes.CurrentTypeScope();
@@ -9088,6 +8903,7 @@ public class Analyzer : IDisposable
         _variableDeclaration = CreateVariableDeclaration();
         _operatorExpressions = CreateOperatorExpressions();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
+        _identifierResolution.SetMetadataCollaborators(_memberResolution, _wellKnownTypes);
     }
 
     public void Dispose()
@@ -9117,6 +8933,7 @@ public class Analyzer : IDisposable
             _variableDeclaration = CreateVariableDeclaration();
             _operatorExpressions = CreateOperatorExpressions();
             _typeResolver.SetWellKnownTypes(null);
+            _identifierResolution.SetMetadataCollaborators(_memberResolution, null);
             _mlcAssemblies.Clear();
             _disposed = true;
         }
