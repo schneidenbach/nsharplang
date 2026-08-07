@@ -16,28 +16,25 @@ import NSharpLang.Compiler.Ast
 //      parenthesised operand with the full expression production, whose first alternative is
 //      `x => …` — so this kind cannot be simulated by the owner writing the slot itself around a
 //      kind 1.
-//   3  take the COMMON TYPE of two answers this walk already holds. Numeric widening is a rule with
-//      five callers in the host and is not this family's to own; the walk decides WHEN a common type
-//      is wanted and over WHICH two answers, which is the part that belongs here.
 //
-// `ExpectedType` is the operand of kind 2 and is null for the other two. `LeftType` and `RightType`
-// are the operands of kind 3 and are null for the other two. The numbering is this walk's own
+// THERE WAS A THIRD KIND AND IT IS GONE. A ternary's answer is the COMMON TYPE of its two arms, and
+// while numeric widening lived in the host that common type had to be asked for as a step. The
+// operator arms and their promotion tables are N#-owned now, so the ternary calls
+// `AnalyzerOperatorExpressions.CommonType` directly and the driver lost a kind.
+//
+// `ExpectedType` is the operand of kind 2 and is null for kind 1. The numbering is this walk's own
 // protocol with its own driver and starts at 1; the other walks' numbers mean different operations.
 class TargetTypedOperandRequest {
     Kind: int
     Node: Expression?
     ExpectedType: TypeInfo?
-    LeftType: TypeInfo?
-    RightType: TypeInfo?
     Line: int
     Column: int
 
-    constructor(kind: int, node: Expression?, expectedType: TypeInfo?, leftType: TypeInfo?, rightType: TypeInfo?, line: int, column: int) {
+    constructor(kind: int, node: Expression?, expectedType: TypeInfo?, line: int, column: int) {
         Kind = kind
         Node = node
         ExpectedType = expectedType
-        LeftType = leftType
-        RightType = rightType
         Line = line
         Column = column
     }
@@ -52,9 +49,9 @@ class TargetTypedOperandRequest {
 // `checked` and `unchecked` answer their operand, and a ternary answers the common type of its two
 // arms — or `unknown` when a row view escaped through any of them.
 //
-// `OperandType` is the outstanding step's answer, folded in by `Supply`. A ternary consumes it four
-// times and keeps two of them: `ThenType` and `ElseType` are the two the common-type step is asked
-// about, and they are kept because both escape reports run over BOTH arms before either is used.
+// `OperandType` is the outstanding step's answer, folded in by `Supply`. A ternary consumes it three
+// times and keeps two of them: `ThenType` and `ElseType` are the two the common type is taken over,
+// and they are kept because both escape reports run over BOTH arms before either is used.
 //
 // `CastTargetType` is the cast's written target resolved BEFORE its operand is walked — the order is
 // observable, because resolving a type reference reports. `ExpectedResultType` is the ternary's copy
@@ -227,10 +224,6 @@ class AnalyzerTargetTypedOperands {
             return AdvanceTernaryElse(state)
         }
 
-        if phase == 5 {
-            return AdvanceTernaryFinish(state)
-        }
-
         state.Phase = 99
         return null
     }
@@ -252,10 +245,10 @@ class AnalyzerTargetTypedOperands {
             state.Phase = 1
             operand := castNode.Expression
             if UsesCastTargetExpectedType(castNode) {
-                return new TargetTypedOperandRequest(2, operand, targetType, null, null, operand.Line, operand.Column)
+                return new TargetTypedOperandRequest(2, operand, targetType, operand.Line, operand.Column)
             }
 
-            return new TargetTypedOperandRequest(1, operand, null, null, null, operand.Line, operand.Column)
+            return new TargetTypedOperandRequest(1, operand, null, operand.Line, operand.Column)
         }
 
         checkedNode := node as CheckedExpression
@@ -263,7 +256,7 @@ class AnalyzerTargetTypedOperands {
             state.Pending = 1
             state.Phase = 1
             checkedOperand := checkedNode.Expression
-            return new TargetTypedOperandRequest(2, checkedOperand, ambientValue.CurrentExpectedType, null, null, checkedOperand.Line, checkedOperand.Column)
+            return new TargetTypedOperandRequest(2, checkedOperand, ambientValue.CurrentExpectedType, checkedOperand.Line, checkedOperand.Column)
         }
 
         uncheckedNode := node as UncheckedExpression
@@ -271,7 +264,7 @@ class AnalyzerTargetTypedOperands {
             state.Pending = 1
             state.Phase = 1
             uncheckedOperand := uncheckedNode.Expression
-            return new TargetTypedOperandRequest(2, uncheckedOperand, ambientValue.CurrentExpectedType, null, null, uncheckedOperand.Line, uncheckedOperand.Column)
+            return new TargetTypedOperandRequest(2, uncheckedOperand, ambientValue.CurrentExpectedType, uncheckedOperand.Line, uncheckedOperand.Column)
         }
 
         ternaryNode := node as TernaryExpression
@@ -280,7 +273,7 @@ class AnalyzerTargetTypedOperands {
             state.Pending = 1
             state.Phase = 2
             condition := ternaryNode.Condition
-            return new TargetTypedOperandRequest(2, condition, BuiltInTypes.Bool, null, null, condition.Line, condition.Column)
+            return new TargetTypedOperandRequest(2, condition, BuiltInTypes.Bool, condition.Line, condition.Column)
         }
 
         state.Phase = 99
@@ -387,7 +380,7 @@ class AnalyzerTargetTypedOperands {
         state.Pending = 1
         state.Phase = 3
         thenExpression := ternaryNode.ThenExpression
-        return new TargetTypedOperandRequest(2, thenExpression, state.ExpectedResultType, null, null, thenExpression.Line, thenExpression.Column)
+        return new TargetTypedOperandRequest(2, thenExpression, state.ExpectedResultType, thenExpression.Line, thenExpression.Column)
     }
 
     // THE THEN ARM HAS ANSWERED, and the else arm is walked under the SAME expected type. Neither arm
@@ -404,7 +397,7 @@ class AnalyzerTargetTypedOperands {
         state.Pending = 1
         state.Phase = 4
         elseExpression := ternaryNode.ElseExpression
-        return new TargetTypedOperandRequest(2, elseExpression, state.ExpectedResultType, null, null, elseExpression.Line, elseExpression.Column)
+        return new TargetTypedOperandRequest(2, elseExpression, state.ExpectedResultType, elseExpression.Line, elseExpression.Column)
     }
 
     // BOTH ARMS HAVE ANSWERED, AND ALL FOUR REPORTS RUN. None of them stops another: a ternary whose
@@ -429,15 +422,11 @@ class AnalyzerTargetTypedOperands {
             return null
         }
 
-        state.Pending = 1
-        state.Phase = 5
-        return new TargetTypedOperandRequest(3, null, null, state.ThenType, state.ElseType, ternaryNode.Line, ternaryNode.Column)
-    }
-
-    // THE COMMON TYPE IS THE ANSWER. A ternary is worth exactly what both of its arms can be at once.
-    func AdvanceTernaryFinish(state: TargetTypedOperandState): TargetTypedOperandRequest? {
+        // THE COMMON TYPE IS THE ANSWER. A ternary is worth exactly what both of its arms can be at
+        // once. This was a STEP while numeric widening lived in the host; the operator arms own the
+        // promotion tables now, so it is a call and the walk ends here.
+        state.ResultType = AnalyzerOperatorExpressions.CommonType(state.ThenType, state.ElseType)
         state.Phase = 99
-        state.ResultType = state.OperandType
         return null
     }
 }

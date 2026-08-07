@@ -402,6 +402,12 @@ public class Analyzer : IDisposable
     // the type resolver, the SoA escape owner, the ambient context and the condition reporter, none of
     // which the rebuild replaces.
     private readonly AnalyzerTargetTypedOperands _targetTypedOperands;
+    // What every operator means: both arms of the expression walk that apply one, the numeric
+    // promotion tables under them, the comparison and equality domains, operator-overload resolution
+    // on both the declaration and the runtime side, and the seventeen reports the two arms raise.
+    // Rebuilt with the SCC: it holds assignability, the CLR type conversion and the flow-narrowing
+    // extractor, all three of which the rebuild replaces.
+    private AnalyzerOperatorExpressions _operatorExpressions;
     private bool _disposed;
 
     public Analyzer()
@@ -479,6 +485,7 @@ public class Analyzer : IDisposable
         _patternAnalysis = CreatePatternAnalysis();
         _flowNarrowing = CreateFlowNarrowing();
         _variableDeclaration = CreateVariableDeclaration();
+        _operatorExpressions = CreateOperatorExpressions();
     }
 
     private AnalyzerFlowNarrowing CreateFlowNarrowing()
@@ -486,6 +493,11 @@ public class Analyzer : IDisposable
 
     private AnalyzerVariableDeclaration CreateVariableDeclaration()
         => new(_diagnostics, _spans, _typeResolver, _assignability, _nullFlow, _scopes, _declarationContext, _soaEscape);
+
+    private AnalyzerOperatorExpressions CreateOperatorExpressions()
+        => new(
+            _diagnostics, _spans, _scopes, _declarationContext, _typeSubstitution, _assignability,
+            _clrTypeConversion, _externalTypeProbe, _soaEscape, _ambient, _flowNarrowing);
 
     private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
         => new(_diagnostics, _typeSubstitution, _assignability, _typeResolver);
@@ -2960,10 +2972,11 @@ public class Analyzer : IDisposable
     /// the ordinary walk that leaves the target-typing slot exactly as it found it, and kind 2 is the
     /// named-expected-type walk, which is not that operation with an extra argument — it forks to the
     /// lambda walk for a lambda operand, which a <c>checked</c> can have, so the owner cannot simulate
-    /// it by writing the slot around a kind 1. Kind 3 is numeric widening, a rule with five callers
-    /// here that this family does not own; the walk decides only when a common type is wanted and over
-    /// which two answers. This loop decides nothing: it performs the one operation it is handed, with
-    /// the operands it is handed.
+    /// it by writing the slot around a kind 1. Kind 3 is GONE: it was numeric widening, a rule whose
+    /// five callers all lived in the operator arms, and now that those arms and their tables are
+    /// N#-owned the ternary asks <see cref="AnalyzerOperatorExpressions"/> for a common type itself.
+    /// This loop decides nothing: it performs the one operation it is handed, with the operands it is
+    /// handed.
     /// </summary>
     private TypeInfo DriveTargetTypedOperand(TargetTypedOperandState state)
     {
@@ -2980,15 +2993,108 @@ public class Analyzer : IDisposable
                 case 2:
                     answer = AnalyzeExpressionWithExpectedType(step.Node!, step.ExpectedType);
                     break;
-                case 3:
-                    answer = GetCommonType(step.LeftType!, step.RightType!);
-                    break;
             }
 
             _targetTypedOperands.Supply(state, answer);
         }
 
         return _targetTypedOperands.Result(state);
+    }
+
+    /// <summary>
+    /// Performs the steps <see cref="AnalyzerOperatorExpressions"/> asks for and returns the type it
+    /// decided. Every policy about what an operator means — what each of the seven binary operator
+    /// classes and the five unary ones are worth, which of them consult an operator overload and
+    /// whether before or after the primitive rule, the two numeric promotion tables and the two
+    /// comparison domains, which reports fire and in which order, and that all four of a binary's
+    /// escape reports run without stopping one another — belongs to the N# owner.
+    /// The ten kinds fall in three bands. Kinds 1–4 are the FOUR WALKS and differ only in what is in
+    /// force around them: the ordinary one; the one that preserves the nullability flow type, which
+    /// only the left side of <c>??</c> takes because that is the fact the question is ABOUT; the one
+    /// inside a fresh block scope carrying what the left side of <c>&amp;&amp;</c> or <c>||</c>
+    /// proved, asked for only when the narrowing list is non-empty so this loop never decides whether
+    /// a scope is wanted; and the one that captures every sub-expression's type for a write target,
+    /// whose PRESENCE is itself observable, which is why kind 5 asks first whether it is wanted.
+    /// Kinds 6–10 are the FIVE WRITE-TARGET REPORTS, which belong to the assignment family rather
+    /// than to this one and stay here until that arm moves; they are five kinds rather than one chain
+    /// because the owner's own two SoA escape reports INTERLEAVE with them. This loop decides
+    /// nothing: it performs the one operation it is handed, with the operands it is handed.
+    /// </summary>
+    private TypeInfo DriveOperatorExpression(OperatorExpressionState state)
+    {
+        Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
+        for (var step = _operatorExpressions.NextStep(state);
+             step != null;
+             step = _operatorExpressions.NextStep(state))
+        {
+            TypeInfo? answer = null;
+            var decision = false;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                {
+                    var previousSuppressFlowType = _nullFlow.SuppressFlowType;
+                    _nullFlow.SetSuppressFlowType(true);
+                    try
+                    {
+                        answer = AnalyzeExpression(step.Node!);
+                    }
+                    finally
+                    {
+                        _nullFlow.SetSuppressFlowType(previousSuppressFlowType);
+                    }
+
+                    break;
+                }
+                case 3:
+                    PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
+                    _flowNarrowing.ApplyNarrowingsToScope(step.Narrowings!);
+                    answer = AnalyzeExpression(step.Node!);
+                    PopScope();
+                    break;
+                case 4:
+                {
+                    var previousTargetExpressionTypes = _assignmentTargetExpressionTypes;
+                    targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
+                    _assignmentTargetExpressionTypes = targetExpressionTypes;
+                    try
+                    {
+                        answer = AnalyzeExpression(step.Node!);
+                    }
+                    finally
+                    {
+                        _assignmentTargetExpressionTypes = previousTargetExpressionTypes;
+                    }
+
+                    break;
+                }
+                case 5:
+                    decision = IsWriteTargetNeedingExpressionTypes(step.Node!);
+                    break;
+                case 6:
+                    decision = ReportNullConditionalWriteTargetIfNeeded(step.Node!, step.Text!);
+                    break;
+                case 7:
+                    decision = ReportSoaTableMemberMutationIfNeeded(step.Node!, targetExpressionTypes, step.Text!);
+                    break;
+                case 8:
+                    decision = ReportUnsupportedBuiltInIndexedMutationIfNeeded(step.Node!, targetExpressionTypes, step.Text!);
+                    break;
+                case 9:
+                    decision = ReportReadonlyFieldIncrementOrDecrementIfNeeded(step.Unary!, targetExpressionTypes);
+                    break;
+                case 10:
+                    decision = ReportReadOnlyPropertyWriteTargetIfNeeded(step.Node!, step.Text!, targetExpressionTypes);
+                    break;
+            }
+
+            _operatorExpressions.Supply(state, answer, decision);
+        }
+
+        return _operatorExpressions.Result(state);
     }
 
     private TypeInfo AnalyzeExpression(Expression expr)
@@ -2999,8 +3105,8 @@ public class Analyzer : IDisposable
                 or StringLiteralExpression or InterpolatedStringExpression or BoolLiteralExpression
                 or NullLiteralExpression => DriveLiteralExpression(_literalExpressions.Begin(expr)),
             IdentifierExpression ident => ResolveIdentifier(ident.Name, ident.Line, ident.Column),
-            BinaryExpression binary => AnalyzeBinaryExpression(binary),
-            UnaryExpression unary => AnalyzeUnaryExpression(unary),
+            BinaryExpression or UnaryExpression
+                => DriveOperatorExpression(_operatorExpressions.Begin(expr)),
             ThrowExpression or IsExpression or SpreadExpression or AllocExpression
                 or MustExpression or StackAllocExpression or TupleExpression or AwaitExpression
                 => DrivePassThroughOperand(_passThroughOperands.Begin(expr, _patternReachability)),
@@ -3105,20 +3211,6 @@ public class Analyzer : IDisposable
         }
     }
 
-    private TypeInfo AnalyzeExpressionPreservingNullabilityFlowType(Expression expression)
-    {
-        var previous = _nullFlow.SuppressFlowType;
-        _nullFlow.SetSuppressFlowType(true);
-        try
-        {
-            return AnalyzeExpression(expression);
-        }
-        finally
-        {
-            _nullFlow.SetSuppressFlowType(previous);
-        }
-    }
-
     private void ReportSyntheticSoaOperationUsedAsValue(Expression expression, FunctionTypeInfo operation)
     {
         var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
@@ -3211,929 +3303,6 @@ public class Analyzer : IDisposable
             column,
             "Use an int bound, '^n' with an int count, or convert the value before building the range.",
             length);
-    }
-
-    private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)
-    {
-        // For && (short-circuit AND), apply left-side then-narrowings while analyzing the RHS.
-        // This handles: if (x != null && x.Length > 0) — x is non-nullable on the RHS.
-        if (binary.Operator == BinaryOperator.And)
-        {
-            var leftType = AnalyzeExpression(binary.Left);
-            var leftThenNarrowings = _flowNarrowing.ExtractFlowNarrowings(binary.Left).Then;
-
-            TypeInfo rightType;
-            if (leftThenNarrowings.Count > 0)
-            {
-                PushScope(new Scope(ScopeKind.Block), binary.Right.Line, binary.Right.Column);
-                _flowNarrowing.ApplyNarrowingsToScope(leftThenNarrowings);
-                rightType = AnalyzeExpression(binary.Right);
-                PopScope();
-            }
-            else
-            {
-                rightType = AnalyzeExpression(binary.Right);
-            }
-            if (_soaEscape.ReportSoaRowEscapeIfNeeded(binary.Left, leftType, "used as an operator operand")
-                | _soaEscape.ReportSoaRowEscapeIfNeeded(binary.Right, rightType, "used as an operator operand")
-                | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Left, "used as an operator operand")
-                | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Right, "used as an operator operand"))
-            {
-                return BuiltInTypes.Unknown;
-            }
-            return AnalyzeLogicalOp(leftType, rightType, binary);
-        }
-
-        // For || (short-circuit OR), apply left-side else-narrowings while analyzing the RHS.
-        // This handles: if (x == null || useX(x)) — x is non-nullable on the RHS.
-        if (binary.Operator == BinaryOperator.Or)
-        {
-            var leftType = AnalyzeExpression(binary.Left);
-            var leftElseNarrowings = _flowNarrowing.ExtractFlowNarrowings(binary.Left).Else;
-
-            TypeInfo rightType;
-            if (leftElseNarrowings.Count > 0)
-            {
-                PushScope(new Scope(ScopeKind.Block), binary.Right.Line, binary.Right.Column);
-                _flowNarrowing.ApplyNarrowingsToScope(leftElseNarrowings);
-                rightType = AnalyzeExpression(binary.Right);
-                PopScope();
-            }
-            else
-            {
-                rightType = AnalyzeExpression(binary.Right);
-            }
-            if (_soaEscape.ReportSoaRowEscapeIfNeeded(binary.Left, leftType, "used as an operator operand")
-                | _soaEscape.ReportSoaRowEscapeIfNeeded(binary.Right, rightType, "used as an operator operand")
-                | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Left, "used as an operator operand")
-                | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Right, "used as an operator operand"))
-            {
-                return BuiltInTypes.Unknown;
-            }
-            return AnalyzeLogicalOp(leftType, rightType, binary);
-        }
-
-        if (binary.Operator == BinaryOperator.NullCoalesce)
-        {
-            var coalesceLeftType = AnalyzeExpressionPreservingNullabilityFlowType(binary.Left);
-            var coalesceRightType = AnalyzeExpression(binary.Right);
-            if (_soaEscape.ReportSoaRowEscapeIfNeeded(binary.Left, coalesceLeftType, "used as an operator operand")
-                | _soaEscape.ReportSoaRowEscapeIfNeeded(binary.Right, coalesceRightType, "used as an operator operand")
-                | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Left, "used as an operator operand")
-                | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Right, "used as an operator operand"))
-            {
-                return BuiltInTypes.Unknown;
-            }
-
-            return AnalyzeNullCoalesceOp(coalesceLeftType, coalesceRightType, binary);
-        }
-
-        var leftT = AnalyzeExpression(binary.Left);
-        var rightT = AnalyzeExpression(binary.Right);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(binary.Left, leftT, "used as an operator operand")
-            | _soaEscape.ReportSoaRowEscapeIfNeeded(binary.Right, rightT, "used as an operator operand")
-            | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Left, "used as an operator operand")
-            | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Right, "used as an operator operand"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        return binary.Operator switch
-        {
-            BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply
-                or BinaryOperator.Divide or BinaryOperator.Modulo => AnalyzeArithmeticOp(leftT, rightT, binary),
-            BinaryOperator.BitwiseAnd or BinaryOperator.BitwiseOr or BinaryOperator.BitwiseXor
-                => AnalyzeBitwiseOp(leftT, rightT, binary),
-            BinaryOperator.LeftShift or BinaryOperator.RightShift
-                => AnalyzeShiftOp(leftT, rightT, binary),
-            BinaryOperator.Equal or BinaryOperator.NotEqual
-                => AnalyzeEqualityOp(leftT, rightT, binary),
-            BinaryOperator.Less or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual
-                => AnalyzeRelationalOp(leftT, rightT, binary),
-            BinaryOperator.Range => GetRangeType(),
-            _ => BuiltInTypes.Unknown
-        };
-    }
-
-    private TypeInfo AnalyzeNullCoalesceOp(TypeInfo leftType, TypeInfo rightType, BinaryExpression expr)
-    {
-        CheckNullCoalesceLeftOperand(expr, leftType);
-
-        // If right side is a throw expression, the result type is the left type
-        // e.g., string? ?? throw => string
-        if (expr.Right is ThrowExpression)
-        {
-            return GetNonNullableType(leftType);
-        }
-
-        // Otherwise, the result is the right type (the fallback value)
-        // In N#: T? ?? T returns T
-        return rightType;
-    }
-
-    private void CheckNullCoalesceLeftOperand(BinaryExpression expression, TypeInfo leftType)
-    {
-        if (CanNullCoalesceCheckForNull(leftType))
-        {
-            return;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression.Left);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"The left side of '??' has type '{leftType}', which can't be null",
-            line,
-            column,
-            "Use the value directly, or make the left side nullable before using '??'.",
-            length);
-    }
-
-    private TypeInfo AnalyzeArithmeticOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
-    {
-        // Special case: string concatenation
-        if (expr.Operator == BinaryOperator.Add && (IsStringType(left) || IsStringType(right)))
-        {
-            return BuiltInTypes.String;
-        }
-
-        // If either operand is Unknown, we can't check but assume it's okay
-        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (!IsNumericType(left) || !IsNumericType(right))
-        {
-            // Before rejecting, see if a user-declared or runtime operator overload applies
-            // (e.g. `Vector<int> + Vector<int>`, or a struct with `static func operator +`).
-            // The IL backend already binds these via the static op_* methods; the analyzer must
-            // agree so the program type-checks.
-            if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
-            {
-                return overloadResult;
-            }
-
-            var leftIsWrong = !IsNumericType(left);
-            var rightIsWrong = !IsNumericType(right);
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
-            var opText = OperatorFacts.GetBinaryText(expr.Operator);
-            var sideText = leftIsWrong == rightIsWrong
-                ? $"I found '{left}' and '{right}'"
-                : leftIsWrong
-                    ? $"the left side is '{left}'"
-                    : $"the right side is '{right}'";
-            Error(
-                ErrorCode.TypeMismatch,
-                $"The '{opText}' operator doesn't work with '{left}' and '{right}' — both sides need numeric values, but {sideText}",
-                diagnosticLine,
-                diagnosticColumn,
-                "Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.",
-                diagnosticLength);
-            return BuiltInTypes.Unknown;
-        }
-
-        // Return promoted type (null means invalid combination per ECMA-334)
-        var result = GetWiderType(left, right);
-        if (result == null)
-        {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expr);
-            var opText = OperatorFacts.GetBinaryText(expr.Operator);
-            Error(
-                ErrorCode.TypeMismatch,
-                $"The '{opText}' operator doesn't work with '{left}' and '{right}'",
-                diagnosticLine,
-                diagnosticColumn,
-                "Use numeric operands with a compatible common type, or add an explicit conversion.",
-                diagnosticLength);
-            return BuiltInTypes.Unknown;
-        }
-        return result;
-    }
-
-    private TypeInfo AnalyzeBitwiseOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
-    {
-        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (BuiltInTypes.Is(left, BuiltInTypes.Bool) && BuiltInTypes.Is(right, BuiltInTypes.Bool))
-        {
-            return BuiltInTypes.Bool;
-        }
-
-        if (IsSameBitwiseEnumType(left, right))
-        {
-            return left;
-        }
-
-        if (IsIntegralType(left) && IsIntegralType(right))
-        {
-            var result = GetWiderType(left, right);
-            if (result != null)
-            {
-                return result;
-            }
-
-            ReportBinaryOperatorOperandMismatch(
-                expr,
-                left,
-                right,
-                "both sides need compatible integral values");
-            return BuiltInTypes.Unknown;
-        }
-
-        if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
-        {
-            return overloadResult;
-        }
-
-        ReportBinaryOperatorOperandMismatch(
-            expr,
-            left,
-            right,
-            "both sides need integral values, or both sides need booleans");
-        return BuiltInTypes.Unknown;
-    }
-
-    private TypeInfo AnalyzeShiftOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
-    {
-        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (IsIntegralType(left) && IsIntegralType(right))
-        {
-            return GetUnaryNumericPromotionType(left) ?? BuiltInTypes.Unknown;
-        }
-
-        if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
-        {
-            return overloadResult;
-        }
-
-        ReportBinaryOperatorOperandMismatch(
-            expr,
-            left,
-            right,
-            "the left side needs an integral value, and the shift count needs an integral value");
-        return BuiltInTypes.Unknown;
-    }
-
-    private TypeInfo AnalyzeRelationalOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
-    {
-        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
-        {
-            if (_assignability.IsAssignable(BuiltInTypes.Bool, overloadResult))
-            {
-                return BuiltInTypes.Bool;
-            }
-
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expr);
-            var opText = OperatorFacts.GetBinaryText(expr.Operator);
-            Error(
-                ErrorCode.TypeMismatch,
-                $"The '{opText}' operator on '{left}' and '{right}' returns '{overloadResult}', but comparison operators must return 'bool'",
-                diagnosticLine,
-                diagnosticColumn,
-                "Change the operator overload to return bool.",
-                diagnosticLength);
-            return BuiltInTypes.Unknown;
-        }
-
-        if (!IsPrimitiveRelationalType(left) || !IsPrimitiveRelationalType(right))
-        {
-            var leftIsWrong = !IsPrimitiveRelationalType(left);
-            var rightIsWrong = !IsPrimitiveRelationalType(right);
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
-            var opText = OperatorFacts.GetBinaryText(expr.Operator);
-            var sideText = leftIsWrong == rightIsWrong
-                ? $"I found '{left}' and '{right}'"
-                : leftIsWrong
-                    ? $"the left side is '{left}'"
-                    : $"the right side is '{right}'";
-            Error(
-                ErrorCode.TypeMismatch,
-                $"The '{opText}' operator doesn't work with '{left}' and '{right}' — both sides need primitive numeric values or a comparison operator overload, but {sideText}",
-                diagnosticLine,
-                diagnosticColumn,
-                "Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.",
-                diagnosticLength);
-            return BuiltInTypes.Unknown;
-        }
-
-        if (GetWiderType(left, right) == null)
-        {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expr);
-            var opText = OperatorFacts.GetBinaryText(expr.Operator);
-            Error(
-                ErrorCode.TypeMismatch,
-                $"The '{opText}' operator doesn't work with '{left}' and '{right}'",
-                diagnosticLine,
-                diagnosticColumn,
-                "Use numeric operands with a compatible common type, or add an explicit conversion.",
-                diagnosticLength);
-            return BuiltInTypes.Unknown;
-        }
-
-        return BuiltInTypes.Bool;
-    }
-
-    private TypeInfo AnalyzeEqualityOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
-    {
-        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
-        {
-            if (_assignability.IsAssignable(BuiltInTypes.Bool, overloadResult))
-            {
-                return BuiltInTypes.Bool;
-            }
-
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expr);
-            var opText = OperatorFacts.GetBinaryText(expr.Operator);
-            Error(
-                ErrorCode.TypeMismatch,
-                $"The '{opText}' operator on '{left}' and '{right}' returns '{overloadResult}', but equality operators must return 'bool'",
-                diagnosticLine,
-                diagnosticColumn,
-                "Change the operator overload to return bool.",
-                diagnosticLength);
-            return BuiltInTypes.Unknown;
-        }
-
-        if (CanCompareWithEqualityOperator(left, right))
-        {
-            return BuiltInTypes.Bool;
-        }
-
-        var (diagnosticLine2, diagnosticColumn2, diagnosticLength2) =
-            _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong: true, rightIsWrong: true);
-        var opText2 = OperatorFacts.GetBinaryText(expr.Operator);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"The '{opText2}' operator doesn't work with '{left}' and '{right}' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload",
-            diagnosticLine2,
-            diagnosticColumn2,
-            "Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.",
-            diagnosticLength2);
-        return BuiltInTypes.Unknown;
-    }
-
-    /// <summary>
-    /// Attempts to resolve a binary operator to a user-declared or runtime operator overload
-    /// (<c>op_Addition</c>, <c>op_BitwiseAnd</c>, and friends). On success, <paramref name="result"/>
-    /// is the operator's result type. This keeps the analyzer in step with the IL backend, which binds
-    /// these operators directly. The check is conservative: it requires a binary (two-parameter)
-    /// operator whose parameters accept the operand types.
-    /// </summary>
-    private bool TryResolveBinaryOperatorOverloadResult(
-        BinaryOperator op,
-        TypeInfo left,
-        TypeInfo right,
-        out TypeInfo result)
-    {
-        result = BuiltInTypes.Unknown;
-
-        var clrName = OperatorFacts.GetBinaryClrName(op);
-        var symbol = OperatorFacts.GetBinarySymbol(op);
-        if (clrName == null || symbol == null)
-        {
-            return false;
-        }
-
-        // Search both operand types (the operator may be declared on either side).
-        foreach (var operandType in new[] { left, right })
-        {
-            if (TryResolveDeclaredBinaryOperator(operandType, symbol, left, right, out result)
-                || TryResolveRuntimeBinaryOperator(operandType, clrName, left, right, out result))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private bool TryResolveDeclaredBinaryOperator(
-        TypeInfo operandType,
-        string symbol,
-        TypeInfo left,
-        TypeInfo right,
-        out TypeInfo result)
-    {
-        result = BuiltInTypes.Unknown;
-        var declarationOwner = _typeSubstitution.GetSourceDeclarationOwner(operandType, out var substitution);
-
-        var members = declarationOwner switch
-        {
-            ClassTypeInfo classType => classType.DeclaredMembers,
-            StructTypeInfo structType => structType.DeclaredMembers,
-            RecordTypeInfo recordType => recordType.DeclaredMembers,
-            _ => null
-        };
-
-        if (members == null)
-        {
-            return false;
-        }
-
-        // Require a binary operator whose declared parameter types actually accept the operands.
-        // Without this check `Vec + Vec` would bind to *any* `static func operator +` on the type
-        // (e.g. one declared as `operator +(a: int, b: int)`), swallowing a real type mismatch and
-        // diverging from the IL backend, which resolves operators against the actual argument types.
-        foreach (var member in members)
-        {
-            if (member.Kind != DeclaredMemberKind.Function
-                || !member.IsOperatorOverload
-                || member.OperatorSymbol != symbol
-                || member.ParameterCount != 2
-                || member.ParameterTypes.Length != 2
-                || member.ReturnType == null
-                || !_assignability.IsAssignable(
-                    _typeSubstitution.ResolveTypeForSourceOwner(member.ParameterTypes[0], declarationOwner, substitution),
-                    left)
-                || !_assignability.IsAssignable(
-                    _typeSubstitution.ResolveTypeForSourceOwner(member.ParameterTypes[1], declarationOwner, substitution),
-                    right))
-            {
-                continue;
-            }
-
-            result = _typeSubstitution.ResolveTypeForSourceOwner(member.ReturnType, declarationOwner, substitution);
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool TryResolveRuntimeBinaryOperator(
-        TypeInfo operandType,
-        string clrName,
-        TypeInfo left,
-        TypeInfo right,
-        out TypeInfo result)
-    {
-        result = BuiltInTypes.Unknown;
-
-        var clrType = TryResolveOperandClrType(operandType);
-        if (clrType == null)
-        {
-            return false;
-        }
-
-        var leftClr = TryResolveOperandClrType(left);
-        var rightClr = TryResolveOperandClrType(right);
-
-        MethodInfo[] candidates;
-            candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static);
-
-        foreach (var candidate in candidates)
-        {
-            if (candidate.Name != clrName)
-            {
-                continue;
-            }
-
-            var parameters = candidate.GetParameters();
-            if (parameters.Length != 2)
-            {
-                continue;
-            }
-
-            // Require BOTH operand CLR types to resolve and be assignable to the operator's
-            // parameter types. The IL backend resolves operators against the actual argument types,
-            // so the analyzer must too: if an operand's CLR type is unknown, or doesn't match the
-            // parameter, this is not the operator we want — keep looking, and ultimately let a real
-            // type mismatch surface rather than silently binding (e.g. `Vector<int> + Box`).
-            if (!AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[0].ParameterType, leftClr)
-                || !AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[1].ParameterType, rightClr))
-            {
-                continue;
-            }
-
-            result = AnalyzerReflectionTypeConversion.ConvertReflectionType(candidate.ReturnType);
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Resolves the CLR type for an operator operand. Falls back to an MLC lookup of the open
-    /// generic definition for imported generics that
-    /// <see cref="AnalyzerClrTypeConversion.TryConvertTypeInfoToClrType"/>
-    /// doesn't special-case (e.g. <c>System.Numerics.Vector&lt;T&gt;</c>), so operator-overload
-    /// resolution works for arbitrary imported value types — not just the hardcoded BCL generics.
-    /// </summary>
-    private Type? TryResolveOperandClrType(TypeInfo operandType)
-    {
-        var direct = _clrTypeConversion.TryConvertTypeInfoToClrType(operandType);
-        if (direct != null)
-        {
-            return direct;
-        }
-
-        if (_declarationContext.ResolveDeclaredAlias(operandType) is not GenericTypeInfo generic)
-        {
-            return null;
-        }
-
-        // Resolve the open generic definition (e.g. "Vector`1") from the MLC assemblies, then
-        // close it over the converted type arguments.
-        var openDefinitionName = $"{generic.Name}`{generic.TypeArguments.Count}";
-        if (_externalTypeProbe.ResolveExternalType(openDefinitionName) is not ReflectionTypeInfo { Type: var openType })
-        {
-            return null;
-        }
-
-        if (!openType.IsGenericTypeDefinition)
-        {
-            return null;
-        }
-
-        var typeArguments = new Type[generic.TypeArguments.Count];
-        for (int i = 0; i < typeArguments.Length; i++)
-        {
-            var argumentClr = TryResolveOperandClrType(generic.TypeArguments[i]);
-            if (argumentClr == null)
-            {
-                return null;
-            }
-
-            typeArguments[i] = argumentClr;
-        }
-
-            return openType.MakeGenericType(typeArguments);
-    }
-
-    private bool TryResolveUnaryOperatorOverloadResult(UnaryOperator op, TypeInfo operand, out TypeInfo result)
-    {
-        result = BuiltInTypes.Unknown;
-
-        var clrName = OperatorFacts.GetUnaryClrName(op);
-        var symbol = OperatorFacts.GetUnarySymbol(op);
-        if (clrName == null || symbol == null)
-        {
-            return false;
-        }
-
-        return TryResolveDeclaredUnaryOperator(operand, symbol, out result)
-            || TryResolveRuntimeUnaryOperator(operand, clrName, out result);
-    }
-
-    private bool TryResolveDeclaredUnaryOperator(
-        TypeInfo operandType,
-        string symbol,
-        out TypeInfo result)
-    {
-        result = BuiltInTypes.Unknown;
-        var declarationOwner = _typeSubstitution.GetSourceDeclarationOwner(operandType, out var substitution);
-
-        var members = declarationOwner switch
-        {
-            ClassTypeInfo classType => classType.DeclaredMembers,
-            StructTypeInfo structType => structType.DeclaredMembers,
-            RecordTypeInfo recordType => recordType.DeclaredMembers,
-            _ => null
-        };
-
-        if (members == null)
-        {
-            return false;
-        }
-
-        foreach (var member in members)
-        {
-            if (member.Kind != DeclaredMemberKind.Function
-                || !member.IsOperatorOverload
-                || member.OperatorSymbol != symbol
-                || member.ParameterCount != 1
-                || member.ParameterTypes.Length != 1
-                || member.ReturnType == null
-                || !_assignability.IsAssignable(
-                    _typeSubstitution.ResolveTypeForSourceOwner(member.ParameterTypes[0], declarationOwner, substitution),
-                    operandType))
-            {
-                continue;
-            }
-
-            result = _typeSubstitution.ResolveTypeForSourceOwner(member.ReturnType, declarationOwner, substitution);
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool TryResolveRuntimeUnaryOperator(TypeInfo operandType, string clrName, out TypeInfo result)
-    {
-        result = BuiltInTypes.Unknown;
-
-        var clrType = TryResolveOperandClrType(operandType);
-        if (clrType == null)
-        {
-            return false;
-        }
-
-        MethodInfo[] candidates;
-            candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static);
-
-        foreach (var candidate in candidates)
-        {
-            if (candidate.Name != clrName)
-            {
-                continue;
-            }
-
-            var parameters = candidate.GetParameters();
-            if (parameters.Length != 1)
-            {
-                continue;
-            }
-
-            if (!AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[0].ParameterType, clrType))
-            {
-                continue;
-            }
-
-            result = AnalyzerReflectionTypeConversion.ConvertReflectionType(candidate.ReturnType);
-            return true;
-        }
-
-        return false;
-    }
-
-    private TypeInfo AnalyzeLogicalOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
-    {
-        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (!BuiltInTypes.Is(left, BuiltInTypes.Bool) || !BuiltInTypes.Is(right, BuiltInTypes.Bool))
-        {
-            var leftIsWrong = !BuiltInTypes.Is(left, BuiltInTypes.Bool);
-            var rightIsWrong = !BuiltInTypes.Is(right, BuiltInTypes.Bool);
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-                _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
-            var opText = OperatorFacts.GetBinaryText(expr.Operator);
-            var sideText = leftIsWrong == rightIsWrong
-                ? $"I found '{left}' and '{right}'"
-                : leftIsWrong
-                    ? $"the left side is '{left}'"
-                    : $"the right side is '{right}'";
-            Error(
-                ErrorCode.TypeMismatch,
-                $"Both sides of '{opText}' must be booleans, but {sideText}",
-                diagnosticLine,
-                diagnosticColumn,
-                "Use boolean expressions on both sides of the operator.",
-                diagnosticLength);
-        }
-        return BuiltInTypes.Bool;
-    }
-
-    private TypeInfo AnalyzeUnaryExpression(UnaryExpression unary)
-    {
-        var isIncrementOrDecrement = unary.Operator is UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
-            or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement;
-        if (isIncrementOrDecrement
-            && ReportNullConditionalWriteTargetIfNeeded(
-                unary.Operand,
-                $"changed with '{OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator"}'"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
-        TypeInfo operandType;
-        if (isIncrementOrDecrement && IsWriteTargetNeedingExpressionTypes(unary.Operand))
-        {
-            var previousAssignmentTargetExpressionTypes = _assignmentTargetExpressionTypes;
-            targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
-            _assignmentTargetExpressionTypes = targetExpressionTypes;
-            try
-            {
-                operandType = AnalyzeExpression(unary.Operand);
-            }
-            finally
-            {
-                _assignmentTargetExpressionTypes = previousAssignmentTargetExpressionTypes;
-            }
-        }
-        else
-        {
-            operandType = AnalyzeExpression(unary.Operand);
-        }
-
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(unary.Operand, operandType, "used as a unary operand"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (isIncrementOrDecrement
-            && ReportSoaTableMemberMutationIfNeeded(unary.Operand, targetExpressionTypes, "incremented or decremented directly"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(unary.Operand, "used as a unary operand"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (isIncrementOrDecrement
-            && ReportUnsupportedBuiltInIndexedMutationIfNeeded(unary.Operand, targetExpressionTypes, "incremented or decremented"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (isIncrementOrDecrement && ReportReadonlyFieldIncrementOrDecrementIfNeeded(unary, targetExpressionTypes))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (isIncrementOrDecrement && ReportInvalidIncrementOrDecrementTargetIfNeeded(unary))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (isIncrementOrDecrement
-            && ReportReadOnlyPropertyWriteTargetIfNeeded(
-                unary.Operand,
-                OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator",
-                targetExpressionTypes))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        return unary.Operator switch
-        {
-            UnaryOperator.Negate => AnalyzeUnaryNegation(operandType, unary),
-            UnaryOperator.Not => AnalyzeLogicalNot(operandType, unary),
-            UnaryOperator.BitwiseNot => AnalyzeUnaryBitwiseNot(operandType, unary),
-            UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
-                or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => AnalyzeIncrementOrDecrement(operandType, unary),
-            UnaryOperator.IndexFromEnd => AnalyzeIndexFromEnd(operandType, unary),
-            _ => BuiltInTypes.Unknown
-        };
-    }
-
-    private TypeInfo AnalyzeIndexFromEnd(TypeInfo operandType, UnaryExpression unary)
-    {
-        if (BuiltInTypes.IsUnknown(operandType))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (!_assignability.IsAssignable(BuiltInTypes.Int, operandType))
-        {
-            ReportUnaryOperatorOperandMismatch(
-                unary,
-                operandType,
-                "the from-end index count must be an int-compatible value");
-            return BuiltInTypes.Unknown;
-        }
-
-        return GetIndexType();
-    }
-
-    private TypeInfo AnalyzeLogicalNot(TypeInfo operandType, UnaryExpression unary)
-    {
-        if (BuiltInTypes.IsUnknown(operandType))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (TryResolveUnaryOperatorOverloadResult(unary.Operator, operandType, out var overloadResult))
-        {
-            return overloadResult;
-        }
-
-        if (BuiltInTypes.Is(_declarationContext.ResolveDeclaredAlias(operandType), BuiltInTypes.Bool))
-        {
-            return BuiltInTypes.Bool;
-        }
-
-        ReportUnaryOperatorOperandMismatch(unary, operandType, "the operand needs a boolean value");
-        return BuiltInTypes.Unknown;
-    }
-
-    private bool ReportInvalidIncrementOrDecrementTargetIfNeeded(UnaryExpression unary)
-    {
-        if (IsIncrementOrDecrementTarget(unary.Operand))
-        {
-            return false;
-        }
-
-        var opText = OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator";
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(unary.Operand);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"The '{opText}' operator needs an assignable target",
-            line,
-            column,
-            "Use a variable, field, property, or indexed element as the operand.",
-            length);
-        return true;
-    }
-
-    private static bool IsIncrementOrDecrementTarget(Expression expression) => expression switch
-    {
-        ParenthesizedExpression parenthesized => IsIncrementOrDecrementTarget(parenthesized.Inner),
-        IdentifierExpression identifier => !IsDiscardTarget(identifier),
-        MemberAccessExpression => true,
-        IndexAccessExpression => true,
-        _ => false
-    };
-
-    private TypeInfo AnalyzeIncrementOrDecrement(TypeInfo operandType, UnaryExpression unary)
-    {
-        if (BuiltInTypes.IsUnknown(operandType))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        var resolved = _declarationContext.ResolveDeclaredAlias(operandType);
-        if (IsIntegralType(resolved) || IsBitwiseEnumType(resolved))
-        {
-            return operandType;
-        }
-
-        ReportUnaryOperatorOperandMismatch(
-            unary,
-            operandType,
-            "the operand needs an integral numeric value");
-        return BuiltInTypes.Unknown;
-    }
-
-    private TypeInfo AnalyzeUnaryNegation(TypeInfo operandType, UnaryExpression unary)
-    {
-        if (BuiltInTypes.IsUnknown(operandType))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (TryResolveUnaryOperatorOverloadResult(unary.Operator, operandType, out var overloadResult))
-        {
-            return overloadResult;
-        }
-
-        if (unary.Operand is IntLiteralExpression intLiteral
-            && TryGetExpectedNegativeIntegerLiteralType(_ambient.CurrentExpectedType, intLiteral.Value, out var targetTypedLiteralType))
-        {
-            return targetTypedLiteralType;
-        }
-
-        var promotedType = GetUnaryNegationType(operandType);
-        if (promotedType != null)
-        {
-            return promotedType;
-        }
-
-        ReportUnaryOperatorOperandMismatch(
-            unary,
-            operandType,
-            "the operand needs a signed numeric value, a floating-point value, decimal, or uint");
-        return BuiltInTypes.Unknown;
-    }
-
-    private TypeInfo AnalyzeUnaryBitwiseNot(TypeInfo operandType, UnaryExpression unary)
-    {
-        if (BuiltInTypes.IsUnknown(operandType))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (TryResolveUnaryOperatorOverloadResult(unary.Operator, operandType, out var overloadResult))
-        {
-            return overloadResult;
-        }
-
-        if (IsBitwiseEnumType(operandType))
-        {
-            return operandType;
-        }
-
-        var promotedType = GetUnaryNumericPromotionType(operandType);
-        if (promotedType != null && IsIntegralType(promotedType))
-        {
-            return promotedType;
-        }
-
-        ReportUnaryOperatorOperandMismatch(unary, operandType, "the operand needs an integral value");
-        return BuiltInTypes.Unknown;
     }
 
     private TypeInfo AnalyzeMemberAccess(MemberAccessExpression member)
@@ -4506,9 +3675,6 @@ public class Analyzer : IDisposable
 
     private TypeInfo GetRangeType()
         => _scopes.LookupType("System.Range") ?? new ReflectionTypeInfo(typeof(Range));
-
-    private TypeInfo GetIndexType()
-        => _scopes.LookupType("System.Index") ?? new ReflectionTypeInfo(typeof(Index));
 
     private TypeInfo GetNonNullableType(TypeInfo type)
         => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
@@ -5739,7 +4905,8 @@ public class Analyzer : IDisposable
             assignment.Value,
             assignment.Line,
             assignment.Column);
-        var resultType = AnalyzeCompoundAssignmentOperatorResult(binaryOperator, targetType, valueType, operatorExpression);
+        var resultType = _operatorExpressions.CompoundAssignmentOperatorResult(
+            binaryOperator, targetType, valueType, operatorExpression);
         if (BuiltInTypes.IsUnknown(resultType))
         {
             return true;
@@ -5759,20 +4926,6 @@ public class Analyzer : IDisposable
             "Use an explicit assignment with a conversion, or choose operands whose operator result is assignable to the target.",
             Math.Max(1, opText.Length));
         return true;
-    }
-
-    private TypeInfo AnalyzeCompoundAssignmentOperatorResult(
-        BinaryOperator binaryOperator,
-        TypeInfo targetType,
-        TypeInfo valueType,
-        BinaryExpression operatorExpression)
-    {
-        return binaryOperator switch
-        {
-            BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply or BinaryOperator.Divide
-                => AnalyzeArithmeticOp(targetType, valueType, operatorExpression),
-            _ => BuiltInTypes.Unknown
-        };
     }
 
     private bool IsDelegateLikeAssignmentType(TypeInfo type)
@@ -8887,55 +8040,6 @@ public class Analyzer : IDisposable
         return currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown;
     }
 
-    // Type checking helpers
-    private bool TryGetExpectedNegativeIntegerLiteralType(
-        TypeInfo? expectedType,
-        string literalText,
-        out TypeInfo targetType)
-    {
-        targetType = BuiltInTypes.Int;
-        if (expectedType == null)
-        {
-            return false;
-        }
-
-        var suffix = NumericLiteralFacts.GetIntegerSuffix(literalText);
-        if (suffix.HasUnsigned || suffix.HasLong)
-        {
-            return false;
-        }
-
-        if (!NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literalText, out var magnitude))
-        {
-            return false;
-        }
-
-        var resolved = _declarationContext.ResolveDeclaredAlias(expectedType);
-        if (resolved is NullableTypeInfo nullable)
-        {
-            resolved = _declarationContext.ResolveDeclaredAlias(nullable.InnerType);
-        }
-
-        if (resolved is SimpleTypeInfo simple
-            && NumericLiteralFacts.TryGetNegativeIntegerLiteralMaxMagnitude(simple.Name, out var simpleMaxMagnitude)
-            && magnitude <= simpleMaxMagnitude)
-        {
-            targetType = simple;
-            return true;
-        }
-
-        if (resolved is ReflectionTypeInfo reflection
-            && NumericLiteralFacts.TryGetIntegerLiteralTypeInfo(Nullable.GetUnderlyingType(reflection.Type) ?? reflection.Type, out var reflectionType)
-            && NumericLiteralFacts.TryGetNegativeIntegerLiteralMaxMagnitude(reflectionType.Name, out var reflectionMaxMagnitude)
-            && magnitude <= reflectionMaxMagnitude)
-        {
-            targetType = reflectionType;
-            return true;
-        }
-
-        return false;
-    }
-
     /// <summary>
     /// Finds a common base type between two types, if one exists.
     /// For reflection types, walks the CLR type hierarchy and interface list.
@@ -8968,300 +8072,9 @@ public class Analyzer : IDisposable
         return null;
     }
 
-    private bool IsNumericType(TypeInfo type)
-    {
-        return BuiltInTypes.Is(type, BuiltInTypes.Int) || BuiltInTypes.Is(type, BuiltInTypes.Long)
-            || BuiltInTypes.Is(type, BuiltInTypes.Float) || BuiltInTypes.Is(type, BuiltInTypes.Double)
-            || BuiltInTypes.Is(type, BuiltInTypes.Decimal) || BuiltInTypes.Is(type, BuiltInTypes.Byte)
-            || BuiltInTypes.Is(type, BuiltInTypes.SByte) || BuiltInTypes.Is(type, BuiltInTypes.Short)
-            || BuiltInTypes.Is(type, BuiltInTypes.UShort) || BuiltInTypes.Is(type, BuiltInTypes.UInt)
-            || BuiltInTypes.Is(type, BuiltInTypes.ULong) || BuiltInTypes.Is(type, BuiltInTypes.Char);
-    }
-
-    private bool IsPrimitiveRelationalType(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        if (IsNumericType(resolved) && BuiltInTypes.IsNot(resolved, BuiltInTypes.Decimal))
-        {
-            return true;
-        }
-
-        if (resolved is SimpleTypeInfo simple && IsPrimitiveRelationalTypeName(simple.Name))
-        {
-            return true;
-        }
-
-        return resolved is ReflectionTypeInfo reflection
-            && IsPrimitiveRelationalClrType(reflection.Type);
-    }
-
-    private static bool IsPrimitiveRelationalTypeName(string name)
-    {
-        return name is "byte" or "Byte"
-            or "sbyte" or "SByte"
-            or "short" or "Int16"
-            or "ushort" or "UInt16"
-            or "int" or "Int32"
-            or "uint" or "UInt32"
-            or "long" or "Int64"
-            or "ulong" or "UInt64"
-            or "char" or "Char"
-            or "float" or "Single"
-            or "double" or "Double";
-    }
-
-    private static bool IsPrimitiveRelationalClrType(Type type)
-    {
-        return type == typeof(byte)
-            || type == typeof(sbyte)
-            || type == typeof(short)
-            || type == typeof(ushort)
-            || type == typeof(int)
-            || type == typeof(uint)
-            || type == typeof(long)
-            || type == typeof(ulong)
-            || type == typeof(char)
-            || type == typeof(float)
-            || type == typeof(double);
-    }
-
-    private bool CanCompareWithEqualityOperator(TypeInfo left, TypeInfo right)
-    {
-        var resolvedLeft = _declarationContext.ResolveDeclaredAlias(left);
-        var resolvedRight = _declarationContext.ResolveDeclaredAlias(right);
-
-        if (BuiltInTypes.Is(resolvedLeft, BuiltInTypes.Null) || BuiltInTypes.Is(resolvedRight, BuiltInTypes.Null))
-        {
-            return true;
-        }
-
-        if (ArePrimitiveEqualityTypesCompatible(resolvedLeft, resolvedRight))
-        {
-            return true;
-        }
-
-        if (IsSameBitwiseEnumType(resolvedLeft, resolvedRight))
-        {
-            return true;
-        }
-
-        if (IsSameRecordStructType(resolvedLeft, resolvedRight))
-        {
-            return true;
-        }
-
-        return AnalyzerConversionFacts.IsReferenceType(resolvedLeft) && AnalyzerConversionFacts.IsReferenceType(resolvedRight);
-    }
-
-    private bool ArePrimitiveEqualityTypesCompatible(TypeInfo left, TypeInfo right)
-    {
-        var leftIsBool = IsBoolLikeType(left);
-        var rightIsBool = IsBoolLikeType(right);
-        if (leftIsBool || rightIsBool)
-        {
-            return leftIsBool && rightIsBool;
-        }
-
-        if (!IsPrimitiveRelationalType(left) || !IsPrimitiveRelationalType(right))
-        {
-            return false;
-        }
-
-        return GetWiderType(left, right) != null;
-    }
-
-    private bool IsBoolLikeType(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        if (BuiltInTypes.Is(resolved, BuiltInTypes.Bool))
-        {
-            return true;
-        }
-
-        if (resolved is SimpleTypeInfo { Name: "bool" or "Boolean" })
-        {
-            return true;
-        }
-
-        return resolved is ReflectionTypeInfo { Type: var typeInfoType }
-            && typeInfoType == typeof(bool);
-    }
-
-    private static bool IsSameRecordStructType(TypeInfo left, TypeInfo right)
-    {
-        return ReferenceEquals(left, right)
-            && left is RecordTypeInfo { IsStruct: true };
-    }
-
-    private bool IsIntegralType(TypeInfo type)
-    {
-        return BuiltInTypes.Is(type, BuiltInTypes.Int) || BuiltInTypes.Is(type, BuiltInTypes.Long)
-            || BuiltInTypes.Is(type, BuiltInTypes.Byte) || BuiltInTypes.Is(type, BuiltInTypes.SByte)
-            || BuiltInTypes.Is(type, BuiltInTypes.Short) || BuiltInTypes.Is(type, BuiltInTypes.UShort)
-            || BuiltInTypes.Is(type, BuiltInTypes.UInt) || BuiltInTypes.Is(type, BuiltInTypes.ULong)
-            || BuiltInTypes.Is(type, BuiltInTypes.Char);
-    }
-
-    private bool IsBitwiseEnumType(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        return resolved is EnumTypeInfo { Declaration.Type: EnumType.Int }
-            || resolved is ReflectionTypeInfo { Type.IsEnum: true };
-    }
-
-    private bool IsSameBitwiseEnumType(TypeInfo left, TypeInfo right)
-    {
-        var resolvedLeft = _declarationContext.ResolveDeclaredAlias(left);
-        var resolvedRight = _declarationContext.ResolveDeclaredAlias(right);
-        return (resolvedLeft, resolvedRight) switch
-        {
-            (EnumTypeInfo l, EnumTypeInfo r) => l.Declaration.Type == EnumType.Int
-                && r.Declaration.Type == EnumType.Int
-                && ReferenceEquals(l, r),
-            (ReflectionTypeInfo l, ReflectionTypeInfo r) => l.Type.IsEnum
-                && r.Type.IsEnum
-                && l.Type == r.Type,
-            _ => false
-        };
-    }
-
     private bool IsStringType(TypeInfo type)
     {
         return BuiltInTypes.Is(type, BuiltInTypes.String);
-    }
-
-    /// <summary>
-    /// N# binary numeric promotion rules. These determine the result type of arithmetic binary
-    /// operations. NOTE: This is NOT the same as implicit numeric conversion (assignment context).
-    /// N# promotes small types (byte, sbyte, short, ushort) to int for arithmetic. Returns null for
-    /// combinations that are compile-time errors in (decimal+float/double, ulong+signed).
-    /// </summary>
-    private TypeInfo? GetWiderType(TypeInfo left, TypeInfo right)
-    {
-        var l = GetNumericName(left);
-        var r = GetNumericName(right);
-        if (l == null || r == null)
-            return BuiltInTypes.Int; // fallback
-
-        if (l == "decimal" || r == "decimal")
-        {
-            var other = l == "decimal" ? r : l;
-            if (other is "float" or "double")
-                return null; // compile-time error
-            return BuiltInTypes.Decimal;
-        }
-
-        if (l == "double" || r == "double") return BuiltInTypes.Double;
-        if (l == "float" || r == "float") return BuiltInTypes.Float;
-
-        if (l == "ulong" || r == "ulong")
-        {
-            var other = l == "ulong" ? r : l;
-            if (other is "sbyte" or "short" or "int" or "long")
-                return null; // compile-time error
-            return BuiltInTypes.ULong;
-        }
-
-        if (l == "long" || r == "long") return BuiltInTypes.Long;
-
-        if (l == "uint" || r == "uint")
-        {
-            var other = l == "uint" ? r : l;
-            if (other is "sbyte" or "short" or "int")
-                return BuiltInTypes.Long;
-            return BuiltInTypes.UInt;
-        }
-
-        return BuiltInTypes.Int;
-    }
-
-    private TypeInfo? GetUnaryNumericPromotionType(TypeInfo operand)
-    {
-        return GetNumericName(operand) switch
-        {
-            "byte" or "sbyte" or "short" or "ushort" or "char" => BuiltInTypes.Int,
-            "int" => BuiltInTypes.Int,
-            "uint" => BuiltInTypes.UInt,
-            "long" => BuiltInTypes.Long,
-            "ulong" => BuiltInTypes.ULong,
-            "float" => BuiltInTypes.Float,
-            "double" => BuiltInTypes.Double,
-            "decimal" => BuiltInTypes.Decimal,
-            _ => null
-        };
-    }
-
-    private TypeInfo? GetUnaryNegationType(TypeInfo operand)
-    {
-        return GetNumericName(operand) switch
-        {
-            "byte" or "sbyte" or "short" or "ushort" or "char" => BuiltInTypes.Int,
-            "int" => BuiltInTypes.Int,
-            "uint" => BuiltInTypes.Long,
-            "long" => BuiltInTypes.Long,
-            "float" => BuiltInTypes.Float,
-            "double" => BuiltInTypes.Double,
-            "decimal" => BuiltInTypes.Decimal,
-            _ => null
-        };
-    }
-
-    private static string? GetNumericName(TypeInfo type)
-    {
-        if (type is SimpleTypeInfo simple)
-            return simple.Name;
-        return null;
-    }
-
-    private void ReportBinaryOperatorOperandMismatch(
-        BinaryExpression expr,
-        TypeInfo left,
-        TypeInfo right,
-        string requirement)
-    {
-        var leftIsWrong = !IsIntegralType(left) && !BuiltInTypes.Is(left, BuiltInTypes.Bool);
-        var rightIsWrong = !IsIntegralType(right) && !BuiltInTypes.Is(right, BuiltInTypes.Bool);
-        if (expr.Operator is BinaryOperator.LeftShift or BinaryOperator.RightShift)
-        {
-            leftIsWrong = !IsIntegralType(left);
-            rightIsWrong = !IsIntegralType(right);
-        }
-
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
-            _spans.GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
-        var opText = OperatorFacts.GetBinaryText(expr.Operator);
-        var sideText = leftIsWrong == rightIsWrong
-            ? $"I found '{left}' and '{right}'"
-            : leftIsWrong
-                ? $"the left side is '{left}'"
-                : $"the right side is '{right}'";
-
-        Error(
-            ErrorCode.TypeMismatch,
-            $"The '{opText}' operator doesn't work with '{left}' and '{right}' — {requirement}, but {sideText}",
-            diagnosticLine,
-            diagnosticColumn,
-            "Use compatible operands, convert the non-compatible value, or define an operator overload for this type.",
-            diagnosticLength);
-    }
-
-    private void ReportUnaryOperatorOperandMismatch(UnaryExpression unary, TypeInfo operandType, string requirement)
-    {
-        var opText = OperatorFacts.GetUnaryText(unary.Operator);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"The '{opText}' operator doesn't work with '{operandType}' — {requirement}",
-            unary.Line,
-            unary.Column,
-            "Use a compatible operand, convert the value, or define an operator overload for this type.",
-            opText.Length);
-    }
-
-    private TypeInfo GetCommonType(TypeInfo left, TypeInfo right)
-    {
-        if (left == right) return left;
-        if (IsNumericType(left) && IsNumericType(right)) return GetWiderType(left, right) ?? BuiltInTypes.Unknown;
-        return BuiltInTypes.Unknown;
     }
 
     private void PushScope(Scope scope)
@@ -10273,6 +9086,7 @@ public class Analyzer : IDisposable
         _patternAnalysis = CreatePatternAnalysis();
         _flowNarrowing = CreateFlowNarrowing();
         _variableDeclaration = CreateVariableDeclaration();
+        _operatorExpressions = CreateOperatorExpressions();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
     }
 
@@ -10301,6 +9115,7 @@ public class Analyzer : IDisposable
             _patternAnalysis = CreatePatternAnalysis();
             _flowNarrowing = CreateFlowNarrowing();
             _variableDeclaration = CreateVariableDeclaration();
+            _operatorExpressions = CreateOperatorExpressions();
             _typeResolver.SetWellKnownTypes(null);
             _mlcAssemblies.Clear();
             _disposed = true;

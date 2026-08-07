@@ -1924,7 +1924,356 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 52 — THE TARGET-TYPED OPERAND FAMILY
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 53 — THE OPERATOR EXPRESSION FAMILY (`unary` +
+  `binary`), BOTH ARMS AND THE NUMERIC TABLES, TERMINAL.** Target recorded BEFORE any production
+  edit, at `e191ec36d` (`Analyzer.cs` **10,796** lines, non-blank **9,602**, member declarations
+  **415** by the narrow metric — lines matching `^    (private|public|internal|protected).*\(` — and
+  **479** by the broader modifier-line metric, both applied identically to both trees; unit suite
+  baseline **3,194**; contracts baseline **3,208**; ownership audit **18 / 18**; manifest **391**
+  lines; `reviewedHeadFingerprint head-v1:19c9913ec0cc8cb7`; `Analyzer.cs` ratchet row currentLines
+  **10,796** / currentNonBlank **9,602**, fingerprint `text-v1:8fccf4e563bf8aae`, epoch ceilings
+  **23,451 / 20,537**).
+
+  **THE FAMILY RE-VERIFIED AT THIS TIP — 47 MEMBERS, 1,266 LINES, AND EXACTLY ONE EXTERNAL CALLER IN
+  THE WHOLE CLOSURE.** A mechanical brace-matched extent walk over `Analyzer.cs` plus a
+  caller-attribution pass (every reference line mapped to its owning member) gives the closure below.
+  The `811 + 620 = 1,431` the slice-52 brief quoted is a LOOSER metric than the honest closure; the
+  measured exclusive extent is **1,266 lines across 47 members**, and the only reference into it from
+  outside is `AnalyzeCompoundAssignmentOperatorResult` (`:5773`) calling `AnalyzeArithmeticOp` — the
+  `x += y` path, which belongs to the assignment arm (step 5 of the sequence) and which this slice
+  therefore ROUTES rather than deletes.
+  * **BINARY, 399 lines**: `AnalyzeBinaryExpression` (101), `AnalyzeNullCoalesceOp` (15),
+    `CheckNullCoalesceLeftOperand` (16), `AnalyzeArithmeticOp` (62), `AnalyzeBitwiseOp` (45),
+    `AnalyzeShiftOp` (24), `AnalyzeRelationalOp` (64), `AnalyzeEqualityOp` (43), `AnalyzeLogicalOp`
+    (29).
+  * **OPERATOR-OVERLOAD RESOLUTION, 276 lines, SHARED BY BOTH ARMS**:
+    `TryResolveBinaryOperatorOverloadResult` (34), `TryResolveDeclaredBinaryOperator` (51),
+    `TryResolveRuntimeBinaryOperator` (51), `TryResolveOperandClrType` (47),
+    `TryResolveUnaryOperatorOverloadResult` (14), `TryResolveDeclaredUnaryOperator` (42),
+    `TryResolveRuntimeUnaryOperator` (37).
+  * **UNARY, 224 lines**: `AnalyzeUnaryExpression` (85), `AnalyzeIndexFromEnd` (18),
+    `AnalyzeLogicalNot` (20), `ReportInvalidIncrementOrDecrementTargetIfNeeded` (18),
+    `IsIncrementOrDecrementTarget` (8), `AnalyzeIncrementOrDecrement` (19), `AnalyzeUnaryNegation`
+    (30), `AnalyzeUnaryBitwiseNot` (26).
+  * **THE NUMERIC TABLES AND THE COMPARISON RULES, 273 lines**: `IsNumericType` (9),
+    `IsPrimitiveRelationalType` (16), `IsPrimitiveRelationalTypeName` (14),
+    `IsPrimitiveRelationalClrType` (14), `CanCompareWithEqualityOperator` (27),
+    `ArePrimitiveEqualityTypesCompatible` (16), `IsBoolLikeType` (16), `IsSameRecordStructType` (5),
+    `IsIntegralType` (8), `IsBitwiseEnumType` (6), `IsSameBitwiseEnumType` (15), `GetWiderType` (44),
+    `GetUnaryNumericPromotionType` (15), `GetUnaryNegationType` (14), `GetNumericName` (6),
+    `ReportBinaryOperatorOperandMismatch` (31), `ReportUnaryOperatorOperandMismatch` (11),
+    `GetCommonType` (6).
+  * **FOUR MORE THE BRIEF DID NOT NAME, 76 lines**: `AnalyzeExpressionPreservingNullabilityFlowType`
+    (13, the `??` left operand's bracket — its ONLY caller is this family),
+    `TryGetExpectedNegativeIntegerLiteralType` (48, `AnalyzeUnaryNegation`'s target-typed negative
+    literal — ONE caller), `GetIndexType` (2, `AnalyzeIndexFromEnd`'s answer — ONE caller) and
+    `AnalyzeCompoundAssignmentOperatorResult` (13, the single external door, which becomes a
+    two-line route into the N# rule).
+
+  **THE SPLIT QUESTION, ANSWERED BY MEASUREMENT: THERE IS NO HONEST SPLIT ALONG THE ARM AXIS.** The
+  brief's premise was that the tables are confined to the two arms; that holds, and the SHARPER fact
+  is which tables are shared BETWEEN the arms rather than merely inside them. **`GetNumericName`
+  (`GetWiderType`, `GetUnaryNumericPromotionType`, `GetUnaryNegationType`), `IsIntegralType`
+  (`AnalyzeBitwiseOp`, `AnalyzeShiftOp`, `ReportBinaryOperatorOperandMismatch` on the binary side;
+  `AnalyzeIncrementOrDecrement`, `AnalyzeUnaryBitwiseNot` on the unary side),
+  `GetUnaryNumericPromotionType` (`AnalyzeShiftOp` — a BINARY caller — and `AnalyzeUnaryBitwiseNot`)
+  and `TryResolveOperandClrType` (both overload resolvers) each have callers in BOTH arms.** So
+  unary-first would leave binary relaying four of them and binary-first would leave unary relaying
+  the same four — the exact shape the mandate forbids. **VERDICT: one slice, both arms, the tables
+  travel with the pair.** `GetWiderType`'s five callers and `IsNumericType`'s five are confirmed
+  identical to the brief's list, so `GetCommonType` moves and **slice 52's driver kind 3 retires**.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT AN OPERATOR MEANS, BOTH ARMS, THE NUMERIC TABLES AND
+  THE COMPARISON DOMAINS, AND THE DRIVER LEARNS THE ARC'S FIRST NON-WALK KINDS.**
+
+  **THE CUT — 46 C# MEMBERS, 1,248 NAMED LINES, AND TWO DISPATCH ARMS COLLAPSE TO ONE.** GONE, by
+  group: the BINARY arm (9 members, 399 lines), OPERATOR-OVERLOAD RESOLUTION shared by both arms
+  (7 / 276), the UNARY arm (8 / 224), the NUMERIC TABLES AND COMPARISON RULES (18 / 273), and four
+  the brief did not name (4 / 76 — `AnalyzeExpressionPreservingNullabilityFlowType`,
+  `TryGetExpectedNegativeIntegerLiteralType`, `GetIndexType` and
+  `AnalyzeCompoundAssignmentOperatorResult`). ADDED: the zero-policy `DriveOperatorExpression` loop
+  (78 lines, TEN kinds) plus its 20-line doc, the owner field and its 6-line doc, the
+  `CreateOperatorExpressions` factory (5) and its three rebuild sites (3), the collapsed dispatch arm
+  (2) and the two-line compound-assignment route. `git diff` on `Analyzer.cs` **+175 / −1,360 =
+  net −1,185** — **the arc's largest cut by an order of magnitude**. The file goes **10,796 → 9,611**,
+  non-blank **9,602 → 8,576 (−1,026)**, member declarations **415 → 371 (−44 = −46 + 2)** and modifier
+  lines **479 → 436 (−43)**. **BOTH RATCHET CEILINGS FALL.** **`GetCommonType` MOVED AND SLICE 52'S
+  KIND 3 IS RETIRED**: `AnalyzerTargetTypedOperands` now calls the STATIC
+  `AnalyzerOperatorExpressions.CommonType` directly, its request type loses two fields, its ternary
+  loses a phase and takes THREE steps instead of four, and `DriveTargetTypedOperand` is down to two
+  kinds.
+
+  **THE ONE EXTERNAL DOOR, AND IT IS ROUTED RATHER THAN DELETED.** The whole 1,266-line closure has
+  exactly ONE reference into it from outside: `AnalyzeCompoundAssignmentOperatorResult` (`:5773`)
+  calling `AnalyzeArithmeticOp` for `x += y`. That member is deleted and its 13 lines of policy —
+  which four operators have a compound form — move into the owner as
+  `CompoundAssignmentOperatorResult`, so `ReportInvalidCompoundAssignmentIfNeeded` now calls N#
+  directly. It is the arc's first NON-WALK entry into an expression owner, and it exists because the
+  assignment arm has not moved yet.
+
+  **N# ADDED — 1,806 PRODUCTION LINES ON ONE NEW FILE.** `AnalyzerOperatorExpressions.nl`: **THREE
+  types, 84 members** — `OperatorExpressionRequest` (TEN kinds in three bands: four WALKS, one
+  QUESTION, five WRITE-TARGET REPORTS), `OperatorExpressionState` (the form, the phase, the two
+  binary operand answers, the unary one, and — the arc's first — a separate DECISION slot, because a
+  report kind answers a bool and a walk kind answers a type) and the owner. It holds **ELEVEN**
+  collaborators and is **REBUILT WITH THE METADATA LOAD CONTEXT**, because three of them —
+  assignability, the CLR type conversion and the flow-narrowing extractor — are replaced when the
+  analyzer opens or closes its load context; it is wired through a `CreateOperatorExpressions`
+  factory called from all three of the constructor, `SetupMetadataLoadContext` and `Dispose`, exactly
+  as `_variableDeclaration` and `_flowNarrowing` are.
+
+  **48 NEW CONTRACTS.** `AnalyzerOperatorExpressions.tests.nl` (**1,158 lines, 48 contracts**).
+  Contracts **3,208 → 3,256 (+48)**, 0 failed — and slice 52's own contract file was reconciled to
+  the retired kind in the same pass (its ternary now takes three steps, its request carries no
+  left/right operand, and its "no kind outside 1–3" invariant is now "outside 1–2").
+
+  **PROOF — THE EMISSION-ORDER PROTOCOL DIFFERENTIAL, FOUR RUNS, 266,804 ROWS, 0 MISMATCHES.** A
+  temporary env-gated probe (`NL53_PROBE=1`, buffered stderr, never in the final bytes — it lives
+  only in two throwaway worktrees) emitted four row kinds per walk — ENTER, STEP, ANSWER and RESULT,
+  each carrying the ambient expected type at that instant and the error count, and the STEP row
+  carrying **the KIND and its operand** (`k3:<narrowing count>`, `k6/k7/k8/k10:<action wording>`) —
+  from the two rewritten arms in the BASELINE and from the driver loop alone in the WORK tree.
+  * 71-target corpus: **16,698 rows, 0 MISMATCHES**, md5 `3fc6d50fbef454cb1d58419d3f55ddeb` in BOTH.
+  * 528 accumulated fixtures: **1,460 rows, 0 MISMATCHES**, md5 `a686fbfc78258bbac9d8bb1a95500360`.
+  * 74 env-gated SoA fixtures: **88 rows, 0 MISMATCHES**, md5 `57819fcbd290e3e8191a5c1e8ae6b402`.
+  * The self-host target (`NSharpLang.Compiler.BootstrapServices`, 323 files) ALONE: **248,558 rows,
+    0 MISMATCHES**, md5 `259f2cbac99ff7b1c7644a62b62805ff`.
+  * The supplementary capture-door set (4 fixtures): **84 rows, 0 MISMATCHES**, md5
+    `c5c4c95c2f24b42776f499c5506cfabb`.
+  **ENTER == RESULT on every run** (2,726 / 239 / 15 / 42,511 / 6 — **45,497 walks**), **STEP ==
+  ANSWER on every run** (5,623 / 491 / 29 / 81,768 / 36 — **87,947 steps**), depth never negative and
+  back to 0 at every target, **max nesting 67**.
+
+  **THE CENSUS IS THE SLICE'S SHARPEST FINDING, AND IT IS WHY THE SUPPLEMENTARY SET WAS NOT
+  OPTIONAL.** Across the four main runs the family is entered **45,491 times — binary 41,987, unary
+  3,504** — and the step kinds are **k1 85,145 / k2 804 / k3 1,528 / k4 ONE / k5 73 / k6 73 / k7 73 /
+  k8 72 / k9 72 / k10 70**. **THE CAPTURING WALK IS ENTERED EXACTLY ONCE IN THE WHOLE WORLD**, and
+  that once is this slice's own SoA fixture `s10` (`points.x++`): the corpus, all 473 accumulated
+  fixtures and all 323 self-host files between them contain not one member-or-index increment. **THE
+  SELF-HOST TARGET CONTAINS FOUR INCREMENTS IN 323 FILES** and 1,504 narrowed short-circuit operands.
+  The one door the slice had to measure hardest is the one no existing corpus reaches — which is why
+  a supplementary 4-fixture set was cut for it, and it enters k4 **five** more times.
+
+  **PROOF — FIVE ORACLE DIFFERENTIALS, ALL ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `e191ec36d` (`/private/tmp/nl53base`) and at the working tree.
+  * **CORPUS: DIFFS = 0 over 387 lines**, md5 `204b661c0d41b7542b9be6222560ca1d` in BOTH — 72 HEAD
+    rows, **315 diagnostics across 13 codes**, `stderrBytes = 0` on all 144 runs, ZERO `PARSE-FAIL`,
+    the 7 known no-`results` targets, both CLIs pointed at the SAME `git worktree` copy
+    (`/private/tmp/nl53corpus`).
+  * **SUPPLEMENTARY (the 7 no-`results` targets plus 2): DIFFS = 0**, NO-RESULTS = 0, PARSE-FAIL = 0.
+  * **FIXTURES: DIFFS = 0 over 1,062 lines**, md5 `a173bd5623acfedea9f32a45f87914f7` — **528 HEAD
+    rows, 534 diagnostics across 40 codes**, all 1,056 runs `stderrBytes = 0`. The set is this slice's
+    **55** plus the accumulated **473**.
+  * **SoA (env-gated): DIFFS = 0 over 211 lines**, md5 `62d4662f87f570baa19215cbf64238ae` — 74
+    targets, 137 diagnostics across 5 codes. The set is this slice's **12** plus the accumulated **62**.
+  * **THE CAPTURE-DOOR SET: DIFFS = 0 over 7 lines**, md5 `f756fff9adb99fc5f46de73231b2173d`.
+  **PARSE-ERROR CENSUS: 4 (NL101 × 4), IDENTICAL on both sides and EXACTLY the census slices 43–52
+  recorded — all four in the one known `fx18-newtype-construction` fixture. The 55 new fixtures, the
+  12 new SoA fixtures and the 4 supplementary ones add ZERO.**
+
+  **PROOF — THE 71 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT.** Every promotion row is proved
+  end to end: `byte + byte` is refused into a `byte` parameter because it is an `int`; `uint + int`
+  answers `long`; `decimal + double` and `ulong * long` each raise the operator-span report;
+  `"n=" + 1` and `1 + "n"` are `string` while `"n" - 1` is a type error; a shift's result is its LEFT
+  operand's promotion even under a `long` count; the same flags enum `|`-combines to itself; `==`
+  admits null and two strings and refuses `bool` against `int`; `&&` reports AND still answers `bool`;
+  `??` answers its right side, is refused on a non-nullable left, and answers the non-nullable LEFT
+  over a `throw`; `..` is a `Range` and `^1` an `Index`; `-1` under an `sbyte` annotation is silent
+  where `-1L` is not; negating a `uint` widens to `long` and a `ulong` has no answer at all; `~` over
+  a flags enum is that enum and over a `double` is refused; `1++` and `_++` are told they need an
+  assignable target; and `a += 300` into a `byte` goes through the arithmetic rule while `text += "b"`
+  is concatenation. The **12 env-gated SoA fixtures are the only way to reach this family's own
+  action words**: a row view is refused on the LEFT of a binary, on the RIGHT, as a unary operand,
+  inside a short-circuit and inside a `??`; **two row-view operands are told TWICE**; a direct column
+  value is refused as either operand and as a unary operand; and `points.x++` is the one shape in the
+  estate that reaches the capturing walk. The **4 supplementary fixtures** prove the capture door end
+  to end — a member increment, an index increment, and the two host-owned refusals (`box?.Count++`
+  reports "Null-conditional member access can't be changed with '++'", a read-only property reports
+  "Property 'Count' is read-only") land in the exact positions the driver's kinds 6 and 10 occupy.
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS.** Both Release CLIs built the 55 new fixtures from two
+  staging copies proved `diff -rq` identical first. **BLD_NORM_DIFFS = 0 over 878 unsorted lines**,
+  md5 `6013129d5c3f85f76051184f768921b9` in BOTH, identical exits (**0 × 7, 1 × 48**). The raw
+  transcripts differ on **226 content lines, 224 of which name the staging-copy path**, and the
+  residue after normalising the path is **EMPTY**.
+
+  **PROOF — THE IL NORMALISER, AND THE CONTROL RAN FIRST.** Three staging copies (examples, templates
+  and the systems samples — **45 projects**) proved `diff -rq` identical before any build. **THE
+  CONTROL RAN FIRST**: the BASELINE CLI building TWO IDENTICAL COPIES reported **compared 91, SAME 91,
+  DIFFERENT 0, ONLY_IN 0 / 0**. Then the test comparison: **compared 91, ONLY_IN 0 / 0, and ALL 48
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**. The 43 that differ are ONE file — the COPIED C# support
+  library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference is **ROOT-CAUSED**:
+  exactly ONE distinct content per tree, both 14,848 bytes, `strings` finds the embedded PDB path
+  `/private/tmp/nl53base/…` in one and `/Users/spencer/repos/nsharplang/…` in the other, and
+  `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **330 checked files** (the 329 baseline plus
+  the one new production file — the contract file is excluded from `check`), **282 findings
+  estate-wide — the unchanged slice-42…52 baseline — and ZERO in the new files**, `stderrBytes = 0`.
+  The first cut had TWO, both `NL202` on `member.ReturnType`: see gotcha (1).
+
+  **FORMAT CANON.** Both new `.nl` files pass `nlc format --check`, and the whole
+  `src/NSharpLang.Compiler.BootstrapServices` directory passes the gate's Step 2b contract (**"All
+  files are properly formatted"**).
+
+  **GOTCHAS.**
+  **(1) A NULLABLE `TypeReference` NARROWED BY A `||`-JOINED GUARD IS STILL NULLABLE, AND ONLY
+  `nlc check` SAYS SO.** `memberReturnType := member.ReturnType` followed by
+  `if !IsOperatorCandidate(…) || memberReturnType == null { continue }` builds, passes every contract
+  and passes the format gate — and the estate-wide check reports **two NL202s** for passing a
+  `TypeReference?` where a `TypeReference` is wanted. The narrowing that works is the POSITIVE one:
+  `if IsOperatorCandidate(…) && memberReturnType != null { … }`. This is gotcha (1) of slice 52 in a
+  new dress and it is why the estate check belongs BEFORE the gate rather than after it.
+  **(2) REWRITING A `continue` CHAIN INTO A CONJUNCTION CAN BE A SILENT BEHAVIOUR CHANGE.** The
+  declared-operator loop's two parameter checks were `continue`-guarded, so the SECOND
+  `ResolveTypeForSourceOwner` ran only when the first passed — and resolving a written type reference
+  RECORDS it into the semantic model. Joining the two with `&&` into one `if` would have been a new
+  observation, not a tidier condition; they are NESTED instead.
+  **(3) `record` IS A KEYWORD AND `recordType` IS NOT.** A local named `record` declines the WHOLE
+  CLASS at `parse.struct`, pointing at the class's own line and naming nothing about the local. This
+  joins `type`, `nameof`, `partial`, `match`, `union`, `newtype`, `params`, `alloc`, `checked`,
+  `unchecked`, `stackalloc`, `out`, `ref`, `let`, `file`, `init` and `duck` on the reserved list.
+  **(4) A PARENTHESISED BOOLEAN GROUP DECLINES AS AN `if` CONDITION.**
+  `if op == Add && (IsString(left) || IsString(right))` declines at **`emit.if.condition`**; the same
+  test written as two nested `if`s emits. Two occurrences, both mechanical to split.
+  **(5) AN `out` ARGUMENT MUST BE DECLARED WITH ITS EXACT PARAMETER TYPE.**
+  `overloadResult := BuiltInTypes.Unknown` infers `SimpleTypeInfo`, and passing it to an
+  `out result: TypeInfo` declines at **`emit.if.condition`** — the CALL fails to resolve, so the `if`
+  is not a bool. `overloadResult: TypeInfo = BuiltInTypes.Unknown` is the spelling. Nine occurrences.
+  **(6) ARRAY CREATION IS `new Type[](count)`, NOT `new Type[count]`.**
+  **(7) `BuiltInTypes.Int` IS A PROPERTY THAT CONSTRUCTS A NEW INSTANCE PER READ, AND THE HOST'S
+  `left == right` WAS REFERENCE IDENTITY.** `SimpleTypeInfo` overrides `Equals` but NOT `operator ==`,
+  so `GetCommonType`'s shortcut only ever fired for two references to ONE type — two separately
+  constructed `string`s answered `unknown`. `Object.ReferenceEquals` is what preserves that, and a
+  contract that passes `BuiltInTypes.String` twice is testing the promotion table, not the shortcut.
+  **(8) AN INCREMENT WALK ASKS FOR ITS OPERAND AT STEP INDEX 2.** The null-conditional question and
+  the write-target shape question come first, so a contract that supplies the operand type at index 0
+  answers the wrong step and gets `unknown` back. Four of this slice's five contract failures were
+  this and the two facts below; ZERO were production bugs.
+  **(9) A `byte` HAS NO NEGATIVE RANGE, SO AN UNSIGNED ANNOTATION CANNOT TARGET-TYPE A NEGATIVE
+  LITERAL AT ALL.** `TryGetNegativeIntegerLiteralMaxMagnitude` answers only for `sbyte`, `short`,
+  `int` and `long`, which is why `value: byte = -1` is refused about the TYPE and `value: sbyte = -1`
+  is silent. Both are now pinned.
+  **(10) `decimal` IS EXCLUDED FROM THE PRIMITIVE RELATIONAL DOMAIN AND STILL COMPARES**, because the
+  OVERLOAD is consulted FIRST and `System.Decimal` declares `op_GreaterThanOrEqual`. The exclusion is
+  about which rule answers, not about whether the comparison is allowed — `bool < bool` is the shape
+  that really is refused.
+  **(11) `x == null` NARROWS BOTH BRANCHES**, so it cannot tell a `&&`'s THEN list from a `||`'s ELSE
+  list. The asymmetric shape is a CONJUNCTION: `a && b` fills Then and leaves Else EMPTY, so the same
+  left operand hands a `||`'s right side the ordinary walk and an `&&`'s right side the narrowed one.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:19c9913ec0cc8cb7` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 10,796 →
+  **9,611**, currentNonBlankLines 9,602 → **8,576**, fingerprint → **`text-v1:945829dbe24598d7`**;
+  `reviewedHeadFingerprint` → **`head-v1:90bbb5b8e0dca75b`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **13,840 / 11,961** — up from 12,655 / 10,935.
+  `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed
+  lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: both new files are
+  `.nl`, which the policy does not audit, and the 71 fixtures live outside the repository. The audit
+  on the final tree is **18 / 18**. The pre-existing `editors/vscode/test/suite/edgeCases.test.ts`
+  drift and the six `MISSING` rows for files task 016 deleted are present identically in the pristine
+  baseline and were again deliberately left alone.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `e191ec36d` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, naming five changed/added files as unmapped and running the FULL suite:
+  **3,194 / 3,194, 0 failed, 4 m 18 s of test time, exit 0**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 19m 48s.** `./scripts/test-all.sh --commit` —
+  VS Code tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 3m 08s;
+  **Step 2b's format contract over the compiler's own N# sources 0m 02s**; **unit tests 6m 04s
+  (3,194 / 3,194)**; **native N# tests 3m 29s** — the BootstrapServices contracts at **3,256 / 3,256**
+  plus every native project individually, `ownership-audit` **18 / 18** among them; **VS Code
+  integration tests 2m 47s, 36 passing**, against a freshly built extension and language server; pack
+  and install the MSBuild SDK 3m 52s; templates, template creation and the template-generated build;
+  the example builds; `nlc check` on examples; and **the IL verification gate 0m 12s — `All 67 N#
+  assemblies pass IL verification (no new errors vs baseline)`**. The run stored its validated
+  isolated cache result `bbf5cdd20f644107 (1188s)`, and it ran from an isolated snapshot taken BEFORE
+  this record was finished — `systems-language-closeout/` is in NO gate input set, so this record's
+  own prose is provably not a gate input.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.98 MB**) and installed with `--force` (`successfully
+  installed`). No computer-use verification was taken: this slice changes no LSP handler, no VS Code
+  extension code and no IDE protocol surface; what it changes is the TYPE the analyzer answers for
+  every unary and binary operator, which the gate's VS Code integration suite (36 passing) and all
+  five diagnostic oracles cover.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Fixtures: `/private/tmp/nl53fixtures` (55, this
+  slice) and `/private/tmp/nl53fixtures2` (4, the capture door) alongside `nl52fixtures` (45),
+  `nl51fixtures` (46), `nl50fixtures` (40), `nl49fixtures` (41), `nl48fixtures` (36), `nl47fixtures`
+  (34), `nl46fixtures` (32), `nl45fixtures` (30), `nl44fixtures` (26), `nl43fixtures` (24),
+  `nl42fixtures` (30), `nl41fixtures` (29), `nl40fixtures` (24) and `s24fixtures` (36) — **532
+  plain** — plus `/private/tmp/nl53soafx` (12) with the `nl40`–`nl44`, `nl49`–`nl52` `soafx` sets
+  (**74 env-gated**). The harnesses are at `.../scratchpad/nl44-oracle.sh`, `nl44-build.sh`,
+  `nl44-ilbuild.sh` + `nl44-ilnorm.py`, `nl53-repin.py`, `nl53-probe.sh` + `nl53-compare.py` (the
+  emission-order protocol differential, now carrying the STEP KIND and its operand — the narrowing
+  COUNT for kind 3 and the action WORDING for the four report kinds that carry one),
+  `nl53-probe-base.py` / `nl53-probe-work.py` (the two instrumentation patches),
+  `nl53-run-probes.sh`, `nl53-run-oracles.sh`, `nl53-run-extra.sh`, `nl53-run-builds.sh`,
+  `nl53-run-il.sh`, `nl53-ilstage.sh`, `nl53-make-fixtures.py` and `nl53-make-soafx.py`. Four
+  worktrees are left registered: `/private/tmp/nl53base` (pristine `e191ec36d` + Release CLI),
+  `/private/tmp/nl53corpus` (the shared source copy), `/private/tmp/nl53ilsrc` (the clean source the
+  three IL staging copies were made from) and the two throwaway probe trees `/private/tmp/nl53probe`
+  and `/private/tmp/nl53workprobe`.
+
+  **WALL STATUS: NO NEW WALL, AND NO TOOLSET REPIN WAS NEEDED.** Every collaborator this family asks
+  for was ALREADY N#-owned and callable, and every reflection member it spells — `GetMethods(flags)`,
+  `GetParameters()`, `get_ParameterType()`, `get_ReturnType()`, `get_Name()`, `get_IsEnum()`,
+  `get_IsGenericTypeDefinition()`, `MakeGenericType`, `Nullable.GetUnderlyingType` and the eleven
+  `typeof(<primitive>)` identities — is already spelled in existing `.nl` production files. **A
+  1,248-line cut needed exactly one new file and zero catalog rows.**
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is the type behind every operator a developer writes.
+  That `a + b` over two `byte`s hovers as `int`, so the squiggle on `value: byte = a + b` is about
+  the PROMOTION and not about the operands; that `"n=" + count` completes on `string`'s members;
+  that a shift hovers as its LEFT operand's promotion so `bytes[i] << 8` chains on `int`; that every
+  comparison hovers as `bool` even when one side is mistyped, so an `if` body still gets completion
+  after a bad condition; that `a ?? b` hovers as `b`'s type and `a ?? throw …` as `a`'s without its
+  nullability; that `..` and `^n` complete as `System.Range` and `System.Index`; that a negated
+  literal reads the annotation it sits under, so `value: sbyte = -128` is silent where
+  `value: byte = -1` is underlined — and underlined for the right reason; that `~flags` stays a flags
+  enum so it can be `&`-ed with one; that `count++` hovers as `count`'s own type rather than a
+  promotion of it, which is what keeps a `byte` counter a `byte`; and — the part a developer feels
+  without naming — that **the right-hand side of `&&` sees what the left-hand side proved**, so
+  `text != null && text.Length > 0` offers `string`'s members on `text` rather than `string?`'s, and
+  the mirror on `||`.
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 9,611 LINES, 8,576 NON-BLANK.** The same three
+  things: the SHORT list of remaining declaration walkers; **THE EXPRESSION WALK, now 20 arms of
+  policy instead of 22, and the largest bloc is GONE**; and the mechanical host — now **SIXTEEN**
+  driver loops, of which exactly FIVE return.
+
+  * **NEXT: `identifier` (66 lines), AS THE SLICE-52 SEQUENCE NAMED, AND IT IS THE SMALLEST ARM LEFT.**
+    `ResolveIdentifier` has **TWO call sites** — the dispatch arm and `AnalyzeIdentifierCallTarget`,
+    the call arm's callee path — so it is a RULE with two consumers rather than a walk with one, and
+    the honest shape is almost certainly the compound-assignment door this slice just cut rather than
+    a driver loop: measure whether it takes any expression STEP at all before designing one. It must
+    land before anything that walks a receiver, because a member's receiver walk IS the identifier
+    walk. **THE THREE PRE-MEASUREMENTS TO TAKE AT THAT TIP BEFORE ANY DESIGN:** (a) does
+    `ResolveIdentifier` take an expression step, or is it a pure lookup over the scope stack, the
+    binding map and the semantic model — if the latter, it needs no request type, no state and no
+    driver, and the slice is a MOVE plus two routed call sites; (b) what does it hold that is REBUILT
+    with the metadata load context — if it reaches assignability or the CLR conversion it must go
+    through a `Create…` factory as this slice's owner does, and if not it can be a constructor field;
+    (c) how many diagnostics are its own — NL301 "not found" is certainly one, but measure whether the
+    method-group and event paths report here or in the arms that consume the answer, because slice 51
+    and 52 both found a family whose reports all belonged to collaborators.
+  * **THEN, UNCHANGED FROM THE SLICE-52 SEQUENCE:** `member` (87) after identifier; `new` (183),
+    which reads the target-typing slot; `index` (70) and `array` (57), which are small and which the
+    assignment arm needs as TARGETS; `assignment` (207 in its own member, plus the five write-target
+    reporters this slice's driver kinds 6–10 still route to — **taking assignment RETIRES FIVE OF THIS
+    SLICE'S TEN DRIVER KINDS**, which is the same measurable follow-on this slice just collected from
+    slice 52); `match` (72), `with` (54), `range` (27) and `on` (85); `call` (87 in its own member but
+    by far the most entangled); and **`lambda` (104) LAST**, still the only arm with TWO production
+    entry points — the dispatch arm and `AnalyzeExpressionWithExpectedType`'s fork — now measured at
+    **NINE call sites across four owners** (`AnalyzeExpression`, `AnalyzeExpressionWithExpectedType`,
+    `AnalyzeOnSubscription` and `FinalizeBoundReflectionCall`).
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 52 — THE TARGET-TYPED OPERAND FAMILY
   (`cast` / `checked` / `unchecked` / `ternary`), ALL FOUR ARMS, TERMINAL.** Target recorded BEFORE
   any production edit, at `5e2a28a89` (`Analyzer.cs` **10,813** lines, non-blank **9,612**, member
   declarations **419** by the narrow metric — lines matching

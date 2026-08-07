@@ -38,8 +38,10 @@ import NSharpLang.Compiler.Ast
 // are trying to leave; but any of them firing makes the expression `unknown` and the common-type step
 // is never asked for.
 //
-// (6) NUMERIC WIDENING IS NOT THIS FAMILY'S RULE. The walk decides when a common type is wanted and
-// over which two answers; the answer comes back from the host like any other step's.
+// (6) NUMERIC WIDENING IS NOT THIS FAMILY'S RULE, AND IT IS NO LONGER A STEP EITHER. While the
+// promotion tables lived in the host, a ternary's common type had to be asked for as a fourth step;
+// the operator arms own those tables now, so the ternary takes THREE steps and calls
+// `AnalyzerOperatorExpressions.CommonType` for its answer.
 class TargetTypedStep {
     Kind: int
     NodeName: string
@@ -49,10 +51,8 @@ class TargetTypedStep {
     ResultBefore: string
     ExpectedOperand: string
     AmbientBefore: string
-    LeftOperand: string
-    RightOperand: string
 
-    constructor(kind: int, nodeName: string, line: int, column: int, errorsBefore: int, resultBefore: string, expectedOperand: string, ambientBefore: string, leftOperand: string, rightOperand: string) {
+    constructor(kind: int, nodeName: string, line: int, column: int, errorsBefore: int, resultBefore: string, expectedOperand: string, ambientBefore: string) {
         Kind = kind
         NodeName = nodeName
         Line = line
@@ -61,8 +61,6 @@ class TargetTypedStep {
         ResultBefore = resultBefore
         ExpectedOperand = expectedOperand
         AmbientBefore = ambientBefore
-        LeftOperand = leftOperand
-        RightOperand = rightOperand
     }
 }
 
@@ -147,8 +145,8 @@ func TargetTypedNodeName(node: Expression?): string {
 // ── the target-typed driver, exactly as `Analyzer.cs` writes it ─────────
 //
 // The one difference is that the expression steps are ANSWERED from a supplied list rather than by
-// re-entering the analyzer's own walk, which is the one thing a contract cannot replay — and that
-// includes the common-type step, whose answer is the host's numeric widening rule. Every step records
+// re-entering the analyzer's own walk, which is the one thing a contract cannot replay. Every step
+// records
 // the error count, the walk's result AS THE STEP WAS HANDED OUT, the expected type THE STEP ITSELF
 // CARRIES — which is the operand this family exists to decide — and the ambient slot at that instant.
 func TargetTypedRun(harness: TargetTypedHarness, state: TargetTypedOperandState, answers: List<TypeInfo?>): List<TargetTypedStep> {
@@ -156,7 +154,7 @@ func TargetTypedRun(harness: TargetTypedHarness, state: TargetTypedOperandState,
     step := harness.Operands.NextStep(state)
     while step != null {
         index := steps.Count
-        steps.Add(new TargetTypedStep(step.Kind, TargetTypedNodeName(step.Node), step.Line, step.Column, harness.Errors.Count, TargetTypedTypeText(harness.Operands.Result(state)), TargetTypedTypeText(step.ExpectedType), TargetTypedTypeText(harness.Ambient.CurrentExpectedType), TargetTypedTypeText(step.LeftType), TargetTypedTypeText(step.RightType)))
+        steps.Add(new TargetTypedStep(step.Kind, TargetTypedNodeName(step.Node), step.Line, step.Column, harness.Errors.Count, TargetTypedTypeText(harness.Operands.Result(state)), TargetTypedTypeText(step.ExpectedType), TargetTypedTypeText(harness.Ambient.CurrentExpectedType)))
         answer: TypeInfo? = null
         if index < answers.Count {
             answer = answers[index]
@@ -179,12 +177,11 @@ func TargetTypedNone(): List<TypeInfo?> {
     return new List<TypeInfo?>()
 }
 
-func TargetTypedFour(condition: TypeInfo?, thenAnswer: TypeInfo?, elseAnswer: TypeInfo?, common: TypeInfo?): List<TypeInfo?> {
+func TargetTypedThree(condition: TypeInfo?, thenAnswer: TypeInfo?, elseAnswer: TypeInfo?): List<TypeInfo?> {
     answers := new List<TypeInfo?>()
     answers.Add(condition)
     answers.Add(thenAnswer)
     answers.Add(elseAnswer)
-    answers.Add(common)
     return answers
 }
 
@@ -252,10 +249,10 @@ test "EVERY FORM ASKS ONLY FOR THE KINDS THIS WALK DEFINES" {
     index := 0
     while index < nodes.Count {
         state := harness.Operands.Begin(nodes[index])
-        steps := TargetTypedRun(harness, state, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+        steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
         stepIndex := 0
         while stepIndex < steps.Count {
-            assert steps[stepIndex].Kind >= 1 && steps[stepIndex].Kind <= 3
+            assert steps[stepIndex].Kind >= 1 && steps[stepIndex].Kind <= 2
             stepIndex = stepIndex + 1
         }
 
@@ -263,7 +260,7 @@ test "EVERY FORM ASKS ONLY FOR THE KINDS THIS WALK DEFINES" {
     }
 }
 
-test "THE STEP COUNT IS THE FORM'S SHAPE — THREE FORMS ONE, A TERNARY FOUR" {
+test "THE STEP COUNT IS THE FORM'S SHAPE — THREE FORMS ONE, A TERNARY THREE" {
     harness := TargetTypedDefault()
     castState := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"))
     castSteps := TargetTypedRun(harness, castState, TargetTypedOne(BuiltInTypes.String))
@@ -284,14 +281,13 @@ test "THE STEP COUNT IS THE FORM'S SHAPE — THREE FORMS ONE, A TERNARY FOUR" {
     assert uncheckedSteps.Count == 1
 
     ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
-    ternarySteps := TargetTypedRun(harness, ternaryState, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    ternarySteps := TargetTypedRun(harness, ternaryState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert ternaryState.Form == 3
-    assert ternarySteps.Count == 4
+    assert ternarySteps.Count == 3
     assert ternarySteps[0].Kind == 2
     assert ternarySteps[1].Kind == 2
     assert ternarySteps[2].Kind == 2
-    assert ternarySteps[3].Kind == 3
 }
 
 test "A NODE THAT IS NONE OF THE FOUR TAKES NO STEPS AND ANSWERS unknown" {
@@ -338,12 +334,11 @@ test "THE ANSWER IS NOT SETTLED BEFORE THE STEPS" {
     assert TargetTypedTypeText(harness.Operands.Result(castState)) == "int"
 
     ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
-    ternarySteps := TargetTypedRun(harness, ternaryState, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    ternarySteps := TargetTypedRun(harness, ternaryState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert ternarySteps[0].ResultBefore == "unknown"
     assert ternarySteps[1].ResultBefore == "unknown"
     assert ternarySteps[2].ResultBefore == "unknown"
-    assert ternarySteps[3].ResultBefore == "unknown"
     assert TargetTypedTypeText(harness.Operands.Result(ternaryState)) == "int"
 }
 
@@ -548,7 +543,7 @@ test "A TERNARY WALKS ITS CONDITION UNDER bool AND BOTH ARMS UNDER ITS OWN EXPEC
     saved := harness.Ambient.EnterExpectedType(BuiltInTypes.Long)
     state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
 
-    steps := TargetTypedRun(harness, state, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Long, BuiltInTypes.Long, BuiltInTypes.Long))
+    steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Long, BuiltInTypes.Long))
 
     assert steps[0].NodeName == "flag"
     assert steps[0].ExpectedOperand == "bool"
@@ -563,7 +558,7 @@ test "A TERNARY WITH NOTHING IN FORCE NAMES NOTHING FOR ITS ARMS AND STILL NAMES
     harness := TargetTypedDefault()
     state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
 
-    steps := TargetTypedRun(harness, state, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert steps[0].ExpectedOperand == "bool"
     assert steps[1].ExpectedOperand == "<null>"
@@ -574,7 +569,7 @@ test "THE CONDITION IS TOLD IT IS NOT A BOOLEAN BEFORE EITHER ARM IS WALKED" {
     harness := TargetTypedDefault()
     state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("n", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
 
-    steps := TargetTypedRun(harness, state, TargetTypedFour(BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert steps[0].ErrorsBefore == 0
     assert steps[1].ErrorsBefore == 1
@@ -585,23 +580,20 @@ test "AN unknown CONDITION IS NOT ACCUSED TWICE" {
     harness := TargetTypedDefault()
     state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("n", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
 
-    TargetTypedRun(harness, state, TargetTypedFour(BuiltInTypes.Unknown, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Unknown, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert harness.Errors.Count == 0
 }
 
-test "A TERNARY IS THE COMMON TYPE STEP'S ANSWER, ASKED OVER BOTH ARMS IN SOURCE ORDER" {
+test "A TERNARY IS THE COMMON TYPE OF ITS TWO ARMS, TAKEN IN SOURCE ORDER AND NOT AS A STEP" {
     harness := TargetTypedDefault()
     state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
 
-    steps := TargetTypedRun(harness, state, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Long, BuiltInTypes.Long))
+    steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Long))
 
-    assert steps[3].Kind == 3
-    assert steps[3].NodeName == "<null>"
-    assert steps[3].LeftOperand == "int"
-    assert steps[3].RightOperand == "long"
-    assert steps[3].Line == 2
-    assert steps[3].Column == 5
+    // The walk ends at the else arm: the common type is a CALL into the operator arms' promotion
+    // tables, not a fourth step the host has to answer.
+    assert steps.Count == 3
     assert TargetTypedTypeText(harness.Operands.Result(state)) == "long"
 }
 
@@ -609,7 +601,7 @@ test "ALL FOUR OF A TERNARY'S ESCAPE REPORTS RUN AND NONE STOPS ANOTHER" {
     harness := TargetTypedDefault()
     state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
 
-    steps := TargetTypedRun(harness, state, TargetTypedFour(BuiltInTypes.Bool, TargetTypedRow("Points"), TargetTypedRow("Points"), BuiltInTypes.Int))
+    steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, TargetTypedRow("Points"), TargetTypedRow("Points")))
 
     // BOTH arms are told, and the common type is never asked for.
     assert steps.Count == 3
@@ -626,7 +618,7 @@ test "A TERNARY WHOSE ARM IS A DIRECT COLUMN VALUE IS REFUSED BY THE SECOND PAIR
     columnArm: Expression = column
     state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), columnArm, TargetTypedIdentifier("b", 2, 22)))
 
-    steps := TargetTypedRun(harness, state, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert steps.Count == 3
     assert harness.Errors.Count == 1
@@ -634,18 +626,20 @@ test "A TERNARY WHOSE ARM IS A DIRECT COLUMN VALUE IS REFUSED BY THE SECOND PAIR
     assert TargetTypedTypeText(harness.Operands.Result(state)) == "unknown"
 }
 
-test "A TERNARY THAT ESCAPES NEVER ASKS FOR A COMMON TYPE" {
+test "A TERNARY THAT ESCAPES ANSWERS unknown WITHOUT TAKING A COMMON TYPE" {
     harness := TargetTypedDefault()
     clean := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
-    cleanSteps := TargetTypedRun(harness, clean, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    cleanSteps := TargetTypedRun(harness, clean, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
-    assert cleanSteps.Count == 4
+    assert cleanSteps.Count == 3
+    assert TargetTypedTypeText(harness.Operands.Result(clean)) == "int"
 
     escaped := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 3, 9), TargetTypedIdentifier("a", 3, 16), TargetTypedIdentifier("b", 3, 20)))
-    escapedSteps := TargetTypedRun(harness, escaped, TargetTypedFour(BuiltInTypes.Bool, TargetTypedRow("Points"), BuiltInTypes.Int, BuiltInTypes.Int))
+    escapedSteps := TargetTypedRun(harness, escaped, TargetTypedThree(BuiltInTypes.Bool, TargetTypedRow("Points"), BuiltInTypes.Int))
 
     assert escapedSteps.Count == 3
     assert escapedSteps[2].Kind == 2
+    assert TargetTypedTypeText(harness.Operands.Result(escaped)) == "unknown"
 }
 
 test "A TERNARY ARM THAT IS ITSELF A ternary NESTS WITHOUT THE OUTER WALK NOTICING" {
@@ -655,15 +649,15 @@ test "A TERNARY ARM THAT IS ITSELF A ternary NESTS WITHOUT THE OUTER WALK NOTICI
 
     // The outer walk hands out its else step; the driver would answer it by walking the inner
     // ternary, which is a walk of its own with its own state.
-    outerSteps := TargetTypedRun(harness, outer, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    outerSteps := TargetTypedRun(harness, outer, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
-    assert outerSteps.Count == 4
+    assert outerSteps.Count == 3
     assert outerSteps[2].NodeName == "TernaryExpression"
 
     innerState := harness.Operands.Begin(inner)
-    innerSteps := TargetTypedRun(harness, innerState, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    innerSteps := TargetTypedRun(harness, innerState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
-    assert innerSteps.Count == 4
+    assert innerSteps.Count == 3
     assert TargetTypedTypeText(harness.Operands.Result(innerState)) == "int"
 }
 
@@ -679,7 +673,7 @@ test "THIS FAMILY RAISES NO DIAGNOSTIC OF ITS OWN — EVERY REPORT BELONGS TO A 
     uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("v", 4, 17), 4, 5))
     TargetTypedRun(harness, uncheckedState, TargetTypedOne(BuiltInTypes.String))
     ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 5, 9), TargetTypedIdentifier("a", 5, 16), TargetTypedIdentifier("b", 5, 20)))
-    TargetTypedRun(harness, ternaryState, TargetTypedFour(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
+    TargetTypedRun(harness, ternaryState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     // Four clean walks over four forms: nothing this family owns reports on its own account.
     assert harness.Errors.Count == 0
