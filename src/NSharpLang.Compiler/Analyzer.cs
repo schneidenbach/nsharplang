@@ -386,6 +386,14 @@ public class Analyzer : IDisposable
     // the type resolver, the ambient context and the SoA escape owner, none of which the rebuild
     // replaces — the well-known-type bag, which the rebuild DOES replace, is passed per walk instead.
     private readonly AnalyzerCompileTimeConstants _compileTimeConstants;
+    // WHAT AN OPERATOR THAT HANDS ITS OPERAND THROUGH MEANS: `throw`, `is`, `spread`, `alloc`,
+    // `must`, `stackalloc`, a tuple and `await`, as one walk that ANSWERS a type. Every form suspends
+    // — seven exactly once, a tuple once per element — and every one of them consumes the answer,
+    // because the operand IS the question. NOT rebuilt with the SCC: it holds the sink, the span
+    // reader, the SoA escape owner, the type resolver, the ambient context, the declaration context,
+    // the loop-sequence shape normaliser and the constant facts, none of which the rebuild replaces —
+    // the pattern reachability checker, which the rebuild DOES replace, is passed per walk instead.
+    private readonly AnalyzerPassThroughOperands _passThroughOperands;
     private bool _disposed;
 
     public Analyzer()
@@ -449,6 +457,9 @@ public class Analyzer : IDisposable
         _syntheticCallBinder = CreateSyntheticCallBinder();
         _syntheticCallWalk = CreateSyntheticCallWalk();
         _constantExpressionFacts = new AnalyzerConstantExpressionFacts(_scopes, _declarationContext);
+        _passThroughOperands = new AnalyzerPassThroughOperands(
+            _diagnostics, _spans, _soaEscape, _typeResolver, _ambient, _declarationContext,
+            _loopSequence, _constantExpressionFacts);
         _syntheticCallValidator = CreateSyntheticCallValidator();
         _reflectionCallReporter = CreateReflectionCallReporter();
         _callAnalysis = CreateCallAnalysis();
@@ -2899,6 +2910,34 @@ public class Analyzer : IDisposable
         return _compileTimeConstants.Result(state);
     }
 
+    /// <summary>
+    /// Performs the expression steps <see cref="AnalyzerPassThroughOperands"/> asks for and returns
+    /// the type it decided. Every policy about what an operator that hands its operand through
+    /// means — that a `throw` is `never`, an `is` a `bool`, a `spread` and an `alloc` their operand,
+    /// a `must` one layer less nullable, a `stackalloc` a `Span` of its written element type, a
+    /// tuple the tuple of its elements and an `await` the awaited result — belongs to the N# owner.
+    /// Unlike the two families before it, none of these forms can answer before its operand has been
+    /// walked, so every one of them suspends: seven exactly once, and a tuple once per element.
+    /// A tuple's steps are bracketed by the owner with the expected type its annotation implies for
+    /// that element; the bracket opens inside <c>NextStep</c> and closes in the phase after
+    /// <c>Supply</c>, so nothing between them observes the slot and this loop stays unaware of it.
+    /// The pattern reachability checker is handed to <c>Begin</c> rather than held by the owner,
+    /// because it is rebuilt with the metadata load context; passing it here reads it at the same
+    /// instant the dispatch reached the node. This loop decides nothing: it performs the one
+    /// operation it is handed, with the operand it is handed.
+    /// </summary>
+    private TypeInfo DrivePassThroughOperand(PassThroughOperandState state)
+    {
+        for (var step = _passThroughOperands.NextStep(state);
+             step != null;
+             step = _passThroughOperands.NextStep(state))
+        {
+            _passThroughOperands.Supply(state, AnalyzeExpression(step.Node!));
+        }
+
+        return _passThroughOperands.Result(state);
+    }
+
     private TypeInfo AnalyzeExpression(Expression expr)
     {
         var type = expr switch
@@ -2909,7 +2948,9 @@ public class Analyzer : IDisposable
             IdentifierExpression ident => ResolveIdentifier(ident.Name, ident.Line, ident.Column),
             BinaryExpression binary => AnalyzeBinaryExpression(binary),
             UnaryExpression unary => AnalyzeUnaryExpression(unary),
-            MustExpression must => AnalyzeMustExpression(must),
+            ThrowExpression or IsExpression or SpreadExpression or AllocExpression
+                or MustExpression or StackAllocExpression or TupleExpression or AwaitExpression
+                => DrivePassThroughOperand(_passThroughOperands.Begin(expr, _patternReachability)),
             MemberAccessExpression member => AnalyzeMemberAccess(member),
             IndexAccessExpression index => AnalyzeIndexAccess(index),
             CallExpression call => AnalyzeCall(call),
@@ -2917,15 +2958,9 @@ public class Analyzer : IDisposable
             OnSubscriptionExpression on => AnalyzeOnSubscription(on),
             LambdaExpression lambda => AnalyzeLambda(lambda, _ambient.CurrentExpectedType),
             TernaryExpression ternary => AnalyzeTernary(ternary),
-            TupleExpression tuple => AnalyzeTupleExpression(tuple),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
-            AllocExpression alloc => AnalyzeAllocExpression(alloc),
-            StackAllocExpression stackAlloc => AnalyzeStackAllocExpression(stackAlloc),
             CastExpression cast => AnalyzeCastExpression(cast),
-            IsExpression isExpr => AnalyzeIsExpression(isExpr),
-            AwaitExpression await => AnalyzeAwaitExpression(await),
-            ThrowExpression throwExpr => AnalyzeThrowExpression(throwExpr),
             ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
             BaseExpression => AnalyzeBaseExpression(),
             MatchExpression match => AnalyzeMatchExpression(match),
@@ -2934,7 +2969,6 @@ public class Analyzer : IDisposable
             CheckedExpression checkedExpr => AnalyzeCheckedExpression(checkedExpr),
             UncheckedExpression uncheckedExpr => AnalyzeUncheckedExpression(uncheckedExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
-            SpreadExpression spread => AnalyzeSpreadExpression(spread),
             WithExpression with => AnalyzeWithExpression(with),
             ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
             _ => BuiltInTypes.Unknown
@@ -3126,40 +3160,6 @@ public class Analyzer : IDisposable
             column,
             "Use an int bound, '^n' with an int count, or convert the value before building the range.",
             length);
-    }
-
-    private TypeInfo AnalyzeSpreadExpression(SpreadExpression spread)
-    {
-        // Analyze the inner expression
-        var innerType = AnalyzeExpression(spread.Expression);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(spread.Expression, innerType, "spread"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-        if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(spread.Expression, "spread"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        // For spread in function calls, we expect the inner expression to be an array or enumerable.
-        // Later validation reports invalid spread shapes; for now, return the inner collection type.
-        return innerType;
-    }
-
-    private TypeInfo AnalyzeAllocExpression(AllocExpression alloc)
-    {
-        var innerType = AnalyzeExpression(alloc.Expression);
-        if (innerType is SoaRowTypeInfo)
-        {
-            ReportSoaRowHiddenAllocation(alloc.Expression);
-            return BuiltInTypes.Unknown;
-        }
-        if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(alloc.Expression, "used in an alloc expression"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        return innerType;
     }
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)
@@ -4085,38 +4085,6 @@ public class Analyzer : IDisposable
         return BuiltInTypes.Unknown;
     }
 
-    private TypeInfo AnalyzeMustExpression(MustExpression must)
-    {
-        var operandType = AnalyzeExpression(must.Expression);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(must.Expression, operandType, "unwrapped with 'must'"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-        if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(must.Expression, "unwrapped with 'must'"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (operandType is NullableTypeInfo nullable)
-        {
-            return nullable.InnerType;
-        }
-
-        if (BuiltInTypes.IsUnknown(operandType))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        Error(
-            ErrorCode.NullabilityWarning,
-            $"This 'must' unwrap is redundant — the expression is already known to be '{operandType}'",
-            must.Line,
-            must.Column,
-            "Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.",
-            length: 4);
-        return operandType;
-    }
-
     private TypeInfo AnalyzeMemberAccess(MemberAccessExpression member)
     {
         // Check if this is an aliased import access (Alias.Symbol)
@@ -4885,18 +4853,6 @@ public class Analyzer : IDisposable
             member.Line,
             AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, member.Name, member.Line, member.Column),
             member.KindName);
-    }
-
-    private void ReportSoaRowHiddenAllocation(Expression expression)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        Error(
-            ErrorCode.InvalidSyntax,
-            "this operation would allocate row objects; use column access instead",
-            line,
-            column,
-            "Read or write a column with table[index].column in the same expression.",
-            length);
     }
 
     private void ReportSoaTableNullConditionalAccess(MemberAccessExpression member)
@@ -7587,53 +7543,6 @@ public class Analyzer : IDisposable
         return GetCommonType(thenType, elseType);
     }
 
-    private TypeInfo AnalyzeTupleExpression(TupleExpression tuple)
-    {
-        var elements = new List<TupleTypeElementInfo>(tuple.Elements.Count);
-
-        for (var i = 0; i < tuple.Elements.Count; i++)
-        {
-            var element = tuple.Elements[i];
-            var expectedElementType = GetExpectedTupleElementType(tuple, i);
-            var previousExpectedType = _ambient.EnterExpectedTypeIfProvided(expectedElementType);
-            var elementType = AnalyzeExpression(element.Value);
-            _ambient.ExitExpectedType(previousExpectedType);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(element.Value, elementType, "stored in a tuple");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(element.Value, "stored in a tuple");
-            elements.Add(new TupleTypeElementInfo(element.Name, elementType));
-        }
-
-        return new TupleTypeInfo(elements);
-    }
-
-    private TypeInfo? GetExpectedTupleElementType(TupleExpression tuple, int elementIndex)
-    {
-        if (_ambient.CurrentExpectedType == null)
-        {
-            return null;
-        }
-
-        if (_declarationContext.ResolveDeclaredAlias(_ambient.CurrentExpectedType) is not TupleTypeInfo expectedTuple
-            || elementIndex >= expectedTuple.Elements.Count)
-        {
-            return null;
-        }
-
-        var element = tuple.Elements[elementIndex];
-        if (element.Name != null)
-        {
-            foreach (var expectedElement in expectedTuple.Elements)
-            {
-                if (expectedElement.Name == element.Name)
-                {
-                    return expectedElement.Type;
-                }
-            }
-        }
-
-        return expectedTuple.Elements[elementIndex].Type;
-    }
-
     private (TypeInfo ElementType, string TargetKind)? GetExpectedElementType(TypeInfo? expectedType)
     {
         if (expectedType == null)
@@ -8564,60 +8473,6 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Analyzes a stackalloc expression. The length subtree gets full semantic analysis (name
-    /// resolution, type recording) like any other expression — the systems policy gate (NSYS080)
-    /// layers on top of these semantic checks and can be downgraded to a warning inside
-    /// [boundary]/audit code, so undefined names and non-int lengths must be rejected here
-    /// before either backend can see them.
-    /// </summary>
-    private TypeInfo AnalyzeStackAllocExpression(StackAllocExpression stackAlloc)
-    {
-        var lengthType = AnalyzeExpression(stackAlloc.LengthExpression);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(stackAlloc.LengthExpression, lengthType, "used as a stackalloc length")
-            || _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(stackAlloc.LengthExpression, "used as a stackalloc length"))
-        {
-            // A SoA-specific diagnostic is more useful than the generic int-length mismatch.
-        }
-        else if (!BuiltInTypes.IsUnknown(lengthType) && !IsImplicitlyIntStackAllocLength(lengthType))
-        {
-            Error(ErrorCode.TypeMismatch,
-                $"stackalloc length must be an int, but this is a '{lengthType}'",
-                stackAlloc.LengthExpression.Line,
-                stackAlloc.LengthExpression.Column,
-                "Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.");
-        }
-        else if (_constantExpressionFacts.IsConstantNegative(stackAlloc.LengthExpression))
-        {
-            Error(ErrorCode.TypeMismatch,
-                "stackalloc length must not be negative",
-                stackAlloc.LengthExpression.Line,
-                stackAlloc.LengthExpression.Column,
-                "Use a length of zero or more.");
-        }
-
-        return new GenericTypeInfo(
-            "Span",
-            new List<TypeInfo> { _typeResolver.ResolveType(stackAlloc.ElementType) },
-            new ReflectionTypeInfo(typeof(Span<>)));
-    }
-
-    /// <summary>
-    /// A stackalloc length must implicitly widen to int (matching N#'s element-count rule):
-    /// int itself plus the smaller integer types. long/uint/ulong, floating point, and
-    /// non-numeric types require an explicit conversion.
-    /// </summary>
-    private bool IsImplicitlyIntStackAllocLength(TypeInfo type)
-    {
-        type = _declarationContext.ResolveDeclaredAlias(type);
-        return BuiltInTypes.Is(type, BuiltInTypes.Int)
-               || BuiltInTypes.Is(type, BuiltInTypes.Short)
-               || BuiltInTypes.Is(type, BuiltInTypes.SByte)
-               || BuiltInTypes.Is(type, BuiltInTypes.Byte)
-               || BuiltInTypes.Is(type, BuiltInTypes.UShort)
-               || BuiltInTypes.Is(type, BuiltInTypes.Char);
-    }
-
-    /// <summary>
     /// The static type of a union case construction (new Union.Case { ... }). For a
     /// non-generic union that is the union itself; for a generic union the type
     /// arguments come after the case name (new Result.Success&lt;int&gt; { ... }) or are
@@ -8682,30 +8537,6 @@ public class Analyzer : IDisposable
         return unionType;
     }
 
-    /// <summary>
-    /// Resolves a declared member type at a use site under a generic substitution map
-    /// (value: T on Result&lt;int&gt; or Item: T on Box&lt;Pt&gt; resolve to the closed
-    /// argument). Used for union case property bindings and object-initializer member
-    /// type checks on closed generic instantiations.
-    /// </summary>
-    private TypeInfo AnalyzeIsExpression(IsExpression isExpr)
-    {
-        var sourceType = AnalyzeExpression(isExpr.Expression);
-        var targetType = _typeResolver.ResolveType(isExpr.Type);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(isExpr.Expression, sourceType, "tested with 'is'"))
-        {
-            return BuiltInTypes.Bool;
-        }
-        if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(isExpr.Expression, "tested with 'is'"))
-        {
-            return BuiltInTypes.Bool;
-        }
-
-        _patternReachability.CheckIsExpression(isExpr, sourceType, targetType);
-
-        return BuiltInTypes.Bool;
-    }
-
     private TypeInfo AnalyzeCastExpression(CastExpression cast)
     {
         var targetType = _typeResolver.ResolveType(cast.TargetType);
@@ -8728,120 +8559,6 @@ public class Analyzer : IDisposable
         => cast.Kind == CastKind.Hard
             && (cast.Expression is DefaultExpression
                 or NewExpression { Type: null });
-
-    private TypeInfo AnalyzeAwaitExpression(AwaitExpression await)
-    {
-        var exprType = AnalyzeExpression(await.Expression);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(await.Expression, exprType, "awaited"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-        if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(await.Expression, "awaited"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (TryGetAwaitExpressionResultType(exprType, out var resultType))
-        {
-            return resultType;
-        }
-
-        if (ShouldReportAwaitExpressionTypeMismatch(exprType))
-        {
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(await.Expression);
-            Error(
-                ErrorCode.TypeMismatch,
-                $"await expression needs an awaitable value, but this expression is '{exprType}'",
-                line,
-                column,
-                "Await a Task, ValueTask, or another value with a GetAwaiter() pattern.",
-                length);
-        }
-
-        return BuiltInTypes.Unknown;
-    }
-
-    private bool TryGetAwaitExpressionResultType(TypeInfo awaitableType, out TypeInfo resultType)
-    {
-        resultType = BuiltInTypes.Unknown;
-
-        var resolved = _loopSequence.NormalizeShapeType(awaitableType);
-        if (BuiltInTypes.IsUnknown(resolved) || resolved is ExternalTypeInfo)
-        {
-            return false;
-        }
-
-        if (AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(resolved, out resultType))
-        {
-            return true;
-        }
-
-        if (AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(resolved))
-        {
-            resultType = BuiltInTypes.Void;
-            return true;
-        }
-
-        if (resolved is ReflectionTypeInfo reflectionType
-            && TryGetReflectionAwaitResultType(reflectionType.Type, out resultType))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool ShouldReportAwaitExpressionTypeMismatch(TypeInfo awaitableType)
-    {
-        var resolved = _loopSequence.NormalizeShapeType(awaitableType);
-        return !BuiltInTypes.IsUnknown(resolved)
-            && resolved is not ClassTypeInfo
-            && resolved is not StructTypeInfo
-            && resolved is not RecordTypeInfo
-            && resolved is not InterfaceTypeInfo;
-    }
-
-    private bool TryGetReflectionAwaitResultType(Type type, out TypeInfo resultType)
-    {
-        resultType = BuiltInTypes.Unknown;
-
-            var runtimeType = Nullable.GetUnderlyingType(type) ?? type;
-            var getAwaiterMethod = runtimeType.GetMethod(
-                "GetAwaiter",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                binder: null,
-                types: Type.EmptyTypes,
-                modifiers: null);
-            if (getAwaiterMethod == null)
-            {
-                return false;
-            }
-
-            var awaiterType = getAwaiterMethod.ReturnType;
-            var getResultMethod = awaiterType.GetMethod(
-                "GetResult",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                binder: null,
-                types: Type.EmptyTypes,
-                modifiers: null);
-            if (getResultMethod == null)
-            {
-                return false;
-            }
-
-            resultType = getResultMethod.ReturnType == typeof(void)
-                ? BuiltInTypes.Void
-                : AnalyzerReflectionTypeConversion.ConvertReflectionType(getResultMethod.ReturnType);
-            return true;
-    }
-
-    private TypeInfo AnalyzeThrowExpression(ThrowExpression throwExpr)
-    {
-        var thrownType = AnalyzeExpression(throwExpr.Expression);
-        _soaEscape.ReportSoaRowEscapeIfNeeded(throwExpr.Expression, thrownType, "thrown");
-        _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(throwExpr.Expression, "thrown");
-        return BuiltInTypes.Never;
-    }
 
     private TypeInfo AnalyzeCheckedExpression(CheckedExpression checkedExpr)
     {

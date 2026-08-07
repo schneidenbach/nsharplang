@@ -1884,7 +1884,419 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 50 — THE COMPILE-TIME CONSTANT FAMILY
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 51 — THE PASS-THROUGH OPERAND FAMILY
+  (`throw` / `is` / `spread` / `alloc` / `must` / `stackalloc` / `tuple` / `await`), ALL EIGHT ARMS,
+  TERMINAL.** Target recorded BEFORE any production edit, at `b6f4a12cc` (`Analyzer.cs` **11,096**
+  lines, non-blank **9,859**, member declarations **432** by the narrow metric — lines matching
+  `^    (private|public|internal|protected).*\(` — and **494** by the broader modifier-line metric,
+  both applied identically to both trees; unit suite baseline **3,194**; contracts baseline
+  **3,139**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:947560820b307311`; `Analyzer.cs` ratchet row currentLines
+  **11,096** / currentNonBlank **9,859**, fingerprint `text-v1:952d81d2723e5f1d`, epoch ceilings
+  **23,451 / 20,537**).
+
+  **THE THREE PRE-MEASUREMENTS THE SLICE-50 BRIEF NAMED, TAKEN AT THIS TIP BEFORE ANY DESIGN.**
+  * **(a) `tuple`'S FOUR AMBIENT TOUCHES ARE NOT FOUR READS — THEY ARE TWO READS AND TWO WRITES, AND
+    THEY ARE PER STEP.** `GetExpectedTupleElementType` reads `_ambient.CurrentExpectedType` twice
+    (`:7611` the presence test, `:7616` the decomposition), and the arm then WRITES the slot with
+    `_ambient.EnterExpectedTypeIfProvided(expectedElementType)` (`:7598`) and restores it with
+    `_ambient.ExitExpectedType(previousExpectedType)` (`:7600`) — a save/restore BRACKET around the
+    element's own `AnalyzeExpression`. So `tuple` is not merely the arc's first per-step ambient
+    READ; it is the arc's first arm that MUTATES the target-typing slot around each step. The read
+    instant is the top of iteration `i`, i.e. after the previous element's restore, which is exactly
+    where `NextStep` is called by the existing driver loop. **THE SMALLEST CORRECT SHAPE**: the
+    OWNER brackets the step — `NextStep` reads the slot, decomposes it for element `i` and enters;
+    the phase that runs immediately after `Supply` exits. The driver stays zero-policy and unchanged
+    in shape, because nothing between `Supply(i)` and `NextStep(i+1)` observes the slot. The step
+    SCHEDULE stays a pure function of the node (`tuple.Elements.Count`); only the OPERANDS are
+    ambient.
+  * **(b) `await` IS ONE ARM, AND THE COUPLING THE BRIEF FEARED DOES NOT EXIST.** Measured: its
+    exclusive closure is FOUR members / 102 lines (`AnalyzeAwaitExpression` 31,
+    `TryGetAwaitExpressionResultType` 29, `ShouldReportAwaitExpressionTypeMismatch` 9,
+    `TryGetReflectionAwaitResultType` 33), each with EXACTLY ONE caller. **There is NO async-context
+    check in it at all** — the only other mention of `AwaitExpression` in `Analyzer.cs` is the
+    shape-name table at `:7522`, the same "different question" table slices 49 and 50 both refused
+    to absorb. Its step schedule is identical to the other seven (exactly one step, answer-consumed),
+    it raises the same two SoA reports plus ONE `TypeMismatch`, and every collaborator it adds is
+    already N#-owned: `AnalyzerLoopSequence.NormalizeShapeType` (the one NEW collaborator),
+    `AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo` / `IsUnitTaskLikeTypeInfo` (statics)
+    and `AnalyzerReflectionTypeConversion.ConvertReflectionType` (static). Its raw reflection —
+    `GetMethod(name, flags, null, noParameters, null)`, `get_ReturnType()`,
+    `Nullable.GetUnderlyingType` — is spelled IDENTICALLY today in `AnalyzerLoopSequence.nl:606-616`
+    and `AnalyzerResourceStatements.nl:895-897`. **COSTED BOTH FORKS**: cutting it separately buys a
+    second file, a second state type, a second zero-policy driver, a second protocol differential and
+    a second contract set for a body that shares this family's protocol exactly — roughly doubling the
+    fixed cost to move 102 lines. Taken WITH the seven it costs one extra collaborator and four
+    phases. **VERDICT: one arm, in this slice.**
+  * **(c) `alloc` AND `stackalloc` DO NOT SHARE A DIAGNOSTIC BAND — THE COUNTS COINCIDE AND THE BANDS
+    DO NOT.** `alloc`'s row refusal is NOT `ReportSoaRowEscapeIfNeeded`: it tests
+    `innerType is SoaRowTypeInfo` itself (`:3152`) and calls its own **`ReportSoaRowHiddenAllocation`**
+    (`:4890`, `InvalidSyntax`, "this operation would allocate row objects") — a systems/allocation
+    rule, not an escape rule — plus the ordinary direct-column escape, and it has NO diagnostic of its
+    own beyond those two. `stackalloc` raises the two ORDINARY SoA escapes and TWO `TypeMismatch`
+    errors nothing in `alloc` has an analogue for (the length must implicitly widen to `int`; the
+    length must not be a negative constant). So unlike slice 47's accessors they get NO shared band —
+    but they DO share this family's shape, which is why they are still one slice.
+
+  **THE EIGHT ARMS, RE-VERIFIED AT THIS TIP — AND THE BRIEF IS WRONG IN TWO MORE WAYS.**
+  * `AnalyzeThrowExpression` (`:8838`–`:8844`, **7 lines**) — one step; **BOTH SoA reports run
+    UNCONDITIONALLY and their answers are DISCARDED** (`:8841`, `:8842`), so a row-view `throw` is
+    told TWICE where `nameof` stops after one. Answers `never` on every path.
+  * `AnalyzeIsExpression` (`:8691`–`:8707`, **17 lines**) — one step; **`_typeResolver.ResolveType`
+    runs AFTER the step and BEFORE both escape checks** (`:8694`), and it can report, so the order is
+    load-bearing. The pattern leg is already N#: `_patternReachability.CheckIsExpression`. Answers
+    `bool` on every path including both refusals.
+  * `AnalyzeSpreadExpression` (`:3131`–`:3147`, **17 lines**) — one step, both escapes short-circuit
+    to `unknown`, otherwise the operand type.
+  * `AnalyzeAllocExpression` (`:3149`–`:3163`, 15) **plus its EXCLUSIVE helper**
+    `ReportSoaRowHiddenAllocation` (`:4890`–`:4900`, 11, exactly ONE caller) — **26 lines**.
+  * `AnalyzeMustExpression` (`:4088`–`:4118`, **31 lines**) — one step; unwraps a `NullableTypeInfo`,
+    passes `unknown` through, and otherwise raises the redundant-unwrap `NullabilityWarning` AND
+    STILL ANSWERS THE OPERAND TYPE.
+  * `AnalyzeStackAllocExpression` (`:8573`–`:8602`, 30) **plus** `IsImplicitlyIntStackAllocLength`
+    (`:8609`–`:8618`, 10, one caller) — **40 lines**. Its two escapes are joined by `||`, so they
+    SHORT-CIRCUIT: a row-view length is told once, not twice. The element type is resolved LAST,
+    after every diagnostic, inside the returned `Span<T>`.
+  * `AnalyzeTupleExpression` (`:7590`–`:7607`, 18) **plus** `GetExpectedTupleElementType`
+    (`:7609`–`:7635`, 27, one caller) — **45 lines**, N steps, both reports per element with their
+    answers DISCARDED.
+  * `AnalyzeAwaitExpression` (`:8732`–`:8762`, 31) **plus** `TryGetAwaitExpressionResultType`
+    (`:8764`–`:8792`, 29), `ShouldReportAwaitExpressionTypeMismatch` (`:8794`–`:8802`, 9) and
+    `TryGetReflectionAwaitResultType` (`:8804`–`:8836`, 33) — **102 lines**.
+  **SO THE CUT IS FOURTEEN C# MEMBERS, 285 NAMED LINES, NOT EIGHT MEMBERS** — the brief counted
+  dispatch roots again, exactly as it did in slice 50. **AND THIS IS THE ARC'S FIRST FAMILY WHOSE
+  ANSWER IS A FUNCTION OF ITS STEP'S ANSWER**: slice 49's literals and slice 50's constants both
+  settled their result at `Begin` and could not be moved by any step, but `spread`, `alloc`, `must`,
+  `tuple` and `await` all DERIVE their result from the operand type, so `Result` here is decided in
+  the phase AFTER the step and `ResultType` starts `unknown`.
+
+  **`_patternReachability` IS REBUILT — SO IT IS SLICE 50'S `_wellKnownTypes`, AND IT IS NOT HELD.**
+  Measured: `_patternReachability` is NOT `readonly`; it is assigned at `:457`, **rebuilt at `:10572`
+  when the metadata load context creates the well-known types, and rebuilt again at `:10600` on
+  dispose**. An owner that held it would hold a stale one, which is exactly the trap slice 50 named.
+  It therefore arrives at `Begin` as an argument and is carried on the STATE for the one step `is`
+  takes — both rebuild sites are metadata-context setup/teardown and neither is reachable from an
+  expression walk, so the object carried across the step is the one `Analyzer.cs` read at `:8704`.
+  The other EIGHT collaborators are all `readonly`, constructed exactly once, and safe to hold:
+  `_diagnostics`, `_spans`, `_soaEscape`, `_typeResolver`, `_ambient`, `_declarationContext`,
+  `_loopSequence` and `_constantExpressionFacts`.
+
+  **PLACEMENT, COSTED.** Extending `AnalyzerCompileTimeConstants` would REUSE `DriveCompileTimeConstant`
+  and save ~27 C# lines (the new driver plus its doc, the owner field plus its doc, the construction) —
+  but that file's own thesis is "FOUR OPERATORS, ONE QUESTION … none of them evaluates its operand",
+  and all eight of these DO evaluate theirs; merging would make the file's stated reason for existing
+  false. `AnalyzerLiteralExpressions` is worse still. A NEW owner `AnalyzerPassThroughOperands.nl`
+  plus one new zero-policy answering driver `DrivePassThroughOperand` is the cheapest placement that
+  keeps one question per file — the convention that makes the emission-order differential legible per
+  family — and 27 C# lines is the priced difference.
+
+  **THE PLANNED CUT.** FOURTEEN C# members, 285 named lines, and eight dispatch arms collapse to one.
+  Against them: one new N# owner and one new driver (slice 49's answering loop, unchanged in shape).
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT AN OPERATOR THAT HANDS ITS OPERAND THROUGH MEANS,
+  ALL EIGHT FORMS, AND THE ARC GETS ITS FIRST WALK WHOSE ANSWER DEPENDS ON ITS STEP.**
+
+  **THE THREE PRE-MEASUREMENTS, ANSWERED.**
+  * **`tuple`'S PER-STEP AMBIENT IS REAL, AND IT IS A WRITE.** The four `_ambient` touches are TWO
+    READS (`:7611` presence, `:7616` decomposition — one instant, nothing between them can move the
+    slot) and TWO WRITES (`EnterExpectedTypeIfProvided` at `:7598`, `ExitExpectedType` at `:7600`),
+    a save/restore BRACKET around each element's own `AnalyzeExpression`. **THE SMALLEST CORRECT
+    SHAPE IS THAT THE OWNER BRACKETS THE STEP AND THE DRIVER NEVER LEARNS OF IT**: `NextStep` reads
+    the slot at the top of element `i`, decomposes it and enters; the phase that runs at the NEXT
+    `NextStep` exits, then reports, then records — the order `Analyzer.cs` used. Nothing runs between
+    `Supply(i)` and `NextStep(i+1)`, so the slot is restored before anything can observe it, and the
+    driver stayed byte-for-byte the shape slice 49 wrote. **THE TRANSCRIPT SHOWS THE BRACKET
+    DIRECTLY** — the probe carries the ambient slot on every row, and for `(byte, long)` it reads
+    `TupleTypeInfo` at ENTER, **`byte` at the first STEP and ANSWER, `long` at the second**, and
+    `TupleTypeInfo` again at RESULT, IDENTICALLY on both sides.
+  * **`await` IS ONE ARM AND THE ASYNC COUPLING DOES NOT EXIST.** Four members, 102 lines, one caller
+    each, no async-context check anywhere in the closure, one new collaborator
+    (`AnalyzerLoopSequence.NormalizeShapeType`), and its raw reflection is spelled identically in
+    `AnalyzerLoopSequence.nl` today. Cut with the seven it costs four phases; cut alone it would cost
+    a second file, state type, driver, protocol differential and contract set.
+  * **`alloc` AND `stackalloc` SHARE NO BAND.** `alloc`'s row refusal is the HIDDEN-ALLOCATION report
+    and it tests the type itself; `stackalloc`'s is the ordinary escape plus two element-count rules
+    `alloc` has no analogue for. The counts coincide at four; the bands do not.
+
+  **AND THE RE-VERIFICATION OVERTURNED THE BRIEF TWICE MORE.**
+  * **IT IS FOURTEEN MEMBERS, NOT EIGHT.** `alloc` carries `ReportSoaRowHiddenAllocation`,
+    `stackalloc` carries `IsImplicitlyIntStackAllocLength`, `tuple` carries
+    `GetExpectedTupleElementType` and `await` carries THREE — 285 named lines across fourteen members,
+    each with exactly one caller. The brief counted dispatch roots, exactly as in slice 50.
+  * **THIS IS THE ARC'S FIRST FAMILY WHOSE ANSWER IS A FUNCTION OF ITS STEP'S ANSWER.** Slices 49 and
+    50 both settled their result at `Begin` and no step could move it. Here `spread`, `alloc`, `must`,
+    `tuple` and `await` all DERIVE their answer from the operand, so `ResultType` starts `unknown` and
+    is decided in the phase AFTER the step. A contract pins it: the step's row carries the walk's
+    result as it was handed out, and it reads `unknown` while the answer is still outstanding.
+
+  **`_patternReachability` IS REBUILT, SO IT IS NOT HELD.** It is not `readonly`; it is assigned at
+  `:457`, **rebuilt at `:10572` when the metadata load context creates the well-known types and again
+  at `:10600` on dispose** — precisely slice 50's `_wellKnownTypes` trap. It arrives at `Begin` and is
+  carried on the STATE across the one step `is` takes; both rebuild sites are metadata-context
+  setup/teardown and neither is reachable from an expression walk. The other EIGHT collaborators are
+  `readonly`, constructed once, and held.
+
+  **THE CUT — FOURTEEN C# MEMBERS, 285 NAMED LINES, AND EIGHT DISPATCH ARMS COLLAPSE TO ONE.** GONE:
+  `AnalyzeAwaitExpression` (31), `TryGetReflectionAwaitResultType` (33),
+  `TryGetAwaitExpressionResultType` (29), `ShouldReportAwaitExpressionTypeMismatch` (9),
+  `AnalyzeTupleExpression` (18), `GetExpectedTupleElementType` (27), `AnalyzeStackAllocExpression`
+  (30), `IsImplicitlyIntStackAllocLength` (10), `AnalyzeMustExpression` (31),
+  `AnalyzeSpreadExpression` (17), `AnalyzeIsExpression` (17), `AnalyzeAllocExpression` (15),
+  `ReportSoaRowHiddenAllocation` (11) and `AnalyzeThrowExpression` (7). ADDED: the zero-policy
+  `DrivePassThroughOperand` loop (11 lines) plus its 16-line doc, the owner field and its 7-line doc,
+  the construction (3) and the collapsed dispatch arm (3). `git diff` on `Analyzer.cs`
+  **+42 / −325 = net −283**; the file goes **11,096 → 10,813**, non-blank **9,859 → 9,612 (−247)**,
+  member declarations **432 → 419** and modifier lines **494 → 482**. **BOTH RATCHET CEILINGS FALL.**
+  NO OTHER CALL SITE EXISTS: each of the fourteen had exactly ONE caller. **AN ORPHANED DOC COMMENT
+  WENT WITH THE CUT**: the six-line summary above `AnalyzeIsExpression` documents a
+  generic-substitution member an earlier slice moved out, and leaving it would have silently
+  re-attached WRONG documentation to `AnalyzeCastExpression`. The places that still NAME these AST
+  types — the shape-name table (`:7522`–`:7535`), the assignment's `expr.Right is ThrowExpression`
+  probe (`:3273`) and the cast-shape check — answer DIFFERENT questions and were deliberately not
+  absorbed.
+
+  **N# ADDED — 769 PRODUCTION LINES ON ONE NEW FILE.** `AnalyzerPassThroughOperands.nl`: **THREE
+  types, 25 members** — `PassThroughOperandRequest` (ONE kind, and a tuple element is NOT a second
+  kind because the driver performs exactly the same operation for it), `PassThroughOperandState` (the
+  form, the element cursor, the saved expected type, the outstanding answer, the elements decided so
+  far, the result and the CARRIED reachability checker) and the owner: `Begin`, `FormOf`, `NextStep`,
+  `Supply`, `Result`, `Advance`, four phase advancers, `OperandNode`, seven per-form finishers, the
+  two reproduced helpers, `ExpectedTupleElementType`, the three `await` facts and `TypeText`. It holds
+  **EIGHT** collaborators — the sink, the span reader, the SoA escape reporter, the type resolver, the
+  ambient context, the declaration context, the loop-sequence shape normaliser and the constant facts
+  — and **NOT the pattern reachability checker**, which the metadata load context rebuilds.
+
+  **42 NEW CONTRACTS.** `AnalyzerPassThroughOperands.tests.nl` (**960 lines, 42 contracts**).
+  Contracts **3,139 → 3,181 (+42)**, 0 failed. Seven are protocol invariants (no form asks for a kind
+  other than 1; the step count is the operand count — seven forms one, a tuple one per element, an
+  empty tuple zero; a walk that asked for nothing folds in nothing when supplied anyway; a finished
+  walk keeps answering `null` and its result is stable; **the answer is NOT settled before the step**;
+  no diagnostic lands at `Begin`; a node that is none of the eight takes no steps). The rest pin the
+  eight rules — including the per-element ambient bracket read off the step rows, name-before-position
+  matching, `throw` running BOTH reports where `must` stops at the first, `alloc`'s hidden-allocation
+  message, `must`'s report-and-still-answer, `stackalloc`'s three exclusive length rules and its
+  element type resolved LAST, `is`'s type reference resolved AFTER the step and BEFORE the refusal
+  (proved through the semantic model, because that resolution is the LENIENT one and raises nothing),
+  and `await` over a real `Task<int>`, a unit `Task`, a nullable task, a reflected `ValueTask<string>`
+  and the four declared shapes it leaves alone.
+
+  **PROOF — THE EMISSION-ORDER PROTOCOL DIFFERENTIAL, FOUR RUNS, 1,016 ROWS, 0 MISMATCHES.** A
+  temporary env-gated probe (`NL51_PROBE=1`, buffered stderr, never in the final bytes — it lives only
+  in two throwaway worktrees) emitted four row kinds per walk — ENTER, STEP, ANSWER and RESULT, each
+  carrying **the ambient expected type at that instant** and the error count — from the eight
+  rewritten dispatch arms plus one point inside each of the eight members in the BASELINE, and from
+  the driver loop alone in the WORK tree.
+  * 71-target corpus: **340 rows, 0 MISMATCHES**, md5 `940f63125954d07bc80b69b039b3064e` in BOTH.
+  * The self-host target (`NSharpLang.Compiler.BootstrapServices`, 323 files) ALONE: **270 rows,
+    0 MISMATCHES**, md5 `69d1bb606dd733119189f16526731076`.
+  * 428 accumulated fixtures: **358 rows, 0 MISMATCHES**, md5 `1097a8569ecd1935b0b4ef92834c44b9`.
+  * 51 env-gated SoA fixtures: **48 rows, 0 MISMATCHES**, md5 `ae22e672420ccaacdba4425652c9b5f1`.
+  **ENTER == RESULT on every run** (84 / 61 / 81 / 11 — **237 walks**), **STEP == ANSWER on every
+  run** (86 / 74 / 98 / 13 — **271 steps**), depth never negative and back to 0 at every target,
+  **max nesting 2** (a tuple inside a tuple's element).
+
+  **THE CENSUS IS THE SLICE'S SHARPEST FINDING, AND IT IS WHY THE 57 NEW FIXTURES WERE NOT OPTIONAL.**
+  Over the 71-target corpus the family is entered 84 times and only FOUR forms appear — `alloc` 44,
+  `await` 32, `is` 6, `tuple` 2. Over the 323-file self-host target it is entered 61 times and only
+  TWO appear — `is` 52, `tuple` 9. **`throw`, `spread`, `must` AND `stackalloc` ARE NEVER ENTERED IN
+  EITHER**, so HALF THE FAMILY is reachable only through fixtures, where the census is throw 7 / is 18
+  / spread 4 / alloc 7 / must 8 / stackalloc 11 / tuple 17 / await 9 plus an SoA fixture for every one
+  of the eight. Slice 50 found the mirror image (1,771 entries, every one a `typeof`); this family is
+  the first where the corpus reaches four of eight and the self-host only two.
+
+  **PROOF — FOUR ORACLE DIFFERENTIALS, ALL ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `b6f4a12cc` (`/private/tmp/nl51base`) and at the working tree.
+  * **CORPUS: DIFFS = 0 over 387 lines**, md5 `e9f65ccd31ab6e1514d893d5521b5d34` in BOTH — 72 HEAD
+    rows, **315 diagnostics across 13 codes**, `stderrBytes = 0` on all 144 runs, ZERO `PARSE-FAIL`,
+    the 7 known no-`results` targets, both CLIs pointed at the SAME `git worktree` copy
+    (`/private/tmp/nl51corpus`).
+  * **SUPPLEMENTARY (the 7 no-`results` targets plus 2): DIFFS = 0**, NO-RESULTS = 0, PARSE-FAIL = 0.
+  * **FIXTURES: DIFFS = 0 over 874 lines**, md5 `3d2c1ff50730d4d0a66f22784b887fb4` — **428 HEAD rows,
+    446 diagnostics across 40 codes**, all 856 runs `stderrBytes = 0`. The set is this slice's **46**
+    plus the accumulated **382**.
+  * **SoA (env-gated): DIFFS = 0 over 142 lines**, md5 `129206cd278a08c41c38fa6913102ef4` — 51
+    targets, 91 diagnostics across 5 codes. The set is this slice's **11** plus the accumulated **40**.
+  **PARSE-ERROR CENSUS: 4 (NL101 × 4), IDENTICAL on both sides and EXACTLY the census slices 43–50
+  recorded. The 46 new fixtures and the 11 new SoA fixtures add ZERO — but only after a FIRST CUT OF
+  THE SoA GENERATOR PUT THE TABLE DECLARATION ABOVE THE FILE'S `import` LINES AND MANUFACTURED EIGHT
+  OF THEM.** That is the census doing its job: an eight-error regression that no oracle diff would
+  have caught, because both sides parse the same broken file the same way.
+
+  **PROOF — THE 57 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT.** `throw` is proved to be `never` in
+  a ternary arm and behind a `??`, and to WALK its operand (`throw nosuchthing` reports NL301);
+  `is` is proved to be a `bool` a `int`-typed slot refuses, to resolve its written type, and to reach
+  the pattern owner (`"hello" is int` reports **NL506**); `spread` and `alloc` are proved to pass
+  their operand through (`buffer: int = alloc new byte[2]` reports NL202); `must` is proved to unwrap
+  one layer (`unwrapped: string = must value` on an `int?` reports NL202), to report **NL907** on a
+  redundant unwrap AND STILL ANSWER (the following `unwrapped: int = must value` on a `string` reports
+  NL907 **and** NL202), and to say nothing extra over an unknown operand; `stackalloc` is proved to be
+  a `Span` of its ELEMENT type and not an `int`, to refuse a `long` length and accept a `byte` one, and
+  to refuse a negative constant; a tuple is proved to be target-typed PER ELEMENT ((byte, long) accepts
+  `(1, 2)` silently) and **matched by NAME rather than position** (`(x: byte, y: long)` given
+  `(y: 300, x: 1)` produces NO byte-overflow, which positional matching would have); and `await` is
+  proved to be `Task<int>`'s `int`, a unit `Task`'s silence, and to refuse a plain value with
+  "await expression needs an awaitable value". The **11 env-gated SoA fixtures are the only way to
+  reach the eight action words this family owns**: a row view is refused as thrown / tested with 'is' /
+  spread / unwrapped with 'must' / used as a stackalloc length / stored in a tuple / awaited, `alloc`
+  answers with the HIDDEN-ALLOCATION message instead, a two-row-view tuple is refused TWICE, and the
+  two direct-column escapes (`throw points.x`, `alloc points.x`) are reached.
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS.** Both Release CLIs built the 46 new fixtures from two
+  staging copies proved `diff -rq` identical first. **BLD_NORM_DIFFS = 0 over 600 unsorted lines**,
+  md5 `f0c722f86901b26b534157e889f8b6fc` in BOTH, identical exits (**0 × 8, 1 × 38**). The raw
+  transcripts differ on **192 content lines and every one of them is the staging-copy path** —
+  counted, and the residue after normalising the path is EMPTY.
+
+  **PROOF — THE IL NORMALISER, AND THE CONTROL RAN FIRST.** Three staging copies (examples, templates
+  and the systems samples — **45 projects**) proved `diff -rq` identical before any build. **THE
+  CONTROL RAN FIRST**: the BASELINE CLI building TWO IDENTICAL COPIES reported **compared 91, SAME 91,
+  DIFFERENT 0, ONLY_IN 0 / 0**. Then the test comparison: **compared 91, ONLY_IN 0 / 0, and ALL 48
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL.** The 43 that differ are ONE file — the COPIED C# support
+  library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference is **ROOT-CAUSED**:
+  exactly ONE distinct normalised content per tree, both 14,848 bytes, `strings` finds the embedded
+  PDB path `/private/tmp/nl51base/…` in one and `/Users/spencer/repos/nsharplang/…` in the other, and
+  `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **328 checked files** (the 327 baseline plus
+  the one new production file — the contract file is excluded from `check`), **282 findings
+  estate-wide — the unchanged slice-42…50 baseline — and ZERO in the new files**, `stderrBytes = 0`.
+
+  **FORMAT CANON.** Both new `.nl` files pass `nlc format` (**"Formatted 0 file(s)"** — they were
+  written to canon) and the whole `src/NSharpLang.Compiler.BootstrapServices` directory passes the
+  gate's Step 2b contract (**"All files are properly formatted"**).
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:947560820b307311` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 11,096 →
+  **10,813**, currentNonBlankLines 9,859 → **9,612**, fingerprint → **`text-v1:69e178aa3bf2a8f8`**;
+  `reviewedHeadFingerprint` → **`head-v1:9e79a04cdb229042`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **12,638 / 10,925**. `wc -l` on the manifest
+  is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed lines and
+  `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: both new files are `.nl`, which
+  the policy does not audit, and the 57 fixtures live outside the repository. The audit on the final
+  tree is **18 / 18**. The pre-existing `editors/vscode/test/suite/edgeCases.test.ts` drift and the
+  six `MISSING` rows for files task 016 deleted are present identically in the pristine baseline and
+  were again deliberately left alone.
+
+  **GOTCHAS.**
+  **(1) A LOCAL DECLARATION WILL NOT TAKE A `(`-LED TYPE ANNOTATION.** `pair: (int, string) = (1, "a")`
+  reports **NL101 "Unexpected token ':' in expression"** and then NL301 for the name that was never
+  declared — the tuple type reference itself parses fine, but only as a PARAMETER or a RETURN type.
+  Every tuple fixture that needs an annotation takes it through a parameter.
+  **(2) `TupleTypeInfo` HAS NO `ToString` OVERRIDE.** It renders as its CLR type name, which is what
+  `Analyzer.cs`'s `$"{type}"` always produced — so the behaviour is preserved, and a contract that
+  wants a rendered tuple must read `Elements` rather than assert on the text.
+  **(3) `CompilerError.CreateDetailed` CLAMPS `Length: Math.Max(1, length)`.** A report that passes
+  length 0 — which both `stackalloc` length reports do — lands with length **1**.
+  **(4) `is`'S TYPE RESOLUTION IS THE LENIENT ONE**, exactly like `typeof`'s: `ResolveType`, not
+  `ResolveDeclaredType`, so `v is NoSuchTypeAnywhere` raises **NO NL201**. Its position in the arm is
+  observable only through the SEMANTIC MODEL, which is how the contract pins that it runs after the
+  step and before the refusal's early return.
+  **(5) AN `async func` WITH NO `await` IN IT RAISES NL004**, so an `await` fixture that wants a clean
+  signal hands back an already-completed task from a PLAIN function.
+  **(6) AN SoA FIXTURE GENERATOR THAT PREPENDS THE TABLE DECLARATION ABOVE THE FILE'S `import` LINES
+  MANUFACTURES SIX TO EIGHT NL101s PER FILE.** Imports come first; the parse-error census is what
+  caught it.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `b6f4a12cc` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, naming three changed/added files as unmapped and running the FULL suite:
+  **3,194 / 3,194, 0 failed, exit 0**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 33m 56s.** `./scripts/test-all.sh --commit` — VS Code
+  tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 3m 48s;
+  **Step 2b's format contract over the compiler's own N# sources 0m 02s**; **unit tests 11m 12s
+  (3,194 / 3,194)**; **native N# tests 6m 30s** — the BootstrapServices contracts at **3,181 / 3,181**
+  plus every native project individually, `ownership-audit` **18 / 18** among them; **VS Code
+  integration tests 4m 32s, 36 passing**, against a freshly built extension and language server; pack
+  and install the MSBuild SDK 7m 03s; templates, template creation and the template-generated build;
+  the example builds; `nlc check` on examples; and **the IL verification gate 0m 21s — `All 67 N#
+  assemblies pass IL verification (no new errors vs baseline)`**. The run stored its validated
+  isolated cache result `58e5fcb6f2d898ba (2036s)`, and it ran from an isolated snapshot taken BEFORE
+  this record was written — `systems-language-closeout/` is in NO gate input set, so this record's own
+  prose is provably not a gate input.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.99 MB**) and installed with `--force`
+  (`successfully installed`). No computer-use verification was taken: this slice changes no LSP
+  handler, no VS Code extension code and no IDE protocol surface; what it changes is the TYPE the
+  analyzer answers for a `throw`, an `is`, a `spread`, an `alloc`, a `must`, a `stackalloc`, a tuple
+  and an `await`, which the gate's VS Code integration suite and all four diagnostic oracles cover.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Fixtures: `/private/tmp/nl51fixtures` (46, this
+  slice) alongside `nl50fixtures` (40), `nl49fixtures` (41), `nl48fixtures` (36), `nl47fixtures` (34),
+  `nl46fixtures` (32), `nl45fixtures` (30), `nl44fixtures` (26), `nl43fixtures` (24), `nl42fixtures`
+  (30), `nl41fixtures` (29), `nl40fixtures` (24) and `s24fixtures` (36) — **428 plain** — plus
+  `/private/tmp/nl51soafx` (11) with the `nl40`–`nl44`, `nl49` and `nl50` `soafx` sets (**51
+  env-gated**). The harnesses are at `.../scratchpad/nl44-oracle.sh`, `nl44-build.sh`,
+  `nl44-ilbuild.sh` + `nl44-ilnorm.py`, `nl51-repin.py`, `nl51-probe.sh` + `nl51-compare.py` (the
+  emission-order protocol differential, now carrying the AMBIENT SLOT on every row),
+  `nl51-probe-base.py` / `nl51-probe-work.py` (the two instrumentation patches), `nl51-run-probes.sh`,
+  `nl51-run-oracles.sh`, `nl51-run-all.sh`, `nl51-make-fixtures.py`, `nl51-make-soafx.py` and
+  `runlong.sh`. Five worktrees are left registered: `/private/tmp/nl51base` (pristine `b6f4a12cc` +
+  Release CLI), `/private/tmp/nl51corpus` (the shared source copy), `/private/tmp/nl51ilsrc` (the
+  clean source the three IL staging copies were made from) and the two throwaway probe trees
+  `/private/tmp/nl51probe` and `/private/tmp/nl51workprobe`.
+
+  **WALL STATUS: NO NEW WALL, AND NO TOOLSET REPIN WAS NEEDED.** Every collaborator and every fact
+  this family asks for — `AnalyzerSoaEscape`, `AnalyzerTypeResolver.ResolveType`,
+  `AnalyzerPatternReachability.CheckIsExpression`, `AnalyzerAmbientContext`'s expected-type bracket,
+  `AnalyzerDeclarationContext.ResolveDeclaredAlias`, `AnalyzerLoopSequence.NormalizeShapeType`,
+  `AnalyzerConstantExpressionFacts.IsConstantNegative`, `AnalyzerFunctionTypeFactory`'s task-shape
+  statics, `AnalyzerReflectionTypeConversion.ConvertReflectionType` and
+  `AnalyzerReflectionArgumentBinder.LiveVoidType` — was ALREADY N#-owned and callable, and the two
+  spellings that could have been walls were already written elsewhere in the estate:
+  `GetMethod(name, flags, null, new Type[](0), null)` (as in `AnalyzerLoopSequence.nl`) and
+  `typeof(Span<int>).GetGenericTypeDefinition()` for C#'s `typeof(Span<>)` (as in
+  `AnalyzerDeclarationContext.nl`). A 285-line cut needed exactly one new file and zero catalog rows.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is what the editor shows for eight operators: that a
+  `throw` used as a value contributes nothing to the type it sits in; that an `is` is a `bool` even
+  when its operand is broken, so completion after it offers `bool`'s members; that a `spread` and an
+  `alloc` hover as their operand's type, so the marker does not hide what is underneath; that a `must`
+  hover drops exactly one `?`, and that a redundant one is underlined WITHOUT the expression going
+  `unknown`; that a `stackalloc` hovers as `Span<T>` of its written element type whatever its length
+  says; that a tuple literal typed against an annotation shows each element AS THE ANNOTATION MEANS IT
+  — which is what makes `(byte, long)` accept `(1, 2)` and completion inside element two offer
+  `long`'s members; and that an `await` hovers as the awaited RESULT, so the chain after it completes
+  on `T` and not on `Task<T>`.
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 10,813 LINES, 9,612 NON-BLANK.** The same three
+  things, one of them measurably smaller: the SHORT list of remaining declaration walkers; **THE
+  EXPRESSION WALK, now 23 arms of policy instead of 30**; and the mechanical host — now **FOURTEEN**
+  driver loops, of which exactly THREE return.
+
+  * **NEXT: THE EXPECTED-TYPE WRAPPER FAMILY (`checked` / `unchecked` / `cast`).** The scored
+    inventory above is still the brief, minus the literal rows, the four constant rows and now the
+    eight pass-through rows. These three are the arms whose stay-behind is `AnalyzeExpressionWithExpectedType`
+    rather than `AnalyzeExpression` — `checked` (11), `unchecked` (11) and `cast` (21, and it takes
+    BOTH doors) — **43 named lines across FOUR members** (`AnalyzeCastExpression` 17,
+    `ShouldUseCastTargetExpectedType` 4, `AnalyzeCheckedExpression` 11, `AnalyzeUncheckedExpression`
+    11, re-measured at `10,813`), one coherent question ("what does a wrapper that changes only how
+    its operand is TYPED mean"), and they are the natural successor because this slice just built the
+    machinery they need: **the tuple's per-step ambient BRACKET is exactly what
+    `AnalyzeExpressionWithExpectedType` is**, and a walk that owns its own bracket can express both
+    doors without the driver learning a second operation.
+    **THE THINGS TO MEASURE BEFORE DESIGNING**, in order: (a) whether the driver needs a SECOND KIND
+    or whether the owner can bracket the step itself as this slice's tuple does — `AnalyzeExpressionWithExpectedType`
+    is NOT just a bracket, it forks to `AnalyzeLambda` for a lambda operand and it also saves and
+    restores `_allowUnboundCallableReference`, so the honest question is whether a `checked` operand
+    can ever BE a lambda and whether that fork is reachable from these three arms at all; (b) whether
+    `checked`/`unchecked` reading `_ambient.CurrentExpectedType` and handing it straight back to
+    `EnterExpectedTypeIfProvided` is a NO-OP that can be dropped or an observable re-entry (it looks
+    like an identity, and if it is, the two arms have NO ambient behaviour at all and the family
+    shrinks to `cast`); and (c) `cast`'s `ShouldUseCastTargetExpectedType`, which is the only place in
+    the estate that decides WHICH door to take from the node alone — measure whether the two doors
+    differ observably for anything but `default` and `new()`, because the answer decides whether the
+    family needs one step kind or two. `AnalyzeExpressionWithExpectedType` itself has **18 callers**
+    and stays behind whatever happens.
+    After it, `ternary` (26, SB 3) and `range` (48, SB 3), leaving `identifier`, `member`, `call`,
+    `assignment`, `unary`, `binary`, `new` and `lambda` — **6,100 of the territory's 6,600 exclusive
+    lines** — for last.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 50 — THE COMPILE-TIME CONSTANT FAMILY
   (`typeof` / `sizeof` / `nameof` / `default`), ALL FOUR ARMS, TERMINAL.** Target recorded BEFORE any
   production edit, at `974a4b231` (`Analyzer.cs` **11,144** lines, non-blank **9,899**, member
   declarations **436** by the narrow metric — lines matching `^    (private|public|internal|protected).*\(` —
