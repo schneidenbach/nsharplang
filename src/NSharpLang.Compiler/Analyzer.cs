@@ -394,6 +394,14 @@ public class Analyzer : IDisposable
     // the loop-sequence shape normaliser and the constant facts, none of which the rebuild replaces —
     // the pattern reachability checker, which the rebuild DOES replace, is passed per walk instead.
     private readonly AnalyzerPassThroughOperands _passThroughOperands;
+    // WHAT AN EXPRESSION THAT CHOOSES THE TYPE ITS OPERANDS ARE WALKED UNDER MEANS: a cast, `checked`,
+    // `unchecked` and a ternary, as one walk that ANSWERS a type. Each of them decides from the node
+    // alone what expected type each operand is analysed against — a cast its own target behind the
+    // hard-`default`/`new()` door test, the two wrappers the type already in force, a ternary `bool`
+    // for its condition and its own expected type for both arms. NOT rebuilt with the SCC: it holds
+    // the type resolver, the SoA escape owner, the ambient context and the condition reporter, none of
+    // which the rebuild replaces.
+    private readonly AnalyzerTargetTypedOperands _targetTypedOperands;
     private bool _disposed;
 
     public Analyzer()
@@ -460,6 +468,8 @@ public class Analyzer : IDisposable
         _passThroughOperands = new AnalyzerPassThroughOperands(
             _diagnostics, _spans, _soaEscape, _typeResolver, _ambient, _declarationContext,
             _loopSequence, _constantExpressionFacts);
+        _targetTypedOperands = new AnalyzerTargetTypedOperands(
+            _typeResolver, _soaEscape, _ambient, _conditions);
         _syntheticCallValidator = CreateSyntheticCallValidator();
         _reflectionCallReporter = CreateReflectionCallReporter();
         _callAnalysis = CreateCallAnalysis();
@@ -2938,6 +2948,49 @@ public class Analyzer : IDisposable
         return _passThroughOperands.Result(state);
     }
 
+    /// <summary>
+    /// Performs the steps <see cref="AnalyzerTargetTypedOperands"/> asks for and returns the type it
+    /// decided. Every policy about what an expression that chooses the type its operands are walked
+    /// under means — that a cast is its written target type and that its operand is walked under that
+    /// target only for a hard cast over a <c>default</c> or a <c>new()</c>, that a <c>checked</c> and
+    /// an <c>unchecked</c> are their operand and hand the surrounding expected type back to it, and
+    /// that a ternary walks its condition under <c>bool</c>, both arms under its own expected type,
+    /// and answers the common type of the two — belongs to the N# owner.
+    /// The two expression kinds are the two DOORS into the walk and the owner names which: kind 1 is
+    /// the ordinary walk that leaves the target-typing slot exactly as it found it, and kind 2 is the
+    /// named-expected-type walk, which is not that operation with an extra argument — it forks to the
+    /// lambda walk for a lambda operand, which a <c>checked</c> can have, so the owner cannot simulate
+    /// it by writing the slot around a kind 1. Kind 3 is numeric widening, a rule with five callers
+    /// here that this family does not own; the walk decides only when a common type is wanted and over
+    /// which two answers. This loop decides nothing: it performs the one operation it is handed, with
+    /// the operands it is handed.
+    /// </summary>
+    private TypeInfo DriveTargetTypedOperand(TargetTypedOperandState state)
+    {
+        for (var step = _targetTypedOperands.NextStep(state);
+             step != null;
+             step = _targetTypedOperands.NextStep(state))
+        {
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    answer = AnalyzeExpressionWithExpectedType(step.Node!, step.ExpectedType);
+                    break;
+                case 3:
+                    answer = GetCommonType(step.LeftType!, step.RightType!);
+                    break;
+            }
+
+            _targetTypedOperands.Supply(state, answer);
+        }
+
+        return _targetTypedOperands.Result(state);
+    }
+
     private TypeInfo AnalyzeExpression(Expression expr)
     {
         var type = expr switch
@@ -2957,17 +3010,15 @@ public class Analyzer : IDisposable
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
             OnSubscriptionExpression on => AnalyzeOnSubscription(on),
             LambdaExpression lambda => AnalyzeLambda(lambda, _ambient.CurrentExpectedType),
-            TernaryExpression ternary => AnalyzeTernary(ternary),
+            CastExpression or CheckedExpression or UncheckedExpression or TernaryExpression
+                => DriveTargetTypedOperand(_targetTypedOperands.Begin(expr)),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
-            CastExpression cast => AnalyzeCastExpression(cast),
             ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
             BaseExpression => AnalyzeBaseExpression(),
             MatchExpression match => AnalyzeMatchExpression(match),
             TypeOfExpression or NameofExpression or SizeOfExpression or DefaultExpression
                 => DriveCompileTimeConstant(_compileTimeConstants.Begin(expr, _wellKnownTypes)),
-            CheckedExpression checkedExpr => AnalyzeCheckedExpression(checkedExpr),
-            UncheckedExpression uncheckedExpr => AnalyzeUncheckedExpression(uncheckedExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
             WithExpression with => AnalyzeWithExpression(with),
             ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
@@ -7522,27 +7573,6 @@ public class Analyzer : IDisposable
         return null;
     }
 
-    private TypeInfo AnalyzeTernary(TernaryExpression ternary)
-    {
-        var expectedResultType = _ambient.CurrentExpectedType;
-        var condType = AnalyzeExpressionWithExpectedType(ternary.Condition, BuiltInTypes.Bool);
-        _conditions.ReportConditionTypeMismatchIfNeeded(
-            ternary.Condition, "a ternary expression", "used as a ternary condition", condType);
-
-        var thenType = AnalyzeExpressionWithExpectedType(ternary.ThenExpression, expectedResultType);
-        var elseType = AnalyzeExpressionWithExpectedType(ternary.ElseExpression, expectedResultType);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(ternary.ThenExpression, thenType, "used as a ternary result")
-            | _soaEscape.ReportSoaRowEscapeIfNeeded(ternary.ElseExpression, elseType, "used as a ternary result")
-            | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ternary.ThenExpression, "used as a ternary result")
-            | _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ternary.ElseExpression, "used as a ternary result"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        // Return common type
-        return GetCommonType(thenType, elseType);
-    }
-
     private (TypeInfo ElementType, string TargetKind)? GetExpectedElementType(TypeInfo? expectedType)
     {
         if (expectedType == null)
@@ -8535,53 +8565,6 @@ public class Analyzer : IDisposable
             $"Specify them after the case name: 'new {qualifiedCaseName}<...> {{ ... }}'",
             qualifiedCaseName.Length);
         return unionType;
-    }
-
-    private TypeInfo AnalyzeCastExpression(CastExpression cast)
-    {
-        var targetType = _typeResolver.ResolveType(cast.TargetType);
-        var sourceType = ShouldUseCastTargetExpectedType(cast)
-            ? AnalyzeExpressionWithExpectedType(cast.Expression, targetType)
-            : AnalyzeExpression(cast.Expression);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(cast.Expression, sourceType, "cast"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-        if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(cast.Expression, "cast"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        return targetType;
-    }
-
-    private static bool ShouldUseCastTargetExpectedType(CastExpression cast)
-        => cast.Kind == CastKind.Hard
-            && (cast.Expression is DefaultExpression
-                or NewExpression { Type: null });
-
-    private TypeInfo AnalyzeCheckedExpression(CheckedExpression checkedExpr)
-    {
-        // Analyze the inner expression - type is preserved
-        var innerType = AnalyzeExpressionWithExpectedType(checkedExpr.Expression, _ambient.CurrentExpectedType);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(checkedExpr.Expression, innerType, "used in a checked expression"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        return innerType;
-    }
-
-    private TypeInfo AnalyzeUncheckedExpression(UncheckedExpression uncheckedExpr)
-    {
-        // Analyze the inner expression - type is preserved
-        var innerType = AnalyzeExpressionWithExpectedType(uncheckedExpr.Expression, _ambient.CurrentExpectedType);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(uncheckedExpr.Expression, innerType, "used in an unchecked expression"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        return innerType;
     }
 
     private TypeInfo AnalyzeWithExpression(WithExpression with)

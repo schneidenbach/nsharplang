@@ -1,6 +1,46 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-07 (**TASK 017 SLICE 50 LANDED (no commit — mandate) — N# OWNS WHAT THE COMPILER
+Last updated: 2026-08-07 (**TASK 017 SLICE 52 LANDED (no commit — mandate) — N# OWNS WHAT AN EXPRESSION
+THAT CHOOSES THE TYPE ITS OPERANDS ARE WALKED UNDER MEANS: a `cast`, `checked`, `unchecked` AND the
+TERNARY.** The four target-typed arms move whole into `AnalyzerTargetTypedOperands.nl` (**443 lines,
+THREE types, 16 members, FOUR forms**) on a driver that learns its SECOND and THIRD operation —
+`AnalyzeExpressionWithExpectedType` and `GetCommonType` — because **THE FIRST MEASUREMENT OVERTURNED
+THE BRIEF'S PREMISE**: the owner CANNOT bracket the step as slice 51's tuple does, and the reason is
+not the slot but the LAMBDA FORK, which the grammar proves reachable from `checked`/`unchecked`
+(`ParseExprValue`'s first production is `x => …`) and from NEITHER of cast's doors (a hard cast's
+operand is `ParseUnary`, a safe cast's is the `as` left operand). **THE SLOT WRITE *IS* AN IDENTITY**
+— measured over **64** wrapper walks, 0 violated — and the family still does not shrink to `cast`,
+because the same call is the fork and the unbound-callable restore. **CAST'S TWO DOORS DIFFER
+OBSERVABLY** and the decisive probe is one operand under two cast kinds: `print (int)default` is CLEAN
+where `print default as int` reports **NL203**. **AND THE BRIEF NAMED A DIAGNOSTIC FAMILY THAT DOES
+NOT EXIST**: the cast arm raises NO NL2xx of its own, and this is the first owner in the arc that
+holds neither a diagnostic sink nor a span reader. **TERNARY WAS TAKEN** (its three steps are the same
+kind 2) and **RANGE WAS DECLINED WITH A REASON** (its steps name no expected type at all — it is the
+pass-through family's shape). **FIVE C# MEMBERS DIE, 63 NAMED LINES**, four dispatch arms collapse to
+one, and `AnalyzeExpressionWithExpectedType` loses SIX of its seventeen call sites to ONE.
+`Analyzer.cs` **10,813 → 10,796**, non-blank **9,612 → 9,602**, `git diff` **+55 / −72 = net −17**;
+both ratchet ceilings fall. `GetCommonType` is deliberately NOT deleted — numeric widening has five
+callers and belongs to the unary/binary slice, which the sequencing brief now shows can take it.
+Contracts **3,181 → 3,208 (+27)**; unit suite **3,194 / 3,194**; audit **18 / 18**;
+**emission-order protocol differential 7,702 rows across FOUR runs — 788 corpus + 626 fixture + 90 SoA
++ 6,198 self-host — 0 MISMATCHES, ENTER == RESULT (1,686 walks) and STEP == ANSWER (2,165 steps) on
+every run, with the STEP KIND and the EXPECTED-TYPE OPERAND differenced on every row**; **four oracle
+differentials all 0 diffs** (corpus 315 diagnostics / 13 codes, fixtures 484 / 40, SoA 113 / 5,
+supplementary 0); parse-error census **4, unchanged, and the 56 new fixtures add ZERO**; corpus IL
+**48 / 48 N#-emitted assemblies byte-identical**, control FIRST; unsorted build transcripts
+**0 normalised diffs over 577 lines**; `nlc check` **282 findings, 0 in the new file**. **THE CENSUS IS
+THE SHARPEST FINDING**: the 323-file self-host target contains **NOT ONE `checked` AND NOT ONE
+`unchecked`**, and of all **1,457** cast steps in the corpus and the self-host **EVERY SINGLE ONE TOOK
+DOOR B — door A is entered four times in the whole world, and all four are this slice's own fixtures**.
+Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-07 (**TASK 017 SLICE 51 LANDED and was COMMITTED at `5e2a28a89` — N# OWNS
+WHAT AN OPERATOR THAT HANDS ITS OPERAND THROUGH MEANS: `throw` / `is` / `spread` / `alloc` / `must` /
+`stackalloc` / tuple / `await`, all eight arms, 14 C# members and 285 named lines, `Analyzer.cs`
+11,096 → 10,813. Its full record is in the Cursor block below — this header entry was not written at
+the time and is reconstructed here from that record)
+
+Last updated (prior): 2026-08-07 (**TASK 017 SLICE 50 LANDED (no commit — mandate) — N# OWNS WHAT THE COMPILER
 KNOWS ABOUT A TYPE WITHOUT EVALUATING ANYTHING: `typeof`, `sizeof`, `nameof` AND `default`.** The
 compile-time constant family moves whole into `AnalyzerCompileTimeConstants.nl` (**331 lines, THREE
 types, 14 members, FOUR forms**) on slice 49's ANSWERING protocol, UNCHANGED. **THE BRIEF WAS WRONG
@@ -1884,7 +1924,379 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 51 — THE PASS-THROUGH OPERAND FAMILY
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 52 — THE TARGET-TYPED OPERAND FAMILY
+  (`cast` / `checked` / `unchecked` / `ternary`), ALL FOUR ARMS, TERMINAL.** Target recorded BEFORE
+  any production edit, at `5e2a28a89` (`Analyzer.cs` **10,813** lines, non-blank **9,612**, member
+  declarations **419** by the narrow metric — lines matching
+  `^    (private|public|internal|protected).*\(` — and **482** by the broader modifier-line metric,
+  both applied identically to both trees; unit suite baseline **3,194**; contracts baseline
+  **3,181**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:9e79a04cdb229042`; `Analyzer.cs` ratchet row currentLines
+  **10,813** / currentNonBlank **9,612**, fingerprint `text-v1:69e178aa3bf2a8f8`, epoch ceilings
+  **23,451 / 20,537**).
+
+  **THE THREE PRE-MEASUREMENTS THE SLICE-51 BRIEF NAMED, TAKEN AT THIS TIP BEFORE ANY DESIGN.**
+  * **(a) THE LAMBDA FORK IS REAL, AND IT DECIDES THE WHOLE DESIGN: THE OWNER CANNOT BRACKET THE STEP
+    AS THE TUPLE DOES.** `AnalyzeExpressionWithExpectedType` is three things, not one — a fork to
+    `AnalyzeLambda(lambda, expectedType)` for a lambda operand, the expected-type bracket, and a
+    save/restore of `_allowUnboundCallableReference` — and the fork is NOT the same as the walk's own
+    lambda arm: `AnalyzeExpression`'s `LambdaExpression` arm calls `AnalyzeLambda(lambda,
+    _ambient.CurrentExpectedType)` and then runs the whole post-amble (null flow, both semantic-model
+    tables, the synthetic-SoA check, the unbound-callable check), while the fork calls `AnalyzeLambda`
+    and RETURNS. **THE GRAMMAR SAYS THE FORK IS REACHABLE FROM `checked` AND `unchecked` AND FROM
+    NEITHER OF CAST'S DOORS**: `checked`/`unchecked` parse their operand with `ParseExprValue`
+    (`ColumnarParserRecovery.nl:7095`–`:7118`), whose FIRST production after the event subscription is
+    the single-parameter lambda `x => …` (`:5741`), so `checked(x => x)` hands a bare
+    `LambdaExpression` to the arm; a HARD cast's operand is `ParseUnary` (`:7212`) and a SAFE cast's is
+    the already-parsed left operand of `as` (`:6136`), and neither reaches the lambda production, so
+    `(Func<int,int>)(x => x)` hands over a `ParenthesizedExpression`. **VERDICT: the step must be the
+    stay-behind operation, as `DriveFunctionBody` kind 1 and `DriveAccessorBody` kind 1 already are —
+    the driver takes TWO kinds (1 `AnalyzeExpression`, 2 `AnalyzeExpressionWithExpectedType`), and the
+    owner names which and with what expected type.**
+  * **(b) THE SLOT WRITE IS AN IDENTITY AND THE FAMILY STILL DOES NOT SHRINK TO `cast`.** Measured in
+    `AnalyzerAmbientContext.nl`: `EnterExpectedTypeIfProvided` saves the slot and writes only when the
+    argument is non-null, and `ExitExpectedType` restores the saved value — there is no depth counter
+    and no stack, so `EnterExpectedTypeIfProvided(CurrentExpectedType)` followed by
+    `ExitExpectedType(saved)` cannot move the slot. But `checked`/`unchecked` do NOT thereby become
+    ambient-free: the same call is the lambda fork and the `_allowUnboundCallableReference` restore,
+    both of which survive the identity. **VERDICT: the identity is real ON THE SLOT and the arms are
+    not; the family stays at four.**
+  * **(c) CAST'S TWO DOORS DIFFER OBSERVABLY, AND THE DIFFERENCE IS THE SLOT ITSELF.** Door A enters
+    the cast's own target type into the target-typing slot; door B leaves the SURROUNDING slot in
+    place — and every target-typed arm reads it, starting with slice 49's suffixless integer literal.
+    `ShouldUseCastTargetExpectedType` restricts door A to a HARD cast over `default` or `new()`, so
+    "beyond default and new()" the door is always B — but that is a restriction on WHEN, not evidence
+    that the doors agree. **VERDICT: two step kinds, not one.**
+  * **AND THE BRIEF NAMED A DIAGNOSTIC FAMILY THAT DOES NOT EXIST.** `AnalyzeCastExpression` raises NO
+    diagnostic of its own — no invalid-cast shape, no unrelated-types rule, no NL2xx at all. Its only
+    reports are the two SoA escapes and whatever `_typeResolver.ResolveType` says about the written
+    type reference, and that resolution is the LENIENT one (`ResolveType`, not `ResolveDeclaredType`),
+    exactly as `typeof` and `is` were.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT AN EXPRESSION THAT CHOOSES THE TYPE ITS OPERANDS ARE
+  WALKED UNDER MEANS, ALL FOUR FORMS, AND THE DRIVER LEARNS ITS SECOND AND THIRD OPERATION.**
+
+  **THE THREE PRE-MEASUREMENTS, ANSWERED — AND THE FIRST ONE OVERTURNS THE BRIEF'S PREMISE.**
+  * **(a) THE OWNER CANNOT BRACKET THE STEP AS THE TUPLE DOES, AND THE REASON IS THE FORK, NOT THE
+    SLOT.** `AnalyzeExpressionWithExpectedType` is three things: a fork to `AnalyzeLambda` for a
+    lambda operand, the expected-type bracket, and a save/restore of `_allowUnboundCallableReference`.
+    The fork is NOT the walk's own lambda arm — `AnalyzeExpression`'s `LambdaExpression` arm calls
+    `AnalyzeLambda(lambda, _ambient.CurrentExpectedType)` and then runs the whole post-amble (null
+    flow, both semantic-model tables, the synthetic-SoA check, the unbound-callable check), while the
+    fork calls `AnalyzeLambda` and RETURNS. **THE GRAMMAR SAYS THE FORK IS REACHABLE FROM `checked`
+    AND `unchecked` AND FROM NEITHER OF CAST'S DOORS**: the two wrappers parse their parenthesised
+    operand with `ParseExprValue` (`ColumnarParserRecovery.nl:7095`–`:7118`), whose first production
+    after the event subscription is the single-parameter lambda (`:5741`); a HARD cast's operand is
+    `ParseUnary` (`:7212`) and a SAFE cast's is the already-parsed left of `as` (`:6136`), neither of
+    which reaches that production. **PROVED BY FIXTURE**: `Apply(checked(x => x + 1))` analyses CLEAN
+    (only the columnar `parse.function` decline), and the probe carries `FunctionTypeInfo` as that
+    step's answer on BOTH sides. **VERDICT: the step is the stay-behind operation, exactly as
+    `DriveFunctionBody` kind 1 and `DriveAccessorBody` kind 1 already are.**
+  * **(b) THE SLOT WRITE IS AN IDENTITY, AND THE FAMILY STILL DOES NOT SHRINK TO `cast`.**
+    `EnterExpectedTypeIfProvided` writes only when its argument is non-null and `ExitExpectedType`
+    restores the saved value, with no depth counter and no stack — so handing `CurrentExpectedType`
+    back cannot move the slot. **THE PROBE MEASURED IT OVER REAL CODE**: on every one of the **64**
+    `checked`/`unchecked` walks across all four runs, the type NAMED for the step equals the slot at
+    entry equals the slot during the step — **64 ok, 0 violated**. And the identity is exactly why the
+    arms are still not droppable: the same call is the lambda fork and the unbound-callable restore.
+    Two fixtures pin the behaviour end to end: `print checked(default)` reports **NL203** where
+    `value: int = checked(default)` is silent, which is what an identity looks like from outside.
+  * **(c) CAST'S TWO DOORS DIFFER OBSERVABLY, AND THE DECISIVE PROBE IS ONE OPERAND UNDER TWO CAST
+    KINDS.** `print (int)default` is CLEAN; `print default as int` reports **NL203**. Same operand,
+    same written type, opposite answers — because `ShouldUseCastTargetExpectedType` requires
+    `Kind == Hard`, so the SAFE cast takes the other door. `(Person)new()` and a bare `new()` are the
+    same pair for the second door-A trigger. **VERDICT: two step kinds, not one.**
+  * **AND THE BRIEF NAMED A DIAGNOSTIC FAMILY THAT DOES NOT EXIST.** `AnalyzeCastExpression` raises NO
+    diagnostic of its own — no invalid-cast shape, no unrelated-types rule, no NL2xx at all. `(int)text`
+    over a `string` is silent, and `(NoSuchTypeAnywhere)value` raises NO NL201 because the resolution
+    is the LENIENT `ResolveType`, exactly as `typeof` and `is` were. **THIS WHOLE FAMILY RAISES NOTHING
+    ON ITS OWN ACCOUNT**: every report it makes belongs to the SoA escape reporter, the boolean-
+    condition reporter or the type resolver, which is why the owner holds no diagnostic sink and no
+    span reader — the first owner in the arc that needs neither.
+
+  **TERNARY RIDES THE SAME MACHINERY AND WAS TAKEN; RANGE DOES NOT AND WAS DECLINED.** Measured:
+  all three of a ternary's expression steps are `AnalyzeExpressionWithExpectedType` — `bool` for the
+  condition, the walk's own expected type for both arms — so it is the same kind 2 this family already
+  needed, at the cost of three phases and one extra kind. **`AnalyzeRangeExpression`'s two steps are
+  PLAIN `AnalyzeExpression` and name no expected type at all**; it is the pass-through family's shape,
+  not this one's, and it also needs two collaborators this owner does not hold (the scope stack, for
+  `System.Range`, and the assignability oracle, which `Analyzer.cs` REBUILDS with the metadata load
+  context and which would therefore have to arrive at `Begin`). Taking it here would have falsified
+  this file's stated question. Its brief is recorded below.
+
+  **THE CUT — FIVE C# MEMBERS, 63 NAMED LINES, AND FOUR DISPATCH ARMS COLLAPSE TO ONE.** GONE:
+  `AnalyzeCastExpression` (17), `ShouldUseCastTargetExpectedType` (4), `AnalyzeCheckedExpression`
+  (11), `AnalyzeUncheckedExpression` (11) and `AnalyzeTernary` (20). ADDED: the zero-policy
+  `DriveTargetTypedOperand` loop (26 lines, three kinds) plus its 17-line doc, the owner field and its
+  7-line doc, the construction (2) and the collapsed dispatch arm (2). `git diff` on `Analyzer.cs`
+  **+55 / −72 = net −17**; the file goes **10,813 → 10,796**, non-blank **9,612 → 9,602 (−10)**,
+  member declarations **419 → 415** and modifier lines **482 → 479**. **BOTH RATCHET CEILINGS FALL.**
+  `AnalyzeExpressionWithExpectedType` **stays, and this slice retires SIX of its seventeen call sites
+  and replaces them with ONE** (17 → 12). **`GetCommonType` IS NOT DELETED AND THAT IS THE HONEST
+  BOUNDARY**: numeric widening is `GetWiderType` + `IsNumericType` + `GetNumericName`, five callers
+  each, and it belongs to the unary/binary slice; this walk decides only WHEN a common type is wanted
+  and over WHICH two answers, and asks for it as kind 3. **THIS IS THE ARC'S THINNEST CUT IN RAW
+  LINES**, and the accounting is stated rather than dressed: the four wrapper members were already
+  thin (43 named lines between them) while a new owner's fixed cost is ~45, so the ternary is what
+  makes the slice net-negative at all.
+
+  **N# ADDED — 443 PRODUCTION LINES ON ONE NEW FILE.** `AnalyzerTargetTypedOperands.nl`: **THREE
+  types, 16 members** — `TargetTypedOperandRequest` (THREE kinds: the ordinary walk, the named-
+  expected-type walk, and the common type of two answers this walk already holds),
+  `TargetTypedOperandState` (the form, the phase, the outstanding answer, the cast's resolved target,
+  the ternary's entry-read expected type and its two arm types) and the owner: `Begin`, `FormOf`,
+  `NextStep`, `Supply`, `Result`, `Advance`, six phase advancers, `UsesCastTargetExpectedType` and
+  three finishers. It holds **FOUR** collaborators — the type resolver, the SoA escape reporter, the
+  ambient context and the boolean-condition reporter — and no sink and no span reader, because it
+  raises nothing itself.
+
+  **27 NEW CONTRACTS.** `AnalyzerTargetTypedOperands.tests.nl` (**698 lines, 27 contracts**).
+  Contracts **3,181 → 3,208 (+27)**, 0 failed. Seven are protocol invariants (no form asks for a kind
+  outside 1–3; the step count is the form's shape — three forms one, a ternary four; a node that is
+  none of the four takes no steps; a walk that asked for nothing folds in nothing when supplied
+  anyway; a finished walk keeps answering `null` and its result is stable; **the answer is NOT settled
+  before the steps**, for the cast as well as the ternary; no diagnostic lands at `Begin`). The rest
+  pin the four rules — the five-row DOOR TABLE (hard-`default` and hard-`new()` name the target, a
+  typed `new T()` and an ordinary operand and **a SAFE cast over the very same `default`** name
+  nothing), that a cast's written target is resolved BEFORE its step (**the opposite of `is`**, proved
+  through the semantic model), that a cast stops at its first refusal but asks BOTH questions, that
+  the wrappers hand the surrounding type back and ask only ONE escape question — **a direct column
+  inside a `checked` is not this arm's objection at all** — that a ternary walks its condition under
+  `bool` and both arms under its own expected type, that the condition is told before either arm is
+  walked and an `unknown` one is not accused twice, that all four escape reports run and any of them
+  makes the walk `unknown` and skips the common-type step, and that the cast's resolution is LENIENT.
+
+  **PROOF — THE EMISSION-ORDER PROTOCOL DIFFERENTIAL, FOUR RUNS, 7,702 ROWS, 0 MISMATCHES.** A
+  temporary env-gated probe (`NL52_PROBE=1`, buffered stderr, never in the final bytes — it lives only
+  in two throwaway worktrees) emitted four row kinds per walk — ENTER, STEP, ANSWER and RESULT, each
+  carrying **the ambient expected type at that instant** and the error count, and the STEP row
+  carrying **the KIND and the exact expected-type operand** (`k1:<null>`, `k2:<type>`,
+  `k3:<left>|<right>`) so the DOOR CHOICE itself is differenced — from the four rewritten dispatch
+  arms plus one point inside each of the five members in the BASELINE, and from the driver loop alone
+  in the WORK tree.
+  * 71-target corpus: **788 rows, 0 MISMATCHES**, md5 `e77407cb947b29372dcaaed0db9ba759` in BOTH.
+  * 473 accumulated fixtures: **626 rows, 0 MISMATCHES**, md5 `f7e60b81d0be24e8567b639bce5f09fd`.
+  * 62 env-gated SoA fixtures: **90 rows, 0 MISMATCHES**, md5 `fcf25e6b2e73e5b9aa2d7e653a5d9474`.
+  * The self-host target (`NSharpLang.Compiler.BootstrapServices`, 323 files) ALONE: **6,198 rows,
+    0 MISMATCHES**, md5 `b9c0139591ec8f2226a9d9937cf849a2`.
+  **ENTER == RESULT on every run** (182 / 104 / 14 / 1,386 — **1,686 walks**), **STEP == ANSWER on
+  every run** (212 / 209 / 31 / 1,713 — **2,165 steps**), depth never negative and back to 0 at every
+  target, **max nesting 2**.
+
+  **THE CENSUS IS THE SLICE'S SHARPEST FINDING, AND IT IS WHY THE 45 NEW FIXTURES WERE NOT OPTIONAL.**
+  Across all four runs the family is entered **1,686 times — cast 1,461, ternary 161, `checked` 41,
+  `unchecked` 23** — and the step kinds are **k1 1,457 / k2 551 / k3 157**. **THE SELF-HOST TARGET
+  CONTAINS NOT ONE `checked` AND NOT ONE `unchecked`** (1,277 casts and 109 ternaries, nothing else),
+  and **OF ALL 1,457 CAST STEPS IN THE CORPUS AND THE SELF-HOST, EVERY SINGLE ONE TOOK DOOR B — DOOR A
+  IS ENTERED FOUR TIMES IN THE WHOLE WORLD, AND ALL FOUR ARE THIS SLICE'S OWN FIXTURES.** The one
+  branch that this slice had to measure hardest is the one branch no existing corpus reaches.
+
+  **PROOF — FOUR ORACLE DIFFERENTIALS, ALL ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `5e2a28a89` (`/private/tmp/nl52base`) and at the working tree.
+  * **CORPUS: DIFFS = 0 over 387 lines**, md5 `951a66744aea510649a9a901c4b66ec0` in BOTH — 72 HEAD
+    rows, **315 diagnostics across 13 codes**, `stderrBytes = 0` on all 144 runs, ZERO `PARSE-FAIL`,
+    the 7 known no-`results` targets, both CLIs pointed at the SAME `git worktree` copy
+    (`/private/tmp/nl52corpus`).
+  * **SUPPLEMENTARY (the 7 no-`results` targets plus 2): DIFFS = 0**, NO-RESULTS = 0, PARSE-FAIL = 0.
+  * **FIXTURES: DIFFS = 0 over 957 lines**, md5 `72e60b5ab2b5e407aa53531a54dab807` — **473 HEAD rows,
+    484 diagnostics across 40 codes**, all 946 runs `stderrBytes = 0`. The set is this slice's **45**
+  plus the accumulated **428**.
+  * **SoA (env-gated): DIFFS = 0 over 175 lines**, md5 `0c5e094c40fc8d90fb84dd0ed1dc0487` — 62
+    targets, 113 diagnostics across 5 codes. The set is this slice's **11** plus the accumulated **51**.
+  **PARSE-ERROR CENSUS: 4 (NL101 × 4), IDENTICAL on both sides and EXACTLY the census slices 43–51
+  recorded — all four in the one known `fx18-newtype-construction` fixture. The 45 new fixtures and
+  the 11 new SoA fixtures add ZERO.**
+
+  **PROOF — THE 56 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT.** A cast is proved to answer its
+  WRITTEN target and not its operand (`Take((int)1)` into a `string` reports NL202), to keep answering
+  it when the operand is broken, to walk its operand, to raise NOTHING for an unrelated cast and
+  NOTHING for a target type that does not exist; the DOORS are proved by `print (int)default` (clean)
+  against `print default as int` (**NL203**) and by `(Person)new()` against a bare `new()`;
+  `checked`/`unchecked` are proved to be their operand (`Take(checked(1))` into a `string` reports
+  NL202), to walk it, to nest, to hand the surrounding expected type back (`print checked(default)`
+  **NL203** vs `Take(checked(default))` clean, and the same pair for `new()`), and **to accept a bare
+  lambda operand**; a ternary is proved to be the common type of its arms, to be told when its
+  condition is not a boolean and NOT told when the condition is already broken, to target-type BOTH
+  arms (`Take(flag ? 1 : 300)` into a `byte` reports NL202 where `Take(flag ? 1 : 2)` is silent), to
+  widen `int` and `long` to `long`, to nest, and to compose with the other three in both directions.
+  The **11 env-gated SoA fixtures are the only way to reach the action words this family owns**: a row
+  view is refused as cast / `checked` / `unchecked` / a ternary arm / a ternary condition, a direct
+  column value is refused in a cast and in both ternary arms, a two-row-view ternary is refused TWICE,
+  and **a direct column inside a `checked` produces the `print` arm's objection instead of this arm's,
+  which is the asymmetry the contract pins, proved end to end**.
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS.** Both Release CLIs built the 45 new fixtures from two
+  staging copies proved `diff -rq` identical first. **BLD_NORM_DIFFS = 0 over 577 unsorted lines**,
+  md5 `f08e6a4fe0f985307f2a31b9955c020f` in BOTH, identical exits (**0 × 9, 1 × 36**). The raw
+  transcripts differ on **186 content lines: 184 of them name the staging-copy path, and the other two
+  are the SAME TEXT on both sides** — a diff-alignment artefact around the path lines — and the
+  residue after normalising the path is EMPTY.
+
+  **PROOF — THE IL NORMALISER, AND THE CONTROL RAN FIRST.** Three staging copies (examples, templates
+  and the systems samples — **45 projects**) proved `diff -rq` identical before any build. **THE
+  CONTROL RAN FIRST**: the BASELINE CLI building TWO IDENTICAL COPIES reported **compared 91, SAME 91,
+  DIFFERENT 0, ONLY_IN 0 / 0**. Then the test comparison: **compared 91, ONLY_IN 0 / 0, and ALL 48
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, with the `TARGET`/exit lines identical between the trees.
+  The 43 that differ are ONE file — the COPIED C# support library `NSharpLang.Runtime.dll`, which
+  `nlc` does not emit — and the difference is **ROOT-CAUSED**: exactly ONE distinct normalised content
+  per tree, both 14,848 bytes, `strings` finds the embedded PDB path `/private/tmp/nl52base/…` in one
+  and `/Users/spencer/repos/nsharplang/…` in the other, and `diff -rq -x bin -x obj` over
+  `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **329 checked files** (the 328 baseline plus
+  the one new production file — the contract file is excluded from `check`), **282 findings
+  estate-wide — the unchanged slice-42…51 baseline — and ZERO in the new files**, `stderrBytes = 0`.
+  The first cut had ONE: an unused `import System`, which the check caught and which is now gone.
+
+  **FORMAT CANON.** Both new `.nl` files pass `nlc format` and the whole
+  `src/NSharpLang.Compiler.BootstrapServices` directory passes the gate's Step 2b contract (**"All
+  files are properly formatted"**).
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:9e79a04cdb229042` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 10,813 →
+  **10,796**, currentNonBlankLines 9,612 → **9,602**, fingerprint → **`text-v1:8fccf4e563bf8aae`**;
+  `reviewedHeadFingerprint` → **`head-v1:19c9913ec0cc8cb7`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **12,655 / 10,935**. `wc -l` on the manifest
+  is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed lines and
+  `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: both new files are `.nl`, which
+  the policy does not audit, and the 56 fixtures live outside the repository. The audit on the final
+  tree is **18 / 18**. The pre-existing `editors/vscode/test/suite/edgeCases.test.ts` drift and the
+  six `MISSING` rows for files task 016 deleted are present identically in the pristine baseline and
+  were again deliberately left alone.
+
+  **GOTCHAS.**
+  **(1) AN UNUSED `import System` IS AN NL010 THAT ONLY `nlc check` FINDS.** The file builds, the
+  contracts pass and the format gate is silent; the estate-wide check is the only thing that says so,
+  and it is why that step belongs BEFORE the gate rather than after it.
+  **(2) THE GATE'S CONTRACT STEP NEEDS `-p:NSharpExcludeTests=false`.** A plain
+  `dotnet test src/NSharpLang.Compiler.BootstrapServices/…csproj` exits 0 having run NOTHING — the
+  `.tests.nl` files are excluded by default, so the run reports "Build succeeded" and no test output
+  at all. Copy the gate's own invocation (`dotnet restore -p:NSharpExcludeTests=false
+  --force-evaluate` then `dotnet test -p:NSharpExcludeTests=false --no-restore`).
+  **(3) A CONTRACT THAT ASSERTS A DIRECT-COLUMN MESSAGE MUST INCLUDE THE TRAILING `directly`.** The
+  row-escape template is "SoA row views cannot be {action}; use the table and row index instead" and
+  the column template is "SoA table member '{name}' cannot be {action} **directly**" — the two are
+  not symmetric, and the missing word was this slice's one contract failure.
+  **(4) FOUR CONCURRENT `.nl` EMITS TURN A 4-MINUTE BUILD INTO A 15-MINUTE ONE.** Two at a time is
+  the useful ceiling on this machine; a third and fourth do not overlap, they queue.
+  **(5) `NewExpression` TAKES SIX ARGUMENTS** — the trailing `ArrayLengthExpression` is defaulted, and
+  the estate's own call sites pass it explicitly, which is the spelling that never risks the
+  defaulted-parameter decline.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `5e2a28a89` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, naming both new files as unmapped and running the FULL suite: **3,194 / 3,194,
+  0 failed, 9 m 1 s of test time inside a 21 m 26 s run, exit 0**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 36m 06s.** `./scripts/test-all.sh --commit` —
+  VS Code tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 3m 59s;
+  **Step 2b's format contract over the compiler's own N# sources 0m 02s**; **unit tests 12m 06s
+  (3,194 / 3,194)**; **native N# tests 6m 51s** — the BootstrapServices contracts at **3,208 / 3,208**
+  plus every native project individually (**28 of them**), `ownership-audit` **18 / 18** among them;
+  **VS Code integration tests 4m 45s, 36 passing**, against a freshly built extension and language
+  server; pack and install the MSBuild SDK 7m 31s; templates, template creation and the
+  template-generated build; the example builds; `nlc check` on examples; and **the IL verification gate
+  0m 22s — `All 67 N# assemblies pass IL verification (no new errors vs baseline)`**. The run stored
+  its validated isolated cache result `dea348dd666ef7c4 (2166s)`, and it ran from an isolated snapshot
+  taken BEFORE this record was finished — `systems-language-closeout/` is in NO gate input set, so this
+  record's own prose is provably not a gate input.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.99 MB**) and installed with `--force` (`successfully
+  installed`). No computer-use verification was taken: this slice changes no LSP handler, no VS Code
+  extension code and no IDE protocol surface; what it changes is the TYPE the analyzer answers for a
+  cast, a `checked`, an `unchecked` and a ternary, which the gate's VS Code integration suite (36
+  passing) and all four diagnostic oracles cover.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Fixtures: `/private/tmp/nl52fixtures` (45, this
+  slice) alongside `nl51fixtures` (46), `nl50fixtures` (40), `nl49fixtures` (41), `nl48fixtures` (36),
+  `nl47fixtures` (34), `nl46fixtures` (32), `nl45fixtures` (30), `nl44fixtures` (26), `nl43fixtures`
+  (24), `nl42fixtures` (30), `nl41fixtures` (29), `nl40fixtures` (24) and `s24fixtures` (36) — **473
+  plain** — plus `/private/tmp/nl52soafx` (11) with the `nl40`–`nl44`, `nl49`, `nl50` and `nl51`
+  `soafx` sets (**62 env-gated**). The harnesses are at `.../scratchpad/nl44-oracle.sh`,
+  `nl44-build.sh`, `nl44-ilbuild.sh` + `nl44-ilnorm.py`, `nl52-repin.py`, `nl52-probe.sh` +
+  `nl52-compare.py` (the emission-order protocol differential, now carrying the STEP KIND and the
+  EXPECTED-TYPE OPERAND on every step row, plus a wrapper hand-back identity check),
+  `nl52-probe-base.py` / `nl52-probe-work.py` (the two instrumentation patches),
+  `nl52-run-probes-base.sh`, `nl52-run-work-probes.sh`, `nl52-run-oracles.sh`, `nl52-run-builds.sh`,
+  `nl52-run-il.sh`, `nl52-ilstage.sh`, `nl52-make-fixtures.py` and `nl52-make-soafx.py`. Five
+  worktrees are left registered: `/private/tmp/nl52base` (pristine `5e2a28a89` + Release CLI),
+  `/private/tmp/nl52corpus` (the shared source copy), `/private/tmp/nl52ilsrc` (the clean source the
+  three IL staging copies were made from) and the two throwaway probe trees `/private/tmp/nl52probe`
+  and `/private/tmp/nl52workprobe`.
+
+  **WALL STATUS: NO NEW WALL, AND NO TOOLSET REPIN WAS NEEDED.** Every collaborator this family asks
+  for — `AnalyzerTypeResolver.ResolveType`, `AnalyzerSoaEscape`'s two reports,
+  `AnalyzerAmbientContext.CurrentExpectedType` and
+  `AnalyzerBooleanConditions.ReportConditionTypeMismatchIfNeeded` (which already documents the TERNARY
+  as one of its five callers) — was ALREADY N#-owned and callable, and the family needed no catalog
+  surface at all: it spells no reflection, builds no generic type and asks for no `char` or `string`
+  member. A 63-line cut needed exactly one new file and zero catalog rows.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is what the editor shows for four operators: that a cast
+  hovers as the type WRITTEN in it and not as whatever its operand turned out to be, so a chain after
+  `(Foo)x` completes on `Foo` even when `x` is broken; that a cast to a type that does not exist is
+  not underlined here, so the editor does not double-report what the type reference itself will say;
+  that `(int)default` and `(Person)new()` know what to be while `default as int` does not, which is
+  the difference between a hard cast and a safe one made visible; that a `checked` and an `unchecked`
+  hover as exactly their operand, so wrapping an expression in one changes no completion anywhere
+  inside or after it, and that a `default` or a `new()` inside one still reads the annotation it sits
+  under; and that a ternary hovers as the common type of its two arms, with both arms completed
+  against the type the ternary itself was asked for — which is what makes `value: byte = flag ? 1 : 2`
+  offer `byte`'s members inside each arm.
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 10,796 LINES, 9,602 NON-BLANK.** The same three
+  things: the SHORT list of remaining declaration walkers; **THE EXPRESSION WALK, now 20 arms of
+  policy instead of 23**; and the mechanical host — now **FIFTEEN** driver loops, of which exactly
+  FOUR return.
+
+  * **NEXT: THE EIGHT BIG ARMS, AND THEY NEED A SEQUENCE RATHER THAN A PICK.** What is left of the
+    expression territory is `identifier` (155), `member` (371), `call` (1,530), `assignment` (995),
+    `unary` (811), `binary` (620), `new` (644) and `lambda` (386) — **6,100 of the territory's 6,600
+    exclusive lines**, and unlike every family so far they are COUPLED, so the order is the decision.
+    **THE MEASURED DEPENDENCIES, TAKEN AT THIS TIP:** `AnalyzeLambda` has **NINE call sites** — the
+    dispatch arm, `AnalyzeExpressionWithExpectedType`'s FORK, one call-argument path and six
+    on-subscription paths; `ResolveIdentifier` has **3**; `GetNumericName` has **5**, and `GetWiderType`
+    and `IsNumericType` **5 each**, shared between the binary arm, the unary arm, the comparison rules
+    and this slice's `GetCommonType`.
+    **THE PROPOSED SEQUENCE, DERIVED FROM THOSE NUMBERS RATHER THAN FROM SIZE:**
+    **(1) `unary` + `binary` TOGETHER (1,431 lines).** They are the largest bloc whose shared
+    dependency is SELF-CONTAINED: the numeric promotion tables have no caller outside the two arms and
+    the ternary's `GetCommonType`, so moving both is the ONLY way those tables can move at all — and
+    doing so RETIRES this slice's kind 3, which is a measurable follow-on deletion rather than a hope.
+    **(2) `identifier` (155)**, whose engine `ResolveIdentifier` is shared with the call arm's callee
+    path — small, and it must land before anything that walks a receiver.
+    **(3) `member` (371)**, after identifier, because a member's receiver walk IS the identifier walk.
+    **(4) `new` (644)**, which reads the target-typing slot this slice just took ownership of and is
+    otherwise independent of the call machinery.
+    **(5) `assignment` (995)**, which needs member, index and identifier as TARGETS and cannot be
+    cut before them.
+    **(6) `call` (1,530)**, which needs identifier and member for its callee and is the most
+    entangled of the seven.
+    **(7) `lambda` (386) LAST.** It is the only arm with TWO production entry points, and the second
+    one is `AnalyzeExpressionWithExpectedType`'s fork — the very machinery this slice routed through.
+    A lambda owner cut before that fork moves would have to be reachable from both, which is the shape
+    every slice in this arc has refused.
+    **THE FIRST PREMISE WAS CHECKED RATHER THAN ASSUMED, AND IT HOLDS.** `GetWiderType`'s five call
+    sites are `AnalyzeArithmeticOp`, `AnalyzeBitwiseOp`, `AnalyzeRelationalOp`,
+    `ArePrimitiveEqualityTypesCompatible` and `GetCommonType`; `IsNumericType`'s are
+    `AnalyzeArithmeticOp` (×3), `IsPrimitiveRelationalType` and `GetCommonType`. **NOT ONE IS IN THE
+    ASSIGNMENT, CALL, MEMBER OR NEW PATH** — every one is the binary arm's own machinery except this
+    slice's kind 3. So step (1) really can move the tables, and kind 3 really does die with them.
+  * **AFTER THEM: `range` (48, DECLINED THIS SLICE WITH A REASON).** `AnalyzeRangeExpression` (26) +
+    `CheckRangeEndpoint` (16) + `IsRangeEndpointType` (6) take TWO optional PLAIN steps and name no
+    expected type, which is `AnalyzerPassThroughOperands`' shape exactly; it belongs there as that
+    owner's form 8, at the cost of one new form and no new kind. Two collaborator facts are already
+    measured for whoever takes it: `GetRangeType` has TWO callers (this arm and the binary `..`
+    operator) so it must be REPRODUCED rather than moved, and it needs `AnalyzerScopeStack.LookupType`
+    — which `AnalyzerLoopSequence` already holds, so the pattern exists; and `IsRangeEndpointType`
+    needs the assignability oracle, which `Analyzer.cs` REBUILDS with the metadata load context and
+    which must therefore arrive at `Begin` exactly as slice 51's pattern reachability checker does.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 51 — THE PASS-THROUGH OPERAND FAMILY
   (`throw` / `is` / `spread` / `alloc` / `must` / `stackalloc` / `tuple` / `await`), ALL EIGHT ARMS,
   TERMINAL.** Target recorded BEFORE any production edit, at `b6f4a12cc` (`Analyzer.cs` **11,096**
   lines, non-blank **9,859**, member declarations **432** by the narrow metric — lines matching
