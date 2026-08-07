@@ -372,6 +372,13 @@ public class Analyzer : IDisposable
     // scope, and the transparency of `alloc`, `allow` and `unsafe`. NOT rebuilt with the SCC: it
     // holds only the diagnostic sink and the span reader, neither of which the rebuild replaces.
     private readonly AnalyzerStatementSequence _statementSequence;
+    // WHAT A LITERAL MEANS: all seven literal forms of the expression walk — `int`, `float`, `char`,
+    // `string`, interpolated string, `bool` and `null` — as one walk that ANSWERS a type. Six forms
+    // answer without a step; the interpolated string suspends once per hole and resumes with that
+    // hole's type, which is the operand of its row-escape report. NOT rebuilt with the SCC: it holds
+    // the ambient context, the declaration context and the SoA escape owner, none of which the
+    // rebuild replaces.
+    private readonly AnalyzerLiteralExpressions _literalExpressions;
     private bool _disposed;
 
     public Analyzer()
@@ -424,6 +431,7 @@ public class Analyzer : IDisposable
             _ambient, _soaEscape);
         _parameterDeclarations = new AnalyzerParameterDeclarations(_diagnostics);
         _statementSequence = new AnalyzerStatementSequence(_diagnostics, _spans);
+        _literalExpressions = new AnalyzerLiteralExpressions(_ambient, _declarationContext, _soaEscape);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -1757,7 +1765,7 @@ public class Analyzer : IDisposable
         switch (expression)
         {
             case IntLiteralExpression intLiteral:
-                return TryConvertLiteralTypeInfoToClrType(GetIntLiteralType(intLiteral.Value), out clrType);
+                return TryConvertLiteralTypeInfoToClrType(_literalExpressions.IntLiteralType(intLiteral.Value), out clrType);
             case FloatLiteralExpression floatLiteral:
                 return TryConvertLiteralTypeInfoToClrType(NumericLiteralFacts.GetFloatLiteralTypeInfo(floatLiteral.Value), out clrType);
             case CharLiteralExpression:
@@ -2826,17 +2834,42 @@ public class Analyzer : IDisposable
     private void AnalyzePattern(Pattern pattern, TypeInfo valueType)
         => DrivePatternAnalysis(_patternAnalysis.Begin(pattern, valueType));
 
+    /// <summary>
+    /// The one step the N#-owned literal family cannot take for itself, and the ESTATE'S FIRST
+    /// ANSWERING DRIVER. All seven literal forms run in <see cref="AnalyzerLiteralExpressions"/>,
+    /// which owns what each of them is: the integer suffix rules and the target-typing of a
+    /// suffixless one, the float suffix rule, the four constant answers, and everything an
+    /// interpolated string means — that it is a <c>string</c> whatever its holes are, that its holes
+    /// are walked in source order under no expected type, and that each hole is refused BOTH SoA
+    /// escapes. Six of the seven ask for nothing, so this loop's body never runs for them; the
+    /// interpolated string suspends once per hole and resumes WITH THAT HOLE'S TYPE, which is the
+    /// operand of the row-escape report that follows it.
+    /// Unlike every other driver in this file, this one RETURNS. A statement and a declaration answer
+    /// nothing, so all eleven of their loops are <c>void</c> and carry answers only inward through
+    /// <c>Supply</c>; an expression must hand a type back to the dispatch that asked for it, so the
+    /// owner publishes <c>Result</c> and this loop returns what it says. Nothing else about the
+    /// protocol changes, and this loop decides nothing: it performs the one operation it is handed,
+    /// with the operand it is handed.
+    /// </summary>
+    private TypeInfo DriveLiteralExpression(LiteralExpressionState state)
+    {
+        for (var step = _literalExpressions.NextStep(state);
+             step != null;
+             step = _literalExpressions.NextStep(state))
+        {
+            _literalExpressions.Supply(state, AnalyzeExpression(step.Node!));
+        }
+
+        return _literalExpressions.Result(state);
+    }
+
     private TypeInfo AnalyzeExpression(Expression expr)
     {
         var type = expr switch
         {
-            IntLiteralExpression intLiteral => GetIntLiteralType(intLiteral.Value),
-            FloatLiteralExpression floatLiteral => NumericLiteralFacts.GetFloatLiteralTypeInfo(floatLiteral.Value),
-            CharLiteralExpression => BuiltInTypes.Char,
-            StringLiteralExpression strExpr => AnalyzeStringLiteral(strExpr),
-            InterpolatedStringExpression interpolated => AnalyzeInterpolatedString(interpolated),
-            BoolLiteralExpression => BuiltInTypes.Bool,
-            NullLiteralExpression => BuiltInTypes.Null,
+            IntLiteralExpression or FloatLiteralExpression or CharLiteralExpression
+                or StringLiteralExpression or InterpolatedStringExpression or BoolLiteralExpression
+                or NullLiteralExpression => DriveLiteralExpression(_literalExpressions.Begin(expr)),
             IdentifierExpression ident => ResolveIdentifier(ident.Name, ident.Line, ident.Column),
             BinaryExpression binary => AnalyzeBinaryExpression(binary),
             UnaryExpression unary => AnalyzeUnaryExpression(unary),
@@ -3132,23 +3165,6 @@ public class Analyzer : IDisposable
         }
 
         return innerType;
-    }
-
-    private TypeInfo AnalyzeStringLiteral(StringLiteralExpression strExpr)
-        => BuiltInTypes.String;
-
-    private TypeInfo AnalyzeInterpolatedString(InterpolatedStringExpression expr)
-    {
-        foreach (var part in expr.Parts)
-        {
-            if (part is InterpolatedStringHole hole)
-            {
-                var holeType = AnalyzeExpression(hole.Expression);
-                _soaEscape.ReportSoaRowEscapeIfNeeded(hole.Expression, holeType, "formatted in an interpolated string");
-                _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(hole.Expression, "formatted in an interpolated string");
-            }
-        }
-        return BuiltInTypes.String;
     }
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)
@@ -9220,67 +9236,6 @@ public class Analyzer : IDisposable
     }
 
     // Type checking helpers
-    private TypeInfo GetIntLiteralType(string value)
-    {
-        if (!NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(value, out var magnitude))
-        {
-            return BuiltInTypes.Int;
-        }
-
-        var suffix = NumericLiteralFacts.GetIntegerSuffix(value);
-        if (suffix.HasUnsigned && suffix.HasLong)
-        {
-            return BuiltInTypes.ULong;
-        }
-
-        if (suffix.HasUnsigned)
-        {
-            return magnitude <= uint.MaxValue ? BuiltInTypes.UInt : BuiltInTypes.ULong;
-        }
-
-        if (suffix.HasLong)
-        {
-            return magnitude <= long.MaxValue ? BuiltInTypes.Long : BuiltInTypes.ULong;
-        }
-
-        if (_ambient.CurrentExpectedType != null
-            && TryGetExpectedIntegerLiteralType(_ambient.CurrentExpectedType, magnitude, out var targetType))
-        {
-            return targetType;
-        }
-
-        return BuiltInTypes.Int;
-    }
-
-    private bool TryGetExpectedIntegerLiteralType(TypeInfo expectedType, ulong magnitude, out TypeInfo targetType)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(expectedType);
-        if (resolved is NullableTypeInfo nullable)
-        {
-            resolved = _declarationContext.ResolveDeclaredAlias(nullable.InnerType);
-        }
-
-        if (resolved is SimpleTypeInfo simple
-            && NumericLiteralFacts.TryGetUnsignedIntegerLiteralMaxValue(simple.Name, out var simpleMaxValue)
-            && magnitude <= simpleMaxValue)
-        {
-            targetType = simple;
-            return true;
-        }
-
-        if (resolved is ReflectionTypeInfo reflection
-            && NumericLiteralFacts.TryGetIntegerLiteralTypeInfo(Nullable.GetUnderlyingType(reflection.Type) ?? reflection.Type, out var reflectionType)
-            && NumericLiteralFacts.TryGetUnsignedIntegerLiteralMaxValue(reflectionType.Name, out var reflectionMaxValue)
-            && magnitude <= reflectionMaxValue)
-        {
-            targetType = reflectionType;
-            return true;
-        }
-
-        targetType = BuiltInTypes.Int;
-        return false;
-    }
-
     private bool TryGetExpectedNegativeIntegerLiteralType(
         TypeInfo? expectedType,
         string literalText,

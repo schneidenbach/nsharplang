@@ -1,6 +1,31 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-06 (**TASK 017 SLICE 48 LANDED IN TWO STAGES — THE ARC'S FIRST TOOLSET REPIN
+Last updated: 2026-08-06 (**TASK 017 SLICE 49 LANDED (no commit — mandate) — THE EXPRESSION WALK
+OPENS: N# OWNS WHAT A LITERAL MEANS, AND THE ESTATE GETS ITS FIRST ANSWERING DRIVER.** The 41 arms
+of `AnalyzeExpression` were INVENTORIED and SCORED on stay-behind re-entries (the slice-31 method), and
+the **LITERAL FAMILY — all seven arms** — won: taken together its stay-behind count is **1**, and that
+one is `AnalyzeExpression` itself. **THE TERRITORY'S FIRST QUESTION IS ANSWERED WITH EVIDENCE**: all
+eleven existing drivers return `void` and carry answers only INWARD, so an expression arm needs
+exactly ONE new thing — a `Result(state)` on the owner and a returning loop; `DriveLiteralExpression`
+is **10 lines** and changes no kind, no operand and no other call site. The probe measured the
+re-entry as REAL and NESTING (**depth 2** — an interpolated string inside another's hole) and
+ANSWER-BEARING (the hole's type is the row-escape report's operand), which is the case slice 48 proved
+safe only for a step that answers NOTHING. And it overturned the brief: **six of the seven forms take
+ZERO steps** — 55,545 walks, 670 steps. **FOUR C# MEMBERS DIE, 74 NAMED LINES**, and seven dispatch
+arms collapse to one. `Analyzer.cs` **11,189 → 11,144**, non-blank **9,934 → 9,899**, `git diff`
+**+41 / −86 = net −45**; both ratchet ceilings fall. N# adds **379 production lines, THREE types, 13
+members**, holding THREE collaborators and neither the sink nor the span reader — the only two
+diagnostics this family can raise are the SoA escape reporter's own. Contracts **3,078 → 3,111 (+33)**;
+unit suite **3,194 / 3,194**; audit **18 / 18**; **emission-order protocol differential 112,430 rows
+across FOUR runs — 12,526 corpus + 96,940 self-host + 2,766 fixture + 198 SoA — 0 MISMATCHES, ENTER ==
+RESULT and STEP == ANSWER on every run**; **four oracle differentials all 0 diffs** (corpus 315
+diagnostics / 13 codes, fixtures 370 / 37, SoA 61 / 4, supplementary 0); parse-error census **4,
+unchanged, and the 47 new fixtures add ZERO**; corpus IL **48 / 48 N#-emitted assemblies
+byte-identical**, control FIRST; `nlc check` **282 findings, 0 in the new file**; and the **full VS
+Code-enabled `test-all.sh --commit` gate ALL GREEN, 16 timed steps, 108 passes, exit 0, 38m 28s**.
+Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-06 (**TASK 017 SLICE 48 LANDED IN TWO STAGES — THE ARC'S FIRST TOOLSET REPIN
 BUYS THE NAMING CONVENTION, AND N# OWNS WHAT EVERY TYPE DECLARATION MEANS.** Stage 1 (committed
 `f71b5c1e6`) published `char.IsLower` to the columnar `System.Char` catalog — ONE row, and a
 repo-wide sweep proved the switch is the ONLY surface: no planner list, no validator allowlist, no
@@ -1828,7 +1853,371 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 48 — THE TYPE-DECLARATION WALKERS, IN TWO
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 49 — THE EXPRESSION WALK OPENS: THE LITERAL
+  FAMILY, ALL SEVEN ARMS, TERMINAL.** Target recorded BEFORE any production edit, at `f3f1c2c3b`
+  (`Analyzer.cs` **11,189** lines, non-blank **9,934**, member declarations **439** by this slice's
+  metric — lines matching `^    (private|public|internal|protected).*\(` — and **514** by slice 47's
+  broader modifier-line metric, both applied identically to both trees; unit suite baseline
+  **3,194**; contracts baseline **3,078**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:765e58fa2fe54181`; `Analyzer.cs` ratchet row currentLines
+  **11,189** / currentNonBlank **9,934**, fingerprint `text-v1:93d952e15b89a1ad`, epoch ceilings
+  **23,451 / 20,537**).
+
+  **THE 41-ARM SCORED INVENTORY, MEASURED AT THIS TREE.** A closure scan resolved every `\w+(` in
+  each arm's transitive body against `Analyzer.cs`'s own 439-member declaration set, partitioned the
+  closure into members EXCLUSIVE to the arm (every caller inside the closure — these MOVE) and
+  members that STAY BEHIND, then subtracted the one-line forwarders onto already-N# owners that
+  slice 31 subtracted (`Error`, `Warning`, `GetSourceSnippet` are all `_diagnostics.Report`). `LN` is
+  the exclusive-closure line count — what the arm would delete. `SB` is the stay-behind re-entry
+  count, the one number that decides cost. `RE` counts re-entries into the expression/statement
+  walks specifically. `AMB` counts reads of the ambient C# fields (`_ambient.*`,
+  `_allowUnboundCallableReference`, `_allowSyntheticSoaOperationReference`, `_allowEventReference`,
+  `_analyzingCallCallee`).
+
+  | arm | root member | LN | SB | RE | diags | AMB | stay-behind |
+  |---|---|---|---|---|---|---|---|
+  | `FloatLiteralExpression` | (inline `NumericLiteralFacts`) | 0 | **0** | 0 | 0 | 0 | — |
+  | `CharLiteralExpression` | (inline `BuiltInTypes.Char`) | 0 | **0** | 0 | 0 | 0 | — |
+  | `BoolLiteralExpression` | (inline `BuiltInTypes.Bool`) | 0 | **0** | 0 | 0 | 0 | — |
+  | `NullLiteralExpression` | (inline `BuiltInTypes.Null`) | 0 | **0** | 0 | 0 | 0 | — |
+  | `ThisExpression` | (inline `_scopes.CurrentTypeScope()`) | 0 | **0** | 0 | 0 | 0 | — |
+  | `ParenthesizedExpression` | (inline re-entry on `.Inner`) | 0 | **0** | 1 | 0 | 0 | — |
+  | `StringLiteralExpression` | `AnalyzeStringLiteral` | 2 | **0** | 0 | 0 | 0 | — |
+  | `SizeOfExpression` | `AnalyzeSizeofExpression` | 5 | **0** | 0 | 0 | 0 | — |
+  | `TypeOfExpression` | `AnalyzeTypeofExpression` | 9 | **0** | 0 | 0 | 0 | — |
+  | `BaseExpression` | `AnalyzeBaseExpression` | 10 | **0** | 0 | 0 | 2 | — |
+  | `IntLiteralExpression` | `GetIntLiteralType` (+`TryGetExpectedIntegerLiteralType`) | 59 | **0** | 0 | 0 | 2 | — |
+  | `ThrowExpression` | `AnalyzeThrowExpression` | 7 | 1 | 1 | 2 | 0 | `AnalyzeExpression` |
+  | `CheckedExpression` | `AnalyzeCheckedExpression` | 11 | 1 | 1 | 1 | 1 | `AnalyzeExpressionWithExpectedType` |
+  | `UncheckedExpression` | `AnalyzeUncheckedExpression` | 11 | 1 | 1 | 1 | 1 | `AnalyzeExpressionWithExpectedType` |
+  | `InterpolatedStringExpression` | `AnalyzeInterpolatedString` | 13 | **1** | 1 | 2 | 0 | `AnalyzeExpression` |
+  | `IsExpression` | `AnalyzeIsExpression` | 17 | 1 | 1 | 2 | 0 | `AnalyzeExpression` |
+  | `SpreadExpression` | `AnalyzeSpreadExpression` | 17 | 1 | 1 | 2 | 0 | `AnalyzeExpression` |
+  | `AllocExpression` | `AnalyzeAllocExpression` | 26 | 1 | 1 | 4 | 0 | `AnalyzeExpression` |
+  | `NameofExpression` | `AnalyzeNameofExpression` | 26 | 1 | 1 | 2 | 0 | `AnalyzeExpression` |
+  | `MustExpression` | `AnalyzeMustExpression` | 31 | 1 | 1 | 3 | 0 | `AnalyzeExpression` |
+  | `DefaultExpression` | `AnalyzeDefaultExpression` | 37 | 1 | 0 | 4 | 3 | `GetNonNullableType` |
+  | `StackAllocExpression` | `AnalyzeStackAllocExpression` | 40 | 1 | 1 | 4 | 0 | `AnalyzeExpression` |
+  | `TupleExpression` | `AnalyzeTupleExpression` | 45 | 1 | 1 | 2 | 4 | `AnalyzeExpression` |
+  | `AwaitExpression` | `AnalyzeAwaitExpression` | 102 | 1 | 1 | 5 | 0 | `AnalyzeExpression` |
+  | `CastExpression` | `AnalyzeCastExpression` | 21 | 2 | 2 | 2 | 0 | both expression entries |
+  | `IdentifierExpression` | `ResolveIdentifier` | 155 | 2 | 0 | 8 | 1 | `GetUnitNamespace`, `TryResolveVisibleProjectFunction` |
+  | `ArrayLiteralExpression` | `AnalyzeArrayLiteral` | 248 | 2 | 3 | 11 | 4 | +`GetExpectedElementType` |
+  | `TernaryExpression` | `AnalyzeTernary` | 26 | 3 | 3 | 5 | 1 | +`GetWiderType`, `IsNumericType` |
+  | `RangeExpression` | `AnalyzeRangeExpression` | 48 | 3 | 2 | 5 | 0 | +`GetRangeType`, `IsIndexLikeType` |
+  | `OnSubscriptionExpression` | `AnalyzeOnSubscription` | 367 | 3 | 1 | 10 | 3 | +`AnalyzeLambda`, `TryGetQualifiedExpressionTreeName` |
+  | `MatchExpression` | `AnalyzeMatchExpression` | 129 | 5 | 5 | 7 | 3 | +`DrivePatternAnalysis`, `PushScope`, `PopScope` |
+  | `WithExpression` | `AnalyzeWithExpression` | 221 | 5 | 4 | 11 | 0 | +3 SoA/initializer members |
+  | `LambdaExpression` | `AnalyzeLambda` | 386 | 6 | 2 | 10 | 2 | +`AnalyzeStatement`, `DeclareSymbol`, scopes |
+  | `IndexAccessExpression` | `AnalyzeIndexAccess` | 224 | 8 | 2 | 17 | 2 | 8 |
+  | `NewExpression` | `AnalyzeNewExpression` | 644 | 9 | 7 | 32 | 9 | 9 |
+  | `MemberAccessExpression` | `AnalyzeMemberAccess` | 371 | 10 | 1 | 12 | 2 | 10 |
+  | `BinaryExpression` | `AnalyzeBinaryExpression` | 620 | 13 | 10 | 28 | 0 | 13 |
+  | `UnaryExpression` | `AnalyzeUnaryExpression` | 811 | 16 | 2 | 23 | 4 | 16 |
+  | `AssignmentExpression` | `AnalyzeAssignment` | 995 | 17 | 10 | 34 | 14 | 17 |
+  | `CallExpression` | `AnalyzeCall` | 1,530 | 20 | 10 | 43 | 7 | 20 |
+  | `_` (default) | (inline `BuiltInTypes.Unknown`) | 0 | 0 | 0 | 0 | 0 | — |
+
+  **WHY THE LITERAL FAMILY, AND WHY ALL SEVEN OF ITS ARMS.** The seven literal arms —
+  `IntLiteralExpression`, `FloatLiteralExpression`, `CharLiteralExpression`,
+  `StringLiteralExpression`, `InterpolatedStringExpression`, `BoolLiteralExpression`,
+  `NullLiteralExpression` — are the cheapest bounded thing in the territory that is also a FAMILY:
+  taken together their stay-behind re-entry count is **1**, and that one is `AnalyzeExpression`
+  itself, which is the territory's own door and cannot be avoided by any arm that has operands.
+  Six of the seven have **zero**. Every collaborator the family asks for is ALREADY N#-owned and
+  directly callable — `NumericLiteralFacts` (the float type and every integer-suffix and magnitude
+  fact), `BuiltInTypes`, `AnalyzerAmbientContext` (`CurrentExpectedType`),
+  `AnalyzerDeclarationContext` (`ResolveDeclaredAlias`) and `AnalyzerSoaEscape` (both hole reports)
+  — so the cut needs no relay kind at all. The three cheaper-looking singletons (`sizeof` 5,
+  `typeof` 9, `base` 10) were REFUSED as the opening: each is one arm of 41 and none of them
+  re-enters, so taking one would open the territory without answering its first question.
+
+  **THE TERRITORY'S FIRST QUESTION, AND WHY THIS FAMILY IS THE SMALLEST THING THAT ANSWERS IT.**
+  Slice 48's brief asked whether an expression step can ANSWER through a nested driver. Measured:
+  all **eleven** existing drivers return `void`, and every one of them carries answers only INWARD
+  (`Supply(state, answer)`); nothing in the estate carries a walk's answer OUTWARD, because no
+  statement or declaration walk has ever had one. An expression arm must hand a `TypeInfo` back to
+  the dispatch, so the territory needs exactly one new thing: an **ANSWERING DRIVER** — a
+  `TypeInfo`-returning loop plus a `Result(state)` on the owner. `InterpolatedStringExpression` is
+  the CHEAPEST arm in the whole 41 that both re-enters `AnalyzeExpression` and consumes the answer
+  (the hole's type is the operand of the row-escape report), so it proves the answering driver is
+  also RE-ENTRANT with an answering nested step — the case slice 48 proved safe only for a step that
+  answers nothing. The other six arms take ZERO steps, which makes them the control: the same driver,
+  the same `Result`, an empty loop.
+
+  **THE PLANNED CUT.** `GetIntLiteralType` (31), `TryGetExpectedIntegerLiteralType` (28),
+  `AnalyzeStringLiteral` (2) and `AnalyzeInterpolatedString` (13) — **FOUR C# MEMBERS, 74 NAMED
+  LINES** — plus the seven dispatch arms collapsing to one. `GetIntLiteralType`'s SECOND caller
+  (`TryInferAttributeArgumentClrType` `:1760`, the attribute-argument walk) routes to the N# owner
+  mechanically; that walk's own inline literal table is NOT absorbed, because it answers a different
+  question — its `NullLiteralExpression` case answers `BuiltInTypes.Object`, not `BuiltInTypes.Null`.
+  Against the cut: one new N# owner (`AnalyzerLiteralExpressions.nl`) and one new zero-policy
+  ANSWERING driver `DriveLiteralExpression`.
+
+  **THE NAMED THING TO MEASURE BEFORE DESIGNING**: whether the interpolated string's re-entry count
+  and ORDER are answer-dependent (the hole count is a pure function of the node; the hole TYPE is
+  not), and whether `Begin` reading `_ambient.CurrentExpectedType` at the dispatch instant is the
+  same instant `GetIntLiteralType` read it.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT A LITERAL MEANS, ALL SEVEN FORMS, AND THE ESTATE
+  GETS ITS FIRST ANSWERING DRIVER.**
+
+  **THE TERRITORY'S FIRST QUESTION, ANSWERED WITH EVIDENCE.** Slice 48 asked whether an expression
+  step can ANSWER through a nested driver. Three measurements answer it:
+  * **THE VOCABULARY WAS ALREADY THERE IN ONE DIRECTION AND MISSING IN THE OTHER.** All ELEVEN
+    existing drivers return `void`; every one of them carries an answer only INWARD, through
+    `Supply(state, answer)`. Nothing in the estate carried a walk's answer OUTWARD, because no
+    statement or declaration walk has ever had one. So the territory needs exactly ONE new thing — a
+    `Result(state)` on the owner and a `TypeInfo`-returning loop. That is the whole of the new shape:
+    `DriveLiteralExpression` is 10 lines, the same `for`/`NextStep`/`Supply` as its eleven siblings
+    plus a `return`. **NO `Supply` OPERAND, NO KIND AND NO CALL SITE CHANGED ANYWHERE ELSE.**
+  * **THE RE-ENTRY IS REAL, AND IT NESTS.** Over the whole measured estate the walk was entered
+    **55,545** times and asked for **670** expression steps, and the protocol probe recorded WALK
+    DEPTH on every row: **maximum nesting 2** in both the corpus and the fixtures — an interpolated
+    string inside another interpolated string's hole — and depth returns to 0 at every target. So the
+    answering driver is ALSO re-entrant, which is the case slice 48 proved safe only for a step that
+    answers nothing.
+  * **THE ANSWER IS AN OPERAND, NOT A SCHEDULE.** The step COUNT is a pure function of the node (one
+    per hole, in part order) but the step's answer is the row-escape report's second argument, so a
+    schedule computed before the first step cannot carry the later steps' operands. The walk
+    suspends and resumes WITH the answer, exactly as slice 31's local declaration does.
+
+  **AND THE MEASUREMENT OVERTURNED PART OF THE BRIEF.** The brief expected the opening arm to
+  re-enter. Six of the seven do NOT: an `int`, `float`, `char`, `string`, `bool` and `null` literal
+  take **ZERO** steps, so the driver's loop body never runs for them and `Result` returns what `Begin`
+  already decided. That is not an optimisation — it is what the family IS, and it is what makes the
+  seventh arm's suspension legible: 55,545 walks, 670 steps.
+
+  **THE CUT — FOUR C# MEMBERS, 74 NAMED LINES, AND SEVEN DISPATCH ARMS COLLAPSE TO ONE.** GONE:
+  `GetIntLiteralType` (31), `TryGetExpectedIntegerLiteralType` (28), `AnalyzeInterpolatedString` (13)
+  and `AnalyzeStringLiteral` (2). ADDED: the zero-policy `DriveLiteralExpression` loop (10 lines) plus
+  its 16-line doc, the owner field and its 7-line doc, the construction (1), the collapsed dispatch
+  arm (3) and ONE mechanically routed call site. `git diff` on `Analyzer.cs` **+41 / −86 = net −45**;
+  the file goes **11,189 → 11,144**, non-blank **9,934 → 9,899 (−35)**, member declarations
+  **439 → 436** and modifier lines **514 → 512**. **BOTH RATCHET CEILINGS FALL.**
+
+  **`GetIntLiteralType`'S SECOND CALLER IS ROUTED, AND THE WALK NEXT TO IT WAS DELIBERATELY NOT
+  ABSORBED.** `TryInferAttributeArgumentClrType` (`:1765`) now calls
+  `_literalExpressions.IntLiteralType(...)`, which reads the same ambient slot at the same instant.
+  Its own inline literal table stays in `Analyzer.cs` because it answers a DIFFERENT question: its
+  `NullLiteralExpression` case answers `BuiltInTypes.Object`, not `BuiltInTypes.Null`, and its
+  `TypeOfExpression` case answers a live `System.Type`. Absorbing it would have made two different
+  questions share one answer.
+
+  **N# ADDED — 379 PRODUCTION LINES ON ONE NEW FILE.** `AnalyzerLiteralExpressions.nl`: **THREE
+  types, 13 members** — `LiteralExpressionRequest` (ONE kind, and there is no kind 2 because nothing
+  else in this family is beyond the walk's reach), `LiteralExpressionState` (the form, the part
+  cursor, the outstanding answer and the result the entry decided) and the owner itself: `Begin`,
+  `NextStep`, `Supply`, **`Result`**, `Advance`, three phase advancers and the two integer-typing
+  members. It holds **THREE** collaborators — the ambient context, the declaration context and the
+  SoA escape reporter — and not the scope stack, the sink or the span reader, because this family
+  declares nothing, reports nothing itself and asks for no span: **the only two diagnostics it can
+  raise are the SoA escape reporter's own, and it decides only WHETHER they are asked and with what
+  action word.** All three collaborators are constructed exactly once and none is rebuilt with the
+  metadata load context.
+
+  **33 NEW CONTRACTS.** `AnalyzerLiteralExpressions.tests.nl` (**591 lines, 33 contracts**).
+  Contracts **3,078 → 3,111 (+33)**, 0 failed. Every replayed step records the KIND, the node, the
+  position, the error count AND **the walk's result AS THE STEP WAS HANDED OUT**, which is what makes
+  the two new invariants readable off the row stream: the result is settled BEFORE the first step,
+  and each escape report lands BETWEEN two steps. Four are protocol invariants (no form asks for a
+  kind other than 1; the step count is the hole count and six of seven forms are zero; a walk that
+  asked for nothing folds in nothing when supplied anyway; a finished walk keeps answering `null`).
+  Seven pin the integer rules, six the target-typing rule including a **reflected `byte?` answering
+  as its `T`** and one that proves the slot is read AT `Begin` and not at `Result`.
+
+  **PROOF — THE EMISSION-ORDER PROTOCOL DIFFERENTIAL, FOUR RUNS, 112,430 ROWS, 0 MISMATCHES.** A
+  temporary env-gated probe (`NL49_PROBE=1`, stderr, never in the final bytes — it lives only in two
+  throwaway worktrees) emitted four row kinds per walk — ENTER (form, position, **the ambient
+  expected type at that instant**, error count), STEP, ANSWER (the type the step produced) and RESULT
+  — in the BASELINE from the seven rewritten dispatch arms plus two points inside
+  `AnalyzeInterpolatedString`, and in the WORK tree from the driver loop alone.
+  * 71-target corpus: **12,526 rows, 0 MISMATCHES**, md5 `f1e72df05058324b83de78658f9738cb` in BOTH.
+  * The self-host target (`NSharpLang.Compiler.BootstrapServices`, 323 files) ALONE: **96,940 rows,
+    0 MISMATCHES**, md5 `be7b92504edf6ee8870b8b83fd2f71c8`.
+  * 342 accumulated fixtures: **2,766 rows, 0 MISMATCHES**, md5 `7d354f1e61fe93b8d4eaba83af1ac11c`.
+  * 33 env-gated SoA fixtures: **198 rows, 0 MISMATCHES**, md5 `f67b2f1afa79869186e7f628b3ee8c0c`.
+  **ENTER == RESULT on every run** (5,832 / 48,261 / 1,364 / 88), **STEP == ANSWER on every run**
+  (431 / 209 / 19 / 11), depth never negative and back to 0 at every target.
+  **THE PROBE'S FIRST CUT WAS UNBUFFERED AND THAT IS A FINDING**: `Console.Error.WriteLine` per row
+  makes the self-host target take longer than the whole rest of the corpus; a 1 MB buffered writer
+  flushed on `ProcessExit` turned it into ~90 seconds. A literal probe is two orders of magnitude
+  louder than a declaration probe.
+  **THE CENSUS IS A FINDING.** Over the corpus the forms are int 2,131 / string 2,881 / interpolated
+  269 / bool 229 / char 146 / null 92 / float 84, and over the self-host target int 19,367 / string
+  15,152 / bool 5,861 / null 5,658 / char 2,142 / interpolated 75 / **float SIX**. The ambient slot
+  is NON-NULL at 56 % of corpus entries and it CHANGES the answer: 58 `byte`, 18 `uint`, 18 `ulong`,
+  18 `long` and 4 `short` results come out of 2,131 int-literal walks that would otherwise all be
+  `int` — which is why the target-typing rule could not be approximated or reordered.
+
+  **PROOF — FOUR ORACLE DIFFERENTIALS, ALL ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `f3f1c2c3b` (`/private/tmp/nl49base`) and at the working tree.
+  * **CORPUS: DIFFS = 0 over 387 lines**, md5 `1cecbe892bd10acb9ad24c12de29f257` in BOTH — 72 HEAD
+    rows, **315 diagnostics across 13 codes**, `stderrBytes = 0` on all 144 runs, ZERO `PARSE-FAIL`,
+    both CLIs pointed at the SAME `git worktree` copy (`/private/tmp/nl49corpus`).
+  * **SUPPLEMENTARY (the 7 no-`results` targets plus 2): DIFFS = 0**, NO-RESULTS = 0, PARSE-FAIL = 0.
+  * **FIXTURES: DIFFS = 0 over 712 lines**, md5 `ccebb519056a6e26b46afa9be716c48c` — **342 HEAD rows,
+    370 diagnostics across 37 codes**, all 684 runs `stderrBytes = 0`. The set is this slice's **41**
+    plus the accumulated **301**.
+  * **SoA (env-gated): DIFFS = 0 over 94 lines**, md5 `c301aa907396cec61dc9a7063dd297a0` — 33 targets,
+    61 diagnostics. The set is this slice's **6** plus the accumulated **27**.
+  **PARSE-ERROR CENSUS: 4 (NL101 × 4), IDENTICAL on both sides and EXACTLY the census slices 43–48
+  recorded. The 41 new fixtures and the 6 new SoA fixtures add ZERO.**
+
+  **PROOF — THE 47 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT, AND 22 OF THE 41 REPORT.** The
+  target-typing rule is observed end to end as a PAIR each time: `x: byte = 200` is **SILENT** and
+  `x: byte = 300` reports **NL202**; `x: byte? = 200` is silent and `x: byte? = 300` reports;
+  `Take(200)` into a `byte` parameter is silent and `Take(300)` reports at the ARGUMENT; a `byte`
+  return takes 200. Every suffix is proved to BEAT the target (`x: byte = 1u` reports) and to be
+  refused by a narrower one (`x: int = 1u`, `x: int = 1L`, `x: long = 1UL` all report). The four
+  constant forms each get a silent and a refused shape. The interpolated string: no holes, one hole,
+  **three holes reported in SOURCE ORDER at columns 13 / 20 / 26**, text between two holes not
+  reordering them (columns 14 / 22), a hole that fails leaving the string a `string`, a NESTED
+  interpolated string, a hole holding a target-typed literal and a hole with a format clause.
+  The **6 env-gated SoA fixtures are the only way to reach the two reports this family owns**: a row
+  view in a hole and a direct column in a hole are each refused with the action word **"formatted in
+  an interpolated string"**; every offending hole is refused rather than only the first (2 of 2, in
+  order); a row-view hole and a column hole in ONE string produce BOTH reports; a clean hole between
+  two offending ones does not silence either; and an element read is allowed.
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS.** Both Release CLIs built the 41 new fixtures from two
+  staging copies proved `diff -rq` identical first. **BLD_NORM_DIFFS = 0 over 541 unsorted lines**,
+  md5 `c184c9c187f8a289f819d2ee3d2071bb` in BOTH, identical exits (**0 × 19, 1 × 22**). The raw
+  transcripts differ on 172 lines and **every one of them is the staging-copy path** — counted, and
+  the residue after normalising the path is EMPTY.
+
+  **PROOF — THE IL NORMALISER, AND THE CONTROL RAN FIRST.** Three staging copies (examples, templates
+  and the systems samples — **45 projects**) proved `diff -rq` identical before any build. **THE
+  CONTROL RAN FIRST**: the BASELINE CLI building TWO IDENTICAL COPIES reported **compared 91, SAME 91,
+  DIFFERENT 0, ONLY_IN 0 / 0**. Then the test comparison: **compared 91, ONLY_IN 0 / 0, and ALL 48
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL.** The 43 that differ are ONE file — the COPIED C# support
+  library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference is **ROOT-CAUSED**:
+  exactly ONE distinct normalised content per tree, both 14,848 bytes, `strings` finds the embedded
+  PDB path `/private/tmp/nl49base/…` in one and `/Users/spencer/repos/nsharplang/…` in the other, and
+  `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **326 checked files** (the 325 baseline plus
+  the one new production file — the contract file is excluded from `check`), **282 findings
+  estate-wide — the unchanged slice-42…48 baseline — and ZERO in the new files**, `stderrBytes = 0`.
+  The first cut had ONE: an **NL010 unused `import System.Collections.Generic`** in the owner. The
+  owner names no generic type of its own (it reads `interpolated.Parts` and indexes it), so the
+  import was removed rather than justified.
+
+  **FORMAT CANON.** Both new `.nl` files pass `nlc format` (**"Formatted 0 file(s)"** — they were
+  written to canon) and the whole `src/NSharpLang.Compiler.BootstrapServices` directory passes the
+  gate's Step 2b contract (**"All files are properly formatted"**).
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:765e58fa2fe54181` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 11,189 →
+  **11,144**, currentNonBlankLines 9,934 → **9,899**, fingerprint → **`text-v1:1f8f80a59e19a07c`**;
+  `reviewedHeadFingerprint` → **`head-v1:cab81b41792383b7`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **12,307 / 10,638**. `wc -l` on the manifest
+  is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed lines and
+  `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: both new files are `.nl`, which
+  the policy does not audit, and the 47 fixtures live outside the repository. The audit on the final
+  tree is **18 / 18**. The pre-existing `editors/vscode/test/suite/edgeCases.test.ts` drift and the
+  six `MISSING` rows for files task 016 deleted are present identically in the pristine baseline and
+  were again deliberately left alone.
+
+  **GOTCHAS.**
+  **(1) `SoaColumnInfo` TAKES A `TypeReference`, NOT A `TypeInfo`**, and passing the wrong one does
+  not produce a type error — it produces a COLUMNAR DECLINE (`emit.expression-statement.call`) at the
+  `List.Add` call, pointing at the statement and naming nothing about the argument. The estate's
+  existing row-type helpers all build an EMPTY column list, which is why none of them hit it.
+  **(2) `TypeInfo == BuiltInTypes.Unknown` DECLINES IN A CONTRACT.** `SimpleTypeInfo` overrides
+  `Equals`, but `==` on a `TypeInfo`-typed operand declines at `emit.statement.block-child` with a
+  node kind and no operand named. Compare the rendered text instead — the estate's `…TypeText` idiom
+  (box through `object`, then `ToString()`) is already the answer.
+  **(3) `uint.MaxValue` AND `long.MaxValue` ARE NOT SPELLED IN ANY `.nl` IN THE REPOSITORY.** Rather
+  than probe a catalog surface for a bound that is a CONSTANT, the two limits are written as
+  `4294967295UL` and `9223372036854775807UL`. **This is NOT a wall** — nothing was declined; the
+  literal is simply the spelling that needs no catalog at all.
+  **(4) A PROBE THAT WRITES ONE ROW PER LITERAL MUST BUFFER.** See the protocol-differential note
+  above: unbuffered `Console.Error.WriteLine` is unusable at literal density.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `f3f1c2c3b` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, naming all four changed/added files as unmapped and running the FULL suite:
+  **3,194 / 3,194, 0 failed, 8 m 54 s, exit 0**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 38m 28s.** `./scripts/test-all.sh --commit` —
+  VS Code tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 4m 12s;
+  **Step 2b's format contract over the compiler's own N# sources 0m 03s**; **unit tests 12m 35s
+  (3,194 / 3,194)**; **native N# tests 7m 21s** — the BootstrapServices contracts at **3,111 / 3,111**
+  plus every native project individually, `ownership-audit` **18 / 18** among them; **VS Code
+  integration tests 5m 11s, 36 passing**, against a freshly built extension and language server; pack
+  and install the MSBuild SDK 8m 09s; templates, template creation and the template-generated build;
+  the example builds; `nlc check` on examples; and **the IL verification gate 0m 24s — `All 67 N#
+  assemblies pass IL verification (no new errors vs baseline)`**. The run stored its validated
+  isolated cache result `419ba4d3609ab3be (2308s)`, and it ran from an isolated snapshot
+  (`/private/tmp/nsharp-test-all.419ba4d3609a…`) taken BEFORE this record was written —
+  `systems-language-closeout/` is in NO gate input set, so this record's own prose is provably not a
+  gate input.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.99 MB**) and installed with `--force`
+  (`successfully installed`). No computer-use verification was taken: this slice changes no LSP
+  handler, no VS Code extension code and no IDE protocol surface; what it changes is the TYPE the
+  analyzer answers for a literal, which the gate's VS Code integration suite and all four diagnostic
+  oracles cover.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Fixtures: `/private/tmp/nl49fixtures` (41, this
+  slice) alongside `nl48fixtures` (36), `nl47fixtures` (34), `nl46fixtures` (32), `nl45fixtures`
+  (30), `nl44fixtures` (26), `nl43fixtures` (24), `nl42fixtures` (30), `nl41fixtures` (29),
+  `nl40fixtures` (24) and `s24fixtures` (36) — **342 plain** — plus `/private/tmp/nl49soafx` (6) with
+  the `nl40`–`nl44` `soafx` sets (**33 env-gated**). The harnesses are at
+  `.../scratchpad/nl44-oracle.sh`, `nl44-build.sh`, `nl44-ilbuild.sh` + `nl44-ilnorm.py`,
+  `nl49-repin.py`, `nl49-probe.sh` + `nl49-compare.py` (the emission-order protocol differential,
+  with the four row tags documented in the script), `nl49-run-probes.sh`, `nl49-run-oracles.sh`,
+  `nl49-make-fixtures.py`, `nl49-make-soafx.py` and **`runlong.sh`** — a heartbeat wrapper for any
+  command longer than the harness's silent-output window. Four worktrees are left registered:
+  `/private/tmp/nl49base` (pristine `f3f1c2c3b` + Release CLI), `/private/tmp/nl49corpus` (the shared
+  source copy), `/private/tmp/nl49ilsrc` (the clean source the three IL staging copies were made
+  from) and the two throwaway probe trees `/private/tmp/nl49probe` and `/private/tmp/nl49workprobe`.
+
+  **WALL STATUS: NO NEW WALL, AND NO TOOLSET REPIN WAS NEEDED.** Every collaborator and every fact
+  this family asks for — `NumericLiteralFacts` (the float suffix rule, the integer suffix reader, the
+  magnitude parser and both maximum-value tables), `BuiltInTypes`, `AnalyzerAmbientContext`,
+  `AnalyzerDeclarationContext.ResolveDeclaredAlias`, `AnalyzerSoaEscape` and
+  `Nullable.GetUnderlyingType` — was ALREADY N#-owned and callable, which is why a 74-line cut needed
+  exactly one new file and zero catalog rows.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is the type the editor shows for every literal in the
+  file — which is what hover reports, what completion filters against, and what the assignability
+  report a line later is measured against: the integer suffix rules; the target-typing that makes
+  `x: byte = 200` legal and `x: byte = 300` an NL202; the float suffix rule; and everything an
+  interpolated string means, including that a hole with an error still leaves the string a `string`
+  so a broken hole does not cascade into the enclosing expression.
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 11,144 LINES, 9,899 NON-BLANK.** The same three
+  things, one of them measurably smaller: the SHORT list of remaining declaration walkers; **THE
+  EXPRESSION WALK, now 34 arms of policy instead of 41**; and the mechanical host — now **TWELVE**
+  driver loops, of which exactly ONE returns.
+
+  * **NEXT: THE COMPILE-TIME CONSTANT FAMILY (`typeof` / `sizeof` / `nameof` / `default`), THEN THE
+    PASS-THROUGH OPERAND FAMILY.** The scored inventory above is the brief, and it is unchanged by
+    this slice except that the literal rows are gone. The next-cheapest bounded FAMILY is
+    `AnalyzeTypeofExpression` (9, **SB 0**), `AnalyzeSizeofExpression` (5, **SB 0**),
+    `AnalyzeNameofExpression` (26, SB 1) and `AnalyzeDefaultExpression` (37, SB 1 — and its one
+    stay-behind is `GetNonNullableType`, whose C# original has **21 other callers** and which
+    `AnalyzerSoaEscape.NonNullableType` already reproduces in N#, so it is a two-call body rather than
+    a relay). That is **77 named lines across four members**, one coherent question ("what does the
+    compiler know about this type without evaluating anything"), and it reuses this slice's protocol
+    UNCHANGED — the four forms take zero steps each, so it is `Begin` + `Result` with an empty loop.
+    **THE ONE THING TO MEASURE BEFORE DESIGNING** is `AnalyzeDefaultExpression`'s THREE ambient reads
+    — it is the only member of the four that touches the target-typing slot, and slice 49 has now
+    pinned that the slot must be read at `Begin` rather than at `Result`.
+    After it, in ascending stay-behind order: the pass-through operands (`throw` 7, `is` 17, `spread`
+    17, `alloc` 26, `must` 31, `stackalloc` 40, `tuple` 45, `await` 102 — every one of them **SB 1**,
+    and that one is `AnalyzeExpression`, which this slice has now proved a driver can ask for and be
+    answered by), then `checked`/`unchecked` and `cast`, then `ternary` and `range`, leaving
+    `identifier`, `member`, `call`, `assignment`, `unary`, `binary`, `new` and `lambda` — **6,100 of
+    the territory's 6,600 exclusive lines** — for last.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 48 — THE TYPE-DECLARATION WALKERS, IN TWO
   STAGES, WITH THE ARC'S FIRST TOOLSET REPIN BETWEEN THEM.** Plan recorded BEFORE any production
   edit, at `97bb14ecc` (`Analyzer.cs` **11,739** lines, non-blank **10,403**, declarations **514**;
   `ColumnarIlEmitter.cs` **21,470** lines, non-blank **20,411**, epoch ceilings **21,723 / 20,646**;
