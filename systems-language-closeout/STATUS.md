@@ -1,6 +1,37 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-06 (**TASK 017 SLICE 49 LANDED (no commit — mandate) — THE EXPRESSION WALK
+Last updated: 2026-08-07 (**TASK 017 SLICE 50 LANDED (no commit — mandate) — N# OWNS WHAT THE COMPILER
+KNOWS ABOUT A TYPE WITHOUT EVALUATING ANYTHING: `typeof`, `sizeof`, `nameof` AND `default`.** The
+compile-time constant family moves whole into `AnalyzerCompileTimeConstants.nl` (**331 lines, THREE
+types, 14 members, FOUR forms**) on slice 49's ANSWERING protocol, UNCHANGED. **THE BRIEF WAS WRONG
+IN THREE WAYS AND THE RE-VERIFICATION CAUGHT ALL THREE**: `nameof` does NOT take zero steps — it
+re-enters `AnalyzeExpression` unconditionally and CONSUMES the answer, so only THREE of the four are
+step-free; it is **FIVE C# members, not four**, because `AnalyzeDefaultExpression` carries an
+exclusive helper with exactly one caller; and the walk establishes no expected type for its step,
+which is not the same as there being none — `nameof`'s target INHERITS the slot, which is why
+`n: string = nameof(default)` refuses the SHAPE and does not also fail to infer. **FIVE C# MEMBERS
+DIE, 77 NAMED LINES**, and four dispatch arms collapse to one. `Analyzer.cs` **11,144 → 11,096**,
+non-blank **9,899 → 9,859**, `git diff` **+38 / −86 = net −48**; both ratchet ceilings fall.
+`default`'s THREE ambient reads were measured as ONE INSTANT and are served by one read at `Begin`;
+`GetNonNullableType` is REPRODUCED because that is already the estate's pattern **four times over**;
+and the well-known-type bag is the one collaborator NOT held, because the metadata load context both
+rebuilds and nulls it — it arrives at `Begin`. Contracts **3,111 → 3,139 (+28)**, green on the FIRST
+run; unit suite **3,194 / 3,194**; audit **18 / 18**; **emission-order protocol differential 3,756
+rows across FOUR runs — 368 corpus + 3,174 self-host + 190 fixture + 24 SoA — 0 MISMATCHES,
+ENTER == RESULT (1,850 walks) and STEP == ANSWER (28 steps, every one a `nameof`) on every run**;
+**four oracle differentials all 0 diffs** (corpus 315 diagnostics / 13 codes, fixtures 404 / 37, SoA
+68, supplementary 0); parse-error census **4, unchanged, and the 47 new fixtures add ZERO**; corpus IL
+**48 / 48 N#-emitted assemblies byte-identical**, control FIRST; `nlc check` **282 findings, 0 in the
+new file**; and the **full VS Code-enabled `test-all.sh --commit` gate ALL GREEN, 16 timed steps, 108
+passes, exit 0, 32m 07s**. **TWO FINDINGS WORTH THE SLICE**: the probe's first cut MANUFACTURED three
+mismatches because it read `state.Form` for its ENTER row — the protocol MOVES the entry's own
+diagnostics into `Begin`, so an instrument must derive the form from the NODE; and the CENSUS shows
+the corpus and the 323-file self-host target enter this family **1,771 times, every one a `typeof`,
+with NOT ONE `sizeof`, `nameof` or `default` between them** — which is why the 47 new fixtures were
+not optional.
+Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-06 (**TASK 017 SLICE 49 LANDED (no commit — mandate) — THE EXPRESSION WALK
 OPENS: N# OWNS WHAT A LITERAL MEANS, AND THE ESTATE GETS ITS FIRST ANSWERING DRIVER.** The 41 arms
 of `AnalyzeExpression` were INVENTORIED and SCORED on stay-behind re-entries (the slice-31 method), and
 the **LITERAL FAMILY — all seven arms** — won: taken together its stay-behind count is **1**, and that
@@ -1853,7 +1884,326 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 49 — THE EXPRESSION WALK OPENS: THE LITERAL
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 50 — THE COMPILE-TIME CONSTANT FAMILY
+  (`typeof` / `sizeof` / `nameof` / `default`), ALL FOUR ARMS, TERMINAL.** Target recorded BEFORE any
+  production edit, at `974a4b231` (`Analyzer.cs` **11,144** lines, non-blank **9,899**, member
+  declarations **436** by the narrow metric — lines matching `^    (private|public|internal|protected).*\(` —
+  and **497** by the broader modifier-line metric, both applied identically to both trees; unit suite
+  baseline **3,194**; contracts baseline **3,111**; ownership audit **18 / 18**; manifest **391**
+  lines; `reviewedHeadFingerprint head-v1:cab81b41792383b7`; `Analyzer.cs` ratchet row currentLines
+  **11,144** / currentNonBlank **9,899**, fingerprint `text-v1:1f8f80a59e19a07c`, epoch ceilings
+  **23,451 / 20,537**).
+
+  **THE FOUR ARMS, RE-VERIFIED AT THIS TIP — AND THE BRIEF IS WRONG IN THREE WAYS.**
+  * `AnalyzeTypeofExpression` (`:8851`–`:8859`, **9 lines**) — resolves the written type reference for
+    its diagnostics only (the returned `TypeInfo` is DISCARDED) and answers a live `System.Type`
+    through `_wellKnownTypes`, or `unknown` when there is no metadata context. **ZERO steps.**
+  * `AnalyzeSizeofExpression` (`:8888`–`:8892`, **5 lines**) — the same discarded resolution, and
+    `int`. **ZERO steps.**
+  * `AnalyzeNameofExpression` (`:8861`–`:8886`, **26 lines**) — **TAKES ONE STEP, AND IT ANSWERS.**
+    The brief said all four take zero; the inventory's own row says `RE 1` and the body confirms it:
+    `AnalyzeExpression(nameofExpr.Target)` is unconditional and its answer is the row-escape report's
+    second operand. So this family reuses slice 49's ANSWERING loop for the same reason the
+    interpolated string needed it, and the zero-step claim survives for only three of the four.
+  * `AnalyzeDefaultExpression` (`:3032`–`:3053`, **22 lines**) **plus its EXCLUSIVE helper**
+    `ReportSoaDefaultValueIfNeeded` (`:3055`–`:3069`, **15 lines**, exactly ONE caller) — **37 lines,
+    ZERO steps**. So the cut is **FIVE C# members, 77 named lines**, not four members: the brief
+    counted dispatch roots.
+
+  **DEFAULT'S THREE AMBIENT READS, MEASURED.** `_ambient.CurrentExpectedType` is read at `:3035`
+  (the presence test), `:3037` (the SoA-refusal operand) and `:3042` (the answer). All three are the
+  SAME INSTANT — nothing between them can move the slot, because `default` takes no step and neither
+  the SoA report nor the `CannotInferType` report touches the ambient context. It is the only one of
+  the four that reads the slot at all, and slice 49 pinned that the slot must be read at `Begin`;
+  with zero steps `Begin` and `Result` are the same instant, so ONE read at `Begin` serves all three
+  uses exactly.
+
+  **`GetNonNullableType` — REPRODUCED, BECAUSE THAT IS ALREADY THE ESTATE'S PATTERN, FOUR TIMES
+  OVER.** Its C# original (`:4499`) has 21 other callers and cannot move. `AnalyzerSoaEscape`,
+  `AnalyzerFunctionBodies`, `AnalyzerLoopSequence` and `AnalyzerPatternShapes` each carry their OWN
+  two-call copy today, and `AnalyzerSoaEscape.nl:229` states the reason in its own comment — the body
+  is reproduced rather than reached back for so that nothing re-enters C#. Routing to
+  `AnalyzerSoaEscape.NonNullableType` would make a pure type question a dependency on the SoA escape
+  REPORTER, and would not remove a single collaborator, because `ReportSoaDefaultValueIfNeeded`'s
+  outer `ResolveDeclaredAlias` needs the declaration context anyway. The fifth copy follows the four.
+
+  **THE PLANNED CUT.** FIVE C# members, 77 named lines, and four dispatch arms collapse to one.
+  Against them: one new N# owner (`AnalyzerCompileTimeConstants.nl`) and one new zero-policy driver
+  `DriveCompileTimeConstant` — slice 49's answering loop, unchanged. `_wellKnownTypes` is passed to
+  `Begin` rather than held, because it is the one collaborator the metadata load context REBUILDS and
+  NULLS (`:10603`, `:10633`); `_typeResolver` is `readonly`, built once at `:394` and merely TOLD
+  about the well-known types at `:10624`, so it is safe to hold.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT THE COMPILER KNOWS ABOUT A TYPE WITHOUT EVALUATING
+  ANYTHING, ALL FOUR FORMS.**
+
+  **THE BRIEF WAS WRONG IN THREE WAYS AND THE RE-VERIFICATION CAUGHT ALL THREE.**
+  * **`nameof` DOES NOT TAKE ZERO STEPS.** The brief said all four forms do; the inventory's own row
+    says `RE 1`, and the body confirms it — `AnalyzeExpression(nameofExpr.Target)` is unconditional
+    and its answer is the row-escape report's second operand. So the zero-step claim survives for
+    exactly THREE of the four, and the fourth is the reason this family reuses slice 49's ANSWERING
+    loop rather than becoming a function.
+  * **IT IS FIVE MEMBERS, NOT FOUR.** `AnalyzeDefaultExpression` (22) carries an EXCLUSIVE helper,
+    `ReportSoaDefaultValueIfNeeded` (15) with exactly one caller. 22 + 15 is the inventory's `LN 37`;
+    the brief counted dispatch ROOTS.
+  * **THE WALK ESTABLISHES NO EXPECTED TYPE FOR ITS STEP, WHICH IS NOT THE SAME AS THERE BEING NONE.**
+    `nameof`'s target INHERITS whatever the dispatch's slot already held — which is why
+    `n: string = nameof(default)` refuses the SHAPE and does NOT also fail to infer. Measured, not
+    assumed, and the comment was corrected before the file was final.
+
+  **DEFAULT'S THREE AMBIENT READS, MEASURED.** `_ambient.CurrentExpectedType` was read at `:3035`
+  (presence), `:3037` (the SoA refusal's operand) and `:3042` (the answer). All three are ONE INSTANT:
+  `default` takes no step, and neither report touches the ambient context. It is the only one of the
+  four that reads the slot at all — the protocol probe shows the slot NON-NULL at 1,022 of the 1,850
+  entries and `typeof` ignoring it every time. So `Begin` reads it once and serves all three uses,
+  which is what slice 49 pinned.
+
+  **`GetNonNullableType` — REPRODUCED, AND THAT IS ALREADY THE ESTATE'S PATTERN FOUR TIMES OVER.**
+  `AnalyzerSoaEscape`, `AnalyzerFunctionBodies`, `AnalyzerLoopSequence` and `AnalyzerPatternShapes`
+  each carry their own two-call copy today, and `AnalyzerSoaEscape.nl` states the reason in its own
+  comment. Routing to `AnalyzerSoaEscape.NonNullableType` would make a pure type question a dependency
+  on the SoA escape REPORTER and would remove no collaborator, because the outer `ResolveDeclaredAlias`
+  needs the declaration context anyway. The fifth copy follows the four.
+
+  **THE CUT — FIVE C# MEMBERS, 77 NAMED LINES, AND FOUR DISPATCH ARMS COLLAPSE TO ONE.** GONE:
+  `AnalyzeNameofExpression` (26), `AnalyzeDefaultExpression` (22), `ReportSoaDefaultValueIfNeeded`
+  (15), `AnalyzeTypeofExpression` (9) and `AnalyzeSizeofExpression` (5). ADDED: the zero-policy
+  `DriveCompileTimeConstant` loop (10 lines) plus its 17-line doc, the owner field and its 7-line doc,
+  the construction (2) and the collapsed dispatch arm (2). `git diff` on `Analyzer.cs`
+  **+38 / −86 = net −48**; the file goes **11,144 → 11,096**, non-blank **9,899 → 9,859 (−40)**,
+  member declarations **436 → 432** and modifier lines **497 → 494**. **BOTH RATCHET CEILINGS FALL.**
+  NO OTHER CALL SITE EXISTS: each of the five had exactly ONE caller, all four dispatch arms. The
+  places that still NAME these AST types in `Analyzer.cs` — the attribute-argument constant walk
+  (`:1074`, `:1078`, `:1789`, `:1792`), the table-case-value probe (`:2016`), the two shape-name
+  tables (`:2087`, `:7359`–`:7361`, `:7525`–`:7536`) and the cast-shape check (`:8729`) — answer
+  DIFFERENT questions and were deliberately not absorbed, exactly as slice 49 refused the attribute
+  walk's literal table: that walk's `TypeOfExpression` case answers a live CLR `System.Type` object
+  and its `NameofExpression` case asks only whether the target is a SUPPORTED ATTRIBUTE target, which
+  is a narrower question than what `nameof` means.
+
+  **N# ADDED — 331 PRODUCTION LINES ON ONE NEW FILE.** `AnalyzerCompileTimeConstants.nl`: **THREE
+  types, 14 members** — `CompileTimeConstantRequest` (ONE kind), `CompileTimeConstantState` (the form,
+  the outstanding answer and the result the entry decided) and the owner: `Begin`, `NextStep`,
+  `Supply`, `Result`, `Advance`, two phase advancers, `SystemTypeAnswer`, `DefaultValueType`,
+  `ReportSoaDefaultValueIfNeeded` and `NonNullableType`. It holds **SIX** collaborators — the sink,
+  the span reader, the declaration context, the type resolver, the ambient context and the SoA escape
+  reporter — and **NOT the well-known-type bag**, which is the one thing the metadata load context
+  both REBUILDS (`:10603`) and NULLS (`:10633`): it arrives at `Begin` as an argument, read at the
+  same instant as the target-typing slot. `_typeResolver` IS held, because it is `readonly`, built
+  once at `:394`, and merely TOLD about the new bag at `:10624`.
+
+  **28 NEW CONTRACTS.** `AnalyzerCompileTimeConstants.tests.nl` (**588 lines, 28 contracts**).
+  Contracts **3,111 → 3,139 (+28)**, 0 failed, green on the FIRST run. Seven are protocol invariants
+  (no form asks for a kind other than 1; the step count is the form — three zero, `nameof` exactly
+  one; a walk that asked for nothing folds in nothing when supplied anyway; a finished walk keeps
+  answering `null` and its result is stable; every form's result is settled before the driver runs;
+  `default`'s diagnostic lands at `Begin`; `nameof`'s lands AFTER its step). The rest pin the four
+  rules, including a **real `MetadataLoadContext`** proving `typeof` answers THAT context's
+  `System.Type` and not the compiler's, the semantic model read back to prove both type resolutions
+  HAPPENED and were then DISCARDED, and the row report's operand proved to be the STEP's answer by
+  running the same node twice with two different answers.
+
+  **PROOF — THE EMISSION-ORDER PROTOCOL DIFFERENTIAL, FOUR RUNS, 3,756 ROWS, 0 MISMATCHES.** A
+  temporary env-gated probe (`NL50_PROBE=1`, buffered stderr, never in the final bytes — it lives only
+  in two throwaway worktrees) emitted four row kinds per walk — ENTER (form, position, **the ambient
+  expected type at that instant**, error count), STEP, ANSWER and RESULT — from the four rewritten
+  dispatch arms plus two points inside `AnalyzeNameofExpression` in the BASELINE, and from the driver
+  loop alone in the WORK tree.
+  * 71-target corpus: **368 rows, 0 MISMATCHES**, md5 `f7869c0ce1bfc8765c88967ae08db022` in BOTH.
+  * The self-host target (`NSharpLang.Compiler.BootstrapServices`, 323 files) ALONE: **3,174 rows,
+    0 MISMATCHES**, md5 `9ddc616650b87bba266434f08f9a3d25`.
+  * 382 accumulated fixtures: **190 rows, 0 MISMATCHES**, md5 `0e321c8af90505813f8b14dd4f2a4a9d`.
+  * 40 env-gated SoA fixtures: **24 rows, 0 MISMATCHES**, md5 `09ee47ea2cef9cbfccd999bdcfb2ec2c`.
+  **ENTER == RESULT on every run** (184 / 1,587 / 71 / 8 — **1,850 walks**), **STEP == ANSWER on every
+  run** (0 / 0 / 24 / 4 — **28 steps, every one of them a `nameof`**), depth never negative and back to
+  0 at every target, **max nesting 2** (a `typeof` inside a `nameof`'s step).
+
+  **THE PROBE'S FIRST CUT MANUFACTURED THREE MISMATCHES AND THAT IS THE SLICE'S SHARPEST FINDING.**
+  The work-side probe wrote its ENTER row AFTER `Begin`, because it read `state.Form` for the row.
+  That is harmless for a literal — but this family's `Begin` is where `default`'s NL203 and the SoA
+  refusal are RAISED, so the ENTER row measured the error count one report too late and reported a
+  difference on exactly the seven `default`-with-no-target and `default`-of-a-table rows. **The
+  protocol MOVES the entry's own diagnostics from the arm body into `Begin`, and any instrument that
+  needs the form must derive it from the NODE rather than from the state.** Repatched to compute the
+  form from the node type; all four runs then matched byte for byte.
+  **THE CENSUS IS THE OTHER FINDING, AND IT IS WHY THE 47 NEW FIXTURES WERE NOT OPTIONAL.** Over the
+  71-target corpus AND the 323-file self-host target the family is entered **1,771 times and every
+  single one is a `typeof`**. There is **NOT ONE `sizeof`, `nameof` OR `default` in either** — so the
+  ONLY reach into three of the four forms is the fixtures, where the census is typeof 17 / sizeof 12 /
+  nameof 24 / default 18. The ambient slot at a corpus entry is `bool` 92, `<null>` 64, `Type` 24,
+  `Type?` 4 — non-null more often than not, and `typeof` answers `Type` all 1,771 times regardless,
+  which is the measurement that makes "neither `typeof` nor `sizeof` reads the slot" a fact.
+
+  **PROOF — FOUR ORACLE DIFFERENTIALS, ALL ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `974a4b231` (`/private/tmp/nl50base`) and at the working tree.
+  * **CORPUS: DIFFS = 0 over 387 lines**, md5 `56a4f109f635ed0b0ca45c4e4053ea3f` in BOTH — 72 HEAD
+    rows, **315 diagnostics across 13 codes**, `stderrBytes = 0` on all 144 runs, ZERO `PARSE-FAIL`,
+    both CLIs pointed at the SAME `git worktree` copy (`/private/tmp/nl50corpus`).
+  * **SUPPLEMENTARY (the 7 no-`results` targets plus 2): DIFFS = 0**, NO-RESULTS = 0, PARSE-FAIL = 0.
+  * **FIXTURES: DIFFS = 0 over 786 lines**, md5 `ebc07727607bfa0371cdb4631da5e8ef` — **382 HEAD rows,
+    404 diagnostics across 37 codes**, all 764 runs `stderrBytes = 0`. The set is this slice's **40**
+    plus the accumulated **342**.
+  * **SoA (env-gated): DIFFS = 0 over 108 lines**, md5 `3b5d1a1a66552df0c5abad3d646b319d` — 40 targets,
+    68 diagnostics. The set is this slice's **7** plus the accumulated **33**.
+  **PARSE-ERROR CENSUS: 4 (NL101 × 4), IDENTICAL on both sides and EXACTLY the census slices 43–49
+  recorded. The 40 new fixtures and the 7 new SoA fixtures add ZERO.**
+
+  **PROOF — THE 47 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT, AND 39 OF THE 47 REPORT.** `typeof`
+  is proved NOT to be its operand's type twice (`t: int = typeof(int)` and `t: string = typeof(int)`
+  both report **NL202**) while `t: Type = typeof(int)` is silent; `sizeof` is proved to be `int` and
+  **NOT target-typed like a literal** — `n: byte = sizeof(int)` reports where `x: byte = 200` would
+  not. `nameof` is refused for a literal, a string literal, a call, a **parenthesized identifier**, an
+  index access, a `typeof` and a `default`, and accepted for an identifier, a member access and a
+  three-segment dotted path. **THE STEP IS PROVED END TO END BY THE TARGET'S OWN DIAGNOSTICS**:
+  `nameof(nosuchthing)` reports **NL301**, `nameof(p.nosuchmember)` reports **NL303**, and
+  `nameof(nosuchreceiver.member)` reports NL301 — none of which could exist if the target were not
+  walked. `default` takes a declared target, a nullable target, an ARGUMENT target, a RETURN target
+  and a record target silently, and reports **NL203** three ways when there is no target at all.
+  The **7 env-gated SoA fixtures are the only way to reach the two reports this family owns beyond the
+  shape rule**: an SoA table refuses `default` through a declared target, through **one layer of
+  nullability**, and through an argument target; a row-view `nameof` target is refused with the action
+  word **"used as a nameof target"**; and `nameof(points[0])` — a target that is BOTH a row view AND
+  an unnameable shape — produces **EXACTLY ONE report**, which is the fixture that proves the escape
+  STOPS the shape rule rather than joining it.
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS.** Both Release CLIs built the 40 new fixtures from two
+  staging copies proved `diff -rq` identical first. **BLD_NORM_DIFFS = 0 over 428 unsorted lines**,
+  md5 `d668b765e13b0cda1841ffabc28894e0` in BOTH, identical exits (**0 × 7, 1 × 33**). The raw
+  transcripts differ on **162 content lines and every one of them is the staging-copy path** —
+  counted, and the residue after normalising the path is EMPTY.
+
+  **PROOF — THE IL NORMALISER, AND THE CONTROL RAN FIRST.** Three staging copies (examples, templates
+  and the systems samples — **45 projects**) proved `diff -rq` identical before any build. **THE
+  CONTROL RAN FIRST**: the BASELINE CLI building TWO IDENTICAL COPIES reported **compared 91, SAME 91,
+  DIFFERENT 0, ONLY_IN 0 / 0**. Then the test comparison: **compared 91, ONLY_IN 0 / 0, and ALL 48
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL.** The 43 that differ are ONE file — the COPIED C# support
+  library `NSharpLang.Runtime.dll`, which `nlc` does not emit — and the difference is **ROOT-CAUSED**:
+  exactly ONE distinct normalised content per tree, both 14,848 bytes, `strings` finds the embedded
+  PDB path `/private/tmp/nl50base/…` in one and `/Users/spencer/repos/nsharplang/…` in the other, and
+  `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **327 checked files** (the 326 baseline plus
+  the one new production file — the contract file is excluded from `check`), **282 findings
+  estate-wide — the unchanged slice-42…49 baseline — and ZERO in the new files**, `stderrBytes = 0`.
+
+  **FORMAT CANON.** Both new `.nl` files pass `nlc format` (**"Formatted 0 file(s)"** — they were
+  written to canon) and the whole `src/NSharpLang.Compiler.BootstrapServices` directory passes the
+  gate's Step 2b contract (**"All files are properly formatted"**).
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:cab81b41792383b7` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 11,144 →
+  **11,096**, currentNonBlankLines 9,899 → **9,859**, fingerprint → **`text-v1:952d81d2723e5f1d`**;
+  `reviewedHeadFingerprint` → **`head-v1:947560820b307311`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **12,355 / 10,678**. `wc -l` on the manifest
+  is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed lines and
+  `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: both new files are `.nl`, which
+  the policy does not audit, and the 47 fixtures live outside the repository. The audit on the final
+  tree is **18 / 18**. The pre-existing `editors/vscode/test/suite/edgeCases.test.ts` drift and the
+  six `MISSING` rows for files task 016 deleted are present identically in the pristine baseline and
+  were again deliberately left alone.
+
+  **GOTCHAS.**
+  **(1) `nameof` IS RESERVED AS A PARAMETER NAME.** A constructor taking `nameof: NameofExpression?`
+  declines at **`parse.struct`** — the whole CLASS fails to parse, and the diagnostic points at the
+  class's own line, naming nothing about the parameter. Renamed to `nameofNode`. This joins `type`,
+  `partial`, `match`, `union` and `newtype` on the reserved-as-a-local/parameter list.
+  **(2) `MemberAccessExpression` AND `CallExpression` TAKE MORE ARGUMENTS THAN THEY LOOK LIKE.** The
+  first carries `IsNullConditional` between the member name and the position; the second carries a
+  nullable `TypeArguments` list between the arguments and the position. Both are easy to write with
+  the position one slot early and the mistake is an arity error, not a type error.
+  **(3) `sizeof` AND `default`-IN-AN-INITIALIZER DECLINE AT COLUMNAR `parse.function`.** They analyse
+  fine and their diagnostics are exact; they simply are not in the columnar front end's grammar yet.
+  A fixture that expects a clean build from either will not get one — but an ANALYSIS error still
+  PRE-EMPTS the decline, so "NL103 decline only" is a usable signal for "the analyzer was silent".
+  **(4) `typeof`'S TYPE RESOLUTION IS THE LENIENT ONE.** `ResolveType` — not `ResolveDeclaredType` —
+  so `typeof(NoSuchTypeAnywhere)` raises **NO NL201**. That is the behaviour that moved, and it is
+  pinned by a fixture so a later slice does not "fix" it by accident.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `974a4b231` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, naming three changed/added files as unmapped and running the FULL suite:
+  **3,194 / 3,194, 0 failed, 14m 35s, exit 0**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 32m 07s.** `./scripts/test-all.sh --commit` — VS Code
+  tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 3m 34s;
+  **Step 2b's format contract over the compiler's own N# sources 0m 02s**; **unit tests 10m 40s
+  (3,194 / 3,194)**; **native N# tests 6m 04s** — the BootstrapServices contracts at **3,139 / 3,139**
+  plus every native project individually, `ownership-audit` **18 / 18** among them; **VS Code
+  integration tests 4m 19s, 36 passing**, against a freshly built extension and language server; pack
+  and install the MSBuild SDK 6m 39s; templates, template creation and the template-generated build;
+  the example builds; `nlc check` on examples; and **the IL verification gate 0m 20s — `All 67 N#
+  assemblies pass IL verification (no new errors vs baseline)`**. The run stored its validated
+  isolated cache result `d6d85a44890aa4ff (1927s)`, and it ran from an isolated snapshot
+  (`/tmp/nsharp-test-all.d6d85a44890a…`) taken BEFORE this record was written —
+  `systems-language-closeout/` is in NO gate input set, so this record's own prose is provably not a
+  gate input.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.99 MB**) and installed with `--force`
+  (`successfully installed`). No computer-use verification was taken: this slice changes no LSP
+  handler, no VS Code extension code and no IDE protocol surface; what it changes is the TYPE the
+  analyzer answers for a `typeof`, a `sizeof`, a `nameof` and a `default`, which the gate's VS Code
+  integration suite and all four diagnostic oracles cover.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Fixtures: `/private/tmp/nl50fixtures` (40, this
+  slice) alongside `nl49fixtures` (41), `nl48fixtures` (36), `nl47fixtures` (34), `nl46fixtures` (32),
+  `nl45fixtures` (30), `nl44fixtures` (26), `nl43fixtures` (24), `nl42fixtures` (30), `nl41fixtures`
+  (29), `nl40fixtures` (24) and `s24fixtures` (36) — **382 plain** — plus `/private/tmp/nl50soafx` (7)
+  with the `nl40`–`nl44` and `nl49` `soafx` sets (**40 env-gated**). The harnesses are at
+  `.../scratchpad/nl44-oracle.sh`, `nl44-build.sh`, `nl44-ilbuild.sh` + `nl44-ilnorm.py`,
+  `nl50-repin.py`, `nl50-probe.sh` + `nl50-compare.py` (the emission-order protocol differential),
+  `nl50-probe-base.py` / `nl50-probe-work.py` (the two instrumentation patches),
+  `nl50-run-probes.sh`, `nl50-run-oracles.sh`, `nl50-make-fixtures.py`, `nl50-make-soafx.py` and
+  `runlong.sh`. Five worktrees are left registered: `/private/tmp/nl50base` (pristine `974a4b231` +
+  Release CLI), `/private/tmp/nl50corpus` (the shared source copy), `/private/tmp/nl50ilsrc` (the
+  clean source the three IL staging copies were made from) and the two throwaway probe trees
+  `/private/tmp/nl50probe` and `/private/tmp/nl50workprobe`.
+
+  **WALL STATUS: NO NEW WALL, AND NO TOOLSET REPIN WAS NEEDED.** Every collaborator and every fact
+  this family asks for — `AnalyzerTypeResolver.ResolveType`, `AnalyzerWellKnownTypes.SystemType`,
+  `BuiltInTypes`, `AnalyzerAmbientContext.CurrentExpectedType`,
+  `AnalyzerDeclarationContext.ResolveDeclaredAlias`, `AnalyzerDiagnosticSpans` and `AnalyzerSoaEscape`
+  — was ALREADY N#-owned and callable, which is why a 77-line cut needed exactly one new file and zero
+  catalog rows. `ReflectionTypeInfo`, `NullableTypeInfo` and `SoaRecordTypeInfo` are all N#-owned
+  models and none of them needed a new spelling.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is what the editor shows for `typeof`, `sizeof`, `nameof`
+  and `default`: that hovering a `typeof` reports `System.Type` from the PROJECT's reference set (so
+  completion after it offers `Type`'s members and not `int`'s); that a `sizeof` is an `int` a
+  `byte`-typed slot will refuse; that `nameof` is a `string` even when its target is broken, so one
+  bad `nameof` does not cascade; that `nameof`'s target is still walked, so a typo inside it is still
+  underlined; and that `default` shows the type its target implies — which is what makes
+  `x: int = default` legal and a bare `default` an NL203 rather than silence.
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 11,096 LINES, 9,859 NON-BLANK.** The same three
+  things, one of them measurably smaller: the SHORT list of remaining declaration walkers; **THE
+  EXPRESSION WALK, now 30 arms of policy instead of 34**; and the mechanical host — now **THIRTEEN**
+  driver loops, of which exactly TWO return.
+
+  * **NEXT: THE PASS-THROUGH OPERAND FAMILY (`throw` / `is` / `spread` / `alloc` / `must` /
+    `stackalloc` / `tuple` / `await`).** The scored inventory above is still the brief, minus the
+    literal rows and now minus the four constant rows. The next family is the EIGHT arms whose
+    stay-behind count is 1 and whose one stay-behind is `AnalyzeExpression` itself — `throw` (7),
+    `is` (17), `spread` (17), `alloc` (26), `must` (31), `stackalloc` (40), `tuple` (45) and `await`
+    (102) — **285 named lines**, one coherent question ("what does an operator that hands its operand
+    through mean"), and it reuses this slice's protocol unchanged: every one of them takes exactly the
+    steps its operand count implies and consumes the answer, which is the `nameof` shape this slice
+    just proved at scale. **THE THINGS TO MEASURE BEFORE DESIGNING**, in order: (a) `tuple`'s FOUR
+    ambient reads — it is the only one of the eight that touches the target-typing slot, and slice 49
+    pinned that the slot must be read at `Begin`, so a walk with N steps that reads the slot per
+    element needs the slot read per STEP and not once, which would be the arc's first genuinely
+    per-step ambient read; (b) whether `await` (102 lines, 5 diagnostics) is really ONE arm or is a
+    family of its own that should be cut separately — it is 36 % of the eight by line count; and (c)
+    whether `alloc` / `stackalloc`'s four diagnostics each are the SAME four, in which case the two
+    share a band the way slice 47's accessors did.
+    After it, in ascending stay-behind order: `checked`/`unchecked` and `cast`, then `ternary` and
+    `range`, leaving `identifier`, `member`, `call`, `assignment`, `unary`, `binary`, `new` and
+    `lambda` — **6,100 of the territory's 6,600 exclusive lines** — for last.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 49 — THE EXPRESSION WALK OPENS: THE LITERAL
   FAMILY, ALL SEVEN ARMS, TERMINAL.** Target recorded BEFORE any production edit, at `f3f1c2c3b`
   (`Analyzer.cs` **11,189** lines, non-blank **9,934**, member declarations **439** by this slice's
   metric — lines matching `^    (private|public|internal|protected).*\(` — and **514** by slice 47's

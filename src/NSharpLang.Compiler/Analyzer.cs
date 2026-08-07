@@ -379,6 +379,13 @@ public class Analyzer : IDisposable
     // the ambient context, the declaration context and the SoA escape owner, none of which the
     // rebuild replaces.
     private readonly AnalyzerLiteralExpressions _literalExpressions;
+    // WHAT THE COMPILER KNOWS ABOUT A TYPE WITHOUT EVALUATING ANYTHING: `typeof`, `sizeof`, `nameof`
+    // and `default`, as one walk that ANSWERS a type. Three forms answer without a step; `nameof`
+    // suspends once and resumes with its target's type, which is the operand of its row-escape
+    // report. NOT rebuilt with the SCC: it holds the sink, the span reader, the declaration context,
+    // the type resolver, the ambient context and the SoA escape owner, none of which the rebuild
+    // replaces — the well-known-type bag, which the rebuild DOES replace, is passed per walk instead.
+    private readonly AnalyzerCompileTimeConstants _compileTimeConstants;
     private bool _disposed;
 
     public Analyzer()
@@ -432,6 +439,8 @@ public class Analyzer : IDisposable
         _parameterDeclarations = new AnalyzerParameterDeclarations(_diagnostics);
         _statementSequence = new AnalyzerStatementSequence(_diagnostics, _spans);
         _literalExpressions = new AnalyzerLiteralExpressions(_ambient, _declarationContext, _soaEscape);
+        _compileTimeConstants = new AnalyzerCompileTimeConstants(
+            _diagnostics, _spans, _declarationContext, _typeResolver, _ambient, _soaEscape);
         _assignability = CreateAssignability();
         _extensionMethodResolution = CreateExtensionMethodResolution();
         _memberResolution = CreateMemberResolution();
@@ -2863,6 +2872,33 @@ public class Analyzer : IDisposable
         return _literalExpressions.Result(state);
     }
 
+    /// <summary>
+    /// The one step the N#-owned compile-time constant family cannot take for itself. All four forms
+    /// run in <see cref="AnalyzerCompileTimeConstants"/>, which owns what each of them is: that
+    /// <c>typeof</c> validates its written type reference and answers a live <c>System.Type</c>, that
+    /// <c>sizeof</c> validates its own and is always <c>int</c>, that <c>nameof</c> is a
+    /// <c>string</c> on every path and may name only an identifier or a member access, and that
+    /// <c>default</c> is the ambient expected type or nothing at all. Three of the four ask for
+    /// nothing, so this loop's body never runs for them; <c>nameof</c> suspends once and resumes WITH
+    /// ITS TARGET'S TYPE, which is the operand of the row-escape report that follows it.
+    /// The well-known-type bag is handed to <c>Begin</c> rather than held by the owner, because it is
+    /// the one collaborator the metadata load context rebuilds and nulls; passing it here reads it at
+    /// the same instant the dispatch reached the node, which is the same instant the owner reads the
+    /// target-typing slot. This loop decides nothing: it performs the one operation it is handed,
+    /// with the operand it is handed.
+    /// </summary>
+    private TypeInfo DriveCompileTimeConstant(CompileTimeConstantState state)
+    {
+        for (var step = _compileTimeConstants.NextStep(state);
+             step != null;
+             step = _compileTimeConstants.NextStep(state))
+        {
+            _compileTimeConstants.Supply(state, AnalyzeExpression(step.Node!));
+        }
+
+        return _compileTimeConstants.Result(state);
+    }
+
     private TypeInfo AnalyzeExpression(Expression expr)
     {
         var type = expr switch
@@ -2893,16 +2929,14 @@ public class Analyzer : IDisposable
             ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
             BaseExpression => AnalyzeBaseExpression(),
             MatchExpression match => AnalyzeMatchExpression(match),
-            TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
-            NameofExpression nameofExpr => AnalyzeNameofExpression(nameofExpr),
-            SizeOfExpression sizeofExpr => AnalyzeSizeofExpression(sizeofExpr),
+            TypeOfExpression or NameofExpression or SizeOfExpression or DefaultExpression
+                => DriveCompileTimeConstant(_compileTimeConstants.Begin(expr, _wellKnownTypes)),
             CheckedExpression checkedExpr => AnalyzeCheckedExpression(checkedExpr),
             UncheckedExpression uncheckedExpr => AnalyzeUncheckedExpression(uncheckedExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
             SpreadExpression spread => AnalyzeSpreadExpression(spread),
             WithExpression with => AnalyzeWithExpression(with),
             ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
-            DefaultExpression defaultExpr => AnalyzeDefaultExpression(defaultExpr),
             _ => BuiltInTypes.Unknown
         };
 
@@ -3027,45 +3061,6 @@ public class Analyzer : IDisposable
             UncheckedExpression uncheckedExpression => RenderSyntheticSoaOperationTarget(uncheckedExpression.Expression, fallbackName),
             _ => fallbackName
         };
-    }
-
-    private TypeInfo AnalyzeDefaultExpression(DefaultExpression defaultExpr)
-    {
-        // Target-typed: use the ambient expected type if available
-        if (_ambient.CurrentExpectedType != null)
-        {
-            if (ReportSoaDefaultValueIfNeeded(defaultExpr, _ambient.CurrentExpectedType))
-            {
-                return BuiltInTypes.Unknown;
-            }
-
-            return _ambient.CurrentExpectedType;
-        }
-
-        // If no expected type context, report an error
-        Error(
-            ErrorCode.CannotInferType,
-            "I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')",
-            defaultExpr.Line,
-            defaultExpr.Column,
-            length: "default".Length);
-        return BuiltInTypes.Unknown;
-    }
-
-    private bool ReportSoaDefaultValueIfNeeded(DefaultExpression defaultExpr, TypeInfo expectedType)
-    {
-        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(expectedType));
-        if (resolvedExpectedType is not SoaRecordTypeInfo soaRecordType)
-            return false;
-
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"SoA table '{soaRecordType.Declaration.Name}' cannot be default-initialized",
-            defaultExpr.Line,
-            defaultExpr.Column,
-            $"Use new {soaRecordType.Declaration.Name}(capacity) or {soaRecordType.Declaration.Name}.wrap(..., length: count) so every backing column array is valid.",
-            "default".Length);
-        return true;
     }
 
     private static bool IsAnonymousObjectCreation(NewExpression newExpr)
@@ -8846,49 +8841,6 @@ public class Analyzer : IDisposable
         _soaEscape.ReportSoaRowEscapeIfNeeded(throwExpr.Expression, thrownType, "thrown");
         _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(throwExpr.Expression, "thrown");
         return BuiltInTypes.Never;
-    }
-
-    private TypeInfo AnalyzeTypeofExpression(TypeOfExpression typeofExpr)
-    {
-        // Validate the type exists
-        _typeResolver.ResolveType(typeofExpr.Type);
-        // typeof always returns System.Type
-        return _wellKnownTypes != null
-            ? new ReflectionTypeInfo(_wellKnownTypes.SystemType)
-            : BuiltInTypes.Unknown;
-    }
-
-    private TypeInfo AnalyzeNameofExpression(NameofExpression nameofExpr)
-    {
-        // Analyze the target expression to ensure it's valid, then keep the analyzer
-        // contract aligned with the IL backend: nameof lowers to a string literal for
-        // identifiers and member accesses only.
-        var targetType = AnalyzeExpression(nameofExpr.Target);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(nameofExpr.Target, targetType, "used as a nameof target"))
-        {
-            return BuiltInTypes.String;
-        }
-
-        if (nameofExpr.Target is not (IdentifierExpression or MemberAccessExpression))
-        {
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(nameofExpr.Target);
-            Error(
-                ErrorCode.InvalidSyntax,
-                "nameof can only name an identifier or member access",
-                line,
-                column,
-                "Use nameof(value) or nameof(value.Member).",
-                length);
-        }
-
-        // nameof always returns string
-        return BuiltInTypes.String;
-    }
-
-    private TypeInfo AnalyzeSizeofExpression(SizeOfExpression sizeofExpr)
-    {
-        _typeResolver.ResolveType(sizeofExpr.Type);
-        return BuiltInTypes.Int;
     }
 
     private TypeInfo AnalyzeCheckedExpression(CheckedExpression checkedExpr)
