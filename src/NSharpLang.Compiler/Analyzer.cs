@@ -26,95 +26,6 @@ public class Analyzer : IDisposable
     /// the <c>match</c> keyword so the squiggle lands on the construct that is incomplete.
     /// </summary>
 
-    private static readonly HashSet<string> BuiltInObjectMembers = new(StringComparer.Ordinal)
-    {
-        "ToString",
-        "Equals",
-        "GetHashCode",
-        "GetType"
-    };
-
-    private static readonly HashSet<string> BuiltInStringInstanceMembers = new(StringComparer.Ordinal)
-    {
-        "Length",
-        "Chars",
-        "CompareTo",
-        "Contains",
-        "EndsWith",
-        "Equals",
-        "IndexOf",
-        "LastIndexOf",
-        "Replace",
-        "Split",
-        "StartsWith",
-        "Substring",
-        "ToCharArray",
-        "ToLower",
-        "ToLowerInvariant",
-        "ToUpper",
-        "ToUpperInvariant",
-        "Trim",
-        "TrimEnd",
-        "TrimStart"
-    };
-
-    private static readonly HashSet<string> BuiltInStringStaticMembers = new(StringComparer.Ordinal)
-    {
-        "Compare",
-        "Concat",
-        "Copy",
-        "Equals",
-        "Format",
-        "IsNullOrEmpty",
-        "IsNullOrWhiteSpace",
-        "Join"
-    };
-
-    private static readonly HashSet<string> BuiltInNumericStaticMembers = new(StringComparer.Ordinal)
-    {
-        "MaxValue",
-        "MinValue",
-        "Parse",
-        "TryParse"
-    };
-
-    private static readonly HashSet<string> BuiltInNumericInstanceMembers = new(StringComparer.Ordinal)
-    {
-        "CompareTo",
-        "Equals",
-        "ToString"
-    };
-
-    private static readonly HashSet<string> BuiltInBooleanStaticMembers = new(StringComparer.Ordinal)
-    {
-        "FalseString",
-        "Parse",
-        "TrueString",
-        "TryParse"
-    };
-
-    private static readonly HashSet<string> BuiltInBooleanInstanceMembers = new(StringComparer.Ordinal)
-    {
-        "CompareTo",
-        "Equals",
-        "GetHashCode",
-        "ToString"
-    };
-
-    private static readonly HashSet<string> BuiltInArrayMembers = new(StringComparer.Ordinal)
-    {
-        "Length",
-        "LongLength",
-        "Rank",
-        "GetLength",
-        "GetLowerBound",
-        "GetUpperBound",
-        "GetValue",
-        "SetValue",
-        "Clone",
-        "CopyTo"
-    };
-
     private static readonly HashSet<string> SupportedSoaDirectColumnStaticArrayMethods = new(StringComparer.Ordinal)
     {
         "Fill",
@@ -412,6 +323,16 @@ public class Analyzer : IDisposable
     // resolution and the well-known-type bag — arrive through `SetMetadataCollaborators`, because the
     // rule holds the unverified-result dedupe set and rebuilding would drop it mid-analysis.
     private readonly AnalyzerIdentifierResolution _identifierResolution;
+    // WHAT A MEMBER ACCESS MEANS: the `member` arm's whole walk — the import-alias form, the
+    // qualified-external-type form, the nullable `HasValue`/`Value` fork, the four SoA refusals, the
+    // visibility and binding records, and the rule for WHETHER a name that did not resolve is worth
+    // reporting. It also publishes the receiver classification (`IsStaticMemberAccessTarget`,
+    // `TryResolveTypeValuedMemberAccess`, `TryGetQualifiedExpressionTreeName`) and the
+    // null-conditional result wrap, which the write-target classifiers, the array arm, the
+    // expression-tree probe and the index arm ask for. NOT rebuilt with the SCC: the four
+    // collaborators the rebuild DOES replace arrive through `SetMetadataCollaborators`, because the
+    // owner carries the per-analysis compilation unit and binding map and a rebuild would drop them.
+    private readonly AnalyzerMemberAccess _memberAccess;
     private bool _disposed;
 
     public Analyzer()
@@ -494,6 +415,12 @@ public class Analyzer : IDisposable
             _diagnostics, _scopes, _typeResolver, _projectDiscovery, _externalTypeProbe,
             _functionTypeFactory, _ambient, _nullFlow, _extensionMethods, _memberResolution,
             _semanticModel, _bindingMap);
+        _memberAccess = new AnalyzerMemberAccess(
+            _diagnostics, _spans, _scopes, _declarationContext, _nullFlow, _soaEscape, _ambient,
+            _projectSources, _projectDiscovery, _externalTypeProbe, _typeSubstitution,
+            _identifierResolution, _extensionMethods, _usingNamespaces, _usingAliases,
+            _importedSymbolsByAlias, _importedDeclarationsByAlias, _mlcAssemblies,
+            _memberResolution, _clrTypeConversion, _extensionMethodResolution, _bindingMap);
     }
 
     private AnalyzerFlowNarrowing CreateFlowNarrowing()
@@ -706,6 +633,7 @@ public class Analyzer : IDisposable
         _diagnostics.BeginAnalysis(currentFilePath, sourceCode);
         _typeResolver.BeginAnalysis(currentFilePath, unit, _semanticModel, _bindingMap);
         _identifierResolution.BeginAnalysis(unit, _semanticModel, _bindingMap);
+        _memberAccess.BeginAnalysis(unit, _bindingMap);
         _externalNamespaceCache.Clear();
         _typeDeclarationFiles.Clear();
 
@@ -3104,6 +3032,47 @@ public class Analyzer : IDisposable
         return _operatorExpressions.Result(state);
     }
 
+    /// <summary>
+    /// Performs the steps <see cref="AnalyzerMemberAccess"/> asks for and returns the type it
+    /// decided. Every policy about what a member access means — that an aliased import's symbol is a
+    /// table lookup rather than a walk, that a dotted CLR type name outranks nothing a developer
+    /// wrote, that a nullable's <c>HasValue</c> and <c>Value</c> are answered without metadata and
+    /// that only a NON-narrowed <c>Value</c> is warned about, in which order the four SoA refusals
+    /// fire and that each of them ends the walk, that visibility is checked and the binding recorded
+    /// BEFORE resolution, and WHETHER a name that did not resolve is worth reporting at all —
+    /// belongs to the N# owner.
+    /// The two kinds are one walk and one report. Kind 1 is the RECEIVER, and it is the ordinary
+    /// dispatch rather than the identifier rule, because an identifier receiver must also be judged
+    /// by the tail below. Kind 2 RENDERS the undefined-member report the owner has already decided
+    /// is owed; it stays here only because building its did-you-mean list reads
+    /// <c>PropertyInfo.Name</c> and <c>FieldInfo.Name</c>, which the columnar catalog does not model
+    /// (its sibling <c>MethodInfo.Name</c> does, by an explicit row). Two catalog rows retire it.
+    /// This loop decides nothing: it performs the one operation it is handed, with the operands it is
+    /// handed.
+    /// </summary>
+    private TypeInfo DriveMemberAccess(MemberAccessState state)
+    {
+        for (var step = _memberAccess.NextStep(state);
+             step != null;
+             step = _memberAccess.NextStep(state))
+        {
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    ReportUndefinedMember(step.ReceiverType, (MemberAccessExpression)step.Node!, step.IncludeStaticMembers);
+                    break;
+            }
+
+            _memberAccess.Supply(state, answer);
+        }
+
+        return _memberAccess.Result(state);
+    }
+
     private TypeInfo AnalyzeExpression(Expression expr)
     {
         var type = expr switch
@@ -3118,7 +3087,7 @@ public class Analyzer : IDisposable
             ThrowExpression or IsExpression or SpreadExpression or AllocExpression
                 or MustExpression or StackAllocExpression or TupleExpression or AwaitExpression
                 => DrivePassThroughOperand(_passThroughOperands.Begin(expr, _patternReachability)),
-            MemberAccessExpression member => AnalyzeMemberAccess(member),
+            MemberAccessExpression => DriveMemberAccess(_memberAccess.Begin(expr)),
             IndexAccessExpression index => AnalyzeIndexAccess(index),
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
@@ -3313,94 +3282,6 @@ public class Analyzer : IDisposable
             length);
     }
 
-    private TypeInfo AnalyzeMemberAccess(MemberAccessExpression member)
-    {
-        // Check if this is an aliased import access (Alias.Symbol)
-        if (member.Object is IdentifierExpression identifier)
-        {
-            var aliasName = identifier.Name;
-
-            if (_importedSymbolsByAlias.TryGetValue(aliasName, out var symbols))
-            {
-                if (symbols.TryGetValue(member.MemberName, out var symbolType))
-                {
-                    if (_importedDeclarationsByAlias.TryGetValue(aliasName, out var declarations)
-                        && declarations.TryGetValue(member.MemberName, out var declaration))
-                    {
-                        RecordMemberBinding(member, declaration);
-                    }
-                    return symbolType;
-                }
-                var memberColumn = _spans.GetMemberNameColumn(member);
-                var similarSymbols = symbols.Count == 0
-                    ? new List<string>()
-                    : new SmartSuggester(symbols.Keys.ToList()).SuggestSimilarNames(member.MemberName);
-                Error(
-                    ErrorCode.UndefinedMember,
-                    $"'{member.MemberName}' doesn't exist in import alias '{aliasName}' — check the import for available symbols",
-                    member.Line,
-                    memberColumn,
-                    similarSymbols.Count > 0 ? $"Did you mean '{similarSymbols[0]}'?" : null,
-                    Math.Max(1, member.MemberName.Length));
-                return BuiltInTypes.Unknown;
-            }
-        }
-
-        var objectType = TryResolveQualifiedExternalType(member.Object, out var typeReceiver) ? typeReceiver : AnalyzeExpression(member.Object);
-        if (TryResolveNullableMemberAccess(member, objectType, out var nullableMemberType))
-        {
-            return nullableMemberType;
-        }
-
-        _nullFlow.ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
-        var receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(objectType));
-        if (receiverType is ByRefTypeInfo byRefReceiver)
-            receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
-
-        if (receiverType is SoaRecordTypeInfo && member.IsNullConditional)
-        {
-            ReportSoaTableNullConditionalAccess(member);
-            return BuiltInTypes.Unknown;
-        }
-
-        if (receiverType is SoaRowTypeInfo
-            && member.IsNullConditional)
-        {
-            _soaEscape.ReportSoaRowEscape(member.Object, "used with null-conditional member access");
-            return BuiltInTypes.Unknown;
-        }
-
-        if (member.IsNullConditional
-            && ReportSoaDirectColumnNullConditionalAccessIfNeeded(member, member.Object, "member access"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (receiverType is SoaRowTypeInfo soaRowType
-            && AnalyzerMemberResolution.TryGetSoaColumn(soaRowType.Declaration, member.MemberName) is null)
-        {
-            _soaEscape.ReportSoaRowEscape(member.Object, "used as a member receiver");
-            return BuiltInTypes.Unknown;
-        }
-
-        ValidateDeclaredMemberVisibility(receiverType, member);
-        TryRecordMemberBinding(receiverType, member);
-
-        var includeStaticMembers = IsStaticMemberAccessTarget(member.Object);
-        var memberType = _memberResolution.ResolveMember(receiverType, member.MemberName, includeStaticMembers, _ambient.CurrentTypeName);
-        if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member, includeStaticMembers))
-        {
-            ReportUndefinedMember(receiverType, member, includeStaticMembers);
-        }
-        else if (receiverType is SoaRecordTypeInfo soaRecordType
-                 && AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null)
-        {
-            _soaEscape.RecordColumnMemberAccess(member);
-        }
-
-        return member.IsNullConditional ? MakeNullableResult(memberType) : memberType;
-    }
-
     private TypeInfo AnalyzeIndexAccess(IndexAccessExpression index)
     {
         var objectType = AnalyzeExpression(index.Object);
@@ -3418,7 +3299,7 @@ public class Analyzer : IDisposable
         }
 
         if (index.IsNullConditional
-            && ReportSoaDirectColumnNullConditionalAccessIfNeeded(index, index.Object, "index access"))
+            && _soaEscape.ReportDirectColumnNullConditionalAccessIfNeeded(index, index.Object, "index access"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -3469,7 +3350,7 @@ public class Analyzer : IDisposable
 
         var elementType = ResolveIndexElementType(receiverType, indexType, isRangeAccess);
 
-        return index.IsNullConditional ? MakeNullableResult(elementType) : elementType;
+        return index.IsNullConditional ? _memberAccess.MakeNullableResult(elementType) : elementType;
     }
 
     private bool ShouldUseIntExpectedTypeForIndex(TypeInfo receiverType)
@@ -3587,28 +3468,6 @@ public class Analyzer : IDisposable
             length);
     }
 
-    private bool ReportSoaDirectColumnNullConditionalAccessIfNeeded(
-        Expression expression,
-        Expression receiver,
-        string accessKind)
-    {
-        var columnMember = _soaEscape.FindSoaColumnMemberAccess(receiver);
-        if (columnMember == null)
-        {
-            return false;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"SoA table member '{columnMember.MemberName}' cannot use null-conditional {accessKind} directly",
-            line,
-            column,
-            "Direct columns are non-null table storage; use direct column access such as table.column[row] or table.column.Length.",
-            length);
-        return true;
-    }
-
     private TypeInfo ResolveIndexElementType(TypeInfo receiverType, TypeInfo indexType, bool isRangeAccess)
     {
         receiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
@@ -3686,287 +3545,6 @@ public class Analyzer : IDisposable
 
     private TypeInfo GetNonNullableType(TypeInfo type)
         => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
-
-    private TypeInfo MakeNullableResult(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        if (BuiltInTypes.Is(resolved, BuiltInTypes.Void)
-            || BuiltInTypes.Is(resolved, BuiltInTypes.Never)
-            || resolved is UnknownTypeInfo
-            || resolved is NullableTypeInfo)
-        {
-            return type;
-        }
-
-        return new NullableTypeInfo(type);
-    }
-
-    private bool TryResolveNullableMemberAccess(MemberAccessExpression member, TypeInfo objectType, out TypeInfo memberType)
-    {
-        memberType = BuiltInTypes.Unknown;
-
-        var nullableType = objectType as NullableTypeInfo;
-        var isNarrowedNullableOrigin = false;
-        if (nullableType == null
-            && member.Object is IdentifierExpression identifier
-            && IsPrimitiveLikeType(objectType)
-            && _scopes.FindEnclosingNullableSymbol(identifier.Name) is { } origin)
-        {
-            nullableType = origin;
-            isNarrowedNullableOrigin = true;
-        }
-
-        if (nullableType == null)
-        {
-            return false;
-        }
-
-        if (member.MemberName == "HasValue")
-        {
-            memberType = BuiltInTypes.Bool;
-            return true;
-        }
-
-        if (member.MemberName == "Value")
-        {
-            if (!isNarrowedNullableOrigin)
-            {
-                Error(
-                    ErrorCode.NullabilityWarning,
-                    "This '.Value' access can throw when the nullable value is absent",
-                    member.Line,
-                    _spans.GetMemberNameColumn(member),
-                    "Prefer 'must value' for an explicit unwrap, or use 'match value { null => ..., inner => ... }' to handle both cases.",
-                    length: Math.Max(1, member.MemberName.Length));
-            }
-
-            memberType = nullableType.InnerType;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsPrimitiveLikeType(TypeInfo type)
-    {
-        return type is SimpleTypeInfo or ReflectionTypeInfo;
-    }
-
-    private bool IsStaticMemberAccessTarget(Expression target)
-    {
-        if (target is ParenthesizedExpression parenthesized)
-            return IsStaticMemberAccessTarget(parenthesized.Inner);
-
-        if (target is IdentifierExpression identifier)
-            return _scopes.LookupSymbol(identifier.Name) == null;
-
-        return TryResolveTypeValuedMemberAccess(target, out _);
-    }
-
-    private bool TryResolveTypeValuedMemberAccess(Expression expression, out TypeInfo type)
-    {
-        type = BuiltInTypes.Unknown;
-        switch (expression)
-        {
-            case ParenthesizedExpression parenthesized:
-                return TryResolveTypeValuedMemberAccess(parenthesized.Inner, out type);
-
-            case IdentifierExpression identifier:
-                if (_scopes.LookupSymbol(identifier.Name) != null)
-                    return false;
-                type = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(identifier.Name) ?? BuiltInTypes.Unknown);
-                if (!BuiltInTypes.IsUnknown(type))
-                    return true;
-                type = AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, identifier.Name) is { } builtInType ? new ReflectionTypeInfo(builtInType) : _externalTypeProbe.ResolveExternalType(identifier.Name) ?? BuiltInTypes.Unknown;
-                return !BuiltInTypes.IsUnknown(type);
-
-            case MemberAccessExpression memberAccess:
-                if (TryResolveQualifiedExternalType(memberAccess, out type))
-                    return true;
-                return TryResolveTypeValuedMemberAccess(memberAccess.Object, out var ownerType) && _declarationContext.TryResolveNestedType(ownerType, memberAccess.MemberName, requireExported: false, out type);
-
-            default:
-                return false;
-        }
-    }
-
-    private bool TryResolveQualifiedExternalType(Expression expression, out TypeInfo type)
-    {
-        type = BuiltInTypes.Unknown;
-        if (expression is not MemberAccessExpression || !TryGetQualifiedExpressionTreeName(expression, out var qualifiedName))
-            return false;
-        var rootName = ExternalQualifiedTypeResolver.RootName(qualifiedName);
-        var currentType = _scopes.CurrentTypeScope();
-        var separator = qualifiedName.LastIndexOf('.');
-        var currentUnitNamespace = GetUnitNamespace(_compilationUnit);
-        foreach (var visibleNamespace in AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentUnitNamespace, _usingNamespaces))
-            if (_projectDiscovery.TryResolveProjectTypeInNamespace(rootName, visibleNamespace, currentUnitNamespace, out _, out _)) return false;
-        if (_scopes.LookupSymbol(rootName) != null || _scopes.LookupType(rootName) != null || _usingAliases.ContainsKey(rootName)
-            || _importedSymbolsByAlias.ContainsKey(rootName) || (currentType != null && !BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(currentType, rootName, true, _ambient.CurrentTypeName)))
-            || _identifierResolution.TryResolveVisibleProjectFunction(rootName, out _, out _) || (separator > 0 && _projectDiscovery.TryResolveProjectTypeInNamespace(qualifiedName[(separator + 1)..], qualifiedName[..separator], currentUnitNamespace, out _, out _))
-            || !ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, qualifiedName, out var runtimeType))
-            return false;
-        type = new ReflectionTypeInfo(runtimeType);
-        return true;
-    }
-
-    private void TryRecordMemberBinding(TypeInfo objectType, MemberAccessExpression member)
-    {
-        if (TryFindMemberDeclaration(objectType, member.MemberName, out var declaration))
-        {
-            RecordMemberBinding(member, declaration);
-        }
-    }
-
-    private void ValidateDeclaredMemberVisibility(TypeInfo objectType, MemberAccessExpression member)
-    {
-        if (TryFindMemberExportVisibility(objectType, member.MemberName, out var isExported, out var filePath)
-            && IsCrossPackageFile(filePath)
-            && !isExported)
-        {
-            _diagnostics.ReportInaccessibleMember(member.MemberName, filePath, member.Line, _spans.GetMemberNameColumn(member));
-        }
-    }
-
-    private bool TryFindMemberExportVisibility(
-        TypeInfo objectType,
-        string memberName,
-        out bool isExported,
-        out string? filePath)
-    {
-        objectType = _declarationContext.ResolveDeclaredAlias(objectType);
-        if (_declarationContext.TryFindMember(objectType, memberName, out var selection))
-        {
-            isExported = selection.IsExported;
-            filePath = selection.FilePath;
-            return true;
-        }
-        isExported = false;
-        filePath = null;
-        return false;
-    }
-
-    private void RecordMemberBinding(MemberAccessExpression member, SymbolDeclaration declaration)
-    {
-        var memberColumn = _spans.GetMemberNameColumn(member);
-        _bindingMap.RecordBinding(_currentFilePath, member.Line, memberColumn, member.MemberName.Length, declaration);
-    }
-
-    private bool TryFindMemberDeclaration(
-        TypeInfo objectType,
-        string memberName,
-        out SymbolDeclaration declaration)
-    {
-        objectType = _declarationContext.ResolveDeclaredAlias(objectType);
-        if (_declarationContext.TryFindMember(objectType, memberName, out var selection))
-        {
-            declaration = selection.Member != null
-                ? CreateSymbolDeclaration(selection.Member, selection.FilePath)
-                : new SymbolDeclaration(
-                    memberName,
-                    selection.FilePath,
-                    selection.Line,
-                    selection.Column,
-                    selection.KindName);
-            return true;
-        }
-
-        var extension = _extensionMethods.FirstOrDefault(candidate =>
-            candidate.Name == memberName
-            && _extensionMethodResolution.IsExtensionReceiverApplicable(candidate, objectType));
-        if (extension != null)
-        {
-            declaration = new SymbolDeclaration(
-                extension.Name, _currentFilePath, extension.Line, extension.Column, "function");
-            return true;
-        }
-        declaration = null!;
-        return false;
-    }
-
-    private bool ShouldReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member, bool includeStaticMembers)
-        => ShouldReportUndefinedMember(receiverType, member.MemberName, includeStaticMembers);
-
-    private bool ShouldReportUndefinedMember(TypeInfo receiverType, string memberName, bool includeStaticMembers)
-    {
-        if (string.IsNullOrWhiteSpace(memberName) || memberName == "<error>")
-            return false;
-
-        receiverType = ResolveAliasAndMetadata(receiverType);
-        return receiverType switch
-        {
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Object) => false,
-            SimpleTypeInfo simple => _clrTypeConversion.TryConvertTypeInfoToClrType(simple) != null
-                                     || (IsKnownBuiltInReceiverWithoutReflection(simple)
-                                         && !IsKnownBuiltInMemberWithoutReflection(simple, memberName, includeStaticMembers)),
-            ArrayTypeInfo => _clrTypeConversion.TryConvertTypeInfoToClrType(receiverType) != null
-                             || !IsKnownBuiltInMemberWithoutReflection(receiverType, memberName, includeStaticMembers),
-            GenericTypeInfo generic =>
-                (_typeSubstitution.ResolveGenericDefinition(generic) is { } genericDefinition
-                 && genericDefinition is not ReflectionTypeInfo)
-                || _clrTypeConversion.TryConvertTypeInfoToClrType(receiverType) != null,
-            ReflectionTypeInfo reflection when IsSystemObjectType(reflection.Type) => false,
-            ReflectionTypeInfo reflection => HasReliableReflectionMemberSet(reflection.Type),
-            ClassTypeInfo or StructTypeInfo or RecordTypeInfo or SoaRecordTypeInfo or SoaRowTypeInfo
-                or InterfaceTypeInfo or EnumTypeInfo or UnionTypeInfo or NewtypeInfo
-                or TupleTypeInfo => true,
-            NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, memberName, includeStaticMembers),
-            ObliviousTypeInfo oblivious => ShouldReportUndefinedMember(oblivious.InnerType, memberName, includeStaticMembers),
-            _ => false
-        };
-    }
-
-    private static bool IsKnownBuiltInMemberWithoutReflection(TypeInfo receiverType, string memberName, bool includeStaticMembers)
-    {
-        if (BuiltInObjectMembers.Contains(memberName))
-            return true;
-
-        return receiverType switch
-        {
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.String) =>
-                BuiltInStringInstanceMembers.Contains(memberName)
-                || (includeStaticMembers && BuiltInStringStaticMembers.Contains(memberName)),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Bool) =>
-                BuiltInBooleanInstanceMembers.Contains(memberName)
-                || (includeStaticMembers && BuiltInBooleanStaticMembers.Contains(memberName)),
-            SimpleTypeInfo simple when IsBuiltInNumericType(simple) =>
-                BuiltInNumericInstanceMembers.Contains(memberName)
-                || (includeStaticMembers && BuiltInNumericStaticMembers.Contains(memberName)),
-            SimpleTypeInfo simple when BuiltInTypes.Is(simple, BuiltInTypes.Char) =>
-                BuiltInNumericInstanceMembers.Contains(memberName)
-                || (includeStaticMembers && BuiltInNumericStaticMembers.Contains(memberName)),
-            ArrayTypeInfo => BuiltInArrayMembers.Contains(memberName),
-            _ => false
-        };
-    }
-
-    private static bool IsKnownBuiltInReceiverWithoutReflection(SimpleTypeInfo type)
-        => BuiltInTypes.Is(type, BuiltInTypes.String)
-           || BuiltInTypes.Is(type, BuiltInTypes.Bool)
-           || BuiltInTypes.Is(type, BuiltInTypes.Char)
-           || IsBuiltInNumericType(type);
-
-    private static bool IsBuiltInNumericType(SimpleTypeInfo type)
-        => BuiltInTypes.Is(type, BuiltInTypes.Int)
-           || BuiltInTypes.Is(type, BuiltInTypes.Long)
-           || BuiltInTypes.Is(type, BuiltInTypes.Float)
-           || BuiltInTypes.Is(type, BuiltInTypes.Double)
-           || BuiltInTypes.Is(type, BuiltInTypes.Decimal)
-           || BuiltInTypes.Is(type, BuiltInTypes.Byte)
-           || BuiltInTypes.Is(type, BuiltInTypes.SByte)
-           || BuiltInTypes.Is(type, BuiltInTypes.Short)
-           || BuiltInTypes.Is(type, BuiltInTypes.UShort)
-           || BuiltInTypes.Is(type, BuiltInTypes.UInt)
-           || BuiltInTypes.Is(type, BuiltInTypes.ULong);
-
-    private static bool HasReliableReflectionMemberSet(Type type)
-    {
-        var assembly = type.Assembly;
-        return assembly == typeof(object).Assembly
-            || assembly == typeof(Console).Assembly
-            || assembly == typeof(Enumerable).Assembly
-            || (type.Namespace?.StartsWith("System.", StringComparison.Ordinal) == true && !type.IsInterface);
-    }
 
     private TypeInfo ResolveAliasAndMetadata(TypeInfo typeInfo)
         => typeInfo switch
@@ -4068,32 +3646,6 @@ public class Analyzer : IDisposable
             .Distinct(StringComparer.Ordinal)
             .ToList();
     }
-
-    private SymbolDeclaration CreateSymbolDeclaration(DeclaredMemberInfo member, string? filePath)
-    {
-        var sourceText = _projectSources.TryGetProjectSourceText(filePath);
-        return new SymbolDeclaration(
-            member.Name,
-            filePath,
-            member.Line,
-            AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, member.Name, member.Line, member.Column),
-            member.KindName);
-    }
-
-    private void ReportSoaTableNullConditionalAccess(MemberAccessExpression member)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(member);
-        Error(
-            ErrorCode.InvalidSyntax,
-            "SoA tables cannot use null-conditional member access",
-            line,
-            column,
-            "SoA table wrappers are value views; use direct table.member access.",
-            length);
-    }
-
-    private static bool IsSystemObjectType(Type type)
-        => type == typeof(object) || string.Equals(type.FullName, "System.Object", StringComparison.Ordinal);
 
     /// <summary>
     /// Walks a CLR parameter type and a TypeInfo argument in parallel to extract TypeInfo bindings
@@ -4300,7 +3852,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        if (IsStaticMemberAccessTarget(member.Object))
+        if (_memberAccess.IsStaticMemberAccessTarget(member.Object))
         {
             var staticClassification = ClassifyStaticFieldMember(member, expressionTypes);
             return staticClassification != false;
@@ -5271,7 +4823,7 @@ public class Analyzer : IDisposable
                 if (TryIsReadOnlyPropertyMember(
                         receiverType,
                         memberAccess.MemberName,
-                        includeStaticMembers: IsStaticMemberAccessTarget(memberAccess.Object)))
+                        includeStaticMembers: _memberAccess.IsStaticMemberAccessTarget(memberAccess.Object)))
                 {
                     propertyName = memberAccess.MemberName;
                     return true;
@@ -5684,7 +5236,7 @@ public class Analyzer : IDisposable
                     return false;
                 if (_scopes.LookupType(identifier.Name) is { } localType)
                     return IsSystemArrayTypeInfo(_declarationContext.ResolveDeclaredAlias(localType));
-                if (TryResolveTypeValuedMemberAccess(identifier, out var identifierType)
+                if (_memberAccess.TryResolveTypeValuedMemberAccess(identifier, out var identifierType)
                     && IsSystemArrayTypeInfo(identifierType))
                 {
                     return true;
@@ -5699,16 +5251,16 @@ public class Analyzer : IDisposable
                     return false;
                 if (_scopes.LookupType(system.Name) != null)
                 {
-                    return TryResolveTypeValuedMemberAccess(expression, out var systemArrayType)
+                    return _memberAccess.TryResolveTypeValuedMemberAccess(expression, out var systemArrayType)
                         && IsSystemArrayTypeInfo(systemArrayType);
                 }
-                if (TryResolveTypeValuedMemberAccess(expression, out var resolvedSystemArrayType))
+                if (_memberAccess.TryResolveTypeValuedMemberAccess(expression, out var resolvedSystemArrayType))
                 {
                     return IsSystemArrayTypeInfo(resolvedSystemArrayType);
                 }
                 return true;
             default:
-                if (TryResolveTypeValuedMemberAccess(expression, out var ownerType))
+                if (_memberAccess.TryResolveTypeValuedMemberAccess(expression, out var ownerType))
                 {
                     return IsSystemArrayTypeInfo(ownerType);
                 }
@@ -6140,7 +5692,7 @@ public class Analyzer : IDisposable
         out ReadonlyFieldTarget readonlyTarget)
     {
         readonlyTarget = default;
-        if (!IsStaticMemberAccessTarget(target.Object) || expressionTypes == null)
+        if (!_memberAccess.IsStaticMemberAccessTarget(target.Object) || expressionTypes == null)
         {
             return false;
         }
@@ -6223,7 +5775,7 @@ public class Analyzer : IDisposable
         out ReadonlyFieldTarget readonlyTarget)
     {
         readonlyTarget = default;
-        if (target.Object is ThisExpression || IsStaticMemberAccessTarget(target.Object) || expressionTypes == null)
+        if (target.Object is ThisExpression || _memberAccess.IsStaticMemberAccessTarget(target.Object) || expressionTypes == null)
         {
             return false;
         }
@@ -6615,7 +6167,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        if (!TryGetQualifiedExpressionTreeName(expression, out var name))
+        if (!AnalyzerMemberAccess.TryGetQualifiedExpressionTreeName(expression, out var name))
         {
             return false;
         }
@@ -6644,23 +6196,6 @@ public class Analyzer : IDisposable
                 ExpressionTreeReceiverStartsWithValueIdentifier(memberAccess.Object, parameterNames),
             _ => false
         };
-    }
-
-    private static bool TryGetQualifiedExpressionTreeName(Expression expression, out string name)
-    {
-        switch (expression)
-        {
-            case IdentifierExpression identifier:
-                name = identifier.Name;
-                return true;
-            case MemberAccessExpression { IsNullConditional: false } memberAccess
-                when TryGetQualifiedExpressionTreeName(memberAccess.Object, out var parentName):
-                name = $"{parentName}.{memberAccess.MemberName}";
-                return true;
-            default:
-                name = string.Empty;
-                return false;
-        }
     }
 
     private static bool IsExpressionTreeAnonymousObjectCreation(NewExpression newExpression)
@@ -7476,7 +7011,7 @@ public class Analyzer : IDisposable
                 var hasBaseClass = openType is ClassTypeInfo openClassType && openClassType.BaseClass != null;
                 if (!hasBaseClass
                     && BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(openType, memberName, false, _ambient.CurrentTypeName))
-                    && ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
+                    && _memberAccess.ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
                 {
                     ReportUndefinedMember(
                         openType,
@@ -7507,7 +7042,7 @@ public class Analyzer : IDisposable
         var resolved = _memberResolution.ResolveMember(constructedType, memberName, false, _ambient.CurrentTypeName);
         if (BuiltInTypes.IsUnknown(resolved))
         {
-            if (ShouldReportUndefinedMember(constructedType, memberName, includeStaticMembers: false))
+            if (_memberAccess.ShouldReportUndefinedMember(constructedType, memberName, includeStaticMembers: false))
             {
                 ReportUndefinedMember(constructedType, memberName, nameLine, nameColumn, includeStaticMembers: false);
             }
@@ -7572,7 +7107,7 @@ public class Analyzer : IDisposable
         {
             ReportSoaTableMemberInitializer(memberName, nameLine, nameColumn, isColumn);
         }
-        else if (ShouldReportUndefinedMember(soaRecordType, memberName, includeStaticMembers: false))
+        else if (_memberAccess.ShouldReportUndefinedMember(soaRecordType, memberName, includeStaticMembers: false))
         {
             ReportUndefinedMember(soaRecordType, memberName, nameLine, nameColumn, includeStaticMembers: false);
         }
@@ -8616,25 +8151,6 @@ public class Analyzer : IDisposable
     private static string? GetUnitNamespace(CompilationUnit? unit)
         => AnalyzerProjectSourceProvider.UnitNamespace(unit);
 
-    private bool IsCrossPackageFile(string? declarationFile)
-    {
-        if (string.IsNullOrWhiteSpace(declarationFile) || string.IsNullOrWhiteSpace(_currentFilePath))
-        {
-            return false;
-        }
-
-        var currentPath = Path.GetFullPath(_currentFilePath);
-        var declarationPath = Path.GetFullPath(declarationFile);
-        if (string.Equals(currentPath, declarationPath, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var currentNamespace = GetUnitNamespace(_compilationUnit) ?? _projectSources.GetNamespaceForFile(currentPath);
-        var declarationNamespace = _projectSources.GetNamespaceForFile(declarationPath);
-        return !string.Equals(currentNamespace, declarationNamespace, StringComparison.Ordinal);
-    }
-
     private IEnumerable<Assembly> GetExternalSearchAssemblies()
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -8904,6 +8420,7 @@ public class Analyzer : IDisposable
         _operatorExpressions = CreateOperatorExpressions();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
         _identifierResolution.SetMetadataCollaborators(_memberResolution, _wellKnownTypes);
+        _memberAccess.SetMetadataCollaborators(_memberResolution, _clrTypeConversion, _extensionMethodResolution, _wellKnownTypes);
     }
 
     public void Dispose()
@@ -8934,6 +8451,7 @@ public class Analyzer : IDisposable
             _operatorExpressions = CreateOperatorExpressions();
             _typeResolver.SetWellKnownTypes(null);
             _identifierResolution.SetMetadataCollaborators(_memberResolution, null);
+            _memberAccess.SetMetadataCollaborators(_memberResolution, _clrTypeConversion, _extensionMethodResolution, null);
             _mlcAssemblies.Clear();
             _disposed = true;
         }

@@ -1,6 +1,26 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-07 (**TASK 017 SLICE 52 LANDED (no commit — mandate) — N# OWNS WHAT AN EXPRESSION
+Last updated: 2026-08-10 (**TASK 017 SLICE 55 LANDED (no commit — mandate) — N# OWNS WHAT A MEMBER
+ACCESS MEANS, ITS RECEIVER CLASSIFICATION, AND THE RULE FOR WHETHER A MISSING MEMBER IS WORTH
+REPORTING.** `AnalyzerMemberAccess.nl` (**1,008 lines, THREE types, 37 members, TWO driver kinds**)
+takes the arm, its whole exclusive closure, the receiver classification the write-target classifiers
+and the array arm ask for, the null-conditional result wrap the index arm asks for, and all eight
+built-in member-name tables; `AnalyzerSoaEscape` takes the direct-column null-conditional refusal.
+**THE FOUR PRE-MEASUREMENTS ANSWERED BEFORE ANY DESIGN**, and (d) came back NEGATIVE for an
+instructive reason: the arm cannot route its receiver through `AnalyzerIdentifierResolution` because
+it ALREADY composes with it through the dispatch host, and calling the rule directly would skip seven
+observable tail operations. **24 C# MEMBERS DIE, 542 NAMED LINES**; `Analyzer.cs` **9,428 → 8,946**,
+non-blank **8,416 → 7,991**, declarations **365 → 334**, `git diff` **+75 / −557 = net −482**; both
+ratchet ceilings fall. Contracts **3,291 → 3,345 (+54)**; unit suite **3,194 / 3,194**; **protocol
+differential 333,798 rows over FIVE runs, 0 MISMATCHES**, ENTER==RESULT 83,455 and STEP==ANSWER
+83,444, max nesting 4; **all four oracles DIFFS = 0**; parse-error census **0**; **48 / 48 N#-emitted
+assemblies byte-identical with the CONTROL FIRST** under a RE-DERIVED PE/metadata normaliser; and the
+**full VS Code-enabled `test-all.sh --commit` gate ALL GREEN, 16 timed steps, 108 passes, exit 0,
+18m 13s**. **ONE REAL WALL, MEASURED AND PRICED**: `PropertyInfo.Name` and `FieldInfo.Name` are not in
+the columnar catalog, so the RENDERING of NL303 stays behind as driver kind 2 — reached 23 times in
+333,798 rows — and two catalog rows retire it. Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-07 (**TASK 017 SLICE 52 LANDED (no commit — mandate) — N# OWNS WHAT AN EXPRESSION
 THAT CHOOSES THE TYPE ITS OPERANDS ARE WALKED UNDER MEANS: a `cast`, `checked`, `unchecked` AND the
 TERNARY.** The four target-typed arms move whole into `AnalyzerTargetTypedOperands.nl` (**443 lines,
 THREE types, 16 members, FOUR forms**) on a driver that learns its SECOND and THIRD operation —
@@ -1924,8 +1944,365 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 54 — THE IDENTIFIER ARM, THE RULE AND BOTH ITS
-  CONSUMERS, TERMINAL.** Target recorded BEFORE any production edit, at `3546a9e17` (`Analyzer.cs`
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 55 — THE MEMBER ARM, ITS EXCLUSIVE CLOSURE AND
+  THE UNDEFINED-MEMBER REPORT FAMILY, TERMINAL.** Target recorded BEFORE any production edit, at
+  `f7f7c4b30` (`Analyzer.cs` **9,428** lines, non-blank **8,416**, member declarations **365** by the
+  narrow metric — lines matching `^    (private|public|internal|protected).*\(` — and **430** by the
+  broader modifier-line metric, both applied identically to both trees; unit suite baseline
+  **3,194**; contracts baseline **3,291**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:57f9dc5ec64128d4`; `Analyzer.cs` ratchet row currentLines
+  **9,428** / currentNonBlank **8,416**, fingerprint `text-v1:7f6b1062a029ade9`, epoch ceilings
+  **23,451 / 20,537**).
+
+  **THE FOUR PRE-MEASUREMENTS THE SLICE-54 BRIEF NAMED, TAKEN AT THIS TIP BEFORE ANY DESIGN.**
+  * **(a) EXACTLY ONE EXPRESSION STEP IN THE WHOLE 524-LINE CLOSURE, AND IT IS CONDITIONAL — SO THE
+    ARM IS A ONE-KIND, ONE-STEP WALK, NOT A TWO-FORM ONE.** A mechanical scan for
+    `AnalyzeExpression…(` over all 30 members of the measured closure returns **ONE** hit: `:3349`,
+    inside a ternary whose other branch (`TryResolveQualifiedExternalType`) answers WITHOUT walking.
+    **The null-conditional form does NOT walk differently**: `member.IsNullConditional` is read four
+    times and every one of them is AFTER the receiver has answered. **VERDICT: a suspendable walk
+    with ONE kind and ZERO-STEP short-circuits on two forms** (an import-alias hit and a
+    qualified-external-type hit) — the `DriveCompileTimeConstant` shape, not the operator family's
+    ten-kind switch.
+  * **(b) THE EXCLUSIVE CLOSURE IS 8 MEMBERS / 212 LINES; THE BRIEF'S THREE CANDIDATES SPLIT TWO
+    WAYS.** A caller-attribution pass confirms `TryRecordMemberBinding` (7),
+    `RecordMemberBinding` (5) and `TryFindMemberDeclaration` (31) ARE exclusive, as the brief
+    guessed — but it also finds **FIVE MORE the brief did not name that are equally exclusive**
+    (`TryResolveNullableMemberAccess` 45, `IsPrimitiveLikeType` 4, `ValidateDeclaredMemberVisibility`
+    9, `TryFindMemberExportVisibility` 17, `ReportSoaTableNullConditionalAccess` 11) and **SEVEN
+    SHARED ones the brief did not warn about**: `ShouldReportUndefinedMember` (30, 3 outside callers),
+    `ReportUndefinedMember` (37, 4), `IsStaticMemberAccessTarget` (10, 4),
+    `TryResolveTypeValuedMemberAccess` (26, 4), `MakeNullableResult` (13, 1),
+    `ReportSoaDirectColumnNullConditionalAccessIfNeeded` (21, 1) and
+    `TryGetQualifiedExpressionTreeName` (16, 1). The brief's warning was right in KIND and wrong in
+    WHICH.
+  * **(c) IT OWNS FOUR CODES IN SIX SHAPES; ITS THREE SoA/NULL REPORTS ARE ALREADY COLLABORATORS'.**
+    Its own: **NL303** in THREE shapes (the rich `ErrorMessageBuilder` form, the bare fallback, and a
+    distinct import-alias form), **NL308**, **NL907** (`.Value` on a nullable that was not narrowed)
+    and **NL103** twice (SoA table null-conditional access; SoA direct-column null-conditional
+    access). NOT its own — already N#-owned and merely called: `AnalyzerNullFlow`'s null-dereference
+    report, `AnalyzerSoaEscape`'s two row escapes and its column-read registry. This is the FOURTH
+    consecutive family whose SoA and null reports belong elsewhere.
+  * **(d) THE PAIR-SPECIFIC ONE: THE ARM CANNOT ROUTE ITS RECEIVER THROUGH
+    `AnalyzerIdentifierResolution`, AND THE REASON IS THAT IT ALREADY COMPOSES WITH IT — THROUGH THE
+    DISPATCH HOST.** `AnalyzeMemberAccess` does not resolve its receiver by hand at all: it calls
+    `AnalyzeExpression(member.Object)`, whose IDENTIFIER arm has been `_identifierResolution.Resolve`
+    since slice 54. Calling the rule directly instead would SKIP the dispatch host's common tail —
+    the null state, the flow type, the two semantic-model records, the assignment-target capture and
+    the three value-misuse reports (synthetic SoA operation, method group, event) — seven observable
+    operations. **VERDICT: NO SHRINK-BEFORE-MOVE; the composition the brief hoped for already exists
+    and IS the walk step.** The step therefore stays `AnalyzeExpression`, performed by the driver.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT A MEMBER ACCESS MEANS, ITS RECEIVER CLASSIFICATION AND
+  THE RULE FOR WHETHER A MISSING MEMBER IS WORTH REPORTING; THE RENDERING OF THAT ONE REPORT STAYS
+  BEHIND AT A MEASURED TWO-ROW CATALOG WALL.**
+
+  **THE CUT — 24 C# MEMBERS PLUS THE EIGHT BUILT-IN MEMBER TABLES, 542 NAMED LINES, AND THE DISPATCH
+  ARM COLLAPSES.** GONE, by group: the ARM ITSELF (`AnalyzeMemberAccess` 87); its EXCLUSIVE closure
+  (`TryResolveNullableMemberAccess` 45, `IsPrimitiveLikeType` 4, `TryRecordMemberBinding` 7,
+  `ValidateDeclaredMemberVisibility` 9, `TryFindMemberExportVisibility` 17, `RecordMemberBinding` 5,
+  `TryFindMemberDeclaration` 31, `CreateSymbolDeclaration` 10, `ReportSoaTableNullConditionalAccess`
+  11, `IsCrossPackageFile` 18); the RECEIVER CLASSIFICATION (`IsStaticMemberAccessTarget` 10,
+  `TryResolveTypeValuedMemberAccess` 26, `TryResolveQualifiedExternalType` 19,
+  `TryGetQualifiedExpressionTreeName` 16); the SHOULD-REPORT rule and its exclusive helpers
+  (`ShouldReportUndefinedMember` ×2 30, `IsKnownBuiltInMemberWithoutReflection` 23,
+  `IsKnownBuiltInReceiverWithoutReflection` 5, `IsBuiltInNumericType` 12,
+  `HasReliableReflectionMemberSet` 8, `IsSystemObjectType` 2); the null-conditional result wrap
+  (`MakeNullableResult` 13); the direct-column null-conditional refusal
+  (`ReportSoaDirectColumnNullConditionalAccessIfNeeded` 21, which moves into `AnalyzerSoaEscape` where
+  slice 37 put the syntactic column gate); and the EIGHT BUILT-IN MEMBER NAME TABLES (89 lines).
+  ADDED: the `DriveMemberAccess` loop (23 lines, TWO kinds) plus its 17-line doc, the owner field and
+  its 9-line doc, the constructor wiring (6), the `BeginAnalysis` call (1), the two
+  `SetMetadataCollaborators` calls (2), the collapsed dispatch arm (1) and FOURTEEN mechanical route
+  lines. `git diff` on `Analyzer.cs` **+75 / −557 = net −482**. The file goes **9,428 → 8,946**,
+  non-blank **8,416 → 7,991 (−425)**, member declarations **365 → 334 (−31)** and modifier lines
+  **430 → 400 (−30)**. **BOTH RATCHET CEILINGS FALL.**
+
+  **THE ARM IS A ONE-KIND WALK AND THE PROTOCOL MEASURES IT RATHER THAN ASSERTING IT.** Across the
+  five runs the walk is entered **83,455** times and asks for its receiver **83,421** times: only
+  **34** walks answer without a step, and every one of them is one of the two zero-step forms. There
+  is no second walk kind for `a?.b` — **8 null-conditional walks** appear in the transcripts and each
+  takes the same single step as a plain one.
+
+  **THE SECOND KIND IS A MEASURED WALL, NOT A DESIGN CHOICE.** `ReportUndefinedMember` and its three
+  did-you-mean helpers (`FindSimilarMemberNames`, `GetAvailableMemberNames`,
+  `GetReflectionMemberNames`, 88 lines) stay in `Analyzer.cs` and are reached as driver kind 2,
+  because building the suggestion list enumerates the receiver's reflected properties and fields and
+  reads their names — and **`PropertyInfo.Name` and `FieldInfo.Name` are not modeled in the columnar
+  catalog**, while their siblings `MethodInfo.Name` and `EventInfo.Name` ARE, by explicit rows in
+  `ColumnarExternalBindingPlans.GetInstanceCallPlan`. All four are inherited from `MemberInfo`, which
+  is not a supported receiver, so only the explicitly published ones bind. **TWO CATALOG ROWS RETIRE
+  KIND 2**, and taking them needs a stage-1 commit and an SDK pack, both of which this slice's binding
+  rules forbid. **WHETHER to report is N#'s** — `ShouldReportUndefinedMember` moved whole, with its
+  five exclusive helpers and all eight name tables, and its three outside callers are routed.
+
+  **N# ADDED — 1,008 PRODUCTION LINES ON ONE NEW FILE PLUS 16 ON AN EXISTING OWNER.**
+  `AnalyzerMemberAccess.nl`: **THREE types, 37 members** — `MemberAccessRequest` (two kinds: the
+  receiver walk and the report), `MemberAccessState` (the node, a five-value phase and the three
+  pending-report slots that keep the answer from escaping ahead of the report) and the owner. It holds
+  **TWENTY-TWO** collaborators, **every one of them already N#-owned**, of which FOUR — member
+  resolution, the CLR type conversion funnel, extension-method resolution and the well-known-type bag
+  — arrive through `SetMetadataCollaborators` rather than a factory rebuild, because the owner carries
+  the per-analysis compilation unit and binding map and a rebuild would drop them. `AnalyzerSoaEscape`
+  gains `ReportDirectColumnNullConditionalAccessIfNeeded`, which both the member arm and the still-C#
+  index arm now call.
+
+  **54 NEW CONTRACTS.** `AnalyzerMemberAccess.tests.nl` (**774 lines, 54 contracts**). Contracts
+  **3,291 → 3,345 (+54)**, 0 failed. They are the FIRST direct pinning of any of these members: all
+  24 were `private` in `Analyzer.cs`.
+
+  **PROOF — THE PROTOCOL DIFFERENTIAL, FIVE RUNS, 333,798 ROWS, 0 MISMATCHES.** A temporary env-gated
+  probe (`NL55_PROBE=1`, buffered stderr, never in the final bytes — it lives only in two throwaway
+  worktrees) emitted ENTER, STEP, ANSWER and RESULT rows from the three route points that are
+  identical on both sides, each carrying the member name, its position, the null-conditional flag, the
+  nesting depth and **FIVE observable counters at that instant** — errors, binding records,
+  semantic-model TYPE records, expression-TYPE records and expression-NULL-STATE records — with the
+  RESULT row also carrying the answer's type text and the kind-2 STEP row carrying the receiver type
+  and the static flag it was handed.
+  * 72-target corpus: **175,818 rows, 0 MISMATCHES**, md5 `93c18ceeda6a66d4633152ac2e98ea10` in BOTH.
+  * The self-host target (`NSharpLang.Compiler.BootstrapServices`, 323 files) ALONE: **156,432 rows,
+    0 MISMATCHES**, md5 `c9b3455a378dbf3d4635a1affa24cb90`.
+  * 644 accumulated fixtures: **1,094 rows, 0 MISMATCHES**, md5 `2102f94d11b61be46056948bc4a5a2f9`.
+  * 94 env-gated SoA fixtures: **206 rows, 0 MISMATCHES**, md5 `0ed6c163c358299af7d9996a924e8ba1`.
+  * The 9-target supplementary set: **248 rows, 0 MISMATCHES**, md5 `4ca2c73100806dc4171f976b55c5904d`.
+  **ENTER == RESULT on every run** (43,960 / 39,115 / 267 / 51 / 62 — **83,455 walks**), **STEP ==
+  ANSWER on every run** (**83,444 steps**: 83,421 receiver walks and **23 reports**), depth never
+  negative and back to 0 at every target, **max nesting 4** — a member chain `a.b.c.d`, which is the
+  deepest the corpus and the compiler's own sources contain. The comparator was proved NON-VACUOUS
+  first: perturbing a single counter in one row reports `MISMATCHES 1` at exactly that index.
+
+  **THE CENSUS IS THE SLICE'S SHARPEST FINDING: THE MEMBER ARM ALMOST NEVER REPORTS, AND ALMOST NEVER
+  SKIPS ITS STEP.** 83,455 walks produce **23** undefined-member reports — one per **3,628** — and
+  **34** zero-step answers, one per 2,455. Both numbers say the same thing: the arm is a walk whose
+  whole job is to compose a receiver's answer with a name, and its diagnostics are a rounding error on
+  its traffic. That is also why the kind-2 wall costs so little: it is reached 23 times in 333,798
+  rows.
+
+  **PROOF — FOUR ORACLE DIFFERENTIALS, ALL ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `f7f7c4b30` (`/private/tmp/nl55base`) and at the working tree.
+  * **CORPUS: DIFFS = 0 over 387 lines**, md5 `807b904fb07fdcc2ec6b6cbd5787dc5e` in BOTH — 72 HEAD
+    rows, **315 diagnostics across 13 codes**, `stderrBytes = 0` on all 144 runs, ZERO `PARSE-FAIL`,
+    the 7 known no-`results` targets, both CLIs pointed at the SAME `git worktree` copy
+    (`/private/tmp/nl55corpus`).
+  * **SUPPLEMENTARY (the 7 no-`results` targets plus 2): DIFFS = 0** over 9 lines, md5
+    `fd2a6e7be640edfce368ea0916d30a8b`, NO-RESULTS = 0, PARSE-FAIL = 0.
+  * **FIXTURES: DIFFS = 0 over 1,055 lines**, md5 `e256211370276ec4871f5552ea9b9cf9` — **644 HEAD
+    rows, 411 diagnostics across 33 codes**, all 1,288 runs `stderrBytes = 0`. The set is this slice's
+    **56** plus the accumulated **588**.
+  * **SoA (env-gated): DIFFS = 0 over 213 lines**, md5 `1882b801e69578cddda86bafb1d47ba2` — 94
+    targets, 119 diagnostics across 5 codes. The set is this slice's **10** plus the accumulated **84**.
+
+  **PARSE-ERROR CENSUS: 0, AND THE CENSUS ITSELF MOVED FOR A REASON WORTH RECORDING.** The 56 new
+  fixtures and the 10 new SoA fixtures add **ZERO** NL101 — but only after a first run found **4** in
+  two of them, because N# enum members are COMMA-SEPARATED and the generator had written them on bare
+  lines; both were repaired and every downstream run re-taken. The 4 the slice-43…54 census attributed
+  to `fx18-newtype-construction` are **GONE, and not because anything changed in the compiler**:
+  **165 of the 588 accumulated fixture directories have been REAPED from `/private/tmp` between slice
+  54 and this one** — the whole of `nl40`–`nl43`, all but two of `nl44` and all but two of `s24` — so
+  their directories survive with no files in them, check 0 files, and produce 0 rows on BOTH sides.
+  Their generator scripts are gone from the scratchpad too (only `nl48`–`nl55` survive), so they
+  cannot be regenerated. **THE LIVE ACCUMULATED SET IS 423 OF 588 FIXTURES AND 57 OF 84 SoA
+  FIXTURES**; the empty targets were deliberately LEFT in the lists, because removing them would
+  silently change the row counts the previous slices' evidence is stated in.
+
+  **PROOF — THE 66 NEW FIXTURES REACH WHAT THE CONTRACTS CANNOT.** The 56 plain fixtures raise **25
+  diagnostics across 8 codes**, including three of the four the arm owns — **NL303 × 12, NL308 × 1,
+  NL907 × 1** — plus **NL103 × 4** and the reports that belong to collaborators (**NL301 × 3**). Every
+  gate is proved end to end: a field, an enum member, a record field, a struct field, an interface
+  member and a generic member all resolve, and each of their near-misses is reported with a
+  did-you-mean drawn from the receiver's own members; a member on `object` is silent and one on a
+  `StringBuilder` is too; a static member needs the TYPE as receiver and an instance receiver does not
+  see it; a local of the type's name shadows it; a parenthesized receiver is transparent; a qualified
+  external type resolves WITHOUT walking its prefix; a project function named like a namespace root is
+  not shadowed by one; `HasValue` is `bool`, `Value` warns, and the SAME `Value` inside
+  `if count != null { … }` is silent; `a?.b` is one layer nullable and a plain dereference of a
+  nullable is reported; a non-exported member in another namespace raises NL308 while the same member
+  in the same namespace does not; an aliased import's symbol resolves and its near-miss names the
+  ALIAS; and a member access works as a call argument, an assignment target, an operator operand, a
+  condition, a `for` source, an index receiver and a return value. The **10 env-gated SoA fixtures**
+  prove the division of labour the arm's design rests on: a table's null-conditional member access is
+  the ARM's own NL103, a row view's is `AnalyzerSoaEscape`'s row escape, a direct column's is
+  `AnalyzerSoaEscape`'s column refusal — reached from the member arm AND from the still-C# index arm
+  through the same door — and a missing table member is the arm's own undefined-member report.
+
+  **PROOF — UNSORTED `nlc build` TRANSCRIPTS.** Both Release CLIs built the 56 new fixtures from two
+  staging copies proved `diff -rq` identical first. **BLD_NORM_DIFFS = 0 over 484 unsorted lines**,
+  md5 `0eeb271f79980bbe90d5748c762c0709` in BOTH, identical exits (**0 × 32, 1 × 24**). The raw
+  transcripts differ on **226 content lines, ALL 226 of which name the staging-copy path** — the
+  residual is ZERO.
+
+  **PROOF — THE IL NORMALISER, RE-DERIVED, AND THE CONTROL RAN FIRST.** `nl44-ilnorm.py` had been
+  reaped from the scratchpad along with the fixtures, so the normaliser was REWRITTEN from the PE
+  specification: it zeroes exactly the COFF header's TimeDateStamp (**COFF + 4**), every debug
+  directory entry's own timestamp, and the whole `#GUID` metadata heap (where the MVID lives), and
+  compares every other byte RAW. Three staging copies (examples, templates and the systems samples —
+  **45 projects**) proved `diff -rq` identical before any build. **THE CONTROL RAN FIRST**: the
+  BASELINE CLI building TWO IDENTICAL COPIES reported **compared 91, SAME 91, DIFFERENT 0, ONLY_IN
+  0 / 0**, which is what makes the normaliser adequate rather than assumed. Then the test comparison:
+  **compared 91, ONLY_IN 0 / 0, and ALL 48 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**. The 43 that differ
+  are ONE file — the COPIED C# support library `NSharpLang.Runtime.dll`, which `nlc` does not emit —
+  and the difference is **ROOT-CAUSED**: exactly ONE distinct content per tree, both 14,848 bytes,
+  `strings` finds the embedded PDB path `/private/tmp/nl55base/…` in one and
+  `/Users/spencer/repos/nsharplang/…` in the other, and `diff -rq -x bin -x obj` over
+  `src/NSharpLang.Runtime` between the trees reports **0 SOURCE files**.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **332 checked files** (the 331 baseline plus
+  the one new production file — the contract file is excluded from `check`), **282 findings
+  estate-wide — the unchanged slice-42…54 baseline — and ZERO in the new or changed files**,
+  `stderrBytes = 0`.
+
+  **FORMAT CANON.** Both new `.nl` files pass, and the whole `src/NSharpLang.Compiler.BootstrapServices`
+  directory passes the gate's Step 2b contract (**"All files are properly formatted"**).
+
+  **GOTCHAS.**
+  **(1) THE COLUMNAR CATALOG MODELS `MethodInfo.Name` AND `EventInfo.Name` BUT NOT `PropertyInfo.Name`
+  OR `FieldInfo.Name`.** All four are inherited from `MemberInfo`, which is not a supported receiver,
+  so a member only binds when it is published by an explicit row. This is the slice's WALL and it is
+  exactly two rows wide.
+  **(2) `==` ON TWO `Assembly` REFERENCES DECLINES; `Object.ReferenceEquals` MODELS ONLY `Object` AND
+  `MethodInfo` ARGUMENTS.** The columnar `==` supports `string`, `Type`, registered user reference
+  types and the numeric/bool/char/enum family — `Assembly` is none of them. Declaring both sides as
+  `object` locals routes it to `Object.ReferenceEquals(object, object)`, which IS modeled, and
+  preserves the reference identity C#'s `==` had.
+  **(3) THE `typeof` SURFACE DOES NOT CARRY `Console` OR `Enumerable`.** `ColumnarTypeOfPlanner`'s
+  `IsSupportedType` is a closed list. The established route-around (slice 47's, taken again here) is
+  `Type.GetType("System.Console, System.Console")` — the compiler's OWN spelling, which
+  `ColumnarExternalBindingPlans` uses for the same assembly — and it yields the identical runtime
+  `Assembly` instance, so the identity test is preserved rather than approximated.
+  **(4) A DEFAULTED PARAMETER MUST BE PASSED EXPLICITLY.** `SmartSuggester.SuggestSimilarNames(name)`
+  declines at `emit.statement.block-child`; `SuggestSimilarNames(name, 3)` compiles. It joins the
+  standing "omitting a defaulted free-func param" gotcha, and it applies to INSTANCE methods too.
+  **(5) A DICTIONARY IS ITERATED DIRECTLY, NEVER THROUGH `.Keys`.** `for entry in symbols` with
+  `entry.Key` is the idiom; `for name in symbols.Keys` declines. `AnalyzerScopeStack` already had the
+  precedent and the whole production corpus has no `.Keys` loop.
+  **(6) REFLECTION PROPERTIES NEED THEIR `get_` SPELLING EVERYWHERE.** `reflected.Assembly`,
+  `.Namespace`, `.IsInterface`, `property.Name`, `field.Name` and `method.IsSpecialName` all decline;
+  `get_Assembly()`, `get_Namespace()`, `get_IsInterface()` and `get_IsSpecialName()` bind.
+  **(7) THE BUILT-IN MEMBER TABLES ARE UNREACHABLE THROUGH `ShouldReportUndefinedMember` IN A HARNESS
+  WITH NO METADATA CONTEXT — AND THAT IS THE OPPOSITE OF WHAT IT LOOKS LIKE.** With a null well-known
+  bag the CLR conversion funnel falls back to `AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType`, which
+  ANSWERS for every primitive, so the conversion succeeds and the tables are never consulted. Five
+  first-run contract failures were this one fact; they are now pinned at the tables' own door
+  (`IsKnownBuiltInMemberWithoutReflection`) plus one contract that states what the funnel actually does.
+  **(8) `FindEnclosingNullableSymbol` STARTS ONE SCOPE OUT.** A contract that declares the nullable in
+  the ONLY scope and then asks for `.Value` gets the warning, not the silence: the innermost scope is
+  the NARROWED one by construction, so the origin lookup skips it. Both sides of that boundary are now
+  contracts.
+  **(9) A MEMBER BINDING LANDS AT THE MEMBER NAME'S COLUMN, NOT THE NODE'S.** With no source text
+  `GetMemberNameColumn` falls back to `member.Column + 1` (`+ 2` for `?.`), so a binding recorded for a
+  node at column 1 is found at column 2. Three contract failures were this.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:57f9dc5ec64128d4` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 9,428 →
+  **8,946**, currentNonBlankLines 8,416 → **7,991**, fingerprint → **`text-v1:e29c3034c3ed3021`**;
+  `reviewedHeadFingerprint` → **`head-v1:fe059b38c59b1cd2`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **14,505 / 12,546** — up from 14,023 / 12,121.
+  `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed
+  lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: both new files are
+  `.nl`, which the policy does not audit, and the 66 fixtures live outside the repository. The audit on
+  the final tree is **18 / 18**. The pre-existing `editors/vscode/test/suite/edgeCases.test.ts` drift
+  and the six `MISSING` rows for files task 016 deleted were confirmed present IDENTICALLY on the
+  pristine baseline (a second run of the same walk against `/private/tmp/nl55base`) and again
+  deliberately left alone.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `f7f7c4b30` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, reporting `Scope: full unit suite (no filter)`: **3,194 / 3,194, 0 failed,
+  4 m 11 s of test time, exit 0**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 18m 13s.** `./scripts/test-all.sh --commit` —
+  VS Code tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 1m 59s;
+  **Step 2b's format contract over the compiler's own N# sources 0m 01s**; **unit tests 5m 56s
+  (3,194 / 3,194)**; **native N# tests 3m 25s** — the BootstrapServices contracts at **3,345 / 3,345**
+  plus every native project individually, `ownership-audit` **18 / 18** among them; **VS Code
+  integration tests 2m 44s, 36 passing**, against a freshly built extension and language server; pack
+  and install the MSBuild SDK 3m 44s; templates, template creation and the template-generated build;
+  the example builds; `nlc check` on examples; and **the IL verification gate 0m 11s — `All 67 N#
+  assemblies pass IL verification (no new errors vs baseline)`**. The run stored its validated
+  isolated cache result `d6b180d52e5bda23 (1093s)`, and it ran from an isolated snapshot taken BEFORE
+  this record was finished — `systems-language-closeout/` is in NO gate input set, so this record's own
+  prose is provably not a gate input.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged and installed with `--force`. No computer-use verification was taken:
+  this slice changes no LSP handler, no VS Code extension code and no IDE protocol surface; what it
+  changes is WHO answers what `a.b` means, which the gate's VS Code integration suite (36 passing) and
+  all four diagnostic oracles cover.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS** is the second-most-used answer in the editor after a bare
+  name. That hovering `w.Size` shows the field's type and that go-to-definition on it lands on the
+  declaration — including on an EXTENSION method, which is the one case the resolved type cannot tell
+  you and which is why the binding is looked up separately; that a typo on a member gets did-you-mean
+  names drawn from the RECEIVER's own members rather than from the scope; that `object` and an
+  unreliable reflected assembly stay SILENT instead of accusing every name, which is the difference
+  between a usable editor and a wall of red on code that is fine; that a member that exists but is not
+  exported is told THAT (NL308) rather than "not found"; that `count.Value` inside
+  `if count != null { … }` does not nag; that `int.MaxValue` works and `text.IsNullOrEmpty` is refused,
+  which is the static/instance distinction a developer feels every day; and that a table's columns are
+  reachable while its row views are not, each with its own sentence.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Fixtures: `/private/tmp/nl55fixtures` (56, this
+  slice) alongside the accumulated sets — **of which 165 directories are now EMPTY, see the census
+  above** — plus `/private/tmp/nl55soafx` (10) with the surviving `soafx` sets (**94 listed, 67
+  live**). The harnesses are at `.../scratchpad/nl44-oracle.sh`, `nl44-build.sh`, `nl44-ilbuild.sh`,
+  **`nl55-ilnorm.py` (the re-derived PE/metadata normaliser)**, `nl53-members.py`, `nl55-closure.py`
+  and `nl55-closure2.py` (the brace-matched extent walk plus caller attribution), `nl55-steps.py` (the
+  expression-step scan), `nl55-reports.py`, `nl55-repin.py`, `nl55-probe.sh` + `nl55-compare.py` (the
+  ENTER/STEP/ANSWER/RESULT differential with the five observable counters), `nl55-probe-base.py` (ONE
+  instrumentation patch that emits both sides — `python3 nl55-probe-base.py <path> [work]`),
+  `nl55-run-probes.sh`, `nl55-run-oracles.sh`, `nl55-summarize.sh`, `nl55-run-builds.sh`,
+  `nl55-run-il.sh`, `nl55-ilstage.sh`, `nl55-make-fixtures.py` and `nl55-make-soafx.py`. Five
+  worktrees are left registered: `/private/tmp/nl55base` (pristine `f7f7c4b30` + Release CLI),
+  `/private/tmp/nl55corpus` (the shared source copy), `/private/tmp/nl55ilsrc` (the clean source the
+  three IL staging copies were made from) and the two throwaway probe trees `/private/tmp/nl55probe`
+  and `/private/tmp/nl55workprobe`.
+
+  **WALL STATUS: ONE REAL WALL, MEASURED AND PRICED AT TWO CATALOG ROWS, AND NO TOOLSET REPIN WAS
+  TAKEN.** Publishing `System.Reflection.PropertyInfo.get_Name` and
+  `System.Reflection.FieldInfo.get_Name` to `ColumnarExternalBindingPlans.GetInstanceCallPlan` — two
+  rows in the same `if` shape as the `MethodInfo` and `EventInfo` rows already there — retires driver
+  kind 2 and moves the last 88 lines of the report family. Taking it needs slice 48's two-stage shape
+  (a committed stage 1 plus an SDK pack), which this slice's binding rules forbid, so it was measured
+  and left. Every OTHER collaborator this arm asks for was already N#-owned and callable, and two
+  smaller walls — `Assembly` reference equality and the `typeof` surface — were routed around INSIDE
+  the language with no semantic loss.
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 8,946 LINES, 7,991 NON-BLANK.** The same three
+  things: the SHORT list of remaining declaration walkers; **THE EXPRESSION WALK, now 18 arms of policy
+  instead of 19**; and the mechanical host — now SEVENTEEN driver loops, of which exactly SIX return.
+
+  * **NEXT: `index` (70 lines at `:3285`), AND IT IS NOW THE SMALLEST ARM LEFT — PLUS IT IS ALREADY
+    HALF-ROUTED THROUGH THIS SLICE'S DOORS.** `AnalyzeIndexAccess` has exactly ONE external reference
+    (the dispatch arm at `:3091`) and it already calls `_memberAccess.MakeNullableResult` and
+    `_soaEscape.ReportDirectColumnNullConditionalAccessIfNeeded`, both of which this slice published,
+    so its receiver-and-wrap half is N# already. **THE THREE PRE-MEASUREMENTS TO TAKE AT THAT TIP
+    BEFORE ANY DESIGN:** (a) it takes **TWO** expression steps by the mechanical scan — the receiver
+    and the INDEX — and the second is bracketed by an expected type the arm chooses from the receiver,
+    so measure whether that bracket opens inside `NextStep` (as the tuple's does in
+    `AnalyzerPassThroughOperands`) or needs a second kind; (b) what its exclusive closure is —
+    `ResolveIndexElementType`, `ShouldUseIntExpectedTypeForIndex`, `IsIndexLikeType`, `GetIndexType`
+    and the four SoA index reporters sit near it and LOOK exclusive, and slices 51–55 each found a
+    "helper" with a second caller, so run the caller-attribution pass before quoting a line count;
+    (c) which of its reports are its own — the SoA column-slice allocation report and the row-escape
+    reports are `AnalyzerSoaEscape`'s, and this is now the FIFTH consecutive family whose SoA reports
+    belong elsewhere.
+  * **THEN, UNCHANGED FROM THE SLICE-52 SEQUENCE:** `array` (57 at `:6282`, THREE walk sites, one
+    external reference) and `new` (183 at `:6548`, THREE walk sites, one external reference), which the
+    assignment arm needs as TARGETS; `assignment` (207 at `:4221`, **TEN** walk sites, plus the five
+    write-target reporters slice 53's driver kinds 6–10 still route to — **taking assignment RETIRES
+    FIVE OF SLICE 53'S TEN DRIVER KINDS**); `match` (72 at `:7309`), `with` (54 at `:7254`), `range`
+    (27 at `:3240`) and `on` (85 at `:4526`); `call` (87 at `:3650` but by far the most entangled — and
+    it now has TWO fewer things to do, because its callee path is already N# and its member receiver is
+    too); and **`lambda` (104 at `:5880`) LAST**, still the only arm with TWO production entry points.
+  * **AND THE ONE THAT IS NOT AN ARM: the two catalog rows above.** They are the cheapest N#
+    ownership in the queue — 88 lines of `Analyzer.cs` for two `if` clauses — and they need a stage-1
+    commit, so they belong to whichever slice is allowed to take one.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED): **017 SLICE 54 — THE IDENTIFIER ARM, THE RULE AND
+  BOTH ITS CONSUMERS, TERMINAL.** Target recorded BEFORE any production edit, at `3546a9e17` (`Analyzer.cs`
   **9,611** lines, non-blank **8,576**, member declarations **371** by the narrow metric — lines
   matching `^    (private|public|internal|protected).*\(` — and **436** by the broader modifier-line
   metric, both applied identically to both trees; unit suite baseline **3,194**; contracts baseline

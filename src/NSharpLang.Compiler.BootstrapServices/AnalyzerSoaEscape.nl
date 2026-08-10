@@ -225,6 +225,22 @@ class AnalyzerSoaEscape {
         diagnosticsValue.Report(ErrorCode.InvalidSyntax, "SoA table member '" + columnMember.MemberName + "' cannot be " + action + " directly", span.Line, span.Column, "Use table.column[row] for element access, Table.wrap for table views, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.", span.Length)
     }
 
+    // THE DIRECT-COLUMN NULL-CONDITIONAL REFUSAL, ASKED. A direct column is non-null table storage,
+    // so `table.column?.Length` and `table.column?[i]` are not safer forms of the same read — the
+    // question they ask cannot arise. The SPAN is the whole offending expression and the NAME is the
+    // column's, exactly as the value-escape report does it, and `accessKind` is the caller's word for
+    // what it was doing ("member access" or "index") so one rule serves both arms.
+    func ReportDirectColumnNullConditionalAccessIfNeeded(expression: Expression, receiver: Expression, accessKind: string): bool {
+        columnMember := FindSoaColumnMemberAccess(receiver)
+        if columnMember == null {
+            return false
+        }
+
+        span := spansValue.GetExpressionDiagnosticSpan(expression)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "SoA table member '" + columnMember.MemberName + "' cannot use null-conditional " + accessKind + " directly", span.Line, span.Column, "Direct columns are non-null table storage; use direct column access such as table.column[row] or table.column.Length.", span.Length)
+        return true
+    }
+
     // The nullable unwrap `Analyzer.cs` performs before every structural question. Its C# original has
     // twenty-one other callers and therefore could not move; its two-call body is reproduced rather
     // than reached back for, so nothing here re-enters C#.
