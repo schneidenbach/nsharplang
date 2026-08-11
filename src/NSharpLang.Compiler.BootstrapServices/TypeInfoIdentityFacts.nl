@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Reflection
 import System.Reflection.Emit
 import NSharpLang.Compiler.Ast
 
@@ -326,6 +327,27 @@ class TypeInfoIdentityFacts {
             isRuntimeEnum = baseType != null && baseType.FullName == "System.Enum"
         }
         return isRuntimeEnum && Enum.GetUnderlyingType(valueType).FullName == "System.Int32"
+    }
+
+    // WHETHER AN ENUM DECLARES A MEMBER, asked of the two enum worlds the analyzer knows. Both are
+    // shared between the ATTRIBUTE-ARGUMENT rule and the DEFAULT-PARAMETER rule, which ask the same
+    // question for the same reason: an enum member read is the one non-literal constant that CLR
+    // metadata admits, and it is only a constant when the member actually exists.
+    static func HasSourceEnumMember(enumType: EnumTypeInfo, memberName: string): bool {
+        for member in enumType.Declaration.Members {
+            if string.Equals(member.Name, memberName, StringComparison.Ordinal) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // PUBLIC STATIC ONLY: an enum's members are exactly its public static fields, and the backing
+    // `value__` instance field is not one of them.
+    static func HasRuntimeEnumMember(enumType: Type, memberName: string): bool {
+        memberFlags := BindingFlags.Public | BindingFlags.Static
+        return enumType.GetField(memberName, memberFlags) != null
     }
 
     static func FunctionModifiersWellFormed(function: FunctionTypeInfo, parameterCount: int): bool {

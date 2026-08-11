@@ -2040,7 +2040,432 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 63 — THE EXPRESSION-TREE VALIDATOR AND THE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 64 — THE ATTRIBUTE VALIDATOR: WHAT AN ATTRIBUTE
+  MEANS. THE LARGEST FAMILY IN THE CORRECTED CENSUS, TERMINAL.** Target recorded BEFORE any
+  production edit, at `19ac88cfc` (`Analyzer.cs` **4,866** lines, non-blank **4,425**, member
+  declarations **191** by the narrow metric and **261** by the modifier-line metric; **26** driver
+  loops; `Analyzer.cs` ratchet row currentLines **4,866** / currentNonBlank **4,425**, fingerprint
+  `text-v1:d70d3d13e42cef1b`, epoch ceilings **23,451 / 20,537**;
+  `Columnar/ColumnarIlEmitter.cs` **21,471** / **20,412**, fingerprint `text-v1:609051db487c7060`,
+  epoch ceilings **21,723 / 20,646**; `Performance/SystemsAnalyzer.cs` ratchet row currentLines
+  **2,390** == epochLines **2,390** — task 018 has not started; unit suite baseline **3,194**;
+  contracts baseline **3,676**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:cb09848c43652790`).
+
+  **THE EXTRACTOR WAS RE-VALIDATED FIRST, AGAINST SLICE 63's OWN RECORDED EXTENTS: 20 / 20
+  REPRODUCED TO THE LINE.** The brace-matched member extractor was run over
+  `git show 217cb5a8e:…/Analyzer.cs` against the twenty extents slice 63 recorded (the seven
+  expression-tree validator members, the twelve declaration-walker members, and
+  `ReportSoaRowTypeReferencesInAttributeTypeof` 45) before it was trusted at this tip.
+
+  **THE TARGET — THE ATTRIBUTE VALIDATOR, RE-MEASURED: 48 DISTINCT MEMBERS / 49 EXTENTS / 959 LINES,
+  PLUS A 6-LINE PRIVATE RECORD = 965.** `ValidateDeclarationAttributeArguments` at :926 through
+  `IsClrType` at :1932, plus `AttributeArgumentValidationInfo` at :919. The corrected census said
+  "48 members / 957 lines"; the validated extractor says **959** over **49** extents, because
+  `SourceTypeDerivesFromAttribute` is an OVERLOAD PAIR (2 + 24) counted once by name.
+
+  **THE CLOSURE, MEASURED THREE WAYS.** (1) Caller attribution over the whole file; (2) a raw
+  `\b<name>\b` grep over `src`, `tests` and `editors` for every one of the 48 names — **external
+  consumers: ZERO, for all 48**; (3) a re-read of the entry. Findings:
+  * **ONE PRODUCTION ENTRY**: `AnalyzeDeclaration:855` calls `ValidateDeclarationAttributeArguments`
+    and nothing else in the repository names any member of the family.
+  * **THREE MEMBERS ARE SHARED WITH A LATER SLICE'S FAMILY** — `TryGetQualifiedAttributeName` (16),
+    `HasSourceEnumMember` (2), `HasRuntimeEnumMember` (2) are also called by
+    `IsMatchingEnumMemberDefault:3595/3612/3615`, which belongs to the SCOPE / SYMBOL /
+    DEFAULT-PARAMETER family (the slice-after-next). They move anyway and that call site routes
+    into N#: two of the three go to `TypeInfoIdentityFacts`, which the same site ALREADY calls
+    twice (`AreEqual`, `IsInt32BackedRuntimeEnum`).
+  * **NO DRIVER IS NEEDED — the family re-enters NOTHING.** Every collaborator it reads is already
+    N#-owned and published: `_scopes.LookupType`, `_declarationContext.ResolveDeclaredAlias` /
+    `TryGetSourceMemberShape`, `_externalTypeProbe.ResolveExternalType`,
+    `_typeResolver.ReportSoaRowTypeReferencesIn` / `TryResolveDottedNestedType`,
+    `_memberAccess.ReportUndefinedMemberAt`, `_spans` (three span doors),
+    `_literalExpressions.IntLiteralType`, `_clrTypeConversion.TryConvertTypeInfoToClrType`,
+    `_wellKnownTypes`, and the statics `AnalyzerWellKnownTypeFacts`, `AnalyzerDiagnosticSpanFacts`,
+    `AnalyzerExpressionStatements.DescribeExpression`, `OperatorFacts`,
+    `NullabilityMetadataReflection`, `NumericLiteralFacts`, `BuiltInTypes`. This is the slice-63
+    expression-tree-validator shape, at ten times the size: a DIRECT CALL, not a walk.
+  * **`AttributeArgumentConstantKind` HAS ALREADY CROSSED** — it is an N# enum in
+    `AnalyzerStateModels.nl:5` and the C# only consumes it.
+  * **THE REFLECTION SURFACE IS ALREADY PUBLISHED**: `GetProperty`, `GetField`, `GetConstructors`,
+    `GetParameters`, `get_ParameterType`, `get_IsInitOnly`, `get_IsLiteral`, `get_SetMethod`,
+    `GetIndexParameters`, `get_IsValueType`, `Nullable.GetUnderlyingType`, `IsAssignableFrom`,
+    `get_IsArray`, `GetElementType`, `MakeArrayType`, `get_IsEnum`, `Enum.GetUnderlyingType`,
+    `get_BaseType`, `get_FullName`, `get_FieldType`, `get_PropertyType` — every one of them is in
+    use in a shipped `.nl` owner today, so NO toolset repin is expected.
+  * **NINE REPORT SITES**: seven direct `Error(...)` members (`ReportUnsupportedAttributeArgument`,
+    `ReportUnsupportedAttributeOperator`, `ReportAttributeTypeNotFound`,
+    `ReportAttributeTypeMustDeriveFromAttribute`, `ReportSourceDefinedAttributeUnsupported`,
+    `ReportUnknownAttributeNamedArgument`, `ReportAttributeNamedArgumentTypeMismatch`,
+    `ReportNoMatchingAttributeConstructor` — eight, across six `ErrorCode`s) plus two INDIRECT
+    reports through owners that are already N# (`ReportUndefinedMemberAt`,
+    `ReportSoaRowTypeReferencesIn`).
+  * **TWO RECURSIONS AND ONE MUTUAL RECURSION**: `TryValidateAttributeArgumentExpression` ↔ its
+    array/unary/binary arms; `TryInferAttributeArgumentClrType` ↔ its array/unary/binary arms; and
+    `SourceTypeDerivesFromAttribute` over the base chain with a `HashSet<object>` cycle guard.
+  * **THE SLICE-49 NOTE HOLDS AND IS THE REASON THE TWO TABLES BOTH SURVIVE**:
+    `TryInferAttributeArgumentClrType` keeps its own literal table because it answers a DIFFERENT
+    question from `TryValidateAttributeArgumentExpression` — `null` is a valid CONSTANT of kind
+    `Null` but types as `object` with `isNull = true`, and `typeof` types as the well-known
+    `System.Type` rather than as a kind. Porting them into one table would change what a `null`
+    positional argument matches.
+
+  **THE SPLIT DECISION: NONE — TERMINAL.** The family is a single connected component with ONE
+  entry, ZERO external consumers and NO driver. Every candidate seam (`ValidateAttributeArguments`
+  is the 63-line hub that calls the constant-ness walk, the CLR-typing walk AND the attribute-type
+  resolution) leaves the hub in C# deciding a four-way policy while calling into N# and back, which
+  is precisely the callback shape the contract forbids. It moves whole.
+
+  **THE EXPECTED CUT**: 48 C# members / 49 extents / **959 named lines** + the 6-line record; ADDED:
+  one field, one `Create*` factory, one constructor line, two rebuild-site lines and one re-pointed
+  call site, plus the two `TypeInfoIdentityFacts` routes at `IsMatchingEnumMemberDefault`.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT AN ATTRIBUTE MEANS. THE ARC'S LARGEST SINGLE FAMILY
+  IS OUT WHOLE, WITH NO DRIVER, AND `Analyzer.cs` CROSSES BELOW FOUR THOUSAND LINES FOR THE FIRST
+  TIME.**
+
+  **THE CUT — 48 C# MEMBERS, 49 EXTENTS, 959 NAMED LINES, PLUS A 6-LINE PRIVATE RECORD.** Gone by
+  group: the ENTRY AND THE TWO FAN-OUTS (**126** — `ValidateDeclarationAttributeArguments` 51,
+  `ValidateParameterAttributeArguments` 12, `ValidateAttributeArguments` 63); the CONSTANT-NESS WALK
+  (**317** — `TryValidateAttributeArgumentExpression` 52, `TryValidateAttributeArrayArgument` 32,
+  `TryValidateAttributeUnaryArgument` 33, `TryValidateAttributeBinaryArgument` 32,
+  `TryValidateAttributeMemberAccess` 53, `TryValidateAttributeRuntimeStaticMemberAccess` 29,
+  `ClassifyAttributeRuntimeType` 24, `IsRuntimeEnumType` 2, `IsSupportedNameofAttributeTarget` 7,
+  `IsSystemsPolicyAttribute` 15, `NormalizeAttributeArgument` 14, `ReportUndefinedAttributeStaticMember`
+  8, `HasSourceEnumMember` 2, `HasRuntimeEnumMember` 2, `TryGetQualifiedAttributeName` 16); the
+  ATTRIBUTE-TYPE DECISION (**152** — `TryResolveClrAttributeType` 15,
+  `TryResolveNonAttributeClrAttributeCandidate` 14, `TryResolveSourceAttributeCandidate` 24,
+  `IsSourceDeclaredAttributeCandidate` 9, `IsClrAttributeType` 12, `GetClrAttributeNameCandidates` 8,
+  `SourceTypeDerivesFromAttribute` 2 + 24, `ReportAttributeTypeNotFound` 14,
+  `ReportAttributeTypeMustDeriveFromAttribute` 11, `ReportSourceDefinedAttributeUnsupported` 11); the
+  CONSTRUCTOR AND NAMED-MEMBER SURFACE (**169** — `ValidateClrAttributeArguments` 38,
+  `TryGetSettableAttributeNamedMemberType` 22, `HasMatchingAttributeConstructor` 33,
+  `IsAttributeArgumentCompatible` 28, `TryGetRuntimeEnumUnderlyingType` 2,
+  `ReportUnknownAttributeNamedArgument` 11, `ReportAttributeNamedArgumentTypeMismatch` 14,
+  `ReportNoMatchingAttributeConstructor` 19, `GetAttributeDisplayName` 2); the CLR-TYPE INFERENCE
+  (**164** — `TryInferAttributeArgumentClrType` 36, `TryConvertLiteralTypeInfoToClrType` 5,
+  `TryInferAttributeMemberAccessClrType` 26, `TryGetRuntimeStaticAttributeMemberType` 20,
+  `TryInferAttributeArrayClrType` 33, `TryInferAttributeUnaryClrType` 19,
+  `TryInferAttributeBinaryClrType` 23, `IsClrType` 2); and the three DIAGNOSTIC WORDERS
+  (`ReportUnsupportedAttributeArgument` 11, `DescribeAttributeArgumentForDiagnostic` 11,
+  `ReportUnsupportedAttributeOperator` 13) counted inside the groups above. ADDED: one field with its
+  comment, one factory (`CreateAttributeValidator` 4), one constructor line, two rebuild-site lines
+  and one re-pointed entry, plus three re-pointed predicate calls at `IsMatchingEnumMemberDefault`.
+  `git diff` on `Analyzer.cs` **+19 / −1,019 = net −1,000**. The file goes **4,866 → 3,866**,
+  non-blank **4,425 → 3,538 (−887)**, member declarations **191 → 142 (−49)** and modifier lines
+  **261 → 213 (−48)**. **BOTH RATCHET CEILINGS FALL, AND THE FILE IS NOW UNDER 4,000 LINES — down
+  from 23,451 at the epoch, a 83.5 % cut.**
+
+  **NO DRIVER WAS ADDED, AND THAT IS THE SLICE'S DEFINING MEASUREMENT.** The driver count stays at
+  **26**. Every collaborator the family reads was already N#-owned and published, so the walk never
+  hands control back: `AnalyzeDeclaration:855` becomes a single
+  `_attributeValidator.ValidateDeclarationAttributeArguments(decl)` and there is no protocol, no
+  request type, no `Advance`, no `Supply`. This is the slice-63 expression-tree-validator shape at
+  ten times the size, and it is the cheapest possible ownership move: **959 lines of policy left C#
+  for one line of routing.**
+
+  **THREE PREDICATES WERE SHARED WITH A LATER SLICE'S FAMILY AND ALL THREE MOVED ANYWAY.**
+  `HasSourceEnumMember` and `HasRuntimeEnumMember` went to **`TypeInfoIdentityFacts`** — the correct
+  semantic home, and the one `IsMatchingEnumMemberDefault` ALREADY calls twice on the adjacent lines
+  (`AreEqual`, `IsInt32BackedRuntimeEnum`), so that call site got simpler rather than more coupled.
+  `TryGetQualifiedName` is a public static on the new owner, documented as shared with the
+  default-parameter rule because both ask the same question for the same reason: an enum member read
+  is the one non-literal constant CLR metadata admits. **The default-parameter family now routes
+  into N# for three of its own questions before its slice even starts.**
+
+  **N# ADDED — ONE NEW OWNER OF 1,452 PRODUCTION LINES, AND ONE EXISTING FACTS CLASS GROWS.**
+  `AnalyzerAttributeValidator.nl` is **NEW, 1,452 lines**, two types
+  (`AttributeArgumentValidationInfo`, `AnalyzerAttributeValidator`) and **49 members** — one more
+  than the C# because the named-argument rule was extracted (`ValidateNamedAttributeArgument`) so
+  its nullable narrows POSITIVELY. `TypeInfoIdentityFacts.nl` is **+22** (the two enum-member probes
+  and one import). `Analyzer.cs` is the only other production file touched.
+
+  **THE TWO ARGUMENT TABLES WERE KEPT SEPARATE ON PURPOSE, AND SLICE 49's NOTE IS WHY.**
+  `TryValidateAttributeArgumentExpression` answers a coarse KIND over a closed family;
+  `TryInferAttributeArgumentClrType` answers a metadata `Type`. They disagree deliberately in two
+  places — `null` is kind `Null` but types as `object` WITH `isNull` set, and `typeof` is kind `Type`
+  but types as the well-known `System.Type` — and folding them into one table would change which
+  constructor a null argument matches. Both tables are ported verbatim and both are pinned.
+
+  **ONE UNREACHABLE GUARD WAS REMOVED AND SAID SO.** The C# wrote
+  `sourceType.ToString() ?? attribute.Name`; every `TypeInfo` shape overrides `ToString` with a
+  non-null name, so the `??` was dead — but the port keeps the fall-back anyway, because `ToString`
+  had to be read through an `object`-typed local (see the gotchas) and THAT read is genuinely
+  nullable. The behaviour is identical and the reason is now written down.
+
+  **PROOF — SIX ORACLE DIFFERENTIALS, ALL ZERO**, with fresh Release CLIs at the pristine tip
+  `19ac88cfc` (`/private/tmp/nl64base`) and at the working tree, both pointed at the SAME source copy
+  (`/private/tmp/nl64corpus`). FOUR of the six reproduce a previously recorded md5 to the digit.
+  * **CORPUS: ORACLE_DIFFS = 0 over 71 rows**, md5 `8590f4c698c24cd92535dd523ca94d49` — **the same
+    md5 slices 61, 62 and 63 recorded** — 33 diagnostics across 5 codes (14 NSYS050, 9 NSYS001,
+    5 NL303, 3 NSYS070, 2 NL402), `stderrBytes = 0`, ZERO `PARSE-FAIL`, the same seven known
+    no-`results` targets.
+  * **SELF-HOST: ORACLE_DIFFS = 0**, md5 `86545abe76258462e8369571ddcb5946` — **285 findings across
+    10 codes** over the compiler's own service estate.
+  * **SLICE-64 FIXTURES: ORACLE_DIFFS = 0 over 47 rows**, md5 `f1f3fb6f3b1f7b3fd8e3917d10dc1420`,
+    73 diagnostics across 7 codes.
+  * **SoA FIXTURES (env-gated, `NSHARP_EXPERIMENTAL_SOA=1`): ORACLE_DIFFS = 0 over 27 rows**, md5
+    `df61922f54b28156e91fa7b5044dff9c` — **the same md5 slices 60, 61, 62 and 63 recorded**.
+  * **SLICE-63 FIXTURES, re-run as an inherited regression: ORACLE_DIFFS = 0 over 39 rows**, md5
+    `03affb56747e1561b793e050d1b050cb` — **the same md5 slice 63 recorded**.
+  * **SUPPLEMENTARY: ORACLE_DIFFS = 0 over 9 rows**, md5 `228dfc3809752a90f77da3c61121f2fa` — **the
+    same md5 slices 61, 62 and 63 recorded**.
+  **PARSE-ERROR CENSUS: 0 KNOWN, 0 NEW.** NL101 and NL102 are absent from all six sets on both sides.
+
+  **A HARNESS BUG WAS CAUGHT BY ITS OWN VACUITY CHECK AND IS WORTH RECORDING.** The FIRST oracle run
+  reported `ORACLE_DIFFS = 0` on the corpus, the self-host and the supplementary sets — and
+  `NO_RESULTS = 71`, `1` and `9`. The shared source worktree had never been created: the `git
+  worktree add` was chained behind an `ls` that failed, and `&&` short-circuited it. A zero
+  differential over an empty workload is not evidence. **RULE: read `ROWS_BASE`, `NO_RESULTS` and
+  `DIAGNOSTICS` before believing `ORACLE_DIFFS = 0`** — the vacuity counters are the guard, and they
+  worked.
+
+  **PROOF — THE 47 FIXTURES ARE NON-VACUOUS AND WERE MEASURED TO BE.** 44 of 47 produce at least one
+  diagnostic; the three that are silent are the three SILENCE cases by construction (an admissible
+  `typeof` argument, an enum flag combination, and the systems-policy attributes). The census names
+  the family's own codes: **NL310 × 9** (the constant refusals — a call, a plain identifier, `+`,
+  `!`, unary `-` over a string, a `nameof` of a call, a mixed-type array element, a non-constant
+  array element, and a non-constant positional argument), **NL201 × 11** (attribute type not found,
+  across nine declaration forms), **NL323 × 6** (source-defined attributes, including one reached
+  through a two-step base chain), **NL303 × 4** (undefined enum and static members, reported through
+  the member-access owner), **NL202 × 3** (a CLR non-attribute type, a source non-attribute type, a
+  named-argument type mismatch), **NL402 × 3** (no matching constructor: a wrong type, too many
+  positional arguments, and a `typeof` against a `string` parameter — which is the sharpest single
+  pin on the CLR-type table, because it only fires if `typeof` types as `System.Type`).
+
+  **PROOF — DETERMINISM, WHICH IS THIS SLICE'S SUBSTITUTE FOR A PROTOCOL TRANSCRIPT, AND THE
+  SUBSTITUTION IS STATED HONESTLY.** There is NO driver and therefore no ENTER / STEP / RESULT to
+  instrument — the standard `ENTER == RESULT` / `STEP == ANSWER` proof has no subject here. What was
+  captured instead is the WHOLE ordered diagnostic surface of a real workload — **158 targets: the
+  71-project corpus + the 47 slice-64 fixtures + the 39 slice-63 fixtures + the self-host project** —
+  with each target's error COUNT and every row's index, file, line, column, code, length, message and
+  suggestion **in list order, undeduplicated and unsorted**, captured **FIVE times: 616 lines each,
+  byte-identical md5 `e1648bcb455c0a5001c2e2165b021fb9` on ALL FIVE**, `RUN1_VS_RUNn DIFFS = 0` for
+  n = 2..5. 151 targets with results, **458 diagnostic rows across 22 codes**. A family that reported
+  twice, reordered, or dropped a report under repetition would move that md5.
+
+  **PROOF — THE CORPUS IL CONTROL IS REPRODUCIBLE AND THE EXPERIMENT IS BYTE-EXACT.** The minimal
+  PE-spec normaliser zeroes exactly the COFF `TimeDateStamp`, every DEBUG-directory `TimeDateStamp`
+  and the metadata `#GUID` heap, and compares everything else RAW. **CONTROL (the BASE CLI building
+  two independent fresh copies of the whole corpus): 118 compared, SAME 118, DIFFERENT 0, ONLY_A 0,
+  ONLY_B 0** — so a difference in the experiment would be real. **EXPERIMENT (base vs work): 118
+  compared, and ALL 63 N#-EMITTED ASSEMBLIES ARE BYTE-IDENTICAL.** The 55 that differ are **55 COPIES
+  OF ONE `NSharpLang.Runtime.dll`** — measured: exactly ONE distinct normalised runtime binary per
+  sweep, in every sweep — a C# assembly this slice does not touch, differing by **208 normalised
+  bytes**, while `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the two trees reports
+  **0** files. Inherited, not produced; the same 208 bytes slices 60, 62 and 63 measured. **ZERO
+  non-Runtime differences.** Every sweep reports `TARGETS=73 BUILT=55 ASSEMBLIES=118`.
+
+  **PROOF — THE UNSORTED BUILD TRANSCRIPT, WHICH IS THE MULTIPLICITY PIN.** `nlc build` renders
+  `_errors` in LIST order with no dedup and no sort, so it is the only surface that would show a
+  reordered or duplicated report. With the tree path and elapsed-time text normalised in PYTHON (BSD
+  `sed` has no `\b`): **CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS = 0 over 1,557 lines**, md5
+  **`1ff6a3797a58c74f8a52bc410519794b`** — **the same md5 slice 63 recorded** — with identical exit
+  codes (**0 × 55, 1 × 18**).
+
+  **THE CONTRACTS: 3,779 / 3,779 PASSED, 0 FAILED — 3,676 → 3,779 (+103).**
+  `AnalyzerAttributeValidator.tests.nl` is **NEW, 1,252 lines, 103 contracts**, organised by the four
+  questions plus the systems-policy silence, the named-argument spelling, the dotted-name flattener,
+  the two shared enum probes and the declaration forms. No existing contract file changed.
+
+  **FOUR FINDINGS THE CONTRACTS AND THE SELF-CHECK FORCED, ALL RECORDED RATHER THAN PAPERED OVER.**
+  1. **THE HARNESS CANNOT REACH THE BUILT-IN KEYWORD PROBE, AND SAYS SO** — slice 63's finding again:
+     `AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType` answers null without a
+     `MetadataLoadContext`, so `int.MaxValue` names no type in a contract while naming one in
+     production. The EXTERNAL probe is exercised instead (`System.String.Empty`,
+     `System.AttributeTargets.Class` both resolve from the core library the harness hands it) and the
+     built-in path is covered by the fixtures.
+  2. **A SOURCE TYPE'S BASE ONLY RESOLVES WHEN ITS FILE IS REGISTERED.**
+     `SourceTypeDerivesFromAttribute` reads `TryGetSourceMemberShape`, whose `BaseType` comes from
+     resolving the class's written `BaseClass` reference AGAINST ITS DECLARING FILE. A
+     `ClassTypeInfo` handed to the context by `RegisterCanonicalType` alone resolves nothing; the
+     contract calls `AddCompilationUnit` first. Two contracts failed on exactly this and were fixed
+     by making the harness honest rather than by weakening the assertion.
+  3. **THE REPORTED TYPE NAMES CARRY NULLABILITY MARKERS.** The sentence is
+     `Attribute type 'string!' must derive from System.Attribute`, not `'string'` — the `!` is
+     `NullabilityMetadataReflection`'s own rendering and it is what a developer actually reads. Two
+     contracts asserted the unmarked form and were corrected against the FIXTURE output, which is
+     production.
+  4. **NEGATIVE NULL NARROWING IS NOT FOLLOWED; POSITIVE NARROWING IS.** `if x == null { continue }`
+     followed by a use of `x` produces NL202 on the compiler's own source; `if x != null { use x }`
+     does not. Two sites were restructured (the named-argument rule was EXTRACTED into
+     `ValidateNamedAttributeArgument` so its nullable narrows at the call, and the constructor loop
+     computes a `compatible` flag) and the file now adds **ZERO** findings.
+
+  **`nlc check` ON THE COMPILER'S OWN SOURCE: 285 findings over 344 files, and the differential
+  against the same check on the pristine copy is ZERO NEW AND ZERO REMOVED.** The new owner
+  contributes no finding at all. Format canon green: **"All files are properly formatted"**, 0 files
+  reformatted.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:cb09848c43652790` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 4,866 →
+  **3,866**, currentNonBlankLines 4,425 → **3,538**, fingerprint → **`text-v1:ae9c1e87d5f43efc`**;
+  `reviewedHeadFingerprint` → **`head-v1:b0c0d5a4eb1cd124`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **19,585 / 16,999** — up from
+  18,585 / 16,112. `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is
+  exactly 2 changed lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**:
+  every file this slice adds is `.nl`, which the policy does not audit. `ColumnarIlEmitter.cs` and
+  `SystemsAnalyzer.cs` are UNTOUCHED. **Ownership audit: 18 / 18.**
+
+  ---
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 3,866 LINES, 3,538 NON-BLANK, 142 MEMBERS.** The
+  slice-63 census is now correct minus this family; what remains of the residual policy is:
+  * **THE IMPORT / NAMESPACE FAMILY — 14 members / 435 lines** (`ProcessImports` through
+    `FormatImportCollisionSources`, of which `ProcessFileImport` alone is **196**).
+  * **THE SCOPE / SYMBOL / DEFAULT-PARAMETER FAMILY — 9 members / 288 lines** plus
+    `ValidatePackageName` 11 and `IsValidIdentifier` 16 — and **three of its questions already route
+    into N#** after this slice.
+  * **A SMALL EXPRESSION-TAIL RESIDUE — 6 members / ~69 lines** (`IsClrType` left with the attribute
+    family), plus `ReportReferenceLoadFailures` 37.
+  * **TOTAL RESIDUAL POLICY: ~856 lines across ~32 members** — down from ~1,815 across ~80.
+  Everything else measures as host: the field block, the constructor and its `Create*` factories, the
+  two entry points and their reset block, the 26 driver loops plus the five dispatches and the scope
+  push/pop pair, the `Error`/`Warning`/snippet trio, and the ASSEMBLY-LOADING / MLC surface
+  (19 members / 297 lines) that belongs to task 021.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `19ac88cfc` baseline exactly; this slice
+  adds and removes no unit test. **The 14 attribute-related `AnalyzerTests` cases** — the supported
+  constant shapes, the systems-policy silence, the three unsupported-expression theory rows, the
+  no-matching-constructor case and the parameter-attribute case — **all still pass unchanged, through
+  the public `Analyzer` entry, which is the strongest single statement that the routing is
+  behaviour-identical.** **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the tree and ran
+  the FULL suite (`Scope: full unit suite (no filter)`, four unmapped-path triggers named):
+  **3,194 / 3,194, 0 failed.**
+
+  **GOTCHAS (SLICE 64's OWN, ADDED TO THE CUMULATIVE LIST).**
+  **(64.1) `newtype` IS RESERVED AS A LOCAL NAME AND FAILS AT THE CLASS HEADER.**
+  `newtype := candidate as NewtypeInfo` declines the WHOLE FILE at `parse.struct` with the position
+  reported at the CLASS header — the same shape gotcha 63.1 recorded for `union`. The recorded
+  unusable-name list is now `type`, `nameof`, `on`, `params`, `partial`, `match`, `union`, `newtype`,
+  `record`, `base`. **`test`, `field` and `property` ARE usable** and were verified against shipped
+  owners before being trusted.
+  **(64.2) `ToString()` ON A `TypeInfo`-TYPED RECEIVER DECLINES; READ IT THROUGH AN `object` LOCAL.**
+  `sourceType.ToString()` is `emit.expression-statement.call` inline and
+  `emit.local.initializer` bound — because `ToString` is declared by the BASE of the hierarchy rather
+  than by the hierarchy itself. `boxed := sourceType as object` then `boxed.ToString()` emits, and it
+  answers `string?`, which restores the C#'s `?? name` fall-back for real.
+  **(64.3) `typeof(X)` DECLINES AS A CALL ARGUMENT FOR ARRAYS, NULLABLES AND EXTERNAL ENUM AND
+  ATTRIBUTE TYPES.** `typeof(string[])`, `typeof(int?)`, `typeof(AttributeTargets)` and
+  `typeof(ObsoleteAttribute)` are all `emit.call.static-user-argument`; the PRIMITIVES and
+  `typeof(Type)` / `typeof(object)` are fine. The route is the reflection door —
+  `Type.GetType("System.AttributeTargets")`, `elementType.MakeArrayType()`,
+  `definition.MakeGenericType(...)` — bound to a local first.
+  **(64.4) AN ENUM VALUE'S `ToString()` IS NOT ON THE COLUMNAR CATALOG.** `kind.ToString()` is
+  `emit.return.expression`. Write the mapping out; a contract that names its ten members by hand is
+  better evidence anyway, because a renumbered enum then cannot pass silently.
+  **(64.5) A NESTED CONSTRUCTION IN A `return` NEEDS ITS INNER LOCAL.**
+  `return new EnumTypeInfo(new EnumDeclarationInfo(...))` declines; binding the inner construction
+  first emits. This is the recorded derived-construction gotcha in its NESTED form.
+  **(64.6) NEGATIVE NULL NARROWING IS NOT FOLLOWED BY THE ANALYZER'S OWN CHECK.** `if x == null
+  { continue }` then using `x` produces NL202 on `nlc check`; `if x != null { use x }` does not.
+  Extract a helper that takes the narrowed value as a non-nullable parameter when the guard has to
+  be a `continue` or a `break`.
+  **(64.7) READ THE ORACLE'S VACUITY COUNTERS BEFORE BELIEVING ITS ZERO.** `ORACLE_DIFFS = 0` with
+  `NO_RESULTS = 71` is an empty workload, not a proof. A `git worktree add` chained behind a failing
+  command with `&&` is silently skipped; `ROWS_BASE` and `NO_RESULTS` are what catch it.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED: `ALL TESTS PASSED`, EXIT 0, 16 TIMED STEPS,
+  109 PASSES AND ZERO FAILURES, 19m 34s.** `./scripts/test-all.sh --commit` — VS Code tests NOT
+  skipped — reported: build the N# compiler 2m 08s; **Step 2b's format contract 0m 01s**; **unit
+  tests 6m 18s (3,194 / 3,194)**; **native N# tests 3m 44s** — the BootstrapServices contracts at
+  **3,779 / 3,779** plus every native project individually, `ownership-audit` **18 / 18** among them;
+  **VS Code integration tests 2m 55s** against a freshly built extension and language server; pack
+  and install the MSBuild SDK 4m 01s; templates, template creation and the template-generated build;
+  the example builds; `nlc check` on examples; and **the IL verification gate 0m 12s — `All 67 N#
+  assemblies pass IL verification (no new errors vs baseline)`**. It ran from an isolated snapshot
+  and STORED a new validated cache result **`e86e7af5b64b5c76 (1174s)`** rather than hitting a cached
+  one, so it is fresh by construction. **ONE HONEST LIMIT, THE SAME ONE SLICES 62 AND 63 RECORDED:
+  the snapshot directory is REAPED when the gate exits, so a `cmp`-against-the-working-tree proof
+  could not be taken retroactively; the only edits after the gate started are to `STATUS.md` itself
+  (this record), which the gate's docs-only step covers, and the gate's own input hash is the
+  standing evidence.**
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.98 MB**) and installed with `--force`
+  (`successfully installed`); the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is the post-slice build.
+  **NO COMPUTER-USE VERIFICATION WAS TAKEN.** This slice changes no LSP handler, no VS Code extension
+  code and no IDE protocol surface; what it changes is WHO decides what an attribute means — which
+  the gate's VS Code integration suite (fresh extension and language server) and all six diagnostic
+  oracles cover.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS.** Every squiggle a developer sees at a written attribute,
+  on any of the thirteen declaration forms and on every parameter they carry: that a systems-policy
+  name is never looked up as a type and never complains about its symbolic arguments; that a
+  non-constant argument is named by the SHAPE the user wrote — "call", "identifier", "member access",
+  "mixed-type array element", "nameof target", or the operator itself — and never by a node-class
+  name; that a refused BINARY operator squiggles the OPERATOR rather than the whole expression; that
+  both operands of a binary and every element of an array are measured, so one build shows every
+  problem; that `[Obsolete]` and `[ObsoleteAttribute]` are the same attribute and the written
+  spelling wins; that a name which resolves to a real CLR type that simply is not an attribute is
+  told to derive from `System.Attribute` and NAMED, rather than told it does not exist; that a
+  source-declared attribute is told IL emission does not support it YET, which is a different
+  sentence from a wrong one; that an unknown enum or static member gets the SAME undefined-member
+  report, with the same suggestions, that it gets anywhere else in the language; that a `typeof`
+  argument gets the SoA row rule applied to the type it names; that a named argument names the
+  attribute AND the member AND both types when it mismatches; and that "no constructor accepts these
+  types" is only ever said when every one of those types was actually computed.
+
+  **WALL STATUS: ZERO.** Five language walls were hit, all found by EXECUTION against the pinned
+  toolset, and all routed around INSIDE the language with no semantic loss — they are gotchas 64.1
+  through 64.5 above. **NO TOOLSET REPIN WAS TAKEN AND NONE WAS NEEDED**: the family's whole
+  reflection surface (`GetProperty`, `GetField`, `GetConstructors`, `GetParameters`,
+  `get_ParameterType`, `get_IsInitOnly`, `get_IsLiteral`, `get_SetMethod`, `get_GetMethod`,
+  `get_IsPublic`, `GetIndexParameters`, `get_IsValueType`, `Nullable.GetUnderlyingType`,
+  `IsAssignableFrom`, `get_IsArray`, `GetElementType`, `MakeArrayType`, `MakeGenericType`,
+  `get_IsEnum`, `Enum.GetUnderlyingType`, `get_BaseType`, `get_FullName`, `get_FieldType`,
+  `get_PropertyType`, `Type.GetType`) was verified published BEFORE the port was written, by finding
+  each member in a shipped `.nl` owner.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Worktrees: `/private/tmp/nl64base` (pristine
+  `19ac88cfc` + Release CLI) and `/private/tmp/nl64corpus` (the shared source copy both CLIs check).
+  Fixtures: `/private/tmp/nl64fixtures` (47, with `targets.txt`), plus slice 63's
+  `/private/tmp/nl63fixtures` (39) and `/private/tmp/nl62soafx` (27). IL captures and build trees:
+  `/private/tmp/nl64il{Ctrl,A,B,B2,B3}` with outputs under `/private/tmp/nl64out{Ctrl,A,B,B2,B3}`.
+  Harnesses in the scratchpad: `nl62_members.py` (**the extractor, re-VALIDATED against slice 63's
+  twenty recorded extents — 20/20 to the line before it was trusted**), `nl62_sites.py`,
+  `nl63-delete.py`, `nl64-oracle.sh`, `nl64-run-oracles.sh`, `nl64-ilsweep.sh`, `nl64-ilnorm.py`,
+  `nl64-ilcompare.py`, `nl64-transnorm.py`, `nl64-repin.py`, `nl64-make-fixtures.py` and
+  **`nl64-determinism.sh`** (the driverless family's five-run capture). **`/private/tmp` IS REAPED**
+  — regenerate rather than assume.
+
+  * **NEXT SLICE: THE IMPORT / NAMESPACE FAMILY — 14 MEMBERS / 435 LINES, AND `ProcessFileImport`
+    ALONE IS 196.** `ProcessImports` through `FormatImportCollisionSources`: file-import resolution,
+    circular-import detection, namespace validation and existence, public-symbol extraction and the
+    import-collision report. **RE-VERIFY THE EXTENT FIRST** — validate the extractor against THIS
+    slice's 48 recorded extents (they are named above, per member, with their line counts) before
+    trusting it, then measure the family's true closure at the new tip. **The three things to price
+    BEFORE cutting**: (1) whether the family re-enters anything still in C# — `ProcessFileImport`
+    reads the project source provider, the declaration context's file-import alias door and the
+    imported-symbol dictionaries, and those dictionaries are `Analyzer.cs` FIELDS handed to five
+    N# owners at construction, so the question is whether they move WITH the family or stay as
+    injected state; (2) whether the family needs a driver — it is called from `Analyze`/`BeginAnalysis`
+    rather than from a dispatch, so unlike slice 64 it may sit on the entry path and see the reset
+    order; (3) the collision REPORT's ordering, which is user-visible and is the same class of hazard
+    as slice 61's three-key sort.
+    - **THEN: THE SCOPE / SYMBOL / DEFAULT-PARAMETER FAMILY — 9 members / 288 lines** plus
+      `ValidatePackageName` 11 and `IsValidIdentifier` 16. **THREE OF ITS QUESTIONS ALREADY ROUTE
+      INTO N# AFTER THIS SLICE** (`TypeInfoIdentityFacts.HasSourceEnumMember`,
+      `TypeInfoIdentityFacts.HasRuntimeEnumMember`, `AnalyzerAttributeValidator.TryGetQualifiedName`),
+      so `IsMatchingEnumMemberDefault` is already half-owned and the slice is smaller than its line
+      count suggests.
+    - **THEN: THE EXPRESSION-TAIL RESIDUE — 6 members / ~69 lines** plus
+      `ReportReferenceLoadFailures` 37, whose rule ("surface NL923 only when the analysis ALSO
+      produced unresolved-type errors") is a policy, not plumbing.
+    - **THEN: THE ZERO-POLICY REVIEW**, whose per-member-class proof obligations and task-021 MLC
+      retirement statement are recorded IN FULL in slice 63's brief below and are unchanged. Two
+      things this slice adds to what the review must do: **(a)** the `Create*`-factory obligation now
+      has a THIRD case to check — an owner that is rebuilt with the SCC and holds NO per-analysis
+      state and NO driver (`_attributeValidator`), which is the cheapest correct shape and should be
+      named as the template; **(b)** the driver-loop obligation's proof shape has a DRIVERLESS
+      variant, recorded above — when a family has no protocol, the equivalent evidence is the
+      five-run byte-identical capture of the ordered diagnostic surface, and the review should use it
+      for every owner it finds in that shape rather than declaring the obligation inapplicable.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `19ac88cfc`): **017 SLICE 63 — THE EXPRESSION-TREE VALIDATOR AND THE
   DECLARATION WALKERS: THE LAST POLICY BEFORE THE ZERO-POLICY REVIEW.** Target recorded BEFORE any
   production edit, at `217cb5a8e` (`Analyzer.cs` **5,416** lines, non-blank **4,901**, member
   declarations **209** by the narrow metric and **278** by the modifier-line metric; **25** driver
