@@ -1975,7 +1975,313 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 56 — THE WALL THAT WAS NOT THERE, AND THEN THE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 57 — THE CONSTRUCTION FAMILY: `new`, `with`, AND
+  THE OBJECT-INITIALIZER RULE THEY SHARE, TERMINAL.** Target recorded BEFORE any production edit, at
+  `4699ad20c` (`Analyzer.cs` **8,371** lines, non-blank **7,501**, member declarations **302** by the
+  narrow metric and **370** by the modifier-line metric; `ColumnarIlEmitter.cs` **21,471** lines,
+  non-blank **20,412**, ratchet fingerprint `text-v1:609051db487c7060`, epoch ceilings
+  **21,723 / 20,646**; `Analyzer.cs` ratchet row currentLines **8,371** / currentNonBlank **7,501**,
+  fingerprint `text-v1:ef76a3ebd337bc96`, epoch ceilings **23,451 / 20,537**; unit suite baseline
+  **3,194**; contracts baseline **3,395**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:ea6a4148f344e44b`, independently reproduced by the validated
+  FNV-1a walk from the UNMODIFIED manifest before any write, with the seven known drift rows —
+  `edgeCases.test.ts` and the six `MISSING` rows task 016 deleted — confirmed present and left alone).
+
+  **THE THREE PRE-MEASUREMENTS THE SLICE-56 BRIEF NAMED, TAKEN AT THIS TIP BEFORE ANY DESIGN.**
+  * **(a) THE INITIALIZER WALK IS ONE KIND, NOT SEVERAL — AND THE SECOND KIND THE FAMILY NEEDS COMES
+    FROM `with`, NOT FROM `new`.** Every one of `AnalyzeNewExpression`'s and
+    `AnalyzeObjectInitializerPropertyValue`'s seven walk sites is a PLAIN `AnalyzeExpression`,
+    bracketed where a type is expected by `EnterExpectedType` / `EnterExpectedTypeIfProvided` +
+    `ExitExpectedType` — never `AnalyzeExpressionWithExpectedType`. That is exactly slice 52's
+    distinction and slice 51's bracket: the slot-write has no lambda fork, so the owner opens and
+    closes the bracket itself and `new` is a ONE-KIND walk performed up to N times. `with`, and only
+    `with`, calls `AnalyzeExpressionWithExpectedType` (`:6707`), which forks to the lambda walk — so
+    the merged family is a TWO-kind walk, kind 1 the ordinary walk and kind 2 the named-expected-type
+    one, the same two doors `DriveTargetTypedOperand` has.
+  * **(b) THE CALLER-ATTRIBUTION PASS FOUND THE ARM IS 772 LINES ACROSS 14 MEMBERS, NOT 183 — THE
+    SEVENTH CONSECUTIVE SLICE WHOSE BRIEF UNDERSTATED ITS TARGET.** Exclusive to `new` alone:
+    `AnalyzeNewExpression` (183), `AnalyzeObjectInitializerPropertyValue` (110),
+    `ResolveUnionCaseConstructionType` (64), `ValidateSoaRecordConstruction` (61),
+    `CheckReadonlyObjectInitializerField` (20), `ReportCannotInferTargetTypedNew` (11) and
+    `IsAnonymousObjectCreation` (7) — 456 lines. Shared with `AnalyzeWithExpression` and with nothing
+    else: `TryResolveObjectInitializerMemberType` (141) and its two exclusive helpers
+    `TryGetDeclaredTypeShape` (34) and `FindDeclaredMemberTypeReference` (21),
+    `ReportUnsupportedSoaTableInitializerShapeIfNeeded` (29),
+    `ReportSoaTableNamedInitializerIfNeeded` (24) and its exclusive `ReportSoaTableMemberInitializer`
+    (13) — **262 lines that CANNOT be deleted while `with` stays behind**. NOT exclusive and staying:
+    `GetNonNullableType` (2, 13 sites), `GetUnitNamespace` (2, 2 sites), `GetSourceSnippet` (1, 8) and
+    `TryFindReadonlyInstanceField` (27, whose two other callers are the readonly-field write-target
+    family).
+  * **(c) THE SLICE IS THEREFORE RECUT TO TAKE `with` TOO, AND THE TEST THAT REFUSED UNIFICATION IN
+    SLICE 56 IS THE ONE THAT REQUIRES IT HERE.** Slice 56 costed and refused merging `index` with
+    `array` because they shared a driver SHAPE and nothing else — no rule, no report, no state. `new`
+    and `with` share a RULE (the object-initializer member-type resolution, 196 lines with its tail),
+    TWO REPORTS (both SoA initializer refusals, 66 lines), the NL202 front-door assignability check on
+    an initializer value, the same `PropertyInitializer` entry shape and the same name-line fallback.
+    Taking `new` alone would leave 262 lines of C# alive to serve one 54-line arm the arc retires two
+    slices later, and would publish-and-route rather than delete. **THE CUT IS 14 MEMBERS / 772 LINES,
+    the arc's largest.**
+
+  **THE NL202 FRONT DOOR IS THE SLICE'S LOAD-BEARING INVARIANT AND IS PRESERVED EXACTLY.**
+  `EmitValueCoercion` silently no-ops for closed generics over emitted user types, so
+  `AnalyzeObjectInitializerPropertyValue`'s `_assignability.IsAssignable(memberType, valueType)` gate
+  and `AnalyzeWithExpression`'s are the ONLY guard between `Items: List<Rs>` into a `List<Pt>` field
+  and a type-confused read at runtime. Both move verbatim — same rule, same order, same two rendering
+  shapes (the rich `ErrorMessageBuilder.TypeMismatch` when a source snippet and file path exist, the
+  bare `Error` otherwise), and both get contracts that pin the closed-generic mismatch by name.
+
+  **PLAN.** One owner, `AnalyzerConstruction`, holding the shared rule and the two shared reports;
+  ONE state carrying both forms; ONE driver `DriveConstruction` with two kinds; both dispatch arms
+  collapse into it. `TryFindReadonlyInstanceField`'s reflection tail is REPRODUCED (the
+  `NonNullableType` precedent — its C# original keeps two callers in the write-target family), and
+  the owner is REBUILT with the metadata load context (the `_operatorExpressions` pattern) because it
+  holds assignability, member resolution, match exhaustiveness and the CLR type conversion, all four
+  of which the rebuild replaces, and it carries no per-analysis state — the compilation unit it needs
+  for `GetUnitNamespace` is already published as `AnalyzerMemberAccess.UnitNamespace()`.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT CONSTRUCTING A VALUE MEANS, IN BOTH FORMS, AND THE
+  ARC'S LARGEST SINGLE CUT.**
+
+  **THE CUT — 14 C# MEMBERS, 772 NAMED LINES, TWO DISPATCH ARMS COLLAPSED INTO ONE DRIVER.** GONE, by
+  group: the `new` ARM AND ITS EXCLUSIVE CLOSURE (`AnalyzeNewExpression` 183,
+  `AnalyzeObjectInitializerPropertyValue` 110, `ResolveUnionCaseConstructionType` 64,
+  `ValidateSoaRecordConstruction` 61, `CheckReadonlyObjectInitializerField` 20,
+  `ReportCannotInferTargetTypedNew` 11, `IsAnonymousObjectCreation` 7); the `with` ARM
+  (`AnalyzeWithExpression` 54); and THE OBJECT-INITIALIZER RULE THE TWO SHARED, which is why `with`
+  had to come too (`TryResolveObjectInitializerMemberType` 141, `TryGetDeclaredTypeShape` 34,
+  `FindDeclaredMemberTypeReference` 21, `ReportUnsupportedSoaTableInitializerShapeIfNeeded` 29,
+  `ReportSoaTableNamedInitializerIfNeeded` 24, `ReportSoaTableMemberInitializer` 13). ADDED: the
+  `DriveConstruction` loop (22 lines, TWO kinds) plus its 20-line doc, the owner field and its 9-line
+  doc, `CreateConstruction` (6), three construction/rebuild call sites (3) and the two collapsed
+  dispatch arms (2). `git diff` on `Analyzer.cs` **+52 / −777 = net −725**. The file goes
+  **8,371 → 7,646**, non-blank **7,501 → 6,843 (−658)**, member declarations **302 → 290 (−12)** and
+  modifier lines **370 → 359 (−11)**. **BOTH RATCHET CEILINGS FALL.**
+
+  **THE DRIVER COUNT GOES 19 → 20 AND THE NUMBER THAT RETURN GOES 8 → 9, BUT TWO DISPATCH ARMS
+  COLLAPSE INTO ONE LOOP** — `new` enters through `Begin`, `with` through `BeginWith`, and both are
+  performed by `DriveConstruction`. That is the first time in the arc two expression arms have shared
+  a driver, and the justification is the one slice 56 used to REFUSE sharing: index and array shared a
+  driver SHAPE and nothing else, while `new` and `with` share a RULE (196 lines of member-type
+  resolution with its tail), TWO REPORTS (66 lines) and the NL202 gate itself.
+
+  **N# ADDED — 1,416 PRODUCTION LINES ON ONE NEW FILE.** `AnalyzerConstruction.nl`: **THREE types,
+  51 members** — `ConstructionRequest` (two kinds: the ordinary walk, and the named-expected-type walk
+  that only `with` asks for), `ConstructionState` (the suspended walk) and `AnalyzerConstruction`.
+
+  **THE STATE CARRIES TWO COUNTERS, AND THE SECOND ONE IS A BUG THIS SLICE FOUND IN ITS OWN FIRST
+  DRAFT.** `Phase` names the OUTSTANDING step and returns to 0 when it is answered; `Stage` names
+  WHERE IN THE FORM the walk is and only moves forward. A phase-only machine — which is what every
+  previous owner in this arc needed, because none of them had more than one section — re-enters a
+  section it has already finished: `new int[4]` would have reported its sized-array/constructor-argument
+  conflict TWICE, because the length stage is re-entered after its own answer. The split is pinned by
+  a contract that asserts the report fires exactly once.
+
+  **THE NL202 FRONT DOOR IS PRESERVED EXACTLY, AND THE PROOF IS FOUR CONTRACTS PLUS THE ORACLE.** The
+  gate is `assignabilityValue.IsAssignable(memberType, valueType)` in `InitializerValueAnswered` and
+  again in `WithValueAnswered` — same rule, same position in the order, same two renderings (the rich
+  `ErrorMessageBuilder.TypeMismatch` when a source snippet AND a file path exist, the bare
+  `Report` otherwise), same decline-rather-than-guess behaviour when the member type could not be
+  resolved. The contracts pin it at the shape the hazard is about: `Box<T>` with `Item: T`, constructed
+  as `Box<Pt>`, given a `Pt` (silent) and given an `Rs` (**NL202**) — and separately that the value
+  step is bracketed with the SUBSTITUTED type `Pt`, not with `T`. The corpus oracle's **89 NL202 rows
+  are byte-identical** across the cut.
+
+  **FIVE PARSE/EMIT WALLS WERE HIT INSIDE THE OWNER AND ALL FIVE WERE ROUTED AROUND IN THE LANGUAGE.**
+  None needed a toolset repin. Every one was found by EXECUTION against the pinned pipeline, never by
+  reading a catalog.
+  * **THE POSTFIX NULL-FORGIVING `!` IS NOT A COLUMNAR SHAPE AT ALL.** The whole class declined at
+    `parse.struct` — a decline that names the CLASS, not the statement — until all **44** uses were
+    removed. A repo sweep confirms the estate's production `.nl` contains **ZERO** of them; the
+    operator is a C# habit that had never been exercised. `x.M!`, `x!`, `x!.M` and `x.M!.N` all
+    decline identically.
+  * **A CALL CHAINED STRAIGHT OFF A `new` EXPRESSION DOES NOT PARSE.**
+    `new SmartSuggester(names).SuggestSimilarNames(x)` declines; the estate's idiom — and the fix — is
+    a LOCAL and then the call, which every other did-you-mean site already used.
+  * **`= []` IS NOT AN EMPTY ARRAY.** It declines at `emit.statement.block-child`; the estate spells it
+    `new X[](0)`.
+  * **`SuggestSimilarNames` NEEDS ITS DEFAULTED ARGUMENT PASSED.** `emit.local.initializer` until the
+    `3` is written out — the standing "defaulted params need explicit args on instance methods" rule,
+    hit again.
+  * **`GetEvents(flags)` AND `Type.get_BaseType()` BOTH BIND**, which was NOT assumed: `GetEvents` has
+    no other user in the estate and was measured rather than routed around.
+
+  **AND THE TOOL THAT MADE THAT TRACTABLE IS WORTH KEEPING: THE PARSE SENTINEL.** A columnar parse
+  decline names only the class, so a 1,400-line class gives one bit of information per build — and a
+  build that PARSES then proceeds to a multi-minute emit, so the naive bisect costs an hour. The fix is
+  to append a SENTINEL class that is KNOWN to decline (the `new`-expression call chain above). Structs
+  are processed in source order, so the reported decline LINE says which class failed first, every
+  build fails in ~1 s either way, and a binary search over members costs six builds instead of fifty.
+  `nl57-scan2.py` implements it. **A NAIVE MEMBER-STUBBING SCAN IS WORSE THAN USELESS**: the first run
+  of one reported 24 offenders, of which 22 were manufactured by its own empty-body stubs.
+
+  **41 NEW CONTRACTS.** `AnalyzerConstruction.tests.nl` (**913 lines, 41 contracts**). Contracts
+  **3,395 → 3,436 (+41)**, 0 failed. **EIGHT FAILED ON THE FIRST RUN AND ALL EIGHT WERE THE CONTRACT
+  BEING WRONG, NOT THE PORT** — the same result the last five slices got, and it was established by
+  deriving what the C# would have done rather than by adjusting until green:
+  * **A SoA table with an INITIALIZER but no capacity argument reports TWO codes, not one.**
+    `ValidateSoaRecordConstruction` runs for every SoA construction regardless of argument count, so
+    `new Table { x: 1 }` is **NL402 then NL103** — exactly what the C# did. The contracts now pass the
+    capacity so they are about the initializer.
+  * **`ReportSoaTableMemberInitializer` raises `InvalidSyntax`, which is NL103 and not NL301.**
+  * **A BARE `ClassTypeInfo` IN A CONTRACT HARNESS DOES NOT RESOLVE ITS OWN DECLARED MEMBERS** through
+    `AnalyzerMemberResolution.ResolveMember` — the member's declared type reference has to resolve too,
+    and a harness with no well-known types cannot resolve `List<Pt>`. The GENERIC path can, because
+    `TryResolveGenericMemberType` reads `DeclaredMembers` directly and substitutes; a `GenericTypeInfo`
+    that CARRIES its own definition needs no lookup at all. That is why the front-door contracts are
+    written on `Box<T>` — and it makes them strictly better, because they now pin the SUBSTITUTION as
+    well as the gate.
+  * **A SOURCE TYPE'S IDENTITY IS ITS DECLARATION INSTANCE.** Two `StructTypeInfo("Pt")` values built
+    from the same name are DIFFERENT types and are refused. The matching-value contracts pass the same
+    instance on both sides, and say so.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:ea6a4148f344e44b` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 8,371 →
+  **7,646**, currentNonBlankLines 7,501 → **6,843**, fingerprint → **`text-v1:9d5a9c56766db713`**;
+  `reviewedHeadFingerprint` → **`head-v1:3b0ac49a3079603f`**, mirrored into `OwnershipAudit.nl`. Epoch
+  ceilings 23,451 / 20,537 PRESERVED, now clear by **15,805 / 13,694** — up from 15,080 / 13,036.
+  `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed
+  lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: both new files are
+  `.nl`, which the policy does not audit. `ColumnarIlEmitter.cs` is UNTOUCHED (**21,471 / 20,412**,
+  `text-v1:609051db487c7060`). The pre-existing `editors/vscode/test/suite/edgeCases.test.ts` drift and
+  the six `MISSING` rows for files task 016 deleted were again confirmed present and left alone.
+
+  **PROOF — TWO ORACLE DIFFERENTIALS, BOTH ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `4699ad20c` (`/private/tmp/nl57base`) and at the working tree, both pointed at the
+  SAME `git worktree` copy (`/private/tmp/nl57corpus`).
+  * **CORPUS: ORACLE_DIFFS = 0 over 387 lines**, md5 `0dfe55d198ac3695f7b141cbec58cfe6` in BOTH — 72
+    HEAD rows, **315 diagnostics across 13 codes** (92 NL402, **89 NL202**, 32 NL012, 24 NL905, 17
+    NL011, 16 NL301, 14 NSYS050, 9 NSYS001, 8 NL010, 7 NL303, 3 NSYS070, 3 NL412, 1 NL002),
+    `stderrBytes = 0` on all 144 runs, ZERO `PARSE-FAIL`. The seven targets that answer with no
+    `results` key on both sides are the same seven slices 42–56 named.
+  * **SUPPLEMENTARY (those seven plus `char-classification` and `reflection-emit-bootstrap`, against
+    the REAL checkout): SUPP_DIFFS = 0** over 9 lines, md5 `b8865a53ae9ff5035f0cc58eb284acdd` — the
+    identical md5 slice 56 recorded — **NO-RESULTS = 0, PARSE-FAIL = 0**.
+
+  **PROOF — THE CORPUS IL IS BYTE-EXACT, AND THE COMPARATOR WAS PROVED NON-VACUOUS FIRST.** Both CLIs
+  built the same 73-target corpus tree from clean (`rm -rf bin obj` per target): **55 targets build,
+  236 artefacts, 118 distinct assemblies** on each side. Under the minimal PE-spec normaliser (COFF
+  `TimeDateStamp` and the `#GUID` heap, nothing else) **ALL 63 EMITTED N# ASSEMBLIES ARE
+  BYTE-IDENTICAL**. The 55 files that differ are every target's COPY of `NSharpLang.Runtime.dll` — a
+  C#-compiled support assembly that the two trees' Roslyn builds produced independently, not emitter
+  output; its two source builds differ in the working tree too. **THE CONTROL RAN FIRST**: flipping a
+  SINGLE byte at the midpoint of one assembly reports `DIFFERENT … bytes=1`, so a one-byte IL change
+  cannot hide in this comparison.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **335 checked files** (the 334 baseline plus
+  the new production file — contract files are excluded from `check`), **282 findings estate-wide —
+  the unchanged slice-42…56 baseline — and ZERO in the new files**, `stderrBytes = 0`. It took two runs
+  and the first run's FOUR findings were all real: `node.Type` is `TypeReference?` and was being passed
+  to a non-null parameter at two sites (now a `TypeReferenceSpan` helper that falls back to the `new`
+  keyword's own span, which is the only thing a target-typed `new` wrote); an `as`-inferred local that
+  had to be declared `UnionTypeInfo?` to accept the project-discovery fallback; and a `Type` loop
+  variable that had to be declared `Type?` because `get_BaseType()` answers null at the root.
+
+  **FORMAT CANON.** Both new `.nl` files pass, and the whole `src/NSharpLang.Compiler.BootstrapServices`
+  directory passes the gate's Step 2b contract (**"All files are properly formatted"**, 0 files
+  reformatted on a second pass).
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `4699ad20c` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, reporting `Scope: full unit suite (no filter)`: **3,194 / 3,194, 0 failed, exit 0**.
+
+  **THE OWNERSHIP AUDIT: 18 / 18**, run directly against the repinned manifest.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 18m 15s.** `./scripts/test-all.sh --commit` —
+  VS Code tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 1m 58s;
+  **Step 2b's format contract over examples, templates, fixtures AND the compiler's own N# sources
+  0m 01s**; **unit tests 5m 55s (3,194 / 3,194)**; **native N# tests 3m 28s** — the BootstrapServices
+  contracts at **3,436 / 3,436** plus every native project individually, `ownership-audit` **18 / 18**
+  among them; **VS Code integration tests 2m 45s, 36 passing**, against a freshly built extension and
+  language server; pack and install the MSBuild SDK 3m 43s; templates, template creation and the
+  template-generated build; the example builds; `nlc check` on examples; and **the IL verification gate
+  0m 11s — `All 67 N# assemblies pass IL verification (no new errors vs baseline)`**. It ran from an
+  isolated snapshot (`/private/tmp/nsharp-test-all.…/repo`); `systems-language-closeout/` is in NO gate
+  input set, so this record's own prose is provably not a gate input.
+
+  **NO COMPUTER-USE VERIFICATION WAS TAKEN.** This slice changes no LSP handler, no VS Code extension
+  code and no IDE protocol surface; what it changes is WHO answers what `new T { … }` and
+  `t with { … }` mean, which the gate's VS Code integration suite (36 passing, against a freshly built
+  extension and language server) and both diagnostic oracles cover.
+
+  **GOTCHAS.**
+  **(1) THE POSTFIX NULL-FORGIVING `!` IS NOT AN N# PRODUCTION SHAPE.** It declines the WHOLE class at
+  `parse.struct`, and the estate has zero uses. Never write it in `.nl`; narrow with a local and a null
+  check, which is what every existing owner does.
+  **(2) A CALL CHAINED OFF A `new` EXPRESSION DOES NOT PARSE.** Bind the object to a local first.
+  **(3) `= []` IS NOT AN EMPTY ARRAY LITERAL** — `new X[](0)`.
+  **(4) A PARSE DECLINE NAMES THE CLASS, NOT THE STATEMENT.** Use the SENTINEL trick (append a
+  known-bad class; the reported line says which class failed first, and every build then fails fast) —
+  and NEVER bisect by stubbing members, because an empty `func` body is itself a decline and
+  manufactures offenders.
+  **(5) A CONTRACT HARNESS CANNOT RESOLVE A SOURCE CLASS'S MEMBER TYPE REFERENCES** without well-known
+  types; the generic path (a `GenericTypeInfo` carrying its own definition) resolves by substitution
+  and needs nothing.
+  **(6) A SOURCE TYPE'S IDENTITY IS ITS INSTANCE** — two `StructTypeInfo("Pt")` values are two types.
+  **(7) A RESUMABLE WALK WITH MORE THAN ONE SECTION NEEDS TWO COUNTERS**, one for the outstanding step
+  and one for the section; folding them re-runs a finished section.
+
+  **WALL STATUS: ZERO. Five language walls were hit inside the arm and all five were routed around
+  INSIDE the language with no semantic loss. NO TOOLSET REPIN WAS TAKEN AND NONE WAS NEEDED.**
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Worktrees: `/private/tmp/nl57base` (pristine
+  `4699ad20c` + Release CLI) and `/private/tmp/nl57corpus` (the shared source copy both CLIs check and
+  build). Harnesses in the scratchpad: `nl44-oracle.sh`, `nl53-members.py`, `nl57-closure.py` (the
+  caller-attribution pass), `nl57-repin.py` (the validated ratchet walk), **`nl57-scan2.py` (the parse
+  SENTINEL bisect)**, `nl57-ilcollect.sh` (the corpus assembly collector, which REPORTS its build and
+  copy counts so an empty run cannot be mistaken for a clean one), `nl55-ilnorm.py`,
+  `nl57-members.tsv` / `nl57-members-after.tsv` and the oracle transcripts. `/private/tmp` is reaped —
+  regenerate rather than assume.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS.** That `new()` under an annotation completes as the
+  annotated type and says so by name when there is nothing to infer from; that `new Result.Success`
+  hovers as `Result` and a typo'd case gets a did-you-mean drawn from the union's own cases; that
+  `Box<Pt> { Item: … }` completes and type-checks the member under the instantiation's substitution
+  rather than at `T`; that a `with` value is checked against the field it names, which is the
+  difference between a silent type-confused read and a red squiggle; and that a SoA table says
+  precisely which of its four construction rules a developer broke.
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 7,646 LINES, 6,843 NON-BLANK.** The same three
+  things: the SHORT list of remaining declaration walkers; **THE EXPRESSION WALK, now 14 arms of policy
+  instead of 16**; and the mechanical host — now TWENTY driver loops, of which exactly NINE return.
+
+  * **NEXT: `assignment` (207 at `:3903`), AND ITS PRE-MEASUREMENTS ARE ALREADY TAKEN.** The
+    caller-attribution pass was run at THIS tip so the next slice starts from measurement rather than
+    from a guess:
+    - **The arm is 207 lines with TEN walk sites** and an exclusive closure of SEVEN members / 194
+      lines: `ReportInvalidCompoundAssignmentIfNeeded` (49), `CheckReadonlyFieldAssignment` (43),
+      `CheckMemberWriteReceiverIsVariable` (35), `ReportEventAssignment` (26),
+      `CheckNullCoalesceAssignmentTarget` (21), `ReportInvalidAssignmentTargetIfNeeded` (18) and
+      `IsDiscardTarget` (2). **401 lines before the shared tail.**
+    - **THE ANSWER TO THE SLICE-56 BRIEF'S QUESTION (c), MEASURED: THE FIVE WRITE-TARGET REPORTERS ARE
+      NOT EXCLUSIVE TO ASSIGNMENT, AND THREE OF THE FIVE ARE ALSO THE `call` ARM'S.**
+      `ReportUnsupportedBuiltInIndexedMutationIfNeeded` (45), `ReportSoaTableMemberMutationIfNeeded`
+      (30) and `ReportNullConditionalWriteTargetIfNeeded` (17) are reached from
+      `ReportInvalidRefOutArgumentTargetIfNeeded` — the call arm — as well as from
+      `DriveOperatorExpression`; `ReportReadOnlyPropertyWriteTargetIfNeeded` (23) and
+      `IsWriteTargetNeedingExpressionTypes` (2) are assignment's and the operator arm's. **117 lines
+      that must be PUBLISHED from the new owner, not privatised.** Slice 53's kinds 6–10 still retire,
+      because once the reporters are N# the operator owner can hold the assignment owner as a
+      collaborator and call them itself — but the retirement is a ROUTE, not a deletion, and the call
+      arm's three routes must be re-pointed in the same slice or they become a second stay-behind.
+    - **`TryFindReadonlyInstanceField` (27) IS NOW EXCLUSIVE TO THE WRITE-TARGET FAMILY** — its two
+      remaining callers are `TryGetInstanceReadonlyFieldTarget` and
+      `TryGetCurrentOrInheritedReadonlyFieldTarget` — so it, `TryFindReadonlyReflectionInstanceField`,
+      `NormalizeReflectionMemberOwnerType` and `NormalizeMemberOwnerType` can all DIE with the
+      assignment arm, and the reproduction this slice made in `AnalyzerConstruction` becomes the
+      estate's only copy (or is unified with the assignment owner's, which is the better end-state).
+    - **`_assignmentTargetExpressionTypes` MOVES WITH IT**, and when it does
+      `AnalyzerIndexAccess.Begin` LOSES ITS SECOND PARAMETER — the operand this arc has been carrying
+      since slice 56.
+  * **THEN, UNCHANGED:** `match` (72 at `:6007`), `range` (27 at `:3241`) and `on` (85 at `:4208`);
+    `call` (87 at `:3332`, by far the most entangled, and now known to share three write-target
+    reporters with assignment); and **`lambda` (104 at `:5562`) LAST**, still the only arm with TWO
+    production entry points. **`with` IS NO LONGER IN THE QUEUE** — it moved with `new`, because the
+    196-line object-initializer rule they share could not be deleted while either stayed behind.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `4699ad20c`): **017 SLICE 56 — THE WALL THAT WAS NOT THERE, AND THEN THE
   `index` AND `array` ARMS AND THE NL303-RENDERING RETIREMENT, TERMINAL, IN ONE STAGE.** Plan recorded
   BEFORE any production edit, at `4fde8ff23` (`Analyzer.cs`
   **8,946** lines, non-blank **7,991**; `ColumnarIlEmitter.cs` **21,471** lines, non-blank **20,412**,

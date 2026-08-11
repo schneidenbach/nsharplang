@@ -340,6 +340,15 @@ public class Analyzer : IDisposable
     // only on types it is handed, and the array arm's collection-target predicates are pure.
     private readonly AnalyzerIndexAccess _indexAccess;
     private readonly AnalyzerArrayLiteral _arrayLiteral;
+    // What `new T(a) { M: v }` and `t with { M: v }` mean: the constructed type including the
+    // target-typed and union-case forms, the constructor-argument and sized-array-length operands,
+    // and the object-initializer rule both forms share — which member a named entry writes, what its
+    // declared type is under the receiver's substitution, and the assignability gate that is the ONLY
+    // guard between a mismatched closed-generic initializer value and a type-confused read at run
+    // time. Rebuilt with the SCC: it holds assignability, member resolution, match exhaustiveness and
+    // the CLR type conversion, all four of which the rebuild replaces, and it carries no per-analysis
+    // state — the compilation unit its union lookup needs is published by the member-access owner.
+    private AnalyzerConstruction _construction;
     private bool _disposed;
 
     public Analyzer()
@@ -434,7 +443,15 @@ public class Analyzer : IDisposable
         _arrayLiteral = new AnalyzerArrayLiteral(
             _diagnostics, _spans, _declarationContext, _ambient, _soaEscape, _assignability,
             _assignabilityFacts);
+        _construction = CreateConstruction();
     }
+
+    private AnalyzerConstruction CreateConstruction()
+        => new(
+            _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _typeSubstitution,
+            _projectDiscovery, _ambient, _soaEscape, _memberAccess, _arrayLiteral,
+            _constantExpressionFacts, _assignability, _memberResolution, _matchExhaustiveness,
+            _clrTypeConversion);
 
     private AnalyzerFlowNarrowing CreateFlowNarrowing()
         => new(_scopes, _typeResolver, _assignability);
@@ -3100,14 +3117,14 @@ public class Analyzer : IDisposable
             CastExpression or CheckedExpression or UncheckedExpression or TernaryExpression
                 => DriveTargetTypedOperand(_targetTypedOperands.Begin(expr)),
             ArrayLiteralExpression => DriveArrayLiteral(_arrayLiteral.Begin(expr)),
-            NewExpression newExpr => AnalyzeNewExpression(newExpr),
+            NewExpression => DriveConstruction(_construction.Begin(expr)),
             ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
             BaseExpression => AnalyzeBaseExpression(),
             MatchExpression match => AnalyzeMatchExpression(match),
             TypeOfExpression or NameofExpression or SizeOfExpression or DefaultExpression
                 => DriveCompileTimeConstant(_compileTimeConstants.Begin(expr, _wellKnownTypes)),
             RangeExpression range => AnalyzeRangeExpression(range),
-            WithExpression with => AnalyzeWithExpression(with),
+            WithExpression => DriveConstruction(_construction.BeginWith(expr)),
             ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
             _ => BuiltInTypes.Unknown
         };
@@ -3219,26 +3236,6 @@ public class Analyzer : IDisposable
             UncheckedExpression uncheckedExpression => RenderSyntheticSoaOperationTarget(uncheckedExpression.Expression, fallbackName),
             _ => fallbackName
         };
-    }
-
-    private static bool IsAnonymousObjectCreation(NewExpression newExpr)
-        => newExpr.Type == null
-            && newExpr.ConstructorArguments.Count == 0
-            && newExpr.Initializer != null
-            && newExpr.Initializer.Properties.All(property =>
-                property.Name != null
-                && property.IndexExpression == null);
-
-    private void ReportCannotInferTargetTypedNew(NewExpression newExpr)
-    {
-        var shape = newExpr.ConstructorArguments.Count == 0 ? "new()" : "new(...)";
-        Error(
-            ErrorCode.CannotInferType,
-            $"I can't figure out what type '{shape}' should create here — add a type annotation or write the type after 'new'",
-            newExpr.Line,
-            newExpr.Column,
-            "For example, use `value: Person = new()` when the target type is clear, or `new Person()` when it is not.",
-            "new".Length);
     }
 
     private TypeInfo AnalyzeRangeExpression(RangeExpression range)
@@ -5965,770 +5962,46 @@ public class Analyzer : IDisposable
         return _arrayLiteral.Result(state);
     }
 
-    private TypeInfo AnalyzeNewExpression(NewExpression newExpr)
-    {
-        TypeInfo type;
-
-        // Set when this is a union case construction (new Result.Success<int> { ... }) —
-        // initializer members then live on the case, not the union type itself.
-        string? unionCaseConstructionName = null;
-
-        // Target-typed new (): new() or new { ... }
-        if (newExpr.Type == null)
-        {
-            // Try to infer type from context (expected type)
-            // For now, we'll use the ambient expected type if available, otherwise Unknown
-            if (_ambient.CurrentExpectedType == null && !IsAnonymousObjectCreation(newExpr))
-            {
-                ReportCannotInferTargetTypedNew(newExpr);
-            }
-
-            type = _ambient.CurrentExpectedType ?? BuiltInTypes.Unknown;
-
-            // Anonymous object creation is intentionally allowed without an expected type; the
-            // backend synthesizes the concrete anonymous shape from the initializer.
-        }
-        else
-        {
-            type = _typeResolver.ResolveDeclaredType(newExpr.Type);
-
-            // A locally-declared GENERIC type constructed without type arguments previously
-            // emitted an open-type token (BadImageFormatException at runtime). N# does not
-            // infer class type arguments from constructor arguments (the  rule) — they
-            // must be explicit.
-            if (newExpr.Type is SimpleTypeReference bareTypeReference
-                && !bareTypeReference.Name.Contains('.')
-                && AnalyzerTypeReferenceFacts.GenericHeadArity(type) > 0)
-            {
-                var requiredCount = AnalyzerTypeReferenceFacts.GenericHeadArity(type);
-                Error(
-                    ErrorCode.InvalidTypeArgument,
-                    $"Generic type '{bareTypeReference.Name}' requires {requiredCount} type argument(s)",
-                    bareTypeReference.Line,
-                    bareTypeReference.Column,
-                    $"Specify them explicitly: 'new {bareTypeReference.Name}<...>(...)'",
-                    bareTypeReference.Name.Length);
-            }
-
-            // Special case: if the type is a qualified name like "Result.Success",
-            // it might be a union case. Check if the base type is a union. A generic
-            // union takes its type arguments after the case name
-            // (new Result.Success<int> { ... }) or infers them from the expected type
-            // (return new Option.None on a function returning Option<User>).
-            var (qualifiedCaseName, unionCaseTypeArguments) = newExpr.Type switch
-            {
-                SimpleTypeReference simpleCaseRef when simpleCaseRef.Name.Contains('.')
-                    => (simpleCaseRef.Name, (List<TypeReference>?)null),
-                GenericTypeReference genericCaseRef when genericCaseRef.Name.Contains('.')
-                    => (genericCaseRef.Name, genericCaseRef.TypeArguments),
-                _ => (null, null)
-            };
-            if (qualifiedCaseName != null)
-            {
-                var parts = qualifiedCaseName.Split('.');
-                // The union may live in another file/namespace with no import — project
-                // auto-discovery resolves it exactly like a bare type reference would.
-                var unionBaseLookup = parts.Length == 2 ? _scopes.LookupType(parts[0]) as UnionTypeInfo : null;
-                if (unionBaseLookup == null && parts.Length == 2)
-                {
-                    if (_projectDiscovery.ResolveVisibleProjectType(
-                            parts[0],
-                            GetUnitNamespace(_compilationUnit),
-                            newExpr.Line > 0,
-                            out var projectUnionCandidate,
-                            out _,
-                            out var inaccessibleUnionFile))
-                    {
-                        if (projectUnionCandidate is UnionTypeInfo projectUnionType)
-                        {
-                            unionBaseLookup = projectUnionType;
-                        }
-                    }
-                    else if (inaccessibleUnionFile != null)
-                    {
-                        _diagnostics.ReportInaccessibleMember(parts[0], inaccessibleUnionFile, newExpr.Line, newExpr.Column);
-                        _typeResolver.MarkUnresolvedTypeReported(parts[0], newExpr.Line, newExpr.Column);
-                    }
-                }
-                if (parts.Length == 2 && unionBaseLookup is UnionTypeInfo unionBaseType)
-                {
-                    if (AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionBaseType, qualifiedCaseName) != null)
-                    {
-                        // This is a union case instantiation - the variable should have the union type
-                        type = ResolveUnionCaseConstructionType(newExpr, unionBaseType, parts[0], qualifiedCaseName, unionCaseTypeArguments);
-                        unionCaseConstructionName = qualifiedCaseName;
-                    }
-                    else
-                    {
-                        // Constructing a case the union doesn't declare used to surface as
-                        // an internal emit failure; report it like the pattern path does.
-                        var caseNames = unionBaseType.Declaration.Cases.Select(unionCase => unionCase.Name).ToList();
-                        var similarCases = caseNames.Count > 0
-                            ? new SmartSuggester(caseNames).SuggestSimilarNames(parts[1])
-                            : new List<string>();
-                        var caseSpan = TypeReferenceFacts.GetStartSpan(newExpr.Type!);
-                        Error(
-                            ErrorCode.UndefinedMember,
-                            $"'{parts[1]}' is not a case of union '{parts[0]}' — check the union definition for available cases",
-                            caseSpan.StartLine,
-                            caseSpan.StartColumn,
-                            similarCases.Count > 0 ? $"Did you mean '{parts[0]}.{similarCases[0]}'?" : null,
-                            qualifiedCaseName.Length);
-                        type = unionBaseType;
-                    }
-                }
-            }
-        }
-
-        var soaConstructionType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(type)) as SoaRecordTypeInfo;
-        var constructorArgumentTypes = new List<TypeInfo>(newExpr.ConstructorArguments.Count);
-        for (var i = 0; i < newExpr.ConstructorArguments.Count; i++)
-        {
-            var arg = newExpr.ConstructorArguments[i];
-            var previousExpectedType = _ambient.EnterExpectedTypeIfProvided(
-                soaConstructionType != null && newExpr.ConstructorArguments.Count == 1 && i == 0
-                    ? BuiltInTypes.Int
-                    : null);
-            var argType = AnalyzeExpression(arg.Value);
-            _ambient.ExitExpectedType(previousExpectedType);
-            constructorArgumentTypes.Add(argType);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(arg.Value, argType, "passed as a constructor argument");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(arg.Value, "passed as a constructor argument");
-        }
-
-        if (soaConstructionType != null)
-        {
-            ValidateSoaRecordConstruction(newExpr, soaConstructionType, constructorArgumentTypes);
-        }
-
-        if (newExpr.ArrayLengthExpression != null)
-        {
-            if (newExpr.ConstructorArguments.Count != 0)
-            {
-                Error(
-                    ErrorCode.InvalidSizedArrayConstructorArguments,
-                    "Sized array allocation cannot also pass constructor arguments",
-                    newExpr.Line,
-                    newExpr.Column,
-                    "Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.",
-                    "new".Length);
-            }
-
-            var lengthType = AnalyzeExpression(newExpr.ArrayLengthExpression);
-            if (_soaEscape.ReportSoaRowEscapeIfNeeded(newExpr.ArrayLengthExpression, lengthType, "used as an array length")
-                || _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(newExpr.ArrayLengthExpression, "used as an array length"))
-            {
-                // A SoA-specific diagnostic is more useful than the generic int-length mismatch.
-            }
-            else if (BuiltInTypes.IsNot(lengthType, BuiltInTypes.Int))
-            {
-                Error(ErrorCode.TypeMismatch,
-                    $"Array length must be an int, not '{lengthType}'",
-                    newExpr.ArrayLengthExpression.Line,
-                    newExpr.ArrayLengthExpression.Column);
-            }
-        }
-
-        // Analyze initializer
-        if (newExpr.Initializer != null)
-        {
-            foreach (var prop in newExpr.Initializer.Properties)
-            {
-                // Analyze index expression if this is an indexer initializer
-                if (prop.IndexExpression != null)
-                {
-                    var indexType = AnalyzeExpression(prop.IndexExpression);
-                    _soaEscape.ReportSoaRowEscapeIfNeeded(prop.IndexExpression, indexType, "used as an initializer index");
-                    _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(prop.IndexExpression, "used as an initializer index");
-                }
-
-                AnalyzeObjectInitializerPropertyValue(type, unionCaseConstructionName, prop);
-            }
-        }
-
-        return type;
-    }
-
-    private void ValidateSoaRecordConstruction(
-        NewExpression newExpr,
-        SoaRecordTypeInfo soaRecordType,
-        IReadOnlyList<TypeInfo> constructorArgumentTypes)
-    {
-        var expectedShape = $"new {soaRecordType.Declaration.Name}(capacity)";
-        if (newExpr.ConstructorArguments.Count != 1)
-        {
-            Error(
-                ErrorCode.NoMatchingOverload,
-                $"SoA table '{soaRecordType.Declaration.Name}' construction expects exactly one int capacity argument, but {newExpr.ConstructorArguments.Count} were provided",
-                newExpr.Line,
-                newExpr.Column,
-                $"Use '{expectedShape}' with a non-negative int capacity.",
-                "new".Length);
-            return;
-        }
-
-        var capacityArgument = newExpr.ConstructorArguments[0];
-        if (capacityArgument.Name is { } argumentName && argumentName != "capacity")
-        {
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(capacityArgument.Value);
-            Error(
-                ErrorCode.NoMatchingOverload,
-                $"SoA table '{soaRecordType.Declaration.Name}' construction has no parameter named '{argumentName}'",
-                line,
-                column,
-                $"Use '{expectedShape}', or rename the argument to 'capacity'.",
-                length);
-            return;
-        }
-
-        var capacityType = _declarationContext.ResolveDeclaredAlias(constructorArgumentTypes[0]);
-        if (capacityType is SoaRowTypeInfo || BuiltInTypes.IsUnknown(capacityType))
-            return;
-
-        if (!_assignability.IsAssignable(BuiltInTypes.Int, capacityType))
-        {
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(capacityArgument.Value);
-            Error(
-                ErrorCode.TypeMismatch,
-                $"SoA table capacity must be int, but this argument has type '{capacityType}'",
-                line,
-                column,
-                $"Use '{expectedShape}' with an int capacity.",
-                length);
-            return;
-        }
-
-        if (_constantExpressionFacts.IsConstantNegative(capacityArgument.Value))
-        {
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(capacityArgument.Value);
-            Error(
-                ErrorCode.TypeMismatch,
-                "SoA table capacity must not be negative",
-                line,
-                column,
-                "Use zero or a positive capacity; the table can grow later with add or ensureCapacity.",
-                length);
-        }
-    }
-
     /// <summary>
-    /// Analyzes one object-initializer entry's value, type-checking a named member
-    /// assignment (new T { Member: value }) against the member's declared type. This is
-    /// the assignment-compatibility gate for initializer writes — without it a mismatched
-    /// closed-generic value (Items: List&lt;Rs&gt; into a List&lt;Pt&gt; field) passes
-    /// analysis and the IL backend stores it unchecked, producing type-confused reads at
-    /// runtime. Member types that cannot be resolved reliably skip the check rather than
-    /// risk a false diagnostic; indexer entries and collection-initializer elements keep
-    /// plain expression analysis (they bind to set_Item/Add, not to a declared member).
+    /// Performs the steps <see cref="AnalyzerConstruction"/> asks for and returns the type it decided.
+    /// Every policy about what constructing a value means — which type a `new` names, including the
+    /// target-typed form that adopts the annotation and the qualified form that turns out to be a
+    /// union case; that a SoA table is built with one int capacity and nothing else; that a sized
+    /// array takes a length and no arguments; which member a named initializer entry writes and what
+    /// its declared type is under the receiver's substitution; and the assignability gate on that
+    /// value, which is the ONLY guard the pipeline has against a mismatched closed generic reaching
+    /// the emitter — belongs to the N# owner. It serves BOTH dispatch arms: `new` enters through
+    /// <c>Begin</c> and `with` through <c>BeginWith</c>, because they are the same object-initializer
+    /// rule asked over a fresh value and over an existing one.
+    /// The two kinds are the two DOORS the value walk goes through and the owner names which: kind 1
+    /// is the ordinary walk, which the owner brackets itself when the entry named an expected type,
+    /// and kind 2 is the named-expected-type walk, which is not that operation with an extra argument
+    /// — it forks to the lambda walk for a lambda value, which a `with` entry can have, so the owner
+    /// cannot simulate it by writing the slot around a kind 1.
+    /// This loop decides nothing: it performs the one operation it is handed, with the operands it is
+    /// handed.
     /// </summary>
-    private void AnalyzeObjectInitializerPropertyValue(
-        TypeInfo constructedType,
-        string? unionCaseName,
-        PropertyInitializer prop)
+    private TypeInfo DriveConstruction(ConstructionState state)
     {
-        if (prop.Name == null || prop.IndexExpression != null)
+        for (var step = _construction.NextStep(state);
+             step != null;
+             step = _construction.NextStep(state))
         {
-            ReportUnsupportedSoaTableInitializerShapeIfNeeded(constructedType, prop, "object-initializer");
-            TypeInfo? expectedElementType = null;
-            var expectedTargetKind = "array";
-            if (prop.Name == null
-                && prop.IndexExpression == null
-                && _arrayLiteral.TryGetExpectedElementType(constructedType, out var expectedElement, out var resolvedTargetKind))
+            TypeInfo? answer = null;
+            switch (step.Kind)
             {
-                expectedElementType = expectedElement;
-                expectedTargetKind = resolvedTargetKind;
-            }
-            var previousInitializerExpectedType = _ambient.EnterExpectedTypeIfProvided(expectedElementType);
-            var initializerValueType = AnalyzeExpression(prop.Value);
-            _ambient.ExitExpectedType(previousInitializerExpectedType);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(prop.Value, initializerValueType, "stored in an initializer");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(prop.Value, "stored in an initializer");
-            if (expectedElementType != null && !_assignability.IsAssignable(expectedElementType, initializerValueType))
-            {
-                var targetKind = expectedTargetKind;
-                var elementLabel = targetKind == "collection" ? "Collection initializer element" : "Array initializer element";
-                var (initializerDiagnosticLine, initializerDiagnosticColumn, initializerDiagnosticLength) =
-                    _spans.GetExpressionDiagnosticSpan(prop.Value);
-                Error(ErrorCode.TypeMismatch,
-                    $"{elementLabel} is '{initializerValueType}', but the target {targetKind} expects '{expectedElementType}'",
-                    initializerDiagnosticLine,
-                    initializerDiagnosticColumn,
-                    length: initializerDiagnosticLength);
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    answer = AnalyzeExpressionWithExpectedType(step.Node!, step.ExpectedType);
+                    break;
             }
 
-            return;
+            _construction.Supply(state, answer);
         }
 
-        // Diagnostics point at the member name when the parser recorded it; ASTs built
-        // without positions fall back to the value's span.
-        var (nameLine, nameColumn) = prop.NameLine > 0
-            ? (prop.NameLine, prop.NameColumn)
-            : (prop.Value.Line, prop.Value.Column);
-
-        if (ReportSoaTableNamedInitializerIfNeeded(constructedType, prop.Name, nameLine, nameColumn))
-        {
-            AnalyzeExpression(prop.Value);
-            return;
-        }
-
-        CheckReadonlyObjectInitializerField(constructedType, prop.Name, nameLine, nameColumn);
-
-        if (!TryResolveObjectInitializerMemberType(constructedType, unionCaseName, prop.Name, nameLine, nameColumn, out var memberType))
-        {
-            AnalyzeExpression(prop.Value);
-            return;
-        }
-
-        // The member's declared type is the expected type for the value (target-typed
-        // new, integer literal sizing, lambda inference, generic union case inference).
-        var previousExpectedType = _ambient.EnterExpectedType(memberType);
-        var valueType = AnalyzeExpression(prop.Value);
-        _ambient.ExitExpectedType(previousExpectedType);
-        if (valueType is SoaRowTypeInfo)
-        {
-            _soaEscape.ReportSoaRowEscape(prop.Value, "stored in an object initializer");
-        }
-        else
-        {
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(prop.Value, "stored in an object initializer");
-        }
-
-        if (_assignability.IsAssignable(memberType, valueType))
-        {
-            return;
-        }
-
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(prop.Value);
-        var sourceSnippet = GetSourceSnippet(diagnosticLine);
-
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.TypeMismatch(
-                _currentFilePath,
-                diagnosticLine,
-                diagnosticColumn,
-                sourceSnippet,
-                diagnosticLength,
-                valueType.ToString(),
-                memberType.ToString()));
-            return;
-        }
-
-        Error(
-            ErrorCode.TypeMismatch,
-            $"'{prop.Name}' is typed as '{memberType}', but the value is '{valueType}'",
-            diagnosticLine,
-            diagnosticColumn,
-            length: diagnosticLength);
-    }
-
-    private void CheckReadonlyObjectInitializerField(
-        TypeInfo constructedType,
-        string memberName,
-        int line,
-        int column)
-    {
-        var owner = GetNonNullableType(constructedType);
-        if (!TryFindReadonlyInstanceField(owner, memberName, out var readonlyFieldName))
-        {
-            return;
-        }
-
-        Error(
-            ErrorCode.ReadonlyAssignment,
-            $"Field '{readonlyFieldName}' is readonly — it can only be assigned in a constructor",
-            line,
-            column,
-            "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.",
-            Math.Max(1, memberName.Length));
-    }
-
-    /// <summary>
-    /// Resolves the declared type of a named member assigned in an object initializer.
-    /// Returns false when the member's type cannot be determined reliably — unknown or
-    /// non-member-bearing receivers, members inherited past an open generic declaration,
-    /// method groups — so the caller skips the assignability check instead of guessing.
-    /// When the member is conclusively absent from the constructed type (it used to
-    /// surface as an internal emit failure), reports UndefinedMember with suggestions.
-    /// </summary>
-    private bool TryResolveObjectInitializerMemberType(
-        TypeInfo constructedType,
-        string? unionCaseName,
-        string memberName,
-        int nameLine,
-        int nameColumn,
-        out TypeInfo memberType)
-    {
-        memberType = BuiltInTypes.Unknown;
-
-        // Union case construction (new Result.Success<int> { Value: ... }): members live
-        // on the case, typed under the closed instantiation's substitution (Value: T on
-        // Result<int> expects int). Checked before the generic branch — a generic union
-        // construction is a GenericTypeInfo over the union's name.
-        if (unionCaseName != null)
-        {
-            var unionType = _matchExhaustiveness.ResolveDeclaredUnionType(constructedType, out var unionSubstitution);
-            var unionCase = unionType == null
-                ? null
-                : AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionType, unionCaseName);
-            if (unionType == null || unionCase == null)
-            {
-                return false;
-            }
-
-            var caseProperty = unionCase.Properties?.FirstOrDefault(property => property.Name == memberName);
-            if (caseProperty == null)
-            {
-                var caseDisplayName = AnalyzerExhaustivenessSelector.GetUnionCaseName(unionCaseName);
-                var casePropertyNames = unionCase.Properties?.Select(property => property.Name).ToList() ?? new List<string>();
-                var similarProperties = casePropertyNames.Count > 0
-                    ? new SmartSuggester(casePropertyNames).SuggestSimilarNames(memberName)
-                    : new List<string>();
-                Error(
-                    ErrorCode.UndefinedMember,
-                    $"Union case '{caseDisplayName}' doesn't have a property named '{memberName}' — check the case definition for available properties",
-                    nameLine,
-                    nameColumn,
-                    similarProperties.Count > 0 ? $"Did you mean '{similarProperties[0]}'?" : null,
-                    Math.Max(1, memberName.Length));
-                return false;
-            }
-
-            memberType = _typeSubstitution.ResolveTypeForSourceOwner(
-                caseProperty.Type,
-                unionType,
-                unionSubstitution);
-            return !BuiltInTypes.IsUnknown(memberType);
-        }
-
-        // Closed generic instantiation of a declared type (new Box<Pt> { Item: ... }):
-        // resolve the member's declared type reference under the type-argument
-        // substitution (Item: T on Box<Pt> expects Pt).
-        if (constructedType is GenericTypeInfo generic)
-        {
-            if (_typeSubstitution.ResolveGenericDefinition(generic) is not { } openType
-                || !TryGetDeclaredTypeShape(openType, out var typeParameters, out var members, out var primaryParameters))
-            {
-                return false;
-            }
-
-            Dictionary<string, TypeInfo>? substitution = null;
-            if (typeParameters.Length > 0)
-            {
-                if (typeParameters.Length != generic.TypeArguments.Count)
-                {
-                    return false;
-                }
-
-                substitution = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
-                for (var i = 0; i < typeParameters.Length; i++)
-                {
-                    substitution[typeParameters[i].Name] = generic.TypeArguments[i];
-                }
-            }
-
-            var memberTypeReference = FindDeclaredMemberTypeReference(members, primaryParameters, memberName);
-            if (memberTypeReference == null)
-            {
-                // Same-named functions, generated members, and inherited members resolve
-                // on the open type — only a conclusively absent member reports (a base
-                // class would need its own substitution chain, so it suppresses instead).
-                var hasBaseClass = openType is ClassTypeInfo openClassType && openClassType.BaseClass != null;
-                if (!hasBaseClass
-                    && BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(openType, memberName, false, _ambient.CurrentTypeName))
-                    && _memberAccess.ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
-                {
-                    _memberAccess.ReportUndefinedMemberAt(
-                        openType,
-                        memberName,
-                        nameLine,
-                        nameColumn,
-                        includeStaticMembers: false,
-                        typeNameOverride: NullabilityMetadataReflection.FormatTypeInfo(generic));
-                }
-
-                return false;
-            }
-
-            memberType = _typeSubstitution.ResolveTypeForSourceOwner(
-                memberTypeReference,
-                openType,
-                substitution);
-            return !BuiltInTypes.IsUnknown(memberType);
-        }
-
-        // Other receiver kinds (enums, tuples, newtypes, ...) have no assignable members;
-        // ResolveMember's fallbacks for them don't model member-assignment semantics.
-        if (constructedType is not (ClassTypeInfo or StructTypeInfo or RecordTypeInfo or ReflectionTypeInfo))
-        {
-            return false;
-        }
-
-        var resolved = _memberResolution.ResolveMember(constructedType, memberName, false, _ambient.CurrentTypeName);
-        if (BuiltInTypes.IsUnknown(resolved))
-        {
-            if (_memberAccess.ShouldReportUndefinedMember(constructedType, memberName, includeStaticMembers: false))
-            {
-                _memberAccess.ReportUndefinedMemberAt(constructedType, memberName, nameLine, nameColumn, includeStaticMembers: false, typeNameOverride: null);
-            }
-
-            return false;
-        }
-
-        if (resolved is NSharpMethodGroupInfo or ReflectionMethodGroupInfo or ReflectionMethodInfo or ReflectionEventInfo
-            || resolved is FunctionTypeInfo functionType && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType))
-        {
-            return false;
-        }
-
-        memberType = resolved;
-        return true;
-    }
-
-    private bool ReportUnsupportedSoaTableInitializerShapeIfNeeded(
-        TypeInfo targetType,
-        PropertyInitializer property,
-        string initializerKind)
-    {
-        if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(targetType)) is not SoaRecordTypeInfo)
-        {
-            return false;
-        }
-
-        if (property.Name != null && property.IndexExpression == null)
-        {
-            return false;
-        }
-
-        var diagnosticTarget = property.IndexExpression ?? property.Value;
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(diagnosticTarget);
-        var initializerShape = property.IndexExpression != null
-            ? "indexer initializers"
-            : "collection initializer entries";
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"SoA tables cannot use {initializerKind} {initializerShape}",
-            line,
-            column,
-            "Construct the table with new Table(capacity) or Table.wrap(...), then write individual columns with table[index].column.",
-            length);
-        return true;
-    }
-
-    private bool ReportSoaTableNamedInitializerIfNeeded(
-        TypeInfo constructedType,
-        string memberName,
-        int nameLine,
-        int nameColumn)
-    {
-        if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(constructedType)) is not SoaRecordTypeInfo soaRecordType)
-        {
-            return false;
-        }
-
-        var isColumn = AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, memberName) != null;
-        var isBookkeepingField = memberName is "length" or "capacity";
-        if (isColumn || isBookkeepingField)
-        {
-            ReportSoaTableMemberInitializer(memberName, nameLine, nameColumn, isColumn);
-        }
-        else if (_memberAccess.ShouldReportUndefinedMember(soaRecordType, memberName, includeStaticMembers: false))
-        {
-            _memberAccess.ReportUndefinedMemberAt(soaRecordType, memberName, nameLine, nameColumn, includeStaticMembers: false, typeNameOverride: null);
-        }
-
-        return true;
-    }
-
-    private void ReportSoaTableMemberInitializer(string memberName, int line, int column, bool isColumn)
-    {
-        var suggestion = isColumn
-            ? "Write individual rows with table[index].column, or construct/wrap the table with the desired column arrays."
-            : "Use new Table(capacity), add, clear, ensureCapacity, or copyRow so length and capacity stay consistent with the columns.";
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"SoA table member '{memberName}' cannot be initialized directly",
-            line,
-            column,
-            suggestion,
-            Math.Max(1, memberName.Length));
-    }
-
-    /// <summary>
-    /// Extracts the declaration shape (type parameters, declared member facts, primary
-    /// constructor parameters) from a declared class/struct/record type info.
-    /// </summary>
-    private static bool TryGetDeclaredTypeShape(
-        TypeInfo type,
-        out TypeParameter[] typeParameters,
-        out DeclaredMemberInfo[] members,
-        out ParameterDeclarationInfo[] primaryConstructorParameters)
-    {
-        switch (type)
-        {
-            case ClassTypeInfo classInfo:
-                typeParameters = classInfo.TypeParameters;
-                members = classInfo.DeclaredMembers;
-                primaryConstructorParameters = classInfo.PrimaryConstructorParameters;
-                return true;
-            case StructTypeInfo structInfo:
-                typeParameters = structInfo.TypeParameters;
-                members = structInfo.DeclaredMembers;
-                primaryConstructorParameters = structInfo.PrimaryConstructorParameters;
-                return true;
-            case RecordTypeInfo recordInfo:
-                typeParameters = recordInfo.TypeParameters;
-                members = recordInfo.DeclaredMembers;
-                primaryConstructorParameters = recordInfo.PrimaryConstructorParameters;
-                return true;
-            default:
-                typeParameters = Array.Empty<TypeParameter>();
-                members = Array.Empty<DeclaredMemberInfo>();
-                primaryConstructorParameters = Array.Empty<ParameterDeclarationInfo>();
-                return false;
-        }
-    }
-
-    /// <summary>
-    /// Finds the declared type reference of a field, property, or primary-constructor
-    /// parameter by name on a type declaration's own members (no base walk — base
-    /// members of a generic declaration would need their own substitution chain).
-    /// </summary>
-    private static TypeReference? FindDeclaredMemberTypeReference(
-        DeclaredMemberInfo[] members,
-        ParameterDeclarationInfo[] primaryConstructorParameters,
-        string memberName)
-    {
-        foreach (var member in members)
-        {
-            if (member.Name == memberName
-                && member.Kind is DeclaredMemberKind.Field or DeclaredMemberKind.Property)
-            {
-                return member.Type;
-            }
-        }
-
-        return primaryConstructorParameters.FirstOrDefault(parameter => parameter.Name == memberName)?.Type;
-    }
-
-    /// <summary>
-    /// The static type of a union case construction (new Union.Case { ... }). For a
-    /// non-generic union that is the union itself; for a generic union the type
-    /// arguments come after the case name (new Result.Success&lt;int&gt; { ... }) or are
-    /// inferred from the expected type, and the result is the closed instantiation
-    /// (GenericTypeInfo) so it lines up with Result&lt;int&gt; annotations.
-    /// </summary>
-    private TypeInfo ResolveUnionCaseConstructionType(
-        NewExpression newExpr,
-        UnionTypeInfo unionType,
-        string unionName,
-        string qualifiedCaseName,
-        List<TypeReference>? typeArguments)
-    {
-        var typeParameters = unionType.Declaration.TypeParameters;
-        var arity = typeParameters?.Count ?? 0;
-        var typeRefSpan = TypeReferenceFacts.GetStartSpan(newExpr.Type!);
-
-        if (typeArguments is { Count: > 0 })
-        {
-            var resolvedArguments = typeArguments.Select(_typeResolver.ResolveType).ToList();
-            if (resolvedArguments.Count != arity)
-            {
-                var message = arity == 0
-                    ? $"Union '{unionName}' is not generic, but {resolvedArguments.Count} type argument(s) were provided"
-                    : $"Generic union '{unionName}' takes {arity} type argument(s), but {resolvedArguments.Count} were provided";
-                Error(
-                    ErrorCode.InvalidTypeArgument,
-                    message,
-                    typeRefSpan.StartLine,
-                    typeRefSpan.StartColumn,
-                    arity == 0
-                        ? $"Remove the type arguments: 'new {qualifiedCaseName} {{ ... }}'"
-                        : $"Match the declaration's type parameter count for '{unionName}'",
-                    qualifiedCaseName.Length);
-                return unionType;
-            }
-
-            return new GenericTypeInfo(unionName, resolvedArguments, unionType);
-        }
-
-        if (arity == 0)
-        {
-            return unionType;
-        }
-
-        // No explicit type arguments on a generic union case: adopt the expected
-        // type's arguments when the context provides a closed instantiation.
-        if (_ambient.CurrentExpectedType is GenericTypeInfo expected
-            && expected.Name == unionName
-            && expected.TypeArguments.Count == arity)
-        {
-            return expected;
-        }
-
-        Error(
-            ErrorCode.InvalidTypeArgument,
-            $"Generic union '{unionName}' requires {arity} type argument(s)",
-            typeRefSpan.StartLine,
-            typeRefSpan.StartColumn,
-            $"Specify them after the case name: 'new {qualifiedCaseName}<...> {{ ... }}'",
-            qualifiedCaseName.Length);
-        return unionType;
-    }
-
-    private TypeInfo AnalyzeWithExpression(WithExpression with)
-    {
-        var targetType = AnalyzeExpression(with.Target);
-        var targetIsSoaRow = _soaEscape.ReportSoaRowEscapeIfNeeded(with.Target, targetType, "used as a with target");
-        var targetIsSoaDirectColumn = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(with.Target, "used as a with target");
-        if (targetIsSoaRow || targetIsSoaDirectColumn)
-        {
-            targetType = BuiltInTypes.Unknown;
-        }
-
-        foreach (var property in with.Properties)
-        {
-            var unsupportedSoaTableInitializerShape =
-                ReportUnsupportedSoaTableInitializerShapeIfNeeded(targetType, property, "`with`");
-            if (property.IndexExpression != null)
-            {
-                var indexType = AnalyzeExpression(property.IndexExpression);
-                _soaEscape.ReportSoaRowEscapeIfNeeded(property.IndexExpression, indexType, "used as a with initializer index");
-                _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(property.IndexExpression, "used as a with initializer index");
-            }
-
-            TypeInfo? memberType = null;
-            if (!unsupportedSoaTableInitializerShape && property.Name != null && property.IndexExpression == null)
-            {
-                var (nameLine, nameColumn) = property.NameLine > 0
-                    ? (property.NameLine, property.NameColumn)
-                    : (property.Value.Line, property.Value.Column);
-
-                if (!ReportSoaTableNamedInitializerIfNeeded(targetType, property.Name, nameLine, nameColumn)
-                    && TryResolveObjectInitializerMemberType(targetType, unionCaseName: null, property.Name, nameLine, nameColumn, out var resolvedMemberType))
-                {
-                    memberType = resolvedMemberType;
-                }
-            }
-
-            var valueType = memberType != null
-                ? AnalyzeExpressionWithExpectedType(property.Value, memberType)
-                : AnalyzeExpression(property.Value);
-            var valueIsSoaRow = _soaEscape.ReportSoaRowEscapeIfNeeded(property.Value, valueType, "stored in a with expression");
-            var valueIsSoaDirectColumn = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(property.Value, "stored in a with expression");
-            if (memberType != null && !valueIsSoaRow && !valueIsSoaDirectColumn && !_assignability.IsAssignable(memberType, valueType))
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(property.Value);
-                Error(
-                    ErrorCode.TypeMismatch,
-                    $"'{property.Name}' is typed as '{memberType}', but the value is '{valueType}'",
-                    diagnosticLine,
-                    diagnosticColumn,
-                    length: diagnosticLength);
-            }
-        }
-
-        return targetIsSoaRow || targetIsSoaDirectColumn ? BuiltInTypes.Unknown : targetType;
+        return _construction.Result(state);
     }
 
     private TypeInfo AnalyzeMatchExpression(MatchExpression match)
@@ -7846,6 +7119,7 @@ public class Analyzer : IDisposable
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
         _identifierResolution.SetMetadataCollaborators(_memberResolution, _wellKnownTypes);
         _memberAccess.SetMetadataCollaborators(_memberResolution, _clrTypeConversion, _extensionMethodResolution, _wellKnownTypes);
+        _construction = CreateConstruction();
     }
 
     public void Dispose()
@@ -7877,6 +7151,7 @@ public class Analyzer : IDisposable
             _typeResolver.SetWellKnownTypes(null);
             _identifierResolution.SetMetadataCollaborators(_memberResolution, null);
             _memberAccess.SetMetadataCollaborators(_memberResolution, _clrTypeConversion, _extensionMethodResolution, null);
+            _construction = CreateConstruction();
             _mlcAssemblies.Clear();
             _disposed = true;
         }
