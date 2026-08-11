@@ -1,6 +1,37 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-10 (**TASK 017 SLICE 55 LANDED (no commit — mandate) — N# OWNS WHAT A MEMBER
+Last updated: 2026-08-10 (**TASK 017 SLICE 56 LANDED (no commit — mandate) — THE WALL THAT WAS NOT
+THERE, AND THEN N# OWNS WHAT `a[i]` AND `[a, b, c]` MEAN AND THE MEMBER ARM'S SECOND DRIVER KIND
+RETIRES.** **THE SLICE'S FIRST ACT REFUTED ITS OWN BRIEF**: slice 55's measured, priced two-row
+catalog wall DOES NOT EXIST. Re-measured by EXECUTION rather than by reading the catalog,
+`PropertyInfo.get_Name()` and `FieldInfo.get_Name()` already bind and emit under the PINNED toolset —
+proved by compiling the exact `GetReflectionMemberNames` shape INSIDE `BootstrapServices` itself and
+loading and invoking the result (a 219-byte body, 107 names for `System.String`) — with a NON-VACUOUS
+control isolating one token (`property.Name` still declines). **ROOT CAUSE, so no future slice
+re-prices it**: the catalog is the LEGACY whole-subtree planner's surface (`TryGetPlannedExternalCall`
+is gated on `legacyWholeSubtreePlanning`), and `ColumnarOrdinaryRuntimeDirectCallResolver` binds both
+names on receivers supported for many slices; what slice 55 measured declining was its own gotcha 6,
+the PROPERTY spelling. The slice was therefore RECUT to ONE terminal stage at the current toolset —
+no row, no stage boundary, no repin. **34 C# MEMBERS DIE, 599 NAMED LINES**: the index family (9 / 235),
+the array family (**19 / 269**, against a brief that said 57), and the NL303 RENDERING (6 / 95) with
+`ResolveAliasAndMetadata`'s C# copy. `Analyzer.cs` **8,946 → 8,371**, non-blank **7,991 → 7,501**,
+declarations **334 → 302**, `git diff` **+77 / −652 = net −575**; both ratchet ceilings fall.
+**DRIVER KIND 2 RETIRES AND THE PROTOCOL SHRINKS WITH IT** — `MemberAccessRequest` loses two operands,
+`MemberAccessState` all three pending slots. **THE THREE INDEX PRE-MEASUREMENTS ANSWERED FIRST**: the
+expected-type bracket DOES fit inside `NextStep` (the C# brackets a plain walk, never the
+lambda-forking one), the caller-attribution pass found second callers for the SIXTH slice running, and
+the column-slice allocation report is the ARM'S OWN rather than `AnalyzerSoaEscape`'s. **TWO WALLS
+INSIDE THE ARMS WERE ROUTED AROUND IN THE LANGUAGE**, one with a **23,645-type / 317-assembly
+adequacy proof at DIFFS 0** whose comparator was proved non-vacuous (perturbing only the substitute
+reports 6 disagreements, `Matrix4x4` among them). N# adds **1,071 production lines on two new files**
+plus 114 on the member arm; contracts **3,345 → 3,395**; unit suite **3,194 / 3,194**; **both oracle
+differentials 0 diffs** (corpus 315 diagnostics / 13 codes over 387 lines, supplementary 9);
+`nlc check` **282 findings, 0 in the new or changed files**; format canon green; and the **full VS
+Code-enabled `test-all.sh --commit` gate ALL GREEN, 16 timed steps, 108 passes, exit 0, 18m 44s**,
+with `All 67 N# assemblies pass IL verification`.
+Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-10 (**TASK 017 SLICE 55 LANDED (no commit — mandate) — N# OWNS WHAT A MEMBER
 ACCESS MEANS, ITS RECEIVER CLASSIFICATION, AND THE RULE FOR WHETHER A MISSING MEMBER IS WORTH
 REPORTING.** `AnalyzerMemberAccess.nl` (**1,008 lines, THREE types, 37 members, TWO driver kinds**)
 takes the arm, its whole exclusive closure, the receiver classification the write-target classifiers
@@ -1944,7 +1975,434 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 55 — THE MEMBER ARM, ITS EXCLUSIVE CLOSURE AND
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 56 — THE WALL THAT WAS NOT THERE, AND THEN THE
+  `index` AND `array` ARMS AND THE NL303-RENDERING RETIREMENT, TERMINAL, IN ONE STAGE.** Plan recorded
+  BEFORE any production edit, at `4fde8ff23` (`Analyzer.cs`
+  **8,946** lines, non-blank **7,991**; `ColumnarIlEmitter.cs` **21,471** lines, non-blank **20,412**,
+  ratchet fingerprint `text-v1:609051db487c7060`, epoch ceilings **21,723 / 20,646**;
+  `ColumnarExternalBindingPlans.nl` **970** lines; unit suite baseline **3,194**; contracts baseline
+  **3,345**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:fe059b38c59b1cd2`).
+
+  **WHY TWO STAGES — THE SLICE-48 SHAPE, FOR THE SLICE-55 WALL. (THIS PLAN WAS RECORDED BEFORE ANY
+  EDIT, AS THE MANDATE REQUIRES, AND WAS THEN SUPERSEDED BY THE OPENING FINDING BELOW — IT IS KEPT
+  VERBATIM BECAUSE THE PLAN THAT A MEASUREMENT OVERTURNS IS PART OF THE EVIDENCE.)** Slice 55 measured
+  and priced its one wall: `PropertyInfo.Name` and `FieldInfo.Name` are absent from the columnar instance-call catalog
+  while their `MethodInfo` and `EventInfo` siblings are published by explicit rows, so the RENDERING
+  of NL303 — `ReportUndefinedMember` plus its three did-you-mean helpers, 88 lines — stays in
+  `Analyzer.cs` and is reached as `DriveMemberAccess`'s driver kind 2 (23 times in 333,798 rows). The
+  N# owner that builds the suggestion list must READ those two names, and the compiler that builds
+  `BootstrapServices` is the PACKAGED SDK, so the rows must be COMMITTED and the toolset REPACKED FROM
+  THE COMMITTED TIP before stage 2's `.nl` can call them. Packing mid-slice from a working tree is
+  forbidden, so the slice splits:
+
+  **STAGE 1 — THE TWO CATALOG ROWS (this stage).** Publish
+  `System.Reflection.PropertyInfo.get_Name` and `System.Reflection.FieldInfo.get_Name` to
+  `ColumnarExternalBindingPlans.GetInstanceCallPlan`, each in the same `if` shape as the published
+  `MethodInfo.get_Name` (`:633`) and `EventInfo.get_Name` (`:681`) rows; search for and mirror every
+  paired surface those siblings carry; prove the rows with plan-level contracts in
+  `ColumnarExternalBindingPlans.tests.nl` AND with parameter-shaped native contracts that read `.Name`
+  off a `PropertyInfo` and a `FieldInfo` through the pinned pipeline, PRE-STATE measured first
+  (slice 22A's method: the exact decline text before the rows exist, then the same source compiling and
+  EXECUTING after); ratchet accounting for `ColumnarIlEmitter.cs`. NO analyzer edit in this stage.
+  Then STOP: the coordinator commits, repacks the toolset from the committed tip, and reseeds.
+
+  **STAGE 2 — `index`, `array` AND THE NL303 RENDERING, TERMINAL (after the repin).** The three
+  slice-55 pre-measurements for `AnalyzeIndexAccess` (`:3285`, 70 lines) FIRST — its TWO expression
+  steps and whether the index step's expected-type bracket fits inside `NextStep` (the slice-51
+  owner-bracket pattern) or needs a second kind; the caller-attribution pass over its apparent closure
+  (`ResolveIndexElementType`, `ShouldUseIntExpectedTypeForIndex`, `IsIndexLikeType`, `GetIndexType`
+  and the four SoA index reporters — five slices running have found a "helper" with a second caller);
+  and which of its reports are its own (the SoA ones are almost certainly `AnalyzerSoaEscape`'s).
+  `array` (`:6282`, 57 lines, THREE walk sites) re-verified the same way. Then the NL303 RENDERING (88
+  lines) moves into `AnalyzerMemberAccess` and **DRIVER KIND 2 RETIRES**.
+
+  ---
+
+  **THE OPENING FINDING, AND IT IS THE SLICE'S MOST IMPORTANT ONE: THE WALL SLICE 55 MEASURED AND
+  PRICED DOES NOT EXIST. NO CATALOG ROW WAS ADDED, NO STAGE BOUNDARY WAS TAKEN, NO TOOLSET WAS
+  REPINNED.** Before any production edit the wall was re-measured slice-22A's way — by EXECUTION
+  rather than by reading the catalog — and `PropertyInfo.get_Name()` and `FieldInfo.get_Name()` are
+  already bound and emitted by the PINNED toolset with no row at all. **NO FUTURE SLICE SHOULD
+  RE-PRICE THIS WALL.**
+  * **THE PROBE IS `GetReflectionMemberNames` ITSELF (`Analyzer.cs:3635`), NOT AN APPROXIMATION** —
+    `Type.GetProperties(flags)` → `property.get_Name()`, `Type.GetFields(flags)` →
+    `field.get_Name()`, `Type.GetMethods(flags)` → `method.get_IsSpecialName()` / `get_Name()`, with
+    the `BindingFlags` local built exactly as the C# builds it.
+  * **IT COMPILES AND RUNS IN THREE PLACES, INCLUDING THE ONE THAT DECIDES**: through the freshly
+    built CLI; through the PACKAGED `NSharpLang.Sdk 0.1.0` from `~/.nuget/local-feed` — the pinned
+    toolset, packed 2026-08-06 at slice 48's stage-1 repin — as a standalone project; and **INSIDE
+    `src/NSharpLang.Compiler.BootstrapServices` ITSELF**, which built GREEN with the probe in it. In
+    every case the emitted method was LOADED AND INVOKED: a **219-byte IL body** returning **107 names
+    for `System.String`, `Length` among them**.
+  * **THE CONTROL IS NON-VACUOUS AND ISOLATES ONE TOKEN.** The SAME source with `property.get_Name()`
+    changed to `property.Name` DECLINES under the pinned SDK — NL103, `emit.expression-statement.call`,
+    at that statement. The pipeline is enforcing, and what slice 55 measured was **its own gotcha (6),
+    the PROPERTY spelling, not a catalog gap**.
+  * **ROOT CAUSE, SO THIS IS NOT RE-DERIVED LATER.** `ColumnarDirectCallPlanner` (`:873`) consults
+    `ColumnarExternalBindingPlans.GetInstanceCallPlan` FIRST and, when the plan is unsupported, falls
+    through to `ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts`, which binds any suitable
+    public non-generic instance method on a receiver already in `IsSupportedRuntimeTypeName` — and
+    **`PropertyInfo` and `FieldInfo` have been in that list since long before this arc**. The
+    emitter's own `TryGetPlannedExternalCall` is additionally gated on `legacyWholeSubtreePlanning`
+    (`ColumnarIlEmitter.cs:17065`), so **THE CATALOG IS THE LEGACY WHOLE-SUBTREE PLANNER'S SURFACE**.
+    The published `MethodInfo.get_Name` / `EventInfo.get_Name` rows are artefacts of that path, not
+    the reason those two bind. Adding the priced rows would have added catalog data only the legacy
+    planner can reach, which the dogfood architecture forbids.
+  * **THE PAIRED-SURFACE SEARCH WAS RUN ANYWAY AND CAME BACK EMPTY**, which is itself the
+    confirmation: a repo-wide sweep for the siblings' names (`get_ReturnType`, `get_FieldType`,
+    `get_EventHandlerType`, `get_IsLiteral`, `GetAddMethod`) finds the catalog, its own contract file,
+    consumers and native tests — no planner list, no validator allowlist, no preflight twin, no docs
+    table. `ColumnarExternalBindingPlans` has no C# twin at all.
+
+  **THE SLICE WAS THEREFORE RECUT AS ONE TERMINAL SLICE at the CURRENT toolset**, and this is the
+  campaign's verify-first principle doing exactly what it did four times in the columnar arc: the
+  oracle is the real pipeline, and a wall that has not been executed against it is a hypothesis.
+
+  ---
+
+  **THE THREE INDEX PRE-MEASUREMENTS, TAKEN AT THIS TIP BEFORE ANY DESIGN.**
+  * **(a) THE BRACKET FITS INSIDE `NextStep`, AND THE REASON IS THE ONE SLICE 52 IDENTIFIED.** The arm
+    takes TWO expression steps — the receiver and the index — and the second is bracketed. But the C#
+    brackets a PLAIN `AnalyzeExpression` with `EnterExpectedTypeIfProvided` / `ExitExpectedType`
+    (`:3291`–`:3294`); it never calls `AnalyzeExpressionWithExpectedType`. That is precisely the
+    distinction slice 52 drew: the named-expected-type walk carries a LAMBDA FORK the owner cannot
+    simulate, and the slot-write does not. **VERDICT: the slice-51 tuple-element pattern applies
+    verbatim — the bracket opens in the `NextStep` that hands the index out and closes at the top of
+    the `Supply` that consumes it. NO SECOND KIND.** The arm is therefore ONE kind performed twice.
+  * **(b) THE CALLER-ATTRIBUTION PASS FOUND A SECOND CALLER FOR THE SIXTH SLICE RUNNING — THREE OF
+    THEM.** SEVEN members are exclusive (`ShouldUseIntExpectedTypeForIndex` 8,
+    `ValidateBuiltInIndexAccess` 28, `IsValidSoaRowIndex` 8, `ReportNegativeSoaRowIndexIfNeeded` 25,
+    `ReportInvalidSoaRowIndex` 17, `ReportInvalidBuiltInIndex` 11 — transitively, its only caller is
+    itself exclusive — and `ResolveIndexElementType` 57). THREE are NOT:
+    `ReportSoaColumnSliceHiddenAllocation` (also `ReportUnsupportedBuiltInIndexedMutationIfNeeded`'s),
+    `IsRangeLikeType` (three owners) and `IsIndexLikeType` (FOUR). The brief named `GetIndexType`,
+    which **does not exist**, and did not name `ValidateBuiltInIndexAccess`, `IsValidSoaRowIndex` or
+    the three reporters, which do.
+  * **(c) THE BRIEF WAS HALF RIGHT ABOUT THE SoA REPORTS, AND THE HALF IT GOT WRONG IS THE
+    INTERESTING ONE.** The row escapes, the direct-column value escape and the direct-column
+    null-conditional refusal are all `AnalyzerSoaEscape`'s and are merely asked — the FIFTH
+    consecutive family whose SoA reports belong elsewhere. But **the column-slice allocation report is
+    the ARM'S OWN**, raised with a direct `Error(...)`, and it is the shared one: it is PUBLISHED from
+    the new owner and the write-target family's C# call site routes to it.
+
+  **ARRAY, RE-VERIFIED THE SAME WAY, IS 92 LINES AND NOT 57 — AND THEN 269.** `AnalyzeArrayLiteral`
+  (57) carries two exclusive helpers the brief did not name (`ReportUnsupportedCollectionExpressionTargetIfNeeded` 22 and `IsUnsupportedCollectionExpressionTarget` 13), and THOSE carry a further
+  fifteen-member tail of pure reflection predicate — the whole rule for **whether a collection
+  expression's target can be MATERIALISED** — every one of which the attribution pass proves exclusive
+  to this arm. With `GetExpectedElementType` (21, shared with the object-initializer walk, which now
+  routes) the array cut is **NINETEEN C# MEMBERS, 269 LINES**.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT `a[i]` AND `[a, b, c]` MEAN, AND THE MEMBER ARM'S
+  SECOND DRIVER KIND IS RETIRED.**
+
+  **THE CUT — 34 C# MEMBERS, 599 NAMED LINES, TWO DISPATCH ARMS COLLAPSED AND ONE DRIVER KIND GONE.**
+  * **THE INDEX FAMILY, 9 MEMBERS / 235 LINES**: `AnalyzeIndexAccess` (70),
+    `ShouldUseIntExpectedTypeForIndex` (8), `ValidateBuiltInIndexAccess` (28), `IsValidSoaRowIndex`
+    (8), `ReportNegativeSoaRowIndexIfNeeded` (25), `ReportInvalidSoaRowIndex` (17),
+    `ReportInvalidBuiltInIndex` (11), `ReportSoaColumnSliceHiddenAllocation` (11) and
+    `ResolveIndexElementType` (57).
+  * **THE ARRAY FAMILY, 19 MEMBERS / 269 LINES**: `AnalyzeArrayLiteral` (57), `GetExpectedElementType`
+    (21), `ReportUnsupportedCollectionExpressionTargetIfNeeded` (22),
+    `IsUnsupportedCollectionExpressionTarget` (13), `CanMaterializeReflectionCollectionExpressionTarget`
+    (28), `TryGetReflectionCollectionExpressionElementType` (32),
+    `EnumerateReflectionCollectionExpressionSequenceTypes` (12),
+    `IsSupportedCollectionExpressionInterfaceTarget` (17), `HasSingleEnumerableParameter` (12),
+    `HasSingleCollectionElementParameter` (16), `HasCollectionExpressionMutator` (7),
+    `HasPublicInstanceConstructor` (6), `GetGenericDefinitionFullName` (9), `IsGenericDefinition` (5),
+    `IsAssignableFromConstructed` (4), `HasParameterlessConstructor` (2),
+    `HasSingleEnumerableConstructor` (2), `IsIQueryableType` (2) and
+    `IsReflectionCollectionExpressionTarget` (2).
+  * **THE NL303 RENDERING, 6 MEMBERS / 95 LINES**: `ReportUndefinedMember` in both overloads (2 + 35),
+    `FindSimilarMemberNames` (10), `GetAvailableMemberNames` (27), `GetReflectionMemberNames` (14) and
+    `ResolveAliasAndMetadata` (7), whose only caller was `GetAvailableMemberNames` and which was
+    ALREADY REPRODUCED in `AnalyzerMemberAccess.nl` — so the C# copy dies rather than moves.
+  ADDED: the `DriveIndexAccess` loop (10 lines) plus its 14-line doc, the `DriveArrayLiteral` loop (10)
+  plus its 12-line doc, two owner fields and their 5-line doc, the two constructions (7), the two
+  collapsed dispatch arms (2) and SIX mechanical route lines. `git diff` on `Analyzer.cs`
+  **+77 / −652 = net −575**. The file goes **8,946 → 8,371**, non-blank **7,991 → 7,501 (−490)**,
+  member declarations **334 → 302 (−32)** and modifier lines **400 → 370 (−30)**. **BOTH RATCHET
+  CEILINGS FALL.**
+
+  **DRIVER KIND 2 IS RETIRED, AND THE RETIREMENT SHRINKS THE PROTOCOL ITSELF.** `MemberAccessRequest`
+  loses `ReceiverType` and `IncludeStaticMembers` — they existed for kind 2 alone — and
+  `MemberAccessState` loses all THREE pending slots and `CompleteAfterReport` with them. The member
+  walk's phase machine goes 0 → 1 → 99 where it went 0 → 1 → 2 → 3 → 99. `DriveMemberAccess` collapses
+  from a `switch` to the one-line `Supply(state, AnalyzeExpression(step.Node!))` shape ten other
+  drivers already have. **SEVENTEEN driver loops become NINETEEN, and the number that RETURN goes from
+  six to eight**; the number of stay-behind report kinds in the whole estate falls by one, to slice
+  53's five.
+
+  **N# ADDED — 1,071 PRODUCTION LINES ON TWO NEW FILES PLUS 114 ON THE MEMBER ARM.**
+  `AnalyzerIndexAccess.nl` (**522 lines, THREE types, 21 members**) and `AnalyzerArrayLiteral.nl`
+  (**549 lines, THREE types, 23 members**). `AnalyzerMemberAccess.nl` is **+180 / −66 = net +114** and
+  gains the five rendering members. **THE UNIFICATION WAS COSTED AND REFUSED**: index and array share
+  a driver SHAPE (one kind, an owner-held bracket) and nothing else — no rule, no report, no state, no
+  collaborator beyond the four every owner holds — so merging them would have bought one 22-line
+  driver at the price of a family name that describes neither. The two most recent slices
+  (`AnalyzerMemberAccess`, `AnalyzerIdentifierResolution`) both chose single-purpose owners for the
+  same reason.
+
+  **THE ONE FACT THE INDEX ARM CANNOT SEE FOR ITSELF IS HANDED IN AT `Begin`.** `column[1..3]` is
+  refused as a hidden allocation only OUTSIDE an assignment target, and the dictionary that records
+  "an assignment target is being analysed" (`_assignmentTargetExpressionTypes`) is still `Analyzer.cs`
+  state written in four places by the assignment arm. So `Begin(expr, inAssignmentTarget)` takes it as
+  an operand — the `Begin(expr, _patternReachability)` precedent — and the slot itself moves with the
+  assignment arm, which is the next slice.
+
+  **TWO WALLS WERE HIT INSIDE THE ARMS AND BOTH WERE ROUTED AROUND IN THE LANGUAGE, ONE OF THEM WITH A
+  23,645-TYPE ADEQUACY PROOF.**
+  * **`GetDefaultMembers()` NAMES `MemberInfo[]`, WHICH IS NOT A SUPPORTED COLUMNAR LOCAL TYPE** —
+    measured directly (`emit.local.unsupported-type`), and the widened `object[]` route is refused by
+    the analyzer (NL202: array covariance is not modelled) and the `for`-over-the-call route declines
+    too. The substitute is **the first public instance-or-static property with index parameters**, and
+    it was PROVED rather than assumed: a differential over **317 assemblies and 23,645 types** — the
+    whole of `Microsoft.NETCore.App`, `Microsoft.AspNetCore.App` and the compiler's own output —
+    reports **DIFFS 0** across the **566** types that have an indexer at all. **THE COMPARATOR WAS
+    PROVED NON-VACUOUS FIRST**: perturbing ONLY the substitute's selection order reports **6**
+    disagreements — `System.Numerics.Matrix4x4`, `Matrix3x2`, `BitVector32`,
+    `X509Certificate2Collection`, `DictionaryWrapper` and `EmptyLookup` — which are exactly the
+    multi-overload-indexer types the ordering hazard would have hidden in.
+  * **THE `typeof` SURFACE CARRIES `List<>` AND `HashSet<>` BUT NOT `Queue<>`.** The established
+    route-around (slice 47's, taken again) is the compiler's own spelling —
+    `Type.GetType("System.Collections.Generic.Queue`1, System.Collections")` — which yields the
+    identical runtime definition, so the three interface-satisfaction checks stay one rule.
+
+  **A THIRD GOTCHA, AND IT IS A NEW ONE WORTH THE WHOLE SLICE: ON A REFLECTED RECEIVER THE CALL BINDS
+  BY THE RECEIVER'S SHAPE, NOT BY THE MEMBER.** `properties[i].get_Name()` DECLINES as an unmodeled
+  instance call while `property.get_Name()` on a `for`-loop binding does not. Every reflected receiver
+  in both new owners and in the moved rendering is therefore a loop binding or a local, never an index
+  expression. This is the same fact that made slice 55's wall look real from one angle: the member
+  binds, the SHAPE decides.
+
+  **WHAT THE TWO NEW OWNERS PIN THAT NOTHING PINNED BEFORE.** Every member behind the new contracts
+  was `private` in `Analyzer.cs`. The index arm's contracts go at the BRACKET (observed by recording
+  the ambient slot AT each step, the only way to see a bracket that opens and closes inside the
+  owner), at WHICH receivers make the index an `int` — a dictionary's index is a KEY and must not be
+  target-typed — at the element type of every receiver shape including the RANGE fork, at the
+  reflected indexer against `List<int>`, `string`, `Matrix4x4` and a type with no indexer, and at the
+  negative-row rule's two independent conditions (a SIGNED type AND a CONSTANT). The array arm's go at
+  the two forms and that the choice is made ONCE, at the empty literal that takes no steps, at the
+  bracket being open for every element of a targeted literal and NONE of an inferred one, at WHICH
+  WORD a mismatched element is scolded with, and at the collection-target rule's four materialisable
+  shapes — including that a VALUE element is held to `Add` identity (`List<object>.Add(object)` is
+  NOT a mutator for `int`, because boxing every element is not what the literal asked for) while a
+  REFERENCE element may widen.
+
+  **THE MEMBER-ARM CONTRACTS WERE MIGRATED, NOT RENUMBERED — AND THE MIGRATION FOUND A REAL
+  UNDER-OBSERVATION.** Five contracts named the retired report step; they now observe the report
+  THROUGH THE SINK, which is strictly stronger because it proves the report was RENDERED rather than
+  merely requested. One of them changed its assertion as a result: a `Value` access on a nullable with
+  no ENCLOSING nullable origin asserted `Errors.Count == 0`, and that was only ever true because the
+  harness COUNTED the report step instead of performing it. Production always rendered it. It now
+  asserts the NL303 it always raised.
+
+  **50 NEW CONTRACTS.** `AnalyzerIndexAccess.tests.nl` (**537 lines, 29 contracts**) and
+  `AnalyzerArrayLiteral.tests.nl` (**460 lines, 21 contracts**). Contracts **3,345 → 3,395 (+50)**, 0 failed.
+  **THREE OF THEM FAILED ON THE FIRST RUN AND ALL THREE WERE THE CONTRACT BEING WRONG, NOT THE PORT**:
+  a reflected indexer's `string` answers `simple:string` because `ConvertReflectionType` maps a
+  built-in CLR type back to its BUILT-IN model type; and a bare `GenericTypeInfo("List", [int])` is
+  NOT a collection target, because `TryGetCollectionElementType` requires a KNOWN RUNTIME generic
+  definition — a source type that merely looks like a list must not claim collection-literal
+  semantics. Both facts are now contracts in their own right.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:fe059b38c59b1cd2` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 8,946 →
+  **8,371**, currentNonBlankLines 7,991 → **7,501**, fingerprint → **`text-v1:ef76a3ebd337bc96`**;
+  `reviewedHeadFingerprint` → **`head-v1:ea6a4148f344e44b`**, mirrored into `OwnershipAudit.nl`. Epoch
+  ceilings 23,451 / 20,537 PRESERVED, now clear by **15,080 / 13,036** — up from 14,505 / 12,546.
+  `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed
+  lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: all four new files
+  are `.nl`, which the policy does not audit. `ColumnarIlEmitter.cs` is UNTOUCHED (**21,471 / 20,412**,
+  `text-v1:609051db487c7060`) — the stage-1 repin the brief priced was never needed. The pre-existing
+  `editors/vscode/test/suite/edgeCases.test.ts` drift and the six `MISSING` rows for files task 016
+  deleted were again confirmed present and deliberately left alone.
+
+  **PROOF — TWO ORACLE DIFFERENTIALS, BOTH ZERO.** `nlc check --json` with fresh **Release** CLIs at
+  the pristine tip `4fde8ff23` (`/private/tmp/nl56base`) and at the working tree, both pointed at the
+  SAME `git worktree` copy (`/private/tmp/nl56corpus`).
+  * **CORPUS: ORACLE_DIFFS = 0 over 387 lines**, md5 `a0a9b7140fc694bff69390edd5013dd8` in BOTH — 72
+    HEAD rows, **315 diagnostics across 13 codes**, `stderrBytes = 0` on all 144 runs, ZERO
+    `PARSE-FAIL`. The `NSharpLang.Compiler.BootstrapServices` target alone answers **282 findings over
+    332 checked files** — the unchanged estate-wide baseline. The seven targets that answer with no
+    `results` key on both sides are the same seven slices 42–55 named.
+  * **SUPPLEMENTARY (those seven plus `char-classification` and `reflection-emit-bootstrap`, against
+    the REAL checkout): SUPP_DIFFS = 0** over 9 lines, md5 `b8865a53ae9ff5035f0cc58eb284acdd`,
+    **NO-RESULTS = 0, PARSE-FAIL = 0**.
+
+  **PROOF — `nlc check` OVER THE COMPILER'S OWN `.nl`.** **334 checked files** (the 332 baseline plus
+  the two new production files — contract files are excluded from `check`), **282 findings
+  estate-wide — the unchanged slice-42…55 baseline — and ZERO in the new or changed files**,
+  `stderrBytes = 0`. It took two runs to get there and the first run's THREE findings were all real:
+  an unused import; **`ResolveIndexElementType`'s `indexType` parameter is NEVER READ — and it was
+  never read in `Analyzer.cs` either**, so the port drops the dead operand rather than carrying it;
+  and an NL202 where the C#'s lazy `??` had to become an explicit `if`/`else` to keep the formatter
+  from running when an override is present.
+
+  **FORMAT CANON.** All four new `.nl` files pass, and the whole
+  `src/NSharpLang.Compiler.BootstrapServices` directory passes the gate's Step 2b contract (**"All
+  files are properly formatted"**).
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `4fde8ff23` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree, reporting `Scope: full unit suite (no filter)`: **3,194 / 3,194, 0 failed,
+  4 m 17 s of test time, exit 0**.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 18m 44s.** `./scripts/test-all.sh --commit` —
+  VS Code tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 2m 03s;
+  **Step 2b's format contract over examples, templates, fixtures AND the compiler's own N# sources
+  0m 01s**; **unit tests 6m 10s (3,194 / 3,194)**; **native N# tests 3m 31s** — the BootstrapServices
+  contracts at **3,395 / 3,395** plus every native project individually, `ownership-audit` **18 / 18**
+  among them; **VS Code integration tests 2m 50s, 36 passing**, against a freshly built extension and
+  language server; pack and install the MSBuild SDK 3m 44s; templates, template creation and the
+  template-generated build; the example builds; `nlc check` on examples; and **the IL verification
+  gate 0m 11s — `All 67 N# assemblies pass IL verification (no new errors vs baseline)`**. It ran from
+  an isolated snapshot; `systems-language-closeout/` is in NO gate input set, so this record's own
+  prose is provably not a gate input.
+
+  **NO COMPUTER-USE VERIFICATION WAS TAKEN.** This slice changes no LSP handler, no VS Code extension
+  code and no IDE protocol surface; what it changes is WHO answers what `a[i]` and `[a, b, c]` mean,
+  which the gate's VS Code integration suite (36 passing, against a freshly built extension and
+  language server) and both diagnostic oracles cover.
+
+  **GOTCHAS.**
+  **(1) THE COLUMNAR CATALOG IS THE LEGACY PLANNER'S SURFACE, NOT THE BINDING AUTHORITY.** See the
+  opening finding. A member missing from `ColumnarExternalBindingPlans` is NOT evidence that it does
+  not bind — `ColumnarOrdinaryRuntimeDirectCallResolver` is consulted after the plan and binds any
+  suitable public non-generic instance method on a supported receiver. **Measure by execution, never
+  by reading the catalog.**
+  **(2) ON A REFLECTED RECEIVER THE CALL BINDS BY THE RECEIVER'S SHAPE, NOT BY THE MEMBER.**
+  `properties[i].get_Name()` declines as an unmodeled instance call; `property.get_Name()` on a
+  `for`-loop binding does not. Every reflected receiver must be a loop binding or a local.
+  **(3) `MemberInfo[]` IS NOT A SUPPORTED COLUMNAR LOCAL TYPE**, so `Type.GetDefaultMembers()` cannot
+  be ported directly; the widened `object[]` route is refused by the analyzer (array covariance is not
+  modelled) and a bare `for` over the call declines too.
+  **(4) AN INLINE FLAG EXPRESSION IS NOT A `BindingFlags` ARGUMENT.**
+  `GetProperties(BindingFlags.Public | BindingFlags.Instance)` declines as unmodeled;
+  `flags := BindingFlags.Public | BindingFlags.Instance` then `GetProperties(flags)` binds. The flags
+  must be a LOCAL.
+  **(5) THE `typeof` SURFACE CARRIES `List<>` AND `HashSet<>` BUT NOT `Queue<>` OR `IQueryable<>`**,
+  and not `System.Numerics.Matrix4x4`. The route-around is `Type.GetType` with the assembly-qualified
+  open definition plus `MakeGenericType` — the compiler's own spelling.
+  **(6) `TypeInfo.ToString()` DECLINES; THE ESTATE READS IT THROUGH `object`.** `boxed := candidate as
+  object` then `boxed.ToString()` is the standing idiom, now in six owners.
+  **(7) A COLLECTION TARGET MUST CARRY A KNOWN RUNTIME GENERIC DEFINITION.** A bare
+  `GenericTypeInfo("List", [int])` is NOT a collection — a source type that merely looks like a list
+  must not claim collection-literal semantics. Three first-run contract failures were this and the
+  `ConvertReflectionType` built-in mapping.
+
+  **WALL STATUS: ZERO. The arc's last remaining priced wall was retired by measurement rather than by
+  a row, and the two walls this slice hit inside the arms were both routed around INSIDE the language
+  with no semantic loss** — one of them with a 23,645-type adequacy proof rather than an assertion.
+  **NO TOOLSET REPIN WAS TAKEN AND NONE WAS NEEDED.**
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Worktrees: `/private/tmp/nl56base` (pristine
+  `4fde8ff23` + Release CLI) and `/private/tmp/nl56corpus` (the shared source copy both CLIs check).
+  Harnesses in the scratchpad: `nl44-oracle.sh` (the order-preserving `nlc check --json`
+  differential), `nl53-members.py` (member extents), **`nl56-closure.py` (the caller-attribution
+  pass)**, `nl56-repin.py` (the validated ratchet walk), `nl56-members.tsv`,
+  `nl56-corpus-targets.txt`, `nl56-supp-targets.txt` and the oracle transcripts. The
+  `GetDefaultMembers` adequacy differential is `/private/tmp/nl56dm` (a standalone C# harness — run it
+  with the runtime's shared framework directories as arguments), and the pinned-toolset probe projects
+  are `/private/tmp/nl56pinned` (a `<Project Sdk="NSharpLang.Sdk" />` project that compiles through
+  the PACKAGED SDK), `/private/tmp/nl56neg` (the isolating control) and `/private/tmp/nl56load` (the
+  load-and-invoke harness — `dotnet nl56load.dll <assembly> <type> <method>`). **THESE ARE THE TOOLS
+  THAT OVERTURNED THE WALL AND THEY ARE WORTH KEEPING**: `/private/tmp` is reaped, so regenerate
+  rather than assume.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS.** That hovering `xs[0]` shows the ELEMENT type and
+  `xs[1..3]` shows the ARRAY — the distinction a developer feels the moment they slice; that a
+  dictionary's key completes as a KEY rather than being target-typed to `int`, which is the difference
+  between `map["name"]` completing and being underlined; that `text[i]` is a `char` and `text[a..b]` is
+  a `string`; that a typo'd member still gets did-you-mean names drawn from the receiver's own members,
+  now rendered by the same owner that decided the name was missing; and that a collection literal whose
+  target the backend cannot build says SO, by name, instead of failing later in emit.
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 8,371 LINES, 7,501 NON-BLANK.** The same three
+  things: the SHORT list of remaining declaration walkers; **THE EXPRESSION WALK, now 16 arms of policy
+  instead of 18**; and the mechanical host — now NINETEEN driver loops, of which exactly EIGHT return.
+
+  * **NEXT: `new` (183 at `:5968`) THEN `assignment` (305 at `:3906`), AND THE PAIR IS THE ARC'S
+    BIGGEST REMAINING CUT.** `new` must go first because the assignment arm needs it as a TARGET, and
+    it is now the largest arm left. `assignment` has **TEN** walk sites plus the five write-target
+    reporters slice 53's driver kinds 6–10 still route to — **taking assignment RETIRES FIVE OF SLICE
+    53'S TEN DRIVER KINDS**, which is the single largest protocol reduction still available. It also
+    owns `_assignmentTargetExpressionTypes`, the dictionary this slice had to pass into
+    `AnalyzerIndexAccess.Begin` as an operand: **when assignment moves, that operand goes with it and
+    the index arm's `Begin` loses its second parameter.** THE PRE-MEASUREMENTS TO TAKE BEFORE
+    DESIGNING EITHER: (a) `new`'s object-initializer walk is RE-ENTRANT into the expression dispatch
+    and now also calls `_arrayLiteral.TryGetExpectedElementType` — measure whether its initializer
+    values are one kind or several; (b) run the caller-attribution pass over BOTH closures, because it
+    has now found an unexpected second caller — or an unexpected exclusive tail — in SIX consecutive
+    slices, and array's tail alone was 269 lines against a brief that said 57; (c) whether the five
+    write-target reporters are exclusive to assignment or shared with the operator arms that route to
+    them today.
+  * **THEN, UNCHANGED:** `match` (72 at `:6734`), `with` (54 at `:6679`), `range` (at `:3244`) and
+    `on` (at `:4211`); `call` (at `:3349`, by far the most entangled); and **`lambda`
+    (at `:5565`) LAST**, still the only arm with TWO production entry points.
+  * **AND THE ONE THAT IS NO LONGER IN THE QUEUE: the two catalog rows.** They were measured out of
+    existence. See the opening finding.
+
+  ---
+
+  **STAGE 1 DID NOT LAND, BECAUSE THE FIRST MEASUREMENT REFUTED ITS PREMISE: THERE IS NO WALL, AND
+  THE TWO ROWS ARE NOT NEEDED. NOTHING WAS ADDED TO THE CATALOG.** Before editing production, the
+  wall was re-measured the way slice 22A's phase A measures a row — by EXECUTION, not by reading the
+  catalog — and `PropertyInfo.get_Name()` and `FieldInfo.get_Name()` are already bound and emitted by
+  the PINNED toolset with no row at all.
+
+  * **THE PROBE IS `GetReflectionMemberNames` ITSELF (`Analyzer.cs:3635`), NOT AN APPROXIMATION.**
+    `Type.GetProperties(flags)` → `property.get_Name()`, `Type.GetFields(flags)` →
+    `field.get_Name()`, `Type.GetMethods(flags)` → `method.get_IsSpecialName()` / `get_Name()`,
+    with the `BindingFlags` local built exactly as the C# builds it.
+  * **IT COMPILES AND RUNS IN THREE PLACES, INCLUDING THE ONE THAT DECIDES.** Through the freshly
+    built CLI (`nlc test`, green); through the PACKAGED `NSharpLang.Sdk 0.1.0` from
+    `~/.nuget/local-feed` — the pinned toolset, packed 2026-08-06 at slice 48's stage-1 repin — as a
+    standalone project; and **INSIDE `src/NSharpLang.Compiler.BootstrapServices` ITSELF**, the only
+    tree stage 2 actually needs, which built GREEN with the probe in it. In every case the emitted
+    method was LOADED AND INVOKED: a **219-byte IL body** returning **107 names for `System.String`,
+    `Length` among them**. The probe file was deleted and `BootstrapServices` rebuilt clean
+    (`TYPE-MISSING` on the re-emitted assembly).
+  * **THE CONTROL IS NON-VACUOUS AND ISOLATES THE ONE TOKEN.** The SAME source with
+    `property.get_Name()` changed to `property.Name` DECLINES under the pinned SDK — `NL103`,
+    `emit.expression-statement.call`, at that statement. So the pipeline is enforcing, and what
+    slice 55 measured was **its own gotcha (6) — the property-style spelling — not a catalog gap**.
+  * **ROOT CAUSE.** `ColumnarDirectCallPlanner` (`:873`) consults
+    `ColumnarExternalBindingPlans.GetInstanceCallPlan` FIRST and, when the plan is unsupported, falls
+    through to `ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts`, which binds any suitable
+    public non-generic instance method on a receiver already in `IsSupportedRuntimeTypeName` — and
+    **`System.Reflection.PropertyInfo` and `System.Reflection.FieldInfo` have been in that list since
+    long before this arc**. The emitter's own `TryGetPlannedExternalCall` is additionally gated on
+    `legacyWholeSubtreePlanning`, so the catalog is the LEGACY planner's surface. The published
+    `MethodInfo.get_Name` / `EventInfo.get_Name` rows are artefacts of that legacy path, not the
+    reason those two bind. Adding the two rows would have added catalog data that only the legacy
+    planner can reach — which the dogfood architecture forbids.
+  * **AND THE REST OF THE KIND-2 FAMILY IS ALREADY N#-OWNED AND REACHABLE.**
+    `ErrorMessageBuilder.UndefinedMember` is N# (`ErrorMessageBuilder.nl:417`) with exactly the
+    signature `Analyzer.cs:3575` calls, and its siblings are already called from
+    `AnalyzerIdentifierResolution`; `SmartSuggester` is N# and **`AnalyzerMemberAccess.nl:369` already
+    builds a did-you-mean list with it** for the import-alias NL303 form;
+    `GetAvailableSourceMemberNames` / `SourceObjectMembersApply` are N# on
+    `AnalyzerDeclarationContext` (`:537` / `:544`), a collaborator the owner already holds; and
+    `ResolveAliasAndMetadata` is ALREADY REPRODUCED at `AnalyzerMemberAccess.nl:934`, so the C# copy
+    at `:3549` dies with the rendering rather than being needed by it.
+
+  **CONSEQUENCE — THE TWO-STAGE SHAPE IS UNNECESSARY AND SLICE 56 SHOULD BE RECUT AS ONE TERMINAL
+  SLICE.** No catalog row, no stage-1 commit, no SDK pack, no repin, no reseed: `index` + `array` +
+  the NL303 RENDERING and the kind-2 retirement can all be taken at the CURRENT toolset in one turn.
+  `ColumnarIlEmitter.cs` is UNCHANGED (**21,471 / 20,412**, fingerprint `text-v1:609051db487c7060`,
+  ceilings **21,723 / 20,646**) and needs NO repin; the manifest and
+  `reviewedHeadFingerprint head-v1:fe059b38c59b1cd2` are untouched. The only edit in the tree is this
+  record.
+
+  **WALL STATUS: ZERO. The one wall the arc still had on its books is retired by measurement rather
+  than by a row.**
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `4fde8ff23`): **017 SLICE 55 — THE MEMBER ARM, ITS
+  EXCLUSIVE CLOSURE AND
   THE UNDEFINED-MEMBER REPORT FAMILY, TERMINAL.** Target recorded BEFORE any production edit, at
   `f7f7c4b30` (`Analyzer.cs` **9,428** lines, non-blank **8,416**, member declarations **365** by the
   narrow metric — lines matching `^    (private|public|internal|protected).*\(` — and **430** by the

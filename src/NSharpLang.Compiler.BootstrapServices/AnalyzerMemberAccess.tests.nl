@@ -186,29 +186,28 @@ func MemberAliasDeclarations(harness: MemberAccessHarness, alias: string): Dicti
     return created
 }
 
-// One full turn of the protocol with a receiver answer supplied for the walk step, and the report
-// step performed by counting it rather than rendering it. The count is what the contracts about the
-// report's PLACEMENT assert against — the arm must ask for it, and it must ask LAST.
+// One full turn of the protocol with a receiver answer supplied for the walk step. The report is no
+// longer a step, so it is observed where it now happens: THROUGH THE SINK. That is a stronger
+// observation than the retired kind-2 count, because it proves the report was RENDERED and not merely
+// requested.
 func MemberDriveWith(harness: MemberAccessHarness, node: Expression, receiverAnswer: TypeInfo): MemberDriveTrace {
     trace := new MemberDriveTrace()
+    before := harness.Errors.Count
     state := harness.Arm.Begin(node)
     step := harness.Arm.NextStep(state)
     while step != null {
         trace.Kinds = trace.Kinds + step.Kind.ToString()
-        answer: TypeInfo? = null
-        if step.Kind == 1 {
-            answer = receiverAnswer
-        } else {
-            trace.Reports = trace.Reports + 1
-            trace.ReportedReceiver = MemberTypeName(step.ReceiverType)
-            trace.ReportedIncludeStatic = step.IncludeStaticMembers
-        }
-
-        harness.Arm.Supply(state, answer)
+        harness.Arm.Supply(state, receiverAnswer)
         step = harness.Arm.NextStep(state)
     }
 
     trace.Answer = MemberTypeName(harness.Arm.Result(state))
+    trace.Reports = harness.Errors.Count - before
+    if trace.Reports > 0 {
+        reported := harness.Errors[harness.Errors.Count - 1]
+        trace.ReportedMessage = reported.Message
+    }
+
     return trace
 }
 
@@ -216,15 +215,13 @@ class MemberDriveTrace {
     Kinds: string
     Reports: int
     Answer: string
-    ReportedReceiver: string
-    ReportedIncludeStatic: bool
+    ReportedMessage: string
 
     constructor() {
         Kinds = ""
         Reports = 0
         Answer = ""
-        ReportedReceiver = ""
-        ReportedIncludeStatic = false
+        ReportedMessage = ""
     }
 }
 
@@ -401,13 +398,16 @@ test "the narrowed-origin silence needs an ENCLOSING nullable — the innermost 
     harness := MemberArmOf()
 
     // Only one scope, and it holds the nullable. `FindEnclosingNullableSymbol` starts one scope OUT,
-    // so there is no origin to find and the ordinary warning fires. That is the boundary the whole
-    // asymmetry rests on.
+    // so there is no origin to find, the nullable fork does not answer, and the access falls through
+    // to ordinary resolution — which misses and REPORTS. That is the boundary the whole asymmetry
+    // rests on. (The report was invisible while the harness counted the retired report step instead of
+    // rendering it; observing the sink is what makes it visible, and production always rendered it.)
     MemberDeclare(harness, "count", new NullableTypeInfo(BuiltInTypes.Int))
     trace := MemberDriveWith(harness, MemberAccessOf("count", "Value", false), BuiltInTypes.Int)
 
     assert trace.Answer == "unknown"
-    assert harness.Errors.Count == 0
+    assert trace.Reports == 1
+    assert MemberCodes(harness.Errors) == "303"
 }
 
 test "a NON-primitive receiver never reaches the narrowed-origin path" {
@@ -660,36 +660,35 @@ test "a shape with no member list at all stays silent" {
 
 // ---- the report step -----------------------------------------------------------------------------
 
-test "a resolution MISS asks for the report step, and it is asked LAST" {
+test "a resolution MISS RENDERS the report itself, and the walk takes only its one step" {
     harness := MemberArmOf()
     MemberDeclare(harness, "widget", MemberSampleClass("Widget"))
     trace := MemberDriveWith(harness, MemberAccessOf("widget", "Nonesuch", false), MemberSampleClass("Widget"))
 
-    assert trace.Kinds == "12"
+    // ONE kind, not two: the report used to be kind 2 and is now rendered where it is decided.
+    assert trace.Kinds == "1"
     assert trace.Reports == 1
-    assert trace.ReportedReceiver == "class:Widget"
-    assert !trace.ReportedIncludeStatic
+    assert trace.ReportedMessage.Contains("Nonesuch")
+    assert trace.ReportedMessage.Contains("Widget")
+    assert MemberCodes(harness.Errors) == "303"
 }
 
-test "the walk's ANSWER is not settled until after the report has been performed" {
+test "the report lands BEFORE the walk's answer is observable" {
     harness := MemberArmOf()
     MemberDeclare(harness, "widget", MemberSampleClass("Widget"))
     state := harness.Arm.Begin(MemberAccessOf("widget", "Nonesuch", false))
     harness.Arm.NextStep(state)
+    assert harness.Errors.Count == 0
+
+    // Supplying the receiver finishes the walk: the report is rendered inside that same call, ahead of
+    // the answer being settled, which is the ordering the retired report step existed to guarantee.
     harness.Arm.Supply(state, MemberSampleClass("Widget"))
-
-    // The report is outstanding. The walk is holding `unknown` and has not written its answer, which
-    // is what keeps the report the LAST observable effect of this arm.
-    reportStep := harness.Arm.NextStep(state)
-    assert reportStep != null
-    assert reportStep.Kind == 2
-
-    harness.Arm.Supply(state, null)
+    assert harness.Errors.Count == 1
     assert harness.Arm.NextStep(state) == null
     assert MemberTypeName(harness.Arm.Result(state)) == "unknown"
 }
 
-test "a receiver the rule keeps silent about asks for NO report step" {
+test "a receiver the rule keeps silent about reports NOTHING" {
     harness := MemberArmOf()
     MemberDeclare(harness, "anything", BuiltInTypes.Object)
     trace := MemberDriveWith(harness, MemberAccessOf("anything", "Nonesuch", false), BuiltInTypes.Object)
@@ -699,13 +698,18 @@ test "a receiver the rule keeps silent about asks for NO report step" {
     assert trace.Answer == "unknown"
 }
 
-test "the report step carries the STATIC flag the receiver classification decided" {
+test "a TYPE receiver's report draws its did-you-mean names from the STATIC pool" {
     harness := MemberArmOf()
     harness.Scopes.Peek().Types["Widget"] = MemberSampleClass("Widget")
     trace := MemberDriveWith(harness, MemberAccessOf("Widget", "Nonesuch", false), MemberSampleClass("Widget"))
 
     assert trace.Reports == 1
-    assert trace.ReportedIncludeStatic
+
+    // The static and instance pools are different walks over the same receiver, and the report gets
+    // whichever the receiver classification chose.
+    staticNames := harness.Arm.GetAvailableMemberNames(MemberSampleClass("Widget"), true)
+    instanceNames := harness.Arm.GetAvailableMemberNames(MemberSampleClass("Widget"), false)
+    assert staticNames.Count != instanceNames.Count
 }
 
 test "a null-conditional MISS still answers unknown rather than nullable-unknown" {

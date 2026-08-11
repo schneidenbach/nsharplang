@@ -333,6 +333,13 @@ public class Analyzer : IDisposable
     // collaborators the rebuild DOES replace arrive through `SetMetadataCollaborators`, because the
     // owner carries the per-analysis compilation unit and binding map and a rebuild would drop them.
     private readonly AnalyzerMemberAccess _memberAccess;
+
+    // What `a[i]` and `[a, b, c]` mean. Both are constructed AFTER the member-access owner because
+    // the index arm asks it for the null-conditional result wrap; neither is rebuilt with the
+    // metadata load context, because neither holds a metadata collaborator — the index arm reflects
+    // only on types it is handed, and the array arm's collection-target predicates are pure.
+    private readonly AnalyzerIndexAccess _indexAccess;
+    private readonly AnalyzerArrayLiteral _arrayLiteral;
     private bool _disposed;
 
     public Analyzer()
@@ -421,6 +428,12 @@ public class Analyzer : IDisposable
             _identifierResolution, _extensionMethods, _usingNamespaces, _usingAliases,
             _importedSymbolsByAlias, _importedDeclarationsByAlias, _mlcAssemblies,
             _memberResolution, _clrTypeConversion, _extensionMethodResolution, _bindingMap);
+        _indexAccess = new AnalyzerIndexAccess(
+            _diagnostics, _spans, _declarationContext, _ambient, _nullFlow, _soaEscape,
+            _memberAccess, _constantExpressionFacts);
+        _arrayLiteral = new AnalyzerArrayLiteral(
+            _diagnostics, _spans, _declarationContext, _ambient, _soaEscape, _assignability,
+            _assignabilityFacts);
     }
 
     private AnalyzerFlowNarrowing CreateFlowNarrowing()
@@ -1305,12 +1318,13 @@ public class Analyzer : IDisposable
         => enumType.GetField(memberName, BindingFlags.Public | BindingFlags.Static) != null;
 
     private void ReportUndefinedAttributeStaticMember(TypeInfo receiverType, MemberAccessExpression memberAccess)
-        => ReportUndefinedMember(
+        => _memberAccess.ReportUndefinedMemberAt(
             receiverType,
             memberAccess.MemberName,
             memberAccess.Line,
             _spans.GetMemberNameColumn(memberAccess),
-            includeStaticMembers: true);
+            includeStaticMembers: true,
+            typeNameOverride: null);
 
     private static AttributeArgumentConstantKind ClassifyAttributeRuntimeType(Type type)
     {
@@ -3041,12 +3055,13 @@ public class Analyzer : IDisposable
     /// fire and that each of them ends the walk, that visibility is checked and the binding recorded
     /// BEFORE resolution, and WHETHER a name that did not resolve is worth reporting at all —
     /// belongs to the N# owner.
-    /// The two kinds are one walk and one report. Kind 1 is the RECEIVER, and it is the ordinary
-    /// dispatch rather than the identifier rule, because an identifier receiver must also be judged
-    /// by the tail below. Kind 2 RENDERS the undefined-member report the owner has already decided
-    /// is owed; it stays here only because building its did-you-mean list reads
-    /// <c>PropertyInfo.Name</c> and <c>FieldInfo.Name</c>, which the columnar catalog does not model
-    /// (its sibling <c>MethodInfo.Name</c> does, by an explicit row). Two catalog rows retire it.
+    /// The ONE kind is the RECEIVER, and it is the ordinary dispatch rather than the identifier rule,
+    /// because an identifier receiver must also be judged by the tail below. The second kind is gone:
+    /// it rendered the undefined-member report, and it existed only because that report's did-you-mean
+    /// list reads <c>PropertyInfo.Name</c> and <c>FieldInfo.Name</c>, which were measured as absent
+    /// from the columnar catalog. Re-measurement showed the catalog is the legacy planner's surface
+    /// and both names bind through the ordinary runtime resolver, so the report moved to the owner
+    /// that decides it is owed.
     /// This loop decides nothing: it performs the one operation it is handed, with the operands it is
     /// handed.
     /// </summary>
@@ -3056,18 +3071,7 @@ public class Analyzer : IDisposable
              step != null;
              step = _memberAccess.NextStep(state))
         {
-            TypeInfo? answer = null;
-            switch (step.Kind)
-            {
-                case 1:
-                    answer = AnalyzeExpression(step.Node!);
-                    break;
-                case 2:
-                    ReportUndefinedMember(step.ReceiverType, (MemberAccessExpression)step.Node!, step.IncludeStaticMembers);
-                    break;
-            }
-
-            _memberAccess.Supply(state, answer);
+            _memberAccess.Supply(state, AnalyzeExpression(step.Node!));
         }
 
         return _memberAccess.Result(state);
@@ -3088,14 +3092,14 @@ public class Analyzer : IDisposable
                 or MustExpression or StackAllocExpression or TupleExpression or AwaitExpression
                 => DrivePassThroughOperand(_passThroughOperands.Begin(expr, _patternReachability)),
             MemberAccessExpression => DriveMemberAccess(_memberAccess.Begin(expr)),
-            IndexAccessExpression index => AnalyzeIndexAccess(index),
+            IndexAccessExpression => DriveIndexAccess(_indexAccess.Begin(expr, _assignmentTargetExpressionTypes != null)),
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
             OnSubscriptionExpression on => AnalyzeOnSubscription(on),
             LambdaExpression lambda => AnalyzeLambda(lambda, _ambient.CurrentExpectedType),
             CastExpression or CheckedExpression or UncheckedExpression or TernaryExpression
                 => DriveTargetTypedOperand(_targetTypedOperands.Begin(expr)),
-            ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
+            ArrayLiteralExpression => DriveArrayLiteral(_arrayLiteral.Begin(expr)),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
             ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
             BaseExpression => AnalyzeBaseExpression(),
@@ -3282,248 +3286,30 @@ public class Analyzer : IDisposable
             length);
     }
 
-    private TypeInfo AnalyzeIndexAccess(IndexAccessExpression index)
+    /// <summary>
+    /// Performs the steps <see cref="AnalyzerIndexAccess"/> asks for and returns the type it decided.
+    /// Every policy about what an index access means — that the receiver decides whether the index is
+    /// walked expecting an <c>int</c>, in which order the eight refusals fire and that each of them
+    /// ends the walk, that a column slice allocates and is refused outside a write, and what the
+    /// element type of an array, a string, a table, a named generic or a reflected indexer actually
+    /// is — belongs to the N# owner.
+    /// The ONE kind is an operand walk, handed out twice: the receiver, then the index. The
+    /// expected-type bracket around the second is opened and closed by the OWNER, not here, because
+    /// the C# bracketed a plain expression walk rather than the named-expected-type one, so there is
+    /// no lambda fork inside the step.
+    /// This loop decides nothing: it performs the one operation it is handed, with the operands it is
+    /// handed.
+    /// </summary>
+    private TypeInfo DriveIndexAccess(IndexAccessState state)
     {
-        var objectType = AnalyzeExpression(index.Object);
-        _nullFlow.ReportPossibleNullAccess(index.Object, objectType, index.Line, index.Column, "index", index.IsNullConditional);
-
-        var receiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(objectType));
-        var previousExpectedIndexType = _ambient.EnterExpectedTypeIfProvided(
-            ShouldUseIntExpectedTypeForIndex(receiverType) ? BuiltInTypes.Int : null);
-        var indexType = AnalyzeExpression(index.Index);
-        _ambient.ExitExpectedType(previousExpectedIndexType);
-        if (receiverType is SoaRecordTypeInfo && index.IsNullConditional)
+        for (var step = _indexAccess.NextStep(state);
+             step != null;
+             step = _indexAccess.NextStep(state))
         {
-            _soaEscape.ReportSoaRowEscape(index, "used with null-conditional indexing");
-            return BuiltInTypes.Unknown;
+            _indexAccess.Supply(state, AnalyzeExpression(step.Node!));
         }
 
-        if (index.IsNullConditional
-            && _soaEscape.ReportDirectColumnNullConditionalAccessIfNeeded(index, index.Object, "index access"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        var isSoaRowReceiver = receiverType is SoaRowTypeInfo;
-        var isSoaRowIndex = _soaEscape.ReportSoaRowEscapeIfNeeded(index.Index, indexType, "used as an index value");
-        var isSoaDirectColumnIndex = _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(index.Index, "used as an index value");
-        if (isSoaRowReceiver)
-        {
-            _soaEscape.ReportSoaRowEscape(index.Object, "used as an index receiver");
-        }
-
-        if (isSoaRowReceiver || isSoaRowIndex || isSoaDirectColumnIndex)
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        var isRangeAccess = index.Index is RangeExpression || IsRangeLikeType(indexType);
-        if (receiverType is SoaRecordTypeInfo
-            && ReportNegativeSoaRowIndexIfNeeded(index.Index, indexType, "table row"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-        if (receiverType is SoaRecordTypeInfo && !IsValidSoaRowIndex(indexType, isRangeAccess))
-        {
-            ReportInvalidSoaRowIndex(index.Index, indexType, isRangeAccess);
-            return BuiltInTypes.Unknown;
-        }
-
-        if (isRangeAccess
-            && _assignmentTargetExpressionTypes == null
-            && _soaEscape.IsSoaColumnMemberAccess(index.Object))
-        {
-            ReportSoaColumnSliceHiddenAllocation(index);
-            return BuiltInTypes.Unknown;
-        }
-        if (!isRangeAccess
-            && _soaEscape.IsSoaColumnMemberAccess(index.Object)
-            && ReportNegativeSoaRowIndexIfNeeded(index.Index, indexType, "column row"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (!ValidateBuiltInIndexAccess(index, receiverType, indexType, isRangeAccess))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        var elementType = ResolveIndexElementType(receiverType, indexType, isRangeAccess);
-
-        return index.IsNullConditional ? _memberAccess.MakeNullableResult(elementType) : elementType;
-    }
-
-    private bool ShouldUseIntExpectedTypeForIndex(TypeInfo receiverType)
-    {
-        var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
-        return resolvedReceiverType is SoaRecordTypeInfo
-            || resolvedReceiverType is ArrayTypeInfo
-            || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true }
-            || IsStringType(resolvedReceiverType);
-    }
-
-    private bool ValidateBuiltInIndexAccess(
-        IndexAccessExpression index,
-        TypeInfo receiverType,
-        TypeInfo indexType,
-        bool isRangeAccess)
-    {
-        var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
-        var isArrayReceiver = resolvedReceiverType is ArrayTypeInfo
-            || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true };
-        var isStringReceiver = IsStringType(resolvedReceiverType);
-
-        if (!isArrayReceiver && !isStringReceiver)
-            return true;
-
-        if (isRangeAccess)
-            return true;
-
-        var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
-        if (BuiltInTypes.IsUnknown(resolvedIndexType)
-            || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int)
-            || IsIndexLikeType(resolvedIndexType))
-        {
-            return true;
-        }
-
-        ReportInvalidBuiltInIndex(index.Index, resolvedIndexType, isStringReceiver ? "String" : "Array");
-        return false;
-    }
-
-    private bool IsValidSoaRowIndex(TypeInfo indexType, bool isRangeAccess)
-    {
-        if (isRangeAccess)
-            return false;
-
-        var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
-        return BuiltInTypes.IsUnknown(resolvedIndexType) || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int);
-    }
-
-    private bool ReportNegativeSoaRowIndexIfNeeded(Expression expression, TypeInfo indexType, string targetDescription)
-    {
-        var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
-        if (BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.Int)
-            && BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.Short)
-            && BuiltInTypes.IsNot(resolvedIndexType, BuiltInTypes.SByte))
-        {
-            return false;
-        }
-
-        if (!_constantExpressionFacts.IsConstantNegative(expression))
-        {
-            return false;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"SoA {targetDescription} indexes must not be negative",
-            line,
-            column,
-            "Use zero or a valid non-negative row id.",
-            length);
-        return true;
-    }
-
-    private void ReportInvalidSoaRowIndex(Expression expression, TypeInfo indexType, bool isRangeAccess)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        var resolvedIndexType = _declarationContext.ResolveDeclaredAlias(indexType);
-        var indexDescription = isRangeAccess
-            ? "a range"
-            : IsIndexLikeType(resolvedIndexType)
-                ? "'System.Index'"
-                : $"'{indexType}'";
-        Error(
-            ErrorCode.TypeMismatch,
-            $"SoA table indexes must be int row ids, but this index has type {indexDescription}",
-            line,
-            column,
-            "Use an int row index and read or write a column with table[index].column.",
-            length);
-    }
-
-    private void ReportInvalidBuiltInIndex(Expression expression, TypeInfo indexType, string receiverDescription)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"{receiverDescription} indexes must be int, System.Index, or System.Range, but this index has type '{indexType}'",
-            line,
-            column,
-            "Use an int element index, '^n' for from-end access, or a '..' range for slicing.",
-            length);
-    }
-
-    private void ReportSoaColumnSliceHiddenAllocation(IndexAccessExpression index)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(index);
-        Error(
-            ErrorCode.InvalidSyntax,
-            "SoA column range slices allocate arrays; use explicit element indexing instead",
-            line,
-            column,
-            "Iterate with int row indexes over table.column[row], or add an allocation-free view lowering with IL-shape evidence before using slices in compiler table kernels.",
-            length);
-    }
-
-    private TypeInfo ResolveIndexElementType(TypeInfo receiverType, TypeInfo indexType, bool isRangeAccess)
-    {
-        receiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
-
-        if (receiverType is ArrayTypeInfo arrayType)
-        {
-            return isRangeAccess
-                ? receiverType
-                : arrayType.ElementType;
-        }
-
-        if (!isRangeAccess && receiverType is SoaRecordTypeInfo soaRecordType)
-        {
-            return new SoaRowTypeInfo(soaRecordType.Declaration);
-        }
-
-        if (IsStringType(receiverType))
-        {
-            return isRangeAccess
-                ? BuiltInTypes.String
-                : BuiltInTypes.Char;
-        }
-
-        if (receiverType is GenericTypeInfo genericType)
-        {
-            var name = genericType.Name;
-            if (name.EndsWith("Dictionary", StringComparison.Ordinal) && genericType.TypeArguments.Count >= 2)
-                return genericType.TypeArguments[1];
-
-            if (genericType.TypeArguments.Count == 1
-                && (name.EndsWith("List", StringComparison.Ordinal)
-                    || name.EndsWith("IList", StringComparison.Ordinal)
-                    || name.EndsWith("IReadOnlyList", StringComparison.Ordinal)
-                    || name.EndsWith("Collection", StringComparison.Ordinal)))
-            {
-                return genericType.TypeArguments[0];
-            }
-        }
-
-        if (receiverType is ReflectionTypeInfo reflectionType)
-        {
-            var type = reflectionType.Type;
-            if (type.IsArray)
-                return isRangeAccess
-                    ? AnalyzerReflectionTypeConversion.ConvertReflectionType(type)
-                    : AnalyzerReflectionTypeConversion.ConvertReflectionType(type.GetElementType()!);
-
-            var indexer = type.GetDefaultMembers()
-                .OfType<PropertyInfo>()
-                .FirstOrDefault(property => property.GetIndexParameters().Length > 0);
-
-            if (indexer != null)
-                return AnalyzerReflectionTypeConversion.ConvertReflectionType(indexer.PropertyType);
-        }
-
-        return BuiltInTypes.Unknown;
+        return _indexAccess.Result(state);
     }
 
     private static bool IsRangeLikeType(TypeInfo type)
@@ -3545,107 +3331,6 @@ public class Analyzer : IDisposable
 
     private TypeInfo GetNonNullableType(TypeInfo type)
         => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
-
-    private TypeInfo ResolveAliasAndMetadata(TypeInfo typeInfo)
-        => typeInfo switch
-        {
-            AliasTypeInfo alias => ResolveAliasAndMetadata(_declarationContext.ResolveDeclaredAlias(alias)),
-            ObliviousTypeInfo oblivious => ResolveAliasAndMetadata(oblivious.InnerType),
-            _ => typeInfo
-        };
-
-    private void ReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member, bool includeStaticMembers)
-        => ReportUndefinedMember(receiverType, member.MemberName, member.Line, _spans.GetMemberNameColumn(member), includeStaticMembers);
-
-    private void ReportUndefinedMember(
-        TypeInfo receiverType,
-        string memberName,
-        int line,
-        int column,
-        bool includeStaticMembers,
-        string? typeNameOverride = null)
-    {
-        var length = Math.Max(1, memberName.Length);
-        var typeName = typeNameOverride ?? NullabilityMetadataReflection.FormatTypeInfo(receiverType);
-        var similarMembers = FindSimilarMemberNames(receiverType, memberName, includeStaticMembers);
-
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.UndefinedMember(
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                length,
-                memberName,
-                typeName,
-                similarMembers));
-            return;
-        }
-
-        Error(
-            ErrorCode.UndefinedMember,
-            $"Member '{memberName}' not found on type '{typeName}'",
-            line,
-            column,
-            similarMembers.Count > 0 ? $"Did you mean '{similarMembers[0]}'?" : null,
-            length);
-    }
-
-    private List<string> FindSimilarMemberNames(TypeInfo receiverType, string memberName, bool includeStaticMembers)
-    {
-        var candidates = GetAvailableMemberNames(receiverType, includeStaticMembers)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        return candidates.Count == 0
-            ? new List<string>()
-            : new SmartSuggester(candidates).SuggestSimilarNames(memberName);
-    }
-
-    private List<string> GetAvailableMemberNames(
-        TypeInfo receiverType,
-        bool includeStaticMembers)
-    {
-        receiverType = ResolveAliasAndMetadata(receiverType);
-        if (receiverType is NullableTypeInfo nullableType)
-        {
-            var nullableMembers = new List<string> { "HasValue", "Value" };
-            nullableMembers.AddRange(GetAvailableMemberNames(nullableType.InnerType, includeStaticMembers));
-            return nullableMembers;
-        }
-
-        if (receiverType is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
-        {
-            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(receiverType);
-            if (clrType != null)
-                return GetReflectionMemberNames(clrType, includeStaticMembers);
-        }
-        if (receiverType is ReflectionTypeInfo reflectionType)
-            return GetReflectionMemberNames(reflectionType.Type, includeStaticMembers);
-
-        var members = _declarationContext.GetAvailableSourceMemberNames(
-            receiverType, includeStaticMembers);
-        if (!includeStaticMembers && _declarationContext.SourceObjectMembersApply(receiverType))
-            members.AddRange(GetReflectionMemberNames(typeof(object), includeStaticMembers: false));
-        return members;
-    }
-
-    private static List<string> GetReflectionMemberNames(Type type, bool includeStaticMembers)
-    {
-        var flags = BindingFlags.Public | BindingFlags.Instance;
-        if (includeStaticMembers)
-            flags |= BindingFlags.Static;
-
-        return type.GetProperties(flags).Select(property => property.Name)
-            .Concat(type.GetFields(flags).Select(field => field.Name))
-            .Concat(type.GetMethods(flags)
-                .Where(method => !method.IsSpecialName)
-                .Select(method => method.Name))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
 
     /// <summary>
     /// Walks a CLR parameter type and a TypeInfo argument in parallel to extract TypeInfo bindings
@@ -5299,7 +4984,7 @@ public class Analyzer : IDisposable
             || (expressionTypes.TryGetValue(indexAccess.Index, out var indexType) && IsRangeLikeType(indexType));
         if (isRangeAccess && _soaEscape.IsSoaColumnMemberAccess(indexAccess.Object))
         {
-            ReportSoaColumnSliceHiddenAllocation(indexAccess);
+            _indexAccess.ReportSoaColumnSliceHiddenAllocation(indexAccess);
             return true;
         }
 
@@ -6257,292 +5942,27 @@ public class Analyzer : IDisposable
         return null;
     }
 
-    private (TypeInfo ElementType, string TargetKind)? GetExpectedElementType(TypeInfo? expectedType)
+    /// <summary>
+    /// Performs the steps <see cref="AnalyzerArrayLiteral"/> asks for and returns the type it decided.
+    /// Every policy about what an array literal means — that a named element type is the answer
+    /// whatever the elements turn out to be while an unnamed one is decided by the FIRST element,
+    /// that an empty literal takes no steps at all, which word a mismatched element is scolded with,
+    /// and which collection targets the backend can actually materialise — belongs to the N# owner.
+    /// The ONE kind is an element walk, handed out once per element and bracketed by the owner when
+    /// the surrounding annotation named an element type.
+    /// This loop decides nothing: it performs the one operation it is handed, with the operands it is
+    /// handed.
+    /// </summary>
+    private TypeInfo DriveArrayLiteral(ArrayLiteralState state)
     {
-        if (expectedType == null)
+        for (var step = _arrayLiteral.NextStep(state);
+             step != null;
+             step = _arrayLiteral.NextStep(state))
         {
-            return null;
+            _arrayLiteral.Supply(state, AnalyzeExpression(step.Node!));
         }
 
-        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
-        if (_assignabilityFacts.TryGetCollectionElementType(resolvedExpectedType, out var collectionElementType))
-        {
-            return (collectionElementType, "collection");
-        }
-
-        return resolvedExpectedType switch
-        {
-            ArrayTypeInfo arrayType => (arrayType.ElementType, "array"),
-            ReflectionTypeInfo reflectionType when reflectionType.Type.IsArray && reflectionType.Type.GetElementType() != null
-                => (AnalyzerReflectionTypeConversion.ConvertReflectionType(reflectionType.Type.GetElementType()!), "array"),
-            _ => null
-        };
-    }
-
-    private TypeInfo AnalyzeArrayLiteral(ArrayLiteralExpression array)
-    {
-        var expectedElement = GetExpectedElementType(_ambient.CurrentExpectedType);
-        var expectedElementType = expectedElement?.ElementType;
-        ReportUnsupportedCollectionExpressionTargetIfNeeded(array, _ambient.CurrentExpectedType);
-        if (array.Elements.Count == 0)
-        {
-            return new ArrayTypeInfo(expectedElementType ?? BuiltInTypes.Unknown);
-        }
-
-        if (expectedElementType != null)
-        {
-            var targetKind = expectedElement?.TargetKind ?? "array";
-            var elementLabel = targetKind == "collection" ? "Collection element" : "Array element";
-            var storageContext = targetKind == "collection" ? "stored in a collection literal" : "stored in an array";
-
-            foreach (var elem in array.Elements)
-            {
-                var previousExpectedType = _ambient.EnterExpectedType(expectedElementType);
-                var elemType = AnalyzeExpression(elem);
-                _ambient.ExitExpectedType(previousExpectedType);
-
-                _soaEscape.ReportSoaRowEscapeIfNeeded(elem, elemType, storageContext);
-                _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(elem, storageContext);
-                if (!_assignability.IsAssignable(expectedElementType, elemType))
-                {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(elem);
-                    Error(ErrorCode.TypeMismatch,
-                        $"{elementLabel} is '{elemType}', but the target {targetKind} expects '{expectedElementType}'",
-                        diagnosticLine,
-                        diagnosticColumn,
-                        length: diagnosticLength);
-                }
-            }
-
-            return new ArrayTypeInfo(expectedElementType);
-        }
-
-        var firstType = AnalyzeExpression(array.Elements[0]);
-        _soaEscape.ReportSoaRowEscapeIfNeeded(array.Elements[0], firstType, "stored in an array");
-        _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(array.Elements[0], "stored in an array");
-        foreach (var elem in array.Elements.Skip(1))
-        {
-            var elemType = AnalyzeExpression(elem);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(elem, elemType, "stored in an array");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(elem, "stored in an array");
-            if (!_assignability.IsAssignable(firstType, elemType))
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(elem);
-                Error(ErrorCode.TypeMismatch,
-                    $"All elements in an array must be the same type — the first element is '{firstType}' but I found '{elemType}'",
-                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
-            }
-        }
-
-        return new ArrayTypeInfo(firstType);
-    }
-
-    private void ReportUnsupportedCollectionExpressionTargetIfNeeded(ArrayLiteralExpression array, TypeInfo? expectedType)
-    {
-        if (expectedType == null)
-        {
-            return;
-        }
-
-        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
-        if (!IsUnsupportedCollectionExpressionTarget(resolvedExpectedType, out var targetName))
-        {
-            return;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(array);
-        Error(
-            ErrorCode.FeatureNotImplemented,
-            $"Collection expressions for '{targetName}' are not implemented yet",
-            line,
-            column,
-            "Use an array, List<T>, HashSet<T>, Queue<T>, or construct the queryable value explicitly.",
-            length);
-    }
-
-    private static bool IsUnsupportedCollectionExpressionTarget(TypeInfo type, out string targetName)
-    {
-        targetName = type.ToString();
-        return type switch
-        {
-            GenericTypeInfo { Name: "IQueryable" } => true,
-            ReflectionTypeInfo reflectionType when IsIQueryableType(reflectionType.Type) => true,
-            ReflectionTypeInfo reflectionType
-                when IsReflectionCollectionExpressionTarget(reflectionType.Type)
-                     && !CanMaterializeReflectionCollectionExpressionTarget(reflectionType.Type) => true,
-            _ => false
-        };
-    }
-
-    private static bool IsIQueryableType(Type type)
-        => IsGenericDefinition(type, typeof(IQueryable<>));
-
-    private static bool IsReflectionCollectionExpressionTarget(Type type)
-        => TryGetReflectionCollectionExpressionElementType(type, out _);
-
-    private static bool CanMaterializeReflectionCollectionExpressionTarget(Type targetType)
-    {
-        if (targetType == typeof(object))
-        {
-            return false;
-        }
-
-        if (targetType.IsArray)
-        {
-            return true;
-        }
-
-        if (!TryGetReflectionCollectionExpressionElementType(targetType, out var elementType))
-        {
-            return false;
-        }
-
-        if (!targetType.IsInterface && !targetType.IsAbstract)
-        {
-            return HasSingleEnumerableConstructor(targetType, elementType)
-                || (HasParameterlessConstructor(targetType) && HasCollectionExpressionMutator(targetType, elementType));
-        }
-
-        return IsSupportedCollectionExpressionInterfaceTarget(targetType)
-            || IsAssignableFromConstructed(targetType, typeof(List<>), elementType)
-            || IsAssignableFromConstructed(targetType, typeof(HashSet<>), elementType)
-            || IsAssignableFromConstructed(targetType, typeof(Queue<>), elementType);
-    }
-
-    private static bool TryGetReflectionCollectionExpressionElementType(Type type, out Type elementType)
-    {
-        elementType = typeof(object);
-        if (type.IsArray)
-        {
-            elementType = type.GetElementType() ?? typeof(object);
-            return true;
-        }
-
-        foreach (var candidate in EnumerateReflectionCollectionExpressionSequenceTypes(type))
-        {
-            if (!candidate.IsGenericType)
-            {
-                continue;
-            }
-
-            if (IsGenericDefinition(candidate, typeof(IEnumerable<>))
-                || IsGenericDefinition(candidate, typeof(ICollection<>))
-                || IsGenericDefinition(candidate, typeof(IList<>))
-                || IsGenericDefinition(candidate, typeof(IReadOnlyCollection<>))
-                || IsGenericDefinition(candidate, typeof(IReadOnlyList<>))
-                || IsGenericDefinition(candidate, typeof(IEnumerator<>))
-                || IsGenericDefinition(candidate, typeof(IAsyncEnumerable<>))
-                || IsGenericDefinition(candidate, typeof(IAsyncEnumerator<>)))
-            {
-                elementType = candidate.GetGenericArguments()[0];
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static IEnumerable<Type> EnumerateReflectionCollectionExpressionSequenceTypes(Type type)
-    {
-        yield return type;
-
-        Type[] interfaces;
-            interfaces = type.GetInterfaces();
-
-        foreach (var interfaceType in interfaces)
-        {
-            yield return interfaceType;
-        }
-    }
-
-    private static bool HasParameterlessConstructor(Type targetType)
-        => HasPublicInstanceConstructor(targetType, constructor => constructor.GetParameters().Length == 0);
-
-    private static bool HasSingleEnumerableConstructor(Type targetType, Type elementType)
-        => HasPublicInstanceConstructor(targetType, method => HasSingleEnumerableParameter(method, elementType));
-
-    private static bool HasPublicInstanceConstructor(Type targetType, Func<ConstructorInfo, bool> predicate)
-    {
-            return targetType
-                .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-                .Any(predicate);
-    }
-
-    private static bool HasSingleEnumerableParameter(MethodBase method, Type elementType)
-    {
-            var parameters = method.GetParameters();
-            if (parameters.Length != 1)
-            {
-                return false;
-            }
-
-            var parameterType = parameters[0].ParameterType;
-            return IsGenericDefinition(parameterType, typeof(IEnumerable<>))
-                && AnalyzerConversionFacts.IsReflectionAssignableFrom(parameterType, typeof(IEnumerable<>).MakeGenericType(elementType));
-    }
-
-    private static bool HasCollectionExpressionMutator(Type targetType, Type elementType)
-    {
-            return targetType
-                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                .Any(method => method.Name is "Add" or "Enqueue"
-                    && HasSingleCollectionElementParameter(method, elementType));
-    }
-
-    private static bool HasSingleCollectionElementParameter(MethodBase method, Type elementType)
-    {
-            var parameters = method.GetParameters();
-            if (parameters.Length != 1)
-            {
-                return false;
-            }
-
-            var parameterType = parameters[0].ParameterType;
-            if (elementType.IsValueType)
-            {
-                return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(parameterType, elementType);
-            }
-
-            return AnalyzerConversionFacts.IsReflectionAssignableFrom(parameterType, elementType);
-    }
-
-    private static bool IsSupportedCollectionExpressionInterfaceTarget(Type targetType)
-    {
-        if (!targetType.IsInterface)
-        {
-            return false;
-        }
-
-        var definitionName = GetGenericDefinitionFullName(targetType);
-        return definitionName is
-            "System.Collections.Generic.IEnumerable`1" or
-            "System.Collections.Generic.ICollection`1" or
-            "System.Collections.Generic.IList`1" or
-            "System.Collections.Generic.IReadOnlyCollection`1" or
-            "System.Collections.Generic.IReadOnlyList`1" or
-            "System.Collections.Generic.ISet`1" or
-            "System.Collections.Generic.IReadOnlySet`1";
-    }
-
-    private static bool IsGenericDefinition(Type type, Type openGenericType)
-        => string.Equals(
-            GetGenericDefinitionFullName(type),
-            openGenericType.FullName,
-            StringComparison.Ordinal);
-
-    private static string? GetGenericDefinitionFullName(Type type)
-    {
-        if (!type.IsGenericType)
-        {
-            return null;
-        }
-
-            return type.GetGenericTypeDefinition().FullName;
-    }
-
-    private static bool IsAssignableFromConstructed(Type targetType, Type openGenericType, Type elementType)
-    {
-            return targetType.IsAssignableFrom(openGenericType.MakeGenericType(elementType));
+        return _arrayLiteral.Result(state);
     }
 
     private TypeInfo AnalyzeNewExpression(NewExpression newExpr)
@@ -6809,10 +6229,15 @@ public class Analyzer : IDisposable
         if (prop.Name == null || prop.IndexExpression != null)
         {
             ReportUnsupportedSoaTableInitializerShapeIfNeeded(constructedType, prop, "object-initializer");
-            var expectedElement = prop.Name == null && prop.IndexExpression == null
-                ? GetExpectedElementType(constructedType)
-                : null;
-            var expectedElementType = expectedElement?.ElementType;
+            TypeInfo? expectedElementType = null;
+            var expectedTargetKind = "array";
+            if (prop.Name == null
+                && prop.IndexExpression == null
+                && _arrayLiteral.TryGetExpectedElementType(constructedType, out var expectedElement, out var resolvedTargetKind))
+            {
+                expectedElementType = expectedElement;
+                expectedTargetKind = resolvedTargetKind;
+            }
             var previousInitializerExpectedType = _ambient.EnterExpectedTypeIfProvided(expectedElementType);
             var initializerValueType = AnalyzeExpression(prop.Value);
             _ambient.ExitExpectedType(previousInitializerExpectedType);
@@ -6820,7 +6245,7 @@ public class Analyzer : IDisposable
             _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(prop.Value, "stored in an initializer");
             if (expectedElementType != null && !_assignability.IsAssignable(expectedElementType, initializerValueType))
             {
-                var targetKind = expectedElement?.TargetKind ?? "array";
+                var targetKind = expectedTargetKind;
                 var elementLabel = targetKind == "collection" ? "Collection initializer element" : "Array initializer element";
                 var (initializerDiagnosticLine, initializerDiagnosticColumn, initializerDiagnosticLength) =
                     _spans.GetExpressionDiagnosticSpan(prop.Value);
@@ -7013,7 +6438,7 @@ public class Analyzer : IDisposable
                     && BuiltInTypes.IsUnknown(_memberResolution.ResolveMember(openType, memberName, false, _ambient.CurrentTypeName))
                     && _memberAccess.ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
                 {
-                    ReportUndefinedMember(
+                    _memberAccess.ReportUndefinedMemberAt(
                         openType,
                         memberName,
                         nameLine,
@@ -7044,7 +6469,7 @@ public class Analyzer : IDisposable
         {
             if (_memberAccess.ShouldReportUndefinedMember(constructedType, memberName, includeStaticMembers: false))
             {
-                ReportUndefinedMember(constructedType, memberName, nameLine, nameColumn, includeStaticMembers: false);
+                _memberAccess.ReportUndefinedMemberAt(constructedType, memberName, nameLine, nameColumn, includeStaticMembers: false, typeNameOverride: null);
             }
 
             return false;
@@ -7109,7 +6534,7 @@ public class Analyzer : IDisposable
         }
         else if (_memberAccess.ShouldReportUndefinedMember(soaRecordType, memberName, includeStaticMembers: false))
         {
-            ReportUndefinedMember(soaRecordType, memberName, nameLine, nameColumn, includeStaticMembers: false);
+            _memberAccess.ReportUndefinedMemberAt(soaRecordType, memberName, nameLine, nameColumn, includeStaticMembers: false, typeNameOverride: null);
         }
 
         return true;

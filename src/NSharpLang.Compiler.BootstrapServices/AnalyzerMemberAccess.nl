@@ -7,8 +7,7 @@ import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
-// THE ONE STEP A MEMBER ACCESS TAKES, THE TWO FORMS THAT TAKE NONE, AND THE ONE REPORT IT CANNOT
-// RENDER ITSELF.
+// THE ONE STEP A MEMBER ACCESS TAKES AND THE TWO FORMS THAT TAKE NONE.
 //
 // A member access has exactly ONE operand — its receiver — so its WALK has exactly one kind. There
 // is no second walk kind for `a?.b`: the null-conditional flag is read FOUR times and every one of
@@ -20,14 +19,16 @@ import NSharpLang.Compiler.Ast
 //      by the dispatch host's common tail — the null state, the flow type, the two semantic-model
 //      records, the assignment-target capture and the three value-misuse reports. A member access
 //      whose receiver is a method group is refused THERE, not here.
-//   2  RENDER the undefined-member report for a receiver, a name and a position this owner has
-//      ALREADY decided is worth reporting. WHETHER to report is this owner's — `ShouldReport` is the
-//      rule and it lives here — and only the RENDERING is asked for, because the did-you-mean list
-//      is built by enumerating the receiver's reflected properties and fields and reading their
-//      names, and `PropertyInfo.Name` and `FieldInfo.Name` are not in the columnar catalog
-//      (`MethodInfo.Name` and `EventInfo.Name` are, by explicit rows, because all four are inherited
-//      from `MemberInfo` and only the named ones were published). Two catalog rows retire this kind;
-//      until then it is a step and not a callback, exactly as slice 53's write-target reports are.
+//
+// THERE IS NO SECOND KIND ANY MORE. The undefined-member report's RENDERING was one, on the measured
+// belief that its did-you-mean list could not be built in N# because it reads `PropertyInfo.Name` and
+// `FieldInfo.Name` and neither is in the columnar catalog. The belief was half right and the
+// conclusion was wrong: the catalog is the LEGACY whole-subtree planner's surface, consulted only
+// when that mode is on, and the ordinary runtime resolver binds any suitable public instance method
+// on a receiver type that is already supported — which both of these have been for many slices. What
+// slice 55 actually measured declining was `property.Name`, the PROPERTY spelling, which is its own
+// standing gotcha and not a catalog gap. The rendering therefore lives here, with the rule that
+// decides whether it is owed.
 //
 // TWO FORMS ANSWER BEFORE THE WALK STEP AND SO NEVER ASK FOR IT: an import ALIAS access
 // (`Alias.Symbol`), which is a table lookup and not an expression at all, and a QUALIFIED EXTERNAL
@@ -39,14 +40,10 @@ import NSharpLang.Compiler.Ast
 class MemberAccessRequest {
     Kind: int
     Node: Expression?
-    ReceiverType: TypeInfo
-    IncludeStaticMembers: bool
 
-    constructor(kind: int, node: Expression?, receiverType: TypeInfo, includeStaticMembers: bool) {
+    constructor(kind: int, node: Expression?) {
         Kind = kind
         Node = node
-        ReceiverType = receiverType
-        IncludeStaticMembers = includeStaticMembers
     }
 }
 
@@ -56,16 +53,13 @@ class MemberAccessRequest {
 // `Begin`: a member access means nothing until its receiver is known, so every path but the two
 // zero-step ones settles it in a phase that runs after a `Supply`.
 //
-// `Phase` runs 0 (nothing asked yet) → 1 (the receiver step is outstanding) → 2 (a report is owed)
-// → 3 (the report step is outstanding) → 99 (finished). Phases 2 and 3 are reached only on the miss
-// path, which slice 54's census measured at well under one resolution in a thousand. A node that is
-// not a member access at all lands in 99 at `Begin` with `unknown`, because the dispatch never hands
-// one over and a walk that guessed would hide the bug.
+// `Phase` runs 0 (nothing asked yet) → 1 (the receiver step is outstanding) → 99 (finished). A node
+// that is not a member access at all lands in 99 at `Begin` with `unknown`, because the dispatch
+// never hands one over and a walk that guessed would hide the bug.
 //
-// `PendingReceiverType`, `PendingIncludeStatic` and `PendingMemberType` are the report's operands and
-// the answer the walk is still holding while the report is outstanding. The answer must not be
-// settled before the report runs: the report is the LAST observable effect of this arm, and settling
-// first would move an alias resolution ahead of it.
+// THE THREE PENDING SLOTS ARE GONE with the report step they existed for: they held the report's
+// operands and the answer the walk was keeping back so the report stayed last. Now that the report is
+// rendered where it is decided, the answer is settled in the same statement and nothing is held.
 class MemberAccessState {
     memberValue: MemberAccessExpression?
 
@@ -73,17 +67,11 @@ class MemberAccessState {
 
     Phase: int
     ResultType: TypeInfo
-    PendingReceiverType: TypeInfo
-    PendingIncludeStatic: bool
-    PendingMemberType: TypeInfo
 
     constructor(member: MemberAccessExpression?) {
         memberValue = member
         Phase = 0
         ResultType = BuiltInTypes.Unknown
-        PendingReceiverType = BuiltInTypes.Unknown
-        PendingIncludeStatic = false
-        PendingMemberType = BuiltInTypes.Unknown
     }
 }
 
@@ -255,11 +243,6 @@ class AnalyzerMemberAccess {
             return null
         }
 
-        if state.Phase == 2 {
-            state.Phase = 3
-            return new MemberAccessRequest(2, member, state.PendingReceiverType, state.PendingIncludeStatic)
-        }
-
         if state.Phase != 0 {
             return null
         }
@@ -275,29 +258,17 @@ class AnalyzerMemberAccess {
         if TryResolveQualifiedExternalType(member.Object, out typeReceiver) {
             state.Phase = 99
             Finish(state, typeReceiver)
-            if state.Phase == 2 {
-                state.Phase = 3
-                return new MemberAccessRequest(2, member, state.PendingReceiverType, state.PendingIncludeStatic)
-            }
-
             return null
         }
 
         state.Phase = 1
-        return new MemberAccessRequest(1, member.Object, BuiltInTypes.Unknown, false)
+        return new MemberAccessRequest(1, member.Object)
     }
 
-    // THE ANSWER TO THE OUTSTANDING STEP. Kind 1 answers the receiver's type; a null answer is
+    // THE ANSWER TO THE OUTSTANDING STEP. The one kind answers the receiver's type; a null answer is
     // `unknown` rather than a missing one — the analyzer's expression walk never answers null, and a
-    // walk that saw one would otherwise carry it into a report. Kind 2 answers nothing, and the only
-    // work left after it is the answer this walk was holding back so the report stayed last.
+    // walk that saw one would otherwise carry it into a report.
     func Supply(state: MemberAccessState, answer: TypeInfo?) {
-        if state.Phase == 3 {
-            state.Phase = 99
-            CompleteAfterReport(state)
-            return
-        }
-
         if state.Phase != 1 {
             return
         }
@@ -307,15 +278,6 @@ class AnalyzerMemberAccess {
             Finish(state, answer)
         } else {
             Finish(state, BuiltInTypes.Unknown)
-        }
-    }
-
-    func CompleteAfterReport(state: MemberAccessState) {
-        member := state.Member
-        if member != null && member.IsNullConditional {
-            state.ResultType = MakeNullableResult(state.PendingMemberType)
-        } else {
-            state.ResultType = state.PendingMemberType
         }
     }
 
@@ -432,13 +394,20 @@ class AnalyzerMemberAccess {
         includeStaticMembers := IsStaticMemberAccessTarget(member.Object)
         memberType := memberResolutionValue.ResolveMember(receiverType, member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName)
         if BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member.MemberName, includeStaticMembers) {
-            // The report is OWED, not skipped: its rendering is kind 2, and the answer below is held
-            // until the driver has performed it. Returning here is what preserves the C#'s `else if`:
-            // the SoA column registration must not run when the report did.
-            state.PendingReceiverType = receiverType
-            state.PendingIncludeStatic = includeStaticMembers
-            state.PendingMemberType = memberType
-            state.Phase = 2
+            // The report is RENDERED HERE. It used to be a step the driver performed, because building
+            // the did-you-mean list reads `PropertyInfo.Name` and `FieldInfo.Name` off the receiver's
+            // reflected members — which slice 55 measured as absent from the columnar catalog and
+            // priced at two rows. The re-measurement overturned that: the catalog is the LEGACY
+            // whole-subtree planner's surface, and the ordinary runtime resolver binds both names on
+            // receivers that have been supported all along. Returning here is what preserves the C#'s
+            // `else if`: the SoA column registration must not run when the report did.
+            ReportUndefinedMember(receiverType, member, includeStaticMembers)
+            if member.IsNullConditional {
+                state.ResultType = MakeNullableResult(memberType)
+            } else {
+                state.ResultType = memberType
+            }
+
             return
         }
 
@@ -943,6 +912,151 @@ class AnalyzerMemberAccess {
         }
 
         return candidate
+    }
+
+    // NL303, THE RENDERING, IN BOTH SHAPES. The report lands at the MEMBER NAME's column rather than
+    // the node's, because underlining the receiver of `w.Sze` tells the developer the wrong thing.
+    func ReportUndefinedMember(receiverType: TypeInfo, member: MemberAccessExpression, includeStaticMembers: bool) {
+        ReportUndefinedMemberAt(receiverType, member.MemberName, member.Line, spansValue.GetMemberNameColumn(member), includeStaticMembers, null)
+    }
+
+    // PUBLISHED under its own name because three other paths — the object-initializer walk, the
+    // attribute static-member walk and the SoA table named-initializer walk — report the same thing
+    // about a position they computed themselves. `typeNameOverride` exists for exactly those: an open
+    // generic reports the name the developer WROTE, not the substituted one.
+    //
+    // THE RICH SHAPE IS PREFERRED AND THE BARE ONE IS NOT A FALLBACK FOR FAILURE: a diagnostic with no
+    // source line to underline (a synthesized node, or a unit with no file) still has a name and a
+    // suggestion, and gets them.
+    func ReportUndefinedMemberAt(receiverType: TypeInfo, memberName: string, line: int, column: int, includeStaticMembers: bool, typeNameOverride: string?) {
+        length := Math.Max(1, memberName.Length)
+        // The override is preferred and the formatter is NOT run when there is one — the C#'s `??`
+        // was lazy, and an open generic's report must name what the developer wrote.
+        typeName := ""
+        if typeNameOverride != null {
+            typeName = typeNameOverride
+        } else {
+            typeName = NullabilityMetadataReflection.FormatTypeInfo(receiverType)
+        }
+
+        similarMembers := FindSimilarMemberNames(receiverType, memberName, includeStaticMembers)
+        sourceSnippet := diagnosticsValue.SourceSnippet(line)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if sourceSnippet != null && currentFilePath != null {
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.UndefinedMember(currentFilePath, line, column, sourceSnippet, length, memberName, typeName, similarMembers))
+            return
+        }
+
+        suggestion: string? = null
+        if similarMembers.Count > 0 {
+            suggestion = "Did you mean '" + similarMembers[0] + "'?"
+        }
+
+        diagnosticsValue.Report(ErrorCode.UndefinedMember, "Member '" + memberName + "' not found on type '" + typeName + "'", line, column, suggestion, length)
+    }
+
+    // THE DID-YOU-MEAN LIST, DRAWN FROM THE RECEIVER'S OWN MEMBERS. A receiver that offers NOTHING
+    // gets no suggester at all rather than an empty one, which is the C#'s guard and matters because
+    // the suggester's threshold is relative to the candidate pool.
+    func FindSimilarMemberNames(receiverType: TypeInfo, memberName: string, includeStaticMembers: bool): List<string> {
+        candidates := GetAvailableMemberNames(receiverType, includeStaticMembers)
+        distinct := new List<string>()
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        for candidate in candidates {
+            if seen.Add(candidate) {
+                distinct.Add(candidate)
+            }
+        }
+
+        if distinct.Count == 0 {
+            return new List<string>()
+        }
+
+        suggester := new SmartSuggester(distinct)
+        return suggester.SuggestSimilarNames(memberName, 3)
+    }
+
+    // WHICH NAMES A RECEIVER OFFERS. A NULLABLE offers `HasValue` and `Value` AHEAD of its inner
+    // type's names, which is what makes `count.Vaule` suggest `Value` rather than an `int` member. A
+    // built-in, generic or array receiver is converted to a CLR type and reflected; a reflected
+    // receiver is reflected directly; and a SOURCE receiver answers from the declaration context —
+    // plus `object`'s four members when the receiver is one that inherits them.
+    func GetAvailableMemberNames(receiver: TypeInfo, includeStaticMembers: bool): List<string> {
+        receiverType := ResolveAliasAndMetadata(receiver)
+        nullableType := receiverType as NullableTypeInfo
+        if nullableType != null {
+            nullableMembers := new List<string>()
+            nullableMembers.Add("HasValue")
+            nullableMembers.Add("Value")
+            innerMembers := GetAvailableMemberNames(nullableType.InnerType, includeStaticMembers)
+            for innerMember in innerMembers {
+                nullableMembers.Add(innerMember)
+            }
+
+            return nullableMembers
+        }
+
+        if receiverType as SimpleTypeInfo != null || receiverType as GenericTypeInfo != null || receiverType as ArrayTypeInfo != null {
+            clrType := clrTypeConversionValue.TryConvertTypeInfoToClrType(receiverType)
+            if clrType != null {
+                return GetReflectionMemberNames(clrType, includeStaticMembers)
+            }
+        }
+
+        reflectionType := receiverType as ReflectionTypeInfo
+        if reflectionType != null {
+            return GetReflectionMemberNames(reflectionType.Type, includeStaticMembers)
+        }
+
+        members := declarationContextValue.GetAvailableSourceMemberNames(receiverType, includeStaticMembers)
+        if !includeStaticMembers && declarationContextValue.SourceObjectMembersApply(receiverType) {
+            objectMembers := GetReflectionMemberNames(typeof(object), false)
+            for objectMember in objectMembers {
+                members.Add(objectMember)
+            }
+        }
+
+        return members
+    }
+
+    // EVERY PUBLIC NAME A REFLECTED TYPE OFFERS, properties then fields then methods, de-duplicated in
+    // first-occurrence order. SPECIAL-NAME methods are excluded: a developer who mistyped `Length`
+    // should be offered `Length`, not `get_Length`.
+    static func GetReflectionMemberNames(reflected: Type, includeStaticMembers: bool): List<string> {
+        flags := BindingFlags.Public | BindingFlags.Instance
+        if includeStaticMembers {
+            flags = flags | BindingFlags.Static
+        }
+
+        // EVERY REFLECTED RECEIVER IS A LOCAL, NEVER AN INDEX EXPRESSION. `properties[i].get_Name()`
+        // declines as an unmodeled instance call while `property.get_Name()` on the loop's own binding
+        // does not — the receiver's SHAPE decides, not the member.
+        names := new List<string>()
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        properties := reflected.GetProperties(flags)
+        for property in properties {
+            AddDistinctName(names, seen, property.get_Name())
+        }
+
+        fields := reflected.GetFields(flags)
+        for field in fields {
+            AddDistinctName(names, seen, field.get_Name())
+        }
+
+        methods := reflected.GetMethods(flags)
+        for method in methods {
+            if !method.get_IsSpecialName() {
+                AddDistinctName(names, seen, method.get_Name())
+            }
+        }
+
+        return names
+    }
+
+    static func AddDistinctName(names: List<string>, seen: HashSet<string>, name: string) {
+        if seen.Add(name) {
+            names.Add(name)
+        }
     }
 
     // NL103. A SoA table wrapper is a value view, so `table?.column` is not a safer `table.column` —
