@@ -550,3 +550,187 @@ test "the ambient write-target slot opens, records, answers and closes" {
     harness.Ambient.ClearWriteTargetExpressionTypes()
     assert !harness.Ambient.InWriteTarget
 }
+
+// ---- rule 8: the static-field mirror and the ref/out addressability rule --------------------------
+//
+// (8) THE STATIC MIRROR IS THE SAME QUESTION AT A DIFFERENT BINDING. It answers `true` for a static
+// FIELD, `false` for anything else that CLAIMS the name statically, and "unresolved" for an owner it
+// cannot read at all — which is the same three-way answer rule 7 gives and the same `Try` shape, for
+// the same language reason.
+//
+// (9) ADDRESSABILITY IS THIS FAMILY'S, NOT THE CALL ARM'S. `ref x` and `out x` hand a callee the
+// right to STORE, so "may this be written through" is exactly the question. A bare name always may;
+// a member hop may when the chain stays rooted in storage; an array ELEMENT may and a SLICE may not;
+// and a receiver the rule cannot prove anything about is left ADDRESSABLE rather than refused.
+
+test "a bare name is always addressable, and parentheses are transparent" {
+    harness := WriteTargetHarnessOf()
+    types := WriteTargetTypes()
+
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetName("total"), types)
+    parenthesized: Expression = new ParenthesizedExpression(WriteTargetName("total"), 3, 4)
+    assert harness.Targets.IsRefOutArgumentTarget(parenthesized, types)
+}
+
+test "a call result and a literal are NOT addressable" {
+    harness := WriteTargetHarnessOf()
+    types := WriteTargetTypes()
+    arguments := new List<Argument>()
+    call: Expression = new CallExpression(WriteTargetName("f"), arguments, null, 3, 5)
+
+    assert !harness.Targets.IsRefOutArgumentTarget(call, types)
+    assert !harness.Targets.IsRefOutArgumentTarget(WriteTargetInt("1"), types)
+}
+
+test "NO CAPTURE TABLE MEANS DO NOT REFUSE — every shape is addressable without one" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("holder")
+    member := WriteTargetMember(receiver, "Origin", false)
+    indexed := WriteTargetIndex(receiver, WriteTargetInt("0"), false)
+
+    assert harness.Targets.IsRefOutArgumentTarget(member, null)
+    assert harness.Targets.IsRefOutArgumentTarget(indexed, null)
+}
+
+test "an ARRAY ELEMENT is addressable and a SLICE is not" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("values")
+    WriteTargetDeclare(harness, "values", new ArrayTypeInfo(BuiltInTypes.Int))
+    types := WriteTargetTypes()
+    types[receiver] = new ArrayTypeInfo(BuiltInTypes.Int)
+
+    elementIndex := WriteTargetInt("0")
+    types[elementIndex] = BuiltInTypes.Int
+    element := WriteTargetIndex(receiver, elementIndex, false)
+    assert harness.Targets.IsRefOutArgumentTarget(element, types)
+
+    slice := WriteTargetIndex(receiver, WriteTargetRange(), false)
+    assert !harness.Targets.IsRefOutArgumentTarget(slice, types)
+}
+
+test "A RANGE-TYPED index refuses even when it is not WRITTEN as a range" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("values")
+    types := WriteTargetTypes()
+    types[receiver] = new ArrayTypeInfo(BuiltInTypes.Int)
+    disguised := WriteTargetName("span")
+    types[disguised] = new SimpleTypeInfo("System.Range")
+
+    assert !harness.Targets.IsRefOutArgumentTarget(WriteTargetIndex(receiver, disguised, false), types)
+}
+
+test "a System.Index index into an array IS addressable, and a string index is NOT" {
+    harness := WriteTargetHarnessOf()
+    arrayReceiver := WriteTargetName("values")
+    types := WriteTargetTypes()
+    types[arrayReceiver] = new ArrayTypeInfo(BuiltInTypes.Int)
+    hat := WriteTargetName("hat")
+    types[hat] = new SimpleTypeInfo("System.Index")
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetIndex(arrayReceiver, hat, false), types)
+
+    textReceiver := WriteTargetName("text")
+    types[textReceiver] = BuiltInTypes.String
+    textIndex := WriteTargetInt("0")
+    types[textIndex] = BuiltInTypes.Int
+    assert !harness.Targets.IsRefOutArgumentTarget(WriteTargetIndex(textReceiver, textIndex, false), types)
+}
+
+test "an array receiver with an INDEX TYPE the table never recorded stays addressable" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("values")
+    types := WriteTargetTypes()
+    types[receiver] = new ArrayTypeInfo(BuiltInTypes.Int)
+
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetIndex(receiver, WriteTargetInt("0"), false), types)
+}
+
+test "an index whose RECEIVER the table never recorded stays addressable" {
+    harness := WriteTargetHarnessOf()
+    types := WriteTargetTypes()
+
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetIndex(WriteTargetName("mystery"), WriteTargetInt("0"), false), types)
+}
+
+test "a SoA TABLE's own member is refused where a ROW VIEW's COLUMN is addressable" {
+    harness := WriteTargetHarnessOf()
+    table := WriteTargetTable("Points", "x")
+    receiver := WriteTargetName("points")
+    WriteTargetDeclare(harness, "points", table)
+    types := WriteTargetTypes()
+    types[receiver] = table
+    assert !harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(receiver, "x", false), types)
+
+    rowReceiver := WriteTargetName("row")
+    WriteTargetDeclare(harness, "row", table)
+    rowTypes := WriteTargetTypes()
+    rowTypes[rowReceiver] = new SoaRowTypeInfo(table.Declaration)
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(rowReceiver, "x", false), rowTypes)
+
+    // A NAME THE ROW DOES NOT DECLARE falls through to the instance classification, which cannot
+    // resolve a row view's members at all — and an UNRESOLVED owner is deliberately PERMISSIVE rather
+    // than a refusal, which is the same rule rule 7 states and the one place it is observable here.
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(rowReceiver, "notAColumn", false), rowTypes)
+}
+
+test "an INSTANCE field hop is addressable and a PROPERTY hop is not" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("probe")
+    WriteTargetDeclare(harness, "probe", new ReflectionTypeInfo(typeof(WriteTargetReadonlyProbe)))
+    types := WriteTargetTypes()
+    types[receiver] = new ReflectionTypeInfo(typeof(WriteTargetReadonlyProbe))
+
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(receiver, "Mutable", false), types)
+    assert !harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(receiver, "Named", false), types)
+}
+
+test "a STATIC field hop is addressable and a STATIC PROPERTY hop is not" {
+    harness := WriteTargetHarnessOf()
+    // AN UNDECLARED RECEIVER IS READ AS A TYPE NAME, which is exactly what a static member access is.
+    receiver := WriteTargetName("DateTime")
+    types := WriteTargetTypes()
+    types[receiver] = new ReflectionTypeInfo(typeof(DateTime))
+
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(receiver, "MaxValue", false), types)
+    assert !harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(receiver, "Now", false), types)
+}
+
+test "the STATIC classifier is a three-way answer, exactly as its instance twin is" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("DateTime")
+    types := WriteTargetTypes()
+    types[receiver] = new ReflectionTypeInfo(typeof(DateTime))
+
+    isStatic := false
+    resolvedField := harness.Targets.TryClassifyStaticFieldHop(WriteTargetMemberNode(receiver, "MaxValue"), types, out isStatic)
+    assert resolvedField
+    assert isStatic
+
+    resolvedProperty := harness.Targets.TryClassifyStaticFieldHop(WriteTargetMemberNode(receiver, "Now"), types, out isStatic)
+    assert resolvedProperty
+    assert !isStatic
+
+    // AN OWNER THE TABLE NEVER RECORDED IS UNRESOLVED, not a "no".
+    resolvedStranger := harness.Targets.TryClassifyStaticFieldHop(WriteTargetMemberNode(WriteTargetName("elsewhere"), "MaxValue"), types, out isStatic)
+    assert !resolvedStranger
+
+    resolvedWithoutTable := harness.Targets.TryClassifyStaticFieldHop(WriteTargetMemberNode(receiver, "MaxValue"), null, out isStatic)
+    assert !resolvedWithoutTable
+}
+
+test "the reflected static walk finds an INHERITED static field and stops at a claimed name" {
+    assert AnalyzerWriteTargets.IsReflectedStaticField(typeof(string), "Empty")
+    assert !AnalyzerWriteTargets.IsReflectedStaticField(typeof(string), "Length")
+    assert !AnalyzerWriteTargets.IsReflectedStaticField(typeof(string), "NoSuchMemberAnywhere")
+
+    // THE MIRROR IS EXACT: the same name is an INSTANCE field to neither and a static field to one.
+    assert !AnalyzerWriteTargets.IsReflectedInstanceField(typeof(string), "Empty")
+}
+
+test "an UNRESOLVED static owner leaves the target ADDRESSABLE rather than refused" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("Unknowable")
+    types := WriteTargetTypes()
+    types[receiver] = new SimpleTypeInfo("Unknowable")
+
+    assert harness.Targets.IsRefOutArgumentTarget(WriteTargetMember(receiver, "Anything", false), types)
+}

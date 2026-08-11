@@ -988,6 +988,211 @@ class AnalyzerWriteTargets {
     }
 
     // ------------------------------------------------------------------------------------------
+    // RULE 8 — IS THIS RECEIVER HOP A STATIC FIELD, AND IS A `ref`/`out` TARGET ADDRESSABLE AT ALL.
+    // ------------------------------------------------------------------------------------------
+
+    // THE STATIC HALF IS THE EXACT MIRROR OF RULE 7 AND BELONGS HERE FOR THE SAME REASON. Rule 7
+    // answers the INSTANCE question and has answered it for two arms since it moved; the STATIC
+    // question is the same question about a type-named receiver, differs from it in exactly one
+    // `BindingFlags` bit and one `IsStatic` comparison, and had been left behind in the call arm only
+    // because that arm had not moved yet. `NormalizeReflectionOwner` was published for this caller by
+    // name and is now consumed rather than reached into.
+    //
+    // AND THE ADDRESSABILITY RULE ON TOP OF THEM IS THIS FAMILY'S, NOT THE CALL ARM'S. `ref x` and
+    // `out x` hand a callee the right to STORE, so "may this be written through" is exactly the
+    // question, and the four reports that run before it are already all this family's. What stays in
+    // the call arm is the diagnostic that says so, and nothing that decides.
+    //
+    // THE THREE SHAPES THAT ARE ADDRESSABLE: a bare name always; a member hop whose receiver keeps the
+    // chain rooted in real storage (a SoA COLUMN of a row view, a static field, an instance field, or
+    // any owner that could not be resolved — the unresolved case is deliberately permissive and only a
+    // PROVEN non-field is refused); and an ARRAY ELEMENT indexed by an `int` or a `System.Index`.
+    // Everything else — a call result, a slice, a `string` index, a SoA record's own member, a
+    // property — is a copy, and handing a callee the address of a copy is a silent defect.
+    func IsRefOutArgumentTarget(target: Expression, expressionTypes: Dictionary<object, TypeInfo>?): bool {
+        if target as IdentifierExpression != null {
+            return true
+        }
+
+        member := target as MemberAccessExpression
+        if member != null {
+            return IsAddressableRefOutMember(member, expressionTypes)
+        }
+
+        indexAccess := target as IndexAccessExpression
+        if indexAccess != null {
+            return IsAddressableRefOutIndex(indexAccess, expressionTypes)
+        }
+
+        parenthesized := target as ParenthesizedExpression
+        if parenthesized != null {
+            return IsRefOutArgumentTarget(parenthesized.Inner, expressionTypes)
+        }
+
+        return false
+    }
+
+    // A MISSING CAPTURE TABLE MEANS "DO NOT REFUSE". The call arm opens the table only for the shapes
+    // that need it, and a target walked without one is addressable by default rather than by proof.
+    func IsAddressableRefOutMember(member: MemberAccessExpression, expressionTypes: Dictionary<object, TypeInfo>?): bool {
+        if expressionTypes == null {
+            return true
+        }
+
+        receiverType: TypeInfo = BuiltInTypes.Unknown
+        if expressionTypes.TryGetValue(member.Object, out receiverType) {
+            resolvedReceiverType := declarationContextValue.ResolveDeclaredAlias(NonNullableType(receiverType))
+            byRefReceiver := resolvedReceiverType as ByRefTypeInfo
+            if byRefReceiver != null {
+                resolvedReceiverType = declarationContextValue.ResolveDeclaredAlias(NonNullableType(byRefReceiver.InnerType))
+            }
+
+            // A ROW VIEW'S COLUMN IS REAL STORAGE — the row is a view over the table's arrays, so its
+            // column member has an address. The TABLE's own member does not: writing it directly is
+            // the desynchronisation rule 2 refuses outright.
+            soaRowType := resolvedReceiverType as SoaRowTypeInfo
+            if soaRowType != null && AnalyzerMemberResolution.TryGetSoaColumn(soaRowType.Declaration, member.MemberName) != null {
+                return true
+            }
+
+            if resolvedReceiverType as SoaRecordTypeInfo != null {
+                return false
+            }
+        }
+
+        if memberAccessValue.IsStaticMemberAccessTarget(member.Object) {
+            isStaticField := false
+            return !TryClassifyStaticFieldHop(member, expressionTypes, out isStaticField) || isStaticField
+        }
+
+        isInstanceField := false
+        return !TryClassifyInstanceFieldHop(member, expressionTypes, out isInstanceField) || isInstanceField
+    }
+
+    // AN ARRAY ELEMENT HAS AN ADDRESS AND A SLICE DOES NOT, which is the whole of this rule. The
+    // range test runs FIRST and refuses before the receiver is even looked at, because `xs[0..2]`
+    // produces a new array however `xs` was declared.
+    func IsAddressableRefOutIndex(indexAccess: IndexAccessExpression, expressionTypes: Dictionary<object, TypeInfo>?): bool {
+        if expressionTypes == null {
+            return true
+        }
+
+        isRangeAccess := indexAccess.Index as RangeExpression != null
+        if !isRangeAccess {
+            indexType: TypeInfo = BuiltInTypes.Unknown
+            if expressionTypes.TryGetValue(indexAccess.Index, out indexType) {
+                isRangeAccess = AnalyzerIndexAccess.IsRangeLikeType(indexType)
+            }
+        }
+
+        if isRangeAccess {
+            return false
+        }
+
+        // A DIRECT COLUMN INDEXES ITS OWN BACKING ARRAY, so its element is addressable even though the
+        // receiver expression is a member access rather than an array-typed local.
+        if soaEscapeValue.IsSoaColumnMemberAccess(indexAccess.Object) {
+            return true
+        }
+
+        receiverType: TypeInfo = BuiltInTypes.Unknown
+        if !expressionTypes.TryGetValue(indexAccess.Object, out receiverType) {
+            return true
+        }
+
+        resolvedReceiverType := declarationContextValue.ResolveDeclaredAlias(NonNullableType(receiverType))
+        reflectedReceiver := resolvedReceiverType as ReflectionTypeInfo
+        isArrayReceiver := resolvedReceiverType as ArrayTypeInfo != null || (reflectedReceiver != null && reflectedReceiver.Type.get_IsArray())
+        if !isArrayReceiver {
+            return false
+        }
+
+        resolvedIndexType: TypeInfo = BuiltInTypes.Unknown
+        if !expressionTypes.TryGetValue(indexAccess.Index, out resolvedIndexType) {
+            return true
+        }
+
+        resolvedIndexType = declarationContextValue.ResolveDeclaredAlias(resolvedIndexType)
+        return BuiltInTypes.IsUnknown(resolvedIndexType) || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int) || AnalyzerIndexAccess.IsIndexLikeType(resolvedIndexType)
+    }
+
+    // PUBLISHED for the same reason its instance twin is, and a `Try` for the same language reason:
+    // the RETURN says whether the owner could be RESOLVED, the out parameter carries the answer, and
+    // an unresolved owner is a reason to stay permissive rather than a "not a field".
+    func TryClassifyStaticFieldHop(hop: MemberAccessExpression, expressionTypes: Dictionary<object, TypeInfo>?, out isStaticField: bool): bool {
+        isStaticField = false
+        if expressionTypes == null {
+            return false
+        }
+
+        ownerType: TypeInfo = BuiltInTypes.Unknown
+        if !expressionTypes.TryGetValue(hop.Object, out ownerType) {
+            return false
+        }
+
+        return TryClassifyStaticFieldMember(ownerType, hop.MemberName, out isStaticField)
+    }
+
+    func TryClassifyStaticFieldMember(owner: TypeInfo, memberName: string, out isStaticField: bool): bool {
+        isStaticField = false
+        resolvedOwner := declarationContextValue.ResolveDeclaredAlias(owner)
+        selection: AnalyzerMemberSelection = new AnalyzerMemberSelection()
+        if declarationContextValue.TryFindMember(resolvedOwner, memberName, out selection) {
+            member := selection.Member
+            if member != null {
+                isStaticField = member.Kind == DeclaredMemberKind.Field && member.IsStatic
+            }
+
+            return true
+        }
+
+        substitution: Dictionary<string, TypeInfo>? = null
+        sourceOwner := typeSubstitutionValue.GetSourceDeclarationOwner(resolvedOwner, out substitution)
+        shape: AnalyzerSourceMemberShape = new AnalyzerSourceMemberShape()
+        if declarationContextValue.TryGetSourceMemberShape(sourceOwner, null, out shape) {
+            return true
+        }
+
+        reflected := NormalizeReflectionOwner(resolvedOwner) as ReflectionTypeInfo
+        if reflected == null {
+            return false
+        }
+
+        reflectedType := reflected.Type
+        if IsTypeBuilder(reflectedType) || reflectedType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        isStaticField = IsReflectedStaticField(reflectedType, memberName)
+        return true
+    }
+
+    // The mirror of `IsReflectedInstanceField`, differing in exactly one `BindingFlags` bit. The
+    // name-claimed walk is SHARED with it rather than copied, because "a property, method or event of
+    // this name is declared here" is the same question at either binding.
+    static func IsReflectedStaticField(reflectedType: Type, memberName: string): bool {
+        flags := BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
+        current: Type? = reflectedType
+        while current != null {
+            declaredType := current
+            fields := declaredType.GetFields(flags)
+            for field in fields {
+                if field.get_Name() == memberName {
+                    return true
+                }
+            }
+
+            if ReflectionMemberNameIsClaimed(declaredType, memberName, flags) {
+                return false
+            }
+
+            current = declaredType.get_BaseType()
+        }
+
+        return false
+    }
+
+    // ------------------------------------------------------------------------------------------
     // TWO SHARED NORMALISATIONS.
     // ------------------------------------------------------------------------------------------
 

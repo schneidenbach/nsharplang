@@ -355,6 +355,15 @@ public class Analyzer : IDisposable
     // compound form's operator question. Rebuilt with the SCC: it holds assignability and the operator
     // family, both of which the rebuild replaces.
     private AnalyzerAssignment _assignment;
+    // WHAT A RANGE EXPRESSION MEANS: the `range` arm's whole walk — which endpoints are walked at all,
+    // the two escape refusals on each, what an `int`-or-`System.Index` bound is, and the `System.Range`
+    // it always answers. Rebuilt with the SCC: it holds assignability, which the rebuild replaces.
+    private AnalyzerRangeExpression _rangeExpression;
+    // WHAT A `match` EXPRESSION MEANS: the `match` arm's whole walk — the cleared-slot value walk, the
+    // per-arm scope, the pattern binding, the guard's boolean question, the arm join and its one report,
+    // and when exhaustiveness is asked. Rebuilt with the SCC: it holds assignability and match
+    // exhaustiveness, both of which the rebuild replaces.
+    private AnalyzerMatchExpression _matchExpression;
     private bool _disposed;
 
     public Analyzer()
@@ -452,7 +461,17 @@ public class Analyzer : IDisposable
         _operatorExpressions = CreateOperatorExpressions();
         _construction = CreateConstruction();
         _assignment = CreateAssignment();
+        _rangeExpression = CreateRangeExpression();
+        _matchExpression = CreateMatchExpression();
     }
+
+    private AnalyzerRangeExpression CreateRangeExpression()
+        => new(_diagnostics, _spans, _scopes, _declarationContext, _soaEscape, _assignability);
+
+    private AnalyzerMatchExpression CreateMatchExpression()
+        => new(
+            _diagnostics, _spans, _ambient, _soaEscape, _conditions, _assignability,
+            _matchExhaustiveness);
 
     private AnalyzerConstruction CreateConstruction()
         => new(
@@ -2859,6 +2878,55 @@ public class Analyzer : IDisposable
         => DrivePatternAnalysis(_patternAnalysis.Begin(pattern, valueType));
 
     /// <summary>
+    /// The five steps the N#-owned <c>match</c> expression cannot take for itself: the analyzer's own
+    /// expression walk in BOTH of its forms, the scope stack's open and close, and the pattern family's
+    /// driver. The arm runs in <see cref="AnalyzerMatchExpression"/>, which owns what the match value is
+    /// walked under, that each arm gets a scope of its own, that every arm is target-typed against the
+    /// MATCH's expected type rather than against the arm before it, the join rule and its one report,
+    /// and that exhaustiveness is asked last and on the post-escape value type.
+    /// Kinds 1 and 2 are BOTH expression walks and are deliberately different: kind 1 is a PLAIN walk
+    /// under a cleared-slot bracket the owner opens and closes itself (slice 51's pattern, because the
+    /// C# bracketed a plain walk), and kind 2 is the TARGET-TYPED walk (slice 52's, because the C#
+    /// called the form that routes a lambda to <see cref="AnalyzeLambda"/> before any bracket opens).
+    /// An owner cannot simulate kind 2 by setting the slot, which is why it is a kind and not a bracket.
+    /// Kind 4 re-enters the pattern walk through <see cref="AnalyzePattern"/>, the same recursion a
+    /// nested pattern takes, so this walk needs no pattern stack of its own.
+    /// This loop decides nothing: it performs the one operation it is handed, with the operands it is
+    /// handed.
+    /// </summary>
+    private TypeInfo DriveMatchExpression(MatchExpressionState state)
+    {
+        for (var step = _matchExpression.NextStep(state);
+             step != null;
+             step = _matchExpression.NextStep(state))
+        {
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    answer = AnalyzeExpressionWithExpectedType(step.Node!, step.ExpectedType);
+                    break;
+                case 3:
+                    PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
+                    break;
+                case 4:
+                    AnalyzePattern(step.PatternNode!, step.CarriedType);
+                    break;
+                case 5:
+                    PopScope();
+                    break;
+            }
+
+            _matchExpression.Supply(state, answer);
+        }
+
+        return _matchExpression.Result(state);
+    }
+
+    /// <summary>
     /// The one step the N#-owned literal family cannot take for itself, and the ESTATE'S FIRST
     /// ANSWERING DRIVER. All seven literal forms run in <see cref="AnalyzerLiteralExpressions"/>,
     /// which owns what each of them is: the integer suffix rules and the target-typing of a
@@ -3127,10 +3195,10 @@ public class Analyzer : IDisposable
             NewExpression => DriveConstruction(_construction.Begin(expr)),
             ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
             BaseExpression => AnalyzeBaseExpression(),
-            MatchExpression match => AnalyzeMatchExpression(match),
+            MatchExpression => DriveMatchExpression(_matchExpression.Begin(expr)),
             TypeOfExpression or NameofExpression or SizeOfExpression or DefaultExpression
                 => DriveCompileTimeConstant(_compileTimeConstants.Begin(expr, _wellKnownTypes)),
-            RangeExpression range => AnalyzeRangeExpression(range),
+            RangeExpression => DriveRangeExpression(_rangeExpression.Begin(expr)),
             WithExpression => DriveConstruction(_construction.BeginWith(expr)),
             ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
             _ => BuiltInTypes.Unknown
@@ -3240,51 +3308,6 @@ public class Analyzer : IDisposable
         };
     }
 
-    private TypeInfo AnalyzeRangeExpression(RangeExpression range)
-    {
-        // Analyze start if present
-        if (range.Start != null)
-        {
-            var startType = AnalyzeExpression(range.Start);
-            if (!_soaEscape.ReportSoaRowEscapeIfNeeded(range.Start, startType, "used as a range bound")
-                && !_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(range.Start, "used as a range bound"))
-            {
-                CheckRangeEndpoint(range.Start, startType);
-            }
-        }
-
-        // Analyze end if present
-        if (range.End != null)
-        {
-            var endType = AnalyzeExpression(range.End);
-            if (!_soaEscape.ReportSoaRowEscapeIfNeeded(range.End, endType, "used as a range bound")
-                && !_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(range.End, "used as a range bound"))
-            {
-                CheckRangeEndpoint(range.End, endType);
-            }
-        }
-
-        // All range expressions return System.Range
-        return GetRangeType();
-    }
-
-    private void CheckRangeEndpoint(Expression endpoint, TypeInfo endpointType)
-    {
-        if (BuiltInTypes.IsUnknown(endpointType) || IsRangeEndpointType(endpointType))
-        {
-            return;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(endpoint);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"Range bounds must be int or System.Index, but this bound has type '{endpointType}'",
-            line,
-            column,
-            "Use an int bound, '^n' with an int count, or convert the value before building the range.",
-            length);
-    }
-
     /// <summary>
     /// Performs the steps <see cref="AnalyzerIndexAccess"/> asks for and returns the type it decided.
     /// Every policy about what an index access means — that the receiver decides whether the index is
@@ -3311,18 +3334,29 @@ public class Analyzer : IDisposable
         return _indexAccess.Result(state);
     }
 
-    private static bool IsIndexLikeType(TypeInfo type)
-        => type is ReflectionTypeInfo { Type.FullName: "System.Index" }
-           || type is SimpleTypeInfo { Name: "Index" or "System.Index" };
-
-    private bool IsRangeEndpointType(TypeInfo type)
+    /// <summary>
+    /// The one step the N#-owned <c>range</c> walk cannot take for itself, and the SMALLEST driver in
+    /// the estate. The arm runs in <see cref="AnalyzerRangeExpression"/>, which owns which endpoints
+    /// exist and are therefore walked at all, which of the two SoA escapes fires on each and that the
+    /// first of them silences the second, what an <c>int</c>-or-<c>System.Index</c> bound is, and the
+    /// <c>System.Range</c> the expression always answers whatever its bounds turned out to be.
+    /// The ONE kind is a plain operand walk with NOTHING bracketed — no expected type, no scope, no
+    /// suppression — which is why this loop carries no operand but the node. It is handed out at most
+    /// twice and, for the bare <c>..</c>, not at all.
+    /// This loop decides nothing: it performs the one operation it is handed, with the operands it is
+    /// handed.
+    /// </summary>
+    private TypeInfo DriveRangeExpression(RangeExpressionState state)
     {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        return IsIndexLikeType(resolved) || _assignability.IsAssignable(BuiltInTypes.Int, resolved);
-    }
+        for (var step = _rangeExpression.NextStep(state);
+             step != null;
+             step = _rangeExpression.NextStep(state))
+        {
+            _rangeExpression.Supply(state, AnalyzeExpression(step.Node!));
+        }
 
-    private TypeInfo GetRangeType()
-        => _scopes.LookupType("System.Range") ?? new ReflectionTypeInfo(typeof(Range));
+        return _rangeExpression.Result(state);
+    }
 
     private TypeInfo GetNonNullableType(TypeInfo type)
         => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
@@ -3479,7 +3513,7 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        if (IsRefOutArgumentTarget(argument.Value, expressionTypes))
+        if (_writeTargets.IsRefOutArgumentTarget(argument.Value, expressionTypes))
         {
             return false;
         }
@@ -3493,144 +3527,6 @@ public class Analyzer : IDisposable
             $"Use a variable, field, or indexed array/SoA column element as the {modifier} argument.",
             length);
         return true;
-    }
-
-    private bool IsRefOutArgumentTarget(
-        Expression expression,
-        Dictionary<object, TypeInfo>? expressionTypes) => expression switch
-    {
-        IdentifierExpression => true,
-        MemberAccessExpression memberAccess => IsAddressableRefOutMember(memberAccess, expressionTypes),
-        IndexAccessExpression indexAccess => IsAddressableRefOutIndex(indexAccess, expressionTypes),
-        ParenthesizedExpression parenthesized => IsRefOutArgumentTarget(parenthesized.Inner, expressionTypes),
-        _ => false
-    };
-
-    private bool IsAddressableRefOutMember(
-        MemberAccessExpression member,
-        Dictionary<object, TypeInfo>? expressionTypes)
-    {
-        if (expressionTypes == null)
-            return true;
-
-        if (expressionTypes.TryGetValue(member.Object, out var receiverType))
-        {
-            var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType));
-            if (resolvedReceiverType is ByRefTypeInfo byRefReceiver)
-                resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
-
-            if (resolvedReceiverType is SoaRowTypeInfo soaRowType
-                && AnalyzerMemberResolution.TryGetSoaColumn(soaRowType.Declaration, member.MemberName) != null)
-            {
-                return true;
-            }
-
-            if (resolvedReceiverType is SoaRecordTypeInfo)
-            {
-                return false;
-            }
-        }
-
-        if (_memberAccess.IsStaticMemberAccessTarget(member.Object))
-        {
-            var staticClassification = ClassifyStaticFieldMember(member, expressionTypes);
-            return staticClassification != false;
-        }
-
-        var isInstanceField = false;
-        // `!resolved || isInstanceField` is the old `instanceClassification != false`: an owner that
-        // could not be resolved is addressable by default, and only a proven non-field is refused.
-        return !_writeTargets.TryClassifyInstanceFieldHop(member, expressionTypes, out isInstanceField)
-            || isInstanceField;
-    }
-
-    private bool IsAddressableRefOutIndex(
-        IndexAccessExpression index,
-        Dictionary<object, TypeInfo>? expressionTypes)
-    {
-        if (expressionTypes == null)
-            return true;
-
-        var isRangeAccess = index.Index is RangeExpression
-            || (expressionTypes.TryGetValue(index.Index, out var indexType) && AnalyzerIndexAccess.IsRangeLikeType(indexType));
-        if (isRangeAccess)
-            return false;
-
-        if (_soaEscape.IsSoaColumnMemberAccess(index.Object))
-            return true;
-
-        if (!expressionTypes.TryGetValue(index.Object, out var receiverType))
-            return true;
-
-        var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType));
-        var isArrayReceiver = resolvedReceiverType is ArrayTypeInfo
-            || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true };
-        if (!isArrayReceiver)
-            return false;
-
-        if (!expressionTypes.TryGetValue(index.Index, out var resolvedIndexType))
-            return true;
-
-        resolvedIndexType = _declarationContext.ResolveDeclaredAlias(resolvedIndexType);
-        return BuiltInTypes.IsUnknown(resolvedIndexType)
-            || BuiltInTypes.Is(resolvedIndexType, BuiltInTypes.Int)
-            || IsIndexLikeType(resolvedIndexType);
-    }
-
-    private bool? ClassifyStaticFieldMember(
-        MemberAccessExpression member,
-        Dictionary<object, TypeInfo> expressionTypes)
-    {
-        if (!expressionTypes.TryGetValue(member.Object, out var ownerType))
-            return null;
-
-        return ClassifyStaticFieldMember(ownerType, member.MemberName);
-    }
-
-    private bool? ClassifyStaticFieldMember(TypeInfo owner, string memberName)
-    {
-        owner = _declarationContext.ResolveDeclaredAlias(owner);
-        if (_declarationContext.TryFindMember(owner, memberName, out var selection))
-        {
-            return selection.Member is { } member
-                && member.Kind == DeclaredMemberKind.Field
-                && member.IsStatic;
-        }
-
-        var sourceOwner = _typeSubstitution.GetSourceDeclarationOwner(owner, out _);
-        if (_declarationContext.TryGetSourceMemberShape(sourceOwner, null, out _))
-            return false;
-
-        owner = _writeTargets.NormalizeReflectionOwner(owner);
-        if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
-            && !reflected.Type.IsGenericTypeDefinition)
-        {
-            return ClassifyReflectionStaticFieldMember(reflected.Type, memberName);
-        }
-
-        return null;
-    }
-
-    private static bool? ClassifyReflectionStaticFieldMember(Type type, string memberName)
-    {
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly;
-
-            for (var current = type; current != null; current = current.BaseType)
-            {
-                if (current.GetFields(flags).Any(field => field.Name == memberName))
-                {
-                    return true;
-                }
-
-                if (current.GetProperties(flags).Any(property => property.Name == memberName)
-                    || current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == memberName)
-                    || current.GetEvents(flags).Any(@event => @event.Name == memberName))
-                {
-                    return false;
-                }
-            }
-
-        return false;
     }
 
     private TypeInfo AnalyzeCallCallee(Expression callee)
@@ -3662,20 +3558,6 @@ public class Analyzer : IDisposable
         {
             _ambient.ExitExpectedType(previousExpectedType);
             _allowUnboundCallableReference = previousAllowUnboundCallableReference;
-        }
-    }
-
-    private TypeInfo AnalyzeExpressionWithoutExpectedType(Expression expression)
-    {
-        var previousExpectedType = _ambient.EnterExpectedType(null);
-
-        try
-        {
-            return AnalyzeExpression(expression);
-        }
-        finally
-        {
-            _ambient.ExitExpectedType(previousExpectedType);
         }
     }
 
@@ -4779,79 +4661,6 @@ public class Analyzer : IDisposable
         return _construction.Result(state);
     }
 
-    private TypeInfo AnalyzeMatchExpression(MatchExpression match)
-    {
-        var expectedResultType = _ambient.CurrentExpectedType;
-
-        // Analyze the value being matched
-        var valueType = AnalyzeExpressionWithoutExpectedType(match.Value);
-        if (_soaEscape.ReportSoaRowEscapeIfNeeded(match.Value, valueType, "used as a match value"))
-        {
-            valueType = BuiltInTypes.Unknown;
-        }
-        else if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(match.Value, "used as a match value"))
-        {
-            valueType = BuiltInTypes.Unknown;
-        }
-
-        // Analyze each case and track variable bindings
-        TypeInfo? resultType = null;
-        foreach (var matchCase in match.Cases)
-        {
-            // Create new scope for pattern bindings
-            PushScope(new Scope(ScopeKind.Block), matchCase.Pattern.Line, matchCase.Pattern.Column);
-
-            // Analyze pattern and bind variables
-            AnalyzePattern(matchCase.Pattern, valueType);
-
-            // Analyze guard expression if present
-            if (matchCase.Guard != null)
-            {
-                var guardType = AnalyzeExpressionWithExpectedType(matchCase.Guard, BuiltInTypes.Bool);
-                _conditions.ReportMatchGuardTypeMismatchIfNeeded(matchCase.Guard, guardType, _assignability);
-            }
-
-            // Analyze the case expression
-            var caseType = AnalyzeExpressionWithExpectedType(matchCase.Expression, expectedResultType);
-            if (_soaEscape.ReportSoaRowEscapeIfNeeded(matchCase.Expression, caseType, "used as a match result"))
-            {
-                caseType = BuiltInTypes.Unknown;
-            }
-            else if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(matchCase.Expression, "used as a match result"))
-            {
-                caseType = BuiltInTypes.Unknown;
-            }
-
-            // Ensure all cases return compatible types
-            if (resultType == null)
-            {
-                resultType = caseType;
-            }
-            else if (!_assignability.IsAssignable(resultType, caseType) && !_assignability.IsAssignable(caseType, resultType))
-            {
-                // Try to find a common base type (especially for reflection types like IActionResult subtypes)
-                var commonType = FindCommonBaseType(resultType, caseType);
-                if (commonType != null)
-                {
-                    resultType = commonType;
-                }
-                else
-                {
-                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(matchCase.Expression);
-                    Error(ErrorCode.TypeMismatch,
-                        $"All match arms must return the same type — the first arm returns '{resultType}', but this arm returns '{caseType}'",
-                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
-                }
-            }
-
-            PopScope();
-        }
-
-        _matchExhaustiveness.Check(match, valueType);
-
-        return resultType ?? BuiltInTypes.Unknown;
-    }
-
     private TypeInfo AnalyzeBaseExpression()
     {
         var currentType = _scopes.CurrentTypeScope();
@@ -4861,38 +4670,6 @@ public class Analyzer : IDisposable
             return shape.BaseType;
 
         return currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown;
-    }
-
-    /// <summary>
-    /// Finds a common base type between two types, if one exists.
-    /// For reflection types, walks the CLR type hierarchy and interface list.
-    /// </summary>
-    private TypeInfo? FindCommonBaseType(TypeInfo a, TypeInfo b)
-    {
-        if (a is ReflectionTypeInfo reflA && b is ReflectionTypeInfo reflB)
-        {
-            var interfacesA = reflA.Type.GetInterfaces();
-            var interfacesB = new HashSet<Type>(reflB.Type.GetInterfaces());
-
-            foreach (var iface in interfacesA)
-            {
-                if (interfacesB.Contains(iface))
-                {
-                    return new ReflectionTypeInfo(iface);
-                }
-            }
-
-            var baseA = reflA.Type.BaseType;
-            while (baseA != null && baseA != typeof(object))
-            {
-                if (baseA.IsAssignableFrom(reflB.Type))
-                    return new ReflectionTypeInfo(baseA);
-                baseA = baseA.BaseType;
-            }
-        }
-
-
-        return null;
     }
 
     private void PushScope(Scope scope)
@@ -5892,6 +5669,8 @@ public class Analyzer : IDisposable
         _memberAccess.SetMetadataCollaborators(_memberResolution, _clrTypeConversion, _extensionMethodResolution, _wellKnownTypes);
         _construction = CreateConstruction();
         _assignment = CreateAssignment();
+        _rangeExpression = CreateRangeExpression();
+        _matchExpression = CreateMatchExpression();
     }
 
     public void Dispose()
@@ -5926,6 +5705,8 @@ public class Analyzer : IDisposable
             _memberAccess.SetMetadataCollaborators(_memberResolution, _clrTypeConversion, _extensionMethodResolution, null);
             _construction = CreateConstruction();
             _assignment = CreateAssignment();
+            _rangeExpression = CreateRangeExpression();
+            _matchExpression = CreateMatchExpression();
             _mlcAssemblies.Clear();
             _disposed = true;
         }
