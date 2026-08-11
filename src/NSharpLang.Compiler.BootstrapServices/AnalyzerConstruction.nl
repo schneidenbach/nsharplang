@@ -133,9 +133,9 @@ class ConstructionState {
 // reports belong elsewhere; the undefined-member RENDERING is `AnalyzerMemberAccess`'s, published in
 // slice 56 for exactly these three callers.
 //
-// THE READONLY-FIELD FACT IS REPRODUCED, NOT REACHED BACK FOR. `Analyzer.cs`'s
-// `TryFindReadonlyInstanceField` keeps two callers in the write-target family, so its body is
-// reproduced here — the `NonNullableType` precedent — and nothing in this owner re-enters C#.
+// THE READONLY-FIELD FACT IS ASKED OF THE FAMILY THAT OWNS IT. It was reproduced here while
+// `Analyzer.cs` still held the write-target family; that family is now `AnalyzerWriteTargets` and the
+// duplicate is gone, which is the end-state the slice that reproduced it named.
 class AnalyzerConstruction {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
@@ -153,8 +153,9 @@ class AnalyzerConstruction {
     memberResolutionValue: AnalyzerMemberResolution
     matchExhaustivenessValue: AnalyzerMatchExhaustiveness
     clrTypeConversionValue: AnalyzerClrTypeConversion
+    writeTargetsValue: AnalyzerWriteTargets
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, typeSubstitution: AnalyzerTypeSubstitution, projectDiscovery: AnalyzerProjectTypeDiscovery, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, memberAccess: AnalyzerMemberAccess, arrayLiteral: AnalyzerArrayLiteral, constantFacts: AnalyzerConstantExpressionFacts, assignability: AnalyzerAssignability, memberResolution: AnalyzerMemberResolution, matchExhaustiveness: AnalyzerMatchExhaustiveness, clrTypeConversion: AnalyzerClrTypeConversion) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, typeSubstitution: AnalyzerTypeSubstitution, projectDiscovery: AnalyzerProjectTypeDiscovery, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, memberAccess: AnalyzerMemberAccess, arrayLiteral: AnalyzerArrayLiteral, constantFacts: AnalyzerConstantExpressionFacts, assignability: AnalyzerAssignability, memberResolution: AnalyzerMemberResolution, matchExhaustiveness: AnalyzerMatchExhaustiveness, clrTypeConversion: AnalyzerClrTypeConversion, writeTargets: AnalyzerWriteTargets) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -171,6 +172,7 @@ class AnalyzerConstruction {
         memberResolutionValue = memberResolution
         matchExhaustivenessValue = matchExhaustiveness
         clrTypeConversionValue = clrTypeConversion
+        writeTargetsValue = writeTargets
     }
 
     // THE `new` DOOR.
@@ -1247,144 +1249,18 @@ class AnalyzerConstruction {
     }
 
     // ------------------------------------------------------------------------------------------
-    // THE READONLY-FIELD REFUSAL, AND THE FACT IT IS REPRODUCED FROM.
+    // THE READONLY-FIELD REFUSAL, ASKED OF THE FAMILY THAT OWNS THE FACT.
     // ------------------------------------------------------------------------------------------
 
     // NL309. An object initializer is not a constructor, so a `readonly` field written by one is
     // refused with the same words the assignment arm uses.
     func CheckReadonlyObjectInitializerField(constructedType: TypeInfo, memberName: string, line: int, column: int) {
         resolvedFieldName := ""
-        if !TryFindReadonlyInstanceField(NonNullableType(constructedType), memberName, out resolvedFieldName) {
+        if !writeTargetsValue.TryFindReadonlyInstanceField(NonNullableType(constructedType), memberName, out resolvedFieldName) {
             return
         }
 
         diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "Field '" + resolvedFieldName + "' is readonly — it can only be assigned in a constructor", line, column, "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.", Math.Max(1, memberName.Length))
-    }
-
-    // The declaration context answers for a SOURCE type and CLAIMS the name when it owns it; a
-    // reflected type is walked here. Reproduced rather than reached back for: the C# original keeps
-    // two callers in the write-target family.
-    func TryFindReadonlyInstanceField(receiver: TypeInfo, fieldName: string, out resolvedFieldName: string): bool {
-        resolvedFieldName = ""
-        resolvedReceiver := declarationContextValue.ResolveDeclaredAlias(receiver)
-        sourceMemberClaimed := false
-        if declarationContextValue.TryFindReadonlyField(resolvedReceiver, fieldName, false, out resolvedFieldName, out sourceMemberClaimed) {
-            return true
-        }
-
-        if sourceMemberClaimed {
-            return false
-        }
-
-        reflected := NormalizeReflectionOwner(resolvedReceiver) as ReflectionTypeInfo
-        if reflected == null {
-            return false
-        }
-
-        reflectedType := reflected.Type
-        if reflectedType.get_IsGenericTypeDefinition() || IsTypeBuilder(reflectedType) {
-            return false
-        }
-
-        return TryFindReadonlyReflectionInstanceField(reflectedType, fieldName, out resolvedFieldName)
-    }
-
-    // A closed generic is normalised through its CLR type so its fields can be read; anything else is
-    // normalised through its declaration and its own CLR conversion.
-    func NormalizeReflectionOwner(owner: TypeInfo): TypeInfo {
-        genericOwner := owner as GenericTypeInfo
-        if genericOwner != null {
-            runtimeType := clrTypeConversionValue.TryConvertTypeInfoToClrType(owner)
-            if runtimeType != null {
-                return new ReflectionTypeInfo(runtimeType)
-            }
-        }
-
-        normalized := declarationContextValue.ResolveDeclaredAlias(owner)
-        openGeneric := normalized as GenericTypeInfo
-        if openGeneric != null {
-            definition := typeSubstitutionValue.ResolveGenericDefinition(openGeneric)
-            if definition != null {
-                normalized = definition
-            }
-        }
-
-        if normalized as SimpleTypeInfo != null || normalized as GenericTypeInfo != null || normalized as ArrayTypeInfo != null {
-            clrOwner := clrTypeConversionValue.TryConvertTypeInfoToClrType(normalized)
-            if clrOwner != null {
-                return new ReflectionTypeInfo(clrOwner)
-            }
-        }
-
-        return normalized
-    }
-
-    // AN EMITTED TYPE HAS NO FIELDS TO READ YET. `TypeBuilder` is identified by name rather than by a
-    // type test, because a `TypeBuilder` receiver is exactly the shape whose members are not built.
-    static func IsTypeBuilder(candidate: Type): bool {
-        return candidate.get_FullName() == "System.Reflection.Emit.TypeBuilder" || IsTypeBuilderSubclass(candidate)
-    }
-
-    static func IsTypeBuilderSubclass(candidate: Type): bool {
-        current := candidate.get_BaseType()
-        while current != null {
-            if current.get_FullName() == "System.Reflection.Emit.TypeBuilder" {
-                return true
-            }
-
-            current = current.get_BaseType()
-        }
-
-        return false
-    }
-
-    // THE FIRST DECLARATION THAT CLAIMS THE NAME DECIDES, walking base types one level at a time. A
-    // field claims it and answers whether it is `initonly`; a property, a non-special method or an
-    // event claims it and answers NO, because the name is not a field at all.
-    static func TryFindReadonlyReflectionInstanceField(reflectedType: Type, fieldName: string, out resolvedFieldName: string): bool {
-        resolvedFieldName = ""
-        flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
-        current: Type? = reflectedType
-        while current != null {
-            // EVERY REFLECTED RECEIVER IS A LOOP BINDING OR A LOCAL, never an index expression.
-            declaredType := current
-            fields := declaredType.GetFields(flags)
-            for field in fields {
-                if field.get_Name() == fieldName {
-                    if !field.get_IsInitOnly() {
-                        return false
-                    }
-
-                    resolvedFieldName = field.get_Name()
-                    return true
-                }
-            }
-
-            properties := declaredType.GetProperties(flags)
-            for property in properties {
-                if property.get_Name() == fieldName {
-                    return false
-                }
-            }
-
-            methods := declaredType.GetMethods(flags)
-            for method in methods {
-                if !method.get_IsSpecialName() && method.get_Name() == fieldName {
-                    return false
-                }
-            }
-
-            events := declaredType.GetEvents(flags)
-            for declaredEvent in events {
-                if declaredEvent.get_Name() == fieldName {
-                    return false
-                }
-            }
-
-            current = declaredType.get_BaseType()
-        }
-
-        return false
     }
 
     // ------------------------------------------------------------------------------------------

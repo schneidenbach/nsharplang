@@ -53,7 +53,6 @@ public class Analyzer : IDisposable
     private readonly AnalyzerDeclarationContext _declarationContext = new();
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
-    private bool _inConstructor;
     private string? _currentFilePath;
     private string? _declarationContextFilePath;
     private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
@@ -149,10 +148,6 @@ public class Analyzer : IDisposable
     private bool _allowUnboundCallableReference;
     private bool _allowSyntheticSoaOperationReference;
     private bool _analyzingCallCallee;
-    // When false (the default), a bare reference to a .NET event is an error — events may only
-    // be used with `on`/`off`. AnalyzeOnSubscription and AnalyzeAssignment flip this while
-    // resolving the event member so they can emit their own, more specific diagnostics.
-    private bool _allowEventReference;
     // The NL411 report log. Like the implicit-conversion guard above it, this is deliberately NOT
     // part of the toolset rebuild: a log rebuilt with its reader would forget what it had already
     // said and report the same method group twice.
@@ -349,6 +344,17 @@ public class Analyzer : IDisposable
     // the CLR type conversion, all four of which the rebuild replaces, and it carries no per-analysis
     // state — the compilation unit its union lookup needs is published by the member-access owner.
     private AnalyzerConstruction _construction;
+    // WHAT MAY BE WRITTEN THROUGH: the shared rule the assignment arm, the increment arm and the
+    // `ref`/`out` argument path all consult — the null-conditional, SoA-table-member, built-in-indexed,
+    // read-only-property and readonly-field refusals, the capture-table shape question, and the
+    // instance-field classification underneath both addressability rules. Rebuilt with the SCC: it
+    // holds the CLR type conversion, which the rebuild replaces.
+    private AnalyzerWriteTargets _writeTargets;
+    // WHAT AN ASSIGNMENT MEANS: the `assignment` arm's whole walk — the discard form, the four-part
+    // target bracket, the eight ordered gates, the assignability front door in both renderings and the
+    // compound form's operator question. Rebuilt with the SCC: it holds assignability and the operator
+    // family, both of which the rebuild replaces.
+    private AnalyzerAssignment _assignment;
     private bool _disposed;
 
     public Analyzer()
@@ -426,7 +432,6 @@ public class Analyzer : IDisposable
         _patternAnalysis = CreatePatternAnalysis();
         _flowNarrowing = CreateFlowNarrowing();
         _variableDeclaration = CreateVariableDeclaration();
-        _operatorExpressions = CreateOperatorExpressions();
         _identifierResolution = new AnalyzerIdentifierResolution(
             _diagnostics, _scopes, _typeResolver, _projectDiscovery, _externalTypeProbe,
             _functionTypeFactory, _ambient, _nullFlow, _extensionMethods, _memberResolution,
@@ -443,7 +448,10 @@ public class Analyzer : IDisposable
         _arrayLiteral = new AnalyzerArrayLiteral(
             _diagnostics, _spans, _declarationContext, _ambient, _soaEscape, _assignability,
             _assignabilityFacts);
+        _writeTargets = CreateWriteTargets();
+        _operatorExpressions = CreateOperatorExpressions();
         _construction = CreateConstruction();
+        _assignment = CreateAssignment();
     }
 
     private AnalyzerConstruction CreateConstruction()
@@ -451,7 +459,18 @@ public class Analyzer : IDisposable
             _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _typeSubstitution,
             _projectDiscovery, _ambient, _soaEscape, _memberAccess, _arrayLiteral,
             _constantExpressionFacts, _assignability, _memberResolution, _matchExhaustiveness,
-            _clrTypeConversion);
+            _clrTypeConversion, _writeTargets);
+
+    private AnalyzerWriteTargets CreateWriteTargets()
+        => new(
+            _diagnostics, _spans, _scopes, _declarationContext, _typeSubstitution, _clrTypeConversion,
+            _ambient, _soaEscape, _memberAccess, _indexAccess);
+
+    private AnalyzerAssignment CreateAssignment()
+        => new(
+            _diagnostics, _spans, _scopes, _declarationContext, _ambient, _nullFlow, _soaEscape,
+            _identifierResolution, _assignability, _assignabilityFacts, _writeTargets,
+            _operatorExpressions);
 
     private AnalyzerFlowNarrowing CreateFlowNarrowing()
         => new(_scopes, _typeResolver, _assignability);
@@ -462,7 +481,8 @@ public class Analyzer : IDisposable
     private AnalyzerOperatorExpressions CreateOperatorExpressions()
         => new(
             _diagnostics, _spans, _scopes, _declarationContext, _typeSubstitution, _assignability,
-            _clrTypeConversion, _externalTypeProbe, _soaEscape, _ambient, _flowNarrowing);
+            _clrTypeConversion, _externalTypeProbe, _soaEscape, _ambient, _flowNarrowing,
+            _writeTargets);
 
     private AnalyzerMatchExhaustiveness CreateMatchExhaustiveness()
         => new(_diagnostics, _typeSubstitution, _assignability, _typeResolver);
@@ -655,7 +675,6 @@ public class Analyzer : IDisposable
         _soaEscape.BeginAnalysis();
         _nullFlow.BeginAnalysis();
         _ambient.BeginAnalysis();
-        _inConstructor = false;
         _currentFilePath = currentFilePath;
         _projectSources.BeginAnalysis(projectRoot);
         _compilationUnit = unit;
@@ -2190,7 +2209,7 @@ public class Analyzer : IDisposable
 
     private void AnalyzeConstructorDeclaration(ConstructorDeclaration ctor)
     {
-        _inConstructor = true;
+        _ambient.EnterConstructor();
         PushScope(new Scope(ScopeKind.Function), ctor.Line, ctor.Column);
 
         ValidateParameterDeclarations(ctor.Parameters, ctor.Line, ctor.Column);
@@ -2224,7 +2243,7 @@ public class Analyzer : IDisposable
         }
 
         PopScope();
-        _inConstructor = false;
+        _ambient.ExitConstructor();
     }
 
     /// <summary>
@@ -2414,9 +2433,6 @@ public class Analyzer : IDisposable
             _expressionStatements.Supply(state, answer);
         }
     }
-
-    private static bool IsDiscardTarget(Expression target)
-        => target is IdentifierExpression { Name: "_" };
 
     /// <summary>
     /// The steps the N#-owned declared-function walk cannot take for itself. BOTH declared-function
@@ -2974,27 +2990,25 @@ public class Analyzer : IDisposable
     /// whether before or after the primitive rule, the two numeric promotion tables and the two
     /// comparison domains, which reports fire and in which order, and that all four of a binary's
     /// escape reports run without stopping one another — belongs to the N# owner.
-    /// The ten kinds fall in three bands. Kinds 1–4 are the FOUR WALKS and differ only in what is in
-    /// force around them: the ordinary one; the one that preserves the nullability flow type, which
-    /// only the left side of <c>??</c> takes because that is the fact the question is ABOUT; the one
-    /// inside a fresh block scope carrying what the left side of <c>&amp;&amp;</c> or <c>||</c>
-    /// proved, asked for only when the narrowing list is non-empty so this loop never decides whether
-    /// a scope is wanted; and the one that captures every sub-expression's type for a write target,
-    /// whose PRESENCE is itself observable, which is why kind 5 asks first whether it is wanted.
-    /// Kinds 6–10 are the FIVE WRITE-TARGET REPORTS, which belong to the assignment family rather
-    /// than to this one and stay here until that arm moves; they are five kinds rather than one chain
-    /// because the owner's own two SoA escape reports INTERLEAVE with them. This loop decides
-    /// nothing: it performs the one operation it is handed, with the operands it is handed.
+    /// The THREE kinds are all WALKS and differ only in what is in force around them: the ordinary
+    /// one; the one that preserves the nullability flow type, which only the left side of <c>??</c>
+    /// takes because that is the fact the question is ABOUT; and the one inside a fresh block scope
+    /// carrying what the left side of <c>&amp;&amp;</c> or <c>||</c> proved, asked for only when the
+    /// narrowing list is non-empty so this loop never decides whether a scope is wanted.
+    /// Seven kinds are gone. Five were WRITE-TARGET REPORTS and one was the question in front of them:
+    /// they were steps only while those reports lived here, and the owner now calls
+    /// <see cref="AnalyzerWriteTargets"/> itself. The seventh captured every sub-expression's type for
+    /// a write target, and the table it installed is now an ambient slot the owner brackets for
+    /// itself. This loop decides nothing: it performs the one operation it is handed, with the
+    /// operands it is handed.
     /// </summary>
     private TypeInfo DriveOperatorExpression(OperatorExpressionState state)
     {
-        Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
         for (var step = _operatorExpressions.NextStep(state);
              step != null;
              step = _operatorExpressions.NextStep(state))
         {
             TypeInfo? answer = null;
-            var decision = false;
             switch (step.Kind)
             {
                 case 1:
@@ -3021,46 +3035,39 @@ public class Analyzer : IDisposable
                     answer = AnalyzeExpression(step.Node!);
                     PopScope();
                     break;
-                case 4:
-                {
-                    var previousTargetExpressionTypes = _assignmentTargetExpressionTypes;
-                    targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
-                    _assignmentTargetExpressionTypes = targetExpressionTypes;
-                    try
-                    {
-                        answer = AnalyzeExpression(step.Node!);
-                    }
-                    finally
-                    {
-                        _assignmentTargetExpressionTypes = previousTargetExpressionTypes;
-                    }
-
-                    break;
-                }
-                case 5:
-                    decision = IsWriteTargetNeedingExpressionTypes(step.Node!);
-                    break;
-                case 6:
-                    decision = ReportNullConditionalWriteTargetIfNeeded(step.Node!, step.Text!);
-                    break;
-                case 7:
-                    decision = ReportSoaTableMemberMutationIfNeeded(step.Node!, targetExpressionTypes, step.Text!);
-                    break;
-                case 8:
-                    decision = ReportUnsupportedBuiltInIndexedMutationIfNeeded(step.Node!, targetExpressionTypes, step.Text!);
-                    break;
-                case 9:
-                    decision = ReportReadonlyFieldIncrementOrDecrementIfNeeded(step.Unary!, targetExpressionTypes);
-                    break;
-                case 10:
-                    decision = ReportReadOnlyPropertyWriteTargetIfNeeded(step.Node!, step.Text!, targetExpressionTypes);
-                    break;
             }
 
-            _operatorExpressions.Supply(state, answer, decision);
+            _operatorExpressions.Supply(state, answer);
         }
 
         return _operatorExpressions.Result(state);
+    }
+
+    /// <summary>
+    /// Performs the steps <see cref="AnalyzerAssignment"/> asks for and returns the type it decided.
+    /// Every policy about what an assignment means — that a discard binds nothing and is a plain
+    /// <c>=</c> shape only, that a null-conditional target is refused before it is walked, the eight
+    /// ordered gates a walked target passes, that every refusal still walks the value so errors inside
+    /// it are reported too, which of those value walks run under the target's type, the readonly-field
+    /// rule, the assignability front door in both its renderings, the compound form's operator
+    /// question, and the null-state and error-tuple facts a successful store leaves behind — belongs
+    /// to the N# owner.
+    /// The ONE kind is the ordinary walk, handed out up to twice. Every bracket the arm needs — the
+    /// four-part target bracket and the target-typed value bracket — is opened and closed by the owner
+    /// around the step, because none of them carries a lambda fork this loop would have to simulate.
+    /// This loop decides nothing: it performs the one operation it is handed, with the operand it is
+    /// handed.
+    /// </summary>
+    private TypeInfo DriveAssignment(AssignmentState state)
+    {
+        for (var step = _assignment.NextStep(state);
+             step != null;
+             step = _assignment.NextStep(state))
+        {
+            _assignment.Supply(state, AnalyzeExpression(step.Node!));
+        }
+
+        return _assignment.Result(state);
     }
 
     /// <summary>
@@ -3109,9 +3116,9 @@ public class Analyzer : IDisposable
                 or MustExpression or StackAllocExpression or TupleExpression or AwaitExpression
                 => DrivePassThroughOperand(_passThroughOperands.Begin(expr, _patternReachability)),
             MemberAccessExpression => DriveMemberAccess(_memberAccess.Begin(expr)),
-            IndexAccessExpression => DriveIndexAccess(_indexAccess.Begin(expr, _assignmentTargetExpressionTypes != null)),
+            IndexAccessExpression => DriveIndexAccess(_indexAccess.Begin(expr)),
             CallExpression call => AnalyzeCall(call),
-            AssignmentExpression assignment => AnalyzeAssignment(assignment),
+            AssignmentExpression => DriveAssignment(_assignment.Begin(expr)),
             OnSubscriptionExpression on => AnalyzeOnSubscription(on),
             LambdaExpression lambda => AnalyzeLambda(lambda, _ambient.CurrentExpectedType),
             CastExpression or CheckedExpression or UncheckedExpression or TernaryExpression
@@ -3135,12 +3142,7 @@ public class Analyzer : IDisposable
         _semanticModel.RecordExpressionType(expr.Line, expr.Column, flowType);
         _semanticModel.RecordExpressionNullState(expr.Line, expr.Column, nullState);
 
-        // While an ASSIGNMENT TARGET is being analyzed, record every sub-expression's resolved type
-        // (reference-keyed — the semantic model's line/column keys collide for nested chains sharing
-        // a start position). The NL322 receiver-chain classifier reads these instead of re-analyzing,
-        // which would duplicate every diagnostic the receiver produces.
-        if (_assignmentTargetExpressionTypes != null)
-            _assignmentTargetExpressionTypes[expr] = flowType;
+        _ambient.RecordWriteTargetExpressionType(expr, flowType);
 
         if (!_allowSyntheticSoaOperationReference
             && flowType is FunctionTypeInfo { SyntheticName: { Length: > 0 } } syntheticSoaOperation
@@ -3164,9 +3166,9 @@ public class Analyzer : IDisposable
         }
 
         // A .NET event can only be touched via `on`/`off`. Catch every other use of it as a value
-        // here (the `on`/`off`/assignment paths set _allowEventReference to opt out and emit their
+        // here (the `on`/`off`/assignment paths open the ambient suppression to opt out and emit their
         // own tailored diagnostics).
-        if (!_allowEventReference && flowType is ReflectionEventInfo bareEvent)
+        if (!_ambient.AllowEventReference && flowType is ReflectionEventInfo bareEvent)
         {
             ReportEventUsedAsValue(expr, bareEvent);
             return BuiltInTypes.Unknown;
@@ -3230,7 +3232,7 @@ public class Analyzer : IDisposable
     {
         return expression switch
         {
-            MemberAccessExpression memberAccess => RenderEventTarget(memberAccess),
+            MemberAccessExpression memberAccess => AnalyzerAssignment.RenderEventTarget(memberAccess),
             ParenthesizedExpression parenthesized => RenderSyntheticSoaOperationTarget(parenthesized.Inner, fallbackName),
             CheckedExpression checkedExpression => RenderSyntheticSoaOperationTarget(checkedExpression.Expression, fallbackName),
             UncheckedExpression uncheckedExpression => RenderSyntheticSoaOperationTarget(uncheckedExpression.Expression, fallbackName),
@@ -3308,10 +3310,6 @@ public class Analyzer : IDisposable
 
         return _indexAccess.Result(state);
     }
-
-    private static bool IsRangeLikeType(TypeInfo type)
-        => type is ReflectionTypeInfo { Type.FullName: "System.Range" }
-           || type is SimpleTypeInfo { Name: "Range" or "System.Range" };
 
     private static bool IsIndexLikeType(TypeInfo type)
         => type is ReflectionTypeInfo { Type.FullName: "System.Index" }
@@ -3420,7 +3418,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeRefOutArgumentExpression(
         Argument argument,
         TypeInfo? expectedType,
-        out Dictionary<Expression, TypeInfo>? expressionTypes,
+        out Dictionary<object, TypeInfo>? expressionTypes,
         bool allowUnboundCallableReference = false)
     {
         expressionTypes = null;
@@ -3430,7 +3428,7 @@ public class Analyzer : IDisposable
         }
 
         var modifier = argument.Modifier == ArgumentModifier.Ref ? "ref" : "out";
-        if (ReportNullConditionalWriteTargetIfNeeded(argument.Value, $"used as the {modifier} argument"))
+        if (_writeTargets.ReportNullConditionalWriteTargetIfNeeded(argument.Value, $"used as the {modifier} argument"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -3438,9 +3436,8 @@ public class Analyzer : IDisposable
         var targetExpectedType = expectedType is ByRefTypeInfo expectedByRef
             ? expectedByRef.InnerType
             : expectedType;
-        var previousTargetTypes = _assignmentTargetExpressionTypes;
-        expressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
-        _assignmentTargetExpressionTypes = expressionTypes;
+        var previousTargetTypes = _ambient.EnterWriteTargetExpressionTypes();
+        expressionTypes = _ambient.WriteTargetExpressionTypes;
         try
         {
             var targetType = AnalyzeExpressionWithExpectedType(argument.Value, targetExpectedType, allowUnboundCallableReference);
@@ -3450,14 +3447,14 @@ public class Analyzer : IDisposable
         }
         finally
         {
-            _assignmentTargetExpressionTypes = previousTargetTypes;
+            _ambient.ExitWriteTargetExpressionTypes(previousTargetTypes);
         }
     }
 
     private bool ReportInvalidRefOutArgumentTargetIfNeeded(
         Argument argument,
         int argumentErrorsBefore,
-        Dictionary<Expression, TypeInfo>? expressionTypes)
+        Dictionary<object, TypeInfo>? expressionTypes)
     {
         if (argument.Modifier is not (ArgumentModifier.Ref or ArgumentModifier.Out)
             || _errors.Count != argumentErrorsBefore)
@@ -3467,17 +3464,17 @@ public class Analyzer : IDisposable
 
         var modifier = argument.Modifier == ArgumentModifier.Ref ? "ref" : "out";
         var action = $"used as the {modifier} argument";
-        if (ReportNullConditionalWriteTargetIfNeeded(argument.Value, action))
+        if (_writeTargets.ReportNullConditionalWriteTargetIfNeeded(argument.Value, action))
         {
             return true;
         }
 
-        if (ReportSoaTableMemberMutationIfNeeded(argument.Value, expressionTypes, action)
-            || ReportUnsupportedBuiltInIndexedMutationIfNeeded(argument.Value, expressionTypes, action))
+        if (_writeTargets.ReportSoaTableMemberMutationIfNeeded(argument.Value, expressionTypes, action)
+            || _writeTargets.ReportUnsupportedBuiltInIndexedMutationIfNeeded(argument.Value, expressionTypes, action))
         {
             return true;
         }
-        if (ReportReadonlyFieldRefOutArgumentIfNeeded(argument.Value, modifier, expressionTypes))
+        if (_writeTargets.ReportReadonlyFieldRefOutArgumentIfNeeded(argument.Value, modifier, expressionTypes))
         {
             return true;
         }
@@ -3500,7 +3497,7 @@ public class Analyzer : IDisposable
 
     private bool IsRefOutArgumentTarget(
         Expression expression,
-        Dictionary<Expression, TypeInfo>? expressionTypes) => expression switch
+        Dictionary<object, TypeInfo>? expressionTypes) => expression switch
     {
         IdentifierExpression => true,
         MemberAccessExpression memberAccess => IsAddressableRefOutMember(memberAccess, expressionTypes),
@@ -3511,7 +3508,7 @@ public class Analyzer : IDisposable
 
     private bool IsAddressableRefOutMember(
         MemberAccessExpression member,
-        Dictionary<Expression, TypeInfo>? expressionTypes)
+        Dictionary<object, TypeInfo>? expressionTypes)
     {
         if (expressionTypes == null)
             return true;
@@ -3540,19 +3537,22 @@ public class Analyzer : IDisposable
             return staticClassification != false;
         }
 
-        var instanceClassification = ClassifyInstanceFieldHop(member, expressionTypes);
-        return instanceClassification != false;
+        var isInstanceField = false;
+        // `!resolved || isInstanceField` is the old `instanceClassification != false`: an owner that
+        // could not be resolved is addressable by default, and only a proven non-field is refused.
+        return !_writeTargets.TryClassifyInstanceFieldHop(member, expressionTypes, out isInstanceField)
+            || isInstanceField;
     }
 
     private bool IsAddressableRefOutIndex(
         IndexAccessExpression index,
-        Dictionary<Expression, TypeInfo>? expressionTypes)
+        Dictionary<object, TypeInfo>? expressionTypes)
     {
         if (expressionTypes == null)
             return true;
 
         var isRangeAccess = index.Index is RangeExpression
-            || (expressionTypes.TryGetValue(index.Index, out var indexType) && IsRangeLikeType(indexType));
+            || (expressionTypes.TryGetValue(index.Index, out var indexType) && AnalyzerIndexAccess.IsRangeLikeType(indexType));
         if (isRangeAccess)
             return false;
 
@@ -3579,7 +3579,7 @@ public class Analyzer : IDisposable
 
     private bool? ClassifyStaticFieldMember(
         MemberAccessExpression member,
-        Dictionary<Expression, TypeInfo> expressionTypes)
+        Dictionary<object, TypeInfo> expressionTypes)
     {
         if (!expressionTypes.TryGetValue(member.Object, out var ownerType))
             return null;
@@ -3601,7 +3601,7 @@ public class Analyzer : IDisposable
         if (_declarationContext.TryGetSourceMemberShape(sourceOwner, null, out _))
             return false;
 
-        owner = NormalizeReflectionMemberOwnerType(owner);
+        owner = _writeTargets.NormalizeReflectionOwner(owner);
         if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
             && !reflected.Type.IsGenericTypeDefinition)
         {
@@ -3900,327 +3900,21 @@ public class Analyzer : IDisposable
         return state.Result;
     }
 
-    private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
-    {
-        // Discard assignment: `_ = expr` explicitly throws away a value. The discard is the
-        // sanctioned escape hatch for must-use results, so the target binds nothing and we
-        // only analyze the right-hand side.
-        if (IsDiscardTarget(assignment.Target))
-        {
-            if (assignment.Operator != AssignmentOperator.Assign)
-            {
-                var (discardLine, discardColumn, discardLength) = _spans.GetExpressionDiagnosticSpan(assignment.Target);
-                Error(
-                    ErrorCode.InvalidSyntax,
-                    "The discard `_` can only be used with a plain `=` assignment",
-                    discardLine,
-                    discardColumn,
-                    "Use `_ = expr` to discard a value, or assign to a named variable for compound operators.",
-                    discardLength);
-            }
-
-            var discardedType = AnalyzeExpression(assignment.Value);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(assignment.Value, discardedType, "discarded");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assignment.Value, "discarded");
-            return discardedType;
-        }
-
-        if (ReportNullConditionalWriteTargetIfNeeded(
-                assignment.Target,
-                $"assigned with '{OperatorFacts.GetAssignmentText(assignment.Operator)}'"))
-        {
-            var invalidValueType = AnalyzeExpression(assignment.Value);
-            if (invalidValueType is SoaRowTypeInfo)
-            {
-                _soaEscape.ReportSoaRowEscape(assignment.Value, "assigned");
-            }
-
-            return BuiltInTypes.Unknown;
-        }
-
-        var previousSuppressNullabilityFlowType = _nullFlow.SuppressFlowType;
-        var previousSuppressErrorTupleResultUse = _identifierResolution.SuppressErrorTupleResultUse;
-        var previousAllowEventReference = _allowEventReference;
-        Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
-        TypeInfo targetType;
-        try
-        {
-            _nullFlow.SetSuppressFlowType(true);
-            _identifierResolution.SetSuppressErrorTupleResultUse(assignment.Operator == AssignmentOperator.Assign);
-            // Resolve the target without the bare-event guard so we can give a tailored
-            // "use on/off" message instead of the generic one.
-            _allowEventReference = true;
-            if (IsWriteTargetNeedingExpressionTypes(assignment.Target))
-            {
-                // Collect the target chain's sub-expression types for write-target classifiers below.
-                targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
-                _assignmentTargetExpressionTypes = targetExpressionTypes;
-            }
-            targetType = AnalyzeExpression(assignment.Target);
-        }
-        finally
-        {
-            _assignmentTargetExpressionTypes = null;
-            _allowEventReference = previousAllowEventReference;
-            _identifierResolution.SetSuppressErrorTupleResultUse(previousSuppressErrorTupleResultUse);
-            _nullFlow.SetSuppressFlowType(previousSuppressNullabilityFlowType);
-        }
-
-        if (targetType is SoaRowTypeInfo)
-        {
-            _soaEscape.ReportSoaRowEscape(assignment.Target, "assigned");
-            var previousExpectedTypeForInvalidTarget = _ambient.EnterExpectedType(targetType);
-            var invalidValueType = AnalyzeExpression(assignment.Value);
-            _ambient.ExitExpectedType(previousExpectedTypeForInvalidTarget);
-            if (invalidValueType is SoaRowTypeInfo)
-            {
-                _soaEscape.ReportSoaRowEscape(assignment.Value, "assigned");
-            }
-
-            return BuiltInTypes.Unknown;
-        }
-
-        // `event += handler` / `-=` / `=` silently compiled to direct backing-field access before,
-        // then threw FieldAccessException at runtime. N# never assigns events — subscribe with
-        // `on`, unsubscribe with `off`. (A `+=` on a real Func/Action field is NOT an event and
-        // falls through to the normal delegate-combine path below.)
-        if (targetType is ReflectionEventInfo eventTarget)
-        {
-            ReportEventAssignment(assignment, eventTarget);
-            // Still analyze the value so handler-body errors surface too.
-            AnalyzeExpression(assignment.Value);
-            // Return an error-recovery type (not the event) so the caller's bare-event guard
-            // doesn't pile on a second diagnostic for the same assignment.
-            return BuiltInTypes.Unknown;
-        }
-
-        if (ReportSoaTableMemberMutationIfNeeded(assignment.Target, targetExpressionTypes, "assigned directly"))
-        {
-            var previousExpectedTypeForInvalidTarget = _ambient.EnterExpectedType(targetType);
-            var invalidValueType = AnalyzeExpression(assignment.Value);
-            _ambient.ExitExpectedType(previousExpectedTypeForInvalidTarget);
-            if (invalidValueType is SoaRowTypeInfo)
-            {
-                _soaEscape.ReportSoaRowEscape(assignment.Value, "assigned");
-            }
-
-            return BuiltInTypes.Unknown;
-        }
-
-        if (ReportUnsupportedBuiltInIndexedMutationIfNeeded(assignment.Target, targetExpressionTypes, "assigned"))
-        {
-            var previousExpectedTypeForInvalidTarget = _ambient.EnterExpectedType(targetType);
-            var invalidValueType = AnalyzeExpression(assignment.Value);
-            _ambient.ExitExpectedType(previousExpectedTypeForInvalidTarget);
-            if (invalidValueType is SoaRowTypeInfo)
-            {
-                _soaEscape.ReportSoaRowEscape(assignment.Value, "assigned");
-            }
-
-            return BuiltInTypes.Unknown;
-        }
-
-        if (ReportInvalidAssignmentTargetIfNeeded(assignment))
-        {
-            var invalidValueType = AnalyzeExpression(assignment.Value);
-            if (invalidValueType is SoaRowTypeInfo)
-            {
-                _soaEscape.ReportSoaRowEscape(assignment.Value, "assigned");
-            }
-
-            return BuiltInTypes.Unknown;
-        }
-
-        if (ReportReadOnlyPropertyWriteTargetIfNeeded(
-                assignment.Target,
-                OperatorFacts.GetAssignmentText(assignment.Operator),
-                targetExpressionTypes))
-        {
-            var invalidValueType = AnalyzeExpression(assignment.Value);
-            if (invalidValueType is SoaRowTypeInfo)
-            {
-                _soaEscape.ReportSoaRowEscape(assignment.Value, "assigned");
-            }
-
-            return BuiltInTypes.Unknown;
-        }
-
-        CheckNullCoalesceAssignmentTarget(assignment, targetType);
-
-        // NL322 (the CS1612 analog), paired with the EmitAddressableExpression chain fix (defect
-        // #22): a member write whose receiver chain passes through a VALUE-typed hop must be rooted
-        // in real storage — a local/param/`this` (or a bare field of one), a FIELD chain over one of
-        // those, or an array element. Every other value-typed receiver (a List indexer result, a
-        // call result, a property result) is a temporary COPY: the store would land in the copy and
-        // be silently discarded. Applies to compound operators too (they read-modify-write through
-        // the same receiver). Reference-typed receivers are storage handles — any shape works.
-        if (assignment.Target is MemberAccessExpression memberWriteTarget && targetExpressionTypes != null)
-            CheckMemberWriteReceiverIsVariable(memberWriteTarget, targetExpressionTypes);
-
-        var previousExpectedType = _ambient.EnterExpectedType(targetType);
-        var valueType = AnalyzeExpression(assignment.Value);
-        _ambient.ExitExpectedType(previousExpectedType);
-        if (valueType is SoaRowTypeInfo)
-        {
-            _soaEscape.ReportSoaRowEscape(assignment.Value, "assigned");
-        }
-        else
-        {
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assignment.Value, "assigned");
-        }
-
-        // Check for readonly field assignment outside constructor
-        CheckReadonlyFieldAssignment(assignment.Target, assignment.Line, assignment.Column, targetExpressionTypes);
-
-        var valueAssignable = _assignability.IsAssignable(targetType, valueType);
-        if (!valueAssignable)
-        {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetExpressionDiagnosticSpan(assignment.Value);
-            var sourceSnippet = GetSourceSnippet(diagnosticLine);
-
-            if (sourceSnippet != null && _currentFilePath != null)
-            {
-                var error = ErrorMessageBuilder.TypeMismatch(
-                    _currentFilePath,
-                    diagnosticLine,
-                    diagnosticColumn,
-                    sourceSnippet,
-                    diagnosticLength,
-                    valueType.ToString(),
-                    targetType.ToString()
-                );
-                _errors.Add(error);
-            }
-            else
-            {
-                Error(ErrorCode.TypeMismatch, $"Type mismatch in assignment — expected '{targetType}' but got '{valueType}'",
-                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
-            }
-        }
-        else if (ReportInvalidCompoundAssignmentIfNeeded(assignment, targetType, valueType))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        _nullFlow.UpdateNullStateAfterAssignment(assignment.Target, assignment.Value, targetType, valueType);
-        _scopes.MarkErrorTupleResultAvailableAfterAssignment(assignment.Target);
-
-        return targetType;
-    }
-
-    private bool ReportInvalidCompoundAssignmentIfNeeded(
-        AssignmentExpression assignment,
-        TypeInfo targetType,
-        TypeInfo valueType)
-    {
-        if (!OperatorFacts.TryGetCompoundAssignmentBinaryOperator(assignment.Operator, out var binaryOperator))
-        {
-            return false;
-        }
-
-        if (BuiltInTypes.IsUnknown(targetType) || BuiltInTypes.IsUnknown(valueType))
-        {
-            return false;
-        }
-
-        if ((assignment.Operator is AssignmentOperator.AddAssign or AssignmentOperator.SubtractAssign)
-            && IsDelegateLikeAssignmentType(targetType))
-        {
-            return false;
-        }
-
-        var operatorExpression = new BinaryExpression(
-            assignment.Target,
-            binaryOperator,
-            assignment.Value,
-            assignment.Line,
-            assignment.Column);
-        var resultType = _operatorExpressions.CompoundAssignmentOperatorResult(
-            binaryOperator, targetType, valueType, operatorExpression);
-        if (BuiltInTypes.IsUnknown(resultType))
-        {
-            return true;
-        }
-
-        if (_assignability.IsAssignable(targetType, resultType))
-        {
-            return false;
-        }
-
-        var opText = OperatorFacts.GetAssignmentText(assignment.Operator);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"The '{opText}' assignment produces '{resultType}', which can't be stored in '{targetType}'",
-            assignment.Line,
-            assignment.Column,
-            "Use an explicit assignment with a conversion, or choose operands whose operator result is assignable to the target.",
-            Math.Max(1, opText.Length));
-        return true;
-    }
-
-    private bool IsDelegateLikeAssignmentType(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        return resolved switch
-        {
-            FunctionTypeInfo => true,
-            GenericTypeInfo { Name: "Func" or "Action" } => true,
-            ReflectionTypeInfo reflection => _assignabilityFacts.IsDelegateType(reflection.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflection.Type),
-            ObliviousTypeInfo oblivious => IsDelegateLikeAssignmentType(oblivious.InnerType),
-            NullableTypeInfo nullable => IsDelegateLikeAssignmentType(nullable.InnerType),
-            _ => false
-        };
-    }
-
-    private void CheckNullCoalesceAssignmentTarget(AssignmentExpression assignment, TypeInfo targetType)
-    {
-        if (assignment.Operator != AssignmentOperator.NullCoalesceAssign)
-        {
-            return;
-        }
-
-        if (CanNullCoalesceCheckForNull(targetType))
-        {
-            return;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(assignment.Target);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"The left side of '??=' has type '{targetType}', which can't be null",
-            line,
-            column,
-            "Use '=' for values that are always present, or make the target nullable before using '??='.",
-            length);
-    }
-
-    private bool CanNullCoalesceCheckForNull(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        return BuiltInTypes.IsUnknown(resolved)
-            || resolved is GenericTypeInfo
-            || resolved is NullableTypeInfo
-            || AnalyzerConversionFacts.IsReferenceType(resolved)
-            || (resolved is ReflectionTypeInfo reflection
-                && Nullable.GetUnderlyingType(reflection.Type) != null);
-    }
-
     private TypeInfo AnalyzeOnSubscription(OnSubscriptionExpression on)
     {
         var subscriptionType = new ReflectionTypeInfo(typeof(NSharpLang.Runtime.NSharpEventSubscription));
 
-        var previousAllow = _allowEventReference;
+        var previousAllow = _ambient.EnterAllowEventReference();
         TypeInfo targetType;
         try
         {
             // Resolve the target without the bare-event guard so the diagnostics below are the
             // ones the user sees. Restored even if analysis throws.
-            _allowEventReference = true;
             targetType = AnalyzeExpression(on.Target);
         }
         finally
         {
-            _allowEventReference = previousAllow;
+            _ambient.ExitAllowEventReference(previousAllow);
         }
 
         if (targetType is not ReflectionEventInfo eventInfo)
@@ -4291,37 +3985,10 @@ public class Analyzer : IDisposable
         return subscriptionType;
     }
 
-    private void ReportEventAssignment(AssignmentExpression assignment, ReflectionEventInfo eventTarget)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(assignment.Target);
-        var target = RenderEventTarget(assignment.Target);
-        var name = eventTarget.Name;
-
-        string message;
-        string hint;
-        if (assignment.Operator == AssignmentOperator.SubtractAssign)
-        {
-            message = $"'{name}' is a .NET event — it can't be unsubscribed with '-='";
-            hint = $"Capture the subscription when you subscribe (`sub := on {target} handler`), then detach it with `off sub`.";
-        }
-        else if (assignment.Operator == AssignmentOperator.AddAssign)
-        {
-            message = $"'{name}' is a .NET event — it can't be subscribed to with '+='";
-            hint = $"Subscribe with `on {target} (sender, args) => {{ ... }}`; it returns a subscription you can later pass to `off`.";
-        }
-        else
-        {
-            message = $"'{name}' is a .NET event — it can't be assigned with '='";
-            hint = $"Subscribe with `on {target} (sender, args) => {{ ... }}` and unsubscribe with `off`.";
-        }
-
-        Error(ErrorCode.EventRequiresOnOff, message, line, column, hint, length);
-    }
-
     private void ReportEventUsedAsValue(Expression expr, ReflectionEventInfo eventRef)
     {
         var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expr);
-        var target = RenderEventTarget(expr);
+        var target = AnalyzerAssignment.RenderEventTarget(expr);
         Error(
             ErrorCode.EventRequiresOnOff,
             $"'{eventRef.Name}' is a .NET event and can only be used with `on`/`off`",
@@ -4329,296 +3996,6 @@ public class Analyzer : IDisposable
             column,
             $"Subscribe with `on {target} (sender, args) => {{ ... }}`; the result is a subscription you can later pass to `off`.",
             length);
-    }
-
-    private static string RenderEventTarget(Expression expr) => expr switch
-    {
-        IdentifierExpression identifier => identifier.Name,
-        ThisExpression => "this",
-        BaseExpression => "base",
-        MemberAccessExpression member => $"{RenderEventTarget(member.Object)}.{member.MemberName}",
-        ParenthesizedExpression parenthesized => RenderEventTarget(parenthesized.Inner),
-        CastExpression cast => RenderEventTarget(cast.Expression),
-        _ => "<event>"
-    };
-
-    private static bool IsMemberAccessWriteTarget(Expression expression) => expression switch
-    {
-        MemberAccessExpression => true,
-        ParenthesizedExpression parenthesized => IsMemberAccessWriteTarget(parenthesized.Inner),
-        CheckedExpression checkedExpression => IsMemberAccessWriteTarget(checkedExpression.Expression),
-        UncheckedExpression uncheckedExpression => IsMemberAccessWriteTarget(uncheckedExpression.Expression),
-        _ => false
-    };
-
-    private static bool IsIndexAccessWriteTarget(Expression expression) => expression switch
-    {
-        IndexAccessExpression => true,
-        ParenthesizedExpression parenthesized => IsIndexAccessWriteTarget(parenthesized.Inner),
-        CheckedExpression checkedExpression => IsIndexAccessWriteTarget(checkedExpression.Expression),
-        UncheckedExpression uncheckedExpression => IsIndexAccessWriteTarget(uncheckedExpression.Expression),
-        _ => false
-    };
-
-    private static bool IsWriteTargetNeedingExpressionTypes(Expression expression)
-        => IsMemberAccessWriteTarget(expression) || IsIndexAccessWriteTarget(expression);
-
-    private static bool IsAssignmentTarget(Expression expression) => expression switch
-    {
-        IdentifierExpression => true,
-        MemberAccessExpression => true,
-        IndexAccessExpression => true,
-        ParenthesizedExpression parenthesized => IsAssignmentTarget(parenthesized.Inner),
-        _ => false
-    };
-
-    private bool ReportInvalidAssignmentTargetIfNeeded(AssignmentExpression assignment)
-    {
-        if (IsAssignmentTarget(assignment.Target))
-        {
-            return false;
-        }
-
-        var opText = OperatorFacts.GetAssignmentText(assignment.Operator);
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(assignment.Target);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"The '{opText}' assignment needs an assignable target",
-            line,
-            column,
-            "Use a variable, field, property, indexed element, or `_` discard as the left side.",
-            length);
-        return true;
-    }
-
-    private bool ReportNullConditionalWriteTargetIfNeeded(Expression target, string action)
-    {
-        if (!TryFindNullConditionalWriteTarget(target, out var nullConditionalTarget, out var targetKind))
-        {
-            return false;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(nullConditionalTarget);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"Null-conditional {targetKind} can't be {action}",
-            line,
-            column,
-            "Store the receiver in a local, guard it for null, then write through a normal member or index target.",
-            length);
-        return true;
-    }
-
-    private static bool TryFindNullConditionalWriteTarget(
-        Expression target,
-        out Expression nullConditionalTarget,
-        out string targetKind)
-    {
-        switch (target)
-        {
-            case ParenthesizedExpression parenthesized:
-                return TryFindNullConditionalWriteTarget(parenthesized.Inner, out nullConditionalTarget, out targetKind);
-            case MemberAccessExpression { IsNullConditional: true } memberAccess:
-                nullConditionalTarget = memberAccess;
-                targetKind = "member access";
-                return true;
-            case MemberAccessExpression memberAccess:
-                return TryFindNullConditionalWriteTarget(memberAccess.Object, out nullConditionalTarget, out targetKind);
-            case IndexAccessExpression { IsNullConditional: true } indexAccess:
-                nullConditionalTarget = indexAccess;
-                targetKind = "index access";
-                return true;
-            case IndexAccessExpression indexAccess:
-                return TryFindNullConditionalWriteTarget(indexAccess.Object, out nullConditionalTarget, out targetKind);
-            default:
-                nullConditionalTarget = target;
-                targetKind = string.Empty;
-                return false;
-        }
-    }
-
-    private bool ReportReadOnlyPropertyWriteTargetIfNeeded(
-        Expression target,
-        string opText,
-        Dictionary<Expression, TypeInfo>? expressionTypes)
-    {
-        if (!TryFindReadOnlyPropertyWriteTarget(target, expressionTypes, out var propertyName))
-        {
-            return false;
-        }
-
-        var action = opText is "++" or "--"
-            ? $"changed with '{opText}'"
-            : $"assigned with '{opText}'";
-        var (line, column, length) = _spans.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"Property '{propertyName}' is read-only — it can't be {action}",
-            line,
-            column,
-            "Use a variable, field, settable property, or indexed element as the target.",
-            length);
-        return true;
-    }
-
-    private bool TryFindReadOnlyPropertyWriteTarget(
-        Expression target,
-        Dictionary<Expression, TypeInfo>? expressionTypes,
-        out string propertyName)
-    {
-        switch (target)
-        {
-            case ParenthesizedExpression parenthesized:
-                return TryFindReadOnlyPropertyWriteTarget(parenthesized.Inner, expressionTypes, out propertyName);
-
-            case IdentifierExpression identifier:
-                if (!_scopes.IsCurrentTypeMemberReference(identifier.Name))
-                    break;
-
-                var currentType = _scopes.CurrentTypeScope();
-                if (currentType != null
-                    && TryIsReadOnlyPropertyMember(currentType, identifier.Name, includeStaticMembers: false))
-                {
-                    propertyName = identifier.Name;
-                    return true;
-                }
-                break;
-
-            case MemberAccessExpression memberAccess:
-                if (expressionTypes == null
-                    || !expressionTypes.TryGetValue(memberAccess.Object, out var receiverType))
-                {
-                    break;
-                }
-
-                receiverType = _declarationContext.ResolveDeclaredAlias(receiverType);
-                if (receiverType is ByRefTypeInfo byRefReceiver)
-                    receiverType = _declarationContext.ResolveDeclaredAlias(byRefReceiver.InnerType);
-
-                if (receiverType is NullableTypeInfo && memberAccess.MemberName is "HasValue" or "Value")
-                {
-                    propertyName = memberAccess.MemberName;
-                    return true;
-                }
-
-                receiverType = GetNonNullableType(receiverType);
-                if (TryIsReadOnlyPropertyMember(
-                        receiverType,
-                        memberAccess.MemberName,
-                        includeStaticMembers: _memberAccess.IsStaticMemberAccessTarget(memberAccess.Object)))
-                {
-                    propertyName = memberAccess.MemberName;
-                    return true;
-                }
-                break;
-        }
-
-        propertyName = string.Empty;
-        return false;
-    }
-
-    private bool TryIsReadOnlyPropertyMember(TypeInfo owner, string memberName, bool includeStaticMembers)
-    {
-        owner = _declarationContext.ResolveDeclaredAlias(owner);
-        if (owner is ByRefTypeInfo byRefOwner)
-            owner = _declarationContext.ResolveDeclaredAlias(byRefOwner.InnerType);
-
-        if (owner is NullableTypeInfo && memberName is "HasValue" or "Value")
-        {
-            return true;
-        }
-
-        if (owner is SoaRecordTypeInfo or SoaRowTypeInfo)
-        {
-            return false;
-        }
-
-        if (_declarationContext.TryFindMember(owner, memberName, out var selection))
-        {
-            var member = selection.Member;
-            return member != null
-                && member.Kind == DeclaredMemberKind.Property
-                && member.IsStatic == includeStaticMembers
-                && (!member.HasSetter || member.IsReadonly);
-        }
-
-        var sourceOwner = _typeSubstitution.GetSourceDeclarationOwner(owner, out _);
-        if (_declarationContext.TryGetSourceMemberShape(sourceOwner, null, out _))
-            return false;
-
-        owner = NormalizeReflectionMemberOwnerType(owner);
-        if (owner is ReflectionTypeInfo reflected
-            && reflected.Type is not System.Reflection.Emit.TypeBuilder
-            && !reflected.Type.IsGenericTypeDefinition)
-        {
-            return TryIsReadOnlyReflectionProperty(reflected.Type, memberName, includeStaticMembers);
-        }
-
-        return false;
-    }
-
-    private static bool TryIsReadOnlyReflectionProperty(Type type, string memberName, bool includeStaticMembers)
-    {
-        var flags = BindingFlags.Public
-            | BindingFlags.DeclaredOnly
-            | (includeStaticMembers ? BindingFlags.Static : BindingFlags.Instance);
-
-            for (var current = type; current != null; current = current.BaseType)
-            {
-                if (current.GetFields(flags).Any(field => field.Name == memberName))
-                {
-                    return false;
-                }
-
-                var property = current.GetProperties(flags).FirstOrDefault(candidate => candidate.Name == memberName);
-                if (property != null)
-                {
-                    return property.GetSetMethod(nonPublic: false) == null;
-                }
-
-                if (current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == memberName)
-                    || current.GetEvents(flags).Any(@event => @event.Name == memberName))
-                {
-                    return false;
-                }
-            }
-
-        return false;
-    }
-
-    // Sub-expression types of the assignment/unary-write TARGET currently being analyzed (reference-keyed;
-    // populated at the AnalyzeExpression tail, consumed by write-target classifiers).
-    private Dictionary<Expression, TypeInfo>? _assignmentTargetExpressionTypes;
-
-    private bool ReportSoaTableMemberMutationIfNeeded(
-        Expression target,
-        Dictionary<Expression, TypeInfo>? expressionTypes,
-        string action)
-    {
-        if (target is ParenthesizedExpression parenthesized)
-            return ReportSoaTableMemberMutationIfNeeded(parenthesized.Inner, expressionTypes, action);
-        if (target is CheckedExpression checkedExpression)
-            return ReportSoaTableMemberMutationIfNeeded(checkedExpression.Expression, expressionTypes, action);
-        if (target is UncheckedExpression uncheckedExpression)
-            return ReportSoaTableMemberMutationIfNeeded(uncheckedExpression.Expression, expressionTypes, action);
-
-        if (target is not MemberAccessExpression member
-            || expressionTypes == null
-            || !expressionTypes.TryGetValue(member.Object, out var receiverType))
-        {
-            return false;
-        }
-
-        if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType)) is not SoaRecordTypeInfo soaRecordType)
-            return false;
-
-        var isColumn = AnalyzerMemberResolution.TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null;
-        var isBookkeepingField = member.MemberName is "length" or "capacity";
-        if (!isColumn && !isBookkeepingField)
-            return false;
-
-        ReportSoaTableMemberMutation(member, action, isColumn);
-        return true;
     }
 
     private bool ReportSoaDirectColumnMutatingArrayCallIfNeeded(CallExpression call)
@@ -4644,7 +4021,7 @@ public class Analyzer : IDisposable
         if (!TryGetSoaMutatingArrayCallColumnArgument(call, memberAccess.MemberName, out var columnMember))
             return false;
 
-        ReportSoaTableMemberMutation(columnMember, action, isColumn: true);
+        _writeTargets.ReportSoaTableMemberMutation(columnMember, action, isColumn: true);
         return true;
     }
 
@@ -4955,608 +4332,6 @@ public class Analyzer : IDisposable
         var resolved = _declarationContext.ResolveDeclaredAlias(type);
         return _clrTypeConversion.TryConvertTypeInfoToClrType(resolved) == typeof(Array)
             || resolved is ExternalTypeInfo { Name: "Array" or "System.Array" };
-    }
-
-    private bool ReportUnsupportedBuiltInIndexedMutationIfNeeded(
-        Expression target,
-        Dictionary<Expression, TypeInfo>? expressionTypes,
-        string action)
-    {
-        if (target is ParenthesizedExpression parenthesized)
-            return ReportUnsupportedBuiltInIndexedMutationIfNeeded(parenthesized.Inner, expressionTypes, action);
-        if (target is CheckedExpression checkedExpression)
-            return ReportUnsupportedBuiltInIndexedMutationIfNeeded(checkedExpression.Expression, expressionTypes, action);
-        if (target is UncheckedExpression uncheckedExpression)
-            return ReportUnsupportedBuiltInIndexedMutationIfNeeded(uncheckedExpression.Expression, expressionTypes, action);
-
-        if (target is not IndexAccessExpression indexAccess
-            || expressionTypes == null
-            || !expressionTypes.TryGetValue(indexAccess.Object, out var receiverType))
-        {
-            return false;
-        }
-
-        var resolvedReceiverType = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType));
-        var isRangeAccess = indexAccess.Index is RangeExpression
-            || (expressionTypes.TryGetValue(indexAccess.Index, out var indexType) && IsRangeLikeType(indexType));
-        if (isRangeAccess && _soaEscape.IsSoaColumnMemberAccess(indexAccess.Object))
-        {
-            _indexAccess.ReportSoaColumnSliceHiddenAllocation(indexAccess);
-            return true;
-        }
-
-        if (IsStringType(resolvedReceiverType))
-        {
-            ReportUnsupportedStringIndexedMutation(indexAccess, action);
-            return true;
-        }
-
-        var isArrayReceiver = resolvedReceiverType is ArrayTypeInfo
-            || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true };
-        if (!isArrayReceiver)
-            return false;
-
-        if (!isRangeAccess)
-            return false;
-
-        ReportUnsupportedArraySliceMutation(indexAccess, action);
-        return true;
-    }
-
-    private void ReportUnsupportedArraySliceMutation(IndexAccessExpression indexAccess, string action)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(indexAccess);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"Array slices cannot be {action}",
-            line,
-            column,
-            "Assign individual elements, or construct a replacement array value explicitly.",
-            length);
-    }
-
-    private void ReportUnsupportedStringIndexedMutation(IndexAccessExpression indexAccess, string action)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(indexAccess);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"String characters and slices cannot be {action}",
-            line,
-            column,
-            "Create a new string value instead; strings are immutable.",
-            length);
-    }
-
-    private void ReportSoaTableMemberMutation(MemberAccessExpression member, string action, bool isColumn)
-    {
-        var line = member.Line;
-        var column = _spans.GetMemberNameColumn(member);
-        var length = Math.Max(1, member.MemberName.Length);
-        var suggestion = isColumn
-            ? "Write individual rows with table[index].column, or construct/wrap the table with the desired column arrays."
-            : "Use add, clear, ensureCapacity, or copyRow so length and capacity stay consistent with the columns.";
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"SoA table member '{member.MemberName}' cannot be {action}",
-            line,
-            column,
-            suggestion,
-            length);
-    }
-
-    // NL322: report when a member write's receiver chain bottoms out in a value-typed expression
-    // that is NOT a variable. CONSERVATIVE by design — hops whose types or members cannot be
-    // resolved here never fire (under-enforcement keeps unmodelled shapes compiling as before).
-    private void CheckMemberWriteReceiverIsVariable(MemberAccessExpression target, Dictionary<Expression, TypeInfo> expressionTypes)
-    {
-        var offender = FindValueCopyReceiver(target.Object, expressionTypes);
-        if (offender == null)
-            return;
-        expressionTypes.TryGetValue(offender, out var offenderType);
-        var receiverDescription = offender switch
-        {
-            IndexAccessExpression => "an indexer result (a copy of the element)",
-            CallExpression => "a call result (a copy of the return value)",
-            MemberAccessExpression => "a property result (a copy of the value)",
-            _ => "a temporary value (a copy)",
-        };
-        var typeName = _declarationContext.ResolveDeclaredAlias(offenderType ?? BuiltInTypes.Unknown).ToString() ?? "value";
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(offender);
-        var sourceSnippet = GetSourceSnippet(line);
-        if (sourceSnippet != null && _currentFilePath != null)
-        {
-            _errors.Add(ErrorMessageBuilder.MemberWriteThroughValueCopy(
-                _currentFilePath, line, column, sourceSnippet, length, target.MemberName, typeName, receiverDescription));
-        }
-        else
-        {
-            Error(
-                ErrorCode.MemberWriteThroughValueCopy,
-                $"Cannot assign to '{target.MemberName}' because its receiver is a temporary copy of '{typeName}', not a variable",
-                line,
-                column,
-                $"Copy the value into a local first, modify the local, then store the whole value back",
-                length);
-        }
-    }
-
-    // Returns the offending non-variable VALUE-typed receiver in the chain, or null when the chain
-    // is rooted in addressable storage (or is reference-typed / unresolvable — conservative).
-    private Expression? FindValueCopyReceiver(Expression receiver, Dictionary<Expression, TypeInfo> expressionTypes)
-    {
-        if (receiver is ParenthesizedExpression paren)
-            return FindValueCopyReceiver(paren.Inner, expressionTypes);
-        if (!expressionTypes.TryGetValue(receiver, out var receiverType)
-            || !IsProvenValueTypeReceiver(_declarationContext.ResolveDeclaredAlias(receiverType)))
-            return null;
-        switch (receiver)
-        {
-            case IdentifierExpression:
-            case ThisExpression:
-            case BaseExpression:
-                return null; // a local / parameter / bare field / `this` — a real variable.
-            case IndexAccessExpression arrayElement
-                when expressionTypes.TryGetValue(arrayElement.Object, out var indexedType)
-                     && _declarationContext.ResolveDeclaredAlias(indexedType) is ArrayTypeInfo:
-                return null; // an ARRAY element is a variable (the emitter addresses it via ldelema).
-            case MemberAccessExpression hop:
-            {
-                var isFieldHop = ClassifyInstanceFieldHop(hop, expressionTypes);
-                if (isFieldHop == null)
-                    return null; // unresolvable owner — stay silent.
-                if (isFieldHop == false)
-                    return receiver; // a property/method result — a temporary copy.
-                return FindValueCopyReceiver(hop.Object, expressionTypes); // FIELD hop — the root decides.
-            }
-            default:
-                return receiver; // a call result / indexer copy / any other rvalue.
-        }
-    }
-
-    // Whether a TypeInfo is PROVABLY a value type (user structs, record structs, external CLR value
-    // types). Anything unresolved or reference-like answers false so the NL322 rule never fires on
-    // shapes it cannot prove.
-    private static bool IsProvenValueTypeReceiver(TypeInfo type) => type switch
-    {
-        StructTypeInfo => true,
-        RecordTypeInfo record => record.IsStruct,
-        ReflectionTypeInfo reflected => reflected.Type.IsValueType,
-        _ => false,
-    };
-
-    // Whether `hop.MemberName` names an instance FIELD of `hop.Object`'s type: true/false when the
-    // owner's declaration is resolvable (generic owners resolve by NAME via LookupType), null when
-    // it is not (the classifier stays silent on those).
-    private bool? ClassifyInstanceFieldHop(MemberAccessExpression hop, Dictionary<Expression, TypeInfo> expressionTypes)
-    {
-        if (!expressionTypes.TryGetValue(hop.Object, out var ownerType))
-            return null;
-        return ClassifyInstanceFieldMember(ownerType, hop.MemberName);
-    }
-
-    private bool? ClassifyInstanceFieldMember(TypeInfo owner, string memberName)
-    {
-        owner = _declarationContext.ResolveDeclaredAlias(owner);
-        if (_declarationContext.TryFindMember(owner, memberName, out var selection))
-        {
-            return selection.Member is { } member
-                && member.Kind == DeclaredMemberKind.Field
-                && !member.IsStatic;
-        }
-
-        var sourceOwner = _typeSubstitution.GetSourceDeclarationOwner(owner, out _);
-        if (_declarationContext.TryGetSourceMemberShape(sourceOwner, null, out _))
-            return false;
-
-        owner = NormalizeReflectionMemberOwnerType(owner);
-        if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
-            && !reflected.Type.IsGenericTypeDefinition)
-        {
-            return ClassifyReflectionInstanceFieldMember(reflected.Type, memberName);
-        }
-
-        return null;
-    }
-
-    private static bool? ClassifyReflectionInstanceFieldMember(Type type, string memberName)
-    {
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-
-            for (var current = type; current != null; current = current.BaseType)
-            {
-                if (current.GetFields(flags).Any(field => field.Name == memberName))
-                {
-                    return true;
-                }
-
-                if (current.GetProperties(flags).Any(property => property.Name == memberName)
-                    || current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == memberName)
-                    || current.GetEvents(flags).Any(@event => @event.Name == memberName))
-                {
-                    return false;
-                }
-            }
-
-        return false;
-    }
-
-    private void CheckReadonlyFieldAssignment(
-        Expression target,
-        int line,
-        int column,
-        Dictionary<Expression, TypeInfo>? expressionTypes)
-    {
-        if (!TryGetReadonlyFieldTarget(target, expressionTypes, out var readonlyTarget))
-        {
-            return;
-        }
-
-        if (readonlyTarget.IsStatic)
-        {
-            var (diagnosticLine, diagnosticColumn, diagnosticLength) = _spans.GetAssignmentTargetNameDiagnosticSpan(target, line, column);
-            Error(
-                ErrorCode.ReadonlyAssignment,
-                $"Field '{readonlyTarget.Name}' is static readonly — it can only be initialized at its declaration",
-                diagnosticLine,
-                diagnosticColumn,
-                "Move this value into the field initializer, or remove `readonly` if the static field needs to change later.",
-                diagnosticLength);
-            return;
-        }
-
-        // Instance readonly fields may be assigned by their owning constructor.
-        if (_inConstructor && readonlyTarget.IsCurrentInstance)
-            return;
-
-        var (instanceLine, instanceColumn, instanceLength) = _spans.GetAssignmentTargetNameDiagnosticSpan(target, line, column);
-        var message = _inConstructor
-            ? $"Field '{readonlyTarget.Name}' is readonly — constructors can only assign readonly fields on the current instance"
-            : $"Field '{readonlyTarget.Name}' is readonly — it can only be assigned in a constructor";
-        var suggestion = _inConstructor
-            ? "Assign the current instance field directly, or remove `readonly` if other instances must be mutated."
-            : "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.";
-        Error(
-            ErrorCode.ReadonlyAssignment,
-            message,
-            instanceLine,
-            instanceColumn,
-            suggestion,
-            instanceLength);
-    }
-
-    private bool ReportReadonlyFieldRefOutArgumentIfNeeded(
-        Expression target,
-        string modifier,
-        Dictionary<Expression, TypeInfo>? expressionTypes)
-    {
-        if (!TryGetReadonlyFieldTarget(target, expressionTypes, out var readonlyTarget))
-        {
-            return false;
-        }
-
-        if (!readonlyTarget.IsStatic && _inConstructor && readonlyTarget.IsCurrentInstance)
-        {
-            return false;
-        }
-
-        var (line, column, length) = _spans.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
-        var fieldKind = readonlyTarget.IsStatic ? "static readonly" : "readonly";
-        var suggestion = readonlyTarget.IsStatic
-            ? "Static readonly fields can only be initialized at their declaration; copy the value to a mutable local or remove `readonly`."
-            : "Assign readonly fields inside a constructor, or remove `readonly` if this field must be passed by reference.";
-        Error(
-            ErrorCode.ReadonlyAssignment,
-            $"Field '{readonlyTarget.Name}' is {fieldKind} — it can't be used as a {modifier} argument",
-            line,
-            column,
-            suggestion,
-            length);
-        return true;
-    }
-
-    private bool ReportReadonlyFieldIncrementOrDecrementIfNeeded(
-        UnaryExpression unary,
-        Dictionary<Expression, TypeInfo>? expressionTypes)
-    {
-        if (!TryGetReadonlyFieldTarget(unary.Operand, expressionTypes, out var readonlyTarget))
-        {
-            return false;
-        }
-
-        if (!readonlyTarget.IsStatic && _inConstructor && readonlyTarget.IsCurrentInstance)
-        {
-            return false;
-        }
-
-        var opText = OperatorFacts.GetUnarySymbol(unary.Operator) ?? "operator";
-        var (line, column, length) = _spans.GetAssignmentTargetNameDiagnosticSpan(unary.Operand, unary.Line, unary.Column);
-        var fieldKind = readonlyTarget.IsStatic ? "static readonly" : "readonly";
-        var suggestion = readonlyTarget.IsStatic
-            ? "Static readonly fields can only be initialized at their declaration; copy the value to a mutable local or remove `readonly`."
-            : _inConstructor
-                ? "Assign the current instance field directly, or remove `readonly` if other instances must be mutated."
-                : "Move this mutation into a constructor assignment, or remove `readonly` if the field needs to change later.";
-        Error(
-            ErrorCode.ReadonlyAssignment,
-            $"Field '{readonlyTarget.Name}' is {fieldKind} — it can't be changed with '{opText}'",
-            line,
-            column,
-            suggestion,
-            length);
-        return true;
-    }
-
-    private bool TryGetReadonlyFieldTarget(
-        Expression target,
-        Dictionary<Expression, TypeInfo>? expressionTypes,
-        out ReadonlyFieldTarget readonlyTarget)
-    {
-        if (target is ParenthesizedExpression parenthesized)
-            return TryGetReadonlyFieldTarget(parenthesized.Inner, expressionTypes, out readonlyTarget);
-
-        if (target is MemberAccessExpression memberAccess
-            && TryGetStaticReadonlyFieldTarget(memberAccess, expressionTypes, out readonlyTarget))
-        {
-            return true;
-        }
-
-        if (target is MemberAccessExpression instanceMemberAccess
-            && TryGetInstanceReadonlyFieldTarget(instanceMemberAccess, expressionTypes, out readonlyTarget))
-        {
-            return true;
-        }
-
-        var fieldName = target switch
-        {
-            MemberAccessExpression { Object: ThisExpression } thisMemberAccess => thisMemberAccess.MemberName,
-            IdentifierExpression ident => ident.Name,
-            _ => string.Empty
-        };
-
-        if (fieldName.Length == 0 || _ambient.CurrentClass == null)
-        {
-            readonlyTarget = default;
-            return false;
-        }
-
-        return TryGetCurrentOrInheritedReadonlyFieldTarget(fieldName, out readonlyTarget);
-    }
-
-    private bool TryGetCurrentOrInheritedReadonlyFieldTarget(
-        string fieldName,
-        out ReadonlyFieldTarget readonlyTarget)
-    {
-        readonlyTarget = default;
-        if (_ambient.CurrentClass == null)
-        {
-            return false;
-        }
-
-        foreach (var member in _ambient.CurrentClass.Members)
-        {
-            if (member is FieldDeclaration field && field.Name == fieldName)
-            {
-                if (!field.Modifiers.HasFlag(Modifiers.Readonly))
-                {
-                    return false;
-                }
-
-                readonlyTarget = new ReadonlyFieldTarget(
-                    field.Name,
-                    field.Modifiers.HasFlag(Modifiers.Static),
-                    IsCurrentInstance: !field.Modifiers.HasFlag(Modifiers.Static));
-                return true;
-            }
-
-            if (member is PropertyDeclaration property && property.Name == fieldName)
-            {
-                return false;
-            }
-        }
-
-        var currentType = _scopes.LookupType(_ambient.CurrentClass.Name);
-        if (currentType == null
-            || !TryFindReadonlyInstanceField(currentType, fieldName, out var inheritedFieldName))
-        {
-            return false;
-        }
-
-        readonlyTarget = new ReadonlyFieldTarget(
-            inheritedFieldName,
-            IsStatic: false,
-            IsCurrentInstance: false);
-        return true;
-    }
-
-    private bool TryGetStaticReadonlyFieldTarget(
-        MemberAccessExpression target,
-        Dictionary<Expression, TypeInfo>? expressionTypes,
-        out ReadonlyFieldTarget readonlyTarget)
-    {
-        readonlyTarget = default;
-        if (!_memberAccess.IsStaticMemberAccessTarget(target.Object) || expressionTypes == null)
-        {
-            return false;
-        }
-
-        if (!expressionTypes.TryGetValue(target.Object, out var ownerType))
-        {
-            return false;
-        }
-
-        if (TryFindReadonlyStaticField(ownerType, target.MemberName, out var fieldName))
-        {
-            readonlyTarget = new ReadonlyFieldTarget(fieldName, IsStatic: true, IsCurrentInstance: false);
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool TryFindReadonlyStaticField(TypeInfo owner, string fieldName, out string resolvedFieldName)
-    {
-        resolvedFieldName = string.Empty;
-        owner = _declarationContext.ResolveDeclaredAlias(owner);
-        if (_declarationContext.TryFindReadonlyField(
-                owner,
-                fieldName,
-                requireStatic: true,
-                out resolvedFieldName,
-                out var sourceMemberClaimed))
-        {
-            return true;
-        }
-        if (sourceMemberClaimed)
-        {
-            return false;
-        }
-
-        owner = NormalizeReflectionMemberOwnerType(owner);
-        if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
-            && !reflected.Type.IsGenericTypeDefinition)
-        {
-            return TryFindReadonlyReflectionStaticField(reflected.Type, fieldName, out resolvedFieldName);
-        }
-
-        return false;
-    }
-
-    private static bool TryFindReadonlyReflectionStaticField(Type type, string fieldName, out string resolvedFieldName)
-    {
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly;
-        resolvedFieldName = string.Empty;
-
-            for (var current = type; current != null; current = current.BaseType)
-            {
-                var field = current.GetFields(flags).FirstOrDefault(candidate => candidate.Name == fieldName);
-                if (field != null)
-                {
-                    if (field is not ({ IsInitOnly: true } or { IsLiteral: true }))
-                    {
-                        return false;
-                    }
-
-                    resolvedFieldName = field.Name;
-                    return true;
-                }
-
-                if (current.GetProperties(flags).Any(property => property.Name == fieldName)
-                    || current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == fieldName)
-                    || current.GetEvents(flags).Any(@event => @event.Name == fieldName))
-                {
-                    return false;
-                }
-            }
-
-        return false;
-    }
-
-    private bool TryGetInstanceReadonlyFieldTarget(
-        MemberAccessExpression target,
-        Dictionary<Expression, TypeInfo>? expressionTypes,
-        out ReadonlyFieldTarget readonlyTarget)
-    {
-        readonlyTarget = default;
-        if (target.Object is ThisExpression || _memberAccess.IsStaticMemberAccessTarget(target.Object) || expressionTypes == null)
-        {
-            return false;
-        }
-
-        if (!expressionTypes.TryGetValue(target.Object, out var receiverType))
-        {
-            return false;
-        }
-
-        var receiver = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(receiverType));
-        if (receiver is ByRefTypeInfo byRefReceiver)
-            receiver = _declarationContext.ResolveDeclaredAlias(GetNonNullableType(byRefReceiver.InnerType));
-
-        if (!TryFindReadonlyInstanceField(receiver, target.MemberName, out var fieldName))
-        {
-            return false;
-        }
-
-        readonlyTarget = new ReadonlyFieldTarget(fieldName, IsStatic: false, IsCurrentInstance: false);
-        return true;
-    }
-
-    private bool TryFindReadonlyInstanceField(TypeInfo receiver, string fieldName, out string resolvedFieldName)
-    {
-        resolvedFieldName = string.Empty;
-        receiver = _declarationContext.ResolveDeclaredAlias(receiver);
-        if (_declarationContext.TryFindReadonlyField(
-                receiver,
-                fieldName,
-                requireStatic: false,
-                out resolvedFieldName,
-                out var sourceMemberClaimed))
-        {
-            return true;
-        }
-        if (sourceMemberClaimed)
-        {
-            return false;
-        }
-
-        receiver = NormalizeReflectionMemberOwnerType(receiver);
-        if (receiver is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
-            && !reflected.Type.IsGenericTypeDefinition)
-        {
-            return TryFindReadonlyReflectionInstanceField(reflected.Type, fieldName, out resolvedFieldName);
-        }
-
-        return false;
-    }
-
-    private static bool TryFindReadonlyReflectionInstanceField(Type type, string fieldName, out string resolvedFieldName)
-    {
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-        resolvedFieldName = string.Empty;
-
-            for (var current = type; current != null; current = current.BaseType)
-            {
-                var field = current.GetFields(flags).FirstOrDefault(candidate => candidate.Name == fieldName);
-                if (field != null)
-                {
-                    if (!field.IsInitOnly)
-                    {
-                        return false;
-                    }
-
-                    resolvedFieldName = field.Name;
-                    return true;
-                }
-
-                if (current.GetProperties(flags).Any(property => property.Name == fieldName)
-                    || current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == fieldName)
-                    || current.GetEvents(flags).Any(@event => @event.Name == fieldName))
-                {
-                    return false;
-                }
-            }
-
-        return false;
-    }
-
-    private TypeInfo NormalizeReflectionMemberOwnerType(TypeInfo owner)
-    {
-        var runtimeType = owner is GenericTypeInfo ? _clrTypeConversion.TryConvertTypeInfoToClrType(owner) : null;
-        return runtimeType != null ? new ReflectionTypeInfo(runtimeType) : NormalizeMemberOwnerType(owner);
-    }
-
-    private TypeInfo NormalizeMemberOwnerType(TypeInfo owner)
-    {
-        owner = _declarationContext.ResolveDeclaredAlias(owner);
-        if (owner is GenericTypeInfo generic)
-            owner = _typeSubstitution.ResolveGenericDefinition(generic) ?? owner;
-        if (owner is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
-        {
-            var clrOwner = _clrTypeConversion.TryConvertTypeInfoToClrType(owner);
-            if (clrOwner != null)
-                owner = new ReflectionTypeInfo(clrOwner);
-        }
-
-        return owner;
     }
 
     private FunctionTypeInfo AnalyzeLambda(
@@ -6118,11 +4893,6 @@ public class Analyzer : IDisposable
 
 
         return null;
-    }
-
-    private bool IsStringType(TypeInfo type)
-    {
-        return BuiltInTypes.Is(type, BuiltInTypes.String);
     }
 
     private void PushScope(Scope scope)
@@ -7115,11 +5885,13 @@ public class Analyzer : IDisposable
         _patternAnalysis = CreatePatternAnalysis();
         _flowNarrowing = CreateFlowNarrowing();
         _variableDeclaration = CreateVariableDeclaration();
+        _writeTargets = CreateWriteTargets();
         _operatorExpressions = CreateOperatorExpressions();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
         _identifierResolution.SetMetadataCollaborators(_memberResolution, _wellKnownTypes);
         _memberAccess.SetMetadataCollaborators(_memberResolution, _clrTypeConversion, _extensionMethodResolution, _wellKnownTypes);
         _construction = CreateConstruction();
+        _assignment = CreateAssignment();
     }
 
     public void Dispose()
@@ -7147,11 +5919,13 @@ public class Analyzer : IDisposable
             _patternAnalysis = CreatePatternAnalysis();
             _flowNarrowing = CreateFlowNarrowing();
             _variableDeclaration = CreateVariableDeclaration();
+            _writeTargets = CreateWriteTargets();
             _operatorExpressions = CreateOperatorExpressions();
             _typeResolver.SetWellKnownTypes(null);
             _identifierResolution.SetMetadataCollaborators(_memberResolution, null);
             _memberAccess.SetMetadataCollaborators(_memberResolution, _clrTypeConversion, _extensionMethodResolution, null);
             _construction = CreateConstruction();
+            _assignment = CreateAssignment();
             _mlcAssemblies.Clear();
             _disposed = true;
         }

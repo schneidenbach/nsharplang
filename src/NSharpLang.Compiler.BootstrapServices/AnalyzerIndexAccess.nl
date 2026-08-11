@@ -43,10 +43,11 @@ class IndexAccessRequest {
 //
 // `ReceiverType` is the alias-and-nullable-resolved receiver, computed once when the receiver answers
 // and read by every gate after it. `SavedExpectedType` is the slot's previous value and is non-null
-// only while phase 3 is outstanding. `InAssignmentTarget` is the one fact this arm cannot see for
-// itself — whether an assignment TARGET is being analysed — and it is handed in at `Begin` by the
-// driver, because the dictionary that records it is still `Analyzer.cs` state that moves with the
-// assignment arm.
+// only while phase 3 is outstanding. `InAssignmentTarget` records whether a WRITE TARGET was open when
+// this walk began — the one fact this arm cannot see in its own node. It used to be handed in at
+// `Begin` as a driver operand, because the table that records it was `Analyzer.cs` state; the table is
+// now an ambient slot this owner already holds, so the arm reads it for itself and `Begin` takes only
+// the expression.
 class IndexAccessState {
     indexValue: IndexAccessExpression?
 
@@ -128,9 +129,9 @@ class AnalyzerIndexAccess {
         constantFactsValue = constantFacts
     }
 
-    func Begin(expression: Expression, inAssignmentTarget: bool): IndexAccessState {
+    func Begin(expression: Expression): IndexAccessState {
         index := expression as IndexAccessExpression
-        state := new IndexAccessState(index, inAssignmentTarget)
+        state := new IndexAccessState(index, ambientValue.InWriteTarget)
         if index == null {
             state.Phase = 99
         }

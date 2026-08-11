@@ -6,12 +6,10 @@ import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
-// THE STEPS AN OPERATOR EXPRESSION TAKES, AND THEY ARE THE FIRST IN THE ARC THAT ARE NOT ALL WALKS.
+// THE THREE STEPS AN OPERATOR EXPRESSION TAKES, AND ALL THREE ARE WALKS.
 //
-// Ten kinds, in three bands.
-//
-// THE FOUR WALKS. Each of them analyses ONE expression and differs only in what is in force around
-// it, and the difference is observable in every case:
+// Each of them analyses ONE expression and differs only in what is in force around it, and the
+// difference is observable in every case:
 //   1  the ordinary walk, which leaves everything as it found it.
 //   2  the walk with the NULLABILITY FLOW TYPE preserved. Only the left operand of `??` takes it:
 //      the whole question `??` asks is whether its left side can be null, and the flow type is
@@ -21,46 +19,28 @@ import NSharpLang.Compiler.Ast
 //      `x != null && x.Length > 0` is the reason the right side of a conjunction sees a narrower
 //      `x` than the surrounding code does. The owner asks for this kind ONLY when the list is
 //      non-empty, so the driver never decides whether a scope is wanted.
-//   4  the walk that CAPTURES every sub-expression's type into a fresh table. Only an increment or
-//      decrement operand takes it, and only when the operand is a member or index chain: the
-//      write-target reporters below read that table instead of re-analysing the chain, which would
-//      duplicate every diagnostic the chain produces. The table's PRESENCE is itself observable —
-//      the column-slice allocation rule is suppressed while one is installed — which is why kind 4
-//      is asked for conditionally rather than always.
 //
-// THE ONE QUESTION.
-//   5  does this write target need its sub-expression types? The answer picks kind 4 or kind 1 for
-//      the operand walk that follows.
+// SEVEN KINDS RETIRED WHEN THE WRITE-TARGET FAMILY BECAME N#. Five of them were WRITE-TARGET REPORTS
+// and one was the QUESTION in front of them: they were steps only because the reports lived in
+// `Analyzer.cs`, and this owner now calls `AnalyzerWriteTargets` itself. The seventh was the
+// CAPTURING walk, which installed a fresh sub-expression table around the operand; the table is now
+// an ambient slot, so the bracket is opened and closed by this owner around a kind-1 step exactly as
+// the expected-type bracket is elsewhere in the arc. What was a ten-kind protocol with a separate
+// decision slot is three kinds and one answer.
 //
-// THE FIVE WRITE-TARGET REPORTS, all of which belong to the assignment family rather than to this
-// one — they are shared with `=` and its compound forms, and they stay in the host until that arm
-// moves. They interleave with the two SoA escape reports this owner raises itself, which is why
-// they are five separate kinds rather than one chain:
-//   6  the null-conditional write target (`a?.b++`), asked BEFORE the operand is walked at all.
-//   7  the SoA table member mutation.
-//   8  the unsupported built-in indexed mutation.
-//   9  the readonly field increment or decrement.
-//  10  the read-only property write target.
-//
-// `Text` is the action wording kinds 6, 7, 8 and 10 hand to their reporter. `Narrowings` is kind 3's
-// list. `Unary` is kind 9's node, which its reporter takes whole rather than as an operand. The
-// numbering is this walk's own protocol with its own driver and starts at 1; the other walks'
-// numbers mean different operations.
+// `Narrowings` is kind 3's list. The numbering is this walk's own protocol with its own driver and
+// starts at 1; the other walks' numbers mean different operations.
 class OperatorExpressionRequest {
     Kind: int
     Node: Expression?
-    Text: string?
     Narrowings: List<FlowNarrowing>?
-    Unary: UnaryExpression?
     Line: int
     Column: int
 
-    constructor(kind: int, node: Expression?, text: string?, narrowings: List<FlowNarrowing>?, unary: UnaryExpression?, line: int, column: int) {
+    constructor(kind: int, node: Expression?, narrowings: List<FlowNarrowing>?, line: int, column: int) {
         Kind = kind
         Node = node
-        Text = text
         Narrowings = narrowings
-        Unary = unary
         Line = line
         Column = column
     }
@@ -71,11 +51,15 @@ class OperatorExpressionRequest {
 // `Form` names which of the two this is — 0 a binary expression, 1 a unary one, and -1 for a node
 // that is neither.
 //
-// `LeftType` and `RightType` are a binary's two operand answers; `OperandType` is a unary's one.
-// `Answer` is the outstanding step's answer before it is filed, and `Decision` is the outstanding
-// QUESTION's answer — the two are separate because a report kind answers a bool and a walk kind
-// answers a type, and a state that stored them in one slot could not tell "no report fired" from
-// "the walk answered `unknown`".
+// `LeftType` and `RightType` are a binary's two operand answers; `OperandType` is a unary's one, and
+// `Answer` is the outstanding step's answer before it is filed. The separate DECISION slot this state
+// used to carry is gone with the report kinds that needed it: every step is a walk again, so one
+// answer slot says everything.
+//
+// `ExpressionTypes` is the sub-expression capture table a mutating unary opens around its operand,
+// `SavedExpressionTypes` is the slot's previous value and `CaptureOpen` says whether the bracket is
+// open — which is a separate flag rather than a null test, because the saved value is legitimately
+// null whenever this is the outermost write target.
 //
 // `ResultType` is decided AFTER the steps in every form. Not one operator in either family can say
 // what it is worth before its operands have been walked, and the SoA refusals that can overrule the
@@ -90,11 +74,13 @@ class OperatorExpressionState {
     Phase: int
     Pending: int
     Answer: TypeInfo
-    Decision: bool
     LeftType: TypeInfo
     RightType: TypeInfo
     OperandType: TypeInfo
     ResultType: TypeInfo
+    ExpressionTypes: Dictionary<object, TypeInfo>?
+    SavedExpressionTypes: Dictionary<object, TypeInfo>?
+    CaptureOpen: bool
 
     constructor(form: int, node: Expression?) {
         formValue = form
@@ -102,7 +88,9 @@ class OperatorExpressionState {
         Phase = 0
         Pending = 0
         Answer = BuiltInTypes.Unknown
-        Decision = false
+        ExpressionTypes = null
+        SavedExpressionTypes = null
+        CaptureOpen = false
         LeftType = BuiltInTypes.Unknown
         RightType = BuiltInTypes.Unknown
         OperandType = BuiltInTypes.Unknown
@@ -162,8 +150,9 @@ class AnalyzerOperatorExpressions {
     soaEscapeValue: AnalyzerSoaEscape
     ambientValue: AnalyzerAmbientContext
     narrowingValue: AnalyzerFlowNarrowing
+    writeTargetsValue: AnalyzerWriteTargets
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarations: AnalyzerDeclarationContext, substitution: AnalyzerTypeSubstitution, assignability: AnalyzerAssignability, clrConversion: AnalyzerClrTypeConversion, externalTypes: AnalyzerExternalTypeProbe, soaEscape: AnalyzerSoaEscape, ambient: AnalyzerAmbientContext, narrowing: AnalyzerFlowNarrowing) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarations: AnalyzerDeclarationContext, substitution: AnalyzerTypeSubstitution, assignability: AnalyzerAssignability, clrConversion: AnalyzerClrTypeConversion, externalTypes: AnalyzerExternalTypeProbe, soaEscape: AnalyzerSoaEscape, ambient: AnalyzerAmbientContext, narrowing: AnalyzerFlowNarrowing, writeTargets: AnalyzerWriteTargets) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -175,6 +164,7 @@ class AnalyzerOperatorExpressions {
         soaEscapeValue = soaEscape
         ambientValue = ambient
         narrowingValue = narrowing
+        writeTargetsValue = writeTargets
     }
 
     // THE ENTRY, AND IT DECIDES NOTHING. Neither arm can answer or report before its first operand
@@ -213,7 +203,16 @@ class AnalyzerOperatorExpressions {
     // THE ANSWER TO THE OUTSTANDING STEP. A walk that asked for nothing folds in nothing. A null
     // type answer is `unknown` rather than a missing one — the expression walk never answers null,
     // and a walk that saw one would carry it into a report.
-    func Supply(state: OperatorExpressionState, answer: TypeInfo?, decision: bool) {
+    func Supply(state: OperatorExpressionState, answer: TypeInfo?) {
+        // THE CAPTURE BRACKET CLOSES THE INSTANT THE ANSWER ARRIVES, not when the next step is asked
+        // for: the C# closed it in the `finally` around the walk itself, and a bracket that outlived
+        // the walk by even one call would be a slot this family never left open.
+        if state.CaptureOpen {
+            ambientValue.ExitWriteTargetExpressionTypes(state.SavedExpressionTypes)
+            state.SavedExpressionTypes = null
+            state.CaptureOpen = false
+        }
+
         pending := state.Pending
         state.Pending = 0
 
@@ -221,7 +220,6 @@ class AnalyzerOperatorExpressions {
             return
         }
 
-        state.Decision = decision
         if answer != null {
             state.Answer = answer
         } else {
@@ -265,31 +263,11 @@ class AnalyzerOperatorExpressions {
         }
 
         if phase == 10 {
-            return AdvanceNullConditionalDecision(state)
-        }
-
-        if phase == 11 {
-            return AdvanceWriteTargetShape(state)
+            return AdvanceMutatingUnaryEntry(state)
         }
 
         if phase == 12 {
             return AdvanceUnaryOperand(state)
-        }
-
-        if phase == 13 {
-            return AdvanceTableMutationDecision(state)
-        }
-
-        if phase == 14 {
-            return AdvanceIndexedMutationDecision(state)
-        }
-
-        if phase == 15 {
-            return AdvanceReadonlyFieldDecision(state)
-        }
-
-        if phase == 16 {
-            return AdvanceReadOnlyPropertyDecision(state)
         }
 
         state.Phase = 99
@@ -310,16 +288,16 @@ class AnalyzerOperatorExpressions {
             state.Pending = 1
             if IsShortCircuit(binaryNode.Operator) {
                 state.Phase = 1
-                return new OperatorExpressionRequest(1, left, null, null, null, left.Line, left.Column)
+                return new OperatorExpressionRequest(1, left, null, left.Line, left.Column)
             }
 
             if binaryNode.Operator == BinaryOperator.NullCoalesce {
                 state.Phase = 3
-                return new OperatorExpressionRequest(2, left, null, null, null, left.Line, left.Column)
+                return new OperatorExpressionRequest(2, left, null, left.Line, left.Column)
             }
 
             state.Phase = 5
-            return new OperatorExpressionRequest(1, left, null, null, null, left.Line, left.Column)
+            return new OperatorExpressionRequest(1, left, null, left.Line, left.Column)
         }
 
         unaryNode := node as UnaryExpression
@@ -327,13 +305,13 @@ class AnalyzerOperatorExpressions {
             operand := unaryNode.Operand
             state.Pending = 1
             if IsIncrementOrDecrement(unaryNode.Operator) {
+                state.Pending = 0
                 state.Phase = 10
-                changedWith := "changed with '" + UnarySymbolText(unaryNode.Operator) + "'"
-                return new OperatorExpressionRequest(6, operand, changedWith, null, null, operand.Line, operand.Column)
+                return null
             }
 
             state.Phase = 12
-            return new OperatorExpressionRequest(1, operand, null, null, null, operand.Line, operand.Column)
+            return new OperatorExpressionRequest(1, operand, null, operand.Line, operand.Column)
         }
 
         state.Phase = 99
@@ -363,10 +341,10 @@ class AnalyzerOperatorExpressions {
         state.Pending = 1
         state.Phase = 2
         if narrowings.Count > 0 {
-            return new OperatorExpressionRequest(3, right, null, narrowings, null, right.Line, right.Column)
+            return new OperatorExpressionRequest(3, right, narrowings, right.Line, right.Column)
         }
 
-        return new OperatorExpressionRequest(1, right, null, null, null, right.Line, right.Column)
+        return new OperatorExpressionRequest(1, right, null, right.Line, right.Column)
     }
 
     // `&&` AND `||` ARE BOOLEANS. Both operands are measured for escape first, and neither operator
@@ -403,7 +381,7 @@ class AnalyzerOperatorExpressions {
         right := binaryNode.Right
         state.Pending = 1
         state.Phase = 4
-        return new OperatorExpressionRequest(1, right, null, null, null, right.Line, right.Column)
+        return new OperatorExpressionRequest(1, right, null, right.Line, right.Column)
     }
 
     func AdvanceCoalesceRight(state: OperatorExpressionState): OperatorExpressionRequest? {
@@ -435,7 +413,7 @@ class AnalyzerOperatorExpressions {
         right := binaryNode.Right
         state.Pending = 1
         state.Phase = 6
-        return new OperatorExpressionRequest(1, right, null, null, null, right.Line, right.Column)
+        return new OperatorExpressionRequest(1, right, null, right.Line, right.Column)
     }
 
     // BOTH OPERANDS ARE KNOWN AND THE OPERATOR CLASS DECIDES. Six classes, and the seventh — the
@@ -768,62 +746,61 @@ class AnalyzerOperatorExpressions {
         return BuiltInTypes.Bool
     }
 
-    // THE NULL-CONDITIONAL WRITE TARGET HAS ANSWERED. `a?.b++` is refused outright: there is no
-    // value to increment when the receiver is null, so the operand is never even walked.
-    func AdvanceNullConditionalDecision(state: OperatorExpressionState): OperatorExpressionRequest? {
+    // THE MUTATING UNARY'S ENTRY, AND IT ASKS SIX QUESTIONS BEFORE THE OPERAND IS WALKED AT ALL.
+    // `a?.b++` is refused outright: there is no value to increment when the receiver is null, so the
+    // operand is never analysed. Then the SHAPE question decides whether the walk that follows needs a
+    // sub-expression capture table — a member or index chain does, a bare name does not, and
+    // installing one for a bare name would suppress the column-slice allocation rule for no reason.
+    //
+    // ALL SIX USED TO BE DRIVER STEPS. They were steps only because the reports they perform lived in
+    // `Analyzer.cs`; now they are ordinary calls into the family that owns them, and the bracket the
+    // capturing walk needs is opened here in the same instant the step is handed out.
+    func AdvanceMutatingUnaryEntry(state: OperatorExpressionState): OperatorExpressionRequest? {
         unaryNode := state.Node as UnaryExpression
-        if unaryNode == null || state.Decision {
+        if unaryNode == null {
             state.Phase = 99
             state.ResultType = BuiltInTypes.Unknown
             return null
         }
 
         operand := unaryNode.Operand
-        state.Pending = 1
-        state.Phase = 11
-        return new OperatorExpressionRequest(5, operand, null, null, null, operand.Line, operand.Column)
-    }
-
-    // WHICH WALK THE OPERAND TAKES. A member or index chain needs its sub-expression types captured
-    // so the write-target reports can read the chain without re-analysing it; a plain name does not,
-    // and installing a table for it would suppress the column-slice allocation rule for no reason.
-    func AdvanceWriteTargetShape(state: OperatorExpressionState): OperatorExpressionRequest? {
-        unaryNode := state.Node as UnaryExpression
-        if unaryNode == null {
+        changedWith := "changed with '" + UnarySymbolText(unaryNode.Operator) + "'"
+        if writeTargetsValue.ReportNullConditionalWriteTargetIfNeeded(operand, changedWith) {
             state.Phase = 99
+            state.ResultType = BuiltInTypes.Unknown
             return null
         }
 
-        operand := unaryNode.Operand
         state.Pending = 1
         state.Phase = 12
-        if state.Decision {
-            return new OperatorExpressionRequest(4, operand, null, null, null, operand.Line, operand.Column)
+        if AnalyzerWriteTargets.IsWriteTargetNeedingExpressionTypes(operand) {
+            state.SavedExpressionTypes = ambientValue.EnterWriteTargetExpressionTypes()
+            state.ExpressionTypes = ambientValue.WriteTargetExpressionTypes
+            state.CaptureOpen = true
         }
 
-        return new OperatorExpressionRequest(1, operand, null, null, null, operand.Line, operand.Column)
+        return new OperatorExpressionRequest(1, operand, null, operand.Line, operand.Column)
     }
 
-    // THE OPERAND HAS ANSWERED, AND THE ROW ESCAPE IS ASKED FIRST OF ALL. A unary asks only ONE
-    // question of a plain operand beyond the row escape — the direct-column escape — and SEVEN of a
-    // mutating one, because a mutation is a write and every write-target rule applies to it.
+    // THE OPERAND HAS ANSWERED, AND THE ROW ESCAPE IS ASKED FIRST OF ALL. The capture bracket has
+    // already closed in `Supply`, so every report below runs with the slot restored exactly as it did
+    // in the C#. A plain operand asks ONE further question — the direct-column escape — and a mutating
+    // one asks FIVE, because a mutation is a write and every write-target rule applies to it.
     func AdvanceUnaryOperand(state: OperatorExpressionState): OperatorExpressionRequest? {
+        state.Phase = 99
         unaryNode := state.Node as UnaryExpression
         if unaryNode == null {
-            state.Phase = 99
             return null
         }
 
         state.OperandType = state.Answer
         operand := unaryNode.Operand
         if soaEscapeValue.ReportSoaRowEscapeIfNeeded(operand, state.OperandType, "used as a unary operand") {
-            state.Phase = 99
             state.ResultType = BuiltInTypes.Unknown
             return null
         }
 
         if !IsIncrementOrDecrement(unaryNode.Operator) {
-            state.Phase = 99
             if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(operand, "used as a unary operand") {
                 state.ResultType = BuiltInTypes.Unknown
                 return null
@@ -833,75 +810,35 @@ class AnalyzerOperatorExpressions {
             return null
         }
 
-        state.Pending = 1
-        state.Phase = 13
-        return new OperatorExpressionRequest(7, operand, "incremented or decremented directly", null, null, operand.Line, operand.Column)
-    }
+        state.ResultType = BuiltInTypes.Unknown
+        expressionTypes := state.ExpressionTypes
 
-    // THE TABLE-MEMBER MUTATION HAS ANSWERED, AND THE DIRECT-COLUMN ESCAPE COMES BETWEEN IT AND THE
-    // NEXT WRITE-TARGET RULE. The interleaving is why these five reports are five separate steps: a
-    // driver that ran them as one chain would put this owner's own escape question in the wrong
-    // place, and the two rules produce different wordings for the same expression.
-    func AdvanceTableMutationDecision(state: OperatorExpressionState): OperatorExpressionRequest? {
-        unaryNode := state.Node as UnaryExpression
-        if unaryNode == null || state.Decision {
-            state.Phase = 99
-            state.ResultType = BuiltInTypes.Unknown
+        // THE ORDER IS THE BEHAVIOUR, AND THE INTERLEAVING IS WHY THESE WERE FIVE SEPARATE STEPS
+        // RATHER THAN ONE CHAIN: this owner's OWN direct-column escape falls between the table-member
+        // rule and the indexed-mutation rule, and the assignable-target rule — also this owner's —
+        // falls between the readonly-field rule and the read-only-property one, so that `1++` is told
+        // it needs an assignable target instead of being asked whether it is a read-only property.
+        if writeTargetsValue.ReportSoaTableMemberMutationIfNeeded(operand, expressionTypes, "incremented or decremented directly") {
             return null
         }
 
-        operand := unaryNode.Operand
         if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(operand, "used as a unary operand") {
-            state.Phase = 99
-            state.ResultType = BuiltInTypes.Unknown
             return null
         }
 
-        state.Pending = 1
-        state.Phase = 14
-        return new OperatorExpressionRequest(8, operand, "incremented or decremented", null, null, operand.Line, operand.Column)
-    }
-
-    func AdvanceIndexedMutationDecision(state: OperatorExpressionState): OperatorExpressionRequest? {
-        unaryNode := state.Node as UnaryExpression
-        if unaryNode == null || state.Decision {
-            state.Phase = 99
-            state.ResultType = BuiltInTypes.Unknown
+        if writeTargetsValue.ReportUnsupportedBuiltInIndexedMutationIfNeeded(operand, expressionTypes, "incremented or decremented") {
             return null
         }
 
-        state.Pending = 1
-        state.Phase = 15
-        return new OperatorExpressionRequest(9, unaryNode.Operand, null, null, unaryNode, unaryNode.Line, unaryNode.Column)
-    }
-
-    // THE READONLY-FIELD RULE HAS ANSWERED, AND THE ASSIGNABLE-TARGET RULE — WHICH THIS OWNER HOLDS
-    // — RUNS BETWEEN IT AND THE READ-ONLY PROPERTY RULE. The position matters: `1++` is told it needs
-    // an assignable target rather than being asked whether it is a read-only property.
-    func AdvanceReadonlyFieldDecision(state: OperatorExpressionState): OperatorExpressionRequest? {
-        unaryNode := state.Node as UnaryExpression
-        if unaryNode == null || state.Decision {
-            state.Phase = 99
-            state.ResultType = BuiltInTypes.Unknown
+        if writeTargetsValue.ReportReadonlyFieldIncrementOrDecrementIfNeeded(unaryNode, expressionTypes) {
             return null
         }
 
         if ReportInvalidIncrementOrDecrementTargetIfNeeded(unaryNode) {
-            state.Phase = 99
-            state.ResultType = BuiltInTypes.Unknown
             return null
         }
 
-        state.Pending = 1
-        state.Phase = 16
-        return new OperatorExpressionRequest(10, unaryNode.Operand, UnarySymbolText(unaryNode.Operator), null, null, unaryNode.Line, unaryNode.Column)
-    }
-
-    func AdvanceReadOnlyPropertyDecision(state: OperatorExpressionState): OperatorExpressionRequest? {
-        unaryNode := state.Node as UnaryExpression
-        state.Phase = 99
-        if unaryNode == null || state.Decision {
-            state.ResultType = BuiltInTypes.Unknown
+        if writeTargetsValue.ReportReadOnlyPropertyWriteTargetIfNeeded(operand, UnarySymbolText(unaryNode.Operator), expressionTypes) {
             return null
         }
 

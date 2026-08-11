@@ -175,9 +175,16 @@ class IndexDriveTrace {
 }
 
 func IndexDrive(harness: IndexAccessHarness, node: Expression, receiverAnswer: TypeInfo, indexAnswer: TypeInfo, inAssignmentTarget: bool): IndexDriveTrace {
+    // THE FACT IS NOW READ FROM THE AMBIENT SLOT rather than handed in at `Begin`, so the harness sets
+    // the slot the way a real write target does and clears it again afterwards.
+    savedWriteTarget: Dictionary<object, TypeInfo>? = null
+    if inAssignmentTarget {
+        savedWriteTarget = harness.Ambient.EnterWriteTargetExpressionTypes()
+    }
+
     trace := new IndexDriveTrace()
     before := harness.Errors.Count
-    state := harness.Arm.Begin(node, inAssignmentTarget)
+    state := harness.Arm.Begin(node)
     stepIndex := 0
     step := harness.Arm.NextStep(state)
     while step != null {
@@ -199,6 +206,10 @@ func IndexDrive(harness: IndexAccessHarness, node: Expression, receiverAnswer: T
 
     trace.Answer = IndexTypeName(harness.Arm.Result(state))
     trace.Reports = harness.Errors.Count - before
+    if inAssignmentTarget {
+        harness.Ambient.ExitWriteTargetExpressionTypes(savedWriteTarget)
+    }
+
     return trace
 }
 
@@ -215,7 +226,7 @@ test "the arm takes TWO steps of ONE kind" {
 
 test "a node that is not an index access finishes at Begin and asks for nothing" {
     harness := IndexArmOf(false)
-    state := harness.Arm.Begin(new IdentifierExpression("xs", 1, 1), false)
+    state := harness.Arm.Begin(new IdentifierExpression("xs", 1, 1))
 
     assert harness.Arm.NextStep(state) == null
     assert IndexTypeName(harness.Arm.Result(state)) == "unknown"

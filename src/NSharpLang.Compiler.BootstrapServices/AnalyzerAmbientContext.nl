@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
 
@@ -162,6 +163,9 @@ class AnalyzerAmbientContext {
     currentExpectedTypeValue: TypeInfo?
     currentClassValue: ClassDeclaration?
     currentTypeNameValue: string?
+    inConstructorValue: bool
+    allowEventReferenceValue: bool
+    writeTargetExpressionTypesValue: Dictionary<object, TypeInfo>?
 
     // THE ENCLOSING FUNCTION'S RETURN TYPE, and `null` when there is no enclosing function at all —
     // which is the ONLY thing that distinguishes "a `return` is illegal here" from "a `return` must
@@ -231,6 +235,39 @@ class AnalyzerAmbientContext {
     // one.
     CurrentTypeName: string? => currentTypeNameValue
 
+    // WHETHER THE WALK IS INSIDE A CONSTRUCTOR BODY. The readonly-field write rule is the only thing
+    // that asks, and it asks three times — an assignment, a `++`/`--` and a `ref`/`out` argument each
+    // change both their VERDICT and their wording on it, because a constructor is the one place an
+    // instance readonly field of the current instance may be written.
+    InConstructor: bool => inConstructorValue
+
+    // WHETHER A BARE REFERENCE TO A .NET EVENT IS CURRENTLY ALLOWED. False everywhere except inside
+    // the two arms that resolve an event member on purpose so they can raise their own, more specific
+    // diagnostic — `on`/`off` and the assignment target walk. It is not a permission so much as a
+    // suppression: the generic "an event is not a value" report steps aside for a tailored one.
+    AllowEventReference: bool => allowEventReferenceValue
+
+    // THE SUB-EXPRESSION TYPES OF THE WRITE TARGET CURRENTLY BEING ANALYSED, or `null` when no write
+    // target is open. Keyed by NODE IDENTITY rather than by position, because the semantic model's
+    // line/column keys collide for nested chains that share a start column — `a.b.c` has three nodes
+    // beginning at `a`. The write-target classifiers read this instead of re-analysing the chain,
+    // which would duplicate every diagnostic the chain produces.
+    //
+    // IT IS AN AMBIENT SLOT AND NOT ONE ARM'S STATE. Three arms open it — the assignment target walk,
+    // an increment or decrement operand and a `ref`/`out` argument — and TWO things read it that
+    // belong to neither: the expression walk's tail, which records into it, and the index arm, whose
+    // hidden-allocation refusal is suppressed while a write target is open. Its PRESENCE is therefore
+    // observable behaviour, which is why `InWriteTarget` is a published question.
+    //
+    // THE KEY TYPE IS `object`, NOT `Expression`, AND THE COMPARER IS THE DEFAULT ONE. `Expression`
+    // does not resolve as a dictionary key on the columnar surface, and the reference comparer's
+    // constructor overload does not bind; neither costs anything, because every AST node class
+    // declares no `Equals` and no `GetHashCode`, so the default comparer IS reference identity for
+    // these keys. A contract pins that: two structurally identical nodes are two entries.
+    InWriteTarget: bool => writeTargetExpressionTypesValue != null
+
+    WriteTargetExpressionTypes: Dictionary<object, TypeInfo>? => writeTargetExpressionTypesValue
+
     constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape) {
         diagnosticsValue = diagnostics
         spansValue = spans
@@ -246,6 +283,9 @@ class AnalyzerAmbientContext {
         currentExpectedTypeValue = null
         currentClassValue = null
         currentTypeNameValue = null
+        inConstructorValue = false
+        allowEventReferenceValue = false
+        writeTargetExpressionTypesValue = null
     }
 
     // One call per analysis, from the same reset block that clears the scope stack and the null-flow
@@ -264,6 +304,57 @@ class AnalyzerAmbientContext {
         finallyDepthValue = 0
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
+        inConstructorValue = false
+    }
+
+    // A CONSTRUCTOR BODY. This is a plain pair rather than a save/restore, exactly as the C# was: a
+    // constructor is never nested inside another, so there is nothing to restore to but `false`.
+    func EnterConstructor() {
+        inConstructorValue = true
+    }
+
+    func ExitConstructor() {
+        inConstructorValue = false
+    }
+
+    // THE BARE-EVENT SUPPRESSION. Save/restore, because the two arms that open it can nest — an `on`
+    // subscription may appear inside an assignment's value.
+    func EnterAllowEventReference(): bool {
+        saved := allowEventReferenceValue
+        allowEventReferenceValue = true
+        return saved
+    }
+
+    func ExitAllowEventReference(saved: bool) {
+        allowEventReferenceValue = saved
+    }
+
+    // OPEN A WRITE TARGET with a fresh table, answering the previous one. The two arms that nest —
+    // an increment operand and a `ref`/`out` argument — restore what they saved; the assignment arm
+    // CLEARS instead, which is what its `finally` did and is preserved deliberately.
+    func EnterWriteTargetExpressionTypes(): Dictionary<object, TypeInfo>? {
+        saved := writeTargetExpressionTypesValue
+        writeTargetExpressionTypesValue = new Dictionary<object, TypeInfo>()
+        return saved
+    }
+
+    func ExitWriteTargetExpressionTypes(saved: Dictionary<object, TypeInfo>?) {
+        writeTargetExpressionTypesValue = saved
+    }
+
+    func ClearWriteTargetExpressionTypes() {
+        writeTargetExpressionTypesValue = null
+    }
+
+    // THE EXPRESSION WALK'S TAIL RECORDS HERE, and the `null` test lives inside so no caller repeats
+    // it. Nothing is recorded when no write target is open, which is the overwhelmingly common case.
+    func RecordWriteTargetExpressionType(expression: Expression, resolved: TypeInfo) {
+        table := writeTargetExpressionTypesValue
+        if table == null {
+            return
+        }
+
+        table[expression] = resolved
     }
 
     // Everything the context holds, as one value. Every `Enter` takes one of these first; each

@@ -88,7 +88,9 @@ func ConstructionArm(): ConstructionHarness {
     constantFacts := new AnalyzerConstantExpressionFacts(scopes, context)
     exhaustiveness := new AnalyzerMatchExhaustiveness(sink, substitution, assignability, resolver)
 
-    arm := new AnalyzerConstruction(sink, spans, scopes, context, resolver, substitution, discovery, ambient, soaEscape, memberAccess, arrayLiteral, constantFacts, assignability, members, exhaustiveness, clrConversion)
+    indexAccess := new AnalyzerIndexAccess(sink, spans, context, ambient, nullFlow, soaEscape, memberAccess, constantFacts)
+    writeTargets := new AnalyzerWriteTargets(sink, spans, scopes, context, substitution, clrConversion, ambient, soaEscape, memberAccess, indexAccess)
+    arm := new AnalyzerConstruction(sink, spans, scopes, context, resolver, substitution, discovery, ambient, soaEscape, memberAccess, arrayLiteral, constantFacts, assignability, members, exhaustiveness, clrConversion, writeTargets)
     return new ConstructionHarness(arm, errors, ambient, scopes, context, sink)
 }
 
