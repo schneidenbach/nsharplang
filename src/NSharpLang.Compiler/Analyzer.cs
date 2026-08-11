@@ -21,25 +21,6 @@ namespace NSharpLang.Compiler;
 /// </summary>
 public class Analyzer : IDisposable
 {
-    /// <summary>
-    /// Length of the <c>match</c> keyword. Non-exhaustive-match diagnostics underline
-    /// the <c>match</c> keyword so the squiggle lands on the construct that is incomplete.
-    /// </summary>
-
-    private static readonly HashSet<string> SupportedSoaDirectColumnStaticArrayMethods = new(StringComparer.Ordinal)
-    {
-        "Fill",
-        "Copy",
-        "Clear"
-    };
-
-    private static readonly HashSet<string> DedicatedSoaDirectColumnStaticArrayDiagnostics = new(StringComparer.Ordinal)
-    {
-        "Resize",
-        "Sort",
-        "Reverse"
-    };
-
     private static List<FunctionTypeInfo> GetNSharpMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
         => NSharpMethodGroupInfoFactory.GetFunctions(methodGroup);
 
@@ -350,6 +331,13 @@ public class Analyzer : IDisposable
     // instance-field classification underneath both addressability rules. Rebuilt with the SCC: it
     // holds the CLR type conversion, which the rebuild replaces.
     private AnalyzerWriteTargets _writeTargets;
+    // WHAT MAY BE DONE TO A SoA COLUMN BY A CALL: the four direct-column gates in their fixed order —
+    // the mutating whole-array call, the unsupported static `Array` call and its two parameter tables,
+    // the instance `Array` method taken as a call or as a value, and the ordinary receiver/argument
+    // escape — plus the `System.Array` receiver question all of them share. Rebuilt with the SCC: it
+    // holds the CLR type conversion, the member-access owner and the write-target family, all of which
+    // the rebuild replaces.
+    private AnalyzerSoaDirectColumnCalls _soaDirectColumnCalls;
     // WHAT AN ASSIGNMENT MEANS: the `assignment` arm's whole walk — the discard form, the four-part
     // target bracket, the eight ordered gates, the assignability front door in both renderings and the
     // compound form's operator question. Rebuilt with the SCC: it holds assignability and the operator
@@ -458,6 +446,7 @@ public class Analyzer : IDisposable
             _diagnostics, _spans, _declarationContext, _ambient, _soaEscape, _assignability,
             _assignabilityFacts);
         _writeTargets = CreateWriteTargets();
+        _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
         _operatorExpressions = CreateOperatorExpressions();
         _construction = CreateConstruction();
         _assignment = CreateAssignment();
@@ -484,6 +473,11 @@ public class Analyzer : IDisposable
         => new(
             _diagnostics, _spans, _scopes, _declarationContext, _typeSubstitution, _clrTypeConversion,
             _ambient, _soaEscape, _memberAccess, _indexAccess);
+
+    private AnalyzerSoaDirectColumnCalls CreateSoaDirectColumnCalls()
+        => new(
+            _diagnostics, _spans, _scopes, _declarationContext, _clrTypeConversion, _soaEscape,
+            _memberAccess, _writeTargets);
 
     private AnalyzerAssignment CreateAssignment()
         => new(
@@ -3221,7 +3215,7 @@ public class Analyzer : IDisposable
         }
 
         if (!_analyzingCallCallee
-            && ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded(expr, flowType, isCall: false))
+            && _soaDirectColumnCalls.ReportUnsupportedArrayInstanceMethodReferenceIfNeeded(expr, flowType, isCall: false))
         {
             return BuiltInTypes.Unknown;
         }
@@ -3420,16 +3414,7 @@ public class Analyzer : IDisposable
                     _soaEscape.ReportSoaRowEscape(step.Node!, step.Text!);
                     break;
                 case 8:
-                    handled = ReportSoaDirectColumnMutatingArrayCallIfNeeded(call);
-                    break;
-                case 9:
-                    handled = ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded(call);
-                    break;
-                case 10:
-                    handled = ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(call, step.CarriedType!);
-                    break;
-                case 11:
-                    handled = ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded(call, step.CarriedType!);
+                    handled = _soaDirectColumnCalls.ReportDirectColumnCallIfNeeded(call, step.CarriedType!);
                     break;
                 case 12:
                     answer = BindSingleReflectionMethod(step.Method!, call);
@@ -3878,342 +3863,6 @@ public class Analyzer : IDisposable
             column,
             $"Subscribe with `on {target} (sender, args) => {{ ... }}`; the result is a subscription you can later pass to `off`.",
             length);
-    }
-
-    private bool ReportSoaDirectColumnMutatingArrayCallIfNeeded(CallExpression call)
-    {
-        if (call.Arguments.Count == 0
-            || call.Callee is not MemberAccessExpression memberAccess)
-        {
-            return false;
-        }
-
-        var action = memberAccess.MemberName switch
-        {
-            "Sort" => "sorted directly",
-            "Reverse" => "reversed directly",
-            _ => null
-        };
-        if (action == null)
-            return false;
-
-        if (!IsStaticArrayTarget(memberAccess.Object))
-            return false;
-
-        if (!TryGetSoaMutatingArrayCallColumnArgument(call, memberAccess.MemberName, out var columnMember))
-            return false;
-
-        _writeTargets.ReportSoaTableMemberMutation(columnMember, action, isColumn: true);
-        return true;
-    }
-
-    private bool TryGetSoaMutatingArrayCallColumnArgument(
-        CallExpression call,
-        string methodName,
-        out MemberAccessExpression member)
-    {
-        for (var i = 0; i < call.Arguments.Count; i++)
-        {
-            var argument = call.Arguments[i];
-            if (!IsSoaMutatingArrayParameter(call, methodName, argument, i))
-            {
-                continue;
-            }
-
-            var candidate = _soaEscape.FindSoaColumnMemberAccess(argument.Value);
-            if (candidate != null)
-            {
-                member = candidate;
-                return true;
-            }
-        }
-
-        member = null!;
-        return false;
-    }
-
-    private static bool IsSoaMutatingArrayParameter(
-        CallExpression call,
-        string methodName,
-        Argument argument,
-        int positionalIndex)
-    {
-        if (argument.Name != null)
-        {
-            return methodName switch
-            {
-                "Sort" => argument.Name is "array" or "keys" or "items",
-                "Reverse" => argument.Name == "array",
-                _ => false
-            };
-        }
-
-        return methodName switch
-        {
-            "Sort" => IsPositionalArraySortParameter(call.Arguments.Count, positionalIndex),
-            "Reverse" => positionalIndex == 0,
-            _ => false
-        };
-    }
-
-    private static bool IsPositionalArraySortParameter(int argumentCount, int positionalIndex)
-        => argumentCount switch
-        {
-            1 => positionalIndex == 0,
-            2 => positionalIndex is 0 or 1,
-            3 => positionalIndex == 0,
-            4 => positionalIndex is 0 or 1,
-            _ => false
-        };
-
-    private bool ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded(CallExpression call)
-    {
-        if (call.Arguments.Count == 0
-            || call.Callee is not MemberAccessExpression memberAccess
-            || !IsStaticArrayTarget(memberAccess.Object)
-            || !TryGetUnsupportedSoaColumnStaticArrayArgument(call, memberAccess.MemberName, out var columnMember))
-        {
-            return false;
-        }
-
-        var line = memberAccess.Line;
-        var column = _spans.GetMemberNameColumn(memberAccess);
-        var length = Math.Max(1, memberAccess.MemberName.Length);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"SoA table member '{columnMember.MemberName}' cannot be passed to Array method '{memberAccess.MemberName}' directly",
-            line,
-            column,
-            "Use table.column[row] for element access, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.",
-            length);
-        return true;
-    }
-
-    private bool TryGetUnsupportedSoaColumnStaticArrayArgument(
-        CallExpression call,
-        string methodName,
-        out MemberAccessExpression member)
-    {
-        for (var i = 0; i < call.Arguments.Count; i++)
-        {
-            var argument = call.Arguments[i];
-            var candidate = _soaEscape.FindSoaColumnMemberAccess(argument.Value);
-            if (candidate != null
-                && !IsHandledSoaDirectColumnStaticArrayParameter(call, methodName, argument, i))
-            {
-                member = candidate;
-                return true;
-            }
-        }
-
-        member = null!;
-        return false;
-    }
-
-    private static bool IsHandledSoaDirectColumnStaticArrayParameter(
-        CallExpression call,
-        string methodName,
-        Argument argument,
-        int positionalIndex)
-        => IsPinnedSoaDirectColumnArrayParameter(call, methodName, argument, positionalIndex)
-           || IsDedicatedSoaDirectColumnArrayDiagnosticParameter(call, methodName, argument, positionalIndex);
-
-    private static bool IsPinnedSoaDirectColumnArrayParameter(
-        CallExpression call,
-        string methodName,
-        Argument argument,
-        int positionalIndex)
-    {
-        if (!SupportedSoaDirectColumnStaticArrayMethods.Contains(methodName))
-            return false;
-
-        if (argument.Name != null)
-        {
-            return methodName switch
-            {
-                "Fill" or "Clear" => argument.Name == "array",
-                "Copy" => argument.Name is "sourceArray" or "destinationArray",
-                _ => false
-            };
-        }
-
-        return methodName switch
-        {
-            "Fill" or "Clear" => positionalIndex == 0,
-            "Copy" when call.Arguments.Count == 3 => positionalIndex is 0 or 1,
-            "Copy" when call.Arguments.Count == 5 => positionalIndex is 0 or 2,
-            _ => false
-        };
-    }
-
-    private static bool IsDedicatedSoaDirectColumnArrayDiagnosticParameter(
-        CallExpression call,
-        string methodName,
-        Argument argument,
-        int positionalIndex)
-    {
-        if (!DedicatedSoaDirectColumnStaticArrayDiagnostics.Contains(methodName))
-            return false;
-
-        if (argument.Name != null)
-        {
-            return methodName switch
-            {
-                "Resize" => argument.Name == "array",
-                "Sort" => argument.Name is "array" or "keys" or "items",
-                "Reverse" => argument.Name == "array",
-                _ => false
-            };
-        }
-
-        return methodName switch
-        {
-            "Resize" => positionalIndex == 0,
-            "Sort" => IsPositionalArraySortParameter(call.Arguments.Count, positionalIndex),
-            "Reverse" => positionalIndex == 0,
-            _ => false
-        };
-    }
-
-    private bool ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded(CallExpression call, TypeInfo calleeType)
-    {
-        if (IsAllowedSoaDirectColumnCall(call, calleeType))
-        {
-            return false;
-        }
-
-        if (call.Callee is MemberAccessExpression memberAccess
-            && !BuiltInTypes.IsUnknown(calleeType))
-        {
-            var receiverColumn = _soaEscape.FindSoaColumnMemberAccess(memberAccess.Object);
-            if (receiverColumn != null)
-            {
-                _soaEscape.ReportUnsupportedSoaDirectColumnValueEscape(
-                    memberAccess.Object,
-                    receiverColumn,
-                    $"used as the receiver for '{memberAccess.MemberName}'");
-                return true;
-            }
-        }
-
-        foreach (var argument in call.Arguments)
-        {
-            if (argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out)
-            {
-                continue;
-            }
-
-            if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(argument.Value, "passed as an argument"))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private bool IsAllowedSoaDirectColumnCall(CallExpression call, TypeInfo calleeType)
-        => calleeType is FunctionTypeInfo { SyntheticName: "wrap" }
-           || call.Callee is MemberAccessExpression memberAccess && IsStaticArrayTarget(memberAccess.Object);
-
-    private bool ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(CallExpression call, TypeInfo calleeType)
-        => ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded(call.Callee, calleeType, isCall: true);
-
-    private bool ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded(
-        Expression expression,
-        TypeInfo type,
-        bool isCall)
-    {
-        if (expression is not MemberAccessExpression memberAccess
-            || !IsRuntimeArrayInstanceMethodReference(type))
-        {
-            return false;
-        }
-
-        var columnMember = _soaEscape.FindSoaColumnMemberAccess(memberAccess.Object);
-        if (columnMember == null)
-        {
-            return false;
-        }
-
-        var line = memberAccess.Line;
-        var column = _spans.GetMemberNameColumn(memberAccess);
-        var length = Math.Max(1, memberAccess.MemberName.Length);
-        var action = isCall ? "call" : "use";
-        var suffix = isCall ? " directly" : " as a value";
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"SoA table member '{columnMember.MemberName}' cannot {action} array method '{memberAccess.MemberName}'{suffix}",
-            line,
-            column,
-            "Use table.column[row] for element access, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.",
-            length);
-        return true;
-    }
-
-    private bool IsRuntimeArrayInstanceMethodReference(TypeInfo type)
-    {
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(type);
-        return resolvedType switch
-        {
-            ReflectionMethodInfo methodInfo => IsRuntimeArrayInstanceMethod(methodInfo.Method),
-            ReflectionMethodGroupInfo methodGroup => methodGroup.Methods.Length > 0
-                && methodGroup.Methods.All(IsRuntimeArrayInstanceMethod),
-            _ => false
-        };
-    }
-
-    private static bool IsRuntimeArrayInstanceMethod(MethodInfo method)
-        => !method.IsStatic;
-
-    private bool IsStaticArrayTarget(Expression expression)
-    {
-        switch (expression)
-        {
-            case ParenthesizedExpression parenthesized:
-                return IsStaticArrayTarget(parenthesized.Inner);
-            case IdentifierExpression identifier:
-                if (_scopes.LookupSymbol(identifier.Name) != null)
-                    return false;
-                if (_scopes.LookupType(identifier.Name) is { } localType)
-                    return IsSystemArrayTypeInfo(_declarationContext.ResolveDeclaredAlias(localType));
-                if (_memberAccess.TryResolveTypeValuedMemberAccess(identifier, out var identifierType)
-                    && IsSystemArrayTypeInfo(identifierType))
-                {
-                    return true;
-                }
-                if (identifier.Name == "Array")
-                {
-                    return true;
-                }
-                return false;
-            case MemberAccessExpression { Object: IdentifierExpression { Name: "System" } system, MemberName: "Array" }:
-                if (_scopes.LookupSymbol(system.Name) != null)
-                    return false;
-                if (_scopes.LookupType(system.Name) != null)
-                {
-                    return _memberAccess.TryResolveTypeValuedMemberAccess(expression, out var systemArrayType)
-                        && IsSystemArrayTypeInfo(systemArrayType);
-                }
-                if (_memberAccess.TryResolveTypeValuedMemberAccess(expression, out var resolvedSystemArrayType))
-                {
-                    return IsSystemArrayTypeInfo(resolvedSystemArrayType);
-                }
-                return true;
-            default:
-                if (_memberAccess.TryResolveTypeValuedMemberAccess(expression, out var ownerType))
-                {
-                    return IsSystemArrayTypeInfo(ownerType);
-                }
-                return false;
-        }
-    }
-
-    private bool IsSystemArrayTypeInfo(TypeInfo type)
-    {
-        var resolved = _declarationContext.ResolveDeclaredAlias(type);
-        return _clrTypeConversion.TryConvertTypeInfoToClrType(resolved) == typeof(Array)
-            || resolved is ExternalTypeInfo { Name: "Array" or "System.Array" };
     }
 
     private FunctionTypeInfo AnalyzeLambda(
@@ -5663,6 +5312,7 @@ public class Analyzer : IDisposable
         _flowNarrowing = CreateFlowNarrowing();
         _variableDeclaration = CreateVariableDeclaration();
         _writeTargets = CreateWriteTargets();
+        _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
         _operatorExpressions = CreateOperatorExpressions();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
         _identifierResolution.SetMetadataCollaborators(_memberResolution, _wellKnownTypes);
@@ -5699,6 +5349,7 @@ public class Analyzer : IDisposable
             _flowNarrowing = CreateFlowNarrowing();
             _variableDeclaration = CreateVariableDeclaration();
             _writeTargets = CreateWriteTargets();
+            _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
             _operatorExpressions = CreateOperatorExpressions();
             _typeResolver.SetWellKnownTypes(null);
             _identifierResolution.SetMetadataCollaborators(_memberResolution, null);
@@ -6197,5 +5848,3 @@ public class Analyzer : IDisposable
         }
     }
 }
-
-

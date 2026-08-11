@@ -18,8 +18,8 @@ import NSharpLang.Compiler.Ast
 //     for the return type — and each read reports again. An overload group whose winner is NOT
 //     receiver-style generic reads it ONCE. That difference is why the walk suspends instead of
 //     scheduling: the winner is not known until the first read has already happened.
-//   * the four SoA direct-column gates run in a fixed order and each ENDS the call at `unknown`, so
-//     a later gate is never even asked once an earlier one fires;
+//   * the SoA direct-column rule is ONE step whose verdict ENDS the call at `unknown` — the four
+//     gates under it are `AnalyzerSoaDirectColumnCalls`'s and are pinned in its own contracts;
 //   * a method-group LAMBDA argument is deliberately not analysed here — it folds `unknown` and
 //     still runs the ref/out target report, because binding will analyse it later with a real
 //     delegate type;
@@ -302,9 +302,10 @@ test "the walk's prologue is the factory probe, the callee, the null-call report
 
     transcript := CallWalkRun(owner, state, signature, null, BuiltInTypes.Int, null, null, 0)
 
-    // 1 factory probe, 2 callee, 3 null-call report, 8..11 the four SoA gates. No argument steps
-    // (there are none), no receiver steps (the signature is not generic).
-    assert transcript == "1 2 3 8 9 10 11"
+    // 1 factory probe, 2 callee, 3 null-call report, 8 the SoA direct-column rule (ONE step: its
+    // four gates are one owner's). No argument steps (there are none), no receiver steps (the
+    // signature is not generic).
+    assert transcript == "1 2 3 8"
     assert CallWalkTypeText(state.Result) == "int"
 }
 
@@ -335,7 +336,7 @@ test "a receiver-style generic call reads the member-access receiver EXACTLY thr
     // 6 before the arguments (closing the inference), then 6 again for validation and 6 again for
     // the return type. Each one is a real analysis that reports again.
     assert CallWalkCount(transcript, "6") == 3
-    assert transcript == "1 2 3 6 4(string) 8 9 10 11 6 6"
+    assert transcript == "1 2 3 6 4(string) 8 6 6"
 }
 
 test "the same signature called WITHOUT a member access reads no receiver at all" {
@@ -376,7 +377,7 @@ test "an overload group whose winner is not receiver-style generic reads the rec
     assert CallWalkCount(transcript, "6") == 1
     // 14 is the semantic-model record for the chosen overload, and it happens between the binding
     // read and the validation the winner did not need.
-    assert transcript == "1 2 3 4(<null>) 8 9 10 11 6 14"
+    assert transcript == "1 2 3 4(<null>) 8 6 14"
     assert CallWalkTypeText(state.Result) == "string"
 }
 
@@ -399,24 +400,24 @@ test "an overload group whose winner IS receiver-style generic reads the receive
         0)
 
     assert CallWalkCount(transcript, "6") == 3
-    assert transcript == "1 2 3 4(<null>) 8 9 10 11 6 14 6 6"
+    assert transcript == "1 2 3 4(<null>) 8 6 14 6 6"
 }
 
-test "each SoA gate ends the call at unknown and the gates after it are never asked" {
-    gate := 8
-    while gate <= 11 {
-        errors := CallWalkErrors()
-        owner := CallWalkOwner(errors)
-        call := CallWalkBareCall(CallWalkArgs())
-        state := owner.BeginCall(call)
-        signature := CallWalkSignature(new List<TypeInfo>(), BuiltInTypes.Int)
+// The direct-column rule reporting ENDS the call at `unknown` and nothing after it — not the
+// dispatch, not the binding — is ever asked. The ORDER of the four gates under it is the rule's own
+// and is pinned in `AnalyzerSoaDirectColumnCalls.tests.nl`; what the WALK owns is that one verdict
+// stops it, which is why kinds 9, 10 and 11 no longer exist and their numbers are left as a gap.
+test "the SoA direct-column verdict ends the call at unknown and the dispatch is never asked" {
+    errors := CallWalkErrors()
+    owner := CallWalkOwner(errors)
+    call := CallWalkBareCall(CallWalkArgs())
+    state := owner.BeginCall(call)
+    signature := CallWalkSignature(new List<TypeInfo>(), BuiltInTypes.Int)
 
-        transcript := CallWalkRun(owner, state, signature, null, BuiltInTypes.Int, null, null, gate)
+    transcript := CallWalkRun(owner, state, signature, null, BuiltInTypes.Int, null, null, 8)
 
-        assert CallWalkTypeText(state.Result) == "unknown"
-        assert transcript.EndsWith(gate.ToString())
-        gate = gate + 1
-    }
+    assert CallWalkTypeText(state.Result) == "unknown"
+    assert transcript == "1 2 3 8"
 }
 
 test "a method-group lambda argument is not analysed here and folds unknown" {
@@ -438,7 +439,7 @@ test "a method-group lambda argument is not analysed here and folds unknown" {
 
     // 5 is the SKIPPED argument: no analysis, but the ref/out target report still runs, and 13 is
     // the group binding that will analyse the lambda with a real delegate type.
-    assert transcript == "1 2 3 5 8 9 10 11 13"
+    assert transcript == "1 2 3 5 8 13"
     assert state.ArgTypes.Count == 1
     assert CallWalkTypeText(state.ArgTypes[0]) == "unknown"
 }
@@ -460,7 +461,7 @@ test "a reflected call that binds to nothing answers unknown through the reporte
         null,
         0)
 
-    assert transcript == "1 2 3 4(<null>) 8 9 10 11 13"
+    assert transcript == "1 2 3 4(<null>) 8 13"
     assert CallWalkTypeText(state.Result) == "unknown"
 }
 
@@ -474,7 +475,7 @@ test "a newtype construction checks arity first and the underlying type second" 
     transcript := CallWalkRun(
         owner, state, newtypeInfo, null, BuiltInTypes.String, null, null, 0)
 
-    assert transcript == "1 2 3 4(<null>) 8 9 10 11"
+    assert transcript == "1 2 3 4(<null>) 8"
     assert CallWalkTypeText(state.Result) == "UserId"
     assert errors.Count == 1
     assert errors[0].Message.Contains("is not assignable to underlying type")
@@ -504,7 +505,7 @@ test "a callee the walk does not recognise answers unknown after the whole sched
 
     // The arguments are still analysed and the gates still run — an unrecognised callee must not
     // silence the diagnostics its arguments would have produced.
-    assert transcript == "1 2 3 4(<null>) 8 9 10 11"
+    assert transcript == "1 2 3 4(<null>) 8"
     assert CallWalkTypeText(state.Result) == "unknown"
 }
 
@@ -519,7 +520,7 @@ test "a declared signature with no parameter list answers its return type withou
 
     transcript := CallWalkRun(owner, state, signature, null, BuiltInTypes.Int, null, null, 0)
 
-    assert transcript == "1 2 3 8 9 10 11"
+    assert transcript == "1 2 3 8"
     assert CallWalkTypeText(state.Result) == "bool"
 }
 
@@ -536,5 +537,5 @@ test "an argument's expected type comes from the signature, closed once before t
 
     // `p2: T` with the receiver binding `T = int` — the expected type is the CLOSED one, and it is
     // closed from the receiver read before the loop rather than from the arguments analysed so far.
-    assert transcript == "1 2 3 6 4(int) 8 9 10 11 6 6"
+    assert transcript == "1 2 3 6 4(int) 8 6 6"
 }

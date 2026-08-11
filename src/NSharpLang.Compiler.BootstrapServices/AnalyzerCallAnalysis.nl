@@ -24,7 +24,10 @@ import NSharpLang.Compiler.Ast
 //      during binding with a real delegate type; the ref/out target report still runs
 //   6  the member-access RECEIVER's analysis
 //   7  one SoA row-view escape report
-//   8..11 the four SoA direct-column call gates, in their fixed order
+//   8  the SoA direct-column call rule (answers only whether it reported). The four gates under it
+//      are ONE owner's, so the walk asks once; kinds 9, 10 and 11 are the round trips that relayed
+//      them one at a time before that owner existed, and the gap is left where they were because a
+//      step kind is a value the contracts pin.
 //   12 a single reflected method's binding
 //   13 a reflected method GROUP's binding
 //   14 the semantic-model record for a bound N# overload
@@ -167,7 +170,7 @@ class AnalyzerCallAnalysis {
     }
 
     // THE ANSWER TO THE OUTSTANDING STEP, folded in according to what was asked. `handled` is the
-    // boolean verdict of the probe steps — the result-constructor factory and the four SoA gates —
+    // boolean verdict of the probe steps — the result-constructor factory and the direct-column rule —
     // and each of those ENDS the walk, exactly as the early `return` it replaces did.
     func SupplyCallStep(state: CallAnalysisState, answer: TypeInfo?, handled: bool) {
         pending := state.Pending
@@ -206,7 +209,7 @@ class AnalyzerCallAnalysis {
             return
         }
 
-        if pending >= 8 && pending <= 11 {
+        if pending == 8 {
             if handled {
                 state.Result = BuiltInTypes.Unknown
                 state.Phase = 99
@@ -280,8 +283,8 @@ class AnalyzerCallAnalysis {
             return EmitSoaRowEscape(state)
         }
 
-        if phase >= 9 && phase <= 12 {
-            return EmitSoaGate(state, phase)
+        if phase == 9 {
+            return EmitSoaGate(state)
         }
 
         if phase == 13 {
@@ -429,17 +432,14 @@ class AnalyzerCallAnalysis {
         return null
     }
 
-    // THE FOUR SoA DIRECT-COLUMN GATES, in the one order they have always run. Each ends the call at
-    // `unknown` when it fires, so a later gate never reports over an earlier one's finding.
-    func EmitSoaGate(state: CallAnalysisState, phase: int): CallAnalysisRequest? {
-        state.Phase = phase + 1
-        kind := phase - 1
-        state.Pending = kind
-        request := new CallAnalysisRequest(kind)
-        if kind >= 10 {
-            request.CarriedType = state.CalleeType
-        }
-
+    // THE SoA DIRECT-COLUMN CALL RULE. Its four gates run in the one order they have always run and
+    // the first that fires ends the call at `unknown`, but that ordering is now the RULE's and not
+    // the walk's — the walk needs one verdict, so it asks once.
+    func EmitSoaGate(state: CallAnalysisState): CallAnalysisRequest? {
+        state.Phase = 13
+        state.Pending = 8
+        request := new CallAnalysisRequest(8)
+        request.CarriedType = state.CalleeType
         return request
     }
 

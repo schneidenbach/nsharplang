@@ -1,6 +1,37 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-10 (**TASK 017 SLICE 56 LANDED (no commit — mandate) — THE WALL THAT WAS NOT
+Last updated: 2026-08-11 (**TASK 017 SLICE 60 LANDED (no commit — mandate) — N# OWNS WHAT MAY BE DONE
+TO A SoA COLUMN BY A CALL, AND THE 017/018 BOUNDARY THAT KEPT IT IN C# FOR THIRTY-SIX SLICES IS
+RETIRED WITH A REASON.** **THE BOUNDARY WAS RE-DERIVED BEFORE ANY EDIT, AND IT WAS DECIDED BY THE TWO
+TASKS' OWN COMPLETION CRITERIA RATHER THAN BY SUBJECT MATTER**: 018's criterion is file-scoped to
+`SystemsAnalyzer.cs`, 017's to `Analyzer.cs`, and **every member of this family lives in `Analyzer.cs`
+while `SystemsAnalyzer.cs` contains exactly ONE occurrence of `Soa` in 2,390 lines — a
+`case SoaRecordDeclaration soa:` switch arm, not policy**. Slice 24's line therefore deposits policy
+in the one file that must reach zero policy, and its premise is false besides: the family is NOT
+call-walk-only — `ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded` is called from
+`AnalyzeExpression`'s VALUE tail. Resolution: the family moves under 017 by the file criterion and
+018's subject-matter ownership is honoured by the DESTINATION — a dedicated N# owner sibling to
+`AnalyzerSoaEscape`. **THE RE-VERIFICATION FOUND THE FAMILY 81 LINES LARGER THAN THE BRIEF** (19
+members / 331 lines, not ~250) and found `IsStaticArrayTarget` **NOT shared** against the brief's
+"SHARED with a top-level member" — the sixth consecutive brief wrong about size. **19 C# MEMBERS DIE,
+331 NAMED LINES** plus a 4-line orphan doc comment; `Analyzer.cs` **6,201 → 5,850**, non-blank
+**5,588 → 5,277**, declarations **238 → 220**, modifier lines **308 → 291**, `git diff`
+**+17 / −368 = net −351**; both ratchet ceilings fall. **THE PROTOCOL SHRANK BY THREE KINDS**: the four
+gates were four driver round trips relaying a pure predicate, and with all four in one owner the walk
+asks ONCE — kinds 9, 10 and 11 leave, phases 9–12 collapse to one, and `AnalyzeCall`'s four `case`
+arms become one, with the numbering's gaps kept per slice 37's rule. N# adds **564 production lines on
+one new file** (`AnalyzerSoaDirectColumnCalls.nl`, 18 members) and **494 contract lines / 24
+contracts**, all green on the FIRST run; contracts **3,534 → 3,558**. **THREE ORACLE DIFFERENTIALS ALL
+ZERO** (corpus 0 diffs over 73 rows / 835 diagnostics / 23 codes with identical md5; env-gated
+fixtures 0 diffs over 27 rows; self-host 282 findings unchanged with ZERO in the new file); **parse-error
+census 0**; **corpus IL 63 / 63 N#-emitted assemblies byte-identical with the CONTROL FIRST (118
+compared, SAME 118, DIFFERENT 0)** and the 55 `NSharpLang.Runtime.dll` copies proved INHERITED (208
+bytes, 0 source files differ); **unsorted build transcripts 0 diffs over 1,573 lines, same md5 in all
+THREE sweeps**; unit suite **3,194 / 3,194** via `dev.sh --since`'s fail-safe FULL path; audit
+**18 / 18**; manifest 391 lines, no BOM. **TWO LANGUAGE WALLS, both in the production owner, both
+routed around inside the language, NO REPIN.** Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-10 (**TASK 017 SLICE 56 LANDED (no commit — mandate) — THE WALL THAT WAS NOT
 THERE, AND THEN N# OWNS WHAT `a[i]` AND `[a, b, c]` MEAN AND THE MEMBER ARM'S SECOND DRIVER KIND
 RETIRES.** **THE SLICE'S FIRST ACT REFUTED ITS OWN BRIEF**: slice 55's measured, priced two-row
 catalog wall DOES NOT EXIST. Re-measured by EXECUTION rather than by reading the catalog,
@@ -1975,8 +2006,362 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 59 — `range`, `match`-AS-EXPRESSION, AND THE
-  CALL ARM'S STATIC-ADDRESSABILITY PRE-CUT, TERMINAL.** Target recorded BEFORE any production edit,
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 60 — THE SoA DIRECT-COLUMN CALL FAMILY, THE
+  FIRST OF `call`'S TWO CUTS, TERMINAL — AND THE 017/018 BOUNDARY RE-DERIVED BEFORE ANY EDIT.**
+  Target recorded BEFORE any production edit, at `0f6a5d8ca` (`Analyzer.cs` **6,201** lines,
+  non-blank **5,588**, member declarations **238** by the narrow metric
+  (`^    (private|public|internal|protected).*\(`) and **308** by the modifier-line metric; **23**
+  driver loops of which **12** return; `ColumnarIlEmitter.cs` **21,471** / **20,412**, fingerprint
+  `text-v1:609051db487c7060`, epoch ceilings **21,723 / 20,646**; `Analyzer.cs` ratchet row
+  currentLines **6,201** / currentNonBlank **5,588**, fingerprint `text-v1:a5a639e9fc7008c6`, epoch
+  ceilings **23,451 / 20,537**; `SystemsAnalyzer.cs` ratchet row currentLines **2,390** ==
+  epochLines **2,390** — task 018 has not started; unit suite baseline **3,194**; contracts baseline
+  **3,534**; ownership audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint
+  head-v1:0d059318a05d2018`).
+
+  **THE BOUNDARY RE-DERIVATION, TAKEN FIRST AND DECIDED BY THE TWO TASKS' OWN COMPLETION CRITERIA
+  RATHER THAN BY SUBJECT MATTER.** Slice 24 wrote the original sentence — "the four SoA
+  direct-column gates, which are ~320 lines reachable ONLY from the call walk but are systems/SoA
+  policy and therefore task 018's" — and slice 37 re-checked and HELD it, leaving the gates and
+  their `Sort`/`Fill`/`Copy` parameter tables behind while moving the escape-REPORT family and
+  publishing the two shared members. Slice 59 then measured the same set as a movable 017 cut. Both
+  cannot be right, so the boundary was re-derived at this tip from the task files, not from the
+  prior prose:
+  * **018'S COMPLETION CRITERION IS FILE-SCOPED TO `SystemsAnalyzer.cs`** ("delete the matching
+    `SystemsAnalyzer.cs` methods and branches"; "Mark it complete only when `SystemsAnalyzer.cs` is
+    deleted or is a reviewed zero-policy mechanical host"). **017'S IS FILE-SCOPED TO
+    `Analyzer.cs`.**
+  * **EVERY MEMBER OF THIS FAMILY LIVES IN `Analyzer.cs`. NONE LIVES IN `SystemsAnalyzer.cs`** —
+    measured: `SystemsAnalyzer.cs` contains exactly ONE occurrence of `Soa`/`SOA` in 2,390 lines,
+    and it is `case SoaRecordDeclaration soa:`, a declaration-kind switch arm, not policy. 018
+    executed to completion would leave all of it exactly where it is.
+  * **SO THE SLICE-24 BOUNDARY IS A SUBJECT-MATTER LINE DRAWN ACROSS TWO FILE-SCOPED CRITERIA, AND
+    IT DEPOSITS POLICY IN THE ONE FILE THAT MUST REACH ZERO POLICY.** Left alone it makes 017's
+    terminal state UNREACHABLE and advances 018 by nothing.
+  * **AND SLICE 24'S PREMISE IS FALSE AT THIS TIP ON ITS OWN TERMS.** The family is NOT "reachable
+    only from the call walk": `ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded`
+    is called from `AnalyzeExpression`'s value tail (`:3224`, `isCall: false`) — the arm that
+    refuses `points.x.Clone` as a VALUE, with no call anywhere.
+  * **RESOLUTION: THE FAMILY MOVES UNDER 017 BY THE FILE CRITERION, AND 018'S SUBJECT-MATTER
+    OWNERSHIP IS HONOURED BY THE DESTINATION** — a dedicated SoA owner sibling to
+    `AnalyzerSoaEscape`, not a fold into a call or expression owner, so 018 inherits an N# owner to
+    extend rather than C# to re-find. This is slice 37's own pattern completed: it moved SoA policy
+    under 017 once already and re-shaped these gates' plumbing mechanically.
+  * **WHAT STAYS 018's, RECORDED**: `SystemsAnalyzer.cs` (2,390 lines) and the whole `NSYS*` estate
+    — allocation restrictions, hot/boundary attribute policy, pool and resource balance, the AOT
+    finding, the unknown-external-call surface. Untouched by this slice, and its ratchet row is
+    still at epoch.
+
+  **THE RE-VERIFIED FAMILY — 19 MEMBERS / 19 EXTENTS / 331 LINES, AND THE BRIEF UNDERSTATED IT BY
+  81.** The caller-attribution pass was re-run at THIS tip with a member extractor VALIDATED against
+  slice 59's own 14 recorded extents (14 / 14 reproduced to the line before it was trusted — two
+  corrections were needed to reach that: an expression body whose `is T { P: … }` property pattern
+  opens and closes braces on one line is NOT ended by them, and a member's preceding `///` doc
+  comment belongs to its extent). Every one of the 19 is `Analyzer.cs`-private and **the whole
+  family's 48 name occurrences are inside `Analyzer.cs`** — nothing in `src/`, `tests/` or
+  `editors/` names any of it.
+  * **THE FIVE REPORTERS (117)**: `ReportSoaDirectColumnMutatingArrayCallIfNeeded` (26),
+    `ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded` (22),
+    `ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded` (36),
+    `ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded` (2) and
+    `ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded` (31).
+  * **THE TWELVE PREDICATES (202)**: `TryGetSoaMutatingArrayCallColumnArgument` (24),
+    `IsSoaMutatingArrayParameter` (23), `IsPositionalArraySortParameter` (9),
+    `TryGetUnsupportedSoaColumnStaticArrayArgument` (20),
+    `IsHandledSoaDirectColumnStaticArrayParameter` (7), `IsPinnedSoaDirectColumnArrayParameter`
+    (27), `IsDedicatedSoaDirectColumnArrayDiagnosticParameter` (28), `IsAllowedSoaDirectColumnCall`
+    (3), `IsRuntimeArrayInstanceMethodReference` (11), `IsRuntimeArrayInstanceMethod` (2),
+    `IsStaticArrayTarget` (42) and `IsSystemArrayTypeInfo` (6).
+  * **THE TWO PARAMETER TABLES (12)**: `SupportedSoaDirectColumnStaticArrayMethods` (6, the
+    `Fill`/`Copy`/`Clear` allow-list) and `DedicatedSoaDirectColumnStaticArrayDiagnostics` (6, the
+    `Resize`/`Sort`/`Reverse` deferral list). These are slice 37's named "`Sort`/`Fill`/`Copy`
+    parameter tables" and they move with the rule that reads them.
+  * **`IsStaticArrayTarget` IS NOT SHARED**, against the slice-59 brief's "(42, SHARED with a
+    top-level member)": its only three callers are `IsAllowedSoaDirectColumnCall`,
+    `ReportSoaDirectColumnMutatingArrayCallIfNeeded` and
+    `ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded`, all inside the family. Nothing else
+    in the file names it.
+  * **EVERY COLLABORATOR IS ALREADY N# AND PUBLISHED**: `AnalyzerSoaEscape`
+    (`FindSoaColumnMemberAccess`, `ReportUnsupportedSoaDirectColumnValueEscape`,
+    `…IfNeeded`), `AnalyzerWriteTargets.ReportSoaTableMemberMutation`,
+    `AnalyzerDiagnosticSink.Report`, `AnalyzerDiagnosticSpans.GetMemberNameColumn`,
+    `AnalyzerScopeStack.LookupSymbol`/`LookupType`,
+    `AnalyzerDeclarationContext.ResolveDeclaredAlias`,
+    `AnalyzerMemberAccess.TryResolveTypeValuedMemberAccess`,
+    `AnalyzerClrTypeConversion.TryConvertTypeInfoToClrType` and `BuiltInTypes.IsUnknown`. Nothing
+    re-enters C#.
+
+  **THE SHAPE MEASUREMENT: IT IS A RULE FAMILY, NOT AN ARM — THE WriteTargets SHAPE.** Not one of
+  the 19 walks an expression, suspends, opens a scope or re-enters the dispatch; every one is a pure
+  question-and-report over a node and a type the caller already holds. It therefore moves WHOLE into
+  a constructor-injected owner. **AND THE PROTOCOL SHRINKS WITH IT**: the four gates are currently
+  four consecutive driver KINDS (8, 9, 10, 11) issued by `AnalyzerCallAnalysis.EmitSoaGate` across
+  phases 9–12, each a full driver round trip that relays a pure predicate. With all four in one
+  owner the walk asks ONCE — **kinds 9, 10 and 11 leave the protocol, phases 9–12 collapse to one**,
+  and `AnalyzeCall`'s four `case` arms collapse to one route line. **THE NUMBERING KEEPS ITS GAPS**,
+  per slice 37's standing rule: a renumber would silently re-point every contract that pins a step
+  kind by value.
+
+  **THE OWNER**: `AnalyzerSoaDirectColumnCalls` — a NEW file, sibling to `AnalyzerSoaEscape`, so the
+  SoA policy 018 owns by subject is in one N# neighbourhood rather than smeared into the call arm
+  that happens to ask it.
+
+  **THE EXPECTED CUT**: 19 C# members / 19 extents / **331 named lines**, plus three of
+  `AnalyzeCall`'s four `case` arms and `SupplyCallStep`'s four-kind fold; ADDED: one owner field,
+  one `Create…` factory, one route line in `AnalyzeExpression`'s tail and one `case` arm.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT MAY BE DONE TO A SoA COLUMN BY A CALL, AND THE
+  BOUNDARY THAT KEPT IT IN C# FOR THIRTY-SIX SLICES IS RETIRED WITH A REASON.**
+
+  **THE CUT — 19 C# MEMBERS, 19 EXTENTS, 331 NAMED LINES, PLUS A 4-LINE ORPHAN.** GONE, by group:
+  the FIVE REPORTERS (117 — `ReportSoaDirectColumnMutatingArrayCallIfNeeded` 26,
+  `ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded` 22,
+  `ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded` 36,
+  `ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded` 2,
+  `ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded` 31); the TWELVE PREDICATES
+  (202 — `TryGetSoaMutatingArrayCallColumnArgument` 24, `IsSoaMutatingArrayParameter` 23,
+  `IsPositionalArraySortParameter` 9, `TryGetUnsupportedSoaColumnStaticArrayArgument` 20,
+  `IsHandledSoaDirectColumnStaticArrayParameter` 7, `IsPinnedSoaDirectColumnArrayParameter` 27,
+  `IsDedicatedSoaDirectColumnArrayDiagnosticParameter` 28, `IsAllowedSoaDirectColumnCall` 3,
+  `IsRuntimeArrayInstanceMethodReference` 11, `IsRuntimeArrayInstanceMethod` 2, `IsStaticArrayTarget`
+  42, `IsSystemArrayTypeInfo` 6); and the TWO PARAMETER TABLES (12). One more thing went with them
+  and is accounted separately: a **4-line ORPHAN doc comment** for the `match`-keyword length
+  constant, whose member left in an earlier slice and whose value has been
+  `AnalyzerMatchExhaustiveness.MatchKeywordLength()` for some time. ADDED: one owner field with its
+  6-line doc, one 4-line `CreateSoaDirectColumnCalls` factory, three `_soaDirectColumnCalls =` rebuild
+  lines, one route line in `AnalyzeExpression`'s value tail and one collapsed `case` arm. `git diff`
+  on `Analyzer.cs` **+17 / −368 = net −351**. The file goes **6,201 → 5,850**, non-blank
+  **5,588 → 5,277 (−311)**, member declarations **238 → 220 (−18)** and modifier lines
+  **308 → 291 (−17)**. **BOTH RATCHET CEILINGS FALL.**
+
+  **THE PROTOCOL SHRANK BY THREE KINDS, AND THAT IS THE POINT OF TAKING THE FAMILY WHOLE.** The four
+  gates were four consecutive driver KINDS (8, 9, 10, 11) over phases 9–12, each a full round trip
+  that relayed a pure predicate and handed back one boolean. With all four in one owner
+  `AnalyzerCallAnalysis.EmitSoaGate` asks ONCE: **kinds 9, 10 and 11 leave the protocol, phases 9–12
+  collapse to one, `SupplyCallStep`'s `pending >= 8 && pending <= 11` fold becomes `pending == 8`,
+  and `AnalyzeCall`'s four `case` arms become one.** Every call that reaches the gates now takes ONE
+  round trip where it took FOUR. **THE NUMBERING KEEPS ITS GAPS AT 9, 10 AND 11**, exactly as slice
+  37 kept its gaps at 2 and 3: a step kind is a value the contracts pin, and a renumber would
+  silently re-point every one of them.
+
+  **N# ADDED — 564 PRODUCTION LINES ON ONE NEW FILE, 494 CONTRACT LINES ON ANOTHER, AND 16 CHANGED
+  LINES ON THE CALL WALK.** `AnalyzerSoaDirectColumnCalls.nl` (**564 lines, ONE type, 18 members**)
+  holds the four gates, the two parameter tables, the twelve predicates and the `System.Array`
+  receiver question they share, plus ONE new public entry — `ReportDirectColumnCallIfNeeded` — which
+  is the whole family as one verdict. `AnalyzerCallAnalysis.nl` is **+16 / −16**.
+
+  **THREE TRANSFORMATIONS WERE FORCED BY THE LANGUAGE AND ARE RECORDED RATHER THAN HIDDEN.**
+  * **THE TWO PARAMETER TABLES BECOME INSTANCE FIELDS, AND THREE STATIC PREDICATES BECOME INSTANCE
+    MEMBERS WITH THEM.** The estate holds no static mutable fields, so a `HashSet<string>` name table
+    is a constructor-built field and every reader of one is an instance member. Caught by EXECUTION —
+    `emit.call.bare-unresolved` on the first build.
+  * **`System.Array` IS READ OUT OF THE CORE LIBRARY, NOT WRITTEN `typeof(Array)`.** The established
+    `typeof(object).get_Assembly().GetType("System.Array")` idiom yields the identical RUNTIME `Type`
+    instance, so the runtime-versus-MetadataLoadContext asymmetry the C# `== typeof(Array)` depended
+    on is preserved exactly rather than approximated by a name test.
+  * **`method.IsStatic` DECLINES AND `method.get_IsStatic()` BINDS.** The accessor-spelling hazard,
+    found by EXECUTION at `emit.return.expression`, and the same one the declaration-context and
+    resource owners already route around.
+
+  **24 NEW CONTRACTS, ALL GREEN ON THE FIRST RUN.** `AnalyzerSoaDirectColumnCalls.tests.nl` (**494
+  lines, 24 contracts**) is this family's first DIRECT pinning — every member behind it was
+  `Analyzer.cs`-private and reachable only by writing an `NSHARP_EXPERIMENTAL_SOA=1` program and
+  reading a diagnostic. Contracts **3,534 → 3,558 (+24)**, 0 failed. They go at the seven things a
+  reader cannot recover from any one arm: that the allow-lists are PARAMETER tables and not method
+  tables (`Array.Copy`'s array slots are 0 and 1 at arity three and 0 and 2 at arity five, so the
+  SAME method is silent at one position and refuses at another); that `Array.Sort`'s positions are a
+  function of its ARITY and an unrecognised arity has none; that a method with its own diagnostic is
+  SKIPPED rather than reported twice; that the gates are ORDERED and the first to fire wins; that a
+  method group is an instance reference only if EVERY candidate is, and an empty group is not; that a
+  name in scope SHADOWS the type; and that a `ref`/`out` argument is skipped because a column IS
+  addressable.
+
+  **PROOF — THREE ORACLE DIFFERENTIALS, ALL ZERO, WITH FRESH RELEASE CLIs AT THE PRISTINE TIP
+  `0f6a5d8ca` (`/private/tmp/nl60base`) AND AT THE WORKING TREE.**
+  * **CORPUS: ORACLE_DIFFS = 0 over 73 rows**, md5 `db16775d9076f2d0b6c8371f1ab4ef34` in BOTH — **835
+    diagnostics across 23 codes** (187 NL402, 186 NL202, 115 NL201, 65 NL012, 50 NL301, 48 NL905, 34
+    NL011, 24 NSYS050, 18 NSYS001, 18 NL303, 16 NL010, 15 NL412, 13 NL701, 13 NL704, 8 NL203, 7
+    NSYS070, 6 NL207, 3 NSYS110, 3 NL506, 2 NL316, 2 NL002, 1 NSYS080, 1 NL001); `stderrBytes = 0` on
+    all 146 runs, ZERO `PARSE-FAIL`, the same seven known no-`results` targets. Both CLIs were pointed
+    at the SAME source copy (`/private/tmp/nl60corpus`).
+  * **FIXTURES (env-gated, `NSHARP_EXPERIMENTAL_SOA=1`): DIFFS = 0 over 27 rows**, md5
+    `df61922f54b28156e91fa7b5044dff9c` in BOTH — 32 diagnostics across 5 codes, `stderrBytes = 0`
+    everywhere, **NO-RESULTS = 0 and PARSE-FAIL = 0**.
+  * **SELF-HOST: base 339 checked files / 282 findings, work 340 / 282 — the unchanged baseline, ZERO
+    findings in the new file, and ZERO NEW findings anywhere.** The ONE finding in a file this slice
+    changed (NL010, an unused `import System` in `AnalyzerCallAnalysis.nl`) is **PRE-EXISTING** — the
+    BASE run reports it too, which is why the estate total is 282 on both sides rather than 283. It is
+    left alone as another slice's drift.
+  **PARSE-ERROR CENSUS: 0 KNOWN, 0 NEW.** NL101 and NL102 are both absent from the corpus and from
+  all 27 fixtures, on both sides.
+
+  **PROOF — THE 27 FIXTURES REACH WHAT THE CORPUS CANNOT, AND WERE PROVED NON-VACUOUS.** Not one of
+  the 73 corpus targets DECLARES an `soa record` — the eight `.nl` files that contain the phrase carry
+  it in a comment or a diagnostic string — so every one of this family's told paths is unreachable
+  from the corpus —
+  the same finding slice 37 recorded, and the reason the fixtures are the only evidence half the
+  family works. The set reports **16 fixtures firing SoA diagnostics across ELEVEN distinct wordings**
+  (3 "sorted directly", 1 "reversed directly", 3 "passed to Array method '*X*' directly" naming
+  `IndexOf` / `BinarySearch` / `Copy`, 2 "call array method '*X*' directly" naming `GetLength` and
+  `Clone`, 1 "use array method 'GetLength' as a value", 4 "passed as an argument directly", and the
+  neighbouring "used as the ref argument" / "used as the out argument") and **11 DELIBERATELY SILENT**
+  ones: `Array.Fill`, `Array.Clear`, both `Array.Copy` arities, `Array.Resize` (which has its own
+  diagnostic), `points.x.Length`, a plain-array `Array.Sort`, a plain-array argument, an element read,
+  a non-column table member, and a table never touched by a call.
+  **TWO FIXTURES ARE FINDINGS IN THEIR OWN RIGHT.**
+  * **A LOCAL NAMED `Array` CHANGES WHICH DIAGNOSTIC A DEVELOPER SEES.** `Array.Sort(points.x)` says
+    "cannot be sorted directly"; with `Array := 1` in scope the same line says
+    "Member 'Sort' not found on type 'int'" AND "cannot be passed as an argument directly". The shadow
+    rule is observable, and it is identical on both sides.
+  * **THE SPELLED-OUT `System.Array.Sort(points.x)` DOES NOT GET THE TAILORED DIAGNOSTIC.** It reports
+    "passed as an argument directly" rather than "sorted directly", because the qualified receiver
+    resolves through the member walk to a type that is not reference-equal to the RUNTIME
+    `System.Array`. That is `Analyzer.cs`'s behaviour to the branch, it is preserved exactly, and it
+    is now visible — which is what a port is for. Improving it is a language decision, not a port's.
+
+  **PROOF — THE CORPUS IL IS BYTE-EXACT AND THE CONTROL RAN FIRST.** The minimal PE-spec normaliser
+  zeroes exactly the COFF `TimeDateStamp`, every DEBUG-directory `TimeDateStamp` and the metadata
+  `#GUID` heap, walking DOS → PE → COFF → optional header → section table → data directories, and
+  compares everything else RAW. **CONTROL (the BASE CLI building two independent fresh copies of the
+  whole 73-target corpus): 118 compared, SAME 118, DIFFERENT 0** — so the pipeline is reproducible and
+  a difference in the experiment would be real. **EXPERIMENT (base vs work): 118 compared, and ALL 63
+  N#-EMITTED ASSEMBLIES ARE BYTE-IDENTICAL.** The 55 that differ are ALL copies of
+  `NSharpLang.Runtime.dll`, a C# assembly this slice does not touch, and the difference is INHERITED
+  rather than produced: the two trees' OWN `NSharpLang.Runtime.dll` builds already differ by exactly
+  **208 bytes** before any corpus build, while `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime`
+  between the trees reports **0 source files** and `git status` on it is clean. All three sweeps report
+  `TARGETS=73 BUILT=55 ASSEMBLIES=118` identically.
+
+  **PROOF — THE UNSORTED BUILD TRANSCRIPT, WHICH IS THE EMISSION-ORDER EVIDENCE.** `nlc build` renders
+  `_errors` in LIST order with no dedup and no sort, so it is the surface that would show a reordered
+  or duplicated report. Over the same three sweeps: **CONTROL_TRANSCRIPT_DIFFS = 0 and
+  TRANSCRIPT_DIFFS = 0 over 1,573 lines**, md5 `eeeb87977b8d2c873298297245f3ff8f` in ALL THREE, with
+  identical exit codes (**0 × 55, 1 × 18**). The only normalisation is elapsed-time text and the tree
+  path, and both are NAMED. **A ROW-BY-ROW STEP-KIND DIFFERENTIAL IS DELIBERATELY NOT TAKEN HERE**:
+  kinds 9, 10 and 11 leave the protocol BY DESIGN, so that difference IS the deliverable rather than a
+  mismatch to explain — exactly slice 37's treatment of its kinds 2 and 3 — and the new step sequence
+  is pinned DIRECTLY by `AnalyzerCallAnalysis.tests.nl`, whose ten transcripts now read `1 2 3 8 …`
+  and whose gate contract asserts the walk stops at `1 2 3 8` with `unknown`.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:0d059318a05d2018` from
+  the UNMODIFIED manifest AND the stored `text-v1:a5a639e9fc7008c6` from the PRISTINE `Analyzer.cs`
+  EXACTLY before any write, so the new values are derived rather than guessed. Applied: `Analyzer.cs`
+  currentLines 6,201 → **5,850**, currentNonBlankLines 5,588 → **5,277**, fingerprint →
+  **`text-v1:c7adbe352745f1a6`**; `reviewedHeadFingerprint` → **`head-v1:2af5a68278fab660`**, mirrored
+  into `OwnershipAudit.nl`. Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **17,601 / 15,260**
+  — up from 17,250 / 14,949. `wc -l` on the manifest is **391 before AND after**, no BOM; its
+  `git diff` is exactly 2 changed lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS
+  NEEDED**: both new files are `.nl`, which the policy does not audit. `ColumnarIlEmitter.cs` and
+  `SystemsAnalyzer.cs` are UNTOUCHED. The ownership audit on the final tree is **18 / 18**.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `0f6a5d8ca` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree and ran the FULL suite: **3,194 / 3,194, 0 failed, 4 m 51 s of test time, 8 m 57 s
+  wall, exit 0**.
+
+  **FORMAT CANON.** The new production file, the new contract file and the whole
+  `src/NSharpLang.Compiler.BootstrapServices` directory pass the gate's Step 2b contract (**"All files
+  are properly formatted"**). The formatter reshaped five multi-line calls in the new owner onto single
+  lines on the first pass; the file has been canon ever since.
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED, OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`,
+  EXIT 0, 16 TIMED STEPS, 108 PASSES AND ZERO FAILURES, 20m 21s.** `./scripts/test-all.sh --commit` —
+  VS Code tests NOT skipped — with the per-step wall clock it reported: build the N# compiler 2m 00s;
+  **Step 2b's format contract 0m 01s**; **unit tests 7m 44s (3,194 / 3,194)**; **native N# tests 3m
+  39s** — the BootstrapServices contracts at **3,558 / 3,558** plus all 28 native projects
+  individually, `ownership-audit` **18 / 18** among them; **VS Code integration tests 2m 47s, 36
+  passing**, against a freshly built extension and language server; pack and install the MSBuild SDK
+  3m 45s; templates, template creation and the template-generated build; the example builds; `nlc
+  check` on examples; and **the IL verification gate 0m 12s — `All 67 N# assemblies pass IL
+  verification (no new errors vs baseline)`**. It ran from an isolated snapshot
+  (`/tmp/nsharp-test-all.6c0745ad95fb.4665oD/repo`) and stored its validated cache result
+  `6c0745ad95fbb95e (1221s)`. **THE SNAPSHOT WAS PROVED BYTE-IDENTICAL TO THE WORKING TREE** by `cmp`
+  on ALL SEVEN changed/added code files before the verdict was read, so "over the byte-final tree" is
+  a measurement rather than a claim; and `systems-language-closeout/` appears in NO gate input set
+  (`grep` over `tests/scripts/test-all*.sh` finds it nowhere), so this record's own prose is provably
+  not a gate input.
+
+  **GOTCHAS.**
+  **(1) A STATIC `func` CANNOT READ A CONSTRUCTOR-BUILT TABLE.** Porting a `private static` C# method
+  that reads a `private static readonly HashSet` makes the reader an INSTANCE member, because the
+  estate has no static mutable fields. It declines at `emit.call.bare-unresolved` naming the CALLEE,
+  not the field.
+  **(2) `MethodInfo.IsStatic` DECLINES; `get_IsStatic()` BINDS.** Slice 55's property-spelling gotcha
+  again, on a third reflected member. When a reflected read declines at `emit.return.expression` or
+  `emit.if.condition`, try the accessor spelling BEFORE concluding the surface is missing.
+  **(3) THE SAME APPLIES TO `MethodInfo.Name` IN A CONTRACT HARNESS** (`emit.if.condition`).
+  **(4) A MEMBER EXTRACTOR MUST DECIDE `=>` BEFORE IT MATCHES BRACES.** An expression body containing
+  a property pattern (`x is T { P: "v" }`) opens and closes braces on one line, and a brace-first
+  extractor ends the member there — slice 59's gotcha 6 has a second half.
+  **(5) A MEMBER'S `///` DOC COMMENT IS PART OF ITS EXTENT**, which is how slice 59's recorded numbers
+  reproduce; and a doc comment separated from its member by a BLANK LINE is an ORPHAN, of which this
+  file had one.
+  **(6) A FIXTURE LIST BUILT BEFORE THE FIXTURES ARE REGENERATED SILENTLY CHECKS A DELETED DIRECTORY**
+  and reports it as a `NO-RESULTS` row rather than an error.
+
+  **WALL STATUS: ZERO. Two language walls were hit, both in the PRODUCTION owner, both found by
+  EXECUTION against the pinned toolset, and both routed around INSIDE the language with no semantic
+  loss. NO TOOLSET REPIN WAS TAKEN AND NONE WAS NEEDED** — every collaborator this owner consumes was
+  already published by slices 37, 55 and 58.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS.** Every squiggle a developer sees when a call touches an
+  SoA column: that `Array.Sort(points.x)` and `Array.Reverse(points.x)` are refused as table-member
+  MUTATIONS with the action named ("sorted directly", "reversed directly") and underlined at the
+  COLUMN; that `Array.Fill`, `Array.Copy` and `Array.Clear` are accepted silently at their
+  array-shaped parameters and refused at their index-shaped ones, so the SAME method squiggles or does
+  not depending on WHICH argument the column is; that every other `Array` method names itself in the
+  sentence and underlines the METHOD rather than the argument; that `points.x.GetLength(0)` says
+  "cannot call array method … directly" while the bare `points.x.GetLength` says "as a value"; that a
+  column used as an ordinary receiver names the member it was called through; that a `ref`/`out`
+  column is not an escape; that `wrap` may always take a column; and that a local named `Array`
+  shadows the type so none of it fires.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.98 MB**) and installed with `--force`
+  (`successfully installed`); the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is the post-slice build.
+  **NO COMPUTER-USE VERIFICATION WAS TAKEN.** This slice changes no LSP handler, no VS Code extension
+  code and no IDE protocol surface; what it changes is WHO answers what may be done to an SoA column
+  by a call, which the gate's VS Code integration suite (36 passing, against a freshly built extension
+  and language server) and all three diagnostic oracles cover.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Worktrees: `/private/tmp/nl60base` (pristine
+  `0f6a5d8ca` + Release CLI) and `/private/tmp/nl60corpus` (the shared source copy both CLIs check).
+  Fixtures: `/private/tmp/nl60fixtures` (27, ALL env-gated). IL captures and build trees:
+  `/private/tmp/nl60ilCtrl`, `/private/tmp/nl60ilA`, `/private/tmp/nl60ilB`. Harnesses in the
+  scratchpad: `nl60-members.py` (**the brace-matched member extractor, VALIDATED against slice 59's
+  own 14 recorded extents — 14/14 reproduced to the line before it was trusted**), `nl60-closure.py`
+  (the caller-attribution pass), `nl60-oracle.sh`, `nl60-ilsweep.sh`, `nl60-ilnorm.py`,
+  `nl60-ilcompare.py`, `nl60-repin.py` (the validated ratchet walk) and `nl60-make-fixtures.py`.
+  **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+  * **NEXT: THE `call` ARM ITSELF, THEN `lambda` WITH `on`, THEN `base`.**
+    - **WHAT REMAINS OF `call` AFTER THIS CUT.** Slice 59 measured the whole remainder at 32 members /
+      885 lines / 621 exclusive; this slice removed 19 members and 331 of those lines, so the arm
+      proper is what is left: `AnalyzeCall` (now **ONE walk site with ELEVEN driver kinds**, three
+      fewer than slice 59 measured — kinds 1–8 and 12–14 with gaps at 9/10/11),
+      `TryAnalyzeResultConstructorCall` + `TryGetResultArmTypes`, `BindReflectionCall`,
+      `BindSingleReflectionMethod`, `AnalyzeCallCallee`, `AnalyzeRefOutArgumentExpression`,
+      `ReportInvalidRefOutArgumentTargetIfNeeded` (now a pure sequence of `_writeTargets.*` calls plus
+      ONE `Error` — the thinnest it will ever be) and `ReportUnsupportedSoaDirectColumnCallArgument`'s
+      former neighbours. **RE-MEASURE AT THE TIP FIRST**: this slice's own re-verification found the
+      family 81 lines LARGER than the brief said and found `IsStaticArrayTarget` NOT shared at all,
+      which is the sixth consecutive brief to be wrong about size.
+    - **`lambda` + `on` IN ONE SLICE**, unchanged from slice 59's measurement: `AnalyzeLambda` has ten
+      real call sites across four owners, `AnalyzeOnSubscription` (84, ONE walk site) has an EMPTY
+      exclusive tail and calls `AnalyzeLambda` SEVEN times, and the ambient slot `on` brackets is
+      already N#.
+    - **`base` (10) IS THE LAST TRIVIAL ARM.**
+    - **THEN THE FIVE DECLARATION WALKERS AND THE ZERO-POLICY REVIEW.** The completion assessment
+      below is unchanged except in its arithmetic: the remaining policy is now **~285 expression lines
+      + the five declaration walkers**, because the ~250-line SoA call family it named is this slice's
+      cut and is measured at 331.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `0f6a5d8ca`): **017 SLICE 59 — `range`,
+  `match`-AS-EXPRESSION, AND THE CALL ARM'S STATIC-ADDRESSABILITY PRE-CUT, TERMINAL.** Target
+  recorded BEFORE any production edit,
   at `93dfdd615` (`Analyzer.cs` **6,420** lines, non-blank **5,765**, member declarations **248** by
   the narrow metric and **316** by the modifier-line metric; **TWENTY-ONE** driver loops of which
   **TEN** return; `ColumnarIlEmitter.cs` **21,471** lines, non-blank **20,412**, ratchet fingerprint
@@ -2373,6 +2758,12 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
     zero-policy REVIEW that reads the host end to end and records why each surviving member decides
     nothing. **Only step (5) can close the checkbox**, and it must also record the assembly-loading
     surface's named-other-task retirement.
+    **(UPDATED BY SLICE 60)** Step (1) is DONE and was measured at **331** lines rather than ~250, so
+    the remaining policy is **~285 expression lines + the five declaration walkers**, and the
+    assessment's step list is now (2)…(5). Slice 60 also settled the one question this assessment left
+    open: the SoA call family was never reachable by task 018's completion criterion, because 018 is
+    file-scoped to `SystemsAnalyzer.cs` — **018's remaining territory is that file's 2,390 lines and
+    the whole `NSYS*` estate, and nothing in `Analyzer.cs`.**
 
 - Active sub-slice (017 arc, PRIOR TURN, LANDED at `93dfdd615`): **017 SLICE 58 — THE ASSIGNMENT ARM
   AND THE WRITE-TARGET FAMILY, TERMINAL.** Target recorded BEFORE any production edit, at
@@ -22850,7 +23241,15 @@ These are populated only when their task becomes current.
   them either calls a funnel directly or recurses into `IsAssignable`, which does. There is no
   remaining "pure leaf predicate" cut in that neighbourhood — slice 2 took the last of them, and
   slice 3 confirmed it by inventory.
-- Task 018 next systems-policy sub-slice: not selected
+- Task 018 next systems-policy sub-slice: not selected. **BOUNDARY RECORD (slice 60, 2026-08-11):**
+  018's territory is `src/NSharpLang.Compiler/Performance/SystemsAnalyzer.cs` (**2,390 lines, still at
+  epoch in the ratchet — the task has not started**) and the `NSYS*` findings it produces: allocation
+  restrictions, `[hot]`/`[boundary]` attribute policy, pool and resource balance, the unknown-external
+  -call surface and the AOT finding. It does NOT include the SoA direct-column call gates that slice 24
+  assigned to it and slice 37 held for it: those lived in `Analyzer.cs`, which 018's completion
+  criterion never reads, and 017 took them in slice 60 into the N# owner
+  `AnalyzerSoaDirectColumnCalls` — a sibling of `AnalyzerSoaEscape`, so the SoA subject stays in one
+  N# neighbourhood for 018 to extend rather than in C# for it to re-find.
 - Task 019 next tooling sub-slice: not selected
 - Task 020 next native-runner sub-slice: not selected
 
