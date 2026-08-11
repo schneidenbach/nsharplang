@@ -109,6 +109,30 @@ class AnalyzerDiagnosticSink {
         }
     }
 
+    // HAS THIS EXACT REPORT ALREADY BEEN MADE? Identity is code + line + column + message, and
+    // deliberately NOT severity: the one caller — the expression-tree validator — asks so that a
+    // lambda reached twice (once through the dispatch arm and once through a target-typed door)
+    // says its one sentence once, and a warning that happened to carry the same code, position and
+    // words would be the same sentence to the reader.
+    //
+    // It is a door on the sink rather than a list the caller reads, because the list is the sink's:
+    // nothing outside may scan the reported diagnostics, exactly as nothing outside may un-report
+    // one. The scan is linear over an already-short list and runs only when a report is about to be
+    // made — never on the silent path.
+    func HasReported(code: ErrorCode, message: string, line: int, column: int): bool {
+        index := 0
+        while index < errorsValue.Count {
+            reported := errorsValue[index]
+            if reported.Code == code && reported.Line == line && reported.Column == column && reported.Message == message {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
     func Warn(code: ErrorCode, message: string, line: int, column: int, suggestion: string?, length: int) {
         errorsValue.Add(AnalyzerDiagnostics.Create(code, message, currentFilePathValue, line, column, SourceSnippet(line), suggestion, length, ErrorSeverity.Warning))
     }

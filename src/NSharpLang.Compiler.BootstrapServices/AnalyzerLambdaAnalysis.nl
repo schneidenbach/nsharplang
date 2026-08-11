@@ -42,15 +42,14 @@ import NSharpLang.Compiler.Ast
 //      inside the function scope. `CarriedType` is the ambient NESTED-BODY return type the driver
 //      brackets the analysis with; see the note on that bracket below.
 //   6  close the scope kind 2 opened.
-//   7  the EXPRESSION-TREE BLOCK-BODY report, over `Lambda`.
-//   8  the EXPRESSION-TREE UNSUPPORTED-EXPRESSION report, over `Node` with `Lambda`'s parameter
-//      names as the set of names that ARE supported.
 //
-// KINDS 7 AND 8 ARE RELAYS AND ARE RECORDED AS SUCH. The expression-tree VALIDATOR — which body
-// shapes and which expression forms an expression tree admits — is a purely SYNTACTIC predicate over
-// the AST with no dependency on scope, expected type or any `TypeInfo`, and it is a different
-// subject from what a lambda MEANS. It is a slice of its own; this walk owns WHEN it runs and the
-// validator owns WHAT it rejects.
+// KINDS 7 AND 8 ARE GONE, AND THAT IS THE MEASUREMENT THE VALIDATOR'S OWN SLICE TOOK. They were
+// RELAYS to the expression-tree validator while it was still C#; the validator is now
+// `AnalyzerExpressionTreeValidator` and every collaborator it needs — the diagnostic sink, the
+// spans, the scope stack, the declaration context, the external metadata probe and the well-known
+// types — is N#-owned, so this walk asks it DIRECTLY and the driver never learns it exists. The
+// division of labour is unchanged and is still the reason they are two owners: this walk owns WHEN
+// the question is asked, the validator owns WHAT the answer is.
 //
 // THE NESTED-BODY AMBIENT BRACKET IS THE DRIVER'S, DELIBERATELY, AND IT IS THE ARC'S ONE EXCEPTION
 // TO THE OWNER-HELD BRACKET. Every other bracket this arc has moved spans a SUSPENSION and therefore
@@ -63,7 +62,6 @@ class LambdaAnalysisRequest {
     Kind: int
     Node: Expression?
     Body: Statement?
-    Lambda: LambdaExpression?
     ExpectedType: TypeInfo?
     CarriedType: TypeInfo
     Name: string?
@@ -74,7 +72,6 @@ class LambdaAnalysisRequest {
         Kind = kind
         Node = null
         Body = null
-        Lambda = null
         ExpectedType = null
         CarriedType = carriedType
         Name = null
@@ -209,8 +206,9 @@ class AnalyzerLambdaAnalysis {
     clrTypeConversion: AnalyzerClrTypeConversion
     assignabilityFacts: AnalyzerAssignabilityFacts
     soaEscape: AnalyzerSoaEscape
+    expressionTrees: AnalyzerExpressionTreeValidator
 
-    constructor(diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, declarations: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, conversion: AnalyzerClrTypeConversion, facts: AnalyzerAssignabilityFacts, escape: AnalyzerSoaEscape) {
+    constructor(diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, declarations: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, conversion: AnalyzerClrTypeConversion, facts: AnalyzerAssignabilityFacts, escape: AnalyzerSoaEscape, expressionTreeValidator: AnalyzerExpressionTreeValidator) {
         diagnostics = diagnosticSink
         spans = spansOwner
         declarationContext = declarations
@@ -218,6 +216,21 @@ class AnalyzerLambdaAnalysis {
         clrTypeConversion = conversion
         assignabilityFacts = facts
         soaEscape = escape
+        expressionTrees = expressionTreeValidator
+    }
+
+    // THE LAMBDA'S PARAMETER NAMES, which is the whole of what the expression-tree validator needs
+    // from the lambda beyond the body itself: a bare identifier inside an expression tree is legal
+    // when it is one of these and a captured variable when it is not.
+    static func LambdaParameterNames(lambda: LambdaExpression): HashSet<string> {
+        names := new HashSet<string>(StringComparer.Ordinal)
+        index := 0
+        while index < lambda.Parameters.Count {
+            names.Add(lambda.Parameters[index].Name)
+            index = index + 1
+        }
+
+        return names
     }
 
     // THE LAMBDA'S ENTRY. The expected type is read through the delegate door and the expression-tree
@@ -417,13 +430,11 @@ class AnalyzerLambdaAnalysis {
 
         if lambda.BlockBody != null {
             state.Phase = 6
-            if !state.TargetsExpressionTree {
-                return null
+            if state.TargetsExpressionTree {
+                expressionTrees.ReportBlockLambdaIfNeeded(lambda)
             }
 
-            request := new LambdaAnalysisRequest(7, BuiltInTypes.Unknown)
-            request.Lambda = lambda
-            return request
+            return null
         }
 
         state.ReturnType = BuiltInTypes.Unknown
@@ -438,6 +449,13 @@ class AnalyzerLambdaAnalysis {
     func CompleteExpressionBody(state: LambdaAnalysisState): LambdaAnalysisRequest? {
         lambda := state.Lambda
         expressionBody := lambda.ExpressionBody
+        // The guard cannot fire — this phase is only reached from the arm that found an expression
+        // body — and it is written out so the three reports below read a non-null body.
+        if expressionBody == null {
+            state.Phase = 8
+            return null
+        }
+
         soaEscape.ReportSoaRowEscapeIfNeeded(expressionBody, state.ReturnType, "returned")
         soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expressionBody, "returned")
         state.Phase = 8
@@ -445,10 +463,8 @@ class AnalyzerLambdaAnalysis {
             return null
         }
 
-        request := new LambdaAnalysisRequest(8, BuiltInTypes.Unknown)
-        request.Node = expressionBody
-        request.Lambda = lambda
-        return request
+        expressionTrees.ReportUnsupportedExpressionIfNeeded(expressionBody, LambdaParameterNames(lambda))
+        return null
     }
 
     // PHASE 6 — THE BLOCK BODY, INSIDE THE NESTED-BODY BOUNDARY. The boundary's return type is the

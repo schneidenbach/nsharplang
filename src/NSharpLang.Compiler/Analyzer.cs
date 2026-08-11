@@ -33,7 +33,6 @@ public class Analyzer : IDisposable
     private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly AnalyzerDeclarationContext _declarationContext = new();
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
-    private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
     private string? _currentFilePath;
     private string? _declarationContextFilePath;
     private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
@@ -256,6 +255,15 @@ public class Analyzer : IDisposable
     // in the language that has a parameter list. NOT rebuilt with the SCC: it holds only the
     // diagnostic sink, which the rebuild does not replace.
     private readonly AnalyzerParameterDeclarations _parameterDeclarations;
+    // WHAT A TEST, A `setup`, A `teardown` AND A CONSTRUCTOR MEAN: the four declaration forms whose
+    // bodies are walked under a function scope the declaration itself fills. It also owns the file's
+    // test scaffolding — at most one `setup`, at most one `teardown`, and the symbols the first
+    // `setup` leaves behind for every test in the file. NOT rebuilt with the SCC, and it must not be:
+    // it HOLDS those setup symbols across the whole analysis, and it holds only the diagnostic sink,
+    // the span reader, the type resolver, the ambient context and the definite-assignment checker,
+    // none of which the rebuild replaces. The assignability oracle, which the rebuild DOES replace,
+    // is passed in at `Begin`.
+    private readonly AnalyzerDeclarationWalkers _declarationWalkers;
     // WHAT A SEQUENCE OF STATEMENTS MEANS: the unreachable-code rule, the block statement's own
     // scope, and the transparency of `alloc`, `allow` and `unsafe`. NOT rebuilt with the SCC: it
     // holds only the diagnostic sink and the span reader, neither of which the rebuild replaces.
@@ -406,6 +414,8 @@ public class Analyzer : IDisposable
             _diagnostics, _spans, _scopes, _declarationContext, _typeResolver, _functionTypeFactory,
             _ambient, _soaEscape);
         _parameterDeclarations = new AnalyzerParameterDeclarations(_diagnostics);
+        _declarationWalkers = new AnalyzerDeclarationWalkers(
+            _diagnostics, _spans, _typeResolver, _ambient, _definiteAssignment);
         _statementSequence = new AnalyzerStatementSequence(_diagnostics, _spans);
         _literalExpressions = new AnalyzerLiteralExpressions(_ambient, _declarationContext, _soaEscape);
         _compileTimeConstants = new AnalyzerCompileTimeConstants(
@@ -548,7 +558,17 @@ public class Analyzer : IDisposable
             _typeResolver,
             _clrTypeConversion,
             _assignabilityFacts,
-            _soaEscape);
+            _soaEscape,
+            CreateExpressionTreeValidator());
+
+    private AnalyzerExpressionTreeValidator CreateExpressionTreeValidator()
+        => new(
+            _diagnostics,
+            _spans,
+            _scopes,
+            _declarationContext,
+            _externalTypeProbe,
+            _wellKnownTypes);
 
     private AnalyzerReflectionCallReporter CreateReflectionCallReporter()
         => new(
@@ -776,42 +796,7 @@ public class Analyzer : IDisposable
         }
 
         // Validate and collect setup/teardown blocks (only one of each allowed)
-        _setupSymbols = new List<(string Name, TypeInfo Type, int Line, int Column)>();
-        bool foundSetup = false;
-        bool foundTeardown = false;
-        foreach (var decl in unit.Declarations)
-        {
-            if (decl is SetupDeclaration setup)
-            {
-                if (foundSetup)
-                {
-                    Error(
-                        ErrorCode.DuplicateDeclaration,
-                        "Only one setup block is allowed per test file",
-                        setup.Line,
-                        setup.Column,
-                        length: "setup".Length);
-                }
-                else
-                {
-                    foundSetup = true;
-                    CollectSetupSymbols(setup);
-                }
-            }
-            else if (decl is TeardownDeclaration teardown)
-            {
-                if (foundTeardown)
-                {
-                    Error(
-                        ErrorCode.DuplicateDeclaration,
-                        "Only one teardown block is allowed per test file",
-                        teardown.Line,
-                        teardown.Column,
-                        length: "teardown".Length);
-                }
-                foundTeardown = true;
-            }
-        }
+        _declarationWalkers.CollectTestScaffolding(unit.Declarations);
 
         // Second pass: analyze all declarations
         foreach (var decl in unit.Declarations)
@@ -872,13 +857,13 @@ public class Analyzer : IDisposable
         switch (decl)
         {
             case TestDeclaration test:
-                AnalyzeTestDeclaration(test);
+                DriveDeclarationWalk(_declarationWalkers.BeginTest(test, _assignability));
                 break;
             case SetupDeclaration setup:
-                AnalyzeSetupDeclaration(setup);
+                DriveDeclarationWalk(_declarationWalkers.BeginSetup(setup, _assignability));
                 break;
             case TeardownDeclaration teardown:
-                AnalyzeTeardownDeclaration(teardown);
+                DriveDeclarationWalk(_declarationWalkers.BeginTeardown(teardown, _assignability));
                 break;
             case FunctionDeclaration func:
                 DriveFunctionBody(_functionBodies.BeginFunctionDeclaration(
@@ -919,7 +904,7 @@ public class Analyzer : IDisposable
                     prop, _ambient.CurrentTypeName, _assignability));
                 break;
             case ConstructorDeclaration ctor:
-                AnalyzeConstructorDeclaration(ctor);
+                DriveDeclarationWalk(_declarationWalkers.BeginConstructor(ctor, _assignability));
                 break;
             case IndexerDeclaration indexer:
                 DriveAccessorBody(_accessorBodies.BeginIndexer(
@@ -1123,7 +1108,7 @@ public class Analyzer : IDisposable
                 kind = AttributeArgumentConstantKind.Null;
                 return true;
             case TypeOfExpression typeOfExpression:
-                ReportSoaRowTypeReferencesInAttributeTypeof(typeOfExpression.Type);
+                _typeResolver.ReportSoaRowTypeReferencesIn(typeOfExpression.Type);
                 kind = AttributeArgumentConstantKind.Type;
                 return true;
             case NameofExpression nameofExpression:
@@ -1148,52 +1133,6 @@ public class Analyzer : IDisposable
                 ReportUnsupportedAttributeArgument(expression, DescribeAttributeArgumentForDiagnostic(expression));
                 kind = AttributeArgumentConstantKind.UnknownStaticMember;
                 return false;
-        }
-    }
-
-    private void ReportSoaRowTypeReferencesInAttributeTypeof(TypeReference typeReference)
-    {
-        switch (typeReference)
-        {
-            case SimpleTypeReference simple:
-                _typeResolver.ReportSoaRowTypeReferenceIfNeeded(simple.Name, simple.Line, simple.Column);
-                break;
-            case GenericTypeReference generic:
-                _typeResolver.ReportSoaRowTypeReferenceIfNeeded(generic.Name, generic.Line, generic.Column);
-                foreach (var argument in generic.TypeArguments)
-                {
-                    ReportSoaRowTypeReferencesInAttributeTypeof(argument);
-                }
-                break;
-            case ArrayTypeReference array:
-                ReportSoaRowTypeReferencesInAttributeTypeof(array.ElementType);
-                break;
-            case NullableTypeReference nullable:
-                ReportSoaRowTypeReferencesInAttributeTypeof(nullable.InnerType);
-                break;
-            case UnionTypeReference union:
-                foreach (var arm in union.Arms)
-                {
-                    ReportSoaRowTypeReferencesInAttributeTypeof(arm);
-                }
-                break;
-            case TupleTypeReference tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    ReportSoaRowTypeReferencesInAttributeTypeof(element.Type);
-                }
-                break;
-            case FunctionTypeReference function:
-                foreach (var parameterType in function.ParameterTypes)
-                {
-                    ReportSoaRowTypeReferencesInAttributeTypeof(parameterType);
-                }
-
-                ReportSoaRowTypeReferencesInAttributeTypeof(function.ReturnType);
-                break;
-            case ByRefTypeReference byRef:
-                ReportSoaRowTypeReferencesInAttributeTypeof(byRef.InnerType);
-                break;
         }
     }
 
@@ -1992,294 +1931,6 @@ public class Analyzer : IDisposable
     private static bool IsClrType(Type type, Type runtimeType)
         => type == runtimeType || string.Equals(type.FullName, runtimeType.FullName, StringComparison.Ordinal);
 
-    private void AnalyzeTestDeclaration(TestDeclaration test)
-    {
-        // Tests are similar to functions - create scope and analyze body
-        PushScope(new Scope(ScopeKind.Function), test.Line, test.Column);
-
-        // Inject setup symbols so tests can reference setup-declared variables
-        foreach (var (name, type, line, column) in _setupSymbols)
-        {
-            DeclareSymbol(name, type, line, column);
-            _scopes.RecordVariable(_semanticModel, name, type);
-        }
-
-        // If table-driven, declare parameters in scope
-        if (test.TableParameters != null)
-        {
-            ValidateParameterDeclarations(test.TableParameters, test.Line, test.Column);
-
-            var tableParameterTypes = new List<(string Name, TypeInfo Type)>(test.TableParameters.Count);
-            foreach (var param in test.TableParameters)
-            {
-                var paramType = _typeResolver.ResolveDeclaredType(param.Type);
-                tableParameterTypes.Add((param.Name, paramType));
-                var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                    param.Line,
-                    param.Column,
-                    test.Line,
-                    test.Column);
-                DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-                _scopes.RecordVariable(_semanticModel, param.Name, paramType);
-            }
-
-            // Validate test case row counts match parameter count
-            if (test.TableCases != null)
-            {
-                foreach (var row in test.TableCases)
-                {
-                    if (row.Count != test.TableParameters.Count)
-                    {
-                        Error(
-                            ErrorCode.TypeMismatch,
-                            $"This test case has {row.Count} values but the table header declares {test.TableParameters.Count} parameters — each row must have exactly one value per parameter",
-                            test.Line, test.Column);
-                    }
-
-                    var valuesToValidate = Math.Min(row.Count, tableParameterTypes.Count);
-                    for (var i = 0; i < row.Count; i++)
-                    {
-                        var value = row[i];
-                        if (!ValidateTableCaseValue(value) || i >= valuesToValidate)
-                        {
-                            continue;
-                        }
-
-                        var (name, type) = tableParameterTypes[i];
-                        ValidateTableCaseValueType(value, type, name);
-                    }
-                }
-            }
-        }
-
-        DriveStatementSequence(_statementSequence.BeginList(test.Body.Statements));
-
-        PopScope();
-    }
-
-    private bool ValidateTableCaseValue(Expression expression)
-    {
-        if (IsSupportedTableCaseValue(expression))
-        {
-            return true;
-        }
-
-        var errorsBefore = _errors.Count;
-        if (expression is TypeOfExpression typeOfExpression)
-        {
-            ReportSoaRowTypeReferencesInAttributeTypeof(typeOfExpression.Type);
-        }
-
-        if (_errors.Count != errorsBefore)
-        {
-            return false;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        Error(
-            ErrorCode.ConstantRequired,
-            $"Table-driven test case values must be compile-time constants; {DescribeTableCaseValueForDiagnostic(expression)} is not supported here",
-            line,
-            column,
-            "Use literal int, float, char, string, bool, or null values in table rows.",
-            length);
-        return false;
-    }
-
-    private void ValidateTableCaseValueType(Expression expression, TypeInfo expectedType, string parameterName)
-    {
-        var previousExpectedType = _ambient.EnterExpectedType(expectedType);
-        TypeInfo actualType;
-        try
-        {
-            actualType = AnalyzeExpression(expression);
-        }
-        finally
-        {
-            _ambient.ExitExpectedType(previousExpectedType);
-        }
-
-        if (BuiltInTypes.IsUnknown(expectedType) || BuiltInTypes.IsUnknown(actualType) || _assignability.IsAssignable(expectedType, actualType))
-        {
-            return;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        Error(
-            ErrorCode.TypeMismatch,
-            $"Table-driven test case value for '{parameterName}' is '{actualType}', but the table header declares '{expectedType}'",
-            line,
-            column,
-            $"Change the literal or the '{parameterName}' parameter type so the row value matches.",
-            length);
-    }
-
-    private static bool IsSupportedTableCaseValue(Expression expression)
-    {
-        return expression switch
-        {
-            IntLiteralExpression
-                or FloatLiteralExpression
-                or CharLiteralExpression
-                or StringLiteralExpression
-                or BoolLiteralExpression
-                or NullLiteralExpression => true,
-            ParenthesizedExpression parenthesized => IsSupportedTableCaseValue(parenthesized.Inner),
-            UnaryExpression { Operator: UnaryOperator.Negate, Operand: IntLiteralExpression or FloatLiteralExpression } => true,
-            _ => false
-        };
-    }
-
-    private string DescribeTableCaseValueForDiagnostic(Expression expression)
-    {
-        var description = AnalyzerExpressionStatements.DescribeExpression(expression);
-        return expression switch
-        {
-            CallExpression => "call",
-            TypeOfExpression => "typeof expression",
-            _ when description.Contains(' ', StringComparison.Ordinal) => description,
-            _ => $"{char.ToLowerInvariant(description[0])}{description[1..]} expression"
-        };
-    }
-
-    private void AnalyzeSetupDeclaration(SetupDeclaration setup)
-    {
-        // Analyze setup body in its own scope (validates the code),
-        // but symbols are already collected via CollectSetupSymbols
-        PushScope(new Scope(ScopeKind.Function), setup.Line, setup.Column);
-
-        DriveStatementSequence(_statementSequence.BeginList(setup.Body.Statements));
-
-        PopScope();
-    }
-
-    private void AnalyzeTeardownDeclaration(TeardownDeclaration teardown)
-    {
-        // Analyze teardown body in its own scope
-        // Inject setup symbols so teardown can reference setup-created variables
-        PushScope(new Scope(ScopeKind.Function), teardown.Line, teardown.Column);
-
-        foreach (var (name, type, line, column) in _setupSymbols)
-        {
-            DeclareSymbol(name, type, line, column);
-            _scopes.RecordVariable(_semanticModel, name, type);
-        }
-
-        DriveStatementSequence(_statementSequence.BeginList(teardown.Body.Statements));
-
-        PopScope();
-    }
-
-    private void CollectSetupSymbols(SetupDeclaration setup)
-    {
-        // Extract variable declarations from setup block so they can be
-        // injected into each test's scope during analysis
-        foreach (var stmt in setup.Body.Statements)
-        {
-            if (stmt is VariableDeclarationStatement varDecl)
-            {
-                var type = ResolveSetupSymbolType(varDecl);
-                _setupSymbols.Add((varDecl.Name, type, varDecl.Line, varDecl.Column));
-            }
-        }
-    }
-
-    private TypeInfo ResolveSetupSymbolType(VariableDeclarationStatement varDecl)
-    {
-        if (varDecl.Type != null)
-        {
-            return _typeResolver.ResolveType(varDecl.Type);
-        }
-
-        if (varDecl.Initializer != null
-            && TryInferSetupInitializerType(varDecl.Initializer, out var inferredType))
-        {
-            return inferredType;
-        }
-
-        return BuiltInTypes.Object;
-    }
-
-    private bool TryInferSetupInitializerType(Expression expression, out TypeInfo type)
-    {
-        switch (expression)
-        {
-            case IntLiteralExpression:
-                type = BuiltInTypes.Int;
-                return true;
-            case FloatLiteralExpression:
-                type = BuiltInTypes.Double;
-                return true;
-            case CharLiteralExpression:
-                type = BuiltInTypes.Char;
-                return true;
-            case StringLiteralExpression or InterpolatedStringExpression:
-                type = BuiltInTypes.String;
-                return true;
-            case BoolLiteralExpression:
-                type = BuiltInTypes.Bool;
-                return true;
-            case NullLiteralExpression:
-                type = BuiltInTypes.Null;
-                return true;
-            case NewExpression { Type: { } newType }:
-                type = _typeResolver.ResolveType(newType);
-                return !BuiltInTypes.IsUnknown(type);
-            case ArrayLiteralExpression { Elements.Count: > 0 } array
-                when TryInferSetupInitializerType(array.Elements[0], out var elementType):
-                type = new ArrayTypeInfo(elementType);
-                return true;
-            case ParenthesizedExpression parenthesized:
-                return TryInferSetupInitializerType(parenthesized.Inner, out type);
-            case CheckedExpression checkedExpression:
-                return TryInferSetupInitializerType(checkedExpression.Expression, out type);
-            case UncheckedExpression uncheckedExpression:
-                return TryInferSetupInitializerType(uncheckedExpression.Expression, out type);
-            default:
-                type = BuiltInTypes.Unknown;
-                return false;
-        }
-    }
-
-    private void AnalyzeConstructorDeclaration(ConstructorDeclaration ctor)
-    {
-        _ambient.EnterConstructor();
-        PushScope(new Scope(ScopeKind.Function), ctor.Line, ctor.Column);
-
-        ValidateParameterDeclarations(ctor.Parameters, ctor.Line, ctor.Column);
-
-        // Add parameters to scope
-        foreach (var param in ctor.Parameters)
-        {
-            var paramType = _typeResolver.ResolveDeclaredType(param.Type);
-            var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                param.Line,
-                param.Column,
-                ctor.Line,
-                ctor.Column);
-            DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-            _scopes.RecordVariable(_semanticModel, param.Name, paramType);
-        }
-
-        // Analyze initializer if present
-        if (ctor.Initializer != null)
-        {
-            AnalyzeExpression(ctor.Initializer);
-        }
-
-        // Analyze body
-        AnalyzeStatement(ctor.Body);
-
-        // Check definite assignment only if no initializer (this/base handles assignment)
-        if (_ambient.CurrentClass != null && ctor.Initializer == null)
-        {
-            _definiteAssignment.CheckConstructorFields(ctor, _ambient.CurrentClass);
-        }
-
-        PopScope();
-        _ambient.ExitConstructor();
-    }
-
     /// <summary>
     /// Which walk a statement IS. Every arm is a single route: it names the N#-owned walk the
     /// statement belongs to, hands that walk the typed node plus whichever collaborators this host
@@ -2660,6 +2311,62 @@ public class Analyzer : IDisposable
     /// the two SoA escape reports and are gone: those reporters are N#-owned, so the walk calls them
     /// itself, and with them went the escape flag this loop used to carry back.
     /// </summary>
+    /// <summary>
+    /// The steps the N#-owned declaration walks cannot take for themselves. All FOUR declaration
+    /// forms whose body runs under a function scope the declaration itself fills — a test, a
+    /// <c>setup</c>, a <c>teardown</c> and a constructor — run in
+    /// <see cref="AnalyzerDeclarationWalkers"/> and share this one loop, because they share one
+    /// vocabulary: open the scope, put names into it, walk the body, close the scope. Which names go
+    /// in and where they came from, which table column a row value is measured against and with what
+    /// wording it is scolded, whether a constructor's fields are checked for definite assignment, and
+    /// which ambient boundary is entered are all the walk's decisions; this loop performs the one
+    /// operation it is handed, with the operands it is handed. Kind 1 is a PLAIN expression walk and
+    /// deliberately not the target-typed one: the table case value's expected type is bracketed by
+    /// the OWNER, because that bracket spans the suspension. Kind 5 is a statement LIST and kind 8 a
+    /// single statement, and the two differ for the reason
+    /// <see cref="DriveFunctionBody"/>'s kinds 5 and 9 differ: a constructor's body IS a block and
+    /// opens its own block scope, while a test, <c>setup</c> and <c>teardown</c> body is walked as
+    /// its statements so that no second scope opens inside the function scope.
+    /// </summary>
+    private void DriveDeclarationWalk(DeclarationWalkState state)
+    {
+        for (var step = _declarationWalkers.NextStep(state);
+             step != null;
+             step = _declarationWalkers.NextStep(state))
+        {
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    answer = AnalyzeExpression(step.Node!);
+                    break;
+                case 2:
+                    PushScope(new Scope(ScopeKind.Function), step.Line, step.Column);
+                    break;
+                case 3:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    break;
+                case 4:
+                    _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
+                    break;
+                case 5:
+                    DriveStatementSequence(_statementSequence.BeginList(step.Statements!));
+                    break;
+                case 6:
+                    PopScope();
+                    break;
+                case 7:
+                    ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    break;
+                case 8:
+                    AnalyzeStatement(step.Body!);
+                    break;
+            }
+
+            _declarationWalkers.Supply(state, answer);
+        }
+    }
+
     private void DriveLocalDeclaration(VariableDeclarationState state)
     {
         for (var step = _variableDeclaration.NextStep(state);
@@ -3513,8 +3220,9 @@ public class Analyzer : IDisposable
     /// which signature its expected type names, which parameters are inferred and from where, which
     /// untyped parameter is a hard error, where each parameter is declared, which body shape there
     /// is, what that body is measured against and what the lambda finally answers. This loop
-    /// performs the one operation it is handed. Kinds 7 and 8 are RELAYS to the expression-tree
-    /// validator, a purely syntactic predicate over the AST that is a slice of its own. The
+    /// performs the one operation it is handed. Kinds 7 and 8 are GONE: they relayed the
+    /// expression-tree validator while that validator was still C#, and it is now
+    /// <see cref="AnalyzerExpressionTreeValidator"/>, which the walk holds and calls itself. The
     /// nested-body ambient boundary is bracketed HERE for the same reason `on`'s event guard is: the
     /// guarantee is that it is restored even if the body analysis THROWS.
     /// </summary>
@@ -3554,16 +3262,6 @@ public class Analyzer : IDisposable
                 case 6:
                     PopScope();
                     break;
-                case 7:
-                    ReportExpressionTreeBlockLambdaIfNeeded(step.Lambda!);
-                    break;
-                case 8:
-                    ReportUnsupportedExpressionTreeExpressionIfNeeded(
-                        step.Node!,
-                        step.Lambda!.Parameters
-                            .Select(parameter => parameter.Name)
-                            .ToHashSet(StringComparer.Ordinal));
-                    break;
             }
 
             _lambdaAnalysis.SupplyLambdaStep(state, answer);
@@ -3571,254 +3269,6 @@ public class Analyzer : IDisposable
 
         return state.Result!;
     }
-
-    private void ReportExpressionTreeBlockLambdaIfNeeded(LambdaExpression lambda)
-    {
-        const string message = "Expression-tree lambdas must use an expression body; block bodies are not supported";
-        if (_errors.Any(error =>
-                error.Code == ErrorCode.FeatureNotImplemented
-                && error.Line == lambda.Line
-                && error.Column == lambda.Column
-                && error.Message == message))
-        {
-            return;
-        }
-
-        Error(
-            ErrorCode.FeatureNotImplemented,
-            message,
-            lambda.Line,
-            lambda.Column,
-            "Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.",
-            _spans.GetTokenLength(lambda.Line, lambda.Column));
-    }
-
-    private bool ReportUnsupportedExpressionTreeExpressionIfNeeded(Expression expression, ISet<string> parameterNames)
-    {
-        if (FindUnsupportedExpressionTreeExpression(expression, parameterNames) is not { } unsupported)
-        {
-            return false;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(unsupported.Expression);
-        var message = $"Expression-tree lambda body contains unsupported {unsupported.Description}";
-        if (_errors.Any(error =>
-                error.Code == ErrorCode.FeatureNotImplemented
-                && error.Line == line
-                && error.Column == column
-                && error.Message == message))
-        {
-            return false;
-        }
-
-        Error(
-            ErrorCode.FeatureNotImplemented,
-            message,
-            line,
-            column,
-            "Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.",
-            length);
-        return true;
-    }
-
-    private (Expression Expression, string Description)? FindUnsupportedExpressionTreeExpression(
-        Expression expression,
-        ISet<string> parameterNames)
-    {
-        switch (expression)
-        {
-            case IdentifierExpression identifier:
-                return parameterNames.Contains(identifier.Name)
-                    ? null
-                    : (identifier, $"captured or static identifier '{identifier.Name}'");
-
-            case MemberAccessExpression { IsNullConditional: true } memberAccess:
-                return (memberAccess, "null-conditional member access");
-
-            case MemberAccessExpression memberAccess:
-                return FindUnsupportedExpressionTreeExpression(memberAccess.Object, parameterNames);
-
-            case IndexAccessExpression { IsNullConditional: true } indexAccess:
-                return (indexAccess, "null-conditional index access");
-
-            case IndexAccessExpression indexAccess:
-                return FindUnsupportedExpressionTreeExpression(indexAccess.Object, parameterNames)
-                    ?? FindUnsupportedExpressionTreeExpression(indexAccess.Index, parameterNames);
-
-            case ParenthesizedExpression parenthesized:
-                return FindUnsupportedExpressionTreeExpression(parenthesized.Inner, parameterNames);
-
-            case IntLiteralExpression
-                or FloatLiteralExpression
-                or CharLiteralExpression
-                or StringLiteralExpression
-                or BoolLiteralExpression
-                or NullLiteralExpression
-                or DefaultExpression
-                or NameofExpression
-                or TypeOfExpression:
-                return null;
-
-            case BinaryExpression binary:
-                if (!OperatorFacts.IsSupportedExpressionTreeBinaryOperator(binary.Operator))
-                {
-                    return (binary, $"binary operator '{OperatorFacts.GetBinaryText(binary.Operator)}'");
-                }
-
-                return FindUnsupportedExpressionTreeExpression(binary.Left, parameterNames)
-                    ?? FindUnsupportedExpressionTreeExpression(binary.Right, parameterNames);
-
-            case UnaryExpression unary:
-                if (!OperatorFacts.IsSupportedExpressionTreeUnaryOperator(unary.Operator))
-                {
-                    return (unary, $"unary operator '{OperatorFacts.GetUnaryText(unary.Operator)}'");
-                }
-
-                return FindUnsupportedExpressionTreeExpression(unary.Operand, parameterNames);
-
-            case TernaryExpression ternary:
-                return FindUnsupportedExpressionTreeExpression(ternary.Condition, parameterNames)
-                    ?? FindUnsupportedExpressionTreeExpression(ternary.ThenExpression, parameterNames)
-                    ?? FindUnsupportedExpressionTreeExpression(ternary.ElseExpression, parameterNames);
-
-            case CastExpression cast:
-                if (cast.Kind is not (CastKind.Hard or CastKind.Safe))
-                {
-                    return (cast, "cast expression");
-                }
-
-                return FindUnsupportedExpressionTreeExpression(cast.Expression, parameterNames);
-
-            case CallExpression call:
-                if (call.Callee is not MemberAccessExpression memberCall)
-                {
-                    return (call, "non-instance method call");
-                }
-
-                if (memberCall.IsNullConditional)
-                {
-                    return (memberCall, "null-conditional method call");
-                }
-
-                if (call.TypeArguments is { Count: > 0 })
-                {
-                    return (call, "generic method call");
-                }
-
-                if (call.Arguments.Any(argument => argument.Modifier != ArgumentModifier.None))
-                {
-                    return (call, "ref/out method argument");
-                }
-
-                if (call.Arguments.Any(argument => argument.Name != null))
-                {
-                    return (call, "named method argument");
-                }
-
-                foreach (var argument in call.Arguments)
-                {
-                    var unsupported = FindUnsupportedExpressionTreeExpression(argument.Value, parameterNames);
-                    if (unsupported != null)
-                    {
-                        return unsupported;
-                    }
-                }
-
-                return IsExpressionTreeStaticCallReceiver(memberCall.Object, parameterNames)
-                    ? null
-                    : FindUnsupportedExpressionTreeExpression(memberCall.Object, parameterNames);
-
-            case NewExpression newExpression:
-                if (!IsExpressionTreeAnonymousObjectCreation(newExpression))
-                {
-                    return (newExpression, "object construction");
-                }
-
-                foreach (var property in newExpression.Initializer!.Properties)
-                {
-                    var unsupported = FindUnsupportedExpressionTreeExpression(property.Value, parameterNames);
-                    if (unsupported != null)
-                    {
-                        return unsupported;
-                    }
-                }
-
-                return null;
-
-            default:
-                return (expression, GetExpressionTreeExpressionDescription(expression));
-        }
-    }
-
-    private bool IsExpressionTreeStaticCallReceiver(Expression expression, ISet<string> parameterNames)
-    {
-        if (ExpressionTreeReceiverStartsWithValueIdentifier(expression, parameterNames))
-        {
-            return false;
-        }
-
-        if (!AnalyzerMemberAccess.TryGetQualifiedExpressionTreeName(expression, out var name))
-        {
-            return false;
-        }
-
-        if (AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(_wellKnownTypes, name) != null)
-        {
-            return true;
-        }
-
-        var resolvedType = _declarationContext.ResolveDeclaredAlias(_scopes.LookupType(name) ?? BuiltInTypes.Unknown);
-        if (!BuiltInTypes.IsUnknown(resolvedType))
-        {
-            return true;
-        }
-
-        return _externalTypeProbe.ResolveExternalType(name) is ReflectionTypeInfo;
-    }
-
-    private bool ExpressionTreeReceiverStartsWithValueIdentifier(Expression expression, ISet<string> parameterNames)
-    {
-        return expression switch
-        {
-            IdentifierExpression identifier => parameterNames.Contains(identifier.Name)
-                || _scopes.LookupSymbol(identifier.Name) != null,
-            MemberAccessExpression { IsNullConditional: false } memberAccess =>
-                ExpressionTreeReceiverStartsWithValueIdentifier(memberAccess.Object, parameterNames),
-            _ => false
-        };
-    }
-
-    private static bool IsExpressionTreeAnonymousObjectCreation(NewExpression newExpression)
-        => newExpression.Type == null
-            && newExpression.ConstructorArguments.Count == 0
-            && newExpression.Initializer != null
-            && newExpression.Initializer.Properties.All(property =>
-                property.Name != null
-                && property.IndexExpression == null);
-
-    private static string GetExpressionTreeExpressionDescription(Expression expression)
-        => expression switch
-        {
-            AssignmentExpression => "assignment expression",
-            AwaitExpression => "await expression",
-            CastExpression => "cast expression",
-            CheckedExpression => "checked expression",
-            DefaultExpression => "default expression",
-            InterpolatedStringExpression => "interpolated string",
-            LambdaExpression => "nested lambda",
-            MatchExpression => "match expression",
-            MustExpression => "must expression",
-            NameofExpression => "nameof expression",
-            RangeExpression => "range expression",
-            SizeOfExpression => "sizeof expression",
-            SpreadExpression => "spread expression",
-            ThrowExpression => "throw expression",
-            TupleExpression => "tuple expression",
-            TypeOfExpression => "typeof expression",
-            UncheckedExpression => "unchecked expression",
-            WithExpression => "with expression",
-            _ => expression.GetType().Name
-        };
 
     /// <summary>
     /// Performs the steps <see cref="AnalyzerArrayLiteral"/> asks for and returns the type it decided.

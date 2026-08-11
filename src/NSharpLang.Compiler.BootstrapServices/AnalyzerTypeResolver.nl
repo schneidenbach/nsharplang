@@ -356,6 +356,89 @@ class AnalyzerTypeResolver {
         return true
     }
 
+    // THE SAME NL103 RULE OVER A WHOLE WRITTEN TYPE, RECURSIVELY, AND WITHOUT RESOLVING IT.
+    //
+    // Two callers need to know whether a type the user WROTE mentions a row view anywhere inside it,
+    // without paying for — or reporting from — a full resolution: a `typeof(...)` in an attribute
+    // argument, and a `typeof(...)` used as a table-driven test case value. Both are positions where
+    // the type is a VALUE rather than something being declared, so the ordinary resolve-and-record
+    // path never runs over them and the row rule would otherwise never fire there.
+    //
+    // Every composite form is walked into and only the NAMED forms ask the rule: a generic asks for
+    // its own name and then for each argument, which is what makes `typeof(List<Table.Row>)` report.
+    // The walk is deliberately total over the reference shapes and silent on the ones that name
+    // nothing.
+    func ReportSoaRowTypeReferencesIn(typeReference: TypeReference) {
+        simple := typeReference as SimpleTypeReference
+        if simple != null {
+            ReportSoaRowTypeReferenceIfNeeded(simple.Name, simple.Line, simple.Column)
+            return
+        }
+
+        generic := typeReference as GenericTypeReference
+        if generic != null {
+            ReportSoaRowTypeReferenceIfNeeded(generic.Name, generic.Line, generic.Column)
+            argumentIndex := 0
+            while argumentIndex < generic.TypeArguments.Count {
+                ReportSoaRowTypeReferencesIn(generic.TypeArguments[argumentIndex])
+                argumentIndex = argumentIndex + 1
+            }
+
+            return
+        }
+
+        array := typeReference as ArrayTypeReference
+        if array != null {
+            ReportSoaRowTypeReferencesIn(array.ElementType)
+            return
+        }
+
+        nullable := typeReference as NullableTypeReference
+        if nullable != null {
+            ReportSoaRowTypeReferencesIn(nullable.InnerType)
+            return
+        }
+
+        unionReference := typeReference as UnionTypeReference
+        if unionReference != null {
+            armIndex := 0
+            while armIndex < unionReference.Arms.Count {
+                ReportSoaRowTypeReferencesIn(unionReference.Arms[armIndex])
+                armIndex = armIndex + 1
+            }
+
+            return
+        }
+
+        tuple := typeReference as TupleTypeReference
+        if tuple != null {
+            elementIndex := 0
+            while elementIndex < tuple.Elements.Count {
+                ReportSoaRowTypeReferencesIn(tuple.Elements[elementIndex].Type)
+                elementIndex = elementIndex + 1
+            }
+
+            return
+        }
+
+        functionReference := typeReference as FunctionTypeReference
+        if functionReference != null {
+            parameterIndex := 0
+            while parameterIndex < functionReference.ParameterTypes.Count {
+                ReportSoaRowTypeReferencesIn(functionReference.ParameterTypes[parameterIndex])
+                parameterIndex = parameterIndex + 1
+            }
+
+            ReportSoaRowTypeReferencesIn(functionReference.ReturnType)
+            return
+        }
+
+        byRef := typeReference as ByRefTypeReference
+        if byRef != null {
+            ReportSoaRowTypeReferencesIn(byRef.InnerType)
+        }
+    }
+
     // An anonymous `A | B`: arms are resolved left to right, a nested anonymous union is FLATTENED
     // into its parent, repeats are dropped with NL306, and more than two distinct arms is NL207.
     // Both reports point at the union's own start span, which is its first arm.

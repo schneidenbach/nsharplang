@@ -104,7 +104,8 @@ func LambdaHarnessOf(): LambdaHarness {
     facts := new AnalyzerAssignabilityFacts(context, null)
     clrConversion := new AnalyzerClrTypeConversion(context, null)
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
-    owner := new AnalyzerLambdaAnalysis(diagnostics, spans, context, resolver, clrConversion, facts, escape)
+    expressionTrees := new AnalyzerExpressionTreeValidator(diagnostics, spans, scopes, context, probe, null)
+    owner := new AnalyzerLambdaAnalysis(diagnostics, spans, context, resolver, clrConversion, facts, escape, expressionTrees)
     return new LambdaHarness(owner, errors, scopes, model, diagnostics)
 }
 
@@ -150,6 +151,12 @@ func LambdaBody(): Expression {
     return new IntLiteralExpression("7", 3, 12)
 }
 
+// The smallest body an expression tree REFUSES: a bare identifier that is not one of the lambda's
+// own parameters, which is a captured variable or a type name and is neither in a tree.
+func LambdaCapturedIdentifier(): Expression {
+    return new IdentifierExpression("captured", 3, 12)
+}
+
 func LambdaEmptyBlock(): BlockStatement {
     return new BlockStatement(new List<Statement>(), 3, 12)
 }
@@ -169,9 +176,9 @@ func LambdaTypes(): List<TypeInfo> {
 //
 // The scope operations are performed FOR REAL — kind 2 pushes a function scope, kind 3 writes the
 // symbol, kind 6 pops — so the depth recorded on every step is the depth the analyzer would have
-// been at. Kind 5 records the statement rather than re-entering the statement dispatch, and kinds 7
-// and 8 record the relay rather than running the expression-tree validator, which are the two things
-// a contract cannot replay.
+// been at. Kind 5 records the statement rather than re-entering the statement dispatch, which is
+// the one thing a contract cannot replay. The expression-tree validator is NOT a step and is not
+// replayed either: the walk holds it and calls it, so what a contract sees of it is its REPORTS.
 func LambdaRun(harness: LambdaHarness, state: LambdaAnalysisState, bodyAnswer: TypeInfo?): List<LambdaStep> {
     steps := new List<LambdaStep>()
     step := harness.Owner.NextLambdaStep(state)
@@ -196,6 +203,38 @@ func LambdaRun(harness: LambdaHarness, state: LambdaAnalysisState, bodyAnswer: T
 
         answer: TypeInfo? = null
         if step.Kind == 1 {
+            answer = bodyAnswer
+        }
+
+        harness.Owner.SupplyLambdaStep(state, answer)
+        step = harness.Owner.NextLambdaStep(state)
+    }
+
+    return steps
+}
+
+// The same driver, except that the body walk REPORTS while it runs. That is the one thing the
+// plain driver cannot show: the tree report's precondition is a diagnostic COUNT taken before the
+// body step and compared after it, so a report made by the driver at the right moment is the only
+// way a contract can exercise the silencing path.
+func LambdaRunReportingBody(harness: LambdaHarness, state: LambdaAnalysisState, bodyAnswer: TypeInfo?): List<LambdaStep> {
+    steps := new List<LambdaStep>()
+    step := harness.Owner.NextLambdaStep(state)
+    while step != null {
+        steps.Add(new LambdaStep(step.Kind, step.Name, LambdaTypeText(step.CarriedType), LambdaTypeText(step.ExpectedType), step.Line, step.Column, harness.Scopes.Count, harness.Errors.Count))
+
+        if step.Kind == 2 {
+            harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Function), step.Line, step.Column)
+        }
+
+        if step.Kind == 6 {
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(harness.Model)
+        }
+
+        answer: TypeInfo? = null
+        if step.Kind == 1 {
+            harness.Diagnostics.Report(ErrorCode.TypeMismatch, "the body walk complained", 3, 12, null, 0)
             answer = bodyAnswer
         }
 
@@ -514,7 +553,7 @@ test "the lambda's own type is its parameter types in order and its body's retur
     assert LambdaTypeText(state.Result.ReturnType) == "bool"
 }
 
-// ── the expression-tree relays ────────────────────────────────────────────────
+// ── the expression-tree validator, which the walk now calls directly ──────────
 
 test "a BLOCK lambda in an expression-tree position is told BEFORE its body is walked" {
     harness := LambdaHarnessOf()
@@ -522,40 +561,80 @@ test "a BLOCK lambda in an expression-tree position is told BEFORE its body is w
 
     steps := LambdaRun(harness, state, BuiltInTypes.Bool)
 
-    assert LambdaTranscript(steps) == "2 7 5 6"
+    // The relay steps are GONE — the walk calls the validator itself — so the shape report is
+    // measured where it lands: BEFORE the body step, which is what "told before its body is
+    // walked" means. The step's own recorded error count is the proof of the order.
+    assert LambdaTranscript(steps) == "2 5 6"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Expression-tree lambdas must use an expression body; block bodies are not supported"
+    assert steps[1].Kind == 5
+    assert steps[1].ErrorsBefore == 1
 }
 
 test "an EXPRESSION body in an expression-tree position is checked AFTER it is walked" {
+    harness := LambdaHarnessOf()
+    // A bare identifier that is not one of the lambda's parameters is the smallest body the
+    // validator refuses, so this pins that the validator RAN and that it ran after the body step.
+    state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaCapturedIdentifier()), null, true, true)
+
+    steps := LambdaRun(harness, state, BuiltInTypes.Int)
+
+    assert LambdaTranscript(steps) == "2 1 6"
+    assert steps[1].Kind == 1
+    assert steps[1].ErrorsBefore == 0
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Expression-tree lambda body contains unsupported captured or static identifier 'captured'"
+}
+
+test "an admissible expression body in an expression-tree position is silent" {
     harness := LambdaHarnessOf()
     state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaBody()), null, true, true)
 
     steps := LambdaRun(harness, state, BuiltInTypes.Int)
 
-    assert LambdaTranscript(steps) == "2 1 8 6"
+    assert LambdaTranscript(steps) == "2 1 6"
+    assert harness.Errors.Count == 0
 }
 
 test "neither expression-tree report fires when nothing named a tree target" {
     harness := LambdaHarnessOf()
-    state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaBody()), null, true, false)
+    // The SAME body the tree-targeted contract above refuses. Nothing names a tree, so nothing is
+    // said: the transcript alone cannot tell the two apart, and the diagnostic can.
+    state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaCapturedIdentifier()), null, true, false)
 
     steps := LambdaRun(harness, state, BuiltInTypes.Int)
 
     assert LambdaTranscript(steps) == "2 1 6"
+    assert harness.Errors.Count == 0
 }
 
-test "the unsupported-expression relay is SILENCED by anything the body walk itself reported" {
+test "the unsupported-expression report is SILENCED by anything the body walk itself reported" {
     harness := LambdaHarnessOf()
     parameters := LambdaParams()
     LambdaParam(parameters, "value", 3, 6)
     // Nothing names a signature, so the parameter is uninferable and the walk reports before the
     // body is even asked for — which is exactly the count the tree report measures against.
-    state := harness.Owner.BeginLambda(LambdaExpr(parameters, LambdaBody()), null, true, true)
+    state := harness.Owner.BeginLambda(LambdaExpr(parameters, LambdaCapturedIdentifier()), null, true, true)
 
     steps := LambdaRun(harness, state, BuiltInTypes.Int)
 
+    // The report happened BEFORE the mark was taken, so it does NOT silence the tree report, and
+    // the refusable body is refused: TWO diagnostics, not one.
+    assert LambdaTranscript(steps) == "2 3 4 1 6"
+    assert harness.Errors.Count == 2
+    assert harness.Errors[1].Message == "Expression-tree lambda body contains unsupported captured or static identifier 'captured'"
+}
+
+test "a report made DURING the body walk silences the unsupported-expression report" {
+    harness := LambdaHarnessOf()
+    state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaCapturedIdentifier()), null, true, true)
+
+    // The body walk itself complains, which is what the mark is taken to detect.
+    steps := LambdaRunReportingBody(harness, state, BuiltInTypes.Int)
+
+    assert LambdaTranscript(steps) == "2 1 6"
     assert harness.Errors.Count == 1
-    // The report happened BEFORE the mark was taken, so it does NOT silence the relay.
-    assert LambdaTranscript(steps) == "2 3 4 1 8 6"
+    assert harness.Errors[0].Message == "the body walk complained"
 }
 
 // ── `on` ──────────────────────────────────────────────────────────────────────
