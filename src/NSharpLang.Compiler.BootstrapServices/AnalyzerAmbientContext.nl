@@ -36,6 +36,21 @@ class AmbientContextFrame {
     }
 }
 
+// THE THREE CALLEE-POSITION SUPPRESSIONS, SAVED AS ONE VALUE. They are opened together and closed
+// together — a callee is a callee for all three questions at once — so a caller holds one local
+// instead of three, and cannot restore two of them and forget the third.
+class AmbientCallCalleeFrame {
+    AllowUnboundCallableReference: bool
+    AllowSyntheticSoaOperationReference: bool
+    AnalyzingCallCallee: bool
+
+    constructor(allowUnboundCallableReference: bool, allowSyntheticSoaOperationReference: bool, analyzingCallCallee: bool) {
+        AllowUnboundCallableReference = allowUnboundCallableReference
+        AllowSyntheticSoaOperationReference = allowSyntheticSoaOperationReference
+        AnalyzingCallCallee = analyzingCallCallee
+    }
+}
+
 // THE ONE STEP A `return` STATEMENT CANNOT TAKE FOR ITSELF.
 //
 // The walk owns what a `return` MEANS: whether there is a function to return from at all, whether the
@@ -165,6 +180,9 @@ class AnalyzerAmbientContext {
     currentTypeNameValue: string?
     inConstructorValue: bool
     allowEventReferenceValue: bool
+    allowUnboundCallableReferenceValue: bool
+    allowSyntheticSoaOperationReferenceValue: bool
+    analyzingCallCalleeValue: bool
     writeTargetExpressionTypesValue: Dictionary<object, TypeInfo>?
 
     // THE ENCLOSING FUNCTION'S RETURN TYPE, and `null` when there is no enclosing function at all —
@@ -247,6 +265,27 @@ class AnalyzerAmbientContext {
     // suppression: the generic "an event is not a value" report steps aside for a tailored one.
     AllowEventReference: bool => allowEventReferenceValue
 
+    // THE THREE CALL-SHAPED SUPPRESSIONS, and they are the same KIND of thing as the event one: not
+    // a permission, but a generic refusal stepping aside where a call has already made the reference
+    // legitimate. All three are read by ONE place — the expression walk's tail — and written only
+    // where a call names something rather than uses it as a value.
+    //
+    // `AllowUnboundCallableReference` lets a bare method group through: the walk's tail otherwise
+    // refuses `Foo` as a value, but `Foo(1)`'s own callee IS a method group, and so is an argument
+    // being scored against a delegate parameter during reflected binding.
+    //
+    // `AllowSyntheticSoaOperationReference` lets a compiler-generated SoA operation through for the
+    // same reason: `points.Sort` is not a value a user may hold, but `points.Sort()` must name it.
+    //
+    // `AnalyzingCallCallee` is NOT a permission at all — it is a POSITION. The direct-column rule
+    // asks a different question of `points.x.Clone` depending on whether it is being CALLED or read,
+    // and the call arm answers that question itself, so the value-side gate must not also fire.
+    AllowUnboundCallableReference: bool => allowUnboundCallableReferenceValue
+
+    AllowSyntheticSoaOperationReference: bool => allowSyntheticSoaOperationReferenceValue
+
+    AnalyzingCallCallee: bool => analyzingCallCalleeValue
+
     // THE SUB-EXPRESSION TYPES OF THE WRITE TARGET CURRENTLY BEING ANALYSED, or `null` when no write
     // target is open. Keyed by NODE IDENTITY rather than by position, because the semantic model's
     // line/column keys collide for nested chains that share a start column — `a.b.c` has three nodes
@@ -285,6 +324,9 @@ class AnalyzerAmbientContext {
         currentTypeNameValue = null
         inConstructorValue = false
         allowEventReferenceValue = false
+        allowUnboundCallableReferenceValue = false
+        allowSyntheticSoaOperationReferenceValue = false
+        analyzingCallCalleeValue = false
         writeTargetExpressionTypesValue = null
     }
 
@@ -327,6 +369,50 @@ class AnalyzerAmbientContext {
 
     func ExitAllowEventReference(saved: bool) {
         allowEventReferenceValue = saved
+    }
+
+    // THE METHOD-GROUP SUPPRESSION, opened unconditionally by the reflected-binding argument walk.
+    func EnterAllowUnboundCallableReference(): bool {
+        saved := allowUnboundCallableReferenceValue
+        allowUnboundCallableReferenceValue = true
+        return saved
+    }
+
+    // The same suppression, opened only when the caller asked for it. The target-typed entry point
+    // takes it as a PARAMETER and leaves the flag alone when it is false, so the test lives here
+    // rather than at every call — the `EnterExpectedTypeIfProvided` shape, for the same reason.
+    func EnterAllowUnboundCallableReferenceIfRequested(requested: bool): bool {
+        saved := allowUnboundCallableReferenceValue
+        if requested {
+            allowUnboundCallableReferenceValue = true
+        }
+
+        return saved
+    }
+
+    func ExitAllowUnboundCallableReference(saved: bool) {
+        allowUnboundCallableReferenceValue = saved
+    }
+
+    // THE CALLEE POSITION, opened as one frame because its three flags are one decision: what is
+    // being analysed is the thing a call NAMES, not a value the program holds. Nothing opens any of
+    // the three on its own except the method-group suppression above, so there is no reason to make
+    // a caller spell three save/restore pairs and no way for it to get two of the three right.
+    func EnterCallCallee(): AmbientCallCalleeFrame {
+        saved := new AmbientCallCalleeFrame(allowUnboundCallableReferenceValue, allowSyntheticSoaOperationReferenceValue, analyzingCallCalleeValue)
+        allowUnboundCallableReferenceValue = true
+        allowSyntheticSoaOperationReferenceValue = true
+        analyzingCallCalleeValue = true
+        return saved
+    }
+
+    // Restored in the C# original's own order — callee position, then the SoA operation, then the
+    // method group — which is the reverse of the order they were set in and is preserved verbatim
+    // because a restore is not commutative when a nested walk reads one of them in between.
+    func ExitCallCallee(saved: AmbientCallCalleeFrame) {
+        analyzingCallCalleeValue = saved.AnalyzingCallCallee
+        allowSyntheticSoaOperationReferenceValue = saved.AllowSyntheticSoaOperationReference
+        allowUnboundCallableReferenceValue = saved.AllowUnboundCallableReference
     }
 
     // OPEN A WRITE TARGET with a fresh table, answering the previous one. The two arms that nest —

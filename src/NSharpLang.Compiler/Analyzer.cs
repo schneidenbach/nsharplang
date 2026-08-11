@@ -126,9 +126,6 @@ public class Analyzer : IDisposable
     private AnalyzerSyntheticCallBinder _syntheticCallBinder;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
-    private bool _allowUnboundCallableReference;
-    private bool _allowSyntheticSoaOperationReference;
-    private bool _analyzingCallCallee;
     // The NL411 report log. Like the implicit-conversion guard above it, this is deliberately NOT
     // part of the toolset rebuild: a log rebuilt with its reader would forget what it had already
     // said and report the same method group twice.
@@ -422,7 +419,6 @@ public class Analyzer : IDisposable
             _typeResolver, _soaEscape, _ambient, _conditions);
         _syntheticCallValidator = CreateSyntheticCallValidator();
         _reflectionCallReporter = CreateReflectionCallReporter();
-        _callAnalysis = CreateCallAnalysis();
         _matchExhaustiveness = CreateMatchExhaustiveness();
         _patternShapes = CreatePatternShapes();
         _patternReachability = CreatePatternReachability();
@@ -446,6 +442,7 @@ public class Analyzer : IDisposable
             _diagnostics, _spans, _declarationContext, _ambient, _soaEscape, _assignability,
             _assignabilityFacts);
         _writeTargets = CreateWriteTargets();
+        _callAnalysis = CreateCallAnalysis();
         _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
         _operatorExpressions = CreateOperatorExpressions();
         _construction = CreateConstruction();
@@ -527,7 +524,12 @@ public class Analyzer : IDisposable
             _reflectionCallReporter,
             _typeSubstitution,
             _assignability,
-            _diagnostics);
+            _diagnostics,
+            _spans,
+            _scopes,
+            _ambient,
+            _writeTargets,
+            _identifierResolution);
 
     private AnalyzerReflectionCallReporter CreateReflectionCallReporter()
         => new(
@@ -3206,7 +3208,7 @@ public class Analyzer : IDisposable
 
         _ambient.RecordWriteTargetExpressionType(expr, flowType);
 
-        if (!_allowSyntheticSoaOperationReference
+        if (!_ambient.AllowSyntheticSoaOperationReference
             && flowType is FunctionTypeInfo { SyntheticName: { Length: > 0 } } syntheticSoaOperation
             && !AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(syntheticSoaOperation))
         {
@@ -3214,13 +3216,13 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        if (!_analyzingCallCallee
+        if (!_ambient.AnalyzingCallCallee
             && _soaDirectColumnCalls.ReportUnsupportedArrayInstanceMethodReferenceIfNeeded(expr, flowType, isCall: false))
         {
             return BuiltInTypes.Unknown;
         }
 
-        if (!_allowUnboundCallableReference
+        if (!_ambient.AllowUnboundCallableReference
             && _reflectionCallReporter.IsUnboundCallableReference(expr, flowType, _ambient.CurrentExpectedType))
         {
             _reflectionCallReporter.ReportMethodGroupUsedAsValue(expr, flowType);
@@ -3241,35 +3243,14 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeExpressionAllowingUnboundCallableReference(Expression expression)
     {
-        var previous = _allowUnboundCallableReference;
-        _allowUnboundCallableReference = true;
+        var previous = _ambient.EnterAllowUnboundCallableReference();
         try
         {
             return AnalyzeExpression(expression);
         }
         finally
         {
-            _allowUnboundCallableReference = previous;
-        }
-    }
-
-    private TypeInfo AnalyzeCallCalleeExpression(Expression expression)
-    {
-        var previousAllowUnbound = _allowUnboundCallableReference;
-        var previousAllowSyntheticSoaOperation = _allowSyntheticSoaOperationReference;
-        var previousAnalyzingCallCallee = _analyzingCallCallee;
-        _allowUnboundCallableReference = true;
-        _allowSyntheticSoaOperationReference = true;
-        _analyzingCallCallee = true;
-        try
-        {
-            return AnalyzeExpression(expression);
-        }
-        finally
-        {
-            _analyzingCallCallee = previousAnalyzingCallCallee;
-            _allowSyntheticSoaOperationReference = previousAllowSyntheticSoaOperation;
-            _allowUnboundCallableReference = previousAllowUnbound;
+            _ambient.ExitAllowUnboundCallableReference(previous);
         }
     }
 
@@ -3356,12 +3337,8 @@ public class Analyzer : IDisposable
         => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
 
     /// <summary>
-    /// Walks a CLR parameter type and a TypeInfo argument in parallel to extract TypeInfo bindings
-    /// for generic parameters. Handles interface compatibility (e.g., List&lt;T&gt; matching IEnumerable&lt;TSource&gt;).
-    /// </summary>
-    /// <summary>
-    /// The steps the N#-owned call walk cannot take for itself: the analyzer's own expression walk,
-    /// the reflected-call binders, and the reporters that have not moved yet. The walk runs in
+    /// The steps the N#-owned call walk cannot take for itself: the analyzer's own expression walk
+    /// and the reflected-call binders that have not moved yet. The walk runs in
     /// <see cref="AnalyzerCallAnalysis"/>, suspends at each step and resumes with the answer, because
     /// the number of times the member-access RECEIVER is analysed depends on which overload the bind
     /// chose — and the bind consumes the first receiver analysis, so no schedule computed up front
@@ -3380,32 +3357,13 @@ public class Analyzer : IDisposable
             var handled = false;
             switch (step.Kind)
             {
-                case 1:
-                    handled = TryAnalyzeResultConstructorCall(call, out var factoryType);
-                    answer = factoryType;
-                    break;
-                case 2:
-                    answer = AnalyzeCallCallee(call.Callee);
-                    break;
                 case 3:
                     _nullFlow.ReportPossibleNullAccess(
                         step.Node!, step.CarriedType!, step.Line, step.Column, step.Text!, step.Flag);
                     break;
                 case 4:
-                {
-                    var argumentErrorsBefore = _errors.Count;
-                    answer = AnalyzeRefOutArgumentExpression(
-                        step.ArgumentNode!,
-                        step.CarriedType,
-                        out var refOutTargetExpressionTypes,
-                        allowUnboundCallableReference: step.Flag);
-                    ReportInvalidRefOutArgumentTargetIfNeeded(
-                        step.ArgumentNode!, argumentErrorsBefore, refOutTargetExpressionTypes);
-                    break;
-                }
-                case 5:
-                    ReportInvalidRefOutArgumentTargetIfNeeded(
-                        step.ArgumentNode!, _errors.Count, expressionTypes: null);
+                    answer = AnalyzeExpressionWithExpectedType(
+                        step.Node!, step.CarriedType, allowUnboundCallableReference: step.Flag);
                     break;
                 case 6:
                     answer = AnalyzeExpression(step.Node!);
@@ -3434,94 +3392,6 @@ public class Analyzer : IDisposable
         return state.Result;
     }
 
-    private TypeInfo AnalyzeRefOutArgumentExpression(
-        Argument argument,
-        TypeInfo? expectedType,
-        out Dictionary<object, TypeInfo>? expressionTypes,
-        bool allowUnboundCallableReference = false)
-    {
-        expressionTypes = null;
-        if (argument.Modifier is not (ArgumentModifier.Ref or ArgumentModifier.Out))
-        {
-            return AnalyzeExpressionWithExpectedType(argument.Value, expectedType, allowUnboundCallableReference);
-        }
-
-        var modifier = argument.Modifier == ArgumentModifier.Ref ? "ref" : "out";
-        if (_writeTargets.ReportNullConditionalWriteTargetIfNeeded(argument.Value, $"used as the {modifier} argument"))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        var targetExpectedType = expectedType is ByRefTypeInfo expectedByRef
-            ? expectedByRef.InnerType
-            : expectedType;
-        var previousTargetTypes = _ambient.EnterWriteTargetExpressionTypes();
-        expressionTypes = _ambient.WriteTargetExpressionTypes;
-        try
-        {
-            var targetType = AnalyzeExpressionWithExpectedType(argument.Value, targetExpectedType, allowUnboundCallableReference);
-            return BuiltInTypes.IsUnknown(targetType)
-                ? targetType
-                : new ByRefTypeInfo(targetType);
-        }
-        finally
-        {
-            _ambient.ExitWriteTargetExpressionTypes(previousTargetTypes);
-        }
-    }
-
-    private bool ReportInvalidRefOutArgumentTargetIfNeeded(
-        Argument argument,
-        int argumentErrorsBefore,
-        Dictionary<object, TypeInfo>? expressionTypes)
-    {
-        if (argument.Modifier is not (ArgumentModifier.Ref or ArgumentModifier.Out)
-            || _errors.Count != argumentErrorsBefore)
-        {
-            return false;
-        }
-
-        var modifier = argument.Modifier == ArgumentModifier.Ref ? "ref" : "out";
-        var action = $"used as the {modifier} argument";
-        if (_writeTargets.ReportNullConditionalWriteTargetIfNeeded(argument.Value, action))
-        {
-            return true;
-        }
-
-        if (_writeTargets.ReportSoaTableMemberMutationIfNeeded(argument.Value, expressionTypes, action)
-            || _writeTargets.ReportUnsupportedBuiltInIndexedMutationIfNeeded(argument.Value, expressionTypes, action))
-        {
-            return true;
-        }
-        if (_writeTargets.ReportReadonlyFieldRefOutArgumentIfNeeded(argument.Value, modifier, expressionTypes))
-        {
-            return true;
-        }
-
-        if (_writeTargets.IsRefOutArgumentTarget(argument.Value, expressionTypes))
-        {
-            return false;
-        }
-
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(argument.Value);
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"The '{modifier}' argument needs an assignable target",
-            line,
-            column,
-            $"Use a variable, field, or indexed array/SoA column element as the {modifier} argument.",
-            length);
-        return true;
-    }
-
-    private TypeInfo AnalyzeCallCallee(Expression callee)
-    {
-        if (callee is IdentifierExpression identifier)
-            return _identifierResolution.CallTarget(identifier);
-
-        return AnalyzeCallCalleeExpression(callee);
-    }
-
     private TypeInfo AnalyzeExpressionWithExpectedType(
         Expression expression,
         TypeInfo? expectedType,
@@ -3531,9 +3401,8 @@ public class Analyzer : IDisposable
             return AnalyzeLambda(lambda, expectedType);
 
         var previousExpectedType = _ambient.EnterExpectedTypeIfProvided(expectedType);
-        var previousAllowUnboundCallableReference = _allowUnboundCallableReference;
-        if (allowUnboundCallableReference)
-            _allowUnboundCallableReference = true;
+        var previousAllowUnboundCallableReference =
+            _ambient.EnterAllowUnboundCallableReferenceIfRequested(allowUnboundCallableReference);
 
         try
         {
@@ -3542,89 +3411,8 @@ public class Analyzer : IDisposable
         finally
         {
             _ambient.ExitExpectedType(previousExpectedType);
-            _allowUnboundCallableReference = previousAllowUnboundCallableReference;
+            _ambient.ExitAllowUnboundCallableReference(previousAllowUnboundCallableReference);
         }
-    }
-
-    private bool TryAnalyzeResultConstructorCall(CallExpression call, out TypeInfo resultType)
-    {
-        resultType = BuiltInTypes.Unknown;
-
-        if (call.Callee is not IdentifierExpression { Name: "Ok" or "Err" } identifier)
-            return false;
-
-        // Only meaningful in a Result-typed context; otherwise this is an ordinary call and the
-        // factory decision does not apply (leave the annotation null).
-        var isOk = identifier.Name == "Ok";
-        if (!TryGetResultArmTypes(_ambient.CurrentExpectedType, out var okType, out var errType))
-            return false;
-
-        // In a Result context, `Ok`/`Err` are the compiler-known factory ONLY when the name is not
-        // bound to a real in-scope symbol. If the user declared their own `Ok`/`Err` (function,
-        // local, parameter, or import), defer to normal call resolution so we bind their symbol
-        // instead of silently hijacking the call (C1: resolution must be semantic, not string
-        if (_scopes.LookupSymbol(identifier.Name) != null)
-        {
-            call.IsResultFactory = false;
-            return false;
-        }
-
-        call.IsResultFactory = true;
-
-        if (call.Arguments.Count != 1)
-        {
-            Error(
-                ErrorCode.WrongArgumentCount,
-                $"{identifier.Name} needs exactly 1 argument, but you passed {call.Arguments.Count}",
-                call.Line,
-                call.Column,
-                length: identifier.Name.Length);
-            resultType = _ambient.CurrentExpectedType ?? BuiltInTypes.Unknown;
-            return true;
-        }
-
-        var expectedArm = isOk ? okType : errType;
-        var actualArm = AnalyzeExpressionWithExpectedType(call.Arguments[0].Value, expectedArm);
-        if (!_assignability.IsAssignable(expectedArm, actualArm))
-        {
-            Error(
-                ErrorCode.TypeMismatch,
-                $"{identifier.Name} expects '{expectedArm}', but this argument has type '{actualArm}'",
-                call.Arguments[0].Value.Line,
-                call.Arguments[0].Value.Column);
-        }
-
-        resultType = _ambient.CurrentExpectedType ?? new GenericTypeInfo(
-            "Result",
-            new List<TypeInfo> { okType, errType },
-            new ReflectionTypeInfo(typeof(NSharpLang.Runtime.Result<,>)));
-        return true;
-    }
-
-    private static bool TryGetResultArmTypes(TypeInfo? type, out TypeInfo okType, out TypeInfo errType)
-    {
-        okType = BuiltInTypes.Unknown;
-        errType = BuiltInTypes.Unknown;
-
-        if (type is not GenericTypeInfo
-            {
-                TypeArguments.Count: 2,
-                GenericDefinition: ReflectionTypeInfo definition,
-            } generic
-            || !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(
-                definition.Type,
-                typeof(NSharpLang.Runtime.Result<,>)))
-            return false;
-
-        var name = generic.Name;
-        if (!string.Equals(name, "Result", StringComparison.Ordinal)
-            && !string.Equals(name, "NSharpLang.Runtime.Result", StringComparison.Ordinal)
-            && !string.Equals(name, "NSharpLang.Runtime.Result`2", StringComparison.Ordinal))
-            return false;
-
-        okType = generic.TypeArguments[0];
-        errType = generic.TypeArguments[1];
-        return true;
     }
 
     /// <summary>
@@ -5304,7 +5092,6 @@ public class Analyzer : IDisposable
         _syntheticCallWalk = CreateSyntheticCallWalk();
         _syntheticCallValidator = CreateSyntheticCallValidator();
         _reflectionCallReporter = CreateReflectionCallReporter();
-        _callAnalysis = CreateCallAnalysis();
         _matchExhaustiveness = CreateMatchExhaustiveness();
         _patternShapes = CreatePatternShapes();
         _patternReachability = CreatePatternReachability();
@@ -5312,6 +5099,7 @@ public class Analyzer : IDisposable
         _flowNarrowing = CreateFlowNarrowing();
         _variableDeclaration = CreateVariableDeclaration();
         _writeTargets = CreateWriteTargets();
+        _callAnalysis = CreateCallAnalysis();
         _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
         _operatorExpressions = CreateOperatorExpressions();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
@@ -5341,7 +5129,6 @@ public class Analyzer : IDisposable
             _syntheticCallWalk = CreateSyntheticCallWalk();
             _syntheticCallValidator = CreateSyntheticCallValidator();
             _reflectionCallReporter = CreateReflectionCallReporter();
-            _callAnalysis = CreateCallAnalysis();
             _matchExhaustiveness = CreateMatchExhaustiveness();
             _patternShapes = CreatePatternShapes();
             _patternReachability = CreatePatternReachability();
@@ -5349,6 +5136,7 @@ public class Analyzer : IDisposable
             _flowNarrowing = CreateFlowNarrowing();
             _variableDeclaration = CreateVariableDeclaration();
             _writeTargets = CreateWriteTargets();
+            _callAnalysis = CreateCallAnalysis();
             _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
             _operatorExpressions = CreateOperatorExpressions();
             _typeResolver.SetWellKnownTypes(null);

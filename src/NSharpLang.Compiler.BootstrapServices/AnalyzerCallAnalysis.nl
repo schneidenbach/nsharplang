@@ -15,26 +15,33 @@ import NSharpLang.Compiler.Ast
 // carrying every value the step needs. Nothing here is a policy the driver may reinterpret — the
 // driver switches on `Kind` and performs exactly the one operation, with exactly these operands.
 //
+// A KIND IS AN OPERATION, NOT A PURPOSE, which is why there are fewer kinds than there are things
+// the walk does with them. Two places need a plain expression analysed and both ask for kind 6; two
+// places need one analysed against an expected type and both ask for kind 4. What differs between
+// them is ambient state this owner sets and clears ITSELF, on its own side of the boundary.
+//
 // The kinds, in the order the walk can emit them:
-//   1  the `Ok`/`Err` result-constructor probe (answers a type AND whether it applied)
-//   2  the callee's own analysis
 //   3  the possible-null-call report
-//   4  one argument analysed with `CarriedType` as its expected type
-//   5  one argument DELIBERATELY NOT analysed — the method-group lambda, which is analysed later
-//      during binding with a real delegate type; the ref/out target report still runs
-//   6  the member-access RECEIVER's analysis
+//   4  one expression analysed with `CarriedType` as its expected type and `Flag` as the
+//      method-group suppression — an ordinary argument, the BYREF-unwrapped target of a `ref`/`out`
+//      argument, or the single argument of an `Ok`/`Err` factory
+//   6  a plain expression analysis: the CALLEE (under the callee-position suppressions, which this
+//      owner opens before asking and closes when the answer arrives) or the member-access RECEIVER
 //   7  one SoA row-view escape report
-//   8  the SoA direct-column call rule (answers only whether it reported). The four gates under it
-//      are ONE owner's, so the walk asks once; kinds 9, 10 and 11 are the round trips that relayed
-//      them one at a time before that owner existed, and the gap is left where they were because a
-//      step kind is a value the contracts pin.
+//   8  the SoA direct-column call rule (answers only whether it reported)
 //   12 a single reflected method's binding
 //   13 a reflected method GROUP's binding
 //   14 the semantic-model record for a bound N# overload
+//
+// THE GAPS AT 1, 2, 5, 9, 10 AND 11 ARE KEPT ON PURPOSE. Each was a round trip that relayed a
+// decision this walk now makes for itself — the `Ok`/`Err` probe (1), the callee's own fork between
+// a bound name and an analysed expression (2), the un-analysed method-group lambda whose `ref`/`out`
+// target is still checked (5), and the four direct-column gates before they became one owner
+// (9, 10, 11). A step kind is a VALUE the contracts pin, so renumbering would silently re-point
+// every one of them.
 class CallAnalysisRequest {
     Kind: int
     Node: Expression?
-    ArgumentNode: Argument?
     CarriedType: TypeInfo?
     Method: MethodInfo?
     MethodGroup: ReflectionMethodGroupInfo?
@@ -46,7 +53,6 @@ class CallAnalysisRequest {
     constructor(kind: int) {
         Kind = kind
         Node = null
-        ArgumentNode = null
         CarriedType = null
         Method = null
         MethodGroup = null
@@ -84,6 +90,29 @@ class CallAnalysisState {
     EscapeIndex: int
     IsMethodGroup: bool
 
+    // THE `Ok`/`Err` FACTORY'S TWO ARMS AND THE OPEN GENERIC THEY CLOSE, held across the one analysis
+    // the probe needs. The expected arm is the one the spelled name selects; the other three are kept
+    // because the call's own type is rebuilt from them when nothing else names it.
+    ResultOkType: TypeInfo?
+    ResultErrType: TypeInfo?
+    ResultDefinition: TypeInfo?
+    ResultExpectedArm: TypeInfo?
+
+    // THE CALLEE-POSITION SUPPRESSIONS, open across the callee's analysis. Held here rather than in
+    // a C# local because the analysis is a SUSPENSION: the bracket opens in one turn of the walk and
+    // closes in the next.
+    CalleeFrame: AmbientCallCalleeFrame?
+
+    // THE `ref`/`out` ARGUMENT CURRENTLY OUT FOR ANALYSIS, and everything its follow-up report needs.
+    // `RefOutArgument` being non-null is what distinguishes the two answers kind 4 can carry: an
+    // ordinary argument's type, or a write target's, which comes back wrapped in `ByRefTypeInfo` and
+    // is then checked for assignability against the count of diagnostics taken BEFORE the analysis.
+    RefOutArgument: Argument?
+    RefOutModifier: string?
+    RefOutErrorsBefore: int
+    RefOutSavedExpressionTypes: Dictionary<object, TypeInfo>?
+    RefOutExpressionTypes: Dictionary<object, TypeInfo>?
+
     // The call expression's type. `unknown` is the walk's own final answer for a callee it does not
     // recognise, so it is the honest starting value rather than a null placeholder.
     Result: TypeInfo
@@ -105,6 +134,16 @@ class CallAnalysisState {
         ArgumentIndex = 0
         EscapeIndex = 0
         IsMethodGroup = false
+        ResultOkType = null
+        ResultErrType = null
+        ResultDefinition = null
+        ResultExpectedArm = null
+        CalleeFrame = null
+        RefOutArgument = null
+        RefOutModifier = null
+        RefOutErrorsBefore = 0
+        RefOutSavedExpressionTypes = null
+        RefOutExpressionTypes = null
         Result = BuiltInTypes.Unknown
     }
 }
@@ -140,8 +179,13 @@ class AnalyzerCallAnalysis {
     typeSubstitution: AnalyzerTypeSubstitution
     assignability: AnalyzerAssignability
     diagnostics: AnalyzerDiagnosticSink
+    spans: AnalyzerDiagnosticSpans
+    scopes: AnalyzerScopeStack
+    ambient: AnalyzerAmbientContext
+    writeTargets: AnalyzerWriteTargets
+    identifierResolution: AnalyzerIdentifierResolution
 
-    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
@@ -149,6 +193,11 @@ class AnalyzerCallAnalysis {
         typeSubstitution = substitution
         assignability = assignabilityOwner
         diagnostics = diagnosticSink
+        spans = spansOwner
+        scopes = scopeStack
+        ambient = ambientContext
+        writeTargets = writeTargetsOwner
+        identifierResolution = identifierResolutionOwner
     }
 
     func BeginCall(call: CallExpression): CallAnalysisState {
@@ -169,38 +218,33 @@ class AnalyzerCallAnalysis {
         return null
     }
 
-    // THE ANSWER TO THE OUTSTANDING STEP, folded in according to what was asked. `handled` is the
-    // boolean verdict of the probe steps — the result-constructor factory and the direct-column rule —
-    // and each of those ENDS the walk, exactly as the early `return` it replaces did.
+    // THE ANSWER TO THE OUTSTANDING STEP, folded in according to what was asked. `Pending` is the
+    // WALK's own marker for what the outstanding answer MEANS, which is not the same thing as the
+    // `Kind` the driver was given: two answers can arrive from the same operation and mean different
+    // things here. `handled` is the boolean verdict of the one probe step that remains — the
+    // direct-column rule — and it ENDS the walk, exactly as the early `return` it replaces did.
     func SupplyCallStep(state: CallAnalysisState, answer: TypeInfo?, handled: bool) {
         pending := state.Pending
         state.Pending = 0
 
         if pending == 1 {
-            if handled {
-                if answer != null {
-                    state.Result = answer
-                }
-
-                state.Phase = 99
-            }
-
+            CompleteResultConstructorProbe(state, answer)
             return
         }
 
         if pending == 2 {
+            frame := state.CalleeFrame
+            if frame != null {
+                ambient.ExitCallCallee(frame)
+                state.CalleeFrame = null
+            }
+
             state.CalleeType = answer
             return
         }
 
-        if pending == 4 || pending == 5 {
-            argumentType: TypeInfo = BuiltInTypes.Unknown
-            if pending == 4 && answer != null {
-                argumentType = answer
-            }
-
-            state.ArgTypes.Add(argumentType)
-            state.ArgumentIndex = state.ArgumentIndex + 1
+        if pending == 4 {
+            CompleteArgument(state, answer)
             return
         }
 
@@ -238,15 +282,11 @@ class AnalyzerCallAnalysis {
     func AdvanceCall(state: CallAnalysisState): CallAnalysisRequest? {
         phase := state.Phase
         if phase == 0 {
-            state.Phase = 1
-            state.Pending = 1
-            return new CallAnalysisRequest(1)
+            return BeginResultConstructorProbe(state)
         }
 
         if phase == 1 {
-            state.Phase = 2
-            state.Pending = 2
-            return new CallAnalysisRequest(2)
+            return BeginCallee(state)
         }
 
         if phase == 2 {
@@ -296,6 +336,196 @@ class AnalyzerCallAnalysis {
         }
 
         return AdvanceMethodGroupReturn(state, phase)
+    }
+
+    // `Ok(x)` AND `Err(e)`, AND THEY ARE A PROBE RATHER THAN A RULE BECAUSE THREE SEPARATE THINGS
+    // MAKE THE SAME TWO NAMES AN ORDINARY CALL.
+    //
+    // The names are only the compiler-known factory where a `Result<T, E>` is being ASKED for — the
+    // decision is the expected type's, not the spelling's — and even there only when the name is not
+    // bound to a real in-scope symbol. A user who declares their own `Ok` gets their own `Ok`; the
+    // resolution is semantic, and hijacking the call on the strength of a name would be exactly the
+    // string matching this compiler refuses. All three declining exits leave the walk to carry on as
+    // if the probe had never run, and only the LAST of them marks the node — which is why
+    // `IsResultFactory` is three-valued: never asked, asked and refused, asked and taken.
+    func BeginResultConstructorProbe(state: CallAnalysisState): CallAnalysisRequest? {
+        state.Phase = 1
+        call := state.Call
+        identifier := call.Callee as IdentifierExpression
+        if identifier == null {
+            return null
+        }
+
+        name := identifier.Name
+        if name != "Ok" && name != "Err" {
+            return null
+        }
+
+        okType: TypeInfo = BuiltInTypes.Unknown
+        errType: TypeInfo = BuiltInTypes.Unknown
+        if !TryGetResultArmTypes(ambient.CurrentExpectedType, out okType, out errType) {
+            return null
+        }
+
+        // `IsResultFactory` is a THREE-VALUED annotation and the two writes below are the only
+        // things that ever narrow it, so each goes through a typed local: a bare `false` is a `bool`
+        // and the field is a `bool?`.
+        if scopes.LookupSymbol(name) != null {
+            refused: bool? = false
+            call.IsResultFactory = refused
+            return null
+        }
+
+        taken: bool? = true
+        call.IsResultFactory = taken
+
+        // The arity report comes with the EXPECTED type as the call's answer rather than the
+        // constructed one: the program said what it wanted, and a wrong-arity factory should not
+        // also change the type everything downstream sees.
+        if call.Arguments.Count != 1 {
+            diagnostics.Report(ErrorCode.WrongArgumentCount, name + " needs exactly 1 argument, but you passed " + call.Arguments.Count.ToString(), call.Line, call.Column, null, name.Length)
+            expectedResult := ambient.CurrentExpectedType
+            if expectedResult != null {
+                state.Result = expectedResult
+            } else {
+                state.Result = BuiltInTypes.Unknown
+            }
+
+            state.Phase = 99
+            return null
+        }
+
+        expectedArm := errType
+        if name == "Ok" {
+            expectedArm = okType
+        }
+
+        state.ResultOkType = okType
+        state.ResultErrType = errType
+        state.ResultExpectedArm = expectedArm
+        expectedGeneric := ambient.CurrentExpectedType as GenericTypeInfo
+        if expectedGeneric != null {
+            state.ResultDefinition = expectedGeneric.GenericDefinition
+        }
+
+        state.Phase = 99
+        state.Pending = 1
+        request := new CallAnalysisRequest(4)
+        request.Node = call.Arguments[0].Value
+        request.CarriedType = expectedArm
+        request.Flag = false
+        return request
+    }
+
+    // The factory's one argument, typed. A mismatch is reported against the ARM the spelled name
+    // selected, and the call still answers a `Result` — a wrong `Ok` value is one error, not two.
+    func CompleteResultConstructorProbe(state: CallAnalysisState, answer: TypeInfo?) {
+        call := state.Call
+        expectedArm: TypeInfo = BuiltInTypes.Unknown
+        declaredArm := state.ResultExpectedArm
+        if declaredArm != null {
+            expectedArm = declaredArm
+        }
+
+        actualArm: TypeInfo = BuiltInTypes.Unknown
+        if answer != null {
+            actualArm = answer
+        }
+
+        if !assignability.IsAssignable(expectedArm, actualArm) {
+            identifier := call.Callee as IdentifierExpression
+            name := "Ok"
+            if identifier != null {
+                name = identifier.Name
+            }
+
+            argumentValue := call.Arguments[0].Value
+            diagnostics.Report(ErrorCode.TypeMismatch, name + " expects '" + TypeText(expectedArm) + "', but this argument has type '" + TypeText(actualArm) + "'", argumentValue.Line, argumentValue.Column, null, 0)
+        }
+
+        expectedResult := ambient.CurrentExpectedType
+        if expectedResult != null {
+            state.Result = expectedResult
+            return
+        }
+
+        okType: TypeInfo = BuiltInTypes.Unknown
+        recordedOk := state.ResultOkType
+        if recordedOk != null {
+            okType = recordedOk
+        }
+
+        errType: TypeInfo = BuiltInTypes.Unknown
+        recordedErr := state.ResultErrType
+        if recordedErr != null {
+            errType = recordedErr
+        }
+
+        arms := new List<TypeInfo>()
+        arms.Add(okType)
+        arms.Add(errType)
+        state.Result = new GenericTypeInfo("Result", arms, state.ResultDefinition)
+    }
+
+    // WHETHER A TYPE IS A `Result<T, E>`, AND ITS TWO ARMS. The definition is checked by DEFINITION
+    // IDENTITY — full name, arity and declaring assembly — and never by the spelled name alone, which
+    // would accept any two-parameter type someone called `Result`. The NAME is then checked as well,
+    // because the same definition reaches the analyzer under three spellings depending on which door
+    // resolved it.
+    //
+    // THE IDENTITY IS ASKED OF THE DEFINITION ITSELF RATHER THAN AGAINST A `Type` FETCHED FROM THE
+    // HOST, and that is deliberate. `Analyzer.cs` compared against `typeof(Result<,>)`, a
+    // COMPILE-TIME reference that resolves in every host that can run the compiler at all; the
+    // nearest N# spelling — an assembly-qualified `Type.GetType` — is a RUNTIME assembly load and
+    // answers `null` in any host that has not already loaded the runtime, which would silently turn
+    // every `Ok` in the program back into an ordinary call. `AnalyzerDeclarationContext` already owns
+    // this exact question for this exact type, needs no anchor, and cannot fail that way.
+    static func TryGetResultArmTypes(expected: TypeInfo?, out okType: TypeInfo, out errType: TypeInfo): bool {
+        okType = BuiltInTypes.Unknown
+        errType = BuiltInTypes.Unknown
+        generic := expected as GenericTypeInfo
+        if generic == null {
+            return false
+        }
+
+        arguments := generic.TypeArguments
+        if arguments.Count != 2 {
+            return false
+        }
+
+        if !AnalyzerDeclarationContext.IsRuntimeResultDefinition(generic) {
+            return false
+        }
+
+        name := generic.Name
+        if name != "Result" && name != "NSharpLang.Runtime.Result" && name != "NSharpLang.Runtime.Result`2" {
+            return false
+        }
+
+        okType = arguments[0]
+        errType = arguments[1]
+        return true
+    }
+
+    // WHAT IS BEING CALLED, and the fork is the grammar's rather than the walk's: a bare name is a
+    // CALL TARGET, which is a different resolution from reading the same name as a value — it admits
+    // method groups, prefers functions over locals of the same name and reports differently when it
+    // finds nothing. Anything else is an expression, analysed under the three callee-position
+    // suppressions this owner opens now and closes when the answer comes back.
+    func BeginCallee(state: CallAnalysisState): CallAnalysisRequest? {
+        call := state.Call
+        state.Phase = 2
+        identifier := call.Callee as IdentifierExpression
+        if identifier != null {
+            state.CalleeType = identifierResolution.CallTarget(identifier)
+            return null
+        }
+
+        state.CalleeFrame = ambient.EnterCallCallee()
+        state.Pending = 2
+        request := new CallAnalysisRequest(6)
+        request.Node = call.Callee
+        return request
     }
 
     // The call's own possible-null report, anchored on the CALLEE and never null-conditional: a
@@ -378,12 +608,7 @@ class AnalyzerCallAnalysis {
             expectedIndex = placement[index]
         }
 
-        state.Pending = 4
-        request := new CallAnalysisRequest(4)
-        request.ArgumentNode = call.Arguments[index]
-        request.CarriedType = syntheticCallValidator.GetExpectedArgumentType(functionType, call, index, expectedIndex, state.SyntheticExpectedBindings)
-        request.Flag = false
-        return request
+        return EmitArgument(state, call.Arguments[index], syntheticCallValidator.GetExpectedArgumentType(functionType, call, index, expectedIndex, state.SyntheticExpectedBindings), false)
     }
 
     func EmitGroupArgument(state: CallAnalysisState): CallAnalysisRequest? {
@@ -397,18 +622,166 @@ class AnalyzerCallAnalysis {
         argument := call.Arguments[index]
         lambda := argument.Value as LambdaExpression
         if state.IsMethodGroup && lambda != null {
-            state.Pending = 5
-            skipped := new CallAnalysisRequest(5)
-            skipped.ArgumentNode = argument
-            return skipped
+            // A method group's lambda argument is DELIBERATELY not analysed here — binding will
+            // analyse it later against a real delegate type — but its `ref`/`out` target is still
+            // checked, because whether a thing can be written through is a question about the
+            // SPELLING and not about the type the lambda turns out to have.
+            SkipMethodGroupLambdaArgument(state, argument)
+            return null
         }
 
+        return EmitArgument(state, argument, null, state.IsMethodGroup)
+    }
+
+    // ONE ARGUMENT, AND THE `ref`/`out` FORM IS THIS WALK'S OWN BUSINESS RATHER THAN THE DRIVER'S.
+    //
+    // An ordinary argument is analysed against its expected type and nothing else happens. A `ref`
+    // or `out` argument is four more things: a `?.` chain is refused before anything is analysed at
+    // all; the expected type is the BYREF's INNER type, because the program writes a `T` through a
+    // `ref T`; the write-target table is open across the analysis so the classifiers read the chain
+    // the walk already produced instead of re-walking it and reporting twice; and the answer comes
+    // back wrapped in `ByRefTypeInfo`. The DRIVER performs the same operation either way — analyse
+    // this expression with that expected type — which is why there is one kind and not two.
+    func EmitArgument(state: CallAnalysisState, argument: Argument, expectedType: TypeInfo?, allowUnbound: bool): CallAnalysisRequest? {
+        errorsBefore := diagnostics.ErrorCount
+        modifier := RefOutModifier(argument)
+        if modifier == null {
+            state.Pending = 4
+            plain := new CallAnalysisRequest(4)
+            plain.Node = argument.Value
+            plain.CarriedType = expectedType
+            plain.Flag = allowUnbound
+            return plain
+        }
+
+        // A null-conditional target ENDS this argument: the C# returned `unknown` without analysing
+        // it, and the follow-up report stays silent because this one already fired.
+        if writeTargets.ReportNullConditionalWriteTargetIfNeeded(argument.Value, "used as the " + modifier + " argument") {
+            state.ArgTypes.Add(BuiltInTypes.Unknown)
+            state.ArgumentIndex = state.ArgumentIndex + 1
+            return null
+        }
+
+        targetExpectedType := expectedType
+        expectedByRef := expectedType as ByRefTypeInfo
+        if expectedByRef != null {
+            targetExpectedType = expectedByRef.InnerType
+        }
+
+        state.RefOutArgument = argument
+        state.RefOutModifier = modifier
+        state.RefOutErrorsBefore = errorsBefore
+        state.RefOutSavedExpressionTypes = ambient.EnterWriteTargetExpressionTypes()
+        state.RefOutExpressionTypes = ambient.WriteTargetExpressionTypes
         state.Pending = 4
         request := new CallAnalysisRequest(4)
-        request.ArgumentNode = argument
-        request.CarriedType = null
-        request.Flag = state.IsMethodGroup
+        request.Node = argument.Value
+        request.CarriedType = targetExpectedType
+        request.Flag = allowUnbound
         return request
+    }
+
+    // The answer to one argument analysis. The `ref`/`out` form closes its bracket FIRST, wraps, and
+    // only then asks whether the target could have been written through — the order the two C#
+    // members ran in, and it matters: the report reads the table the bracket collected.
+    func CompleteArgument(state: CallAnalysisState, answer: TypeInfo?) {
+        argument := state.RefOutArgument
+        if argument == null {
+            ordinary: TypeInfo = BuiltInTypes.Unknown
+            if answer != null {
+                ordinary = answer
+            }
+
+            state.ArgTypes.Add(ordinary)
+            state.ArgumentIndex = state.ArgumentIndex + 1
+            return
+        }
+
+        ambient.ExitWriteTargetExpressionTypes(state.RefOutSavedExpressionTypes)
+        modifier := "ref"
+        recordedModifier := state.RefOutModifier
+        if recordedModifier != null {
+            modifier = recordedModifier
+        }
+
+        resolved: TypeInfo = BuiltInTypes.Unknown
+        if answer != null {
+            resolved = answer
+            if !BuiltInTypes.IsUnknown(resolved) {
+                resolved = new ByRefTypeInfo(resolved)
+            }
+        }
+
+        ReportRefOutTargetIfNeeded(argument, modifier, state.RefOutErrorsBefore, state.RefOutExpressionTypes)
+        state.RefOutArgument = null
+        state.RefOutModifier = null
+        state.RefOutSavedExpressionTypes = null
+        state.RefOutExpressionTypes = null
+        state.ArgTypes.Add(resolved)
+        state.ArgumentIndex = state.ArgumentIndex + 1
+    }
+
+    // The un-analysed method-group lambda. Its argument type is `unknown` — nothing was analysed —
+    // and the target report runs against the CURRENT diagnostic count, so it is never suppressed by
+    // something an earlier argument reported.
+    func SkipMethodGroupLambdaArgument(state: CallAnalysisState, argument: Argument) {
+        modifier := RefOutModifier(argument)
+        if modifier != null {
+            ReportRefOutTargetIfNeeded(argument, modifier, diagnostics.ErrorCount, null)
+        }
+
+        state.ArgTypes.Add(BuiltInTypes.Unknown)
+        state.ArgumentIndex = state.ArgumentIndex + 1
+    }
+
+    // WHETHER A `ref`/`out` ARGUMENT NAMES SOMETHING THAT CAN BE WRITTEN THROUGH, in the one order
+    // the four refusals have always run.
+    //
+    // THE FIRST GUARD IS NOT A SHAPE TEST BUT A SILENCE ONE: if the argument's own analysis already
+    // reported, this rule says nothing. A target that failed to resolve is not ALSO an unassignable
+    // target, and telling the developer both would name the wrong problem twice. Everything after it
+    // is `AnalyzerWriteTargets`' — the same four rules the assignment arm and the increment operand
+    // ask, with `used as the ref argument` as the action — and the generic refusal is what is left
+    // when all four decline and the target is still not addressable.
+    func ReportRefOutTargetIfNeeded(argument: Argument, modifier: string, errorsBefore: int, expressionTypes: Dictionary<object, TypeInfo>?): bool {
+        if diagnostics.ErrorCount != errorsBefore {
+            return false
+        }
+
+        action := "used as the " + modifier + " argument"
+        if writeTargets.ReportNullConditionalWriteTargetIfNeeded(argument.Value, action) {
+            return true
+        }
+
+        if writeTargets.ReportSoaTableMemberMutationIfNeeded(argument.Value, expressionTypes, action) || writeTargets.ReportUnsupportedBuiltInIndexedMutationIfNeeded(argument.Value, expressionTypes, action) {
+            return true
+        }
+
+        if writeTargets.ReportReadonlyFieldRefOutArgumentIfNeeded(argument.Value, modifier, expressionTypes) {
+            return true
+        }
+
+        if writeTargets.IsRefOutArgumentTarget(argument.Value, expressionTypes) {
+            return false
+        }
+
+        span := spans.GetExpressionDiagnosticSpan(argument.Value)
+        diagnostics.Report(ErrorCode.InvalidSyntax, "The '" + modifier + "' argument needs an assignable target", span.Line, span.Column, "Use a variable, field, or indexed array/SoA column element as the " + modifier + " argument.", span.Length)
+        return true
+    }
+
+    // `ref` or `out` as the diagnostics spell it, and `null` for every other argument — which is the
+    // test for "this is an ordinary argument" as well as the word the sentences are built from.
+    static func RefOutModifier(argument: Argument): string? {
+        if argument.Modifier == ArgumentModifier.Ref {
+            return "ref"
+        }
+
+        if argument.Modifier == ArgumentModifier.Out {
+            return "out"
+        }
+
+        return null
     }
 
     // An SoA row view passed as an argument escapes the table it views, one report per offending

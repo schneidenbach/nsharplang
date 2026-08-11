@@ -26,7 +26,7 @@ import NSharpLang.Compiler.Ast
 // THE MEASUREMENT THAT SETTLED THE SHAPE. Reading the receiver's type back out of the semantic
 // model instead of analysing it is WRONG, and the counterexample is a method group used as a value
 // (`Read.Tag("mg")`): the callee walk records the receiver under
-// `_allowUnboundCallableReference = true` and stores a `FunctionTypeInfo`, while the walk's own
+// `AllowUnboundCallableReference` and stores a `FunctionTypeInfo`, while the walk's own
 // analysis — run with that flag at its outer value — answers `unknown` AND IS THE SOLE PRODUCER of
 // the NL411 that says the method must be called. A cache read would return the wrong type and
 // delete a user-visible diagnostic.
