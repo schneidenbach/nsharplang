@@ -104,9 +104,10 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
     memberAccess := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
     indexAccess := new AnalyzerIndexAccess(sink, spans, context, ambient, nullFlow, soaEscape, memberAccess, constants)
     writeTargets := new AnalyzerWriteTargets(sink, spans, scopes, context, substitution, clrConversion, ambient, soaEscape, memberAccess, indexAccess)
+    argumentBinder := new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver)
     owner := new AnalyzerCallAnalysis(
-        reporter, walk, validator, reflectionReporter, substitution, assignability, sink, spans,
-        scopes, ambient, writeTargets, identifierResolution)
+        reporter, walk, validator, reflectionReporter, argumentBinder, clrConversion, substitution,
+        assignability, sink, spans, scopes, ambient, writeTargets, identifierResolution)
     return new CallWalkHarness(owner, errors, scopes, ambient)
 }
 
@@ -254,9 +255,14 @@ func CallWalkTypeText(resolved: TypeInfo?): string {
 //
 // KIND 6 IS RENDERED IN TWO FORMS BECAUSE THE WALK ASKS IT FOR TWO REASONS. `6(callee)` is the
 // callee's own analysis, taken under the three callee-position suppressions the walk opens and
-// closes around it; a bare `6` is a member-access RECEIVER. The DRIVER cannot tell them apart and
-// does not need to — both are `AnalyzeExpression(node)` — but a contract about how many times the
-// receiver is read must not count the callee as one of them.
+// closes around it; a bare `6` is a member-access RECEIVER — either the ordinary one, or the
+// reflected bind's SECOND read of it. The DRIVER cannot tell them apart and does not need to — both
+// are `AnalyzeExpression(node)` — but a contract about how many times the receiver is read must not
+// count the callee as one of them.
+//
+// KIND 4 CARRIES ITS EXPECTED TYPE AND KIND 15 CARRIES ITS TREE FLAG, because those are exactly what
+// distinguishes the reflected bind's argument pre-pass (`4(<null>)`) from an ordinary argument, and
+// an expression-tree lambda (`15(tree)`) from a plain one.
 func CallWalkStepText(step: CallAnalysisRequest, call: CallExpression): string {
     kind := step.Kind
     if kind == 4 {
@@ -280,6 +286,14 @@ func CallWalkStepText(step: CallAnalysisRequest, call: CallExpression): string {
         return "7(" + action + ")"
     }
 
+    if kind == 15 {
+        if step.Flag {
+            return "15(tree)"
+        }
+
+        return "15(" + CallWalkTypeText(step.CarriedType) + ")"
+    }
+
     return kind.ToString()
 }
 
@@ -291,7 +305,7 @@ func CallWalkRun(
     calleeType: TypeInfo?,
     receiverType: TypeInfo?,
     argumentAnswer: TypeInfo,
-    boundReflection: TypeInfo?,
+    lambdaAnswer: TypeInfo?,
     firedGate: int): string {
     call := state.Call
     transcript := ""
@@ -313,8 +327,8 @@ func CallWalkRun(
             } else {
                 answer = receiverType
             }
-        } else if kind == 12 || kind == 13 {
-            answer = boundReflection
+        } else if kind == 15 {
+            answer = lambdaAnswer
         } else if kind == firedGate {
             handled = true
         }
@@ -801,9 +815,9 @@ test "a method-group lambda argument is not analysed here and folds unknown" {
 
     // The skipped argument is no longer a STEP at all — kind 5 was a round trip that relayed a
     // report the walk now makes itself — so the transcript goes straight from the null-call report
-    // to the gates and then to the group binding that will analyse the lambda with a real delegate
-    // type.
-    assert transcript == "3 8 13"
+    // to the gates and then STOPS: the bind's own argument pre-pass skips a lambda too, and an empty
+    // method group pre-binds no candidate at all.
+    assert transcript == "3 8"
     assert state.ArgTypes.Count == 1
     assert CallWalkTypeText(state.ArgTypes[0]) == "unknown"
     assert errors.Count == 0
@@ -830,7 +844,7 @@ test "a ref method-group lambda argument is still refused as a write target" {
         null,
         0)
 
-    assert transcript == "3 8 13"
+    assert transcript == "3 8"
     assert errors.Count == 1
     assert errors[0].Message == "The 'ref' argument needs an assignable target"
 }
@@ -853,8 +867,230 @@ test "a reflected call that binds to nothing answers unknown through the reporte
         null,
         0)
 
-    assert transcript == "3 4(<null>) 8 13"
+    // THE ARGUMENT IS ANALYSED TWICE AND ALWAYS WAS. The walk's own argument schedule analyses it
+    // once for the call's argument types; the reflected bind analyses every NON-LAMBDA argument again
+    // because pre-binding scores against them. `Analyzer.cs` did exactly this inside
+    // `BindReflectionCall`, where the second analysis was invisible to the protocol; owning the bind
+    // makes it a step, and the second `4(<null>)` is that same analysis rather than a new one.
+    assert transcript == "3 4(<null>) 8 4(<null>)"
     assert CallWalkTypeText(state.Result) == "unknown"
+}
+
+// ── the reflected bind's candidate order, which is user-visible ───────────────
+//
+// The order decides WHICH failed candidate's diagnostics survive: every candidate that fails has its
+// reports withdrawn before the next is tried, so the LAST one tried is the one the user reads. It is
+// therefore sorted by hand, with a STRICTLY-precedes predicate driving an insertion sort, and both
+// halves of that are pinned here — the key order, and the STABILITY that a `>=` predicate would
+// silently destroy.
+
+// FOUR SINGLE-OVERLOAD STATICS, used only as identity TAGS. A candidate's identity has to be
+// observable to pin STABILITY, and the runtime method is the one field that is already there and
+// already distinct — so the transcripts below read the method NAMES rather than comparing references.
+func CallWalkCandidateMethod(tag: int): MethodInfo {
+    if tag == 1 {
+        return typeof(string).GetMethod("IsNullOrWhiteSpace")
+    }
+
+    if tag == 2 {
+        return typeof(string).GetMethod("Intern")
+    }
+
+    if tag == 3 {
+        return typeof(string).GetMethod("IsInterned")
+    }
+
+    return typeof(string).GetMethod("IsNullOrEmpty")
+}
+
+func CallWalkCandidate(score: int, usesParams: bool, defaultsUsed: int): ReflectionPreBoundCandidate {
+    return CallWalkTaggedCandidate(score, usesParams, defaultsUsed, 0)
+}
+
+func CallWalkTaggedCandidate(score: int, usesParams: bool, defaultsUsed: int, tag: int): ReflectionPreBoundCandidate {
+    method := CallWalkCandidateMethod(tag)
+    return new ReflectionPreBoundCandidate(
+        method,
+        method,
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        new List<ReflectionBoundArgument>(),
+        score,
+        usesParams,
+        defaultsUsed)
+}
+
+func CallWalkCandidateTags(candidates: List<ReflectionPreBoundCandidate>): string {
+    rendered := ""
+    index := 0
+    while index < candidates.Count {
+        if rendered.Length > 0 {
+            rendered = rendered + " "
+        }
+
+        // Split into locals, and read the name through `get_Name()`: a chained
+        // `list[i].Property.Property` read declines at `emit.statement.block-child`, and a reflected
+        // member is reached through its accessor rather than its property syntax.
+        candidate := candidates[index]
+        method := candidate.RuntimeMethod
+        rendered = rendered + method.get_Name()
+        index = index + 1
+    }
+
+    return rendered
+}
+
+func CallWalkCandidateOrder(candidates: List<ReflectionPreBoundCandidate>): string {
+    rendered := ""
+    index := 0
+    while index < candidates.Count {
+        if rendered.Length > 0 {
+            rendered = rendered + " "
+        }
+
+        candidate := candidates[index]
+        // NOT `params`: it is a keyword, and a local that spells one declines at `parse.function`.
+        paramsMark := "n"
+        if candidate.UsesParams {
+            paramsMark = "p"
+        }
+
+        rendered = rendered + candidate.Score.ToString() + paramsMark + candidate.DefaultsUsed.ToString()
+        index = index + 1
+    }
+
+    return rendered
+}
+
+test "the candidate order is score DESCENDING first" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkCandidate(1, false, 0))
+    candidates.Add(CallWalkCandidate(9, false, 0))
+    candidates.Add(CallWalkCandidate(5, false, 0))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    assert CallWalkCandidateOrder(candidates) == "9n0 5n0 1n0"
+}
+
+test "at equal score the candidate that does NOT need params wins" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkCandidate(4, true, 0))
+    candidates.Add(CallWalkCandidate(4, false, 0))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    assert CallWalkCandidateOrder(candidates) == "4n0 4p0"
+}
+
+test "at equal score and params the candidate that needs FEWER defaults wins" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkCandidate(4, false, 3))
+    candidates.Add(CallWalkCandidate(4, false, 1))
+    candidates.Add(CallWalkCandidate(4, false, 2))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    assert CallWalkCandidateOrder(candidates) == "4n1 4n2 4n3"
+}
+
+// THE STABILITY IS THE POINT. Three candidates with IDENTICAL keys must come out in the order the
+// method group gave them, because that order decides whose diagnostics the user reads. This is the
+// contract a `>=` comparison — or any sort that is merely "correct" — would break.
+test "candidates with identical keys keep the order the method group gave them" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkTaggedCandidate(4, false, 1, 0))
+    candidates.Add(CallWalkTaggedCandidate(4, false, 1, 1))
+    candidates.Add(CallWalkTaggedCandidate(4, false, 1, 2))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    assert CallWalkCandidateTags(candidates) == "IsNullOrEmpty IsNullOrWhiteSpace Intern"
+}
+
+test "ties INSIDE a reordering keep their relative order too" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkTaggedCandidate(1, false, 0, 0))
+    candidates.Add(CallWalkTaggedCandidate(7, false, 0, 1))
+    candidates.Add(CallWalkTaggedCandidate(7, false, 0, 2))
+    candidates.Add(CallWalkTaggedCandidate(1, false, 0, 3))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    // The two 7s keep their order and so do the two 1s: a sort that reordered ties would show
+    // `Intern IsNullOrWhiteSpace` or `IsInterned IsNullOrEmpty` here.
+    assert CallWalkCandidateTags(candidates) == "IsNullOrWhiteSpace Intern IsNullOrEmpty IsInterned"
+}
+
+test "the precedes predicate is STRICT, so an identical pair precedes neither way" {
+    left := CallWalkCandidate(4, false, 1)
+    right := CallWalkCandidate(4, false, 1)
+
+    assert !AnalyzerCallAnalysis.PrecedesReflectionCandidate(left, right)
+    assert !AnalyzerCallAnalysis.PrecedesReflectionCandidate(right, left)
+}
+
+// ── the diagnostic rollback, which is what makes the order matter ─────────────
+
+test "a rollback to a mark withdraws exactly the reports taken after it" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Report(ErrorCode.InvalidSyntax, "kept", 1, 1, null, 0)
+    mark := sink.ErrorCount
+    sink.Report(ErrorCode.InvalidSyntax, "withdrawn one", 2, 1, null, 0)
+    sink.Report(ErrorCode.InvalidSyntax, "withdrawn two", 3, 1, null, 0)
+
+    sink.RollbackErrorsTo(mark)
+
+    assert sink.ErrorCount == 1
+    assert errors.Count == 1
+    assert errors[0].Message == "kept"
+}
+
+test "a rollback to the CURRENT mark withdraws nothing" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Report(ErrorCode.InvalidSyntax, "kept", 1, 1, null, 0)
+
+    sink.RollbackErrorsTo(sink.ErrorCount)
+
+    assert sink.ErrorCount == 1
+}
+
+test "a rollback to a mark BEYOND the list withdraws nothing rather than throwing" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Report(ErrorCode.InvalidSyntax, "kept", 1, 1, null, 0)
+
+    sink.RollbackErrorsTo(99)
+
+    assert sink.ErrorCount == 1
+}
+
+test "a rollback to zero withdraws everything" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Report(ErrorCode.InvalidSyntax, "one", 1, 1, null, 0)
+    sink.Report(ErrorCode.InvalidSyntax, "two", 2, 1, null, 0)
+
+    sink.RollbackErrorsTo(0)
+
+    assert sink.ErrorCount == 0
 }
 
 test "a newtype construction checks arity first and the underlying type second" {

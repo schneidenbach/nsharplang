@@ -84,6 +84,31 @@ class AnalyzerDiagnosticSink {
         errorsValue.Add(error)
     }
 
+    // EVERY DIAGNOSTIC REPORTED SINCE A REMEMBERED COUNT, WITHDRAWN.
+    //
+    // This is the SPECULATIVE reporter's door and it exists for exactly one caller: overload
+    // resolution over a reflected method GROUP finalises candidates in preference order, and a
+    // candidate that fails may have reported before it failed. Those reports belong to a candidate
+    // the user never named, so they are withdrawn before the next candidate is tried — and the ones
+    // that survive are the LAST candidate's, which is why the candidate ORDER is user-visible.
+    //
+    // It is deliberately a ROLLBACK TO A MARK rather than a remove-by-identity: a report is
+    // identified by its POSITION in the one ordered list, exactly as `ErrorCount` identifies the
+    // mark, and nothing else in the analyzer may un-report anything.
+    // It removes from the END rather than by range, and that is a language wall routed around rather
+    // than a preference: `List<T>.RemoveRange` is not in the columnar backend's catalog, and
+    // `RemoveAt` is. Removing the last element repeatedly is the same list, one allocation-free step
+    // at a time, and it cannot shift an element it is not about to drop.
+    func RollbackErrorsTo(count: int) {
+        if count < 0 {
+            return
+        }
+
+        while errorsValue.Count > count {
+            errorsValue.RemoveAt(errorsValue.Count - 1)
+        }
+    }
+
     func Warn(code: ErrorCode, message: string, line: int, column: int, suggestion: string?, length: int) {
         errorsValue.Add(AnalyzerDiagnostics.Create(code, message, currentFilePathValue, line, column, SourceSnippet(line), suggestion, length, ErrorSeverity.Warning))
     }

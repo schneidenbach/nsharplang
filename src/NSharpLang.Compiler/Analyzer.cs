@@ -137,6 +137,12 @@ public class Analyzer : IDisposable
     // the reporting order and the resulting type. Rebuilt with the SCC: it holds the walk, the
     // validator, the reflected-call reporter and assignability, all of which the rebuild replaces.
     private AnalyzerCallAnalysis _callAnalysis;
+    // What a lambda means — the delegate door its expected type is read through, its parameters'
+    // types and positions, which body shape it has and what it finally answers — and what
+    // subscribing to an event with `on` means, which is a lambda site and nothing else. Rebuilt with
+    // the SCC: it holds the CLR conversion and the assignability facts, both of which the rebuild
+    // replaces.
+    private AnalyzerLambdaAnalysis _lambdaAnalysis;
     // Whether a match covers everything its scrutinee can be, and the diagnostic when it does not.
     // Rebuilt with the SCC: it holds assignability, which the rebuild replaces.
     private AnalyzerMatchExhaustiveness _matchExhaustiveness;
@@ -443,6 +449,7 @@ public class Analyzer : IDisposable
             _assignabilityFacts);
         _writeTargets = CreateWriteTargets();
         _callAnalysis = CreateCallAnalysis();
+        _lambdaAnalysis = CreateLambdaAnalysis();
         _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
         _operatorExpressions = CreateOperatorExpressions();
         _construction = CreateConstruction();
@@ -522,6 +529,8 @@ public class Analyzer : IDisposable
             _syntheticCallWalk,
             _syntheticCallValidator,
             _reflectionCallReporter,
+            _reflectionArgumentBinder,
+            _clrTypeConversion,
             _typeSubstitution,
             _assignability,
             _diagnostics,
@@ -530,6 +539,16 @@ public class Analyzer : IDisposable
             _ambient,
             _writeTargets,
             _identifierResolution);
+
+    private AnalyzerLambdaAnalysis CreateLambdaAnalysis()
+        => new(
+            _diagnostics,
+            _spans,
+            _declarationContext,
+            _typeResolver,
+            _clrTypeConversion,
+            _assignabilityFacts,
+            _soaEscape);
 
     private AnalyzerReflectionCallReporter CreateReflectionCallReporter()
         => new(
@@ -2883,7 +2902,7 @@ public class Analyzer : IDisposable
     /// Kinds 1 and 2 are BOTH expression walks and are deliberately different: kind 1 is a PLAIN walk
     /// under a cleared-slot bracket the owner opens and closes itself (slice 51's pattern, because the
     /// C# bracketed a plain walk), and kind 2 is the TARGET-TYPED walk (slice 52's, because the C#
-    /// called the form that routes a lambda to <see cref="AnalyzeLambda"/> before any bracket opens).
+    /// called the form that routes a lambda to <see cref="DriveLambda"/> before any bracket opens).
     /// An owner cannot simulate kind 2 by setting the slot, which is why it is a kind and not a bracket.
     /// Kind 4 re-enters the pattern walk through <see cref="AnalyzePattern"/>, the same recursion a
     /// nested pattern takes, so this walk needs no pattern stack of its own.
@@ -3183,14 +3202,16 @@ public class Analyzer : IDisposable
             IndexAccessExpression => DriveIndexAccess(_indexAccess.Begin(expr)),
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression => DriveAssignment(_assignment.Begin(expr)),
-            OnSubscriptionExpression on => AnalyzeOnSubscription(on),
-            LambdaExpression lambda => AnalyzeLambda(lambda, _ambient.CurrentExpectedType),
+            OnSubscriptionExpression on => DriveOnSubscription(_lambdaAnalysis.BeginOnSubscription(
+                on, typeof(NSharpLang.Runtime.NSharpEventSubscription))),
+            LambdaExpression lambda => DriveLambda(_lambdaAnalysis.BeginLambda(
+                lambda, _ambient.CurrentExpectedType, true, false)),
             CastExpression or CheckedExpression or UncheckedExpression or TernaryExpression
                 => DriveTargetTypedOperand(_targetTypedOperands.Begin(expr)),
             ArrayLiteralExpression => DriveArrayLiteral(_arrayLiteral.Begin(expr)),
             NewExpression => DriveConstruction(_construction.Begin(expr)),
             ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
-            BaseExpression => AnalyzeBaseExpression(),
+            BaseExpression => _declarationContext.ResolveBaseType(_scopes.CurrentTypeScope()),
             MatchExpression => DriveMatchExpression(_matchExpression.Begin(expr)),
             TypeOfExpression or NameofExpression or SizeOfExpression or DefaultExpression
                 => DriveCompileTimeConstant(_compileTimeConstants.Begin(expr, _wellKnownTypes)),
@@ -3239,19 +3260,6 @@ public class Analyzer : IDisposable
         }
 
         return flowType;
-    }
-
-    private TypeInfo AnalyzeExpressionAllowingUnboundCallableReference(Expression expression)
-    {
-        var previous = _ambient.EnterAllowUnboundCallableReference();
-        try
-        {
-            return AnalyzeExpression(expression);
-        }
-        finally
-        {
-            _ambient.ExitAllowUnboundCallableReference(previous);
-        }
     }
 
     private void ReportSyntheticSoaOperationUsedAsValue(Expression expression, FunctionTypeInfo operation)
@@ -3337,14 +3345,16 @@ public class Analyzer : IDisposable
         => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
 
     /// <summary>
-    /// The steps the N#-owned call walk cannot take for itself: the analyzer's own expression walk
-    /// and the reflected-call binders that have not moved yet. The walk runs in
+    /// The steps the N#-owned call walk cannot take for itself, which are now nothing but the
+    /// analyzer's own expression, lambda and semantic-model doors. The walk runs in
     /// <see cref="AnalyzerCallAnalysis"/>, suspends at each step and resumes with the answer, because
     /// the number of times the member-access RECEIVER is analysed depends on which overload the bind
     /// chose — and the bind consumes the first receiver analysis, so no schedule computed up front
     /// reproduces it. Which branch, which node, which expected type, which report, how many receiver
-    /// analyses and what the call's type finally is are all the walk's decisions; this loop performs
-    /// the one operation it is handed, with the operands it is handed.
+    /// analyses, which reflected candidate is preferred, whose diagnostics are withdrawn and what the
+    /// call's type finally is are all the walk's decisions; this loop performs the one operation it is
+    /// handed, with the operands it is handed. The reflected bind's own finalising walk is COMPOSED
+    /// into that protocol rather than nested inside this loop, so there is still one loop here.
     /// </summary>
     private TypeInfo AnalyzeCall(CallExpression call)
     {
@@ -3374,15 +3384,13 @@ public class Analyzer : IDisposable
                 case 8:
                     handled = _soaDirectColumnCalls.ReportDirectColumnCallIfNeeded(call, step.CarriedType!);
                     break;
-                case 12:
-                    answer = BindSingleReflectionMethod(step.Method!, call);
-                    break;
-                case 13:
-                    answer = BindReflectionCall(step.MethodGroup!, call);
-                    break;
                 case 14:
                     _semanticModel.RecordExpressionType(
                         call.Callee.Line, call.Callee.Column, step.CarriedType!);
+                    break;
+                case 15:
+                    answer = DriveLambda(_lambdaAnalysis.BeginLambda(
+                        step.Lambda!, step.CarriedType, true, step.Flag));
                     break;
             }
 
@@ -3398,7 +3406,7 @@ public class Analyzer : IDisposable
         bool allowUnboundCallableReference = false)
     {
         if (expression is LambdaExpression lambda)
-            return AnalyzeLambda(lambda, expectedType);
+            return DriveLambda(_lambdaAnalysis.BeginLambda(lambda, expectedType, true, false));
 
         var previousExpectedType = _ambient.EnterExpectedTypeIfProvided(expectedType);
         var previousAllowUnboundCallableReference =
@@ -3445,199 +3453,45 @@ public class Analyzer : IDisposable
             member.Name, member.IsAsync, member.IsGenerator, sourceReturnType);
     }
 
-    private FunctionTypeInfo? BindReflectionCall(ReflectionMethodGroupInfo methodGroup, CallExpression call)
-    {
-        TypeInfo? receiverTypeInfo = null;
-        Type? receiverClrType = null;
-        if (call.Callee is MemberAccessExpression memberAccess)
-        {
-            receiverTypeInfo = AnalyzeExpression(memberAccess.Object);
-            receiverClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(receiverTypeInfo)
-                ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo);
-        }
-
-        var analyzedNonLambdaArguments = new TypeInfo?[call.Arguments.Count];
-        for (int i = 0; i < call.Arguments.Count; i++)
-        {
-            if (call.Arguments[i].Value is LambdaExpression)
-                continue;
-
-            analyzedNonLambdaArguments[i] = AnalyzeExpressionAllowingUnboundCallableReference(call.Arguments[i].Value);
-        }
-
-        var candidates = new List<ReflectionPreBoundCandidate>();
-
-        foreach (var method in methodGroup.Methods)
-        {
-            var candidate = _reflectionArgumentBinder.PreBindReflectionMethod(
-                method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);
-            if (candidate == null)
-                continue;
-
-            candidates.Add(candidate);
-        }
-
-        if (candidates.Count == 0)
-            return null;
-
-        foreach (var candidate in candidates
-                     .OrderByDescending(candidate => candidate.Score)
-                     .ThenBy(candidate => candidate.UsesParams)
-                     .ThenBy(candidate => candidate.DefaultsUsed))
-        {
-            var errorsBefore = _errors.Count;
-            var boundCall = FinalizeBoundReflectionCall(candidate);
-            if (boundCall != null)
-                return boundCall;
-
-            if (_errors.Count > errorsBefore)
-            {
-                _errors.RemoveRange(errorsBefore, _errors.Count - errorsBefore);
-            }
-        }
-
-        return null;
-    }
-
-    private FunctionTypeInfo? BindSingleReflectionMethod(MethodInfo method, CallExpression call)
-    {
-        TypeInfo? receiverTypeInfo = null;
-        Type? receiverClrType = null;
-        if (call.Callee is MemberAccessExpression memberAccess)
-        {
-            receiverTypeInfo = AnalyzeExpression(memberAccess.Object);
-            receiverClrType = _clrTypeConversion.TryConvertTypeInfoToClrType(receiverTypeInfo)
-                ?? _clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo);
-        }
-
-        var analyzedNonLambdaArguments = new TypeInfo?[call.Arguments.Count];
-        for (int i = 0; i < call.Arguments.Count; i++)
-        {
-            if (call.Arguments[i].Value is LambdaExpression)
-                continue;
-
-            analyzedNonLambdaArguments[i] = AnalyzeExpressionAllowingUnboundCallableReference(call.Arguments[i].Value);
-        }
-
-        var preBound = _reflectionArgumentBinder.PreBindReflectionMethod(
-            method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);
-        if (preBound == null)
-            return null;
-
-        return FinalizeBoundReflectionCall(preBound);
-    }
-
     /// <summary>
-    /// The one step the N#-owned finalising walk cannot take for itself: analysing an expression.
-    /// The walk runs in <see cref="AnalyzerReflectionArgumentBinder"/>, suspends at each analysis it
-    /// needs and resumes with the answer, because a later lambda's expected signature is read from
-    /// bindings an EARLIER lambda's answer produced — so no schedule can be computed up front. Which
-    /// node, which entry point, which expected type, which expression-tree flag and whether to
-    /// continue at all are the walk's decisions; this loop only performs the analysis it is handed.
+    /// The two steps the N#-owned `on` walk cannot take for itself. What may be subscribed to, in
+    /// which order its four failures are reported, and which expected type the handler is given are
+    /// all the walk's decisions; this loop performs the one operation it is handed. The bare-event
+    /// guard around the TARGET is bracketed HERE rather than held by the walk because the guarantee
+    /// is that it is restored even if the analysis THROWS — a guarantee an owner-held pair spanning
+    /// a suspension cannot keep.
     /// </summary>
-    private FunctionTypeInfo? FinalizeBoundReflectionCall(ReflectionPreBoundCandidate candidate)
+    private TypeInfo DriveOnSubscription(OnSubscriptionState state)
     {
-        var state = _reflectionArgumentBinder.BeginFinalizeReflectionCall(candidate);
-        for (var request = _reflectionArgumentBinder.NextReflectionAnalysis(state);
-             request != null;
-             request = _reflectionArgumentBinder.NextReflectionAnalysis(state))
+        for (var step = _lambdaAnalysis.NextOnStep(state);
+             step != null;
+             step = _lambdaAnalysis.NextOnStep(state))
         {
-            _reflectionArgumentBinder.SupplyReflectionAnalysis(
-                state,
-                request.Lambda != null
-                    ? AnalyzeLambda(
-                        request.Lambda,
-                        request.ExpectedType,
-                        isExpressionTreeTarget: request.IsExpressionTreeTarget)
-                    : AnalyzeExpressionWithExpectedType(request.Expression, request.ExpectedType));
+            TypeInfo? answer = null;
+            switch (step.Kind)
+            {
+                case 1:
+                    var previousAllow = _ambient.EnterAllowEventReference();
+                    try
+                    {
+                        answer = AnalyzeExpression(step.Node!);
+                    }
+                    finally
+                    {
+                        _ambient.ExitAllowEventReference(previousAllow);
+                    }
+
+                    break;
+                case 2:
+                    DriveLambda(_lambdaAnalysis.BeginLambda(
+                        step.Lambda!, step.ExpectedType, step.ReportInferenceFailure, false));
+                    break;
+            }
+
+            _lambdaAnalysis.SupplyOnStep(state, answer);
         }
 
         return state.Result;
-    }
-
-    private TypeInfo AnalyzeOnSubscription(OnSubscriptionExpression on)
-    {
-        var subscriptionType = new ReflectionTypeInfo(typeof(NSharpLang.Runtime.NSharpEventSubscription));
-
-        var previousAllow = _ambient.EnterAllowEventReference();
-        TypeInfo targetType;
-        try
-        {
-            // Resolve the target without the bare-event guard so the diagnostics below are the
-            // ones the user sees. Restored even if analysis throws.
-            targetType = AnalyzeExpression(on.Target);
-        }
-        finally
-        {
-            _ambient.ExitAllowEventReference(previousAllow);
-        }
-
-        if (targetType is not ReflectionEventInfo eventInfo)
-        {
-            if (_soaEscape.ReportSoaRowEscapeIfNeeded(on.Target, targetType, "used as an event target"))
-            {
-                AnalyzeLambda(on.Handler, reportInferenceFailure: false);
-                return subscriptionType;
-            }
-            if (_soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(on.Target, "used as an event target"))
-            {
-                AnalyzeLambda(on.Handler, reportInferenceFailure: false);
-                return subscriptionType;
-            }
-
-            // Don't pile a "not an event" error on top of an already-reported resolution failure.
-            if (!BuiltInTypes.IsUnknown(targetType))
-            {
-                var (line, column, length) = _spans.GetExpressionDiagnosticSpan(on.Target);
-                Error(
-                    ErrorCode.InvalidEventSubscription,
-                    "`on` can only subscribe to a .NET event",
-                    line,
-                    column,
-                    "Write `on <object>.<Event> (sender, args) => { ... }`. To combine plain delegates, use `+=` on a Func/Action field instead.",
-                    length);
-            }
-
-            AnalyzeLambda(on.Handler, reportInferenceFailure: false);
-            return subscriptionType;
-        }
-
-        var addMethod = eventInfo.AddMethod;
-        var removeMethod = eventInfo.RemoveMethod;
-        var handlerDelegateType = eventInfo.HandlerDelegateType;
-
-        // Prove the event is actually subscribable now, with a clear diagnostic, rather than
-        // letting the IL backend throw on a missing accessor or value-type receiver.
-        if (addMethod == null || removeMethod == null || handlerDelegateType == null)
-        {
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(on.Target);
-            Error(
-                ErrorCode.InvalidEventSubscription,
-                $"'{eventInfo.Name}' can't be subscribed to — it has no accessible add/remove accessors",
-                line,
-                column,
-                "This usually means the event is compiler-generated or inaccessible from N#.",
-                length);
-            AnalyzeLambda(on.Handler, reportInferenceFailure: false);
-            return subscriptionType;
-        }
-
-        if (!addMethod.IsStatic && (eventInfo.DeclaringType?.IsValueType ?? false))
-        {
-            var (line, column, length) = _spans.GetExpressionDiagnosticSpan(on.Target);
-            Error(
-                ErrorCode.InvalidEventSubscription,
-                $"subscribing to '{eventInfo.Name}' isn't supported — it's an instance event on a value type (struct)",
-                line,
-                column,
-                "Events on struct receivers can't be bound safely. Subscribe through a reference-type instance instead.",
-                length);
-            AnalyzeLambda(on.Handler, new ReflectionTypeInfo(handlerDelegateType));
-            return subscriptionType;
-        }
-
-        AnalyzeLambda(on.Handler, new ReflectionTypeInfo(handlerDelegateType));
-        return subscriptionType;
     }
 
     private void ReportEventUsedAsValue(Expression expr, ReflectionEventInfo eventRef)
@@ -3653,109 +3507,69 @@ public class Analyzer : IDisposable
             length);
     }
 
-    private FunctionTypeInfo AnalyzeLambda(
-        LambdaExpression lambda,
-        TypeInfo? expectedType = null,
-        bool reportInferenceFailure = true,
-        bool isExpressionTreeTarget = false)
+    /// <summary>
+    /// The steps the N#-owned lambda walk cannot take for itself. The walk runs in
+    /// <see cref="AnalyzerLambdaAnalysis"/> and owns everything about a lambda that is a decision:
+    /// which signature its expected type names, which parameters are inferred and from where, which
+    /// untyped parameter is a hard error, where each parameter is declared, which body shape there
+    /// is, what that body is measured against and what the lambda finally answers. This loop
+    /// performs the one operation it is handed. Kinds 7 and 8 are RELAYS to the expression-tree
+    /// validator, a purely syntactic predicate over the AST that is a slice of its own. The
+    /// nested-body ambient boundary is bracketed HERE for the same reason `on`'s event guard is: the
+    /// guarantee is that it is restored even if the body analysis THROWS.
+    /// </summary>
+    private FunctionTypeInfo DriveLambda(LambdaAnalysisState state)
     {
-        var expectedSignature = GetFunctionSignature(expectedType);
-        var targetsExpressionTree = isExpressionTreeTarget
-            || AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
-                expectedType, _declarationContext, _clrTypeConversion);
-        PushScope(new Scope(ScopeKind.Function), lambda.Line, lambda.Column);
-        var parameterTypes = new List<TypeInfo>();
-        var reportedParameterInferenceFailure = false;
-
-        foreach (var param in lambda.Parameters)
+        for (var step = _lambdaAnalysis.NextLambdaStep(state);
+             step != null;
+             step = _lambdaAnalysis.NextLambdaStep(state))
         {
-            // Parser uses `var` as the placeholder type for untyped lambda parameters,
-            // so only treat the parameter as explicit when it is something other than `var`.
-            var paramIndex = parameterTypes.Count;
-            var hasExplicitType = param.Type is not null
-                && param.Type is not SimpleTypeReference { Name: "var" };
-            var hasInferenceSource = expectedSignature?.ParameterTypes != null
-                && paramIndex < expectedSignature.ParameterTypes.Count;
-
-            var paramType = hasExplicitType
-                ? _typeResolver.ResolveType(param.Type!)
-                : hasInferenceSource
-                    ? expectedSignature!.ParameterTypes![paramIndex]
-                    : BuiltInTypes.Unknown;
-            var (paramLine, paramColumn) = AnalyzerBindingFacts.GetParameterDeclarationPosition(
-                param.Line,
-                param.Column,
-                lambda.Line,
-                lambda.Column);
-
-            // An untyped parameter with NO inference source (`f := x => x + 1` — nothing names the
-            // delegate type) must be a compile-time error: letting the Unknown type flow on emits a
-            // delegate with a garbage signature whose invocation CORRUPTS MEMORY at runtime
-            // (AccessViolationException — probe-proven). Reported once per lambda; suppressed on
-            // error-recovery paths that already diagnosed the surrounding statement.
-            if (!hasExplicitType && !hasInferenceSource
-                && reportInferenceFailure && !reportedParameterInferenceFailure)
+            TypeInfo? answer = null;
+            switch (step.Kind)
             {
-                Error(
-                    ErrorCode.CannotInferType,
-                    $"I can't figure out the type of lambda parameter '{param.Name}' — nothing here names the lambda's delegate type",
-                    paramLine,
-                    paramColumn,
-                    $"Give the lambda a typed home (e.g., 'let f: Func<int, int> = {param.Name} => ...') or pass it directly where a delegate type is expected.",
-                    param.Name.Length);
-                reportedParameterInferenceFailure = true;
+                case 1:
+                    answer = AnalyzeExpressionWithExpectedType(step.Node!, step.ExpectedType);
+                    break;
+                case 2:
+                    PushScope(new Scope(ScopeKind.Function), step.Line, step.Column);
+                    break;
+                case 3:
+                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    break;
+                case 4:
+                    _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
+                    break;
+                case 5:
+                    var bodyFrame = _ambient.EnterNestedBody(null, step.CarriedType);
+                    try
+                    {
+                        AnalyzeStatement(step.Body!);
+                    }
+                    finally
+                    {
+                        _ambient.ExitNestedBody(bodyFrame);
+                    }
+
+                    break;
+                case 6:
+                    PopScope();
+                    break;
+                case 7:
+                    ReportExpressionTreeBlockLambdaIfNeeded(step.Lambda!);
+                    break;
+                case 8:
+                    ReportUnsupportedExpressionTreeExpressionIfNeeded(
+                        step.Node!,
+                        step.Lambda!.Parameters
+                            .Select(parameter => parameter.Name)
+                            .ToHashSet(StringComparer.Ordinal));
+                    break;
             }
 
-            DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
-            _scopes.RecordVariable(_semanticModel, param.Name, paramType);
-            parameterTypes.Add(paramType);
+            _lambdaAnalysis.SupplyLambdaStep(state, answer);
         }
 
-        TypeInfo returnType;
-        if (lambda.ExpressionBody != null)
-        {
-            var errorsBeforeBody = _errors.Count;
-            returnType = AnalyzeExpressionWithExpectedType(lambda.ExpressionBody, expectedSignature?.ReturnType);
-            _soaEscape.ReportSoaRowEscapeIfNeeded(lambda.ExpressionBody, returnType, "returned");
-            _soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(lambda.ExpressionBody, "returned");
-            if (targetsExpressionTree && _errors.Count == errorsBeforeBody)
-            {
-                var parameterNames = lambda.Parameters
-                    .Select(parameter => parameter.Name)
-                    .ToHashSet(StringComparer.Ordinal);
-                ReportUnsupportedExpressionTreeExpressionIfNeeded(lambda.ExpressionBody, parameterNames);
-            }
-        }
-        else if (lambda.BlockBody != null)
-        {
-            if (targetsExpressionTree)
-            {
-                ReportExpressionTreeBlockLambdaIfNeeded(lambda);
-            }
-
-            var ambientFrame = _ambient.EnterNestedBody(null, expectedSignature?.ReturnType ?? BuiltInTypes.Unknown);
-            try
-            {
-                AnalyzeStatement(lambda.BlockBody);
-            }
-            finally
-            {
-                _ambient.ExitNestedBody(ambientFrame);
-            }
-            returnType = expectedSignature?.ReturnType ?? BuiltInTypes.Unknown;
-        }
-        else
-        {
-            returnType = BuiltInTypes.Unknown;
-        }
-
-        PopScope();
-
-        return new FunctionTypeInfo()
-        {
-            ParameterTypes = parameterTypes,
-            ReturnType = returnType
-        };
+        return state.Result!;
     }
 
     private void ReportExpressionTreeBlockLambdaIfNeeded(LambdaExpression lambda)
@@ -4006,33 +3820,6 @@ public class Analyzer : IDisposable
             _ => expression.GetType().Name
         };
 
-    private FunctionTypeInfo? GetFunctionSignature(TypeInfo? expectedType)
-    {
-        if (expectedType == null)
-            return null;
-
-        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(expectedType);
-
-        if (resolvedExpectedType is FunctionTypeInfo functionType)
-            return functionType;
-
-        if (resolvedExpectedType is ReflectionTypeInfo reflectionType
-            && (_assignabilityFacts.IsDelegateType(reflectionType.Type) || AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(reflectionType.Type)))
-        {
-            return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(reflectionType.Type);
-        }
-
-        // Handle generic delegate types (Func<int, int>, Action<string>) from N# declarations
-        if (resolvedExpectedType is GenericTypeInfo)
-        {
-            var clrType = _clrTypeConversion.TryConvertTypeInfoToClrType(resolvedExpectedType);
-            if (clrType != null && (_assignabilityFacts.IsDelegateType(clrType) || AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(clrType)))
-                return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(clrType);
-        }
-
-        return null;
-    }
-
     /// <summary>
     /// Performs the steps <see cref="AnalyzerArrayLiteral"/> asks for and returns the type it decided.
     /// Every policy about what an array literal means — that a named element type is the answer
@@ -4096,17 +3883,6 @@ public class Analyzer : IDisposable
         }
 
         return _construction.Result(state);
-    }
-
-    private TypeInfo AnalyzeBaseExpression()
-    {
-        var currentType = _scopes.CurrentTypeScope();
-        if (currentType != null
-            && _declarationContext.TryGetSourceMemberShape(currentType, null, out var shape)
-            && shape.BaseType != null)
-            return shape.BaseType;
-
-        return currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown;
     }
 
     private void PushScope(Scope scope)
@@ -5100,6 +4876,7 @@ public class Analyzer : IDisposable
         _variableDeclaration = CreateVariableDeclaration();
         _writeTargets = CreateWriteTargets();
         _callAnalysis = CreateCallAnalysis();
+        _lambdaAnalysis = CreateLambdaAnalysis();
         _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
         _operatorExpressions = CreateOperatorExpressions();
         _typeResolver.SetWellKnownTypes(_wellKnownTypes);
@@ -5137,6 +4914,7 @@ public class Analyzer : IDisposable
             _variableDeclaration = CreateVariableDeclaration();
             _writeTargets = CreateWriteTargets();
             _callAnalysis = CreateCallAnalysis();
+            _lambdaAnalysis = CreateLambdaAnalysis();
             _soaDirectColumnCalls = CreateSoaDirectColumnCalls();
             _operatorExpressions = CreateOperatorExpressions();
             _typeResolver.SetWellKnownTypes(null);

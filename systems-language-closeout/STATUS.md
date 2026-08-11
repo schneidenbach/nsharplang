@@ -2006,7 +2006,369 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 61 — THE CALL ARM'S DECIDING HALF: THE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 62 — THE LAMBDA, ITS SUBSCRIBER, AND THE
+  REFLECTED BIND: `AnalyzeLambda` + `on` + `base` + THE REFLECTED-BIND HALF D — TERMINAL, WITH THE
+  EXPRESSION-TREE VALIDATOR SUBTREE FORKED ON A MEASURED REASON.** Target recorded BEFORE any
+  production edit, at `e4bbdac29` (`Analyzer.cs` **5,638** lines, non-blank **5,088**, member
+  declarations **214** by the narrow metric and **282** by the modifier-line metric;
+  `ColumnarIlEmitter.cs` **21,471** / **20,412**, fingerprint `text-v1:609051db487c7060`, epoch
+  ceilings **21,723 / 20,646**; `Analyzer.cs` ratchet row currentLines **5,638** / currentNonBlank
+  **5,088**, fingerprint `text-v1:f76c1a99164b6491`, epoch ceilings **23,451 / 20,537**;
+  `SystemsAnalyzer.cs` ratchet row currentLines **2,390** == epochLines **2,390** — task 018 has not
+  started; unit suite baseline **3,194**; contracts baseline **3,570**; ownership audit **18 / 18**;
+  manifest **391** lines; `reviewedHeadFingerprint head-v1:6ece9c400217cef1`).
+
+  **THE EXTRACTOR WAS RE-VALIDATED FIRST, AGAINST SLICE 61's OWN RECORDED EXTENTS.** The brace-matched
+  member extractor was run over `git show 3493fd47d:…/Analyzer.cs` against the twelve extents slice 61
+  recorded (`AnalyzeCall` 78, `TryAnalyzeResultConstructorCall` 54, `TryGetResultArmTypes` 25,
+  `AnalyzeCallCallee` 7, `AnalyzeCallCalleeExpression` 19, `AnalyzeRefOutArgumentExpression` 35,
+  `ReportInvalidRefOutArgumentTargetIfNeeded` 43, `BindReflectionCall` 53, `BindSingleReflectionMethod`
+  27, `FinalizeBoundReflectionCall` 27, `AnalyzeExpressionAllowingUnboundCallableReference` 13,
+  `AnalyzeExpressionWithExpectedType` 23): **12 / 12 REPRODUCED TO THE LINE** before it was trusted.
+
+  **THE EIGHTH BRIEF IS WRONG AGAIN, AND THIS TIME IN TWO SEPARATE WAYS.**
+  * **IT UNDER-NAMED THE LAMBDA'S CLOSURE BY SIX MEMBERS AND 220 LINES.** The brief listed
+    `AnalyzeLambda` (104) with two riders. The exclusive closure re-measured at this tip is **NINE
+    members / 371 lines**: `AnalyzeLambda` (**104**), `GetFunctionSignature` (**26**, SOLE caller
+    `AnalyzeLambda` — not named by any brief), `ReportExpressionTreeBlockLambdaIfNeeded` (**20**),
+    `ReportUnsupportedExpressionTreeExpressionIfNeeded` (**27**),
+    `FindUnsupportedExpressionTreeExpression` (**128**, not named),
+    `IsExpressionTreeStaticCallReceiver` (**25**, not named),
+    `ExpressionTreeReceiverStartsWithValueIdentifier` (**11**, not named),
+    `IsExpressionTreeAnonymousObjectCreation` (**7**, not named) and
+    `GetExpressionTreeExpressionDescription` (**23**, not named). Nothing in `src/`, `tests/` or
+    `editors/` names any of the eight non-`AnalyzeLambda` members.
+  * **AND ITS CALL-SITE COUNT HAS BEEN OFF BY ONE SINCE SLICE 59.** The standing figure — "TEN real
+    call sites across four owners", "`on` calls `AnalyzeLambda` SEVEN times" — is **NINE and SIX**.
+    Measured at three tips with the validated pass and identical at all three (`0f6a5d8ca`,
+    `3493fd47d`, `e4bbdac29`): `AnalyzeExpression` ×1, `AnalyzeExpressionWithExpectedType` ×1,
+    `AnalyzeOnSubscription` ×**6** (`:3579`, `:3584`, `:3601`, `:3621`, `:3635`, `:3639`),
+    `FinalizeBoundReflectionCall` ×1 = **9 sites / 4 owners**. The count was never re-measured after
+    slice 59 recorded it; it is corrected here rather than carried forward.
+
+  **THE FORK, MEASURED AND HONEST: THE LAMBDA'S SEMANTICS MOVE, THE EXPRESSION-TREE VALIDATOR DOES
+  NOT.** The mandate's whole extent is **584 lines / 12 members** (371 lambda + 84 `on` + 119 D + 10
+  `base`) — 3.2× slice 61, and two subjects rather than one.
+  * **THIS SLICE: 343 lines / 8 members** — `AnalyzeLambda` (104) + `GetFunctionSignature` (26), the
+    lambda's own semantics; `AnalyzeOnSubscription` (84); `AnalyzeBaseExpression` (10); and **HALF D**
+    entire — `BindReflectionCall` (53), `BindSingleReflectionMethod` (27),
+    `FinalizeBoundReflectionCall` (27), `AnalyzeExpressionAllowingUnboundCallableReference` (12).
+  * **NEXT SLICE: THE EXPRESSION-TREE VALIDATOR SUBTREE, 7 members / 241 lines** —
+    `ReportExpressionTreeBlockLambdaIfNeeded` (20),
+    `ReportUnsupportedExpressionTreeExpressionIfNeeded` (27),
+    `FindUnsupportedExpressionTreeExpression` (128), `IsExpressionTreeStaticCallReceiver` (25),
+    `ExpressionTreeReceiverStartsWithValueIdentifier` (11),
+    `IsExpressionTreeAnonymousObjectCreation` (7), `GetExpressionTreeExpressionDescription` (23). It
+    is forked for reasons that are measurements, not preferences: (1) it is a DIFFERENT SUBJECT — a
+    purely SYNTACTIC predicate over the AST whose only inputs are an `Expression` and a set of
+    parameter names, with zero dependency on scope, expected type, ambient state or any `TypeInfo`,
+    where the lambda walk is nothing but semantic state; (2) at **241 lines it is larger than the
+    lambda core itself** (130) and larger than any single arm this arc has moved; (3) the seam
+    between them is exactly TWO calls, both from `AnalyzeLambda` and both one-way — the lambda walk
+    decides WHEN (`targetsExpressionTree`), the subtree decides WHAT — so the fork costs exactly two
+    driver kinds and no shared state; (4) D's three prerequisites are the REASON `AnalyzeLambda` was
+    scheduled in this slice at all, so deferring D a second time would defeat the schedule, while
+    deferring a self-contained syntactic validator defeats nothing.
+
+  **D's THREE NAMED PREREQUISITES, DESIGNED DELIBERATELY.**
+  1. **THE COMPOSED RESUMABLE WALK.** `FinalizeBoundReflectionCall` is a nested driver loop over
+     `AnalyzerReflectionArgumentBinder`, whose request type (`ReflectionAnalysisRequest`) and state
+     (`ReflectionCallFinalizeState`) are ALREADY N#. Composition therefore does not nest three walks:
+     `AnalyzerCallAnalysis`'s state gains the inner state, and `NextCallStep` TRANSLATES the inner
+     request into an outer kind while `SupplyCallStep` routes the answer back through
+     `SupplyReflectionAnalysis`. The lambda answer is obtained by the host re-entering the
+     N#-owned lambda walk through its own mechanical driver — the `DriveFunctionBody` kind-5 →
+     `DriveStatementSequence` precedent — not by nesting a third walk inside this one.
+  2. **THE `isExpressionTreeTarget` REQUEST.** The four-argument lambda entry point nothing else calls
+     becomes its own outer kind carrying node, expected type and the tree flag, rather than a widening
+     of kind 4: kind 4 is the target-typed EXPRESSION door and deliberately short-circuits a lambda
+     with the expected type as an ARGUMENT, which is a different operation from one that also carries
+     a tree flag. New numbers only; per slice 37's standing rule no kind is renumbered and no gap is
+     reused.
+  3. **THE USER-VISIBLE STABLE SORT.** `OrderByDescending(Score).ThenBy(UsesParams)
+     .ThenBy(DefaultsUsed)` decides WHICH failed candidate's diagnostics are rolled back and which
+     survive, so its STABILITY is user-visible. N# reproduces it with a hand-rolled INSERTION sort
+     over the candidate list — stable by construction, and the shape whose stability is provable by
+     inspection rather than by appeal to a library — and it needs an error-ROLLBACK door on
+     `AnalyzerDiagnosticSink`, which today has `ErrorCount` only.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT A LAMBDA MEANS, WHAT SUBSCRIBING TO AN EVENT MEANS,
+  WHAT `base` IS, AND HOW A .NET METHOD IS BOUND.**
+
+  **THE CUT — 8 C# MEMBERS, 8 EXTENTS, 343 NAMED LINES.** GONE, by group: the LAMBDA (**130** —
+  `AnalyzeLambda` 104, `GetFunctionSignature` 26); the SUBSCRIPTION (**84** —
+  `AnalyzeOnSubscription`); `base` (**10** — `AnalyzeBaseExpression`); and the REFLECTED BIND
+  (**119** — `BindReflectionCall` 53, `BindSingleReflectionMethod` 27, `FinalizeBoundReflectionCall`
+  27, `AnalyzeExpressionAllowingUnboundCallableReference` 12). ADDED: two mechanical driver loops
+  (`DriveLambda` 64, `DriveOnSubscription` 40), one factory (`CreateLambdaAnalysis` 10), one field
+  with its comment, three rebuild lines, two constructor arguments on `CreateCallAnalysis`, one new
+  driver arm and four re-pointed call sites. `git diff` on `Analyzer.cs` **+124 / −346 = net −222**.
+  The file goes **5,638 → 5,416**, non-blank **5,088 → 4,901 (−187)**, member declarations
+  **214 → 209 (−5)** and modifier lines **282 → 278 (−4)**. **BOTH RATCHET CEILINGS FALL.**
+
+  **THE NINE CALL SITES ARE ALL RE-POINTED, AND SO IS THE ONE THAT DID NOT EXIST.** `AnalyzeExpression`
+  (the lambda arm and the `on` arm), `AnalyzeExpressionWithExpectedType`'s short-circuit,
+  `AnalyzeOnSubscription`'s six handler analyses (now the `on` walk's kind 2, performed by re-entering
+  `DriveLambda`) and `FinalizeBoundReflectionCall`'s four-argument form (now the call walk's kind 15).
+  **THE SLICE-52 FORK'S CONTRACT STILL HOLDS AND WAS RE-READ TO CONFIRM IT**:
+  `AnalyzeExpressionWithExpectedType` returns IMMEDIATELY on a lambda, with the expected type as an
+  ARGUMENT and the ambient slot untouched, and only the non-lambda arm runs the
+  expected-type/allow-unbound post-amble.
+
+  **THE CALL PROTOCOL LOSES TWO KINDS AND GAINS ONE.** Kinds 12 (a single reflected method's binding)
+  and 13 (a method GROUP's binding) are gone — the walk performs the whole five-stage bind itself —
+  and kind **15** arrives: one LAMBDA analysed with an expected type AND an expression-tree flag,
+  which is a different operation from kind 4's target-typed door. Remaining: **3, 4, 6, 7, 8, 14, 15**,
+  gaps now at **1, 2, 5, 9, 10, 11, 12, 13**. **NO RENUMBER**, per slice 37's standing rule.
+
+  **N# ADDED — A NEW 669-LINE OWNER, 379 LINES ON THE CALL OWNER, AND 47 LINES OF NEW DOORS.**
+  `AnalyzerLambdaAnalysis.nl` is **NEW, 669 lines**, four types (`LambdaAnalysisRequest`,
+  `LambdaAnalysisState`, `OnSubscriptionRequest`, `OnSubscriptionState`) and one owner holding both
+  walks. `AnalyzerCallAnalysis.nl` is **+379 / −33** (1,034 → **1,380**) and now owns the receiver's
+  second read, the non-lambda argument pre-pass, candidate pre-binding, the candidate ORDER and the
+  finalising walk composed into its own protocol. `AnalyzerDeclarationContext.nl` is **+22**
+  (`ResolveBaseType`) and `AnalyzerDiagnosticSink.nl` is **+25** (`RollbackErrorsTo`).
+
+  **THE TWO WALKS COMPOSE RATHER THAN NEST, AND THAT IS THE FIRST PREREQUISITE ANSWERED.**
+  `FinalizeBoundReflectionCall` was a nested driver loop over `AnalyzerReflectionArgumentBinder`,
+  whose request type and state were ALREADY N#. So the call walk does not run a second loop: it
+  TRANSLATES each inner `ReflectionAnalysisRequest` into one of its own kinds (a lambda → kind 15, an
+  expression → kind 4) and routes the answer straight back through `SupplyReflectionAnalysis`. There
+  is still ONE driver, ONE loop and ONE protocol, and the driver never learns an inner walk exists.
+  The lambda answer is obtained by the host re-entering the lambda walk through its own mechanical
+  driver — the `DriveFunctionBody` kind-5 → `DriveStatementSequence` precedent.
+
+  **THE ARGUMENT PRE-PASS NEEDED NO NEW KIND, WHICH IS A FINDING RATHER THAN A SAVING.**
+  `AnalyzeExpressionAllowingUnboundCallableReference` is EXACTLY
+  `AnalyzeExpressionWithExpectedType(node, null, allowUnboundCallableReference: true)`: the ambient
+  door leaves the expected-type slot ALONE when none is provided (`EnterExpectedTypeIfProvided`), and
+  restores it unchanged. So the pre-pass is kind 4 with a NULL carried type and the flag set — and it
+  keeps the C#'s `try`/`finally` for free, which an owner-held bracket could not have.
+
+  **PROOF — SIX ORACLE DIFFERENTIALS, ALL ZERO, WITH FRESH RELEASE CLIs AT THE PRISTINE TIP
+  `e4bbdac29` (`/private/tmp/nl62base`) AND AT THE WORKING TREE, BOTH POINTED AT THE SAME SOURCE COPY
+  (`/private/tmp/nl62corpus`).** Every one has an IDENTICAL md5 on both sides, and FIVE of the six
+  reproduce a previously recorded md5 to the digit.
+  * **CORPUS: ORACLE_DIFFS = 0 over 71 rows**, md5 `8590f4c698c24cd92535dd523ca94d49` — **the same
+    md5 slice 61 recorded** — 33 diagnostics across 5 codes (14 NSYS050, 9 NSYS001, 5 NL303, 3
+    NSYS070, 2 NL402), `stderrBytes = 0` on all 142 runs, ZERO `PARSE-FAIL`, the same seven known
+    no-`results` targets.
+  * **SELF-HOST: ORACLE_DIFFS = 0**, md5 `34f914a33eec6380ffa33dba34474671` — **the same md5 slice 61
+    recorded** — **282 findings across 10 codes over 340 checked files**, the slice-61 baseline to the
+    finding.
+  * **SLICE-62 FIXTURES: ORACLE_DIFFS = 0 over 38 rows**, md5 `edac9b88cc4066c17c43bc0255502494`.
+  * **SoA FIXTURES (env-gated, `NSHARP_EXPERIMENTAL_SOA=1`): ORACLE_DIFFS = 0 over 27 rows**, md5
+    `df61922f54b28156e91fa7b5044dff9c` — **the same md5 slices 60 and 61 recorded**.
+  * **SLICE-61 FIXTURES, re-run as an inherited regression: ORACLE_DIFFS = 0 over 36 rows**, md5
+    `c8b65893e62e2b65e631d8fd34a998ca` — **the same md5 slice 61 recorded**, which is the strongest
+    single statement that the call arm's deciding half is untouched by the arm's other half moving.
+  * **SUPPLEMENTARY: ORACLE_DIFFS = 0 over 9 rows**, md5 `228dfc3809752a90f77da3c61121f2fa` — **the
+    same md5 slice 61 recorded**.
+  **PARSE-ERROR CENSUS: 0 KNOWN, 0 NEW.** NL101 and NL102 are absent from all six sets on both sides.
+
+  **PROOF — THE ONE REGRESSION THIS SLICE PRODUCED WAS FOUND BY THE SELF-HOST ORACLE, ROOT-CAUSED,
+  AND FIXED; IT IS RECORDED RATHER THAN HIDDEN.** The first work CLI answered **ORACLE_DIFFS = 3** on
+  the self-host: one NEW `NL103` — `Ambiguous call to 'FilterTargetNuGetDependencies': multiple
+  overloads match with equal specificity` at `UpdateCommand.nl:38` — while all five other oracles were
+  already ZERO. Bisected to a **PHASE-NUMBER COLLISION**: the reflected bind was numbered 20-26, and
+  `AdvanceCall` routes phases 14-17 to the function-type return and then FALLS THROUGH to the
+  N#-method-group return, which owns **18 through 23** and never appears in a listed range. The new
+  range silently stole four of its phases, and the only program in reach that noticed was one N#
+  overload group in the compiler's own source. Renumbered to **30-36**, with the gap between 23 and 30
+  kept as deliberate headroom; the self-host oracle then answered **ORACLE_DIFFS = 0** with the
+  baseline md5. **THE RULE: a phase range routed BEFORE a fall-through must be disjoint from
+  everything the fall-through can see, and "the next free number" is not a measurement of that.**
+
+  **PROOF — THE 38 FIXTURES ARE NON-VACUOUS AND WERE MEASURED TO BE, IN THREE CLASSES.** **14 FIRE A
+  SEMANTIC DIAGNOSTIC** across NL202, NL203, NL301, NL303, NL317, NL318 and NL402; **14 ANALYSE
+  CLEANLY AND DECLINE ONLY AT EMIT** (NL103, identical on both sides — the pre-existing columnar emit
+  gap), which is itself the evidence for the reflected bind: `Select`, `Where` + `Select` chained,
+  `SelectMany`, `Aggregate`, `OrderBy`, a params overload, both `Console.WriteLine` overloads and a
+  METHOD-GROUP argument converted to a delegate all pass the whole N#-owned bind with ZERO analyzer
+  diagnostics; and **10 ARE FULLY SILENT**, including a lambda with a typed home, a two-parameter
+  positional inference, a block lambda taking the delegate's return type, `on` over a real
+  `AppDomain` event, an `on` handler whose parameters are inferred from the event's delegate, a
+  defaulted reflected parameter left out, a chained reflected call, a lambda nested inside a lambda
+  and two lambdas sharing a parameter name. The told paths include: `I can't figure out the type of
+  lambda parameter 'x' — nothing here names the lambda's delegate type` reported ONCE for a
+  two-parameter lambda; `` `on` can only subscribe to a .NET event ``; `Variable 'notAThing' not
+  found` reported ONCE for a failed `on` target whose handler is still analysed; `'ProcessExit' is a
+  .NET event and can only be used with `on`/`off``; `Member 'NotThere' not found on type 'Root'` from
+  `base.NotThere()`, which is `base` resolving to the DECLARED base; a `string?` return from
+  `base.ToString()` in a class with no declared base, which is `base` resolving to `object`; and
+  `No overload of 'Write' accepts 4 arguments with these types`, which is the reflected bind failing
+  every candidate and reporting ONCE.
+
+  **PROOF — THE CORPUS IL CONTROL IS REPRODUCIBLE.** The minimal PE-spec normaliser zeroes exactly the
+  COFF `TimeDateStamp`, every DEBUG-directory `TimeDateStamp` and the metadata `#GUID` heap, and
+  compares everything else RAW. **CONTROL (the BASE CLI building two independent fresh copies of the
+  whole corpus): 118 compared, SAME 118, DIFFERENT 0, ONLY_A 0, ONLY_B 0** — so a difference in the
+  experiment would be real. Both control sweeps report `TARGETS=73 BUILT=55 ASSEMBLIES=118`.
+  **CONTROL_TRANSCRIPT_DIFFS = 0 over 1,573 lines**, md5 **`eeeb87977b8d2c873298297245f3ff8f` — the
+  identical md5 slices 60 and 61 recorded.**
+
+  **PROOF — THE CORPUS IL IS BYTE-EXACT, AND THE ONLY DIFFERENCE IS INHERITED.** **EXPERIMENT (base
+  vs work): 118 compared, and ALL 63 N#-EMITTED ASSEMBLIES ARE BYTE-IDENTICAL.** The 55 that differ
+  are **55 COPIES OF ONE `NSharpLang.Runtime.dll`** — measured: exactly ONE distinct normalised
+  runtime binary per sweep — a C# assembly this slice does not touch, differing by **208 normalised
+  bytes**, while `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the two trees reports
+  **0** files. Inherited, not produced; the same 208 bytes slice 60 measured. **ZERO non-Runtime
+  differences.** All three sweeps report `TARGETS=73 BUILT=55 ASSEMBLIES=118` identically.
+
+  **PROOF — THE UNSORTED BUILD TRANSCRIPT, WHICH IS THE MULTIPLICITY PIN.** `nlc build` renders
+  `_errors` in LIST order with no dedup and no sort, so it is the only surface that would show a
+  reordered or duplicated report — and the reflected bind's SECOND receiver read is exactly the kind
+  of thing that would show there. Over all three sweeps, with the tree path and elapsed-time text
+  normalised in PYTHON (BSD `sed` has no `\b`): **CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS =
+  0 over 1,573 lines**, md5 **`eeeb87977b8d2c873298297245f3ff8f` in ALL THREE — the identical md5
+  slices 60 and 61 recorded** — with identical exit codes (**0 × 55, 1 × 18**). A row-by-row
+  step-kind differential is deliberately NOT taken: kinds 12 and 13 leave the protocol BY DESIGN, so
+  that difference IS the deliverable; the new step sequence is pinned DIRECTLY by
+  `AnalyzerCallAnalysis.tests.nl` and `AnalyzerLambdaAnalysis.tests.nl`.
+
+  **THE CONTRACTS: 3,613 / 3,613 PASSED, 0 FAILED — 3,570 → 3,613 (+43).**
+  `AnalyzerLambdaAnalysis.tests.nl` is **NEW, 749 lines, 33 contracts**;
+  `AnalyzerCallAnalysis.tests.nl` is **+249 / −13** and goes from 25 to **35** contracts. The new ten
+  pin the candidate ORDER (score descending, then not-`params`, then fewer defaults), its STABILITY
+  in two shapes (three identical keys, and ties either side of a reordering — read through the
+  candidates' own runtime-method names rather than by reference), the STRICTNESS of the precedes
+  predicate, and the rollback door's four behaviours (to a mark, to the current mark, to a mark beyond
+  the list, and to zero).
+
+  **AND FOUR OF THE NEW CONTRACTS FAILED FIRST, WHICH IS RECORDED BECAUSE THE REASON IS A HARNESS
+  LIMIT WORTH KNOWING.** `AnalyzerAssignabilityFacts.IsDelegateType` answers FALSE whenever its
+  well-known-type facts are absent, and they are absent in any harness built without a
+  `MetadataLoadContext` — so a reflected `Func<int, string>` names NO signature THERE while naming one
+  in production. The contract now pins the DECLINE and says why; the production path is covered end to
+  end by the fixtures. The other three were rendering assumptions corrected by execution: a
+  `ReflectionTypeInfo` renders as the CLR type's own `Name`, so a constructed `Action<int, int>` reads
+  **`` Action`2 ``**.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:6ece9c400217cef1` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 5,638 →
+  **5,416**, currentNonBlankLines 5,088 → **4,901**, fingerprint → **`text-v1:10a8acabfdb30bfd`**;
+  `reviewedHeadFingerprint` → **`head-v1:2b2f941034542155`**, mirrored into `OwnershipAudit.nl`. Epoch
+  ceilings 23,451 / 20,537 PRESERVED, now clear by **18,035 / 15,636** — up from 17,813 / 15,449.
+  `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed
+  lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: every file this slice
+  adds is `.nl`, which the policy does not audit. `ColumnarIlEmitter.cs` and `SystemsAnalyzer.cs` are
+  UNTOUCHED. **Ownership audit: 18 / 18.**
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `e4bbdac29` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the
+  byte-final tree and ran the FULL suite (`Scope: full unit suite (no filter)`): **3,194 / 3,194, 0
+  failed, 4 m 25 s of test time, exit 0.**
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED: `ALL TESTS PASSED`, EXIT 0, 16 TIMED STEPS,
+  108 PASSES AND ZERO FAILURES, 19m 05s.** `./scripts/test-all.sh --commit` — VS Code tests NOT
+  skipped — reported: build the N# compiler 2m 07s; **Step 2b's format contract 0m 02s ("All files are
+  properly formatted")**; **unit tests 6m 09s (3,194 / 3,194)**; **native N# tests 3m 40s** — the
+  BootstrapServices contracts at **3,613 / 3,613** plus every native project individually,
+  `ownership-audit` **18 / 18** among them; **VS Code integration tests 2m 50s** against a freshly
+  built extension and language server; pack and install the MSBuild SDK 3m 52s; templates, template
+  creation and the template-generated build; the example builds; `nlc check` on examples; and **the IL
+  verification gate 0m 11s — `All 67 N# assemblies pass IL verification (no new errors vs
+  baseline)`**. It ran from an isolated snapshot and STORED a new validated cache result
+  `559abd306b4417ba (1145s)` rather than hitting a cached one, so it is fresh by construction.
+  **ONE HONEST LIMIT: the snapshot directory is REAPED when the gate exits, so the `cmp`-against-the-
+  working-tree proof slice 61 took could not be taken retroactively here; the tree has not been edited
+  since the gate started, and the gate's own input hash is the standing evidence.**
+
+  **FORMAT CANON.** The whole `src/NSharpLang.Compiler.BootstrapServices` directory passes the gate's
+  Step 2b contract (**"All files are properly formatted"**).
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over the byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.98 MB**) and installed with `--force`
+  (`successfully installed`); the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is the post-slice build.
+  **NO COMPUTER-USE VERIFICATION WAS TAKEN.** This slice changes no LSP handler, no VS Code extension
+  code and no IDE protocol surface; what it changes is WHO decides what a lambda's parameters are,
+  what `on` may subscribe to, what `base` is and which .NET overload a call binds to — which the
+  gate's VS Code integration suite (fresh extension and language server) and all six diagnostic
+  oracles cover.
+
+  **WALL STATUS: ZERO.** Five language walls were hit, all found by EXECUTION against the pinned
+  toolset, and all five routed around INSIDE the language with no semantic loss — the `on` parameter
+  name, `List<T>.RemoveRange`, `Object.ReferenceEquals` over a user type, the chained
+  `list[i].P.P` read and the `params` local. **NO TOOLSET REPIN WAS TAKEN AND NONE WAS NEEDED**:
+  every collaborator these owners consume was already published.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS.** Every squiggle a developer sees at a lambda, at an `on`,
+  at a `base` and at the back half of a call: that a lambda whose delegate type nothing names is told
+  so ONCE, at its FIRST uninferable parameter, and not once per parameter; that a lambda given a
+  delegate home is silent and its parameters hover with the delegate's own types; that a block lambda
+  answers the delegate's return type whatever the block does; that a block lambda in an
+  expression-tree position is told the SHAPE is wrong before it is told anything about its contents;
+  that `on` over something that is not an event says so — but only after the SoA rules have had their
+  say and only when the target resolved to something; that a failed `on` target does not ALSO make its
+  handler's parameters uninferable; that an event with no accessible accessors, and an instance event
+  on a struct, each get their own sentence instead of an IL-backend throw; that `base` reaches the
+  declared base and `object` when there is none; and that a reflected overload group reports ONCE for
+  the whole call, with the diagnostics of the LAST candidate tried, in an order that is stable.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Worktrees: `/private/tmp/nl62base` (pristine
+  `e4bbdac29` + Release CLI) and `/private/tmp/nl62corpus` (the shared source copy both CLIs check).
+  Fixtures: `/private/tmp/nl62fixtures` (38, with `targets.txt`), `/private/tmp/nl62soafx` (slice 60's
+  27) and `/private/tmp/nl62fx61` (slice 61's 36). IL captures and build trees:
+  `/private/tmp/nl62ilCtrl`, `/private/tmp/nl62ilA`, `/private/tmp/nl62ilB` with outputs under
+  `/private/tmp/nl62out{Ctrl,A,B}`. Harnesses in the scratchpad: `nl62_members.py` (**the extractor,
+  VALIDATED against slice 61's own 12 recorded extents — 12/12 to the line before it was trusted**),
+  `nl62_sites.py`, `nl62_closure.py`, `nl62-oracle.sh`, `nl62-run-oracles.sh`, `nl62-ilsweep.sh`,
+  `nl62-ilnorm.py`, `nl62-ilcompare.py`, `nl62-transnorm.py` (**the Python transcript normaliser that
+  replaces the BSD-`sed` one**), `nl62-repin.py` and `nl62-make-fixtures.py`. **`/private/tmp` IS
+  REAPED** — regenerate rather than assume.
+
+  * **NEXT: THE EXPRESSION-TREE VALIDATOR, THEN THE FIVE DECLARATION WALKERS, THEN THE ZERO-POLICY
+    REVIEW.**
+    - **THE EXPRESSION-TREE VALIDATOR IS 7 MEMBERS / 241 LINES, MEASURED AT THIS TIP**:
+      `ReportExpressionTreeBlockLambdaIfNeeded` (**20**),
+      `ReportUnsupportedExpressionTreeExpressionIfNeeded` (**27**),
+      `FindUnsupportedExpressionTreeExpression` (**128**), `IsExpressionTreeStaticCallReceiver`
+      (**25**), `ExpressionTreeReceiverStartsWithValueIdentifier` (**11**),
+      `IsExpressionTreeAnonymousObjectCreation` (**7**) and `GetExpressionTreeExpressionDescription`
+      (**23**). All seven are exclusive; nothing in `src/`, `tests/` or `editors/` names any of them
+      outside the family. Its ONLY entries are the lambda walk's kinds 7 and 8, so the whole cut is
+      two driver arms and one new owner — and it needs NOTHING from the analyzer's state: an
+      `Expression` and a set of parameter names are its entire input. Both reports DEDUPE against the
+      existing diagnostic list by code + line + column + message, which is the one thing a port must
+      not lose.
+    - **THE FIVE DECLARATION WALKERS COME AFTER IT**, and their extents should be re-measured at that
+      tip rather than carried from any brief — this slice's own brief was wrong about the lambda's
+      closure by six members and 220 lines, and wrong about its call-site count by one since slice 59.
+      **RE-MEASURE, AND VALIDATE THE EXTRACTOR AGAINST THIS SLICE'S OWN EIGHT RECORDED EXTENTS FIRST**
+      (`AnalyzeLambda` 104, `GetFunctionSignature` 26, `AnalyzeOnSubscription` 84,
+      `AnalyzeBaseExpression` 10, `BindReflectionCall` 53, `BindSingleReflectionMethod` 27,
+      `FinalizeBoundReflectionCall` 27, `AnalyzeExpressionAllowingUnboundCallableReference` 12).
+    - **THEN THE ZERO-POLICY REVIEW — THE CHECKBOX-CLOSING SLICE.** It must read every remaining
+      member of `Analyzer.cs` and show that each is a mechanical host, a `Create*` factory, a
+      `Drive*` loop or a route — and it must ALSO record the retirement of the ASSEMBLY-LOADING and
+      `MetadataLoadContext` SURFACE under its named other task. That surface is NOT semantic policy
+      and 017's criterion does not reach it: `LoadSystemAssemblies`, the NuGet package resolution,
+      the reference-load failure reporting and the MLC lifetime are compiler-HOST concerns, and the
+      completion assessment assigns them to task 021's final ownership audit rather than to 017.
+      Naming that boundary is part of closing 017, not part of doing it.
+
+  **GOTCHAS.**
+  **(1) `on` IS UNUSABLE AS A .nl PARAMETER NAME,** and it fails in a way the COMPILER does not
+  report. `on` is a contextual keyword, so a constructor written `constructor(on: …)` whose body says
+  `onValue = on` followed by any further line parses as `on <target> …` and dies on the next `=`. The
+  compiler BUILT the file; `nlc format` refused to parse it. **The formatter's parse is a second
+  opinion worth taking on every new file** — join `type` and `nameof` in the unusable-name list.
+  **(2) A PHASE RANGE ROUTED BEFORE A FALL-THROUGH MUST BE DISJOINT FROM THE FALL-THROUGH'S OWN
+  PHASES.** See the regression above. The fall-through's range is invisible at the routing site, so
+  the check is "what does the last `return` handle?", not "what numbers are listed?".
+  **(3) `List<T>.RemoveRange` IS NOT IN THE COLUMNAR CATALOG; `RemoveAt` IS.** The rollback door
+  removes from the END in a loop instead — same list, one step at a time.
+  **(4) THREE SHAPES DECLINE IN CONTRACT CODE AND ALL THREE HAVE ONE-LINE ROUTES AROUND THEM.**
+  `Object.ReferenceEquals(a, b)` over a user type is `emit.call.static-member-unmodeled` (compare an
+  observable field instead); `list[i].Property.Property` is `emit.statement.block-child` (split into
+  locals); and a reflected member read as `method.Name` needs `method.get_Name()`.
+  **(5) `params` IS A KEYWORD AND A LOCAL THAT SPELLS ONE DECLINES AT `parse.function`,** with the
+  position reported at the FUNCTION rather than at the local.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `e4bbdac29`): **017 SLICE 61 — THE CALL ARM'S DECIDING HALF: THE
   `Ok`/`Err` PROBE, THE CALLEE WALK AND THE `ref`/`out` ARGUMENT — TERMINAL, WITH THE REFLECTED-BIND
   HALF FORKED ON A MEASURED REASON.** Target recorded BEFORE any production edit, at `3493fd47d`
   (`Analyzer.cs` **5,850** lines, non-blank **5,277**, member declarations **220** by the narrow
@@ -23538,10 +23900,13 @@ These are populated only when their task becomes current.
   expression grammar — the expressions/patterns and closing-delimiter stages OWN the expression/statement
   ERROR families (unexpected-token-in-expression, dangling operator, missing `)`/`]`/`}`); STAGE 3/4 corpus
   shapes deliberately keep those would-be errors panic-suppressed so their output is byte-exact without them.
-- Task 017 next semantic sub-slice: **SLICE 8 — STAGE 2 OF THE `ResolveType` ARC: THE SCOPE STACK**
-  (`Scope` is already N# in `AnalyzerStateModels.nl`; the slice is the `Stack<Scope>` field and its 51
-  sites). Slices 1-7 are DONE — `Analyzer.cs` is **22,050**. The historical note below is kept because
-  it records what slice 3 established; the live sequencing is in the THIS-TURN Active sub-slice.
+- Task 017 next semantic sub-slice: **SLICE 63 — THE EXPRESSION-TREE VALIDATOR (7 members / 241
+  lines), THEN THE FIVE DECLARATION WALKERS, THEN THE ZERO-POLICY REVIEW.** Slices 1-62 are DONE —
+  `Analyzer.cs` is **5,416**, non-blank **4,901**, and the expression territory is CLOSED except for
+  the validator, which is a purely syntactic predicate reached only through the lambda walk's kinds 7
+  and 8. Full detail, including the zero-policy review's obligation to record the
+  assembly-loading/MetadataLoadContext surface's retirement under task 021, is in the THIS-TURN
+  Active sub-slice. The historical note below is kept because it records what slice 3 established.
   (Historical, written at slice 4's start:) Slices 1, 2 and 3
   are DONE — full records in the 017 Active sub-slice blocks above; `Analyzer.cs` is **22,622**, the
   twelve pure classification predicates and the whole well-known-type surface it carried are gone,

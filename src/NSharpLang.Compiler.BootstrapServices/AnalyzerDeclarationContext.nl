@@ -492,6 +492,28 @@ class AnalyzerDeclarationContext {
         return true
     }
 
+    // WHAT `base` MEANS INSIDE A TYPE, WHICH IS THE DECLARED BASE OR `object`.
+    //
+    // Three answers, and the middle one is the interesting one. Outside any type there is no `base`
+    // at all, so the answer is `unknown` — the value that means "nothing was resolved" and suppresses
+    // the reports downstream of it. Inside a type whose shape names a base, the answer is that base.
+    // Inside a type whose shape names NONE — a class with no `:` clause, a struct, a record — the
+    // answer is `object`, because every CLR type derives from it and `base.ToString()` is a call a
+    // user may legitimately write. The current type scope is passed in rather than read here: this
+    // owner knows what a declared type IS, and the scope stack knows which one is open.
+    func ResolveBaseType(currentType: TypeInfo?): TypeInfo {
+        if currentType == null {
+            return BuiltInTypes.Unknown
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if TryGetSourceMemberShape(currentType, null, out shape) && shape.BaseType != null {
+            return shape.BaseType
+        }
+
+        return BuiltInTypes.Object
+    }
+
     func TryGetSourceMemberShape(owner: TypeInfo, substitution: Dictionary<string, TypeInfo>?, out shape: AnalyzerSourceMemberShape): bool {
         classType := owner as ClassTypeInfo
         if classType != null {

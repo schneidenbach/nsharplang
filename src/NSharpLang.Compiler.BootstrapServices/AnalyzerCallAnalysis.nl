@@ -24,27 +24,34 @@ import NSharpLang.Compiler.Ast
 //   3  the possible-null-call report
 //   4  one expression analysed with `CarriedType` as its expected type and `Flag` as the
 //      method-group suppression — an ordinary argument, the BYREF-unwrapped target of a `ref`/`out`
-//      argument, or the single argument of an `Ok`/`Err` factory
+//      argument, the single argument of an `Ok`/`Err` factory, a reflected call's non-lambda
+//      argument pre-pass (no expected type, suppression ON), or one of the reflected bind's
+//      finalising analyses. A NULL `CarriedType` is not the same as `unknown`: the analyzer's
+//      target-typed door leaves the ambient slot ALONE when no expected type is provided.
 //   6  a plain expression analysis: the CALLEE (under the callee-position suppressions, which this
-//      owner opens before asking and closes when the answer arrives) or the member-access RECEIVER
+//      owner opens before asking and closes when the answer arrives), the member-access RECEIVER, or
+//      the reflected bind's SECOND read of that same receiver
 //   7  one SoA row-view escape report
 //   8  the SoA direct-column call rule (answers only whether it reported)
-//   12 a single reflected method's binding
-//   13 a reflected method GROUP's binding
 //   14 the semantic-model record for a bound N# overload
+//   15 one LAMBDA analysed with `CarriedType` as its expected type and `Flag` as the
+//      EXPRESSION-TREE flag. It is a kind of its own rather than a widening of kind 4 because the
+//      operations differ: kind 4's door short-circuits a lambda with the expected type as an
+//      argument and NO tree flag, and a tree target is exactly what changes which expressions the
+//      body may contain.
 //
-// THE GAPS AT 1, 2, 5, 9, 10 AND 11 ARE KEPT ON PURPOSE. Each was a round trip that relayed a
-// decision this walk now makes for itself — the `Ok`/`Err` probe (1), the callee's own fork between
+// THE GAPS AT 1, 2, 5, 9, 10, 11, 12 AND 13 ARE KEPT ON PURPOSE. Each was a round trip that relayed
+// a decision this walk now makes for itself — the `Ok`/`Err` probe (1), the callee's own fork between
 // a bound name and an analysed expression (2), the un-analysed method-group lambda whose `ref`/`out`
-// target is still checked (5), and the four direct-column gates before they became one owner
-// (9, 10, 11). A step kind is a VALUE the contracts pin, so renumbering would silently re-point
-// every one of them.
+// target is still checked (5), the four direct-column gates before they became one owner (9, 10, 11),
+// and the reflected bind of a single method (12) and of a method GROUP (13), which are now this
+// walk's own five-stage bind. A step kind is a VALUE the contracts pin, so renumbering would silently
+// re-point every one of them.
 class CallAnalysisRequest {
     Kind: int
     Node: Expression?
+    Lambda: LambdaExpression?
     CarriedType: TypeInfo?
-    Method: MethodInfo?
-    MethodGroup: ReflectionMethodGroupInfo?
     Text: string?
     Line: int
     Column: int
@@ -53,9 +60,8 @@ class CallAnalysisRequest {
     constructor(kind: int) {
         Kind = kind
         Node = null
+        Lambda = null
         CarriedType = null
-        Method = null
-        MethodGroup = null
         Text = null
         Line = 0
         Column = 0
@@ -113,6 +119,31 @@ class CallAnalysisState {
     RefOutSavedExpressionTypes: Dictionary<object, TypeInfo>?
     RefOutExpressionTypes: Dictionary<object, TypeInfo>?
 
+    // THE REFLECTED BIND, WHICH IS A WALK INSIDE THIS WALK.
+    //
+    // `ReflectionSingleMethod` and `ReflectionMethodGroup` are exclusive and name which of the two
+    // reflected forms is being bound: one named method, or a group whose candidates are pre-bound,
+    // ordered and tried in turn. The receiver is analysed AGAIN here — the callee analysis already
+    // read it once, and the second read is what `Analyzer.cs` did and is user-visible, so it is
+    // preserved rather than shared. The non-lambda arguments are analysed ONCE, up front, into
+    // `AnalyzedNonLambdaArguments`, because pre-binding scores against them; a LAMBDA argument is
+    // left null there deliberately, since its signature is not known until a candidate is chosen.
+    //
+    // `FinalizeState` is the INNER walk's whole state. Its requests are re-emitted as this walk's
+    // own kinds, which is why the two walks compose instead of nesting: one driver, one loop, one
+    // protocol. `ReflectionErrorsBefore` is the rollback mark for the candidate currently being
+    // finalised, and it is re-taken for each candidate.
+    ReflectionSingleMethod: MethodInfo?
+    ReflectionMethodGroup: ReflectionMethodGroupInfo?
+    ReflectionReceiverTypeInfo: TypeInfo?
+    ReflectionReceiverClrType: Type?
+    AnalyzedNonLambdaArguments: TypeInfo?[]?
+    ReflectionArgumentIndex: int
+    ReflectionCandidates: List<ReflectionPreBoundCandidate>?
+    ReflectionCandidateIndex: int
+    ReflectionErrorsBefore: int
+    FinalizeState: ReflectionCallFinalizeState?
+
     // The call expression's type. `unknown` is the walk's own final answer for a callee it does not
     // recognise, so it is the honest starting value rather than a null placeholder.
     Result: TypeInfo
@@ -144,6 +175,16 @@ class CallAnalysisState {
         RefOutErrorsBefore = 0
         RefOutSavedExpressionTypes = null
         RefOutExpressionTypes = null
+        ReflectionSingleMethod = null
+        ReflectionMethodGroup = null
+        ReflectionReceiverTypeInfo = null
+        ReflectionReceiverClrType = null
+        AnalyzedNonLambdaArguments = null
+        ReflectionArgumentIndex = 0
+        ReflectionCandidates = null
+        ReflectionCandidateIndex = 0
+        ReflectionErrorsBefore = 0
+        FinalizeState = null
         Result = BuiltInTypes.Unknown
     }
 }
@@ -176,6 +217,8 @@ class AnalyzerCallAnalysis {
     syntheticCallWalk: AnalyzerSyntheticCallWalk
     syntheticCallValidator: AnalyzerSyntheticCallValidator
     reflectionCallReporter: AnalyzerReflectionCallReporter
+    reflectionArgumentBinder: AnalyzerReflectionArgumentBinder
+    clrTypeConversion: AnalyzerClrTypeConversion
     typeSubstitution: AnalyzerTypeSubstitution
     assignability: AnalyzerAssignability
     diagnostics: AnalyzerDiagnosticSink
@@ -185,11 +228,13 @@ class AnalyzerCallAnalysis {
     writeTargets: AnalyzerWriteTargets
     identifierResolution: AnalyzerIdentifierResolution
 
-    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
         reflectionCallReporter = reflectionReporter
+        reflectionArgumentBinder = argumentBinder
+        clrTypeConversion = conversion
         typeSubstitution = substitution
         assignability = assignabilityOwner
         diagnostics = diagnosticSink
@@ -262,17 +307,30 @@ class AnalyzerCallAnalysis {
             return
         }
 
-        if pending == 12 || pending == 13 {
-            bound := answer as FunctionTypeInfo
-            returnType: TypeInfo? = null
-            if bound != null {
-                returnType = bound.ReturnType
+        if pending == 30 {
+            state.ReflectionReceiverTypeInfo = answer
+            return
+        }
+
+        if pending == 32 {
+            arguments := state.AnalyzedNonLambdaArguments
+            if arguments != null {
+                arguments[state.ReflectionArgumentIndex] = answer
             }
 
-            if returnType != null {
-                state.Result = returnType
-            } else {
-                state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes)
+            state.ReflectionArgumentIndex = state.ReflectionArgumentIndex + 1
+            return
+        }
+
+        if pending == 36 {
+            finalizeState := state.FinalizeState
+            if finalizeState != null {
+                supplied: TypeInfo = BuiltInTypes.Unknown
+                if answer != null {
+                    supplied = answer
+                }
+
+                reflectionArgumentBinder.SupplyReflectionAnalysis(finalizeState, supplied)
             }
         }
     }
@@ -331,11 +389,303 @@ class AnalyzerCallAnalysis {
             return Dispatch(state)
         }
 
+        if phase >= 30 && phase <= 36 {
+            return AdvanceReflectionBind(state, phase)
+        }
+
         if phase >= 14 && phase <= 17 {
             return AdvanceFunctionTypeReturn(state, phase)
         }
 
         return AdvanceMethodGroupReturn(state, phase)
+    }
+
+    // THE REFLECTED BIND, WHICH IS THE OTHER HALF OF WHAT A CALL MEANS.
+    //
+    // A callee that resolved to a .NET method — one named method, or a GROUP of overloads — is bound
+    // here, in five ordered stages: the receiver is analysed, the non-lambda arguments are analysed,
+    // every candidate is pre-bound and scored, the candidates are ORDERED, and each in turn is
+    // FINALISED until one succeeds. Only the last stage can report, and what it reports is what makes
+    // the ORDER user-visible.
+    //
+    // IT STARTS AT 30, NOT AT THE NEXT FREE NUMBER, AND THAT IS A MEASUREMENT. This walk's phase
+    // space is NOT dense: `AdvanceCall` routes 13, then 14-17 to the function-type return, and then
+    // FALLS THROUGH to the N#-method-group return — which owns 18 through 23 and reads them from the
+    // fall-through rather than from a listed range. Numbering this stage 20-26 silently STOLE four of
+    // them, and the only thing that noticed was one N# overload group in the compiler's own source
+    // becoming ambiguous. A range routed BEFORE a fall-through must be disjoint from everything the
+    // fall-through can see, so the gap between 23 and 30 is deliberate headroom rather than tidiness.
+    func AdvanceReflectionBind(state: CallAnalysisState, phase: int): CallAnalysisRequest? {
+        if phase == 30 {
+            return AcquireReflectionReceiver(state)
+        }
+
+        if phase == 31 {
+            return ConvertReflectionReceiver(state)
+        }
+
+        if phase == 32 {
+            return EmitReflectionArgument(state)
+        }
+
+        if phase == 34 {
+            return PreBindReflectionCandidates(state)
+        }
+
+        if phase == 35 {
+            return BeginNextReflectionCandidate(state)
+        }
+
+        return AdvanceFinalizeReflectionCall(state)
+    }
+
+    // PHASE 30 — THE RECEIVER, ANALYSED AGAIN. The callee walk already analysed the whole member
+    // access, which analysed this receiver once; the bind analyses it a SECOND time. That is what
+    // `Analyzer.cs` did, the repeat is visible in the unsorted build transcript whenever the receiver
+    // itself reports, and a bind that shared the earlier answer would silently delete those repeats.
+    func AcquireReflectionReceiver(state: CallAnalysisState): CallAnalysisRequest? {
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        if memberAccess == null {
+            state.Phase = 32
+            return null
+        }
+
+        state.Phase = 31
+        state.Pending = 30
+        request := new CallAnalysisRequest(6)
+        request.Node = memberAccess.Object
+        return request
+    }
+
+    // PHASE 31 — THE RECEIVER AS A CLR TYPE, BY EITHER OF TWO DOORS. The ordinary conversion answers
+    // for a type the CLR already holds; the binding-only conversion answers for one that exists only
+    // as a shape the binder can measure against. The second is a FALLBACK rather than an alternative,
+    // and the order is preserved.
+    func ConvertReflectionReceiver(state: CallAnalysisState): CallAnalysisRequest? {
+        state.Phase = 32
+        receiverTypeInfo := state.ReflectionReceiverTypeInfo
+        if receiverTypeInfo == null {
+            return null
+        }
+
+        clrType := clrTypeConversion.TryConvertTypeInfoToClrType(receiverTypeInfo)
+        if clrType == null {
+            clrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo)
+        }
+
+        state.ReflectionReceiverClrType = clrType
+        return null
+    }
+
+    // PHASE 32 — EVERY NON-LAMBDA ARGUMENT, ANALYSED ONCE, BEFORE ANY CANDIDATE IS SCORED.
+    //
+    // A LAMBDA argument is deliberately left unanalysed and its slot left null: its parameter types
+    // come from the candidate's signature, so analysing it here would type it against nothing and
+    // report an inference failure for a lambda that is about to be given a delegate type. Every other
+    // argument is analysed with the METHOD-GROUP suppression open, because a method group named as an
+    // argument is exactly what this bind may be about to convert to a delegate — kind 4 with no
+    // expected type is that operation, and the analyzer's target-typed door leaves an absent expected
+    // type alone rather than clearing the slot.
+    func EmitReflectionArgument(state: CallAnalysisState): CallAnalysisRequest? {
+        arguments := state.Call.Arguments
+        if state.AnalyzedNonLambdaArguments == null {
+            state.AnalyzedNonLambdaArguments = new TypeInfo?[](arguments.Count)
+        }
+
+        while state.ReflectionArgumentIndex < arguments.Count {
+            argument := arguments[state.ReflectionArgumentIndex]
+            if argument.Value as LambdaExpression != null {
+                state.ReflectionArgumentIndex = state.ReflectionArgumentIndex + 1
+                continue
+            }
+
+            state.Pending = 32
+            request := new CallAnalysisRequest(4)
+            request.Node = argument.Value
+            request.Flag = true
+            return request
+        }
+
+        state.Phase = 34
+        return null
+    }
+
+    // PHASE 34 — EVERY CANDIDATE PRE-BOUND AND SCORED, THEN ORDERED.
+    //
+    // The single-method form has exactly one candidate and no ordering question. The GROUP form
+    // pre-binds every overload, drops the ones that cannot accept this call at all, and ORDERS what
+    // is left: highest score first, then the ones that do not need `params`, then the ones that need
+    // fewer defaults. Neither form reports here — a group with no surviving candidate is an unbound
+    // call, which is one report at the end rather than one per overload.
+    func PreBindReflectionCandidates(state: CallAnalysisState): CallAnalysisRequest? {
+        arguments := state.AnalyzedNonLambdaArguments
+        if arguments == null {
+            arguments = new TypeInfo?[](0)
+        }
+
+        singleMethod := state.ReflectionSingleMethod
+        if singleMethod != null {
+            candidate := reflectionArgumentBinder.PreBindReflectionMethod(singleMethod, state.Call, state.ReflectionReceiverClrType, state.ReflectionReceiverTypeInfo, arguments)
+            if candidate == null {
+                return FailReflectionBind(state)
+            }
+
+            state.FinalizeState = reflectionArgumentBinder.BeginFinalizeReflectionCall(candidate)
+            state.Phase = 36
+            return null
+        }
+
+        methodGroup := state.ReflectionMethodGroup
+        candidates := new List<ReflectionPreBoundCandidate>()
+        if methodGroup != null {
+            methods := methodGroup.Methods
+            methodIndex := 0
+            while methodIndex < methods.Length {
+                candidate := reflectionArgumentBinder.PreBindReflectionMethod(methods[methodIndex], state.Call, state.ReflectionReceiverClrType, state.ReflectionReceiverTypeInfo, arguments)
+                if candidate != null {
+                    candidates.Add(candidate)
+                }
+
+                methodIndex = methodIndex + 1
+            }
+        }
+
+        if candidates.Count == 0 {
+            return FailReflectionBind(state)
+        }
+
+        SortReflectionCandidates(candidates)
+        state.ReflectionCandidates = candidates
+        state.ReflectionCandidateIndex = 0
+        state.Phase = 35
+        return null
+    }
+
+    // THE CANDIDATE ORDER, AND IT IS SORTED BY HAND BECAUSE ITS STABILITY IS USER-VISIBLE.
+    //
+    // Equal-key candidates must keep the order the method group gave them, because the LAST candidate
+    // tried is the one whose diagnostics survive — every earlier failure is rolled back — so a sort
+    // that reordered ties would change which sentence the user reads. An INSERTION sort driven by a
+    // STRICTLY-precedes predicate is stable by construction: an element never moves past one it does
+    // not strictly precede, so equal keys cannot cross. It reproduces
+    // `OrderByDescending(Score).ThenBy(UsesParams).ThenBy(DefaultsUsed)` exactly, including that
+    // ordering `false` before `true` means a candidate that does NOT need `params` wins a tie.
+    func SortReflectionCandidates(candidates: List<ReflectionPreBoundCandidate>) {
+        index := 1
+        while index < candidates.Count {
+            current := candidates[index]
+            position := index
+            while position > 0 && PrecedesReflectionCandidate(current, candidates[position - 1]) {
+                candidates[position] = candidates[position - 1]
+                position = position - 1
+            }
+
+            candidates[position] = current
+            index = index + 1
+        }
+    }
+
+    static func PrecedesReflectionCandidate(candidate: ReflectionPreBoundCandidate, existing: ReflectionPreBoundCandidate): bool {
+        if candidate.Score != existing.Score {
+            return candidate.Score > existing.Score
+        }
+
+        if candidate.UsesParams != existing.UsesParams {
+            return !candidate.UsesParams
+        }
+
+        return candidate.DefaultsUsed < existing.DefaultsUsed
+    }
+
+    // PHASE 35 — THE NEXT CANDIDATE IN PREFERENCE ORDER, WITH ITS ROLLBACK MARK TAKEN FIRST.
+    func BeginNextReflectionCandidate(state: CallAnalysisState): CallAnalysisRequest? {
+        candidates := state.ReflectionCandidates
+        if candidates == null || state.ReflectionCandidateIndex >= candidates.Count {
+            return FailReflectionBind(state)
+        }
+
+        candidate := candidates[state.ReflectionCandidateIndex]
+        state.ReflectionErrorsBefore = diagnostics.ErrorCount
+        state.FinalizeState = reflectionArgumentBinder.BeginFinalizeReflectionCall(candidate)
+        state.Phase = 36
+        return null
+    }
+
+    // PHASE 36 — ONE CANDIDATE FINALISED, WHICH IS THE INNER WALK RE-EMITTED AS THIS WALK'S OWN STEPS.
+    //
+    // The finalising walk suspends at every expression it needs analysed, and each of its requests
+    // becomes a step of THIS protocol: a lambda request becomes kind 15, which carries the expected
+    // type AND the expression-tree flag; anything else becomes kind 4, the target-typed door. That
+    // translation is why the two walks COMPOSE rather than nest — there is still one driver, one loop
+    // and one protocol, and the driver never learns that an inner walk exists.
+    //
+    // When the inner walk ends, the candidate either bound or did not. A SINGLE method that did not
+    // bind is an unbound call. A GROUP candidate that did not bind has its diagnostics WITHDRAWN and
+    // the next candidate is tried — which is the whole reason the sink has a rollback door, and the
+    // whole reason the order above must be stable.
+    func AdvanceFinalizeReflectionCall(state: CallAnalysisState): CallAnalysisRequest? {
+        finalizeState := state.FinalizeState
+        if finalizeState == null {
+            return FailReflectionBind(state)
+        }
+
+        request := reflectionArgumentBinder.NextReflectionAnalysis(finalizeState)
+        if request != null {
+            state.Pending = 36
+            lambda := request.Lambda
+            if lambda != null {
+                step := new CallAnalysisRequest(15)
+                step.Lambda = lambda
+                step.CarriedType = request.ExpectedType
+                step.Flag = request.IsExpressionTreeTarget
+                return step
+            }
+
+            step := new CallAnalysisRequest(4)
+            step.Node = request.Expression
+            step.CarriedType = request.ExpectedType
+            return step
+        }
+
+        bound := finalizeState.Result
+        state.FinalizeState = null
+        if bound != null {
+            return CompleteReflectionBind(state, bound)
+        }
+
+        if state.ReflectionCandidates == null {
+            return FailReflectionBind(state)
+        }
+
+        if diagnostics.ErrorCount > state.ReflectionErrorsBefore {
+            diagnostics.RollbackErrorsTo(state.ReflectionErrorsBefore)
+        }
+
+        state.ReflectionCandidateIndex = state.ReflectionCandidateIndex + 1
+        state.Phase = 35
+        return null
+    }
+
+    // A BOUND REFLECTED CALL IS ITS RETURN TYPE — and a bound call with no return type at all is
+    // still an unbound call, because there is nothing for the expression to be.
+    func CompleteReflectionBind(state: CallAnalysisState, bound: FunctionTypeInfo): CallAnalysisRequest? {
+        returnType := bound.ReturnType
+        if returnType != null {
+            state.Result = returnType
+        } else {
+            state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // NO CANDIDATE BOUND. The report names every method that was considered and the argument types
+    // that were offered, which is one sentence about the CALL rather than one per rejected overload.
+    func FailReflectionBind(state: CallAnalysisState): CallAnalysisRequest? {
+        state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes)
+        state.Phase = 99
+        return null
     }
 
     // `Ok(x)` AND `Err(e)`, AND THEY ARE A PROBE RATHER THAN A RULE BECAUSE THREE SEPARATE THINGS
@@ -843,11 +1193,9 @@ class AnalyzerCallAnalysis {
         singleMethod := calleeType as ReflectionMethodInfo
         if singleMethod != null {
             state.CandidateMethods.Add(singleMethod.Method)
-            state.Phase = 99
-            state.Pending = 12
-            request := new CallAnalysisRequest(12)
-            request.Method = singleMethod.Method
-            return request
+            state.ReflectionSingleMethod = singleMethod.Method
+            state.Phase = 30
+            return null
         }
 
         methodGroup := calleeType as ReflectionMethodGroupInfo
@@ -859,11 +1207,9 @@ class AnalyzerCallAnalysis {
                 methodIndex = methodIndex + 1
             }
 
-            state.Phase = 99
-            state.Pending = 13
-            request := new CallAnalysisRequest(13)
-            request.MethodGroup = methodGroup
-            return request
+            state.ReflectionMethodGroup = methodGroup
+            state.Phase = 30
+            return null
         }
 
         newtypeInfo := calleeType as NewtypeInfo
