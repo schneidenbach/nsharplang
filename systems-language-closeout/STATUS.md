@@ -1,6 +1,34 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-11 (**TASK 017 SLICE 63 LANDED (no commit — mandate) — N# OWNS WHICH LAMBDA
+Last updated: 2026-08-11 (**TASK 017 SLICE 65 LANDED (no commit — mandate) — N# OWNS WHAT AN `import`
+MEANS, IN BOTH OF THE LANGUAGE'S FORMS, AND THE ARC GAINS ITS FIRST DRIVER THAT ASKS FOR AN EFFECT
+RATHER THAN FOR AN ANSWER.** The brief's three priced questions were answered BEFORE the cut, by
+measurement: (1) **two collections move and five stay injected** — a collection moves iff the family
+is its only toucher besides `Analyze`'s reset, which is true of `_importedSymbols` and
+`_externalNamespaceCache` and false of the five that five never-rebuilt owners hold LIVE; (2) **yes,
+it needs a driver**, because the family re-enters exactly one C# member — task 021's assembly loader
+— and that load must interleave with the existence check that scans its result and CACHES THE
+NEGATIVE, so a pre-pass would change answers; the POLICY half moved with the family, so the request
+carries assembly NAMES and `ProcessImportForAssemblyLoading` (33 lines the brief never named) dies
+too; (3) **the collision order is pinned as a written rule** — an explicit first-insertion key list
+rather than `Dictionary` enumeration — because it decides which colliding symbol a developer reads
+first. **15 C# MEMBERS DIE, 468 NAMED LINES**; `Analyzer.cs` **3,866 → 3,422**, non-blank
+**3,538 → 3,148**, method-shaped members **131 → 117**, modifier lines **213 → 198**, `git diff`
+**+47 / −491 = net −444**; both ratchet ceilings fall, **85.4 %** below the epoch. Driver loops
+**27 → 28**, and the new one is **18 lines of C# for 468 deleted**. N# adds **912 production lines on
+one new file** (`AnalyzerImports.nl`, 3 types / 34 members) plus a 6-line comment correction on the
+external type probe. Contracts **3,779 → 3,833 (+54)**, all green. **SIX ORACLE DIFFERENTIALS ALL
+ZERO**, four reproducing previously recorded md5s to the digit; **PROTOCOL TRANSCRIPT FIVE RUNS
+BYTE-IDENTICAL** (4,010 lines, 1,192 walks, 813 steps, ENTER == RESULT, STEP == ANSWER, 0 violations)
+and the **five-run determinism capture** byte-identical beside it; **CORPUS IL 63 / 63 N#-emitted
+assemblies byte-identical with the CONTROL FIRST**; unsorted build transcripts 0 diffs at the md5
+slices 63 and 64 recorded; `nlc check` 285 findings with ZERO from the new owner; audit **18 / 18**.
+**THE SHARPEST FINDING IS A RETIRED WALL**: the standing note that `Assembly.get_FullName` is not on
+the columnar surface is FALSE, proved by execution against the pinned toolset, and is corrected in
+place — a recorded wall is evidence with an expiry date. **WALL STATUS: ZERO — NO REPIN.** Its full
+record is in the Cursor block below)
+
+Last updated (prior): 2026-08-11 (**TASK 017 SLICE 63 LANDED (no commit — mandate) — N# OWNS WHICH LAMBDA
 BODIES AN EXPRESSION TREE ADMITS AND WHAT A TEST, A `setup`, A `teardown` AND A CONSTRUCTOR MEAN;
 THE ARC'S OWN INVENTORY IS NOW EMPTY, AND THE MEASUREMENT FOUND ~1,800 LINES IT NEVER NAMED.**
 **THE NINTH BRIEF IS WRONG AGAIN, ABOUT THE VALIDATOR'S OWN NATURE**: slice 62 forked it as "a
@@ -2040,7 +2068,428 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 64 — THE ATTRIBUTE VALIDATOR: WHAT AN ATTRIBUTE
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 65 — THE IMPORT / NAMESPACE FAMILY: WHAT AN
+  `import` MEANS. TERMINAL.** Target recorded BEFORE any production edit, at `456288ecf`
+  (`Analyzer.cs` **3,866** lines, non-blank **3,538**, **225** member extents / **131**
+  method-shaped members by the validated extractor and **213** by the modifier-line metric;
+  **27** driver loops by the `for (var step = …)` metric; `Analyzer.cs` ratchet row currentLines
+  **3,866** / currentNonBlank **3,538**, fingerprint `text-v1:ae9c1e87d5f43efc`, epoch ceilings
+  **23,451 / 20,537**; `Columnar/ColumnarIlEmitter.cs` **21,471** / **20,412**, fingerprint
+  `text-v1:609051db487c7060`, epoch ceilings **21,723 / 20,646**;
+  `Performance/SystemsAnalyzer.cs` ratchet row currentLines **2,390** == epochLines **2,390** —
+  task 018 has not started; unit suite baseline **3,194**; contracts baseline **3,779**; ownership
+  audit **18 / 18**; manifest **391** lines; `reviewedHeadFingerprint head-v1:b0c0d5a4eb1cd124`,
+  REPRODUCED from the unmodified manifest by the independent FNV-1a walk before any write.)
+
+  **THE EXTRACTOR WAS RE-VALIDATED FIRST, AGAINST SLICE 64's OWN RECORDED EXTENTS: 48 / 48
+  REPRODUCED TO THE LINE** (49 extents — `SourceTypeDerivesFromAttribute` is the overload pair),
+  run over `git show 19ac88cfc:…/Analyzer.cs` before it was trusted at this tip.
+
+  **THE TARGET — RE-MEASURED AND, FOR THE FIRST TIME IN SEVEN SLICES, THE BRIEF'S NUMBER IS EXACT:
+  14 MEMBERS / 435 LINES.** `ProcessImports` 22, `ProcessFileImport` **196**, `ResolveFileImportPath`
+  12, `ProcessNamespaceImport` 4, `RegisterNamespaceImport` 20, `ValidateNamespaceImport` 40,
+  `FindNamespaceImportColumn` 20, `NamespaceExists` 28, `NamespaceMatchesReferencedPackage` 11,
+  `GetUnitNamespace` 2, `GetExternalSearchAssemblies` 13, `ExtractPublicSymbols` 33,
+  `CheckImportCollisions` 30, `FormatImportCollisionSources` 4 — :2695 through :3142, sum **435**.
+  **PLUS ONE MEMBER THE BRIEF DID NOT NAME: `ProcessImportForAssemblyLoading` (33), which is PURE
+  POLICY** — a seventeen-row namespace→assembly-name table — sitting in the task-021 assembly-loading
+  neighbourhood with exactly ONE caller, inside this family. It is the member that forces question
+  (2), and it is taken: **15 members / 468 named lines.**
+
+  **THE CLOSURE, MEASURED THREE WAYS.** (1) Caller attribution over the whole file; (2) a raw
+  `\b<name>\b` grep over `src`, `tests` and `editors` for all 15 names; (3) a re-read of the entry.
+  * **EXTERNAL CONSUMERS: ZERO for all 15.** The three grep hits are unrelated same-named members in
+    other owners (`LinterFileImportUsage.ResolveFileImportPath`,
+    `AnalyzerDeclarationContext.GetUnitNamespace`, `CompletionHandler.GetUnitNamespace`) plus one
+    comment. `ProcessImportForAssemblyLoading` is `public` and has NO caller outside this file.
+  * **THREE PRODUCTION ENTRIES, ALL ON `Analyze` ITSELF**: `:761` `RegisterNamespaceImport` per
+    `unit.Imports`; `:776` `ProcessImports(unit.FileImports)`; `:780` `CheckImportCollisions()`.
+  * **ONE CALLER OUTSIDE THE FAMILY**: `ResolveDefaultEnumTypeName:2635` calls `GetUnitNamespace`,
+    which is a 2-line shim over `AnalyzerProjectSourceProvider.UnitNamespace` — the call re-points to
+    the N# static directly.
+  * **EVERY COLLABORATOR IS ALREADY N#**, verified by locating each type's definition: `FileResolver`,
+    `ColumnarParserRecovery`, `ErrorMessageBuilder`, `DeclarationFacts`, `AnalyzerProjectTypeDiscovery`,
+    `AnalyzerProjectSourceProvider`, `ImportedSymbolInfo`, `ImportedSymbolReference`,
+    `SymbolDeclaration`, `AnalyzerBindingFacts`, `AnalyzerScopeStack`, `Scope`, `ImportDirective`,
+    `AnalyzerDiagnosticSpanFacts`, `SemanticModel`, `BindingMap`, `AnalyzerDiagnostics` — all `.nl`.
+  * **`NamespaceImport` IS NEVER CONSTRUCTED ANYWHERE IN THE REPOSITORY.** `grep -rn "new
+    NamespaceImport"` over `src` and `tests` returns NOTHING: the parser routes namespace imports into
+    `unit.Imports` as `ImportDirective`s and file imports into `FileImports`. `ProcessNamespaceImport`
+    (4 lines) is therefore reachable only from a hand-built AST. It moves anyway, unchanged — an
+    unreachable arm is not a licence to change behaviour.
+
+  ---
+
+  **THE THREE PRICED QUESTIONS, ANSWERED BEFORE THE CUT.**
+
+  **(1) THE IMPORTED-SYMBOL DICTIONARIES: TWO MOVE, FIVE STAY INJECTED, AND THE RULE THAT DECIDES IS
+  THE ARC'S OWN REBUILD RULE.** A collection MOVES into the owner iff the family is its ONLY toucher
+  besides `Analyze`'s reset; otherwise it STAYS an `Analyzer.cs` field, because these collections are
+  `readonly`, mutated in place, and held BY LIVE REFERENCE by owners that are never rebuilt — moving
+  one would fork the state the moment the shell cleared its copy. Measured, per field:
+  * **`_importedSymbols`** (symbol → import references) — touched at `:735` (reset), `:2878/:2880/:2882`
+    (`ProcessFileImport`) and `:3110` (`CheckImportCollisions`), and NOWHERE else. **MOVES**, and its
+    reset moves into the owner's `BeginAnalysis`.
+  * **`_externalNamespaceCache`** — touched at `:753` (reset) and `:3020/:3024/:3036/:3041`
+    (`NamespaceExists`), and nowhere else. **MOVES**, reset into `BeginAnalysis`.
+  * **`_importedSymbolsByAlias` / `_importedDeclarationsByAlias`** — handed live to `_typeResolver`
+    (`:392/:393`) and `_memberAccess` (`:459`), and read by the shell at `:2627`. **STAY INJECTED.**
+  * **`_usingNamespaces`** — handed live to `_externalTypeProbe` (`:377`), `_projectDiscovery`
+    (`:379`), `_memberAccess` (`:458`) and `_extensionMethodResolution` (`:640/:651`).
+    **STAYS INJECTED**, and the owner appends to the same list.
+  * **`_usingAliases`** — handed live to `_typeResolver` and `_memberAccess`; read by the shell at
+    `:2633`. **STAYS INJECTED.**
+  * **`_typeDeclarationFiles`** — handed live to `_projectDiscovery`, written by the shell at `:2475`
+    and snapshotted by the public `GetTypeDeclarationFiles()`. **STAYS INJECTED.**
+  * **`_referencedPackageNames` / `_mlcAssemblies`** — WRITTEN by the task-021 project-reference and
+    assembly-loading surface (`:3405/:3418`, `:3029`). **STAY INJECTED.**
+
+  **(2) YES — IT NEEDS A DRIVER, AND IT IS THE FIRST FAMILY IN THE ARC THAT NEEDS ONE FOR AN EFFECT
+  RATHER THAN FOR AN ANSWER.** The family re-enters C# at exactly ONE point:
+  `RegisterNamespaceImport:2937` calls `ProcessImportForAssemblyLoading`, whose mapped assemblies are
+  loaded into `_mlcAssemblies` through the MetadataLoadContext — task 021's surface, which this slice
+  does not touch. That load must happen BEFORE the same import's `ValidateNamespaceImport`, because
+  `NamespaceExists` scans `_mlcAssemblies` **and caches its negative answer**: hoisting all loads
+  ahead of all validations would let a later import's assembly satisfy an earlier import's namespace,
+  and would flip a cached `false`. The interleaving is user-visible, so it is preserved by a protocol,
+  not by a reordering. A callback is forbidden; therefore a driver. **The policy half moves with the
+  family**: the seventeen-row mapping table becomes an N# static, and the request the owner suspends
+  with carries the ASSEMBLY NAMES — so the driver's step is the pure task-021 host action
+  `LoadReferencedAssemblyByName`, and `ProcessImportForAssemblyLoading` dies. Two `Begin*` entries
+  (the `unit.Imports` directive and the `FileImports` statement walk), ONE state class, ONE request
+  kind, ONE driver loop: **27 → 28.** The family also sits on the ENTRY path and therefore needs a
+  `BeginAnalysis` that sees the reset order — it must be called AFTER `_semanticModel` and
+  `_bindingMap` are recreated (they are `new`ed per `Analyze`, so the owner cannot hold them) and
+  BEFORE the first import is walked.
+
+  **(3) THE COLLISION REPORT'S ORDER IS PINNED AS A WRITTEN RULE, NOT INHERITED FROM `Dictionary`.**
+  `CheckImportCollisions` enumerates `_importedSymbols` — a `Dictionary<string, …>` that is only ever
+  added to and cleared, so CLR enumeration order is first-insertion order, an implementation detail
+  the user can SEE (it decides which colliding symbol is reported first). The port keeps an explicit
+  first-insertion `List<string>` of symbol names beside the dictionary and iterates THAT, which is
+  byte-identical for an add-only table and turns the order into a rule. Two more orderings are pinned
+  with it: the reported reference is `imports[1]` — the SECOND import, not the first — and
+  `FormatImportCollisionSources` dedupes the ALREADY-QUOTED spelling case-insensitively while
+  preserving first occurrence, then joins with `", "`.
+
+  ---
+
+  **THE WALL WAS RE-MEASURED BY EXECUTION, AND IT IS STALE.** `AnalyzerExternalTypeProbe.nl`'s header
+  records that `NamespaceExists` "deliberately did NOT move with the rest of the metadata probe"
+  because "neither `Assembly.get_FullName` nor `AssemblyName.get_Name` is on the columnar external
+  binding surface", and calls extending that surface "a compiler-capability change requiring a
+  two-stage bootstrap". **BOTH ARE ON THE SURFACE TODAY.** `AssemblyName.get_Name` is already in a
+  shipped owner (`AnalyzerDeclarationContext.nl:843`), and `Assembly.get_FullName` was PROVED by
+  building a probe file into `NSharpLang.Compiler.BootstrapServices` against the PINNED toolset: it
+  emits. The probe also cleared `Assembly.GetExportedTypes`, `Type.get_Namespace`, `File.ReadAllLines`,
+  `File.ReadAllText`, `File.Exists`, `Path.GetFullPath`, `string.IndexOf(value, startIndex,
+  StringComparison)`, `string.Join`, `HashSet<string>(StringComparer.OrdinalIgnoreCase)`,
+  `Dictionary<string, string[]>` with a `TryGetValue` out-parameter,
+  `Dictionary<string, List<ImportedSymbolReference>>`, `new FileResolver(...).ResolveFilePath`,
+  `ColumnarParserRecovery.ParseFileAst` and `catch (ex: Exception) { ex.Message }` — **one build, exit
+  0, NO TOOLSET REPIN NEEDED.** So `NamespaceExists` and its cache move with the family, and the stale
+  paragraph in the probe's header is corrected in the same slice.
+
+  **THE SPLIT DECISION: NONE — TERMINAL.** One connected component, three entries all on `Analyze`,
+  zero external consumers, one re-entry. Every candidate seam leaves a C# member deciding policy
+  across the boundary.
+
+  **THE EXPECTED CUT**: 15 C# members / **468 named lines**. ADDED: one field, one `Create*` factory,
+  one constructor line, one `BeginAnalysis` line, one driver loop, three re-pointed entries and one
+  re-pointed `GetUnitNamespace` call.
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT AN `import` MEANS, IN BOTH OF THE LANGUAGE'S FORMS.
+  THE ARC'S FIRST DRIVER THAT ASKS FOR AN EFFECT RATHER THAN FOR AN ANSWER, AND THE THIRD-LARGEST
+  SINGLE FAMILY OUT WHOLE.**
+
+  **THE CUT — 15 C# MEMBERS, 468 NAMED LINES.** Gone by group: the ENTRY WALK (**234** —
+  `ProcessImports` 22, `ProcessFileImport` **196**, `ResolveFileImportPath` 12,
+  `ProcessNamespaceImport` 4); the NAMESPACE DECISION (**119** — `RegisterNamespaceImport` 20,
+  `ValidateNamespaceImport` 40, `FindNamespaceImportColumn` 20, `NamespaceExists` 28,
+  `NamespaceMatchesReferencedPackage` 11); the EXPORTS AND THE COLLISION REPORT (**82** —
+  `GetUnitNamespace` 2, `GetExternalSearchAssemblies` 13, `ExtractPublicSymbols` 33,
+  `CheckImportCollisions` 30, `FormatImportCollisionSources` 4); and the NAMESPACE→ASSEMBLY POLICY
+  TABLE (**33** — `ProcessImportForAssemblyLoading`, which the brief did not name). ADDED: one field
+  with its comment, one constructor call, one `BeginAnalysis` line, one 18-line driver loop, three
+  re-pointed entries in `Analyze` and one re-pointed `GetUnitNamespace` call.
+  `git diff` on `Analyzer.cs` **+47 / −491 = net −444**. The file goes **3,866 → 3,422**, non-blank
+  **3,538 → 3,148 (−390)**, member extents **225 → 210**, method-shaped members **131 → 117 (−14)**
+  and modifier lines **213 → 198 (−15)**. **BOTH RATCHET CEILINGS FALL** — down from 23,451 at the
+  epoch, an **85.4 %** cut.
+
+  **THE DRIVER COUNT GOES UP, 27 → 28, AND THAT IS THE SLICE'S DEFINING MEASUREMENT.** Every previous
+  driver in this arc relays a QUESTION and carries an answer back. This one relays an EFFECT and
+  carries nothing: `LoadReferencedAssemblyByName`, the MetadataLoadContext surface task 021 owns. It
+  exists because the load must interleave with the existence check that scans its result and caches
+  the negative — the ordering is user-visible and a pre-pass would change answers. The POLICY half
+  moved with the family, so the request carries assembly NAMES and the driver's `case 1` is a
+  `foreach` with no decision in it: **18 lines of C#, for 468 deleted.**
+
+  **N# ADDED — ONE NEW OWNER OF 912 PRODUCTION LINES, THREE TYPES, 34 MEMBERS.**
+  `AnalyzerImports.nl` is **NEW, 912 lines** (`ImportWalkRequest`, `ImportWalkState`,
+  `AnalyzerImports`). `AnalyzerExternalTypeProbe.nl` is **+6 / −5** — a comment correction, see the
+  wall below. `Analyzer.cs` is the only other production file touched.
+
+  **THE WALL WAS RE-MEASURED BY EXECUTION AND IT WAS STALE, WHICH IS THE SLICE'S SHARPEST FINDING.**
+  `AnalyzerExternalTypeProbe.nl` had recorded — as the REASON `NamespaceExists` stayed in C# — that
+  "neither `Assembly.get_FullName` nor `AssemblyName.get_Name` is on the columnar external binding
+  surface" and that extending it "is a compiler-capability change requiring a two-stage bootstrap".
+  A probe file built into `NSharpLang.Compiler.BootstrapServices` against the PINNED toolset **exits
+  0** on both, and `AssemblyName.get_Name` was already in a shipped owner
+  (`AnalyzerDeclarationContext.nl:843`). The comment is corrected in place and now gives the real
+  reason (the question belongs to the import family, and its cache is per-analysis while the probe's
+  is not). **RULE: a recorded wall is evidence with an expiry date — re-measure it by execution
+  before honouring it.**
+
+  **PROOF — SIX ORACLE DIFFERENTIALS, ALL ZERO**, with fresh Release CLIs at the pristine tip
+  `456288ecf` (`/private/tmp/nl65base`) and at the working tree, both pointed at the SAME source copy
+  (`/private/tmp/nl65corpus`), and re-run in full against the FINAL byte-identical build after the
+  temporary trace instrumentation was removed. FOUR of the six reproduce a previously recorded md5.
+  * **CORPUS: ORACLE_DIFFS = 0 over 71 rows**, md5 `8590f4c698c24cd92535dd523ca94d49` — **the same
+    md5 slices 61, 62, 63 and 64 recorded** — 33 diagnostics across 5 codes, `stderrBytes = 0`, ZERO
+    `PARSE-FAIL`, the same seven known no-`results` targets.
+  * **SELF-HOST: ORACLE_DIFFS = 0**, md5 `68e1daae8cfde0c8a77ec5c845bb94aa` — **285 findings across
+    10 codes**, slice 64's count exactly.
+  * **SLICE-65 FIXTURES: ORACLE_DIFFS = 0 over 40 rows**, md5 `ede5bb0ba9976af3277a7661bdaa1845`,
+    75 diagnostics across 11 codes.
+  * **SoA FIXTURES (env-gated): ORACLE_DIFFS = 0 over 27 rows**, md5
+    `df61922f54b28156e91fa7b5044dff9c` — **the same md5 slices 60-64 recorded**.
+  * **SLICE-64 FIXTURES, re-run as an inherited regression: ORACLE_DIFFS = 0 over 47 rows**, md5
+    `f1f3fb6f3b1f7b3fd8e3917d10dc1420` — **the same md5 slice 64 recorded**.
+  * **SUPPLEMENTARY: ORACLE_DIFFS = 0 over 9 rows**, md5 `228dfc3809752a90f77da3c61121f2fa` — **the
+    same md5 slices 61-64 recorded**.
+  **PARSE-ERROR CENSUS: ONE KNOWN, DELIBERATE, BASE-IDENTICAL; ZERO NEW.** NL101 is absent
+  everywhere; NL102 appears exactly ONCE, in `t65-file-imported-syntax-error-reports`, whose
+  `Broken.nl` is a deliberately unparseable file — that fixture is the only way to pin the
+  imported-syntax-error report end to end, and both CLIs produce the identical row.
+
+  **PROOF — THE 40 FIXTURES ARE NON-VACUOUS AND WERE MEASURED TO BE.** 33 of 40 produce at least one
+  diagnostic; the seven silent ones are the seven SILENCE cases by construction (a type export, a
+  func export, a three-file import chain, an aliased qualified use, an alias that keeps a name out of
+  scope, two aliases of one file, and an alias beside an unaliased import). The census names every
+  one of the family's own codes: **NL704 × 10** (six not-found spellings including a single segment,
+  a keyword-containing namespace and an aliased one, plus two type-not-a-namespace and the
+  column-placement pair), **NL702 × 6** (two-file, three-file, same-file-twice, the two-symbol ORDER
+  case and colliding functions), **NL701 × 3** (a missing file, an out-of-tree path and the both-forms
+  case), **NL703 × 2** (self-import and nested cycle), **NL103 × 2** (the imported file's two syntax
+  errors, reported at the import line).
+
+  **PROOF — THE PROTOCOL TRANSCRIPT, WHICH THIS SLICE OWES BECAUSE IT HAS A DRIVER.** A temporary
+  env-gated trace in `DriveImports` recorded every `ENTER` / `STEP` / `ANSWER` / `RESULT` over a
+  **159-target** workload (the 71-project corpus + the 40 slice-65 fixtures + the 47 slice-64
+  fixtures + the self-host project), captured **FIVE times: 4,010 lines each, byte-identical md5
+  `100e9efbdb72d7e09f1dff194dce9655` on ALL FIVE**, `RUN1_VS_RUNn DIFFS = 0` for n = 2..5.
+  **1,192 walks — 1,148 namespace-import walks and 44 file-import walks — 813 steps, ALL kind 1,
+  `ENTERS == RESULTS` (1,192 = 1,192), `STEPS == ANSWERS` (813 = 813), VIOLATIONS = 0** against four
+  invariants (no `ENTER` inside a walk, no `STEP` outside one or before the previous `ANSWER`, no
+  `ANSWER` without a `STEP`, no `RESULT` with a step outstanding or with a form that differs from its
+  `ENTER`). **15 distinct assemblies were relayed**, led by `System.Runtime` × 495 and
+  `System.Collections` × 250. **THE INSTRUMENTATION WAS THEN REMOVED AND THE TREE REBUILT** — `grep
+  -c NL65` on `Analyzer.cs` is **0** — and every oracle above was re-run against that final build.
+
+  **PROOF — THE MULTIPLICITY AND ORDERING PIN.** The whole ordered diagnostic surface of the same
+  159-target workload, with each target's error COUNT and every row's index, file, line, column, code,
+  length, message and suggestion **in list order, undeduplicated and unsorted**, captured **FIVE
+  times: 625 lines each, byte-identical md5 `c16307231a255b75699d6e57a63c31e0` on ALL FIVE**,
+  `RUN1_VS_RUNn DIFFS = 0`. 152 targets with results, 7 without, **466 diagnostic rows across 23
+  codes**. A family that reported twice, reordered, or dropped a report under repetition would move
+  that md5 — and the collision report's order is exactly what it would move.
+
+  **PROOF — THE CORPUS IL CONTROL IS REPRODUCIBLE AND THE EXPERIMENT IS BYTE-EXACT, CONTROL FIRST.**
+  **CONTROL (the BASE CLI building two independent fresh copies of the whole corpus): 118 compared,
+  SAME 118, DIFFERENT 0, ONLY_A 0, ONLY_B 0.** **EXPERIMENT (base vs work): 118 compared, and ALL 63
+  N#-EMITTED ASSEMBLIES ARE BYTE-IDENTICAL.** The 55 that differ are **55 COPIES OF ONE
+  `NSharpLang.Runtime.dll`** — measured: exactly ONE distinct normalised runtime binary per sweep, in
+  both sweeps — a C# assembly this slice does not touch, differing by **208 normalised bytes**, while
+  `diff -rq -x bin -x obj` over `src/NSharpLang.Runtime` between the two trees reports **0** files.
+  Inherited, not produced; the same 208 bytes slices 60, 62, 63 and 64 measured. **ZERO non-Runtime
+  differences.** Every sweep reports `TARGETS=73 BUILT=55 ASSEMBLIES=118`.
+
+  **PROOF — THE UNSORTED BUILD TRANSCRIPT.** With the tree path and elapsed-time text normalised in
+  PYTHON: **CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS = 0 over 1,557 lines**, md5
+  **`1ff6a3797a58c74f8a52bc410519794b`** — **the same md5 slices 63 and 64 recorded** — with identical
+  exit codes (**0 × 55, 1 × 18**).
+
+  **THE CONTRACTS: 3,833 / 3,833 PASSED, 0 FAILED — 3,779 → 3,833 (+54).**
+  `AnalyzerImports.tests.nl` is **NEW, 879 lines, 54 contracts**, organised by the mapping table and
+  the protocol, what a namespace import registers, the two namespace reports in order, where the
+  squiggle goes, what declares a namespace, what a file import resolves to, what an imported file
+  exports and where it lands, the collision report and its ORDER, and the reset. The whole file-import
+  estate is driven through the project's SOURCE SNAPSHOT rather than through disk — which is
+  production behaviour, not a stand-in, because an unsaved editor buffer resolves exactly that way —
+  so no contract writes a temporary file except the one that must (`ProjectNamespaceExists` reads
+  DISK, and the contract says so). No existing contract file changed.
+
+  **THREE FINDINGS THE CONTRACTS FORCED, ALL RECORDED RATHER THAN PAPERED OVER.**
+  1. **BOTH CYCLE SHAPES REPORT THROUGH THE RICH BUILDER WHENEVER THE IMPORT LINE RENDERS**, and the
+     rich builder writes its OWN sentence (`Circular import: '<path>' creates a cycle`). The family's
+     two hand-written sentences — the self-import one and the two-file one — are reachable only when
+     the analysed file renders no line. Two contracts asserted the hand-written wording on the rich
+     path and were corrected against production; two MORE were added to pin the plain arm, using an
+     empty snapshot entry, which is the only shape that separates the two.
+  2. **THE PROJECT-NAMESPACE QUESTION IS ANSWERED FROM DISK, NOT FROM THE SNAPSHOT.** A contract that
+     registered a namespace-declaring file in memory proved nothing; it now writes a real temporary
+     directory, and additionally pins that with ZERO assemblies loaded the project's own namespace
+     still answers YES while anything else answers NO.
+  3. **AN ALIASED FILE IMPORT DOES NOT MAKE ITS NAMES UNRESOLVABLE**, because project discovery finds
+     a sibling file's type anyway. The fixture written to prove "an alias keeps the name out of scope"
+     is silent, and it is silent identically on both sides. The SCOPE assertion is therefore made
+     directly, on the global scope's own tables, rather than through a diagnostic another owner
+     answers.
+
+  **`nlc check` ON THE COMPILER'S OWN SOURCE: 285 findings over 345 files, and the new owner
+  contributes ZERO.** The count is slice 64's exactly, over one more file; the self-host oracle
+  proves ZERO NEW and ZERO REMOVED on the pristine copy, and the direct check of the working tree
+  proves the new file adds nothing. Three findings the first draft did produce were fixed rather than
+  suppressed: two NL905s (`string.IsNullOrEmpty` is not a narrowing the analyzer follows — the null
+  test and the length test are now written separately) and one NL202 (`ParseFileAst` takes a
+  non-nullable source). Format canon green: **"All files are properly formatted"**.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:b0c0d5a4eb1cd124` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 3,866 →
+  **3,422**, currentNonBlankLines 3,538 → **3,148**, fingerprint → **`text-v1:21e1f4307e539ac2`**;
+  `reviewedHeadFingerprint` → **`head-v1:dc44d77214f9a0d5`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **20,029 / 17,389** — up from
+  19,585 / 16,999. `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is
+  exactly 2 changed lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**:
+  every file this slice adds is `.nl`, which the policy does not audit. `ColumnarIlEmitter.cs` and
+  `SystemsAnalyzer.cs` are UNTOUCHED. **Ownership audit: 18 / 18.**
+
+  ---
+
+  **WHAT IS LEFT IN `Analyzer.cs` AFTER THIS SLICE — 3,422 LINES, 3,148 NON-BLANK, 117 METHOD-SHAPED
+  MEMBERS.** The residual policy is:
+  * **THE SCOPE / SYMBOL / DEFAULT-PARAMETER FAMILY — 9 members / 288 lines** plus
+    `ValidatePackageName` 11 and `IsValidIdentifier` 16 — and **three of its questions already route
+    into N#** after slice 64.
+  * **A SMALL EXPRESSION-TAIL RESIDUE — 6 members / ~69 lines**, plus `ReportReferenceLoadFailures`
+    37.
+  * **TOTAL RESIDUAL POLICY: ~421 lines across ~17 members** — down from ~856 across ~32, and from
+    ~1,815 across ~80 two slices ago.
+  Everything else measures as host: the field block, the constructor and its `Create*` factories, the
+  two entry points and their reset block, the 28 driver loops plus the five dispatches and the scope
+  push/pop pair, the `Error`/`Warning`/snippet trio, and the ASSEMBLY-LOADING / MLC surface that
+  belongs to task 021 — now **18 members / 264 lines**, one member and 33 lines smaller than slice 64
+  measured it, because the namespace→assembly POLICY table left it.
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `456288ecf` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the tree
+  and ran the FULL suite (`Scope: full unit suite (no filter)`, four unmapped-path triggers named:
+  the new owner, its contracts, the external type probe and `OwnershipAudit.nl`): **3,194 / 3,194,
+  0 failed, 4m 32s.**
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED: `ALL TESTS PASSED`, EXIT 0, 16 TIMED STEPS,
+  108 PASSES AND ZERO FAILURES, 19m 52s.** `./scripts/test-all.sh --commit` — VS Code tests NOT
+  skipped — reported: build the N# compiler 2m 13s; **Step 2b's format contract 0m 01s**; **unit
+  tests 6m 28s (3,194 / 3,194)**; **native N# tests 3m 49s** — the BootstrapServices contracts at
+  **3,833 / 3,833** plus every native project individually, `ownership-audit` among them; **VS Code
+  integration tests 2m 54s** against a freshly built extension and language server; pack and install
+  the MSBuild SDK 4m 00s; templates, template creation and the template-generated build; the example
+  builds; `nlc check` on examples; and **the IL verification gate 0m 12s — `All 67 N# assemblies pass
+  IL verification (no new errors vs baseline)`**. It ran from an isolated snapshot and STORED a new
+  validated cache result **`c21acdfded5ed90c (1192s)`** rather than hitting a cached one, so it is
+  fresh by construction. **AND THE HONEST LIMIT SLICES 62, 63 AND 64 HAD TO RECORD IS CLOSED THIS
+  TIME**: the four files this slice writes were md5'd immediately BEFORE the gate started and again
+  after it exited, and the four hashes are IDENTICAL — the gate ran over the byte-final tree, proved
+  rather than argued.
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over that same byte-final tree — language server
+  rebuilt, `nsharp-0.6.0.vsix` packaged (**289 files, 3.98 MB**) and installed with `--force`
+  (`successfully installed`); the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is the post-slice build.
+  **NO COMPUTER-USE VERIFICATION WAS TAKEN.** This slice changes no LSP handler, no VS Code extension
+  code and no IDE protocol surface; what it changes is WHO decides what an `import` means — which the
+  gate's VS Code integration suite (fresh extension and language server) and all six diagnostic
+  oracles cover.
+
+  **GOTCHAS (SLICE 65's OWN, ADDED TO THE CUMULATIVE LIST).**
+  **(65.1) `get_Namespace()` ON AN ARRAY-INDEXED RECEIVER DECLINES INSIDE A CALL ARGUMENT.**
+  `string.Equals(exported[index].get_Namespace(), name, StringComparison.Ordinal)` is
+  `emit.call.instance-member-unmodeled`; the SAME call on a plain parameter, returned directly,
+  emits. Bind the element to a local AND the namespace to a second local. This is the recorded
+  "typeof declines as a call argument" gotcha generalised: a reflection getter reached through an
+  indexer inside an argument list is the shape that declines.
+  **(65.2) A CAUGHT EXCEPTION MUST BE BOUND WITH ITS TYPE.** `catch ex {` declines the WHOLE FILE at
+  `parse.struct` with the position reported at the CLASS header — the same misleading shape gotchas
+  63.1 and 64.1 recorded. `catch (ex: Exception) {` parses and emits, and `ex.Message` is on the
+  surface. No shipped owner bound a caught exception before this slice, which is why it was unknown.
+  **(65.3) `string.IsNullOrEmpty(x)` IS NOT A NARROWING.** A later use of `x` produces NL905 on
+  `nlc check` even though the guard returned. Write `if x == null { return … }` followed by
+  `if x.Length == 0 { return … }`; both narrow.
+  **(65.4) A `string?` LOCAL THAT IS ALWAYS ASSIGNED BEFORE USE STILL FAILS NL202 AT THE CALL.**
+  Initialise it to `""` instead of `null` when the C# original's `null` is unobservable — and say so,
+  which this owner does.
+  **(65.5) `Assembly.get_FullName` IS ON THE COLUMNAR SURFACE.** The standing note that it was not is
+  wrong and is corrected; so is the note about `AssemblyName.get_Name`.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS.** Every squiggle a developer sees on an `import` line:
+  that `import System.String` is told it named a TYPE and offered `System` rather than told the
+  namespace does not exist; that a namespace which cannot be found underlines the NAMESPACE and not
+  the keyword, at its own column, for exactly its own length, however much whitespace separates them,
+  and even when the namespace itself contains the word `import`; that importing `System.Linq` works
+  because the assembly it implies is loaded before the question is asked; that an alias puts a name
+  behind the alias and nowhere else; that a missing file names the path AND the absolute location it
+  looked in; that a file which imports itself, or whose import imports it back, is told which cycle it
+  is; that a syntax error inside an imported file is reported AT THE IMPORT, where the reader can act
+  on it, once per error; and that when two unaliased imports bring in the same name, the report lands
+  on the SECOND one, names every file the name came from — deduplicated, in first-import order — and
+  the symbols themselves are reported in the order they were first imported.
+
+  **WALL STATUS: ZERO.** Two language walls were hit, both found by EXECUTION against the pinned
+  toolset, both routed around INSIDE the language with no semantic loss (gotchas 65.1 and 65.2), and
+  a THIRD — the recorded `Assembly.get_FullName` wall — was re-measured and found not to exist.
+  **NO TOOLSET REPIN WAS TAKEN AND NONE WAS NEEDED.**
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Worktrees: `/private/tmp/nl65base` (pristine
+  `456288ecf` + Release CLI) and `/private/tmp/nl65corpus` (the shared source copy both CLIs check).
+  Fixtures: `/private/tmp/nl65fixtures` (40, with `targets.txt`), plus slice 64's
+  `/private/tmp/nl64fixtures` (47) and `/private/tmp/nl62soafx` (27). IL captures and build trees:
+  `/private/tmp/nl65il{Ctrl,A,B}` with outputs under `/private/tmp/nl65out{Ctrl,A,B}`; the protocol
+  transcripts in `/private/tmp/nl65trace`. Harnesses in the scratchpad: `nl62_members.py` (**the
+  extractor, re-VALIDATED against slice 64's forty-eight recorded extents — 48/48 to the line before
+  it was trusted**), `nl65-delete.py`, `nl65-oracle.sh`, `nl65-run-oracles.sh`, `nl65-ilsweep.sh`,
+  `nl65-ilnorm.py`, `nl65-ilcompare.py`, `nl65-transnorm.py`, `nl65-repin.py`,
+  `nl65-make-fixtures.py`, **`nl65-trace-run.sh`** (the protocol transcript) and
+  **`nl65-determinism.sh`**. **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+  * **NEXT SLICE: THE SCOPE / SYMBOL / DEFAULT-PARAMETER FAMILY — 9 MEMBERS / 288 LINES, PLUS
+    `ValidatePackageName` 11 AND `IsValidIdentifier` 16.** **RE-VERIFY THE EXTENT FIRST** — validate
+    the extractor against THIS slice's 15 recorded extents (named above, per member, with their line
+    counts) before trusting it, then measure the family's true closure at the new tip. **Three of its
+    questions ALREADY route into N#** (`TypeInfoIdentityFacts.HasSourceEnumMember`,
+    `TypeInfoIdentityFacts.HasRuntimeEnumMember`, `AnalyzerAttributeValidator.TryGetQualifiedName`),
+    so `IsMatchingEnumMemberDefault` is already half-owned and the slice is smaller than its line
+    count suggests. **The three things to price BEFORE cutting**: (1) whether the scope PUSH/POP pair
+    and `DeclareSymbol`/`DeclareType` are host or policy — they are called from the driver loops, so
+    a family that owns them may need to publish them back, which is the opposite of every previous
+    slice; (2) whether `ValidatePackageName` / `IsValidIdentifier` belong to this family at all or to
+    the parser's own naming rules (016 owns syntax diagnostics — check the file criterion, which is
+    what settled the 017/018 boundary in slice 60); (3) whether the default-parameter rule's THREE
+    already-N# questions mean the remaining C# is a pure relay, in which case the member dies rather
+    than moves — the slice-63 outcome, and worth checking BEFORE writing a port.
+    - **THEN: THE EXPRESSION-TAIL RESIDUE — 6 members / ~69 lines** plus
+      `ReportReferenceLoadFailures` 37, whose rule ("surface NL923 only when the analysis ALSO
+      produced unresolved-type errors") is a policy, not plumbing.
+    - **THEN: THE ZERO-POLICY REVIEW**, whose per-member-class proof obligations and task-021 MLC
+      retirement statement are recorded IN FULL in slice 63's brief below and are unchanged. Slice 64
+      added two things the review must do: **(a)** the `Create*`-factory obligation's THIRD case — an
+      owner rebuilt with the SCC that holds NO per-analysis state and NO driver
+      (`_attributeValidator`), the cheapest correct shape, named as the template; **(b)** the
+      driver-loop obligation's DRIVERLESS variant — the five-run byte-identical capture of the ordered
+      diagnostic surface, to be used for every owner in that shape rather than declaring the
+      obligation inapplicable. This slice adds a THIRD: **(c)** an owner that is NOT rebuilt, holds
+      its own per-analysis state, and is reset through its own `BeginAnalysis` from the entry's reset
+      block (`_imports`) is a FOURTH `Create*` shape, and the review must check its reset ORDER — this
+      one must run after `_semanticModel` and `_bindingMap` are recreated, and a review that only
+      checks WHICH owners are rebuilt would not catch a reset in the wrong place. It must also record
+      that the task-021 MLC surface is now **18 members / 264 lines**, because the namespace→assembly
+      policy table left it for N# in this slice.
+
+  ---
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `456288ecf`): **017 SLICE 64 — THE ATTRIBUTE VALIDATOR: WHAT AN ATTRIBUTE
   MEANS. THE LARGEST FAMILY IN THE CORRECTED CENSUS, TERMINAL.** Target recorded BEFORE any
   production edit, at `19ac88cfc` (`Analyzer.cs` **4,866** lines, non-blank **4,425**, member
   declarations **191** by the narrow metric and **261** by the modifier-line metric; **26** driver

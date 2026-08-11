@@ -13,11 +13,12 @@ import System.Reflection
 // once by reference: both grow while a file's imports are processed, and this owner must see those
 // additions, so it stores the references rather than copies. Do not snapshot them.
 //
-// `NamespaceExists` deliberately did NOT move with the rest of the metadata probe: it deduplicates the
-// loaded assemblies by `Assembly.FullName`, and neither `Assembly.get_FullName` nor
-// `AssemblyName.get_Name` is on the columnar external binding surface. Extending that surface is a
-// compiler-capability change requiring a two-stage bootstrap, so that member and its own cache stay in
-// the shell until the surface grows.
+// `NamespaceExists` is NOT here, and the reason is no longer the one this comment used to give. It
+// once said that neither `Assembly.get_FullName` nor `AssemblyName.get_Name` was on the columnar
+// external binding surface; both are, measured by execution against the pinned toolset. The question
+// it answers simply belongs to a different owner: "does anything DECLARE this namespace" is an
+// import's question, not a type reference's, and it lives with the rest of the import family in
+// `AnalyzerImports` — with its own cache, because that cache is per-analysis while this one is not.
 //
 // THE PROBE ORDER IS BEHAVIOUR, NOT AN OPTIMISATION, and the cache participates in it:
 //

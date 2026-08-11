@@ -28,7 +28,6 @@ public class Analyzer : IDisposable
     private readonly AnalyzerScopeStack _scopes = new();
     private readonly List<string> _usingNamespaces = new();
     private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
-    private readonly Dictionary<string, List<ImportedSymbolReference>> _importedSymbols = new(); // symbol -> import references
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
     private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly AnalyzerDeclarationContext _declarationContext = new();
@@ -58,7 +57,6 @@ public class Analyzer : IDisposable
     // The analyzer's external (MetadataLoadContext) type probe. Constructed once and never
     // rebuilt: it owns the resolution cache, and that cache participates in the probe ORDER.
     private readonly AnalyzerExternalTypeProbe _externalTypeProbe;
-    private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     // The project's sources, parsed units and declared namespaces, and the project-discovery walk
     // over them. Both are constructed once and never rebuilt: the provider's parsed-unit cache and
@@ -370,6 +368,17 @@ public class Analyzer : IDisposable
     // argument is settable and with what type. Rebuilt with the SCC: it holds the CLR type
     // conversion and the well-known-type bag, both of which the rebuild replaces.
     private AnalyzerAttributeValidator _attributeValidator;
+    // WHAT AN `import` MEANS, in both of the language's forms: which file a written path names, whether
+    // it is a cycle, what an imported file exports and where each exported name lands; and for a
+    // namespace import, whether the spelling names a namespace at all, whether it is a type written
+    // where a namespace belongs, and where in the line the squiggle points. It also owns the
+    // imported-symbol references and the collision report they feed, and the external
+    // namespace-existence cache. NOT rebuilt with the SCC: everything it holds is constructed once,
+    // and the two per-analysis collections it owns must survive the whole analysis — they are reset
+    // through its own `BeginAnalysis`, from the same reset block. It is the one owner in the arc with
+    // a driver that asks for an EFFECT: the assemblies a namespace import implies are loaded through
+    // the MetadataLoadContext, which is task 021's surface and stays here.
+    private readonly AnalyzerImports _imports;
     private bool _disposed;
 
     public Analyzer()
@@ -474,6 +483,11 @@ public class Analyzer : IDisposable
         _rangeExpression = CreateRangeExpression();
         _matchExpression = CreateMatchExpression();
         _attributeValidator = CreateAttributeValidator();
+        _imports = new AnalyzerImports(
+            _diagnostics, _scopes, _declarationContext, _projectSources, _externalTypeProbe,
+            _functionTypeFactory, _mlcAssemblies, _usingNamespaces, _usingAliases,
+            _importedSymbolsByAlias, _importedDeclarationsByAlias, _typeDeclarationFiles,
+            _referencedPackageNames);
     }
 
     private AnalyzerAttributeValidator CreateAttributeValidator()
@@ -732,7 +746,6 @@ public class Analyzer : IDisposable
         _scopes.Clear();
         _usingNamespaces.Clear();
         _usingAliases.Clear();
-        _importedSymbols.Clear();
         _importedSymbolsByAlias.Clear();
         _importedDeclarationsByAlias.Clear();
         _implicitConversionGuard.Clear();
@@ -750,7 +763,7 @@ public class Analyzer : IDisposable
         _typeResolver.BeginAnalysis(currentFilePath, unit, _semanticModel, _bindingMap);
         _identifierResolution.BeginAnalysis(unit, _semanticModel, _bindingMap);
         _memberAccess.BeginAnalysis(unit, _bindingMap);
-        _externalNamespaceCache.Clear();
+        _imports.BeginAnalysis(_semanticModel, _bindingMap);
         _typeDeclarationFiles.Clear();
 
         InitializeDeclarationContext(unit, currentFilePath, projectRoot);
@@ -758,7 +771,8 @@ public class Analyzer : IDisposable
         // Process import directives
         foreach (var importDirective in unit.Imports)
         {
-            RegisterNamespaceImport(importDirective.Namespace, importDirective.Alias, importDirective.Line, importDirective.Column);
+            DriveImports(_imports.BeginNamespaceImport(
+                importDirective.Namespace, importDirective.Alias, importDirective.Line, importDirective.Column));
         }
 
         // Validate package declaration if present
@@ -773,11 +787,11 @@ public class Analyzer : IDisposable
         // Process file imports (adds symbols to global scope)
         if (unit.FileImports.Count > 0)
         {
-            ProcessImports(unit.FileImports);
+            DriveImports(_imports.BeginFileImports(unit.FileImports));
         }
 
         // Check for import collisions
-        CheckImportCollisions();
+        _imports.CheckImportCollisions();
 
         // First pass: collect all type declarations and function signatures
         foreach (var decl in unit.Declarations)
@@ -1362,6 +1376,31 @@ public class Analyzer : IDisposable
             }
 
             _declarationWalkers.Supply(state, answer);
+        }
+    }
+
+    /// <summary>
+    /// The one step the N#-owned import walk cannot take for itself: loading the reference assemblies
+    /// a written namespace implies. WHICH assemblies is the walk's own policy and arrives in the
+    /// request; loading them is the MetadataLoadContext surface, which stays here.
+    /// </summary>
+    private void DriveImports(ImportWalkState state)
+    {
+        for (var step = _imports.NextStep(state);
+             step != null;
+             step = _imports.NextStep(state))
+        {
+            switch (step.Kind)
+            {
+                case 1:
+                    foreach (var assemblyName in step.AssemblyNames)
+                    {
+                        LoadReferencedAssemblyByName(assemblyName);
+                    }
+                    break;
+            }
+
+            _imports.Supply(state);
         }
     }
 
@@ -2632,7 +2671,7 @@ public class Analyzer : IDisposable
 
         if (_usingAliases.TryGetValue(root, out var namespaceName))
         {
-            if (_projectDiscovery.TryResolveProjectTypeInNamespace(remainder, namespaceName, GetUnitNamespace(_compilationUnit), out var projectType, out _))
+            if (_projectDiscovery.TryResolveProjectTypeInNamespace(remainder, namespaceName, AnalyzerProjectSourceProvider.UnitNamespace(_compilationUnit), out var projectType, out _))
                 return projectType;
             var expandedName = namespaceName + "." + remainder;
             if (ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, expandedName, out var aliasedRuntimeType))
@@ -2691,455 +2730,6 @@ public class Analyzer : IDisposable
 
         return true;
     }
-
-    private void ProcessImports(List<Statement> imports)
-    {
-        var projectRoot = _projectSources.ProjectRoot;
-        if (_currentFilePath == null || projectRoot == null)
-        {
-            return;
-        }
-
-        var fileResolver = new FileResolver(projectRoot, _currentFilePath);
-
-        foreach (var import in imports)
-        {
-            if (import is FileImport fileImport)
-            {
-                ProcessFileImport(fileImport, fileResolver);
-            }
-            else if (import is NamespaceImport nsImport)
-            {
-                ProcessNamespaceImport(nsImport);
-            }
-        }
-    }
-
-    private void ProcessFileImport(FileImport import, FileResolver resolver)
-    {
-        var resolvedPath = ResolveFileImportPath(resolver, import.Path, out var errorMessage);
-        if (resolvedPath == null)
-        {
-            var sourceSnippet = GetSourceSnippet(import.Line);
-
-            if (sourceSnippet != null && _currentFilePath != null)
-            {
-                var error = ErrorMessageBuilder.ImportNotFound(
-                    _currentFilePath,
-                    import.Line,
-                    import.DiagnosticColumn,
-                    sourceSnippet,
-                    import.DiagnosticLength,
-                    import.Path
-                );
-                _errors.Add(error);
-            }
-            else
-            {
-                Error(
-                    ErrorCode.ImportNotFound,
-                    errorMessage!,
-                    import.Line,
-                    import.DiagnosticColumn,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.ImportNotFound),
-                    import.DiagnosticLength);
-            }
-            return;
-        }
-
-        if (_currentFilePath != null &&
-            string.Equals(Path.GetFullPath(resolvedPath), Path.GetFullPath(_currentFilePath), StringComparison.OrdinalIgnoreCase))
-        {
-            var sourceSnippet = GetSourceSnippet(import.Line);
-
-            if (sourceSnippet != null)
-            {
-                var error = ErrorMessageBuilder.CircularImport(
-                    _currentFilePath,
-                    import.Line,
-                    import.DiagnosticColumn,
-                    sourceSnippet,
-                    import.DiagnosticLength,
-                    import.Path);
-                _errors.Add(error);
-            }
-            else
-            {
-                Error(ErrorCode.CircularImport, $"'{import.Path}' imports itself — circular imports aren't allowed",
-                    import.Line, import.DiagnosticColumn,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport),
-                    import.DiagnosticLength);
-            }
-            return;
-        }
-
-        CompilationUnit? importedUnit = null;
-        string? importedSource = null;
-        try
-        {
-            importedSource = _projectSources.TryGetProjectSourceText(resolvedPath) ?? System.IO.File.ReadAllText(resolvedPath);
-            var parseResult = ColumnarParserRecovery.ParseFileAst(importedSource, resolvedPath);
-            importedUnit = parseResult.CompilationUnit;
-
-            foreach (var error in parseResult.Errors)
-            {
-                Error(
-                    ErrorCode.InvalidSyntax,
-                    $"The imported file '{import.Path}' has a syntax error — {error.Message}",
-                    import.Line,
-                    import.DiagnosticColumn,
-                    length: import.DiagnosticLength);
-            }
-
-            if (importedUnit == null)
-            {
-                return;  // Can't continue without compilation unit
-            }
-        }
-        catch (Exception ex)
-        {
-            Error(
-                ErrorCode.InvalidSyntax,
-                $"I couldn't read the imported file '{import.Path}' — {ex.Message}",
-                import.Line,
-                import.DiagnosticColumn,
-                length: import.DiagnosticLength);
-            return;
-        }
-
-        _declarationContext.AddCompilationUnit(resolvedPath, importedUnit);
-
-        if (importedUnit.FileImports.Count > 0 && _projectSources.ProjectRoot != null && _currentFilePath != null)
-        {
-            var currentNormalized = Path.GetFullPath(_currentFilePath);
-            var importedFileResolver = new FileResolver(_projectSources.ProjectRoot, resolvedPath);
-            foreach (var nestedImport in importedUnit.FileImports)
-            {
-                if (nestedImport is FileImport nestedFileImport)
-                {
-                    var nestedPath = ResolveFileImportPath(importedFileResolver, nestedFileImport.Path, out _);
-                    if (nestedPath != null &&
-                        string.Equals(Path.GetFullPath(nestedPath), currentNormalized, StringComparison.OrdinalIgnoreCase))
-                    {
-                        var sourceSnippet = GetSourceSnippet(import.Line);
-
-                        if (sourceSnippet != null)
-                        {
-                            var error = ErrorMessageBuilder.CircularImport(
-                                _currentFilePath,
-                                import.Line,
-                                import.DiagnosticColumn,
-                                sourceSnippet,
-                                import.DiagnosticLength,
-                                import.Path);
-                            _errors.Add(error);
-                        }
-                        else
-                        {
-                            Error(ErrorCode.CircularImport,
-                                $"Circular import: '{import.Path}' imports '{nestedFileImport.Path}' which imports this file back — break the cycle by restructuring your imports",
-                                import.Line, import.DiagnosticColumn,
-                                ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport),
-                                import.DiagnosticLength);
-                        }
-                        return;
-                    }
-                }
-            }
-        }
-
-        var symbols = ExtractPublicSymbols(importedUnit, resolvedPath, importedSource);
-
-        if (import.Alias != null)
-        {
-            if (!_importedSymbolsByAlias.ContainsKey(import.Alias))
-            {
-                _importedSymbolsByAlias[import.Alias] = new Dictionary<string, TypeInfo>();
-            }
-            if (!_importedDeclarationsByAlias.ContainsKey(import.Alias))
-            {
-                _importedDeclarationsByAlias[import.Alias] = new Dictionary<string, SymbolDeclaration>();
-            }
-
-            foreach (var symbol in symbols)
-            {
-                _importedSymbolsByAlias[import.Alias][symbol.Name] = symbol.Type;
-                _importedDeclarationsByAlias[import.Alias][symbol.Name] = symbol.Declaration;
-                if (AnalyzerBindingFacts.IsTypeDeclarationKind(symbol.Declaration.Kind))
-                {
-                    _typeDeclarationFiles[symbol.Name] = symbol.Declaration.File!;
-                }
-            }
-        }
-        else
-        {
-            foreach (var symbol in symbols)
-            {
-                if (!_importedSymbols.ContainsKey(symbol.Name))
-                {
-                    _importedSymbols[symbol.Name] = new List<ImportedSymbolReference>();
-                }
-                _importedSymbols[symbol.Name].Add(new ImportedSymbolReference(
-                    resolvedPath,
-                    import.Path,
-                    import.Line,
-                    import.DiagnosticColumn,
-                    import.DiagnosticLength));
-
-                var globalScope = _scopes.GlobalScope();
-                if (symbol.Declaration.Kind == "function")
-                {
-                    globalScope.Symbols[symbol.Name] = symbol.Type;
-                }
-                else
-                {
-                    globalScope.Types[symbol.Name] = symbol.Type;
-                    _semanticModel.RecordType(symbol.Name, symbol.Type);
-                    if (AnalyzerBindingFacts.IsTypeDeclarationKind(symbol.Declaration.Kind))
-                    {
-                        _typeDeclarationFiles[symbol.Name] = symbol.Declaration.File!;
-                    }
-                }
-
-                globalScope.RecordDeclarationLocation(
-                    symbol.Name,
-                    symbol.Declaration.File,
-                    symbol.Declaration.Line,
-                    symbol.Declaration.Column,
-                    symbol.Declaration.Kind);
-                _bindingMap.RecordDeclaration(symbol.Declaration);
-            }
-        }
-    }
-
-    private string? ResolveFileImportPath(FileResolver resolver, string importPath, out string? errorMessage)
-    {
-        var resolvedPath = Path.GetFullPath(resolver.ResolveFilePath(importPath));
-        if (_projectSources.ContainsSourceText(resolvedPath) || System.IO.File.Exists(resolvedPath))
-        {
-            errorMessage = null;
-            return resolvedPath;
-        }
-
-        errorMessage = $"Imported file not found: {importPath} (resolved to {resolvedPath})";
-        return null;
-    }
-
-    private void ProcessNamespaceImport(NamespaceImport import)
-    {
-        RegisterNamespaceImport(import.Namespace, import.Alias, import.Line, import.Column);
-    }
-
-    private void RegisterNamespaceImport(string namespaceName, string? alias, int line, int column)
-    {
-        var importDirective = new ImportDirective(namespaceName, alias, line, column);
-
-        ProcessImportForAssemblyLoading(importDirective);
-
-        if (!ValidateNamespaceImport(namespaceName, line, column))
-        {
-            return;
-        }
-
-        if (alias != null)
-        {
-            _usingAliases[alias] = namespaceName;
-        }
-        else if (!_usingNamespaces.Contains(namespaceName))
-        {
-            _usingNamespaces.Add(namespaceName);
-        }
-    }
-
-    private bool ValidateNamespaceImport(string namespaceName, int line, int column)
-    {
-        var diagnosticColumn = FindNamespaceImportColumn(namespaceName, line, column);
-
-        var importedType = _externalTypeProbe.ResolveExactExternalType(namespaceName);
-        if (importedType != null)
-        {
-            var suggestion = !string.IsNullOrWhiteSpace(importedType.Namespace)
-                ? $"Import '{importedType.Namespace}' instead."
-                : "Import a namespace instead of a type name.";
-
-            Error(
-                ErrorCode.NamespaceNotFound,
-                $"'{namespaceName}' is a type, not a namespace — you can only import namespaces",
-                line,
-                diagnosticColumn,
-                suggestion,
-                namespaceName.Length);
-            return false;
-        }
-
-        if (NamespaceExists(namespaceName))
-        {
-            return true;
-        }
-
-        if (NamespaceMatchesReferencedPackage(namespaceName))
-        {
-            return true;
-        }
-
-        Error(
-            ErrorCode.NamespaceNotFound,
-            $"I can't find namespace '{namespaceName}' — check the spelling and make sure the assembly is referenced",
-            line,
-            diagnosticColumn,
-            "Check the namespace spelling and project references.",
-            namespaceName.Length);
-        return false;
-    }
-
-    private int FindNamespaceImportColumn(string namespaceName, int line, int fallbackColumn)
-    {
-        string? sourceLine = null;
-
-        sourceLine = GetSourceSnippet(line);
-        if (sourceLine == null && !string.IsNullOrWhiteSpace(_currentFilePath) && File.Exists(_currentFilePath))
-        {
-            sourceLine = File.ReadLines(_currentFilePath).Skip(line - 1).FirstOrDefault();
-        }
-
-        if (string.IsNullOrEmpty(sourceLine))
-        {
-            return fallbackColumn;
-        }
-
-        var importIndex = sourceLine.IndexOf("import", StringComparison.Ordinal);
-        var searchStart = importIndex >= 0 ? importIndex + "import".Length : 0;
-        var namespaceIndex = sourceLine.IndexOf(namespaceName, searchStart, StringComparison.Ordinal);
-        return namespaceIndex >= 0 ? namespaceIndex + 1 : fallbackColumn;
-    }
-
-    private bool NamespaceExists(string namespaceName)
-    {
-        if (_projectSources.ProjectNamespaceExists(namespaceName))
-        {
-            _externalNamespaceCache[namespaceName] = true;
-            return true;
-        }
-
-        if (_externalNamespaceCache.TryGetValue(namespaceName, out var exists))
-        {
-            return exists;
-        }
-
-        foreach (var assembly in GetExternalSearchAssemblies())
-        {
-            IEnumerable<Type> exportedTypes;
-                exportedTypes = assembly.GetExportedTypes();
-
-            if (exportedTypes.Any(t => string.Equals(t.Namespace, namespaceName, StringComparison.Ordinal)))
-            {
-                _externalNamespaceCache[namespaceName] = true;
-                return true;
-            }
-        }
-
-        _externalNamespaceCache[namespaceName] = false;
-        return false;
-    }
-
-    private bool NamespaceMatchesReferencedPackage(string namespaceName)
-    {
-        if (namespaceName.Count(c => c == '.') < 1)
-        {
-            return false;
-        }
-
-        return _referencedPackageNames.Any(packageName =>
-            string.Equals(packageName, namespaceName, StringComparison.Ordinal) ||
-            packageName.StartsWith(namespaceName + ".", StringComparison.Ordinal));
-    }
-
-    private static string? GetUnitNamespace(CompilationUnit? unit)
-        => AnalyzerProjectSourceProvider.UnitNamespace(unit);
-
-    private IEnumerable<Assembly> GetExternalSearchAssemblies()
-    {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var assembly in _mlcAssemblies)
-        {
-            var assemblyName = assembly.FullName ?? assembly.GetName().Name;
-            if (!string.IsNullOrEmpty(assemblyName) && seen.Add(assemblyName))
-            {
-                yield return assembly;
-            }
-        }
-    }
-
-    private List<ImportedSymbolInfo> ExtractPublicSymbols(CompilationUnit unit, string filePath, string? sourceText)
-    {
-        var symbols = new List<ImportedSymbolInfo>();
-
-        foreach (var decl in unit.Declarations)
-        {
-            var name = DeclarationFacts.GetDeclarationName(decl);
-
-            if (name != null && DeclarationFacts.IsExportedDeclaration(decl, name))
-            {
-                var typeInfo = AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration(decl)
-                    ? _declarationContext.ResolveDeclarationType(decl, filePath)
-                    : decl is FunctionDeclaration function
-                        ? _functionTypeFactory.CreateFromDeclarationInFile(function, filePath)
-                        : null;
-
-                if (typeInfo != null)
-                {
-                    symbols.Add(new ImportedSymbolInfo(
-                        name,
-                        typeInfo,
-                        new SymbolDeclaration(
-                            name,
-                            filePath,
-                            decl.Line,
-                            AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, name, decl.Line, decl.Column),
-                            DeclarationFacts.GetDeclarationKind(decl))));
-                }
-            }
-        }
-
-        return symbols;
-    }
-
-    private void CheckImportCollisions()
-    {
-        foreach (var (symbol, imports) in _importedSymbols)
-        {
-            if (imports.Count <= 1)
-                continue;
-
-            var duplicate = imports[1];
-            var importList = FormatImportCollisionSources(imports);
-            var message = $"Imported symbol '{symbol}' is defined by multiple file imports";
-            var suggestion = $"Add an alias to one import, such as `import \"{duplicate.ImportPath}\" as Alias`, and qualify the symbol.";
-            var humanExplanation = $"The symbol '{symbol}' is imported more than once, so N# cannot choose which definition to use.";
-            var contextualHint =
-                $"N# found '{symbol}' in these file imports: {importList}.\n" +
-                "Unaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit.";
-
-            var sourceSnippet = GetSourceSnippet(duplicate.Line);
-            _errors.Add(AnalyzerDiagnostics.CreateImportCollision(
-                message,
-                _currentFilePath,
-                duplicate.SourcePath,
-                duplicate.Line,
-                duplicate.Column,
-                sourceSnippet,
-                duplicate.Length,
-                suggestion,
-                humanExplanation,
-                contextualHint));
-        }
-    }
-
-    private static string FormatImportCollisionSources(IEnumerable<ImportedSymbolReference> imports)
-        => string.Join(", ", imports
-            .Select(import => $"\"{import.ImportPath}\"")
-            .Distinct(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>
     /// Load a .NET assembly by file path for type resolution (metadata-only via MLC)
@@ -3606,40 +3196,6 @@ public class Analyzer : IDisposable
         else
         {
             Console.Error.WriteLine($"Warning: Unknown project reference type: {projectPath}");
-        }
-    }
-
-    /// <summary>
-    /// Process an import directive and attempt to load the corresponding assembly
-    /// </summary>
-    public void ProcessImportForAssemblyLoading(ImportDirective import)
-    {
-        var assemblyMappings = new Dictionary<string, string[]>
-        {
-            ["System"] = new[] { "System.Runtime" },
-            ["System.Collections.Generic"] = new[] { "System.Collections" },
-            ["System.Collections"] = new[] { "System.Collections" },
-            ["System.Threading.Tasks"] = new[] { "System.Runtime" },
-            ["System.Linq"] = new[] { "System.Linq" },
-            ["System.IO"] = new[] { "System.Runtime" },
-            ["System.Text"] = new[] { "System.Runtime" },
-            ["System.Net.Http"] = new[] { "System.Net.Http" },
-            ["System.Text.Json"] = new[] { "System.Text.Json" },
-            ["System.ComponentModel.DataAnnotations"] = new[] { "System.ComponentModel.Annotations" },
-            ["Microsoft.AspNetCore.Builder"] = new[] { "Microsoft.AspNetCore", "Microsoft.AspNetCore.Http.Abstractions" },
-            ["Microsoft.AspNetCore.Mvc"] = new[] { "Microsoft.AspNetCore.Mvc.Core", "Microsoft.AspNetCore.Mvc.Abstractions" },
-            ["Microsoft.AspNetCore.Http"] = new[] { "Microsoft.AspNetCore.Http", "Microsoft.AspNetCore.Http.Abstractions" },
-            ["Microsoft.Extensions.DependencyInjection"] = new[] { "Microsoft.Extensions.DependencyInjection.Abstractions", "Microsoft.Extensions.DependencyInjection" },
-            ["Microsoft.Extensions.Hosting"] = new[] { "Microsoft.Extensions.Hosting.Abstractions", "Microsoft.Extensions.Hosting" },
-            ["Microsoft.EntityFrameworkCore"] = new[] { "Microsoft.EntityFrameworkCore", "Microsoft.EntityFrameworkCore.Abstractions" }
-        };
-
-        if (assemblyMappings.TryGetValue(import.Namespace, out var assemblies))
-        {
-            foreach (var assemblyName in assemblies)
-            {
-                LoadReferencedAssemblyByName(assemblyName);
-            }
         }
     }
 
