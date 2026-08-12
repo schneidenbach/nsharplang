@@ -18,7 +18,7 @@ public sealed class SystemsAnalyzer
 {
     private readonly string _projectRoot;
     private readonly ProjectConfig _config;
-    private readonly List<SystemsFinding> _findings = new();
+    private readonly SystemsFindingSink _findingSink = new();
     private readonly List<SystemsFunctionSummary> _functions = new();
     private readonly List<SystemsTrustedSite> _trustedSites = new();
     private readonly Dictionary<DeclarationSite, List<FunctionEntry>> _functionEntriesBySite = new();
@@ -40,6 +40,7 @@ public sealed class SystemsAnalyzer
     {
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
+        _findingSink.BeginAnalysis(_config);
         _hotSummaries = HotSummaryCatalog.Load(projectRoot, _config);
     }
 
@@ -48,7 +49,7 @@ public sealed class SystemsAnalyzer
         PerformanceFactStore? performanceFacts = null,
         IReadOnlyDictionary<string, SemanticModel>? semanticModels = null)
     {
-        _findings.Clear();
+        _findingSink.BeginAnalysis(_config);
         _functions.Clear();
         _trustedSites.Clear();
         _functionEntriesBySite.Clear();
@@ -72,9 +73,7 @@ public sealed class SystemsAnalyzer
         foreach (var entry in _orderedFunctionEntries)
             AnalyzeFunction(entry, performanceFacts);
 
-        var errors = _findings.Count(f => f.Severity == "error");
-        var warnings = _findings.Count(f => f.Severity == "warning");
-        var aotAnalysis = _findings.Any(f => f.Code == "NSYS060" && f.Severity == "error") ? "fail" : "pass";
+        var aotAnalysis = _findingSink.AotAnalysis();
         return new SystemsReport(
             1,
             _config.Language.Profile,
@@ -82,7 +81,7 @@ public sealed class SystemsAnalyzer
             _config.Language.Systems.AotTarget,
             _config.Language.Systems.Warmup,
             _functions,
-            _findings.OrderBy(f => f.File, StringComparer.OrdinalIgnoreCase).ThenBy(f => f.Line).ThenBy(f => f.Column).ToArray(),
+            _findingSink.Ordered(),
             _trustedSites.OrderBy(t => t.File, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Line).ThenBy(t => t.Column).ToArray(),
             new SystemsAotReport(
                 _config.Language.Systems.AotTarget,
@@ -93,15 +92,14 @@ public sealed class SystemsAnalyzer
                 _functions.Count,
                 _functions.Count(f => f.IsHot),
                 _functions.Count(f => f.IsBoundary),
-                _findings.Count,
-                errors,
-                warnings,
+                _findingSink.Count,
+                _findingSink.ErrorCount,
+                _findingSink.WarningCount,
                 _trustedSites.Count));
     }
 
-    private bool IsSystemsProfile => string.Equals(_config.Language.Profile, "systems", StringComparison.OrdinalIgnoreCase);
-    private string EffectiveMode => IsSystemsProfile ? _config.Language.Systems.Mode : "strict";
-    private bool IsAuditMode => IsSystemsProfile && string.Equals(EffectiveMode, "audit", StringComparison.OrdinalIgnoreCase);
+    private bool IsSystemsProfile => _findingSink.IsSystemsProfile;
+    private string EffectiveMode => _findingSink.EffectiveMode;
 
     private void RegisterDeclarations(string file, IEnumerable<Declaration> declarations, string? containingType)
     {
@@ -313,7 +311,7 @@ public sealed class SystemsAnalyzer
         {
             if (field.Type != null && _typePolicy.IsRefLikeType(field.Type))
             {
-                AddTypeFinding(
+                _findingSink.AddForType(
                     "NSYS080",
                     "lifetime",
                     $"ref-like field '{field.Name}' is only allowed inside a ref struct",
@@ -489,34 +487,6 @@ public sealed class SystemsAnalyzer
                 ErrorSeverity.Error,
                 "Use `using`, call Dispose/DisposeAsync in a finally block, or return/transfer through an explicit owner once ownership is modeled.");
         }
-    }
-
-    private void AddTypeFinding(
-        string code,
-        string effect,
-        string message,
-        string file,
-        int line,
-        int column,
-        int length,
-        string typeName,
-        string? suggestion)
-    {
-        var severity = IsAuditMode ? "warning" : "error";
-        _findings.Add(new SystemsFinding(
-            code,
-            severity,
-            effect,
-            message,
-            file,
-            line,
-            column,
-            Math.Max(1, length),
-            typeName,
-            IsSystemsProfile ? $"systems:{EffectiveMode}" : "local",
-            "sourceInferred",
-            suggestion,
-            new[] { typeName }));
     }
 
     private void WalkStatement(Statement statement, WalkContext context)
@@ -1409,12 +1379,7 @@ public sealed class SystemsAnalyzer
     }
 
     private void AddHotFinding(string code, string effect, string message, AstNode node, WalkContext context)
-    {
-        if (!context.Summary.IsHot)
-            return;
-
-        AddFinding(code, effect, message, node.Line, node.Column, 1, context, ErrorSeverity.Error, null);
-    }
+        => _findingSink.AddWhenHot(code, effect, message, node.Line, node.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
 
     private void AddFindingForPolicy(
         string code,
@@ -1423,31 +1388,7 @@ public sealed class SystemsAnalyzer
         AstNode node,
         WalkContext context,
         string? suggestion)
-    {
-        if (context.IsAllowed(effect))
-            return;
-
-        if (context.Summary.IsBoundary)
-        {
-            AddFinding(code, effect, message, node.Line, node.Column, 1, context, ErrorSeverity.Warning, suggestion);
-            return;
-        }
-
-        if (context.Summary.IsHot || IsSystemsProfile)
-        {
-            AddFinding(code, effect, message, node.Line, node.Column, 1, context, ErrorSeverity.Error, suggestion);
-        }
-    }
-
-    private void AddFinding(
-        string code,
-        string effect,
-        string message,
-        AstNode node,
-        MutableFunctionSummary summary,
-        ErrorSeverity preferredSeverity,
-        string? suggestion)
-        => AddFinding(code, effect, message, node.Line, node.Column, 1, summary, preferredSeverity, suggestion);
+        => _findingSink.AddForPolicy(code, effect, message, node.Line, node.Column, context.IsAllowed(effect), context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary, suggestion);
 
     private void AddFinding(
         string code,
@@ -1471,7 +1412,7 @@ public sealed class SystemsAnalyzer
         MutableFunctionSummary summary,
         ErrorSeverity preferredSeverity,
         string? suggestion)
-        => AddFinding(code, effect, message, line, column, length, summary, preferredSeverity, suggestion, new[] { summary.Name });
+        => _findingSink.AddForFunction(code, effect, message, line, column, length, summary.File, summary.Name, summary.IsHot, summary.IsBoundary, preferredSeverity, suggestion);
 
     private void AddFinding(
         string code,
@@ -1484,27 +1425,7 @@ public sealed class SystemsAnalyzer
         ErrorSeverity preferredSeverity,
         string? suggestion,
         IReadOnlyList<string> callPath)
-    {
-        if (summary.IsBoundary && !summary.IsHot && preferredSeverity == ErrorSeverity.Error)
-            preferredSeverity = ErrorSeverity.Warning;
-        if (IsAuditMode)
-            preferredSeverity = ErrorSeverity.Warning;
-
-        _findings.Add(new SystemsFinding(
-            code,
-            preferredSeverity == ErrorSeverity.Error ? "error" : "warning",
-            effect,
-            message,
-            summary.File,
-            line,
-            column,
-            Math.Max(1, length),
-            summary.Name,
-            summary.IsHot ? "[hot]" : IsSystemsProfile ? $"systems:{EffectiveMode}" : "local",
-            "sourceInferred",
-            suggestion,
-            callPath));
-    }
+        => _findingSink.Add(code, effect, message, line, column, length, summary.File, summary.Name, summary.IsHot, summary.IsBoundary, preferredSeverity, suggestion, callPath);
 
     private static IReadOnlyList<Guard> DeriveGuardsFromExitingIf(IfStatement ifStatement)
     {
