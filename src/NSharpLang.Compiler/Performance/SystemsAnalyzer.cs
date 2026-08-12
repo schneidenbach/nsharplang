@@ -32,6 +32,7 @@ public sealed class SystemsAnalyzer
     private readonly SystemsCallPolicy _callPolicy = new();
     private readonly SystemsSurfacePolicy _surfacePolicy;
     private readonly SystemsBalancePolicy _balancePolicy;
+    private readonly SystemsCalleePolicy _calleePolicy;
     private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
     private HotSummaryCatalog _hotSummaries;
 
@@ -45,6 +46,8 @@ public sealed class SystemsAnalyzer
         _findingSink.BeginAnalysis(_config);
         _surfacePolicy = new SystemsSurfacePolicy(_typePolicy, _findingSink);
         _balancePolicy = new SystemsBalancePolicy(_findingSink);
+        _calleePolicy = new SystemsCalleePolicy(_typePolicy, _findingSink);
+        _calleePolicy.BeginAnalysis(_config);
         _hotSummaries = HotSummaryCatalog.Load(projectRoot, _config);
     }
 
@@ -65,6 +68,7 @@ public sealed class SystemsAnalyzer
         _typePolicy.BeginAnalysis();
         _stackalloc.BeginAnalysis(_config);
         _callPolicy.BeginAnalysis();
+        _calleePolicy.BeginAnalysis(_config);
         _semanticModels = semanticModels ?? EmptySemanticModels;
         _hotSummaries = HotSummaryCatalog.Load(_projectRoot, _config);
         BuildVisibleDeclarationFiles(compilationUnits);
@@ -346,29 +350,6 @@ public sealed class SystemsAnalyzer
         }
     }
 
-    private void CheckIgnoredResult(Expression expression, WalkContext context)
-    {
-        if (expression is not CallExpression call)
-            return;
-
-        if (!TryResolveDeclaredCallee(call, context, out var entry))
-            return;
-
-        if (entry.Function.ReturnType == null || !_typePolicy.IsResultType(entry.Function.ReturnType))
-            return;
-
-        AddFinding(
-            "NSYS160",
-            "resultMustUse",
-            $"Result returned by '{entry.QualifiedName}' is ignored",
-            call.Line,
-            call.Column,
-            Math.Max(1, entry.Function.Name.Length),
-            context,
-            context.Summary.IsHot || IsSystemsProfile ? ErrorSeverity.Error : ErrorSeverity.Warning,
-            "Bind the Result, return it, or explicitly inspect IsOk/IsErr so the error path is handled.");
-    }
-
     private void WalkStatement(Statement statement, WalkContext context)
     {
         switch (statement)
@@ -398,7 +379,11 @@ public sealed class SystemsAnalyzer
                 context.PopUnsafeBlock();
                 break;
             case ExpressionStatement expression:
-                CheckIgnoredResult(expression.Expression, context);
+                if (expression.Expression is CallExpression discarded
+                    && TryResolveDeclaredCallee(discarded, context, out var discardedCallee))
+                {
+                    _calleePolicy.CheckIgnoredResult(discardedCallee.Function.ReturnType, discardedCallee.QualifiedName, discardedCallee.Function.Name, discarded.Line, discarded.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
+                }
                 WalkExpression(expression.Expression, context);
                 break;
             case VariableDeclarationStatement variable:
@@ -530,7 +515,7 @@ public sealed class SystemsAnalyzer
                 break;
             case PrintStatement printStatement:
                 context.Summary.UnknownExternalCall = true;
-                AddUnknownExternalCall("Console.WriteLine", printStatement.Line, printStatement.Column, context);
+                _calleePolicy.ReportUnknownExternalCall("Console.WriteLine", printStatement.Line, printStatement.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 WalkExpression(printStatement.Value, context);
                 break;
             case AssertStatement assertStatement:
@@ -559,11 +544,19 @@ public sealed class SystemsAnalyzer
         {
             var callee = AnalyzeFunction(callSite.Callee, performanceFacts);
             caller.MergeEffectsFrom(callee);
-
-            if (caller.IsHot || caller.AllocNone)
-            {
-                ReportCalleePolicyViolations(caller, callee, callSite);
-            }
+            _calleePolicy.ReportCalleePolicyViolations(
+                new SystemsEffectFacts(callee.Allocates, callee.Boxes, callee.Delegate, callee.Closure, callee.Dispatch, callee.Reflection, callee.DynamicCode, callee.Throws, callee.ImplicitTrap, callee.UnknownExternalCall, callee.Resource, callee.Pool, callee.ConcurrencyPrimitive, callee.RequiresWarmup, AotSafe: !callee.DynamicCode && !callee.Reflection),
+                callee.Name,
+                caller.FunctionAllows.Contains("alloc"),
+                caller.FunctionAllows.Contains("pool"),
+                callSite.Line,
+                callSite.Column,
+                callSite.Length,
+                caller.File,
+                caller.Name,
+                caller.IsHot,
+                caller.IsBoundary,
+                caller.AllocNone);
         }
     }
 
@@ -750,33 +743,6 @@ public sealed class SystemsAnalyzer
         };
 
         return line > 0 && semanticModel.TypeReferenceTypes.TryGetValue((line, column), out type!);
-    }
-
-    private void ReportCalleePolicyViolations(MutableFunctionSummary caller, MutableFunctionSummary callee, CallSite site)
-    {
-        var callPath = new[] { caller.Name, callee.Name };
-        if (callee.Allocates && !caller.FunctionAllows.Contains("alloc"))
-        {
-            AddFinding("NSYS010", "allocation", $"callee '{callee.Name}' allocates on a hot/alloc(none) path", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Move the allocation behind a [boundary], pass caller-owned storage, or return Result<T,E> without formatting diagnostics.", callPath);
-        }
-        if (callee.Boxes)
-            AddFinding("NSYS020", "boxing", $"callee '{callee.Name}' boxes a value on a hot path", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Use concrete generic/value-type APIs or add a HotSummary that proves constrained dispatch.", callPath);
-        if (callee.Delegate || callee.Closure)
-            AddFinding("NSYS030", "delegate", $"callee '{callee.Name}' constructs a delegate or closure on a hot path", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Use direct calls or move delegate construction behind a [boundary].", callPath);
-        if (callee.Dispatch)
-            AddFinding("NSYS040", "dispatch", $"callee '{callee.Name}' uses runtime dispatch on a hot path", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Use a concrete receiver, constrained generic call, or summarized dispatch-free wrapper.", callPath);
-        if (callee.UnknownExternalCall)
-            AddFinding("NSYS050", "unknownExternalCall", $"callee '{callee.Name}' reaches an unknown external call", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Add a HotSummary, make the callee hot-checkable, or isolate the call behind a [boundary].", callPath);
-        if (callee.Reflection || callee.DynamicCode)
-            AddFinding("NSYS060", "aot", $"callee '{callee.Name}' blocks AOT/trimming facts", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Move reflection/dynamic code behind a [boundary] or add an audited target-qualified summary.", callPath);
-        if (callee.ImplicitTrap)
-            AddFinding("NSYS120", "implicitTrap", $"callee '{callee.Name}' has unproven implicit trap obligations", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Prove bounds/null/divide/overflow locally or use a narrow allow(trap).", callPath);
-        if (callee.Resource)
-            AddFinding("NSYS090", "resource", $"callee '{callee.Name}' creates or owns a disposable resource", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Open resources at a [boundary] and pass explicit handles or spans to hot code.", callPath);
-        if (callee.Pool && !caller.FunctionAllows.Contains("pool"))
-            AddFinding("NSYS130", "pool", $"callee '{callee.Name}' rents from a pool without a hot-ready pool precondition", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Return pooled buffers in the same lexical path or configure/warm the pool explicitly.", callPath);
-        if (callee.RequiresWarmup)
-            AddFinding("NSYS110", "hotReadiness", $"callee '{callee.Name}' requires warmup before the hot path is warm-ready", site.Line, site.Column, site.Length, caller, ErrorSeverity.Error, "Add the required warmup function to language.systems.warmup or remove first-use work.", callPath);
     }
 
     private void WalkExpression(Expression expression, WalkContext context, bool explicitAllocation = false)
@@ -996,7 +962,8 @@ public sealed class SystemsAnalyzer
 
         if (target == null)
         {
-            AddUnknownExternalCall("<dynamic call>", call.Line, call.Column, context);
+            context.Summary.UnknownExternalCall = true;
+            _calleePolicy.ReportUnknownExternalCall("<dynamic call>", call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
             return;
         }
 
@@ -1071,7 +1038,8 @@ public sealed class SystemsAnalyzer
             return;
         }
 
-        AddUnknownExternalCall(target, call.Line, call.Column, context);
+        context.Summary.UnknownExternalCall = true;
+        _calleePolicy.ReportUnknownExternalCall(target, call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
     }
 
     private void ApplyBufferMemoryCopyFacts(CallExpression call, WalkContext context)
@@ -1204,58 +1172,6 @@ public sealed class SystemsAnalyzer
                 violation.Severity,
                 violation.Suggestion);
         }
-    }
-
-    private void AddUnknownExternalCall(string target, int line, int column, WalkContext context)
-    {
-        context.Summary.UnknownExternalCall = true;
-        if (context.Summary.IsHot)
-        {
-            AddFinding(
-                "NSYS050",
-                "unknownExternalCall",
-                $"unknown external call '{target}' is not callable from [hot]",
-                line,
-                column,
-                Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
-                context,
-                ErrorSeverity.Error,
-                "Add a compiler/HotSummary entry, make the callee [hot], or move this call behind a [boundary].");
-            return;
-        }
-
-        if (context.Summary.IsBoundary)
-        {
-            AddFinding(
-                "NSYS050",
-                "unknownExternalCall",
-                $"boundary external call '{target}' reported for systems handoff review",
-                line,
-                column,
-                Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
-                context,
-                ErrorSeverity.Warning,
-                "Keep unknown external work inside the [boundary] and expose a systems-safe result.");
-            return;
-        }
-
-        if (!IsSystemsProfile)
-            return;
-
-        var policy = _config.Language.Systems.UnknownExternalCalls;
-        if (policy == "allow")
-            return;
-
-        AddFinding(
-            "NSYS050",
-            "unknownExternalCall",
-            $"unknown external call '{target}' has no systems summary",
-            line,
-            column,
-            Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
-            context,
-            policy == "error" ? ErrorSeverity.Error : ErrorSeverity.Warning,
-            "Add a sidecar HotSummary or put the call in a [boundary].");
     }
 
     private void AddHotFinding(string code, string effect, string message, AstNode node, WalkContext context)
