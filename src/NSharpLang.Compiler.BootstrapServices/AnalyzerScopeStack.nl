@@ -281,6 +281,20 @@ class AnalyzerScopeStack {
         return null
     }
 
+    // What a bare `this` IS WORTH. The type scope answers when there is one; outside every type scope
+    // — a `this` written in a free function, or in a file that declares no type at all — there is no
+    // type for it to be, and the answer is the estate's universal no-information type rather than a
+    // null. This is the walk's own decision and not the caller's: the expression dispatch asks the
+    // question and takes the answer, so the two forms of "no type scope" cannot be worded apart there.
+    func CurrentTypeScopeOrUnknown(): TypeInfo {
+        current := CurrentTypeScope()
+        if current != null {
+            return current
+        }
+
+        return BuiltInTypes.Unknown
+    }
+
     // Whether a bare name reads as a member of the current type rather than as a local. The walk stops
     // at the first scope that binds the name — answering from THAT scope's kind — and also at the first
     // type-level scope, because a name not found among the locals of an instance context is a member

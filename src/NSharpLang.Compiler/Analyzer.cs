@@ -29,10 +29,7 @@ public class Analyzer : IDisposable
     private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly AnalyzerDeclarationContext _declarationContext = new();
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
-    private string? _currentFilePath;
     private string? _declarationContextFilePath;
-    private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
-    private string? _sourceText;
     // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
     private NSharpMetadataResolver? _metadataResolver;
     private MetadataLoadContext? _mlc;
@@ -775,10 +772,7 @@ public class Analyzer : IDisposable
         _soaEscape.BeginAnalysis();
         _nullFlow.BeginAnalysis();
         _ambient.BeginAnalysis();
-        _currentFilePath = currentFilePath;
         _projectSources.BeginAnalysis(projectRoot);
-        _compilationUnit = unit;
-        _sourceText = sourceCode;
         _diagnostics.BeginAnalysis(currentFilePath, sourceCode);
         _typeResolver.BeginAnalysis(currentFilePath, unit, _semanticModel, _bindingMap);
         _identifierResolution.BeginAnalysis(unit, _semanticModel, _bindingMap);
@@ -1962,7 +1956,7 @@ public class Analyzer : IDisposable
                 => DriveTargetTypedOperand(_targetTypedOperands.Begin(expr)),
             ArrayLiteralExpression => DriveArrayLiteral(_arrayLiteral.Begin(expr)),
             NewExpression => DriveConstruction(_construction.Begin(expr)),
-            ThisExpression => _scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown,
+            ThisExpression => _scopes.CurrentTypeScopeOrUnknown(),
             BaseExpression => _declarationContext.ResolveBaseType(_scopes.CurrentTypeScope()),
             MatchExpression => DriveMatchExpression(_matchExpression.Begin(expr)),
             TypeOfExpression or NameofExpression or SizeOfExpression or DefaultExpression
@@ -2276,24 +2270,6 @@ public class Analyzer : IDisposable
     {
         _scopes.Pop(_semanticModel);
     }
-
-    private void Error(string message, int line, int column)
-    {
-        Error(ErrorCode.InvalidSyntax, message, line, column);
-    }
-
-    private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
-        => _diagnostics.Report(code, message, line, column, suggestion, length);
-
-    private void Warning(string message, int line, int column)
-    {
-        Warning(ErrorCode.UnusedVariable, message, line, column);
-    }
-
-    private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
-        => _diagnostics.Warn(code, message, line, column, suggestion, length);
-
-    private string? GetSourceSnippet(int line) => _diagnostics.SourceSnippet(line);
 
     /// <summary>
     /// Load a .NET assembly by file path for type resolution (metadata-only via MLC)

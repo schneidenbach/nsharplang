@@ -1,6 +1,41 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-11 (**TASK 017 SLICE 65 LANDED (no commit — mandate) — N# OWNS WHAT AN `import`
+Last updated: 2026-08-11 (**TASK 017 SLICE 67 LANDED (no commit — mandate) — THE ZERO-POLICY REVIEW.
+`Analyzer.cs` IS A REVIEWED ZERO-POLICY MECHANICAL HOST AND TASK 017 IS COMPLETE — the checkbox in
+`tasks/README.md` is checked, which this slice uniquely was authorised to do.** The eight-class
+partition was made EXECUTABLE rather than read: a classifier over the validated extractor put all
+**194** extents in exactly one class and asserted the partition — **UNCLASSIFIED = 0** — and corrected
+the brief's own arithmetic on the way (its list summed to 197: `GetNuGetPackagesRoot` was in two
+classes and the field block is 91, not 93). **ALL EIGHT VERDICTS PASS.** The proof that cost the most
+is class 4: a temporary trace in **ALL 29 DRIVERS** over a **178-target** workload —
+**351,158 walks, 749,238 steps, MAX_NESTING_DEPTH 83, VIOLATIONS 0**, five runs byte-identical —
+with **ENTER == RESULT for all 29**, **STEP == ANSWER for 28** (the 29th, `DriveStatementSequence`,
+has no `Supply` by design and its deficit is exactly its own step count) and **ZERO UNPROVEN
+DRIVERS**. The per-driver step count earned its place immediately: the self-host project alone enters
+only **23 of 29** drivers and leaves two more silent, so **nine fixtures were built to fire the rest**
+— and when four of them turned out not to PARSE, the drivers still fired through parser recovery
+(gotcha 67.2), so they were rewritten and the whole transcript re-taken. **THREE THINGS WERE FOUND
+OUTSIDE THE CLASSES AND ALL THREE WERE CUT RATHER THAN ARGUED**: the one dispatch arm that was not a
+bare route (`this` outside a type scope — the rule MOVED to `AnalyzerScopeStack.CurrentTypeScopeOrUnknown`,
+so all 21 arms of `AnalyzeExpression` are now single routes), five provably-dead report helpers, and
+three write-only fields. **8 extents / 19 lines cut**; `Analyzer.cs` **2,986 → 2,962**, extents
+**194 → 186**, and the host's final shape is **SEVEN classes**. The sharpest measurements: the whole
+shell outside task-021 contains **exactly 14 conditionals and 2 null-coalescing operators**, every one
+named; the task-021 surface's quarantine is **TOTAL** — zero references to the sink, the spans, the
+error list, the model, the binding map, any driver, any dispatch, or even `ErrorCode`, across all 688
+lines; the SCC build-up and tear-down are **line-for-line identical, positional diff 0**; and **63
+written lifetime rules match their rebuild site with ZERO mismatches**. **THE ARC: `Analyzer.cs`
+23,060 → 2,962 (−20,098, 87.2 %) over 67 slices, contracts 1,554 → 3,890, 80 N# owners / 47,173
+production lines, 29 driver loops, FOUR toolset repins in the whole arc (slices 12A / 20A / 22 —
+catalog rows for the resolution and overload arcs — and 48, `char.IsLower`), and ZERO from slice 49
+onward: every wall priced after the expression territory opened was either refuted by execution or
+routed around inside the language.** **SIX ORACLE DIFFERENTIALS ALL ZERO**, five
+reproducing previously recorded md5s to the digit; **CORPUS IL 63 / 63 N#-emitted assemblies
+byte-identical with the CONTROL FIRST**; the 150-target ordering pin byte-identical five times;
+`nlc check` 285 findings with ZERO from the touched file; audit **18 / 18**. **WALL STATUS: ZERO — NO
+REPIN.** Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-11 (**TASK 017 SLICE 65 LANDED (no commit — mandate) — N# OWNS WHAT AN `import`
 MEANS, IN BOTH OF THE LANGUAGE'S FORMS, AND THE ARC GAINS ITS FIRST DRIVER THAT ASKS FOR AN EFFECT
 RATHER THAN FOR AN ANSWER.** The brief's three priced questions were answered BEFORE the cut, by
 measurement: (1) **two collections move and five stay injected** — a collection moves iff the family
@@ -2068,7 +2103,480 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 66 — WHAT IT MEANS TO DECLARE SOMETHING, WHAT
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 67 — THE ZERO-POLICY REVIEW. THE
+  CHECKBOX-CLOSING SLICE.** Plan recorded BEFORE any review work or production edit, at `829faee32`
+  (`Analyzer.cs` **2,986** lines, non-blank **2,767**, **194** member extents summing **2,561** lines
+  by the validated extractor; **29** driver loops; `Analyzer.cs` ratchet row currentLines **2,986** /
+  currentNonBlank **2,767**, fingerprint `text-v1:9bd21fec8d514c98`, epoch ceilings **23,451 /
+  20,537**; `Performance/SystemsAnalyzer.cs` currentLines **2,390** == epochLines **2,390** — task 018
+  has not started; unit suite baseline **3,194**; contracts baseline **3,889**; ownership audit
+  **18 / 18**; manifest **391** lines, no BOM; `reviewedHeadFingerprint head-v1:87421b733ed2e1a4`,
+  REPRODUCED from the unmodified manifest by the independent FNV-1a walk before any write.)
+
+  **THE EXTRACTOR WAS RE-VALIDATED FIRST, AGAINST SLICE 66's OWN RECORDED EXTENTS: 19 / 19 NAMES,
+  21 EXTENTS, REPRODUCED TO THE LINE**, run over `git show 43472d7ce:…/Analyzer.cs` (slice 66's base)
+  before it was trusted at this tip. At this tip it reports **194 extents**, matching the count slice
+  66 recorded, and the file's own `wc -l` (2,986) and blank count (219 → 2,767 non-blank) match the
+  ratchet row exactly.
+
+  **THE PLAN — EIGHT CLASSES, ONE WORKSHEET, EVERY EXTENT IN EXACTLY ONE CLASS.**
+  1. **Partition mechanically, not by eye.** Classify all 194 extents by an executable rule over the
+     extractor's table (field-block single-line extents; constructor + `Create*`; entries + reset;
+     `Drive*` + the `AnalyzeCall` loop by the `for (var step = …)` metric; the five dispatches; the
+     scope pair + ambient bracket; `Error`/`Warning`/`GetSourceSnippet`; the task-021 MLC surface),
+     and assert the classes are a PARTITION — no extent unclassified, none in two classes. **Anything
+     left over is POLICY by construction**: it is cut in a final mini-slice inside this turn, or the
+     review fails honestly and reports the blocker.
+  2. **Driver loops (29): protocol-transcript evidence WITH the per-driver step count.** A workload
+     that never fires a driver's step proves nothing about that driver (slice 66: ONE step in 6,857
+     walks). Instrument every driver, run a workload wide enough to fire them, and report per driver:
+     ENTERs, RESULTs, STEPs, ANSWERs, and the invariant violations. Zero steps = an UNPROVEN driver,
+     reported as such and then driven by a purpose-built fixture rather than excused.
+  3. **The five dispatches: every arm a route; exhaustiveness stated; the TAILS read, not just the
+     arms** (slice 66's clause (a) — a stay-behind report in a tail is policy, and it is what forced
+     `AnalyzeExpression`'s tail out last slice). Ordering: no policy in arm order, or the order proven
+     unobservable/identical.
+  4. **Driverless owners: single-line routes** at every call site, plus the five-run byte-identical
+     ordered-diagnostic capture as the standing substitute for a protocol transcript.
+  5. **The four `Create*` shapes: construction, injection and RESET ORDER checked POSITIONALLY** —
+     `_imports`, `_declarationPolicy`, `_expressionTail` after `_semanticModel`/`_bindingMap`;
+     `_declarationPolicy`'s later declaration-context path through its own setter.
+  6. **SCC rebuild plumbing**: rebuilds mechanical, no policy in WHAT is rebuilt or WHEN beyond the
+     recorded lifetime rules.
+  7. **`BeginAnalysis` / the entry handshake**: enumerated and order-checked.
+  8. **The task-021 MLC surface (30 extents / 655 lines, corrected)**: enumerated, proven quarantined
+     (no policy beyond loading), and its retirement recorded under task 021 in the closure statement,
+     carrying the `_referenceLoadFailures` write-dead finding.
+  Then: **the C# AST** — confirm the task's other subject moved to N# at N+1b and that no C# AST
+  policy remains; **the closure statement** (slices 1-67, the line arc, the contracts arc, the owner
+  and driver inventories, the task-021 handoff, the eight per-class verdicts); and **`tasks/README.md`
+  — the 017 checkbox**, which this slice uniquely is authorised to touch.
+
+  **THE EVIDENCE BAR IS UNCHANGED EVEN THOUGH THE REVIEW CHANGES LITTLE OR NO PRODUCTION CODE**: full
+  unit suite (3,194), contracts (3,889), audit 18/18, manifest 391 no BOM, `nlc check` + format canon,
+  the six oracle differentials, corpus IL byte-exact with the CONTROL FIRST, the unsorted build
+  transcript, `dev.sh --since`, and the full VS Code-enabled gate over the byte-final tree. Vacuity
+  counters on every harness.
+
+  ---
+
+  **LANDED (no commit — mandate) — `Analyzer.cs` IS A REVIEWED ZERO-POLICY MECHANICAL HOST, AND TASK
+  017 CLOSES ON THE CHECKBOX'S SECOND ARM.**
+
+  **THE PARTITION IS MECHANICAL, NOT ASSERTED — AND IT CORRECTED THE BRIEF'S OWN ARITHMETIC.** An
+  executable classifier over the validated extractor's table put all **194** extents into exactly one
+  of the eight classes, and asserted the partition (no extent unclassified, none in two):
+  **1-field 91 / 91 lines · 2-ctor+factory 27 / 280 · 3-entry 5 / 142 · 4-driver 28 / 1,083 ·
+  5-dispatch 5 / 267 · 6-bracket+scope 3 / 30 · 7-report 5 / 13 · 8-task-021 30 / 655 = 194 / 2,561.**
+  **UNCLASSIFIED = 0**, so nothing fell out as policy by construction. The brief's own class list summed
+  to **197**, three over, and the classifier found both errors: `GetNuGetPackagesRoot` was listed in
+  BOTH the entry class and the task-021 class (it is task-021's — it resolves the NuGet cache root and
+  nothing else), and the field block is **91**, not 93. The brief's 30 / 655 task-021 figure and its
+  267-line dispatch figure both REPRODUCED to the line.
+
+  **THE EXTRACTOR WAS RE-VALIDATED FIRST: 19 NAMES / 21 EXTENTS, 19 / 19 REPRODUCED TO THE LINE**
+  against slice 66's own recorded cut, run over `git show 43472d7ce:…/Analyzer.cs` before it was
+  trusted at this tip. At the tip it reports 194 extents and the file's own `wc -l` (2,986) and blank
+  count (219 → 2,767) match the ratchet row exactly.
+
+  ---
+
+  **THE EIGHT VERDICTS.**
+
+  **1. THE FIELD BLOCK (91 extents / 91 lines) — PASS, AND THREE WERE DEAD.** Every extent is a single
+  declaration line whose initializer is `new()`, `new(StringComparer.Ordinal)` or nothing; a grep for
+  any initializer that is not one of those returns only those forms. No conditional, no call that
+  decides. A usage census over all 91 found **THREE fields with ZERO reads anywhere in the file** —
+  `_currentFilePath`, `_compilationUnit`, `_sourceText`, each written once in `Analyze` and never read.
+  They pass the criterion vacuously and are DEAD, so they were cut (below). `_referenceLoadFailures` is
+  the OPPOSITE case and stays: it is never WRITTEN, which is slice 66's finding 2 reproduced from the
+  other direction (see the task-021 handoff).
+
+  **2. THE CONSTRUCTOR AND THE 26 `Create*` FACTORIES (27 extents / 280 lines) — PASS, CHECKED
+  POSITIONALLY.** A syntactic check over all 26 factories: every one is expression-bodied `=> new(…)`
+  whose every argument is a bare field or another factory call. **Non-pure: ZERO.** The four shapes are
+  all present and the RESET ORDER was checked positionally rather than by membership:
+  * `_semanticModel` is recreated at **:773** and `_bindingMap` at **:774**, and **all eleven**
+    `BeginAnalysis` handshakes run AFTER both (`:775`–`:788`) — including the three the brief names
+    (`_imports` :786, `_declarationPolicy` :787, `_expressionTail` :788).
+  * `_declarationPolicy`'s declaration-context path arrives LATER and through its own setter, exactly
+    as the brief requires: `SetDeclarationContextFilePath` is at **:756**, inside
+    `InitializeDeclarationContext`, which the entry does not call until **:791** — after the whole reset
+    block. A review that checked only WHICH owners are rebuilt would have missed this ordering; it was
+    checked by line number.
+  * 26 factories are declared; 25 are called at each of the three sites (constructor,
+    `LoadSystemAssemblies`, `Dispose`), and the 26th — `CreateExpressionTreeValidator` — is called from
+    inside `CreateLambdaAnalysis`, so it is rebuilt transitively at all three.
+
+  **3. THE ENTRY POINTS AND THE RESET BLOCK (5 extents / 142 lines) — PASS.** The handshake was
+  enumerated in source order and is 23 operations: 8 `Clear()`s, the two per-analysis models, 11
+  `BeginAnalysis` calls, one more `Clear()`, then `InitializeDeclarationContext`. The entry's own
+  first-pass loop is a 10-arm `is` chain that is a DISPATCH in the same sense as class 5 — the arms are
+  mutually exclusive by node type and each performs exactly one route (`_declarationPolicy.DeclareType`
+  with the matching `TypeInfo` factory; the function arm two calls, both into N#). The reset ORDER is
+  observable only through the entry diagnostics, which the five-run ordering pin holds byte-identical.
+
+  **4. THE 29 DRIVER LOOPS — PASS, WITH THE PER-DRIVER STEP COUNT, AND NOT ONE UNPROVEN.** The step-loop
+  census over the file finds **29 `for (var step = ` loops with 29 distinct owners** — 28 `Drive*`
+  members plus the one inside `AnalyzeCall`, whose EXTENT is class 5 and whose LOOP is counted here.
+  Every one of the 96 `case` arms was read: **84 are exactly one statement**, and the other 12 fall into
+  three named shapes, none of which decides anything —
+  * **five are ONE call whose argument list wraps** (`AnalyzeCall` 3, 4, 14, 15; `DriveOnSubscription`
+    2);
+  * **five are a documented BRACKET around one operation** (`DriveOperatorExpression` 2 — the flow-type
+    suppression; `DriveOnSubscription` 1 — the bare-event guard; `DriveLambda` 5 — the nested-body
+    ambient frame; `DriveLocalDeclaration` 1 — the expected-type pair; `DriveOperatorExpression` 3 — the
+    narrowing scope), all five carrying the settled reason in their own doc comments: the pair spans a
+    SUSPENSION, so an owner cannot hold it and still restore on a throw;
+  * **one is a single assignment with a `TryGetValue` ternary** (`DriveExpressionStatement` 8).
+  **THE TAILS WERE READ, NOT JUST THE ARMS** (slice 66's clause (a)): no driver carries a stay-behind
+  report — each ends at its `Supply` or its `Result`, and the four value-returning shapes return the
+  owner's own answer.
+  **THE PROTOCOL EVIDENCE, PER DRIVER.** A temporary env-gated trace (`NL67`) was inserted into ALL 29
+  drivers — 115 markers: 29 ENTER, 29 STEP, 28 ANSWER (the 29th driver has no `Supply`), 29 EXIT — with
+  a per-event LIFO frame checker. Workload: **178 targets** — the self-host project, the 71-target
+  corpus, the 29 slice-66 fixtures, the 40 slice-65 fixtures, **nine purpose-built slice-67 fixtures**,
+  and the 27 SoA fixtures plus the SoA-default fixture under `NSHARP_EXPERIMENTAL_SOA=1`.
+  **351,158 walks, 749,238 steps, MAX_NESTING_DEPTH = 83, VIOLATIONS = 0**, captured **FIVE times:
+  2,008 lines each, byte-identical md5 `a6155bc878a9b922d833d6cb0a070cad` on ALL FIVE**,
+  `RUN1_VS_RUNn DIFFS = 0` for n = 2..5.
+  **ENTER == RESULT for all 29.** **STEP == ANSWER for 28**; the ONE exception is
+  `DriveStatementSequence`, whose ANSWERS is 0 BY DESIGN — it is the estate's only driver with no
+  `Supply`, as its own doc comment says, and the deficit is exactly its own step count.
+  **ZERO-STEP (UNPROVEN) DRIVERS: NONE.** The rarest are `DriveParameterDeclarations` — **ONE step in
+  8,286 walks**, slice 66's finding reproduced, and only because a fixture fires it — `DriveOnSubscription`
+  (2 steps in 1 walk), `DriveCompileTimeConstant` (4 steps in 1,846 walks) and `DriveRangeExpression` (14).
+  **THE FIRST WORKLOAD PROVED THE BRIEF'S POINT BY FAILING IT**: the self-host project alone entered only
+  **23 of the 29** drivers and left two more at **zero steps** — the six that never ran and the two silent
+  ones are exactly why the nine fixtures were built, and the per-driver step count is what exposed them.
+  **AND THE LITERAL EVENT STREAM WAS TAKEN BESIDE THE COUNTS**, over the nine fixtures with
+  `NL67_FULL=1`: **1,720 lines, byte-identical md5 `cfe3e6dfe572cbf86776ff6cbb819034` on all five runs**,
+  **258 ENTER == 258 RESULT, 596 STEP, 504 ANSWER, VIOLATIONS = 0** — and the 92-event STEP/ANSWER
+  deficit is accounted to the event: it is exactly `DriveStatementSequence`'s 92 steps.
+
+  **5. THE FIVE DISPATCHES (5 extents / 267 lines) — PASS, WITH EXHAUSTIVENESS MEASURED AGAINST THE N#
+  AST.** Every arm is a route: name the walk, hand it the typed node plus the collaborators the host
+  holds, run the matching driver. Exhaustiveness was computed by closing the N# AST's subclass graph and
+  differencing it against the arms:
+  * `AnalyzeDeclaration`: **18 / 18** concrete `Declaration` shapes covered.
+  * `AnalyzeStatement`: **28 / 30**, and the two uncovered are `FileImport` and `NamespaceImport` —
+    exactly the two its own doc comment names as statements only so they can sit in
+    `CompilationUnit.FileImports`, never reaching a statement list. Measured, not taken on trust.
+  * `AnalyzeExpression`: **40 / 41**, and the one uncovered is `ObjectInitializerExpression`, which the
+    parser only ever constructs as a FIELD of `NewExpression` — whose arm routes to `_construction` —
+    so it never arrives at this dispatch; the `_ => BuiltInTypes.Unknown` default makes the switch total
+    regardless.
+  * `AnalyzeCall` is the dispatch that hosts a loop, reviewed under class 4; `AnalyzePattern` is a
+    one-line relay into the pattern driver.
+  **NO POLICY IN ORDERING**: `AnalyzeDeclaration` and `AnalyzeStatement` are C# `switch` statements over
+  mutually exclusive type patterns, so arm order is unobservable; `AnalyzeExpression` is a `switch`
+  expression over disjoint shape sets. **AND THE HEADS AND TAILS ARE SINGLE CALLS**:
+  `AnalyzeDeclaration` opens with one call into the N# attribute validator, `AnalyzeStatement` with one
+  call into the N# scope stack, `AnalyzeExpression` closes with `_expressionTail.Finish` — the member
+  slice 66 moved out for exactly this obligation — and `AnalyzeCall` closes by returning the walk's own
+  result.
+
+  **6. THE AMBIENT BRACKET AND THE SCOPE PAIR (3 extents / 30 lines) — PASS, THE RECORDED ARGUMENT.**
+  `PushScope` and `PopScope` are one-line relays into `AnalyzerScopeStack`, N#-owned since slice 8; the
+  only thing the C# contributes is binding `_semanticModel`, which is `new`ed per `Analyze` and so
+  cannot be held by an owner. `AnalyzeExpressionWithExpectedType` is the same shape plus the lambda DOOR
+  and a `try`/`finally` that must survive a throw. Slice 66 measured and settled all three; this review
+  records the argument rather than re-opening it.
+
+  **7. `Error` / `Warning` / `GetSourceSnippet` (5 extents / 13 lines) — PASS VACUOUSLY, AND THE WHOLE
+  CLASS WAS DEAD.** They decide nothing — the two `Error` overloads and the two `Warning` overloads
+  forward to each other and then to the N# sink, and `GetSourceSnippet` is a one-line relay. They also
+  have **ZERO callers**: `Analyzer` is not `partial`, all five are `private`, and the only references in
+  the whole repository are the two self-forwards. No `nameof`, no reflection. **CUT.**
+
+  **8. THE TASK-021 ASSEMBLY-LOADING / `MetadataLoadContext` SURFACE (30 extents / 655 lines) — PASS,
+  AND THE QUARANTINE IS TOTAL.** The brief's corrected figure reproduced exactly: 15 top-level extents
+  (**467**) plus the nested `NSharpMetadataResolver` and its SemVer comparer (15 extents, **188**).
+  Quarantine measured over all **688 physical lines** of the surface: **ZERO** references to the
+  diagnostic sink, the span reader, the `_errors` list, any `Report`/`Warn`, the semantic model, the
+  binding map, any driver, any dispatch, the scope stack — and **ZERO uses of `ErrorCode` itself**. It
+  cannot say anything to a developer. What it touches is the load context, its resolver, the loaded
+  assembly list, the package tables, and the SCC rebuild plumbing.
+  **AND THE SCC REBUILD IS PROVEN MECHANICAL BY A DIFF, NOT BY ARGUMENT**: the build-up in
+  `LoadSystemAssemblies` and the tear-down in `Dispose` are, after normalising only the well-known-type
+  bag itself (constructed vs `null`), **line-for-line IDENTICAL over 30 lines — POSITIONAL DIFF = 0**.
+  The same 26 factories and the same four publication calls in the same order in both directions; every
+  owner field appears exactly twice in the surface, once per rebuild site. There is no policy in WHAT is
+  rebuilt or WHEN, because the two sites are the same list.
+  **AND THE RECORDED LIFETIME RULES WERE CHECKED AGAINST THE SITE, FIELD BY FIELD.** 63 of the 88 fields
+  carry a written lifetime rule in their own comment ("Rebuilt with the SCC" / "NOT rebuilt"). Measured
+  against `LoadSystemAssemblies`: **30 fields are RECONSTRUCTED and 3 are PUBLISHED TO through a `Set*`
+  door** (`_identifierResolution`, `_memberAccess`, `_typeResolver` — exactly the three whose comments say
+  their replaced collaborators arrive that way rather than by rebuild). **MISMATCHES: ZERO.** Every
+  written lifetime rule matches what the rebuild site actually does.
+
+  ---
+
+  **WHAT THE REVIEW FOUND OUTSIDE THE CLASSES, AND THE FINAL MINI-CUT IT TOOK.** The mandate says
+  anything that does not fit is policy: cut it or fail honestly. Nothing failed, but three things were
+  found and all three were cut rather than argued away.
+  1. **THE ONE DISPATCH ARM THAT WAS NOT A BARE ROUTE.** `AnalyzeExpression`'s `ThisExpression` arm was
+     `_scopes.CurrentTypeScope() ?? BuiltInTypes.Unknown` — a decision about what a bare `this` outside
+     every type scope is worth, sitting in the dispatch. It decides no diagnostic and no order, so it
+     could have been argued through; instead the rule MOVED: `AnalyzerScopeStack.CurrentTypeScopeOrUnknown`
+     (**+14 N# lines including its header**) now owns it, and the arm is a bare call. **All 21 arms of
+     `AnalyzeExpression` are now single routes**, and the criterion passes by construction rather than by
+     paragraph.
+  2. **THE FIVE DEAD REPORT HELPERS** (class 7 above) — **13 lines, deleted not moved**, slice 66's
+     precedent.
+  3. **THE THREE WRITE-ONLY FIELDS** — **3 field lines plus their 3 assignments in `Analyze`, deleted**.
+  **THE CUT: 8 extents, 19 named lines**; `Analyzer.cs` **2,986 → 2,962**, non-blank **2,767 → 2,748**,
+  extents **194 → 186**, and the host's final shape is **SEVEN classes, not eight** — class 7 no longer
+  exists. `git diff` on `Analyzer.cs` is **+1 / −25**. The one added N# line count is the scope-stack
+  door and its two contracts.
+
+  **THE DRIVERLESS OWNERS' CALL SITES — SINGLE-LINE ROUTES, MEASURED.** The shell holds **88 owner
+  fields**, of which **27 are DRIVEN** (they publish a `Next*Step` the shell loops on). Every call site
+  of the other **61** was located and checked for whether the call closes on its own physical line.
+  **SEVEN do not, and all seven are accounted**: five are inside the task-021 surface (the
+  `_mlc.GetAssemblies().FirstOrDefault(…)` identity probe and four `_mlcAssemblies.Any(…)` lambdas), and
+  two are single calls in `AnalyzeCall`'s arms whose ARGUMENT LIST wraps (`_nullFlow.ReportPossibleNullAccess`,
+  `_semanticModel.RecordExpressionType`). **No driverless owner is called from inside a shell-side
+  branch**: the only conditionals in the shell are the 14 enumerated below, and none of them guards an
+  owner call except the two AST-presence guards named there. The five-run ordering capture above is the
+  standing substitute for a protocol transcript for these owners, and it was taken rather than the
+  obligation declared inapplicable.
+
+  **THE WHOLE SHELL, MEASURED FOR DECISIONS.** Outside the task-021 surface — 2,276 lines — the file
+  contains exactly **14 conditionals and 2 null-coalescing/conditional operators**, and every one is
+  named: the 10-arm first-pass type dispatch; `if (unit.Package != null)`, which is REQUIRED because the
+  N# rule's parameter is non-nullable; `if (unit.FileImports.Count > 0)`, proven a pure short-circuit by
+  reading the owner's own phase machine (phase 10 builds a resolver, phase 11 sees `Index >= Count` and
+  goes straight to 99 — zero steps, zero diagnostics, one saved allocation); the documented lambda DOOR
+  in the ambient bracket; the declaration-context root fallback and the NuGet-root fallback, both
+  environment resolution rather than language policy; and `_metadataResolver?.LoadFailures`, a null-guard
+  on a task-021 field handed to the N# report owner. **There is no other branch in the host.**
+
+  ---
+
+  **THE C# AST — THE TASK'S OTHER SUBJECT, CONFIRMED GONE.** A repo-wide search for a C# node type
+  deriving from `Expression`, `Statement` or `Declaration` returns **NOTHING**: the AST lives in
+  `.nl` files under `NSharpLang.Compiler.BootstrapServices` in namespace `NSharpLang.Compiler.Ast`
+  (`Statements.nl`, `TypeReferences.nl`, `DeclarationEnums.nl`, `AstChildrenCore.nl` and their
+  siblings), where it moved at N+1b. The dispatch exhaustiveness above is computed against THAT graph,
+  which is the strongest available statement that the shell now dispatches over an N#-owned AST and
+  holds none of it.
+
+  ---
+
+  **THE CLOSURE STATEMENT — TASK 017.**
+
+  **`Analyzer.cs` began the arc at 23,060 lines and ends it at 2,962 — a cut of 20,098 lines, 87.2 %,
+  across 67 slices, with 20,246 → 2,748 non-blank.** It holds **no semantic policy**: 186 extents in
+  seven classes, every one of them a field declaration, a constructor call, an entry handshake, a
+  mechanical relay loop, a dispatch arm, a one-line bracket, or the task-021 loading surface. It is
+  **not deleted, and will not be** — the reflection-based assembly loading keeps it alive — so 017
+  closes on the checkbox's SECOND arm: **a reviewed zero-policy mechanical host.**
+
+  **THE OWNER INVENTORY.** The semantic model is now **80 `Analyzer*.nl` owners, 47,173 production
+  lines**, with **73 contract files, 51,187 lines** beside them. Contracts went **1,554 → 3,890**
+  across the arc (**+2,336**), and the compiler-service estate is green at every one.
+
+  **THE DRIVER INVENTORY.** **29 driver loops**, every one proven to take at least one step by a
+  workload built to fire it: `DriveStatementSequence` (the only one with no `Supply`),
+  `DriveExpressionStatement`, `DriveFunctionBody`, `DriveAccessorBody`, `DriveTypeDeclaration`,
+  `DriveDeclarationWalk`, `DriveImports`, `DriveParameterDeclarations`, `DriveLocalDeclaration`,
+  `DriveLoopStatement`, `DriveResourceStatement`, `DriveYieldStatement`, `DriveReturnStatement`,
+  `DrivePatternAnalysis`, `DriveMatchExpression`, `DriveLiteralExpression`, `DriveCompileTimeConstant`,
+  `DrivePassThroughOperand`, `DriveTargetTypedOperand`, `DriveOperatorExpression`, `DriveAssignment`,
+  `DriveMemberAccess`, `DriveIndexAccess`, `DriveRangeExpression`, `DriveOnSubscription`, `DriveLambda`,
+  `DriveArrayLiteral`, `DriveConstruction`, and the loop inside `AnalyzeCall`.
+
+  ---
+
+  **PROOF — SIX ORACLE DIFFERENTIALS, ALL ZERO**, with fresh Release CLIs at the pristine tip
+  `829faee32` (`/private/tmp/nl67base`) and at the working tree, both pointed at the SAME source copy
+  (`/private/tmp/nl67corpus`, rsynced from the byte-final tree), run against the FINAL build after the
+  temporary trace was removed. **FIVE of the six reproduce a previously recorded md5 EXACTLY.**
+  * **CORPUS: ORACLE_DIFFS = 0 over 71 rows**, md5 `8590f4c698c24cd92535dd523ca94d49` — **the same
+    md5 slices 61-66 recorded** — 33 diagnostics across 5 codes, `stderrBytes = 0`, ZERO `PARSE-FAIL`,
+    the same seven known no-`results` targets.
+  * **SELF-HOST: ORACLE_DIFFS = 0**, md5 `0477bc39588ed5babb8f3122a49f5aa9` — **slice 66's md5 to the
+    digit, 285 findings across 10 codes** — and this is the strongest single statement that the new N#
+    door changed nothing: the source it checks CONTAINS that door and its two contracts.
+  * **SLICE-67 FIXTURES: ORACLE_DIFFS = 0 over 9 rows**, md5 `0a647d90b3015cc2d2d75e640e5881ee`,
+    12 diagnostics across 9 codes.
+  * **SoA FIXTURES (env-gated): ORACLE_DIFFS = 0 over 27 rows**, md5
+    `df61922f54b28156e91fa7b5044dff9c` — **the same md5 slices 60-66 recorded**.
+  * **SLICE-66 FIXTURES, re-run as an inherited regression: ORACLE_DIFFS = 0 over 29 rows**, md5
+    `d67ab180ca4cf227749d19136fc37a8e` — **the same md5 slice 66 recorded**.
+  * **SUPPLEMENTARY: ORACLE_DIFFS = 0 over 9 rows**, md5 `228dfc3809752a90f77da3c61121f2fa` — **the
+    same md5 slices 61-66 recorded**.
+  **PARSE-ERROR CENSUS: ZERO, AND IT TOOK A SECOND PASS TO EARN IT.** The nine fixtures' FIRST drafts
+  carried **15 parse errors across four of them** — the `on` handler, the union-case and match-arm
+  forms, the switch guard and the typed lambda parameter were all written in a syntax N# does not
+  have, and the parser's RECOVERY still produced enough of a tree to fire the drivers, which is
+  exactly how a vacuous fixture hides. They were rewritten against the parser's own rules
+  (`union C { … }` with brace-bound cases and comma-separated match arms, `case T binding => { … }`
+  with no `when`, untyped lambda parameters, and `on Console.CancelKeyPress (sender, args) => { … }`
+  — N# has no `event` DECLARATION, so the subscription target must be a real CLR event) and
+  **re-measured at PARSE_ERRORS = 0, NO_RESULTS = 0, PARSE_FAIL = 0**, then the whole transcript was
+  re-taken over the corrected workload. **GOTCHA 67.2.**
+
+  **PROOF — THE MULTIPLICITY AND ORDERING PIN, THE STANDING SUBSTITUTE FOR THE DRIVERLESS OWNERS.** The
+  whole ordered diagnostic surface of a **150-target** workload, with each target's error COUNT and
+  every row's index, file, line, column, code, length, message and suggestion **in list order,
+  undeduplicated and unsorted**, captured **FIVE times: 591 lines each, byte-identical md5
+  `1c1610773519e744521242420892d008` on ALL FIVE**, `RUN1_VS_RUNn DIFFS = 0`. 143 targets with results,
+  7 without, **441 diagnostic rows across 31 codes**.
+
+  **PROOF — THE CORPUS IL CONTROL IS REPRODUCIBLE AND THE EXPERIMENT IS BYTE-EXACT, CONTROL FIRST.**
+  **CONTROL (the BASE CLI building two independent fresh copies of the whole corpus): 118 compared,
+  SAME 118, DIFFERENT 0, ONLY_A 0, ONLY_B 0.** **EXPERIMENT (base vs work): 118 compared, and ALL 63
+  N#-EMITTED ASSEMBLIES ARE BYTE-IDENTICAL.** The 55 that differ are **55 COPIES OF ONE
+  `NSharpLang.Runtime.dll`** — measured: exactly ONE distinct normalised runtime binary per sweep, in
+  all THREE sweeps — a C# assembly this slice does not touch (`git diff --stat src/NSharpLang.Runtime`
+  is empty). **ZERO non-Runtime differences.** Every sweep reports `TARGETS=73 BUILT=55 ASSEMBLIES=118`.
+
+  **PROOF — THE UNSORTED BUILD TRANSCRIPT.** With the tree path and elapsed-time text normalised in
+  PYTHON: **CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS = 0 over 1,557 lines**, md5
+  **`1ff6a3797a58c74f8a52bc410519794b`** — **the same md5 slices 63-66 recorded** — with identical exit
+  codes (**0 × 55, 1 × 18**).
+
+  **THE CONTRACTS: 3,890 / 3,890 PASSED, 0 FAILED — 3,889 → 3,890 (+1).** The one addition pins the new
+  scope-stack door from three directions: that no type scope answers the no-information type, that an
+  EMPTY stack answers the same way and asking is never an error, and that when a type scope IS open both
+  doors answer with the SAME instance.
+
+  **`nlc check` ON THE COMPILER'S OWN SOURCE: 285 findings over 348 files across 10 codes — slices 65
+  and 66's count EXACTLY — and the file this slice touched contributes ZERO.** Format canon green:
+  **"All files are properly formatted."**
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `829faee32` baseline exactly; this slice adds
+  and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** and ran the FULL suite
+  (`Scope: full unit suite (no filter)`, three unmapped-path triggers named: the scope-stack owner, its
+  contract file and `OwnershipAudit.nl`): **3,194 / 3,194, 0 failed, 4m 31s.**
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:87421b733ed2e1a4` from the
+  UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 2,986 → **2,962**,
+  currentNonBlankLines 2,767 → **2,748**, fingerprint → **`text-v1:cbcf07b621f17349`**;
+  `reviewedHeadFingerprint` → **`head-v1:298ee869ebf170cd`**, mirrored into `OwnershipAudit.nl`. Epoch
+  ceilings 23,451 / 20,537 PRESERVED, now clear by **20,489 / 17,789** — up from 20,465 / 17,770.
+  `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is exactly 2 changed lines
+  and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**: the only non-`.nl` file this
+  slice writes is `Analyzer.cs`, which already has one. `ColumnarIlEmitter.cs` and `SystemsAnalyzer.cs`
+  are UNTOUCHED. **Ownership audit: 18 / 18.**
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED: `ALL TESTS PASSED`, 16 TIMED STEPS, 108 PASSES
+  AND ZERO FAILURES, 19m 47s.** `./scripts/test-all.sh --commit` — VS Code tests NOT skipped — reported:
+  build the N# compiler 2m 06s; **Step 2b's format contract 0m 02s** ("All files are properly formatted"
+  ×4); **unit tests 6m 25s**; **native N# tests 3m 50s** — every native project individually,
+  `ownership-audit` among them; **VS Code integration tests 2m 56s** against a freshly built extension
+  and language server; pack and install the MSBuild SDK 4m 01s; templates, template creation and the
+  template-generated build; the example builds; `nlc check` on examples; and **the IL verification gate
+  0m 12s — `All 67 N# assemblies pass IL verification (no new errors vs baseline)`**. It ran from an
+  isolated snapshot (`/private/tmp/nsharp-test-all.fa24f810f392…/repo`) and STORED a new validated cache
+  result **`fa24f810f39244d7 (1187s)`** rather than hitting a cached one, so it is fresh by construction.
+  **AND THE BYTE-FINAL LIMIT IS CLOSED AGAIN**: the six code and manifest files this slice writes were
+  md5'd immediately BEFORE the gate started and again after it exited, and all six hashes are IDENTICAL —
+  the gate ran over the byte-final tree, proved rather than argued. (`STATUS.md` itself was written during
+  the run; it is documentation and is compiled by nothing.)
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over that same byte-final tree — language server rebuilt,
+  `nsharp-0.6.0.vsix` packaged (**289 files, 3.98 MB**) and installed with `--force`
+  (`successfully installed`); the installed `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll`
+  is **byte-for-byte** the post-slice build (md5 `f88d487b2fd37f1d09cb613e14769fcf` on both).
+  **NO COMPUTER-USE VERIFICATION WAS TAKEN.** This slice changes no LSP handler, no VS Code extension code
+  and no IDE protocol surface; what it changes is one invisible type answer and the deletion of unreachable
+  code — which the gate's VS Code integration suite (fresh extension and language server), all six
+  diagnostic oracles and the 150-target ordering pin cover.
+
+  ---
+
+  **GOTCHAS (SLICE 67's OWN, ADDED TO THE CUMULATIVE LIST).**
+  **(67.1) `Object.ReferenceEquals(x, BuiltInTypes.Unknown)` DECLINES ON EMIT** with
+  `emit.call.static-member-unmodeled`, even though `Object.ReferenceEquals(a, b)` over two locals emits
+  fine three lines above it in the same contract file — the static-property ARGUMENT is what is
+  unmodeled, and the decline names the two-argument call rather than the property. The estate's own
+  idiom, `BuiltInTypes.IsUnknown(x)`, is both the route around it and the better assertion, because it
+  does not depend on `Unknown` being a singleton.
+  **(67.2) A FIXTURE THAT DOES NOT PARSE STILL FIRES THE DRIVER YOU BUILT IT FOR.** Four of the nine
+  first-draft fixtures had syntax errors and the drivers still ran, because parser RECOVERY substitutes
+  nodes — `on` even synthesises an empty lambda when the handler is not one. The per-driver step count
+  looked healthy and proved nothing. **Always read the fixture's own `NL101`/`NL102` census before
+  trusting a trace taken over it**, and write N# syntax from the parser's rules rather than from C#
+  habit: no typed lambda parameters, no `when` guard on a `switch` case, brace-bound union cases,
+  comma-separated match arms, and no `event` declaration form at all.
+  **(67.3) A REVIEW'S OWN PARTITION MUST BE EXECUTABLE, NOT PROSE.** The eight-class list the brief
+  handed this slice summed to 197 of 194 extents — one member counted in two classes and a field block
+  that was two short. A classifier that asserts the partition found both in seconds; reading the list
+  would not have.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS.** One squiggle changes hands and none changes wording: what
+  a bare `this` is worth when no type scope is open is now decided by the scope stack rather than by the
+  expression dispatch, which is invisible to the developer and is meant to be — the six oracles and the
+  150-target ordering pin are what say so. Everything else this slice does is deletion of code no
+  developer could ever reach.
+
+  **WALL STATUS: ZERO.** One language wall was hit (gotcha 67.1), found by EXECUTION against the pinned
+  toolset, routed around INSIDE the language with no semantic loss and with a better assertion than the
+  one it replaced. **NO TOOLSET REPIN WAS TAKEN AND NONE WAS NEEDED.**
+
+  **ARTEFACTS LEFT ON DISK FOR TASK 018.** Worktrees: `/private/tmp/nl67base` (pristine `829faee32` +
+  Release CLI) and `/private/tmp/nl67corpus` (the shared source copy both CLIs check, rsynced from the
+  byte-final tree). Fixtures: `/private/tmp/nl67fixtures` (**9**, with `targets.txt`, all parsing clean),
+  plus slice 66's `/private/tmp/nl66fixtures` (29), slice 65's `/private/tmp/nl65fixtures` (40) and
+  `/private/tmp/nl62soafx` (27). IL captures and build trees: `/private/tmp/nl67il{Ctrl,A,B}Tree` with
+  outputs under `/private/tmp/nl67out{Ctrl,A,B}`; the protocol transcripts and event streams in
+  `/private/tmp/nl67trace`. Harnesses in the scratchpad: `nl62_members.py` (**the extractor, re-VALIDATED
+  against slice 66's cut — 19/19 names, 21 extents, to the line**), **`nl67-classify.py` (the executable
+  eight-class partition — the review's worksheet)**, **`nl67-instrument.py` (the 29-driver protocol trace,
+  inserted and removed mechanically)**, `nl67-trace-run.sh`, `nl67-trace-analyze.py`,
+  `nl67-make-fixtures.py`, `nl67-oracle.sh`, `nl67-run-oracles.sh`, `nl67-ilsweep.sh`, `nl67-ilnorm.py`,
+  `nl67-ilcompare.py`, `nl67-transnorm.py`, `nl67-determinism.sh` and `nl67-repin.py`. **`/private/tmp`
+  IS REAPED** — regenerate rather than assume.
+
+  ---
+
+  **THE TASK-021 HANDOFF.** The **30 extents / 655 lines** of assembly loading and `MetadataLoadContext`
+  work RETIRE UNDER TASK 021, NOT 017. They are neither policy nor a walk host: they are reflection-based
+  metadata loading, and `project_aot_vs_reflection_kernel_loading` records that they are LOAD-BEARING
+  under the AOT single-binary end-state and must be replaced by STATIC BINDING rather than deleted.
+  Naming that boundary is part of closing 017, not part of doing it. Task 021 inherits two facts with
+  it: (a) the quarantine measured above — the surface reaches no diagnostic, no model and no walk, so
+  replacing it cannot move a single squiggle; and (b) **`_referenceLoadFailures` IS WRITE-DEAD** — the
+  analyzer's own failure table is read by the now-N#-owned NL923 rule and written by nobody, so half the
+  pairing rule's input never arrives. That is a task-021 defect sitting behind an N#-owned report, and it
+  is preserved exactly (the owner holds the table BY REFERENCE, so the rule starts working the moment the
+  loading surface starts writing it) rather than tidied away by a slice that does not own it.
+
+  ---
+
+  * **NEXT QUEUE STEP: TASK 018 — SYSTEMS ANALYZER OWNERSHIP**, and the checklist in `tasks/README.md`
+    now shows 016 and 017 checked with 018 the first open box. Its opening brief should carry four
+    things out of 017:
+    + **THE TARGET, MEASURED AT THIS TIP.** `src/NSharpLang.Compiler/Performance/SystemsAnalyzer.cs` is
+      **2,390 lines, 2,156 non-blank, 171 member extents** by the same validated extractor. Its ratchet
+      row is **AT EPOCH** — `currentLines 2,390 == epochLines 2,390`, `currentNonBlank 2,156 ==
+      epochNonBlank 2,156`, fingerprint `text-v1:ad1c32a77bcad28e` — so 018 has not started and every
+      line of it is still owed. It has exactly **ONE production consumer outside itself**,
+      `MultiFileCompiler.cs`, which is a far narrower entry surface than `Analyzer.cs` had at slice 1.
+    + **THE ESTATE.** **19 diagnostic codes, NSYS001 through NSYS180 in tens**, and all 19 are declared
+      in that one file — no other file in `src/` mentions an NSYS code. The 150-target ordering pin
+      above already exercises three of them in the wild (**NSYS050 × 14, NSYS001 × 9, NSYS070 × 3**),
+      which means 018 inherits a live differential corpus on day one rather than having to build one.
+    + **THE METHOD, WHICH IS NOW PROVEN OVER 67 SLICES.** Record the target before editing; move ONE
+      connected rule at a time with its tests; delete the C# in the same slice; keep the shell as a
+      driver loop when and only when the walk re-enters something the owner cannot reach; and take the
+      six-oracle differential, the IL byte-exactness with the CONTROL FIRST, and the five-run ordering
+      pin on every slice. 017's arc closed at **87.2 %** with **zero toolset repins**.
+    + **THE TWO TRAPS 017 PAID FOR.** (a) A per-driver STEP COUNT is the only thing that distinguishes a
+      proven relay from an unexercised one — 017's last slice found six drivers a self-host workload
+      never enters at all. (b) A fixture that does not parse still fires the driver you built it for
+      (gotcha 67.2), so read the `NL101`/`NL102` census before trusting any transcript taken over it.
+    + **AND ONE BOUNDARY QUESTION 018 MUST ANSWER FIRST, THE WAY SLICE 60 ANSWERED IT FOR 017/018.**
+      `SystemsAnalyzer.cs` is the LAST compiler-core C# analyzer, but it is not the last C# in the
+      estate: `Columnar/ColumnarIlEmitter.cs` (**21,471** lines, at its own epoch) and the task-021
+      loading surface inside `Analyzer.cs` both remain, and neither belongs to 018. The file criterion
+      that settled 017's boundary — *which FILE's zero-policy state needs this member gone* — is the one
+      to reuse.
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `829faee32`): **017 SLICE 66 — WHAT IT MEANS TO DECLARE SOMETHING, WHAT
   HAPPENS TO EVERY EXPRESSION'S TYPE, AND THE THREE DEAD MEMBERS. THE LAST POLICY SLICE.** Target
   recorded BEFORE any production edit, at `43472d7ce` (`Analyzer.cs` **3,422** lines, non-blank
   **3,148**, **210** member extents by the validated extractor; **28** driver loops; `Analyzer.cs`

@@ -517,6 +517,25 @@ test "'this' in the innermost binding scope is the current type, and it drives m
     assert Object.ReferenceEquals(stack.CurrentTypeScope(), owner)
 }
 
+test "a bare 'this' outside every type scope is worth the no-information type, not a null" {
+    model := new SemanticModel()
+
+    // No scope binds `this`: the answer is Unknown rather than the null the nullable door gives.
+    outside := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])
+    assert outside.CurrentTypeScope() == null
+    assert BuiltInTypes.IsUnknown(outside.CurrentTypeScopeOrUnknown())
+
+    // An empty stack answers the same way, and asking is never an error.
+    assert BuiltInTypes.IsUnknown(new AnalyzerScopeStack().CurrentTypeScopeOrUnknown())
+
+    // When a type scope IS open, the two doors answer with the SAME instance.
+    owner := ScopeSymbolOf("Widget")
+    inside := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Class])
+    inside.Peek().Symbols["this"] = owner
+    assert Object.ReferenceEquals(inside.CurrentTypeScopeOrUnknown(), owner)
+    assert Object.ReferenceEquals(inside.CurrentTypeScopeOrUnknown(), inside.CurrentTypeScope())
+}
+
 test "a member reference is decided by the scope the walk STOPS at" {
     model := new SemanticModel()
 
