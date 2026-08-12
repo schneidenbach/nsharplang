@@ -29,7 +29,7 @@ public sealed class SystemsAnalyzer
     private readonly HashSet<FunctionDeclaration> _emittedFunctions = new(ReferenceEqualityComparer.Instance);
     private readonly SystemsTypePolicy _typePolicy = new();
     private readonly SystemsStackallocPolicy _stackalloc = new();
-    private readonly Dictionary<string, string> _memberTypeNames = new(StringComparer.Ordinal);
+    private readonly SystemsCallPolicy _callPolicy = new();
     private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
     private HotSummaryCatalog _hotSummaries;
 
@@ -59,7 +59,7 @@ public sealed class SystemsAnalyzer
         _emittedFunctions.Clear();
         _typePolicy.BeginAnalysis();
         _stackalloc.BeginAnalysis(_config);
-        _memberTypeNames.Clear();
+        _callPolicy.BeginAnalysis();
         _semanticModels = semanticModels ?? EmptySemanticModels;
         _hotSummaries = HotSummaryCatalog.Load(_projectRoot, _config);
         BuildVisibleDeclarationFiles(compilationUnits);
@@ -113,10 +113,10 @@ public sealed class SystemsAnalyzer
                     RegisterFunction(file, containingType, function);
                     break;
                 case FieldDeclaration field:
-                    RegisterMemberType(containingType, field.Name, field.Type);
+                    _callPolicy.RegisterMemberType(containingType, field.Name, field.Type);
                     break;
                 case PropertyDeclaration property:
-                    RegisterMemberType(containingType, property.Name, property.Type);
+                    _callPolicy.RegisterMemberType(containingType, property.Name, property.Type);
                     break;
                 case ClassDeclaration cls:
                     RegisterDeclarations(file, cls.Members, cls.Name);
@@ -137,7 +137,7 @@ public sealed class SystemsAnalyzer
                 case SoaRecordDeclaration soa:
                     foreach (var column in soa.Columns)
                     {
-                        RegisterMemberType(soa.Name, column.Name, column.Type);
+                        _callPolicy.RegisterMemberType(soa.Name, column.Name, column.Type);
                     }
                     break;
                 case InterfaceDeclaration iface:
@@ -151,14 +151,6 @@ public sealed class SystemsAnalyzer
                     break;
             }
         }
-    }
-
-    private void RegisterMemberType(string? containingType, string memberName, TypeReference? type)
-    {
-        if (containingType == null || type == null)
-            return;
-
-        _memberTypeNames[$"{containingType}.{memberName}"] = SystemsTypeNames.ErasedName(type);
     }
 
     private void RegisterFunction(string file, string? containingType, FunctionDeclaration function)
@@ -563,12 +555,13 @@ public sealed class SystemsAnalyzer
                 if (variable.Initializer != null)
                 {
                     WalkExpression(variable.Initializer, context);
-                    if (IsPoolRentExpression(variable.Initializer))
+                    if (_callPolicy.IsPoolRentExpression(variable.Initializer))
                     {
                         context.Summary.Pool = true;
                         context.Summary.PoolRents[variable.Name] = new PoolRent(variable.Name, variable.Line, variable.Column);
                     }
-                    if (IsResourceCreationExpression(variable.Initializer, out var resourceKind))
+                    var resourceKind = _callPolicy.ResourceCreationKind(variable.Initializer);
+                    if (resourceKind != null)
                     {
                         context.Summary.Resource = true;
                         context.Summary.ResourceLocals[variable.Name] = new ResourceLocal(variable.Name, resourceKind, variable.Line, variable.Column);
@@ -668,7 +661,7 @@ public sealed class SystemsAnalyzer
                     WalkExpression(usingStatement.Declaration.Initializer, context);
                 if (usingStatement.Expression != null)
                 {
-                    MarkResourceDisposedIfRecognized(usingStatement.Expression, context);
+                    _callPolicy.MarkResourceDisposedIfRecognized(usingStatement.Expression, context.Summary.PoolRents, context.Summary.ResourceLocals);
                     WalkExpression(usingStatement.Expression, context);
                 }
                 if (usingStatement.Body != null)
@@ -998,7 +991,7 @@ public sealed class SystemsAnalyzer
                     && receiver.Name.Length > 0
                     && char.IsUpper(receiver.Name[0])
                     && !_typePolicy.IsEnumTypeName(receiver.Name)
-                    && !IsKnownStaticHotReceiver(receiver.Name)
+                    && !_callPolicy.IsKnownStaticHotReceiver(receiver.Name)
                     && !_hotSummaries.HasReceiverSummary(receiver.Name, _config.TargetFramework)
                     && _config.Language.Systems.Warmup.Count == 0)
                 {
@@ -1145,8 +1138,8 @@ public sealed class SystemsAnalyzer
             return;
         }
 
-        var target = GetCallTarget(call.Callee);
-        if (target != null && target is not ("Ok" or "Err"))
+        var target = SystemsExpressionNames.CallTarget(call.Callee);
+        if (target != null && !_callPolicy.IsResultFactoryTarget(target))
             context.Summary.Calls.Add(target);
 
         WalkExpression(call.Callee, context);
@@ -1157,19 +1150,19 @@ public sealed class SystemsAnalyzer
             return;
         }
 
-        if (target is "Ok" or "Err")
+        if (_callPolicy.IsResultFactoryTarget(target))
             return;
 
-        if (MarkResourceDisposedIfRecognized(call.Callee, context))
+        if (_callPolicy.MarkResourceDisposedIfRecognized(call.Callee, context.Summary.PoolRents, context.Summary.ResourceLocals))
             return;
 
-        if (IsKnownConcurrencyPrimitive(target))
+        if (_callPolicy.IsKnownConcurrencyPrimitive(target))
         {
             context.Summary.ConcurrencyPrimitive = true;
             return;
         }
 
-        if (IsUnsupportedConcurrencyPrimitive(target))
+        if (_callPolicy.IsUnsupportedConcurrencyPrimitive(target))
         {
             context.Summary.ConcurrencyPrimitive = true;
             AddFindingForPolicy(
@@ -1182,22 +1175,22 @@ public sealed class SystemsAnalyzer
             return;
         }
 
-        if (IsRuntimeDispatchCall(target))
+        if (_callPolicy.IsRuntimeDispatchCall(target))
         {
             context.Summary.Dispatch = true;
             AddFindingForPolicy("NSYS040", "dispatch", $"call to '{target}' uses runtime dispatch or an unsummarized interface-shaped API", call, context, "Use a concrete receiver, constrained generic call, or HotSummary-covered wrapper.");
             return;
         }
 
-        if (IsPoolCall(target))
+        if (_callPolicy.IsPoolCall(target))
         {
             context.Summary.Pool = true;
-            MarkPoolReturnIfRecognized(call, context);
-            if (context.Summary.IsHot && target.EndsWith(".Rent", StringComparison.Ordinal) && !context.IsAllowed("pool"))
+            _callPolicy.MarkPoolReturnIfRecognized(call, context.Summary.PoolRents);
+            if (context.Summary.IsHot && _callPolicy.IsPoolRentTarget(target) && !context.IsAllowed("pool"))
             {
                 AddHotFinding("NSYS130", "pool", "[hot] pool rent requires a hot-ready pool precondition or allow(pool)", call, context);
             }
-            if (target.EndsWith(".Rent", StringComparison.Ordinal)
+            if (_callPolicy.IsPoolRentTarget(target)
                 && _config.Language.Systems.Warmup.Count == 0)
             {
                 context.Summary.RequiresWarmup = true;
@@ -1205,10 +1198,10 @@ public sealed class SystemsAnalyzer
             return;
         }
 
-        if (IsDictionaryTryGetValueCall(call, target))
+        if (_callPolicy.IsDictionaryTryGetValueCall(call, target))
             return;
 
-        if (IsBufferMemoryCopyCall(target))
+        if (_callPolicy.IsBufferMemoryCopyCall(target))
         {
             ApplyBufferMemoryCopyFacts(call, context);
             return;
@@ -1220,19 +1213,16 @@ public sealed class SystemsAnalyzer
             return;
         }
 
-        if (IsReflectionOrDynamicCall(target, out var dynamicCode))
+        if (_callPolicy.IsReflectionOrDynamicCall(target))
         {
             context.Summary.Reflection = true;
-            context.Summary.DynamicCode |= dynamicCode;
+            context.Summary.DynamicCode |= _callPolicy.IsDynamicCodeCall(target);
             AddFindingForPolicy("NSYS060", "aot", $"call to '{target}' blocks target-qualified AOT/trimming facts", call, context, "Move reflection/dynamic code behind a [boundary] or add an audited target-qualified summary.");
             return;
         }
 
         AddUnknownExternalCall(target, call.Line, call.Column, context);
     }
-
-    private static bool IsBufferMemoryCopyCall(string target)
-        => target is "Buffer.MemoryCopy" or "System.Buffer.MemoryCopy";
 
     private void ApplyBufferMemoryCopyFacts(CallExpression call, WalkContext context)
     {
@@ -1576,7 +1566,7 @@ public sealed class SystemsAnalyzer
 
     private static bool IsIndexGuarded(IndexAccessExpression index, WalkContext context)
     {
-        var receiver = ExpressionKey(index.Object);
+        var receiver = SystemsExpressionNames.ExpressionKey(index.Object);
         var indexName = index.Index is IdentifierExpression identifier ? identifier.Name : null;
         var literalIndex = index.Index is IntLiteralExpression literal && int.TryParse(literal.Value, out var value) ? value : (int?)null;
 
@@ -1617,7 +1607,7 @@ public sealed class SystemsAnalyzer
             && binary.Right is IntLiteralExpression value
             && int.TryParse(value.Value, out literal))
         {
-            receiver = ExpressionKey(member.Object);
+            receiver = SystemsExpressionNames.ExpressionKey(member.Object);
             return true;
         }
 
@@ -1635,178 +1625,13 @@ public sealed class SystemsAnalyzer
         if (binary.Right is not MemberAccessExpression { MemberName: "Length" } member)
             return false;
 
-        receiver = ExpressionKey(member.Object);
+        receiver = SystemsExpressionNames.ExpressionKey(member.Object);
         index = identifier.Name;
         return true;
     }
 
     private static bool IsZero(Expression expression)
         => expression is IntLiteralExpression { Value: "0" };
-
-    private static string? GetCallTarget(Expression callee) => callee switch
-    {
-        IdentifierExpression identifier => identifier.Name,
-        MemberAccessExpression member => $"{GetCallTarget(member.Object) ?? ExpressionKey(member.Object)}.{member.MemberName}",
-        ParenthesizedExpression parenthesized => GetCallTarget(parenthesized.Inner),
-        _ => null
-    };
-
-    private static string ExpressionKey(Expression expression) => expression switch
-    {
-        IdentifierExpression identifier => identifier.Name,
-        MemberAccessExpression member => $"{ExpressionKey(member.Object)}.{member.MemberName}",
-        ThisExpression => "this",
-        _ => $"@{expression.Line}:{expression.Column}"
-    };
-
-    private bool IsDictionaryTryGetValueCall(CallExpression call, string target)
-    {
-        if (!target.EndsWith(".TryGetValue", StringComparison.Ordinal))
-            return false;
-
-        if (call.Callee is not MemberAccessExpression { Object: var receiver })
-            return false;
-
-        return _memberTypeNames.TryGetValue(ExpressionKey(receiver), out var receiverType)
-               && SystemsTypeNames.SimpleName(receiverType) is "Dictionary";
-    }
-
-    private static bool IsKnownStaticHotReceiver(string name)
-        => name is "BinaryPrimitives" or "MemoryMarshal" or "BitOperations" or "Math" or "MathF"
-            or "Volatile" or "Interlocked" or "Thread";
-
-    private static bool IsKnownConcurrencyPrimitive(string target)
-        => target is "Volatile.Read" or "Volatile.Write"
-            or "System.Threading.Volatile.Read" or "System.Threading.Volatile.Write"
-            or "Interlocked.Exchange" or "Interlocked.CompareExchange"
-            or "Interlocked.Increment" or "Interlocked.Decrement" or "Interlocked.Add"
-            or "System.Threading.Interlocked.Exchange" or "System.Threading.Interlocked.CompareExchange"
-            or "System.Threading.Interlocked.Increment" or "System.Threading.Interlocked.Decrement"
-            or "System.Threading.Interlocked.Add"
-            or "Thread.MemoryBarrier" or "System.Threading.Thread.MemoryBarrier";
-
-    private static bool IsUnsupportedConcurrencyPrimitive(string target)
-        => target.StartsWith("Interlocked.", StringComparison.Ordinal)
-           || target.StartsWith("System.Threading.Interlocked.", StringComparison.Ordinal)
-           || target.StartsWith("Volatile.", StringComparison.Ordinal)
-           || target.StartsWith("System.Threading.Volatile.", StringComparison.Ordinal)
-           || target.StartsWith("Thread.", StringComparison.Ordinal)
-           || target.StartsWith("System.Threading.Thread.", StringComparison.Ordinal);
-
-    private static bool IsRuntimeDispatchCall(string target)
-        => target.Contains("System.Linq", StringComparison.Ordinal)
-           || target.Contains("IEnumerable", StringComparison.Ordinal)
-           || target.Contains("IQueryable", StringComparison.Ordinal)
-           || target.EndsWith(".GetEnumerator", StringComparison.Ordinal)
-           || target.EndsWith(".MoveNext", StringComparison.Ordinal)
-           || target.EndsWith(".DynamicInvoke", StringComparison.Ordinal);
-
-    private static bool IsPoolCall(string target)
-        => target.Contains("ArrayPool", StringComparison.Ordinal)
-           || target.Contains("MemoryPool", StringComparison.Ordinal)
-           || target.EndsWith(".Rent", StringComparison.Ordinal)
-           || target.EndsWith(".Return", StringComparison.Ordinal);
-
-    private static bool IsPoolRentExpression(Expression expression)
-        => expression is CallExpression call
-           && GetCallTarget(call.Callee) is { } target
-           && IsPoolCall(target)
-           && target.EndsWith(".Rent", StringComparison.Ordinal);
-
-    private static bool IsResourceCreationExpression(Expression expression, out string kind)
-    {
-        kind = string.Empty;
-        switch (expression)
-        {
-            case AllocExpression alloc:
-                return IsResourceCreationExpression(alloc.Expression, out kind);
-            case NewExpression { Type: not null } newExpression:
-                var typeName = SystemsTypeNames.SimpleName(SystemsTypeNames.ErasedName(newExpression.Type));
-                if (IsKnownDisposableType(typeName))
-                {
-                    kind = typeName;
-                    return true;
-                }
-                return false;
-            case CallExpression call when GetCallTarget(call.Callee) is { } target && IsKnownResourceFactory(target):
-                kind = target;
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static bool IsKnownDisposableType(string typeName)
-        => typeName is "FileStream" or "StreamReader" or "StreamWriter"
-            or "BinaryReader" or "BinaryWriter" or "TextReader" or "TextWriter"
-            or "MemoryStream" or "Socket" or "TcpClient" or "UdpClient"
-            or "HttpClient" or "SemaphoreSlim" or "CancellationTokenSource";
-
-    private static bool IsKnownResourceFactory(string target)
-        => target is "File.Open" or "File.OpenRead" or "File.OpenWrite" or "File.Create"
-            or "System.IO.File.Open" or "System.IO.File.OpenRead" or "System.IO.File.OpenWrite" or "System.IO.File.Create";
-
-    private static bool MarkResourceDisposedIfRecognized(Expression expression, WalkContext context)
-    {
-        string? variableName = expression switch
-        {
-            IdentifierExpression identifier => identifier.Name,
-            CallExpression { Callee: MemberAccessExpression member }
-                when member.MemberName is "Dispose" or "DisposeAsync"
-                     && member.Object is IdentifierExpression receiver => receiver.Name,
-            MemberAccessExpression { MemberName: "Dispose" or "DisposeAsync", Object: IdentifierExpression receiver } => receiver.Name,
-            _ => null
-        };
-
-        if (variableName == null)
-            return false;
-
-        var recognized = false;
-        if (context.Summary.PoolRents.TryGetValue(variableName, out var rent))
-        {
-            rent.Returned = true;
-            recognized = true;
-        }
-
-        if (context.Summary.ResourceLocals.TryGetValue(variableName, out var resource))
-        {
-            resource.Disposed = true;
-            recognized = true;
-        }
-
-        return recognized;
-    }
-
-    private static void MarkPoolReturnIfRecognized(CallExpression call, WalkContext context)
-    {
-        if (GetCallTarget(call.Callee) is not { } target || !target.EndsWith(".Return", StringComparison.Ordinal))
-            return;
-
-        foreach (var argument in call.Arguments)
-        {
-            if (argument.Value is IdentifierExpression identifier
-                && context.Summary.PoolRents.TryGetValue(identifier.Name, out var rent))
-            {
-                rent.Returned = true;
-            }
-        }
-    }
-
-    private static bool IsReflectionOrDynamicCall(string target, out bool dynamicCode)
-    {
-        dynamicCode = target.Contains("Activator.CreateInstance", StringComparison.Ordinal)
-            || target.EndsWith(".CreateDelegate", StringComparison.Ordinal)
-            || target.EndsWith(".DynamicInvoke", StringComparison.Ordinal)
-            || target.EndsWith(".MakeGenericType", StringComparison.Ordinal)
-            || target.EndsWith(".MakeGenericMethod", StringComparison.Ordinal);
-
-        return dynamicCode
-            || target.EndsWith(".GetType", StringComparison.Ordinal)
-            || target.Contains(".GetMethod", StringComparison.Ordinal)
-            || target.Contains(".GetMethods", StringComparison.Ordinal)
-            || target.Contains(".GetProperty", StringComparison.Ordinal)
-            || target.Contains(".GetCustomAttribute", StringComparison.Ordinal);
-    }
 
     private static string? AttributeString(AttributeNode attribute, string name)
     {
