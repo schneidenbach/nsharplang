@@ -33,6 +33,8 @@ public sealed class SystemsAnalyzer
     private readonly SystemsSurfacePolicy _surfacePolicy;
     private readonly SystemsBalancePolicy _balancePolicy;
     private readonly SystemsCalleePolicy _calleePolicy;
+    private readonly SystemsAttributePolicy _attributePolicy;
+    private readonly SystemsHotSummaryPolicy _hotSummaryPolicy;
     private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
     private HotSummaryCatalog _hotSummaries;
 
@@ -48,6 +50,9 @@ public sealed class SystemsAnalyzer
         _balancePolicy = new SystemsBalancePolicy(_findingSink);
         _calleePolicy = new SystemsCalleePolicy(_typePolicy, _findingSink);
         _calleePolicy.BeginAnalysis(_config);
+        _attributePolicy = new SystemsAttributePolicy(_findingSink);
+        _hotSummaryPolicy = new SystemsHotSummaryPolicy(_findingSink);
+        _hotSummaryPolicy.BeginAnalysis(_config);
         _hotSummaries = HotSummaryCatalog.Load(projectRoot, _config);
     }
 
@@ -69,6 +74,7 @@ public sealed class SystemsAnalyzer
         _stackalloc.BeginAnalysis(_config);
         _callPolicy.BeginAnalysis();
         _calleePolicy.BeginAnalysis(_config);
+        _hotSummaryPolicy.BeginAnalysis(_config);
         _semanticModels = semanticModels ?? EmptySemanticModels;
         _hotSummaries = HotSummaryCatalog.Load(_projectRoot, _config);
         BuildVisibleDeclarationFiles(compilationUnits);
@@ -186,7 +192,7 @@ public sealed class SystemsAnalyzer
         var file = entry.File;
         var function = entry.Function;
         var name = entry.QualifiedName;
-        var attributes = new AttributeSet(function.Attributes);
+        var attributes = new SystemsAttributeSet(function.Attributes);
         var summary = new MutableFunctionSummary(name, file, function.Line, function.Column)
         {
             IsHot = attributes.Has("hot"),
@@ -202,7 +208,7 @@ public sealed class SystemsAnalyzer
         if (!_visitingFunctions.Add(function))
             return summary;
 
-        ValidateFunctionLevelAllows(attributes, function, summary);
+        _attributePolicy.ValidateFunctionLevelAllows(attributes, function, summary.File, summary.Name, summary.IsHot, summary.IsBoundary);
 
         if (function.Body != null)
             WalkStatement(function.Body, context);
@@ -229,23 +235,6 @@ public sealed class SystemsAnalyzer
         _surfacePolicy.CheckFunctionSurface(function, summary.File, summary.Name, summary.IsHot, summary.IsBoundary);
         _visitingFunctions.Remove(function);
 
-        var facts = new SystemsEffectFacts(
-            summary.Allocates,
-            summary.Boxes,
-            summary.Delegate,
-            summary.Closure,
-            summary.Dispatch,
-            summary.Reflection,
-            summary.DynamicCode,
-            summary.Throws,
-            summary.ImplicitTrap,
-            summary.UnknownExternalCall,
-            summary.Resource,
-            summary.Pool,
-            summary.ConcurrencyPrimitive,
-            summary.RequiresWarmup,
-            AotSafe: !summary.DynamicCode && !summary.Reflection);
-
         var functionSummary = new SystemsFunctionSummary(
             name,
             file,
@@ -255,7 +244,7 @@ public sealed class SystemsAnalyzer
             summary.IsBoundary,
             summary.AllocNone,
             summary.IsHot ? "explicitHot" : "sourceInferred",
-            facts,
+            summary.ToFacts(),
             summary.Calls.Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal).ToArray());
         if (_emittedFunctions.Add(function))
             _functions.Add(functionSummary);
@@ -263,10 +252,10 @@ public sealed class SystemsAnalyzer
         if (attributes.Has("trusted"))
         {
             var trusted = attributes.Get("trusted")!;
-            var reason = AttributeString(trusted, "reason");
-            var owner = AttributeString(trusted, "owner");
-            var review = AttributeString(trusted, "review");
-            var expires = AttributeString(trusted, "expires");
+            var reason = SystemsAttributeSet.AttributeString(trusted, "reason");
+            var owner = SystemsAttributeSet.AttributeString(trusted, "owner");
+            var review = SystemsAttributeSet.AttributeString(trusted, "review");
+            var expires = SystemsAttributeSet.AttributeString(trusted, "expires");
             _trustedSites.Add(new SystemsTrustedSite(
                 name,
                 file,
@@ -308,46 +297,6 @@ public sealed class SystemsAnalyzer
         }
 
         return summary;
-    }
-
-    private void ValidateFunctionLevelAllows(AttributeSet attributes, FunctionDeclaration function, MutableFunctionSummary summary)
-    {
-        foreach (var allow in attributes.GetAll("allow"))
-        {
-            var reason = AttributeString(allow, "reason");
-            var owner = AttributeString(allow, "owner");
-            if (string.IsNullOrWhiteSpace(reason))
-            {
-                AddFinding(
-                    // effectPolicy gets its own code (NSYS180); NSYS150 is reserved for effectDrift.
-                    // Sharing one code made the per-error docs URL ambiguous and machine consumers
-                    // unable to distinguish the two effects (M5).
-                    "NSYS180",
-                    "effectPolicy",
-                    "function-level [allow] requires a reason",
-                    function.Line,
-                    function.Column,
-                    Math.Max(1, function.Name.Length),
-                    summary,
-                    ErrorSeverity.Error,
-                    "Prefer a narrow block-level allow(...), or add reason: \"...\" to the function-level policy.");
-            }
-
-            var isPublicApi = function.Modifiers.HasFlag(Modifiers.Public) || VisibilityConventions.IsExportedIdentifier(function.Name);
-            if (isPublicApi && string.IsNullOrWhiteSpace(owner))
-            {
-                AddFinding(
-                    "NSYS180",
-                    "effectPolicy",
-                    "public function-level [allow] requires an owner",
-                    function.Line,
-                    function.Column,
-                    Math.Max(1, function.Name.Length),
-                    summary,
-                    ErrorSeverity.Error,
-                    "Add owner: \"team-or-person\" so public systems waivers are auditable.");
-            }
-        }
     }
 
     private void WalkStatement(Statement statement, WalkContext context)
@@ -412,10 +361,10 @@ public sealed class SystemsAnalyzer
                 break;
             case IfStatement ifStatement:
                 WalkExpression(ifStatement.Condition, context);
-                context.PushGuards(DerivePositiveGuards(ifStatement.Condition));
+                context.PushGuards(SystemsGuardPolicy.DerivePositiveGuards(ifStatement.Condition));
                 WalkStatement(ifStatement.ThenStatement, context);
                 context.PopGuards();
-                var guards = DeriveGuardsFromExitingIf(ifStatement);
+                var guards = SystemsGuardPolicy.DeriveGuardsFromExitingIf(ifStatement);
                 if (ifStatement.ElseStatement != null)
                 {
                     context.PushGuards(guards);
@@ -429,7 +378,7 @@ public sealed class SystemsAnalyzer
                     WalkStatement(forStatement.Initializer, context);
                 if (forStatement.Condition != null)
                     WalkExpression(forStatement.Condition, context);
-                context.PushGuards(DeriveLoopGuards(forStatement.Condition));
+                context.PushGuards(SystemsGuardPolicy.DeriveLoopGuards(forStatement.Condition));
                 WalkStatement(forStatement.Body, context);
                 context.PopGuards();
                 if (forStatement.Iterator != null)
@@ -447,7 +396,7 @@ public sealed class SystemsAnalyzer
                 break;
             case WhileStatement whileStatement:
                 WalkExpression(whileStatement.Condition, context);
-                context.PushGuards(DeriveLoopGuards(whileStatement.Condition));
+                context.PushGuards(SystemsGuardPolicy.DeriveLoopGuards(whileStatement.Condition));
                 WalkStatement(whileStatement.Body, context);
                 context.PopGuards();
                 break;
@@ -543,9 +492,10 @@ public sealed class SystemsAnalyzer
         foreach (var callSite in caller.CallSites)
         {
             var callee = AnalyzeFunction(callSite.Callee, performanceFacts);
-            caller.MergeEffectsFrom(callee);
+            var calleeFacts = callee.ToFacts();
+            caller.MergeEffectsFrom(calleeFacts);
             _calleePolicy.ReportCalleePolicyViolations(
-                new SystemsEffectFacts(callee.Allocates, callee.Boxes, callee.Delegate, callee.Closure, callee.Dispatch, callee.Reflection, callee.DynamicCode, callee.Throws, callee.ImplicitTrap, callee.UnknownExternalCall, callee.Resource, callee.Pool, callee.ConcurrencyPrimitive, callee.RequiresWarmup, AotSafe: !callee.DynamicCode && !callee.Reflection),
+                calleeFacts,
                 callee.Name,
                 caller.FunctionAllows.Contains("alloc"),
                 caller.FunctionAllows.Contains("pool"),
@@ -818,7 +768,7 @@ public sealed class SystemsAnalyzer
             case IndexAccessExpression index:
                 WalkExpression(index.Object, context);
                 WalkExpression(index.Index, context);
-                if (context.Summary.IsHot && !context.IsAllowed("trap") && !IsIndexGuarded(index, context))
+                if (context.Summary.IsHot && !context.IsAllowed("trap") && !SystemsGuardPolicy.IsIndexGuarded(index, context.Guards))
                 {
                     context.Summary.ImplicitTrap = true;
                     AddHotFinding("NSYS120", "implicitTrap", "index access in [hot] requires a proven bounds guard or allow(trap)", index, context);
@@ -830,8 +780,8 @@ public sealed class SystemsAnalyzer
                 if (context.Summary.IsHot
                     && (binary.Operator is BinaryOperator.Divide or BinaryOperator.Modulo)
                     && !context.IsAllowed("trap")
-                    && !IsNonZeroGuarded(binary.Right, context)
-                    && !IsDefinitelyNonZero(binary.Right))
+                    && !SystemsGuardPolicy.IsNonZeroGuarded(binary.Right, context.Guards)
+                    && !SystemsGuardPolicy.IsDefinitelyNonZero(binary.Right))
                 {
                     context.Summary.ImplicitTrap = true;
                     AddHotFinding("NSYS120", "implicitTrap", "division in [hot] requires a proven non-zero divisor or allow(trap)", binary, context);
@@ -1020,13 +970,13 @@ public sealed class SystemsAnalyzer
 
         if (_callPolicy.IsBufferMemoryCopyCall(target))
         {
-            ApplyBufferMemoryCopyFacts(call, context);
+            _hotSummaryPolicy.ReportBufferMemoryCopy(context.InUnsafeBlock, context.IsAllowed("memorySafety"), call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
             return;
         }
 
         if (_hotSummaries.TryResolve(target, _config.TargetFramework, out var summaryEntry))
         {
-            ApplyHotSummary(target, summaryEntry, call, context);
+            context.Summary.MergeEffectsFrom(_hotSummaryPolicy.ApplyHotSummary(target, summaryEntry, context.IsAllowed("aot"), call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary, context.Summary.AllocNone));
             return;
         }
 
@@ -1040,112 +990,6 @@ public sealed class SystemsAnalyzer
 
         context.Summary.UnknownExternalCall = true;
         _calleePolicy.ReportUnknownExternalCall(target, call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
-    }
-
-    private void ApplyBufferMemoryCopyFacts(CallExpression call, WalkContext context)
-    {
-        if (!context.InUnsafeBlock)
-        {
-            AddFindingForPolicy(
-                "NSYS100",
-                "memorySafety",
-                "Buffer.MemoryCopy must be isolated inside an unsafe block",
-                call,
-                context,
-                "Wrap Buffer.MemoryCopy in a small [trusted] [memory(safe)] function and document the bounds proof.");
-            return;
-        }
-
-        if (!context.Summary.IsTrusted || !context.Summary.MemorySafe)
-        {
-            return;
-        }
-    }
-
-    private void ApplyHotSummary(string target, HotSummaryEntry entry, CallExpression call, WalkContext context)
-    {
-        if (entry.IsSidecar && context.Summary.IsHot && !_config.Language.Systems.AllowHotSidecars)
-        {
-            context.Summary.UnknownExternalCall = true;
-            AddFinding(
-                "NSYS050",
-                "unknownExternalCall",
-                $"sidecar HotSummary for '{target}' is not allowed to satisfy [hot] by project policy",
-                call.Line,
-                call.Column,
-                Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
-                context,
-                ErrorSeverity.Error,
-                "Set language.systems.allowHotSidecars only after auditing the sidecar identity and body hash, or move the call behind a [boundary].");
-            return;
-        }
-
-        if (entry.IsSidecar
-            && string.IsNullOrWhiteSpace(entry.BodyIdentity)
-            && string.IsNullOrWhiteSpace(entry.PackageVersion))
-        {
-            context.Summary.UnknownExternalCall = true;
-            AddFinding(
-                "NSYS150",
-                "effectDrift",
-                $"sidecar HotSummary for '{target}' is missing body identity or package version, so per-fact drift cannot be audited",
-                call.Line,
-                call.Column,
-                Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
-                context,
-                ErrorSeverity.Error,
-                "Key sidecar facts by MVID/body hash, source hash, or package version plus metadata identity.");
-            return;
-        }
-
-        var effects = entry.Effects;
-        context.Summary.Allocates |= effects.Allocates;
-        context.Summary.Boxes |= effects.Boxes;
-        context.Summary.Delegate |= effects.ConstructsDelegate;
-        context.Summary.Closure |= effects.CapturesClosure;
-        context.Summary.Dispatch |= effects.UsesRuntimeDispatch;
-        context.Summary.Reflection |= effects.UsesReflection;
-        context.Summary.DynamicCode |= effects.UsesDynamicCode;
-        context.Summary.Throws |= effects.Throws;
-        context.Summary.ImplicitTrap |= effects.HasImplicitTrapObligation;
-        context.Summary.UnknownExternalCall |= effects.UsesUnknownExternalCall;
-        context.Summary.Resource |= effects.UsesResource;
-        context.Summary.Pool |= effects.UsesPool;
-        context.Summary.ConcurrencyPrimitive |= effects.UsesConcurrencyPrimitive;
-
-        if (effects.RequiresWarmup && _config.Language.Systems.Warmup.Count == 0)
-        {
-            context.Summary.RequiresWarmup = true;
-            AddHotFinding("NSYS110", "hotReadiness", $"HotSummary for '{target}' requires warmup before [hot] use", call, context);
-        }
-
-        if (!effects.TrimSafe || !entry.IsAotSafeFor(_config.Language.Systems.AotTarget))
-        {
-            context.Summary.Reflection = true;
-            AddFindingForPolicy(
-                "NSYS060",
-                "aot",
-                $"HotSummary for '{target}' is not AOT/trim safe for {_config.Language.Systems.AotTarget}",
-                call,
-                context,
-                "Use a target-qualified summary or move the call behind a [boundary].");
-        }
-
-        if (context.Summary.IsHot || context.Summary.AllocNone)
-        {
-            if (effects.Allocates)
-                AddHotFinding("NSYS010", "allocation", $"HotSummary for '{target}' allocates", call, context);
-            if (effects.Boxes)
-                AddHotFinding("NSYS020", "boxing", $"HotSummary for '{target}' boxes", call, context);
-            if (effects.ConstructsDelegate || effects.CapturesClosure)
-                AddHotFinding("NSYS030", "delegate", $"HotSummary for '{target}' constructs a delegate or closure", call, context);
-            if (effects.UsesRuntimeDispatch)
-                AddHotFinding("NSYS040", "dispatch", $"HotSummary for '{target}' uses runtime dispatch", call, context);
-            if (effects.Throws || effects.HasImplicitTrapObligation)
-                AddHotFinding("NSYS120", effects.Throws ? "throw" : "implicitTrap", $"HotSummary for '{target}' has a throwing/trap obligation", call, context);
-            if (effects.UsesResource)
-                AddHotFinding("NSYS090", "resource", $"HotSummary for '{target}' uses a disposable resource", call, context);
-        }
     }
 
     private void RecordAllocation(Expression expression, WalkContext context, bool explicitAllocation)
@@ -1223,202 +1067,6 @@ public sealed class SystemsAnalyzer
         IReadOnlyList<string> callPath)
         => _findingSink.Add(code, effect, message, line, column, length, summary.File, summary.Name, summary.IsHot, summary.IsBoundary, preferredSeverity, suggestion, callPath);
 
-    private static IReadOnlyList<Guard> DeriveGuardsFromExitingIf(IfStatement ifStatement)
-    {
-        if (!StatementExits(ifStatement.ThenStatement))
-            return Array.Empty<Guard>();
-
-        var guards = new List<Guard>();
-        CollectNegativeGuard(ifStatement.Condition, guards);
-        return guards;
-    }
-
-    private static IReadOnlyList<Guard> DeriveLoopGuards(Expression? condition)
-        => DerivePositiveGuards(condition);
-
-    private static IReadOnlyList<Guard> DerivePositiveGuards(Expression? condition)
-    {
-        var guards = new List<Guard>();
-        if (condition != null)
-            CollectPositiveGuard(condition, guards);
-        return guards;
-    }
-
-    private static bool StatementExits(Statement statement) => statement switch
-    {
-        ReturnStatement or ThrowStatement or BreakStatement or ContinueStatement => true,
-        BlockStatement block => block.Statements.Any(StatementExits),
-        AllocBlockStatement allocBlock => StatementExits(allocBlock.Body),
-        AllowStatement allow => StatementExits(allow.Body),
-        UnsafeBlockStatement unsafeBlock => StatementExits(unsafeBlock.Body),
-        _ => false
-    };
-
-    private static void CollectNegativeGuard(Expression expression, List<Guard> guards)
-    {
-        if (expression is BinaryExpression binary)
-        {
-            if (TryGetLengthComparison(binary, out var receiver, out var literal, out var op))
-            {
-                if (op is BinaryOperator.Less && literal > 0)
-                    guards.Add(Guard.MinLength(receiver, literal));
-                if (op is BinaryOperator.Equal && literal == 0)
-                    guards.Add(Guard.MinLength(receiver, 1));
-            }
-            if (binary.Operator == BinaryOperator.Equal && binary.Left is IdentifierExpression id && IsZero(binary.Right))
-                guards.Add(Guard.NonZero(id.Name));
-        }
-    }
-
-    private static void CollectPositiveGuard(Expression expression, List<Guard> guards)
-    {
-        if (expression is BinaryExpression binary)
-        {
-            if (TryGetIndexLessThanLength(binary, out var receiver, out var index))
-                guards.Add(Guard.IndexWithin(receiver, index));
-            if (binary.Operator == BinaryOperator.NotEqual && binary.Left is IdentifierExpression id && IsZero(binary.Right))
-                guards.Add(Guard.NonZero(id.Name));
-        }
-    }
-
-    private static bool IsIndexGuarded(IndexAccessExpression index, WalkContext context)
-    {
-        var receiver = SystemsExpressionNames.ExpressionKey(index.Object);
-        var indexName = index.Index is IdentifierExpression identifier ? identifier.Name : null;
-        var literalIndex = index.Index is IntLiteralExpression literal && int.TryParse(literal.Value, out var value) ? value : (int?)null;
-
-        return context.Guards.Any(guard =>
-            guard.Kind == GuardKind.IndexWithin && guard.Target == receiver && guard.Secondary == indexName
-            || guard.Kind == GuardKind.MinLength && guard.Target == receiver && literalIndex != null && guard.Value > literalIndex.Value);
-    }
-
-    private static bool IsNonZeroGuarded(Expression expression, WalkContext context)
-        => expression is IdentifierExpression identifier
-           && context.Guards.Any(guard => guard.Kind == GuardKind.NonZero && guard.Target == identifier.Name);
-
-    private static bool IsDefinitelyNonZero(Expression expression)
-        => (expression is IntLiteralExpression literal && int.TryParse(literal.Value, out var value) && value != 0)
-            // A non-zero literal divisor can never divide-by-zero, for integer OR floating/decimal
-            // division. This removes the false positive on `x / 2.0`, `x % 4.0f`, etc. (M2): the
-            // trap check previously only recognized non-zero INT literals, so a float-literal
-            // divisor was reported as an unproven trap even though it is provably non-zero.
-            || (expression is FloatLiteralExpression floatLiteral && IsNonZeroFloatLiteral(floatLiteral.Value));
-
-    private static bool IsNonZeroFloatLiteral(string text)
-    {
-        var trimmed = text.TrimEnd('f', 'F', 'd', 'D', 'm', 'M');
-        return double.TryParse(
-                trimmed,
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out var value)
-            && value != 0.0;
-    }
-
-    private static bool TryGetLengthComparison(BinaryExpression binary, out string receiver, out int literal, out BinaryOperator op)
-    {
-        receiver = string.Empty;
-        literal = 0;
-        op = binary.Operator;
-        if (binary.Left is MemberAccessExpression { MemberName: "Length" } member
-            && binary.Right is IntLiteralExpression value
-            && int.TryParse(value.Value, out literal))
-        {
-            receiver = SystemsExpressionNames.ExpressionKey(member.Object);
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryGetIndexLessThanLength(BinaryExpression binary, out string receiver, out string index)
-    {
-        receiver = string.Empty;
-        index = string.Empty;
-        if (binary.Operator != BinaryOperator.Less)
-            return false;
-        if (binary.Left is not IdentifierExpression identifier)
-            return false;
-        if (binary.Right is not MemberAccessExpression { MemberName: "Length" } member)
-            return false;
-
-        receiver = SystemsExpressionNames.ExpressionKey(member.Object);
-        index = identifier.Name;
-        return true;
-    }
-
-    private static bool IsZero(Expression expression)
-        => expression is IntLiteralExpression { Value: "0" };
-
-    private static string? AttributeString(AttributeNode attribute, string name)
-    {
-        var arg = attribute.Arguments.FirstOrDefault(argument =>
-            string.Equals(argument.Name, name, StringComparison.OrdinalIgnoreCase));
-        return arg?.Value is StringLiteralExpression literal ? Unquote(literal.Value) : null;
-    }
-
-    private static string Unquote(string value)
-        => value.Length >= 2 && value[0] == '"' && value[^1] == '"' ? value[1..^1] : value;
-
-    private sealed class AttributeSet
-    {
-        private readonly List<AttributeNode> _attributes;
-
-        public AttributeSet(List<AttributeNode> attributes)
-        {
-            _attributes = attributes;
-        }
-
-        public bool Has(string name) => Get(name) != null;
-
-        public AttributeNode? Get(string name)
-            => _attributes.FirstOrDefault(attribute => AttributeNameEquals(attribute.Name, name));
-
-        public IEnumerable<AttributeNode> GetAll(string name)
-            => _attributes.Where(attribute => AttributeNameEquals(attribute.Name, name));
-
-        public bool AttributeHasArgument(string attributeName, string argumentName)
-        {
-            var attribute = Get(attributeName);
-            return attribute?.Arguments.Any(argument =>
-                argument.Value is IdentifierExpression identifier
-                && string.Equals(identifier.Name, argumentName, StringComparison.OrdinalIgnoreCase)) == true;
-        }
-
-        public HashSet<string> AllowEffects()
-        {
-            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var attribute in _attributes.Where(attribute => AttributeNameEquals(attribute.Name, "allow")))
-            {
-                foreach (var argument in attribute.Arguments)
-                {
-                    if (argument.Name is "reason" or "owner")
-                        continue;
-                    if (!string.IsNullOrWhiteSpace(argument.Name))
-                    {
-                        result.Add(argument.Name);
-                        if (argument.Value is IdentifierExpression namedIdentifier)
-                            result.Add($"{argument.Name}:{namedIdentifier.Name}");
-                    }
-                    else if (argument.Value is IdentifierExpression identifier)
-                    {
-                        result.Add(identifier.Name);
-                    }
-                }
-            }
-
-            return result;
-        }
-
-        private static bool AttributeNameEquals(string actual, string expected)
-        {
-            var name = actual.EndsWith("Attribute", StringComparison.Ordinal)
-                ? actual[..^"Attribute".Length]
-                : actual;
-            return string.Equals(name, expected, StringComparison.OrdinalIgnoreCase);
-        }
-    }
-
     private sealed class MutableFunctionSummary
     {
         public MutableFunctionSummary(string name, string file, int line, int column)
@@ -1460,21 +1108,24 @@ public sealed class SystemsAnalyzer
         public Dictionary<string, PoolRent> PoolRents { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, ResourceLocal> ResourceLocals { get; } = new(StringComparer.Ordinal);
 
-        public void MergeEffectsFrom(MutableFunctionSummary other)
+        public SystemsEffectFacts ToFacts()
+            => new(Allocates, Boxes, Delegate, Closure, Dispatch, Reflection, DynamicCode, Throws, ImplicitTrap, UnknownExternalCall, Resource, Pool, ConcurrencyPrimitive, RequiresWarmup, AotSafe: !DynamicCode && !Reflection);
+
+        public void MergeEffectsFrom(SystemsEffectFacts other)
         {
             Allocates |= other.Allocates;
             Boxes |= other.Boxes;
-            Delegate |= other.Delegate;
-            Closure |= other.Closure;
-            Dispatch |= other.Dispatch;
-            Reflection |= other.Reflection;
-            DynamicCode |= other.DynamicCode;
+            Delegate |= other.ConstructsDelegate;
+            Closure |= other.CapturesClosure;
+            Dispatch |= other.UsesRuntimeDispatch;
+            Reflection |= other.UsesReflection;
+            DynamicCode |= other.UsesDynamicCode;
             Throws |= other.Throws;
-            ImplicitTrap |= other.ImplicitTrap;
-            UnknownExternalCall |= other.UnknownExternalCall;
-            Resource |= other.Resource;
-            Pool |= other.Pool;
-            ConcurrencyPrimitive |= other.ConcurrencyPrimitive;
+            ImplicitTrap |= other.HasImplicitTrapObligation;
+            UnknownExternalCall |= other.UsesUnknownExternalCall;
+            Resource |= other.UsesResource;
+            Pool |= other.UsesPool;
+            ConcurrencyPrimitive |= other.UsesConcurrencyPrimitive;
             RequiresWarmup |= other.RequiresWarmup;
         }
     }

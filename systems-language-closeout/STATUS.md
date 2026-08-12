@@ -1,6 +1,48 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-12 (**TASK 018 SLICE 6 LANDED (no commit — mandate) — N# OWNS WHAT A CALL
+Last updated: 2026-08-12 (**TASK 018 SLICE 7 LANDED (no commit — mandate) — N# OWNS WHAT AN ATTRIBUTE
+MEANS, WHAT A DECLARED FACT COSTS, AND WHAT COUNTS AS A PROOF. F4, F12 AND F1 ARE GONE, THE
+SEVENTEEN-FAMILY INVENTORY IS EXHAUSTED — AND THE MEASUREMENT FOUND AN EIGHTEENTH FAMILY THE
+INVENTORY NEVER NAMED.** **ALL 26 C# EXTENTS DIE WHOLE (313 named extent lines) AND NOTHING BECOMES A
+RELAY**, including the file's FIRST nested TYPE to move (`AttributeSet`, 2 touchers against
+`MutableFunctionSummary`'s 5, closure 11 members / 57 lines / ZERO out-edges): `SystemsAnalyzer.cs`
+**1,590 → 1,241**, non-blank **1,450 → 1,139**, extents **127 → 104** summing **1,478 → 1,157**,
+`git diff` **+39 / −388 = net −349** — **22.0 % in this slice, the arc's largest single cut, and
+48.1 % below the epoch**. N# adds **824 production lines on three owners** and **88 contracts**
+(4,151 → 4,239). **ALL THREE PRICING ANSWERS HELD AND THE THIRD FOUND WHAT THE BRIEF DID NOT ASK
+FOR**: over 20 attribute shapes × 9 effects the real `WalkContext.IsAllowed` and the merge site's
+exact `Contains` agree on **every one of the 180 cells with no block-level stack** — the two-form
+insertion always puts the bare name in beside `name:value` — and diverge on **173 of the 1,440 cells
+that push one, so the prefix widening is reachable ONLY through a block-level waiver**. The C#
+`AnalyzeFunction` SHRANK BY 17 as a side effect, because re-pointing `MergeEffectsFrom` at
+`SystemsEffectFacts` collapsed an inline projection that was already duplicated at the merge site.
+**THE TERMINALITY GREP IS CLEAN ON EIGHT CLAIMS: `GuardKind` DOES NOT APPEAR IN C# ANYWHERE IN THE
+REPO; no C# member reads a `HotSummaryEntry`/`HotSummaryEffects` field; `AllowHotSidecars` has ZERO
+C# readers; and `SystemsAnalyzer.cs` names neither `AttributeNode` nor `VisibilityConventions`.**
+**THE PROOF IS AN EXHAUSTIVE TWO-SIDED DIFFERENTIAL: 82,557 CELLS, 0 MISMATCHES, byte-identical md5
+on both sides**, with the ROUTED WALK inside the comparison (the analyzer's own `WalkStatement` and
+its public `Analyze` on both sides) — non-vacuous by census (68,429 findings, 32,340 SILENT cells,
+**ALL TWELVE CODES**, 56,677 error / 11,752 warning, 17 distinct summary bit-patterns, 112 distinct
+rendered findings). **EIGHT ORACLE DIFFERENTIALS ALL ZERO plus FIVE LEGACY-FORMAT CONTINUITY PASSES
+ALL ZERO, FOUR REPRODUCING RECORDED md5s TO THE DIGIT**; the corpus transcript is **byte-identical to
+slice 6's** and the self-host differs in EXACTLY ONE FIELD (`checkedFiles=358 → 361`) with its 285
+rows byte-identical. **46 PURPOSE-BUILT FIXTURES — THE FIRST IN THE ESTATE TO REACH A SIDECAR
+HotSummary — fire 148 diagnostics over 11 codes byte-identically**, with NSYS180 × 11 and NSYS150 × 2
+end-to-end; the parse-error census caught one bad fixture and the rewrite is 0/46. **CORPUS IL
+63 / 63 N#-emitted assemblies byte-identical with the CONTROL FIRST (118/118 SAME)**; unsorted build
+transcripts 1,557 lines, 0 diffs, the same md5 for the SEVENTH slice running; the five-run ordering
+pin byte-identical over **350 targets and 1,153 rows over 46 codes**; unit suite **3,194 / 3,194**;
+contracts **4,239 / 4,239**; audit **18 / 18**; manifest 391 no BOM; the full VS Code-enabled gate
+**ALL TESTS PASSED** in 20m57s with **36 VS Code integration tests passing** over a production tree
+hash unchanged before, during and after. **SIX LANGUAGE FINDINGS, ALL ROUTED AROUND — including that
+free functions do not overload across FILES and that `alloc` is a keyword in attribute-argument-name
+position. WALL STATUS: ZERO — NO REPIN.** **THE FINAL BRIEF SAYS F9 + F16 ARE NOT THE ZERO-POLICY
+HOST**: a census of the surviving 104 extents finds **26 REPORTING ARMS OVER 11 CODES inside
+`AnalyzeFunction` and the three AST walks** — F18, the walk's own arms — and the inherited
+"250–350 lines" estimate is wrong by measurement. Its full record, the executable six-class
+partition and the 019 pointers are in the Cursor block below)
+
+Last updated (prior): 2026-08-12 (**TASK 018 SLICE 6 LANDED (no commit — mandate) — N# OWNS WHAT A CALL
 COSTS ITS CALLER, AND `SystemsAnalyzer.cs` NO LONGER PRICES ONE.** F11 and F13 are the same subject
 from two sides, and both are gone. **TWO OF THE THREE PRICING ANSWERS OVERTURNED THE BRIEF, AND ONE
 OF THEM WITH A 1,402-LINE NUMBER**: `MergeDeclaredCalleeSummaries` CANNOT move — its transitive
@@ -2328,7 +2370,430 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (018 arc, THIS TURN): **018 SLICE 6 — F11 + F13. N# OWNS WHAT A CALL COSTS ITS
+- Active sub-slice (018 arc, THIS TURN): **018 SLICE 7 — F4 + F12 + F1. N# OWNS WHAT AN ATTRIBUTE
+  MEANS, WHAT A SIDECAR FACT COSTS, AND WHAT COUNTS AS A PROOF.** Target, pricing answers and
+  re-verified inventory recorded BEFORE any production edit, at `0f82c8fa8` (`SystemsAnalyzer.cs`
+  **1,590** lines, non-blank **1,450**, **127** member extents summing **1,478** lines by the
+  validated extractor; ratchet row `currentLines 1,590 / currentNonBlank 1,450`, fingerprint
+  `text-v1:762f634ed088ab0b`, epoch ceilings **2,390 / 2,156**; `reviewedHeadFingerprint
+  head-v1:d40ec30c85a4aaa4` REPRODUCED from the unmodified manifest by the independent FNV-1a walk
+  before any write; unit suite baseline **3,194**; contracts baseline **4,151**; audit **18 / 18**;
+  manifest **391** lines, no BOM.)
+
+  **THE EXTRACTOR WAS RE-VALIDATED AGAINST SLICE 6's OWN RECORDED EXTENTS FIRST: 129 over
+  `git show 037482e45:…/SystemsAnalyzer.cs` summing the recorded 1,559, 127 over the tip summing the
+  recorded 1,478, and all three of slice 6's deleted extents reproduced to the line**
+  (`CheckIgnoredResult` 22, `ReportCalleePolicyViolations` 26, `AddUnknownExternalCall` 51 —
+  `VALIDATE ok=3 fail=0`), summing the recorded **99**.
+
+  **ALL THREE FAMILIES RE-SCORED AT THE TIP AND ALL THREE ROWS OF THE BRIEF REPRODUCE EXACTLY** —
+  the first slice in the arc whose inherited inventory needed no correction:
+
+  | family | members | extent lines | closure | re-entries | out-edges | NSYS codes EMITTED |
+  |---|---|---|---|---|---|---|
+  | F4 attribute rules | 9 | 90 | 23 / 150 | 19 | **0** | NSYS180 ×2 arms |
+  | F12 hot-summary application | 2 | 104 | 40 / 197 | 38 | **0** | 11 codes |
+  | F1 guard / trap proof | 13 | 114 | 22 / 133 | 15 | **0** | — (it proves, it does not report) |
+
+  **THE TARGET, RE-MEASURED AT THE TIP.** F4: `ValidateFunctionLevelAllows` 313-351 (**39**),
+  `AttributeString` 1353-1358 (6), `Unquote` 1360-1361 (2), `Has` 1372 (1), `Get` 1374-1375 (2),
+  `GetAll` 1377-1378 (2), `AttributeHasArgument` 1380-1386 (7), `AllowEffects` 1388-1411 (**24**),
+  `AttributeNameEquals` 1413-1419 (7) — **90 over 9**, plus the nested type's own two extents
+  (`_attributes` 1365, the ctor 1367-1370) for **95 over 11**. F12: `ApplyBufferMemoryCopyFacts`
+  1045-1063 (19), `ApplyHotSummary` 1065-1149 (**85**) — **104 over 2**. F1: the thirteen guard
+  members 1226-1351 — **114 over 13**. **313 extent lines over 26 extents**, every member `private`,
+  and a repo-wide grep for all 24 names returns **ZERO references outside `SystemsAnalyzer.cs`**
+  (the one hit, `AttributeNameEquals`, is a DIFFERENT function in `TypeInfoFactories.nl` — see
+  answer 3). Codes carried: **NSYS180** (F4) and **NSYS010/020/030/040/050/060/090/100/110/120/150**
+  (F12) — twelve in all.
+
+  **THE THREE PRICING QUESTIONS, ANSWERED BY MEASUREMENT BEFORE THE CUT.**
+  1. **`AttributeSet` MOVES WHOLE, AND IT IS THE FIRST NESTED TYPE IN THE FILE TO DO SO.** Counted
+     the way slice 4 counted `MutableFunctionSummary`'s 14: as a TYPE `AttributeSet` has **TWO
+     touchers** — `AnalyzeFunction` (constructs at :189, reads at **eight** sites: :192, :193, :194,
+     :195, :196, :197, :263, :265) and `ValidateFunctionLevelAllows` (:313 parameter, :315 `GetAll`)
+     — and ONE OF THE TWO MOVES WITH THE FAMILY. Its own closure scored alone is **11 members / 57
+     lines with ZERO out-edges**, and its element types (`AttributeNode`, `Argument`,
+     `IdentifierExpression`, `StringLiteralExpression`) are **ALREADY N#-owned** in
+     `Declarations.nl` / `Expressions.nl`. So it moves as an N# class the C# walk constructs — the
+     `Guard` / `PoolRent` / `ResourceLocal` precedent — and `AnalyzeFunction`'s eight read sites do
+     not change at all, only the type behind them does. **THE SLICE-3 HAND-OVER WAS PRICED AND
+     REJECTED**: leaving the set as a `List<AttributeNode>` parameter would strand `_attributes`, the
+     constructor, `Has`, `Get` and `GetAll` — 6 extents / 15 lines — in the host as a member-query
+     type that is neither a rule nor one of the final review's six partition classes, and would turn
+     eight instance reads into eight static calls threading the list through each.
+  2. **`ValidateFunctionLevelAllows` IS OUT-EDGE-FREE, RE-VERIFIED BY EXECUTION, AND THE HELPER IS
+     ALREADY N#.** Scored alone: **19 members / 116 lines, OUT-EDGES 0**. The only non-family name in
+     its body is `VisibilityConventions.IsExportedIdentifier`, which lives in
+     `src/NSharpLang.Compiler.BootstrapServices/VisibilityConventions.nl` — already N#-owned — so the
+     whole member moves with no out-edge at all. **NSYS150 IS A COMMENT IN THAT MEMBER AND THE
+     EXTENT WAS READ RATHER THAN GREPPED**: :322-324 explains why effectPolicy has its own code; the
+     family EMITS **NSYS180 twice** (a function-level `[allow]` with no reason; a PUBLIC one with no
+     owner). The closure census's `NSYS180: 3 / NSYS150: 1` is two emissions plus two comment
+     mentions. NSYS150 *is* owned by this slice — by F12's `ApplyHotSummary`, not by F4.
+     **A SECOND FINDING, THE SLICE-1 SHAPE:** `function.Modifiers.HasFlag(Modifiers.Public) ||
+     VisibilityConventions.IsExportedIdentifier(function.Name)` is NOT the two-argument
+     `IsExportedIdentifier(name, modifiers)` — that overload returns FALSE for an uppercase name
+     carrying `private`, where this rule returns TRUE. Folding them would silently stop reporting the
+     missing owner on `private func Foo`. Pinned by a contract that asserts they DISAGREE.
+  3. **THE ALLOW SET HAS TWO TESTERS, THEY ARE DIFFERENT TESTS, AND THE DIFFERENTIAL DRIVES BOTH
+     FROM THE SAME BUILT SET.** Measured at both readers: `WalkContext.IsAllowed(effect)` →
+     `ContainsEffect` = `Contains(effect) || Any(v => v.StartsWith(effect + ":", OrdinalIgnoreCase))`
+     — **PREFIX-WIDENING**, and additionally OR'd across the block-level allow stack;
+     `MergeDeclaredCalleeSummaries` :548-549 → `caller.FunctionAllows.Contains("alloc")` /
+     `Contains("pool")` — **EXACT**, no stack. Both read the SAME `HashSet<string>` that
+     `AllowEffects()` built, so **the set's `StringComparer.OrdinalIgnoreCase` identity is what makes
+     `[allow(ALLOC)]` silence the callee rule**, and the two-form insertion (`name` AND
+     `name:value`) is the only thing that makes the prefix arm reachable. **A THIRD ASYMMETRY WAS
+     FOUND BY READING THE EXTENT**: the attribute NAME test is OrdinalIgnoreCase but the
+     `reason`/`owner` exclusion is the C# constant pattern `is "reason" or "owner"` — ORDINAL — so
+     `[allow(Reason: "x")]` puts `Reason` INTO the effect set. Preserved and contract-pinned rather
+     than harmonised. **`AllowEffects` IS THE FUNCTION-LEVEL ATTRIBUTE RULE ALONE**: the block-level
+     stack comes from `AllowStatement.Effects` at `WalkStatement` :367, never from this member.
+
+  **THE SHAPE.** THREE new N# owners, one per family, because the three subjects are unrelated.
+  (a) `SystemsAttributePolicy.nl` — the moved `SystemsAttributeSet` class (the walk constructs it)
+  plus the reporting rule for what a waiver must say. (b) `SystemsHotSummaryPolicy.nl` — the sidecar
+  gate, the drift gate, the effect merge and the six hot arms; the project's `allowHotSidecars`,
+  `warmup` and `aotTarget` read once in its own `BeginAnalysis`, the `SystemsStackallocPolicy`
+  precedent. **ITS EFFECT DELTA COMES BACK AS `SystemsEffectFacts`**, the record the estate already
+  publishes, and `MutableFunctionSummary.MergeEffectsFrom` is re-pointed at that record so ONE
+  mechanical 14-bit merge serves both the callee merge and the sidecar delta. (c)
+  `SystemsGuardPolicy.nl` — thirteen static predicates over the already-N# `Guard`; the two that took a
+  `WalkContext` take its `List<Guard>` instead (the slice-3 hand-over), because a guard stack is data.
+  **TERMINALITY TARGET, GREPPED IN ADVANCE:** after the cut **`GuardKind` does not appear in C#
+  anywhere in the repo** and no C# member reads a `Guard`'s field (8 occurrences today, all inside
+  F1); **no C# member reads a `HotSummaryEntry` or `HotSummaryEffects` field** (6 today, all inside
+  F12) and **`AllowHotSidecars` has ZERO C# readers**; and **`SystemsAnalyzer.cs` never names
+  `AttributeNode` or `VisibilityConventions` again**.
+
+  **EVIDENCE BAR (unchanged):** two-sided reflection differential against the deleted C# originals
+  over an exhaustive grid, **driving BOTH allow-set testers from the same built set**; the
+  parse-error census read BEFORE any transcript is trusted (gotcha 67.2); seven oracle differentials
+  on the extended row (71.3) plus the legacy-format continuity pass (71.4); corpus IL byte-exact with
+  the CONTROL FIRST; unsorted build transcripts; the five-run ordering pin; full unit suite (3,194);
+  contracts (4,151 baseline); audit 18/18; manifest 391 no BOM; `dev.sh --since`; `nlc check` +
+  format canon; and the full VS Code-enabled gate over the byte-final tree. Vacuity counters on every
+  harness. **BUDGET THE PROOF:** NSYS180 and NSYS150 are BOTH corpus-silent and BOTH absent from the
+  pin, so purpose-built fixtures are the ONLY end-to-end proof for F4 and for F12's drift arm.
+  **The ratchet repin is the LAST edit.**
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT AN ATTRIBUTE MEANS, WHAT A DECLARED FACT COSTS, AND
+  WHAT COUNTS AS A PROOF. THE INVENTORY'S SEVENTEEN FAMILIES ARE NOW ALL OWNED, AND THE MEASUREMENT
+  FOUND AN EIGHTEENTH THE INVENTORY NEVER NAMED.**
+
+  **ALL 26 C# EXTENTS DIE WHOLE (313 NAMED EXTENT LINES) AND NOTHING BECOMES A RELAY.** F4's eleven
+  (`ValidateFunctionLevelAllows` 39, `AttributeString` 6, `Unquote` 2, and the nested type entire —
+  `_attributes` 1, ctor 4, `Has` 1, `Get` 2, `GetAll` 2, `AttributeHasArgument` 7, `AllowEffects` 24,
+  `AttributeNameEquals` 7 = **95**), F12's two (`ApplyBufferMemoryCopyFacts` 19, `ApplyHotSummary` 85
+  = **104**), F1's thirteen (**114**). `SystemsAnalyzer.cs` **1,590 → 1,241**, non-blank
+  **1,450 → 1,139**, member extents **127 → 104** summing **1,478 → 1,157**, `git diff`
+  **+39 / −388 = net −349** — **22.0 % in this slice, the largest single cut of the arc, and
+  48.1 % below the epoch** (2,390 → 1,241 in seven slices). N# adds **824 production lines on three
+  files** — `SystemsAttributePolicy.nl` (260, two types / 13 members incl. the constructors),
+  `SystemsHotSummaryPolicy.nl` (162, 7), `SystemsGuardPolicy.nl` (402, 20) — and **1,223 contract
+  lines / 88 contracts**; contracts **4,151 → 4,239**.
+
+  **THE LINE ACCOUNTING IS EXACT AND THE FILE SHRANK IN A PLACE THE BRIEF DID NOT PREDICT.** Deleted
+  313; added **−8 net** across five places: `_attributePolicy` (+1), `_hotSummaryPolicy` (+1), the
+  constructor 11 → 14 (+3), `Analyze` 54 → 55 (+1), `MergeDeclaredCalleeSummaries` 23 → 24 (+1),
+  `MutableFunctionSummary.ToFacts` (+2, a NEW extent) — and **`AnalyzeFunction` 131 → 114 (−17)**,
+  because re-pointing `MergeEffectsFrom` at `SystemsEffectFacts` collapsed a 16-line inline
+  projection that was ALREADY duplicated at the merge site into one mechanical `ToFacts()` door.
+  1,478 − 313 − 8 = **1,157**, the measured extent sum. Extents 127 − 26 + 3 = **104**, the measured
+  count.
+
+  **THE THREE PRICING ANSWERS ALL HELD, AND THE THIRD FOUND SOMETHING THE BRIEF DID NOT ASK FOR.**
+  (1) **`AttributeSet` MOVED WHOLE — the first nested TYPE in the file to move.** Two touchers as a
+  type against `MutableFunctionSummary`'s five, its own closure 11 members / 57 lines with ZERO
+  out-edges, and every element type already N#-owned. `AnalyzeFunction`'s eight read sites did not
+  change at all; only the type behind them did. (2) **`ValidateFunctionLevelAllows` was out-edge-free
+  by execution** (19 members / 116 lines, OUT-EDGES 0) and `VisibilityConventions.IsExportedIdentifier`
+  is already N#, so it moved with no out-edge; NSYS150 in that extent is a COMMENT and the family
+  emits NSYS180 twice. (3) **THE TWO ALLOW-SET TESTERS ARE DIFFERENT TESTS, AND THE DIFFERENTIAL
+  PROVES THEY NEVER DIVERGE ON A SET `AllowEffects` CAN BUILD.** Over 20 attribute shapes × 9 effects
+  with no block-level stack, the REAL `WalkContext.IsAllowed` and the merge site's exact `Contains`
+  agree on **every one of the 180 cells** — because the two-form insertion always puts the bare name
+  in beside `name:value`. They diverge on **173 of the 1,440 cells that push a block-level `allow`**,
+  and on none that do not. So the prefix widening is REACHABLE ONLY THROUGH A BLOCK-LEVEL WAIVER, and
+  the function-level set's asymmetry with the callee rule is the STACK, not the prefix. Both testers
+  are driven from the same built set in every cell.
+
+  **A NAME COLLISION THAT IS NOT A DUPLICATE, FOUND BY THE TERMINALITY READ.**
+  `NominalTypeInfoFactory.AttributeNameEquals` shares this family's member name and is a DIFFERENT
+  function: a length check plus an ORDINAL comparison with no suffix stripping (the `[MustUse]`
+  reader). It answers FALSE for `("HotAttribute", "hot")` where the systems one answers TRUE. Pinned
+  by a contract that asserts they DISAGREE — the slice-1 `TypeReferenceName` shape. A SECOND
+  disagreement is pinned the same way: `Modifiers.Public || IsExportedIdentifier(name)` is WIDER than
+  `IsExportedIdentifier(name, modifiers)`, which answers FALSE for an upper-case name carrying
+  `private`.
+
+  **A CONTRACT CAUGHT THE OWNER'S OWN HEADER LYING.** The first draft claimed `[hotattribute]` is
+  `[hot]`; the suffix strip is ORDINAL and the comparison that follows is not, so it is NOT. The
+  contract failed, the header was corrected, and the asymmetry is now three assertions rather than a
+  sentence.
+
+  **A PROVABLY-DEAD GUARD WAS DELETED RATHER THAN PORTED.** `ApplyBufferMemoryCopyFacts`'s second
+  `if (!IsTrusted || !MemorySafe) return;` sits at the end of a `void` member with nothing after it:
+  both arms do nothing, and both operands are auto-properties with no side effect. Deleted, the
+  slice-4 precedent of the caller-less `AddFinding` overload.
+
+  **THE TERMINALITY GREP IS CLEAN ON EIGHT SEPARATE CLAIMS, EACH READ RATHER THAN ASSERTED.**
+  (a) **`GuardKind` DOES NOT APPEAR IN C# ANYWHERE IN THE REPO** and no C# member reads a `Guard`'s
+  field — 8 occurrences before, **0** after. (b) **No C# member reads a `HotSummaryEntry` or
+  `HotSummaryEffects` field**; the five surviving hits are unit-test assertions on the REPORT's
+  `SystemsEffectFacts`. (c) **`AllowHotSidecars` has ZERO C# READERS** — its one occurrence is a test
+  writing the config. (d) `SystemsAnalyzer.cs` **never names `AttributeNode`** and (e) **never names
+  `VisibilityConventions`**. (f) **No C# member composes either waiver sentence**, (g) none composes
+  `sidecar HotSummary` or `HotSummary for`, and (h) none composes the `Buffer.MemoryCopy` sentence.
+  NSYS150/NSYS180 survive in C# only as three end-to-end assertions in `tests/SystemsNSharpTests.cs`,
+  which are a bonus regression pin.
+
+  **THE PROOF THAT COST THE MOST IS THE EXHAUSTIVE TWO-SIDED DIFFERENTIAL, AND IT IS BYTE-IDENTICAL:
+  82,557 CELLS, 0 MISMATCHES, md5 `8c9c25cdc8d9dd385cea1d94ec57a580` ON BOTH SIDES** (the only line
+  that differs is the harness's `# SIDE=BASE` / `# SIDE=WORK` marker). The SAME grid text compiled
+  twice — once against the pristine `0f82c8fa8` worktree, reaching the private nested `AttributeSet`
+  type and the 26 deleted members through reflection, and once against the N# owners driven with
+  **exactly the projection the routed call sites perform**, including `context.Summary.MergeEffectsFrom(
+  policy.ApplyHotSummary(...))` and `context.IsAllowed("aot")` / `("memorySafety")` read off the
+  analyzer's OWN `WalkContext`. Six sections: the attribute queries and both testers (A), the waiver
+  rule over 8 shapes × 6 modifier sets × 4 names × 4 hot/boundary shapes × 2 profiles × 2 modes (B),
+  the hot-summary rule over 13 effect-bit shapes × 3 sources × identity × version × 2 sidecar
+  policies × 2 warmups × 2 trim verdicts × 3 AOT targets × 5 caller shapes × 2 allow states —
+  **74,880 cells** (C), the `Buffer.MemoryCopy` cage (D), the guard proofs over 14 conditions × 6
+  operators × 13 then-shapes plus an 8 × 10 guard/access matrix and 8 × 19 divisors (E), and **the
+  ROUTED WALK end to end** — the analyzer's own private `WalkStatement` over real bodies and its
+  public `Analyze` over real compilation units, so the routed guard sites and the attribute path run
+  for real on both sides (F). **NON-VACUOUS BY CENSUS: 68,429 findings and 32,340 SILENT cells, ALL
+  TWELVE CODES** (NSYS060 21,632, NSYS120 7,909, NSYS110 5,928, NSYS050 4,992, NSYS150 4,992,
+  NSYS180 4,552, NSYS010/020/030/040/090 3,648 each, NSYS100 184), both severities in volume
+  (56,677 error / 11,752 warning), **all four policy labels**, 112 distinct rendered findings, 20
+  distinct messages, 4 underline widths, 8 call paths and **17 distinct summary bit-patterns**.
+
+  **EIGHT ORACLE DIFFERENTIALS ALL ZERO. PARSE_ERRORS = 0 IN ALL EIGHT.** Corpus **0 diffs over 71
+  rows**, md5 `86a4928f87495854f48cbd5df7d5c571` on both sides and **byte-identical to slice 6's own
+  transcript**, census **NSYS050:14 NSYS001:9 NL303:5 NSYS070:3 NL402:2** — slices 1-6's recorded
+  census to the digit; self-host **285 findings / 10 codes**; the 46 new fixtures 0 diffs; slice-73's
+  33, slice-72's 28, slice-71's 18, SoA 27 and the supplementary 9 all 0 diffs. **The self-host
+  transcript was DIFFED against slice 6's rather than explained away: it differs in EXACTLY ONE FIELD
+  — `checkedFiles=358 → 361`, the three new owners — with all 285 diagnostic rows byte-identical and
+  ZERO rows naming any new file.**
+
+  **FIVE LEGACY-FORMAT CONTINUITY PASSES, ALL ZERO, AND FOUR REPRODUCE RECORDED md5s TO THE DIGIT**
+  (gotcha 71.4): corpus **`8590f4c698c24cd92535dd523ca94d49`**, SoA
+  **`df61922f54b28156e91fa7b5044dff9c`**, slice-70 **`96a3204c1ee4c88f9e7ace14e3a13998`**, slice-69
+  **`1f68a3c928cf7fe31dee4eca0fbd7f99`** — all four the recorded values; the self-host one moves only
+  because `checkedFiles` did. Slice-69's inherited fixtures still carry NSYS170 × 1 and NSYS080 × 3.
+
+  **46 PURPOSE-BUILT FIXTURES, MATCHED PAIRS, firing 148 diagnostics over 11 codes byte-identically
+  on both CLIs — and they are the FIRST fixtures in the estate to reach a SIDECAR HotSummary**, which
+  is what both of F12's gates need and no fixture had. Ten of the twelve codes this cut decides fire
+  end-to-end (NSYS050 92, NSYS180 **11**, NSYS120 7, NSYS130 5, NSYS010 3, NSYS150 **2**, NSYS060 1,
+  NSYS110 1); NSYS020/030/040 fire in the inherited estate and the grid drives each 3,648 times, and
+  **NSYS100 is the one code no end-to-end surface in the 350-target workload exercises** — the grid
+  drives it 184 times and the contracts pin all four of its arms. The pairs: the same `[allow]` is an
+  error without a reason and silent with one; the same waiver needs an OWNER when the function is
+  `public` **or** merely upper-case, and not when it is lower-case; the same allocation is reported
+  without `[allow(alloc)]` and silent with it — **while the missing reason is still reported, because
+  the two are independent**; `[allow(ALLOC)]` silences it too, which is the set's comparer; the same
+  sidecar is an NSYS050 policy refusal from a `[hot]` caller and an NSYS150 drift refusal from a cold
+  one — **the gate ORDER, observed end to end** — and silent once the project audits it or the entry
+  carries a body identity **or** a package version; the same unguarded index is an NSYS120 trap, silent
+  after `if (data.Length < 4) return;`, loud again at `data[4]`, silent inside `while (i < data.Length)`,
+  and **loud again when the `if` does not exit**; the same division is a trap by an identifier and
+  silent by `2`, `2.0` and `2.0f` and loud by `0`. **PARSE-ERROR CENSUS READ FIRST (gotcha 67.2)**:
+  the first draft had ONE fixture with 7 parse errors and the census caught it; final **parse errors
+  0 / 46 and no fixture reports `n=0`**.
+
+  **CORPUS IL, WITH THE CONTROL FIRST.** Control (base CLI twice over fresh archives):
+  **COMPARED 118, SAME 118, DIFFERENT 0**. Product (base vs work): **63 / 63 N#-EMITTED ASSEMBLIES
+  BYTE-IDENTICAL, NON_RUNTIME_DIFFS 0**, and the 55 differing files are all `NSharpLang.Runtime.dll`
+  copies proved INHERITED — distinct raw hashes **1** on each side, the Runtime SOURCE **0 files
+  different**, normalised delta **208 of 14,848 bytes**, exactly slices 5 and 6's figures. **Unsorted
+  build transcripts: 1,557 lines, 0 diffs in BOTH comparisons, the same md5
+  `1ff6a3797a58c74f8a52bc410519794b` in all THREE sweeps** (73 target headers, 55 successful builds)
+  — the SEVENTH slice running to reproduce it byte-for-byte.
+
+  **THE FIVE-RUN ORDERING PIN IS BYTE-IDENTICAL AND IT IS THIS SLICE'S BROADEST WORKLOAD YET: 350
+  TARGETS, 2,204 LINES, md5 `857b53f47d469229c41cce093cf95f32` ON ALL FIVE**, `RUN1_VS_RUNn DIFFS = 0`
+  for n = 2..5; **1,153 diagnostic rows over 46 codes** in LIST order with severity, policy label and
+  call path on every row, carrying **ELEVEN of the twelve codes this cut decides** — NSYS050:330,
+  NSYS010:27, NSYS130:15, NSYS090:13, NSYS180:11, NSYS110:9, NSYS060:9, NSYS120:9, NSYS040:2,
+  NSYS020:2, NSYS030:2, NSYS150:2 (plus NSYS080:30, NSYS070:27, NSYS001:52, NSYS160:5, NSYS170:1,
+  NSYS140:1 from earlier cuts).
+
+  Unit suite **3,194 / 3,194** via `dev.sh --since`'s fail-safe FULL path (all six new files unmapped,
+  so it refused to narrow: `Scope: full unit suite (no filter)`); contracts **4,239 / 4,239**; audit
+  **18 / 18**; `nlc check` on the owner's own directory **361 checked files, 285 findings, ZERO naming
+  any new file**; `nlc format --check` **"All files are properly formatted."**
+
+  **THE RATCHET REPIN WAS THE LAST PRODUCTION EDIT.** `currentLines 1,590 → 1,241`,
+  `currentNonBlank 1,450 → 1,139`, fingerprint `text-v1:762f634ed088ab0b → text-v1:1ca36406ce373d8b`,
+  head `head-v1:d40ec30c85a4aaa4 → head-v1:74ad4de32a84fd70`, mirrored into `OwnershipAudit.nl`; the
+  stored head was REPRODUCED by the independent FNV-1a walk before the write and again after it;
+  manifest **391** lines, no BOM; epoch ceilings 2,390 / 2,156 not approached. **The full-manifest
+  drift walk found exactly TWO drifting rows and only ONE is this slice's**:
+  `editors/vscode/test/suite/edgeCases.test.ts` hashes `text-v1:bac41cb42d8f1de6` against a stored
+  `text-v1:1f02d760bcc15e0c` — and the PRISTINE `0f82c8fa8` worktree hashes the same value with the
+  same 358/327 counts, so the drift is INHERITED (slices 5 and 6 found and left it too). Left alone
+  and recorded again. (Six manifest rows name files deleted by earlier slices; also pre-existing.)
+
+  **THE FULL VS CODE-ENABLED GATE PASSED OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`, 16 steps,
+  20m57s, ZERO failures** — unit 3,194 / 3,194, native N# contracts 4,239 / 4,239, all native product
+  projects green **including `tests/native/ownership-audit` at 18 / 18**, **VS Code integration tests
+  (Step 3b) PASSED — 36 passing in 3m03s**, the format contract gate green on all four sweeps, SDK +
+  templates packed and installed, examples and single-file examples built, `nlc check` on examples
+  clean, and IL verification green on **all 67 N# assemblies with no new errors vs baseline**. The
+  production-only tree hash — every tracked-plus-new file except this ledger — is
+  **`08671fad0da766507de420cbf8942d39` over 1,268 files BEFORE the gate, AFTER the gate and after the
+  VSIX build and install**, so the gate ran over exactly the production bytes this slice leaves
+  behind. The VSIX was rebuilt and reinstalled from that same tree (`nsharp-0.6.0.vsix`, 289 files,
+  3.98 MB, "was successfully installed").
+
+  **SIX LANGUAGE FINDINGS, ALL FOUND BY EXECUTION, ALL ROUTED AROUND INSIDE THE LANGUAGE. WALL
+  STATUS: ZERO — NO TOOLSET REPIN.**
+
+  **GOTCHAS (SLICE 7's OWN, ADDED TO THE CUMULATIVE LIST).**
+  **(74.1) FREE FUNCTIONS ARE NAMESPACE-SCOPED ACROSS FILES AND DO NOT OVERLOAD ACROSS THEM.** A
+  `.tests.nl` helper `SapConfig(profile, mode)` collided with `SapConfig(budget)` in
+  `SystemsStackallocPolicy.tests.nl`, and the symptom names NEITHER file: the CALL declines with
+  *"local initializer expression emission declined for 'config'"* at the caller. **Give every
+  `.tests.nl` file's free helpers a prefix no other file uses**, and when a call to a helper you just
+  wrote declines for no visible reason, grep the estate for its name FIRST.
+  **(74.2) `alloc` IS A KEYWORD IN ATTRIBUTE-ARGUMENT-NAME POSITION.** `[allow(alloc: pooled)]` does
+  not parse (NL101 at the colon) while `[allow(trap: proved)]`, `[allow(pool: warm)]`,
+  `[allow(aot: audited)]`, `[allow(memory: safe)]` and `[allow(reason: "x")]` all do. **The `alloc:`
+  qualified-waiver form is therefore unwritable in N# source**, which is why the fixture that proves
+  the prefix widening is written on `trap`. The reserved-word list bites in argument NAMES, not only
+  in local names.
+  **(74.3) `x as T != null` DOES NOT PARSE INSIDE AN `if` CONDITION** — it declines the WHOLE class at
+  `parse.struct`, pointing at the class header and not at the line. It parses fine in a `return`.
+  Bind the cast to a local first. Bisect a `parse.struct` decline by installing member subsets: a
+  DECLINE is a 5-second build and only the final success is slow.
+  **(74.4) `allow` IS A RESERVED LOCAL NAME** (the `allow(...) { }` block keyword), like `file` and
+  `unionType` before it. `allow := statement as AllowStatement` declines the whole class.
+  **(74.5) A NAMED ARGUMENT WITH A COMPOUND EXPRESSION DECLINES IN A RECORD CONSTRUCTION.**
+  `new SystemsEffectFacts(..., AotSafe: !a && !b)` is `emit.expression.unhandled-kind: node kind 60`;
+  hoist the expression to a local and pass it positionally. A named argument with a SIMPLE value is
+  fine (slice 6 used one).
+  **(74.6) `HashSet<T>.Enumerator` IS NOT A SUPPORTED LOCAL TYPE.** `enumerator := set.GetEnumerator()`
+  declines at `emit.local.unsupported-type`; iterate a set with `for value in set`, which the estate
+  already does.
+  **(74.7) A CONTRACT THAT PINS A HEADER'S CLAIM WILL CATCH THE HEADER LYING.** The owner's header
+  asserted `[hotattribute]` is `[hot]`; the suffix strip is ORDINAL and the comparison after it is
+  not, so it is not. Write the header's claims as assertions and let the first contract run arbitrate
+  — this one failed on its first run and corrected the prose.
+
+  **THE FINAL BRIEF: F9 + F16 ARE NOT THE ZERO-POLICY HOST, AND THE MEASUREMENT SAYS SO WITH A
+  26-ARM NUMBER.**
+
+  **THE INVENTORY IS EXHAUSTED AND IT WAS INCOMPLETE.** F1-F17 are now all N#-owned. But a census of
+  every NSYS mention in the surviving 104 extents finds **26 REPORTING ARMS over 11 CODES living
+  directly inside FOUR members** — `AnalyzeFunction` (4), `WalkStatement` (8), `WalkExpression` (10)
+  and `WalkCall` (4) — and the seventeen-family inventory never named one of them, because it scored
+  MEMBERS and these are ARMS inside members that also drive the walk. Call it **F18, THE WALK'S OWN
+  ARMS**. Named in full, in file order:
+  - `AnalyzeFunction`: `[hot] async` and `[hot] iterator` allocate state machines (NSYS010 ×2); a
+    `[trusted]` wrapper needs reason/owner/review metadata and must declare `[memory(safe)]`
+    (NSYS100 ×2). **Its subject is a DECLARATION — the same subject F4 owns** — so these four belong
+    with `SystemsAttributePolicy` and are the cheapest next cut in the file.
+  - `WalkStatement`: an `unsafe` block needs a `[trusted]` memory-safe wrapper (NSYS100); await-foreach
+    (NSYS090); `yield` (NSYS010); `throw` twice and `try` twice (NSYS120 ×4); `using` (NSYS090).
+  - `WalkExpression`: lambda/closure construction (NSYS030); a static member access needing warmup
+    (NSYS110); the index and division traps (NSYS120 ×2 — **this slice's own guard family is their
+    input**); cast-to-object boxing (NSYS020); `await` (NSYS090); a throw expression twice (NSYS120 ×2);
+    checked arithmetic (NSYS120); `typeof` (NSYS060).
+  - `WalkCall`: an unsupported concurrency primitive (NSYS140 — **the only code in the estate whose
+    sole producer is still C#**); runtime dispatch (NSYS040); a `[hot]` pool rent (NSYS130);
+    reflection/dynamic code (NSYS060).
+
+  **THE BRIEF'S "250-350 LINES" IS WRONG BY MEASUREMENT AND SHOULD NOT BE INHERITED.** The three AST
+  walks and `AnalyzeFunction` alone are **618 lines** of the surviving 1,157, and they are the host's
+  dispatch as much as its policy: taking F18 out leaves the walks, not nothing. A realistic end state
+  is **F18 moved in two or three slices** (declaration arms → statement/expression arms → call arms),
+  after which `SystemsAnalyzer.cs` is roughly **950-1,050 lines** of walk, resolution, registration
+  and state, with **ZERO NSYS mentions**. That — not 250-350 — is what "reviewed zero-policy
+  mechanical host" will mean for this file, and the review should assert the ZERO rather than a line
+  count.
+
+  **THE EXECUTABLE SIX-CLASS PARTITION, PRE-COMPUTED OVER TODAY'S 104 EXTENTS / 1,157 LINES.** The
+  final review must run a classifier over the validated extractor and assert `UNCLASSIFIED = 0`, the
+  017 slice-67 shape. Today's classes sum exactly:
+
+  | class | extents | lines | members |
+  |---|---|---|---|
+  | (a) sink relays + profile routes + the allocation relay | 8 | 71 | `AddFinding` ×3, `AddFindingForPolicy`, `AddHotFinding`, `RecordAllocation`, `IsSystemsProfile`, `EffectiveMode` |
+  | (b) the analysis driver and the registration walk | 4 | 147 | `Analyze`, `RegisterDeclarations`, `RegisterFunction`, `BuildVisibleDeclarationFiles` |
+  | (c) the AST walks (F18 lives HERE) | 5 | 618 | `AnalyzeFunction`, `MergeDeclaredCalleeSummaries`, `WalkStatement`, `WalkExpression`, `WalkCall` |
+  | (d) F9 callee resolution | 7 | 152 | `TryResolveDeclaredCallee`, `TryGetEntryForFunctionType`, `TryGetEntryForMethodGroup`, `GetMethodGroupFunctions`, `TryGetEntryForDeclarationSite`, `TryResolveConstrainedInterfaceCallee`, `TryLookupTypeReference` |
+  | (e) the nested state types | 57 | 132 | `MutableFunctionSummary` (33, incl. `ToFacts` and `MergeEffectsFrom`), `WalkContext` (21), `DeclarationSite` (3) |
+  | (f) fields, the empty-model constant and the constructor | 23 | 37 | 21 fields + `EmptySemanticModels` + `SystemsAnalyzer` |
+  | **TOTAL** | **104** | **1,157** | **UNCLASSIFIED = 0** |
+
+  `FunctionEntry` and `CallSite` are one-line positional records and contribute no extents; the
+  extractor sees them as type declarations and skips them, which is why class (e) is 57 and not 59 —
+  **the classifier must skip nested TYPE headers the same way or its partition will not sum**.
+
+  **ONE RULE STILL LIVES IN CLASS (e), AND THIS SLICE FOUND IT.** `WalkContext.ContainsEffect` — the
+  `effect:`-prefix widening, 3 lines — is a written POLICY inside a state type, and pricing answer 3
+  measured exactly what depends on it: nothing that `AllowEffects` builds, and 173 cells of what a
+  block-level `allow` builds. The review must either move it beside `SystemsAttributeSet` (where the
+  set it tests is built) or record why a state type may hold it. **`PopGuards`'s truncate-to-mark is
+  NOT policy** — it is the M3 correctness fix and belongs to the state type.
+
+  **THE DRIVER-COMPLETENESS TRACE THE REVIEW STILL OWES**, the 017 slice-67 shape: a temporary trace
+  in every walk (`Analyze`, `RegisterDeclarations`, `AnalyzeFunction`, `MergeDeclaredCalleeSummaries`,
+  `WalkStatement`, `WalkExpression`, `WalkCall`, `BuildVisibleDeclarationFiles` — **8 drivers**)
+  over a workload that ENTERS all eight, asserting ENTER == RESULT and STEP == ANSWER with zero
+  unproven drivers, five runs byte-identical. The 350-target determinism workload is the natural
+  input; 017 needed nine purpose-built fixtures to enter its last six drivers and this file will
+  likely need two or three.
+
+  **WHAT CLOSES TASK 018's CHECKBOX** (the task file's own criterion): *"Mark it complete only when
+  `SystemsAnalyzer.cs` is deleted or is a reviewed zero-policy mechanical host."* Deletion is not
+  available — the `MultiFileCompiler` seam consumes `SystemsAnalyzer.Analyze` and has never been
+  touched in seven slices — so the second arm is the target, and it requires **F18 gone (26 arms, 11
+  codes, 0 NSYS mentions left), the six-class partition asserted with UNCLASSIFIED = 0, the
+  eight-driver completeness trace, and the `ContainsEffect` question answered.** The checkbox in
+  `tasks/README.md` is the review slice's to check and no earlier slice's.
+
+  **019 OPENING POINTERS (compiler-contained tooling), from what STATUS.md already records.** The
+  Iterative-task-targets block carries a live 019-shaped queue that this arc has not touched: (1) the
+  ONE surviving C# duplicate the 017 arc found — `CompletionEngine.cs` :751's private static
+  `GetFunctionParameterModifier`, a completion-LABEL helper with an extra `index < 0` guard,
+  deliberately left out of an earlier slice because folding it in would move a second ratchet row;
+  route it to `AnalyzerCallableReferenceFacts`, reconcile the guard, repin the `CompletionEngine.cs`
+  row. (2) The `ResolveTypeAlias` / `TryConvertTypeInfoToClrType` / `IsAssignable` arc, whose
+  ARCHITECTURAL PREREQUISITE is recorded in full and is unchanged: none of the twelve assignability
+  members is movable while `ResolveTypeAlias` stays in C#, and the alias arm's blocker is TypeInfo
+  REFERENCE IDENTITY (`aliasSeen=36, declaration-context branch=0, ResolveType branch=36`), not
+  policy. (3) The standing AOT note in memory — `DogfoodKernelLoader` binds N# kernels by runtime
+  `Assembly.Load`, which a single-binary NativeAOT `nlc` forbids — is a 019/020 blocker, not dead
+  code to delete.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT 018 SLICE.** Worktree `/private/tmp/nl74base` (pristine
+  `0f82c8fa8` + Release CLI) and `/private/tmp/nl74corpus` (an rsync of the byte-final WORK tree, so
+  the self-host oracle checks the new owners too). Fixtures `/private/tmp/nl74fixtures` (**46**, with
+  `targets.txt`, all parsing clean, and the only ones in the estate that reach a SIDECAR HotSummary),
+  beside slice 73's (33), 72's (28), 71's (18), 70's (30), 69's (25), 68's (20), 67's (9), 66's (29),
+  65's (40) and `/private/tmp/nl62soafx` (27). IL trees and captures:
+  `/private/tmp/nl74il{Ctrl,A,B}Tree` with outputs under `/private/tmp/nl74out{Ctrl,A,B}`. **The
+  two-sided differential harness is `/private/tmp/nl74grid`** — ONE `Grid.cs` compiled twice
+  (`base/Base.csproj` with `NL74_BASE`, `work/Work.csproj` against the repo's), both by
+  **ProjectReference and NOT by `<Reference>`**: referencing the N#-emitted assemblies directly gives
+  CS0012 on `System.Enum`, and adding `System.Private.CoreLib` to fix it collapses into CS0518 on
+  `System.Object`. Harnesses in the scratchpad: `nl62_members.py` (**the extractor, re-validated at
+  129 / 127 / 3-of-3 before it was trusted**), `nl74-closure.py`, `nl74-make-fixtures.py`,
+  `nl74-census.py` (the parse-error census), `nl74-oracle.sh`, `nl74-oracle-legacyfmt.sh`,
+  `nl74-run-oracles.sh`, `nl74-run-oracles-legacy.sh`, `nl74-ilsweep.sh`, `nl74-run-il.sh`,
+  `nl74-ilnorm.py`, `nl74-ilcompare.py`, `nl74-transnorm.py`, `nl74-determinism.sh`,
+  `nl74-treehash.sh` and `nl74-repin.py`. **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+  ---
+
+- Active sub-slice (018 arc, PRIOR TURN, ACCEPTED at `0f82c8fa8`): **018 SLICE 6 — F11 + F13. N# OWNS WHAT A CALL COSTS ITS
   CALLER.** Target, pricing answers and re-verified inventory recorded BEFORE any production edit,
   at `037482e45` (`SystemsAnalyzer.cs` **1,674** lines, non-blank **1,523**, **129** member extents
   summing **1,559** lines by the validated extractor; ratchet row `currentLines 1,674 /
@@ -28222,7 +28687,47 @@ These are populated only when their task becomes current.
   them either calls a funnel directly or recurses into `IsAssignable`, which does. There is no
   remaining "pure leaf predicate" cut in that neighbourhood — slice 2 took the last of them, and
   slice 3 confirmed it by inventory.
-- Task 018 next systems-policy sub-slice: **F4 — WHAT AN ATTRIBUTE MEANS AND WHAT A WAIVER MUST SAY.
+- Task 018 next systems-policy sub-slice: **F18 — THE WALK'S OWN ARMS. 26 REPORTING ARMS OVER 11
+  CODES, INSIDE FOUR MEMBERS, AND THE SEVENTEEN-FAMILY INVENTORY NEVER NAMED ONE OF THEM.** Re-score
+  at `SystemsAnalyzer.cs` **1,241 lines / 104 extents summing 1,157** with the validated extractor
+  BEFORE cutting. **The inventory after slice 7, re-measured — every member family is OWNED and what
+  is left is ARMS INSIDE MEMBERS:**
+
+  | member | extent lines | arms | NSYS codes emitted |
+  |---|---|---|---|
+  | **`AnalyzeFunction`** | 114 | **4** | NSYS010 ×2 (`[hot]` async / iterator), NSYS100 ×2 (`[trusted]` metadata, `[memory(safe)]`) |
+  | **`WalkStatement`** | 185 | **8** | NSYS100, NSYS090 ×2, NSYS010, NSYS120 ×4 |
+  | **`WalkExpression`** | 194 | **10** | NSYS030, NSYS110, NSYS120 ×5, NSYS020, NSYS090, NSYS060 |
+  | **`WalkCall`** | 101 | **4** | NSYS140, NSYS040, NSYS130, NSYS060 |
+  | `MergeDeclaredCalleeSummaries` | 24 | 0 | — (a zero-policy driver since slice 6) |
+  | F9 callee resolution (7 members) | 152 | 0 | — |
+  | registration + driver (4 members) | 147 | 0 | — |
+  | the nested state types (57 extents) | 132 | 0 | — except `WalkContext.ContainsEffect`, see below |
+  | relays + fields + constructor (31 extents) | 108 | 0 | — |
+
+  **WHY F18 GOES NEXT AND HOW TO SPLIT IT.** `AnalyzeFunction`'s FOUR arms are the cheapest and go
+  first: their subject is a DECLARATION, which is exactly `SystemsAttributePolicy`'s subject, so they
+  move into the owner slice 7 just built rather than into a new one. Then the statement and
+  expression arms (18), which are the walk's largest block and all take a `WalkContext` whose only
+  reads are the four scalars slice 4 already proved sufficient plus `IsAllowed`. Then `WalkCall`'s
+  four, which sit beside `SystemsCallPolicy`'s classification and include **NSYS140, the only code in
+  the estate whose sole producer is still C#**.
+
+  **THREE THINGS TO PRICE BEFORE CUTTING F18.** (1) **AN ARM IS NOT A MEMBER, so the closure harness
+  does not score it** — build the target by reading the four members' extents and listing the arms,
+  and re-measure by the NSYS census (`26` today) rather than by extent count. (2) **THE ARMS ARE
+  INTERLEAVED WITH THE DISPATCH THAT DRIVES THEM**: several set an effect bit and then report, and
+  some (`WalkCall`'s) `return` afterwards, so the routed shape is "the owner answers, the walk sets
+  the bit and returns" — price whether the bit belongs in a returned record (the slice-7
+  `SystemsEffectFacts` precedent) or stays at the site. (3) **`WalkContext.ContainsEffect` IS A
+  WRITTEN RULE INSIDE A STATE TYPE** — the `effect:`-prefix widening — and slice 7 measured exactly
+  what depends on it: nothing `AllowEffects` builds, and 173 of 1,440 cells that push a block-level
+  `allow`. Decide whether it moves beside `SystemsAttributeSet` or is recorded as state-type
+  behaviour; the final review cannot classify it silently.
+  **BUDGET THE PROOF**: NSYS140 is fired ONCE in the whole 350-target ordering pin and NSYS100 is
+  fired ZERO times, so both need purpose-built fixtures; the other nine codes are all in the pin.
+
+- Task 018 PRIOR sub-slice (DONE, slice 7): **F4 — WHAT AN ATTRIBUTE MEANS AND WHAT A WAIVER MUST SAY.
   9 members / 90 lines, the LAST family whose subject is the DECLARATION rather than the walk, and
   the only remaining reporting family with a nested TYPE (`AttributeSet`) of its own.** Re-score at
   `SystemsAnalyzer.cs` **1,590 lines / 127 extents summing 1,478** with the validated extractor and
@@ -28280,6 +28785,10 @@ These are populated only when their task becomes current.
   driver-completeness trace over every walk the way 017 traced its 29 drivers. **The file should
   finish at roughly 250–350 lines**, and the `MultiFileCompiler` seam has still never been touched:
   the analyzer's public surface is unchanged in all six slices.
+  **[SUPERSEDED BY SLICE 7's MEASUREMENT — read the FINAL BRIEF in the Cursor block instead: the
+  "250–350 lines" figure is wrong (the walks alone are 618 of the surviving 1,157), the partition is
+  SIX classes summing exactly 104 / 1,157 with the nested type HEADERS skipped, and F9 + F16 are not
+  the zero-policy host because 26 reporting arms still live inside four walk members.]**
 
 - Task 018 PRIOR sub-slice (DONE, slice 6): **F11 + F13 — WHAT AN UNRECOGNISED CALL COSTS, AND WHAT A
   CALLEE'S EFFECTS COST ITS CALLER. 3 members / 92 lines, and NSYS050 — 14 findings in the live
