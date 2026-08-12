@@ -30,6 +30,8 @@ public sealed class SystemsAnalyzer
     private readonly SystemsTypePolicy _typePolicy = new();
     private readonly SystemsStackallocPolicy _stackalloc = new();
     private readonly SystemsCallPolicy _callPolicy = new();
+    private readonly SystemsSurfacePolicy _surfacePolicy;
+    private readonly SystemsBalancePolicy _balancePolicy;
     private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
     private HotSummaryCatalog _hotSummaries;
 
@@ -41,6 +43,8 @@ public sealed class SystemsAnalyzer
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
         _findingSink.BeginAnalysis(_config);
+        _surfacePolicy = new SystemsSurfacePolicy(_typePolicy, _findingSink);
+        _balancePolicy = new SystemsBalancePolicy(_findingSink);
         _hotSummaries = HotSummaryCatalog.Load(projectRoot, _config);
     }
 
@@ -123,13 +127,13 @@ public sealed class SystemsAnalyzer
                     _typePolicy.RegisterStructType(st.Name);
                     if (st.IsRefStruct)
                         _typePolicy.RegisterRefStructType(st.Name);
-                    CheckRefLikeFields(file, st.Name, st.IsRefStruct, st.Members);
+                    _surfacePolicy.CheckRefLikeFields(file, st.Name, st.IsRefStruct, st.Members);
                     RegisterDeclarations(file, st.Members, st.Name);
                     break;
                 case RecordDeclaration rec:
                     if (rec.IsStruct)
                         _typePolicy.RegisterStructType(rec.Name);
-                    CheckRefLikeFields(file, rec.Name, isRefStruct: false, rec.Members);
+                    _surfacePolicy.CheckRefLikeFields(file, rec.Name, isRefStruct: false, rec.Members);
                     RegisterDeclarations(file, rec.Members, rec.Name);
                     break;
                 case SoaRecordDeclaration soa:
@@ -216,9 +220,9 @@ public sealed class SystemsAnalyzer
         }
 
         MergeDeclaredCalleeSummaries(summary, performanceFacts);
-        CheckPoolBalance(summary);
-        CheckResourceBalance(summary);
-        CheckFunctionSurface(function, summary);
+        _balancePolicy.CheckPoolBalance(summary.PoolRents, summary.File, summary.Name, summary.IsHot, summary.IsBoundary);
+        _balancePolicy.CheckResourceBalance(summary.ResourceLocals, summary.File, summary.Name, summary.IsHot, summary.IsBoundary);
+        _surfacePolicy.CheckFunctionSurface(function, summary.File, summary.Name, summary.IsHot, summary.IsBoundary);
         _visitingFunctions.Remove(function);
 
         var facts = new SystemsEffectFacts(
@@ -302,29 +306,6 @@ public sealed class SystemsAnalyzer
         return summary;
     }
 
-    private void CheckRefLikeFields(string file, string typeName, bool isRefStruct, IEnumerable<Declaration> members)
-    {
-        if (isRefStruct)
-            return;
-
-        foreach (var field in members.OfType<FieldDeclaration>())
-        {
-            if (field.Type != null && _typePolicy.IsRefLikeType(field.Type))
-            {
-                _findingSink.AddForType(
-                    "NSYS080",
-                    "lifetime",
-                    $"ref-like field '{field.Name}' is only allowed inside a ref struct",
-                    file,
-                    field.Line,
-                    field.Column,
-                    Math.Max(1, field.Name.Length),
-                    typeName,
-                    "Declare the containing type as `ref struct`, or store a heap-safe owner such as Memory<T>/ReadOnlyMemory<T>.");
-            }
-        }
-    }
-
     private void ValidateFunctionLevelAllows(AttributeSet attributes, FunctionDeclaration function, MutableFunctionSummary summary)
     {
         foreach (var allow in attributes.GetAll("allow"))
@@ -365,67 +346,6 @@ public sealed class SystemsAnalyzer
         }
     }
 
-    private void CheckFunctionSurface(FunctionDeclaration function, MutableFunctionSummary summary)
-    {
-        if (!summary.IsHot && !summary.IsBoundary)
-            return;
-
-        foreach (var parameter in function.Parameters)
-        {
-            if (_typePolicy.HostileSurfaceReason(parameter.Type, summary.IsHot, function.Constraints) is { } reason)
-            {
-                AddFinding(
-                    "NSYS070",
-                    "boundaryLeak",
-                    $"{(summary.IsHot ? "[hot]" : "[boundary]")} parameter '{parameter.Name}' exposes a systems-hostile type: {reason}",
-                    parameter.Line,
-                    parameter.Column,
-                    Math.Max(1, parameter.Name.Length),
-                    summary,
-                    summary.IsHot ? ErrorSeverity.Error : ErrorSeverity.Warning,
-                    "Use primitives, spans, readonly/ref structs, Result<T,E>, or an explicit boundary adapter type.");
-            }
-        }
-
-        if (function.ReturnType != null
-            && _typePolicy.HostileSurfaceReason(function.ReturnType, summary.IsHot, function.Constraints) is { } returnReason)
-        {
-            AddFinding(
-                "NSYS070",
-                "boundaryLeak",
-                $"{(summary.IsHot ? "[hot]" : "[boundary]")} return type exposes a systems-hostile shape: {returnReason}",
-                function.Line,
-                function.Column,
-                Math.Max(1, function.Name.Length),
-                summary,
-                summary.IsHot ? ErrorSeverity.Error : ErrorSeverity.Warning,
-                "Return Result<T,E>, Span/ReadOnlySpan with a known lifetime, a primitive, enum, or systems-safe struct.");
-        }
-
-        if (_typePolicy.ResultAbiReason(function.ReturnType) is { } resultAbiReason)
-        {
-            AddFinding(
-                // resultAbi gets its own code (NSYS170); NSYS160 is reserved for resultMustUse (M5).
-                "NSYS170",
-                "resultAbi",
-                resultAbiReason,
-                function.Line,
-                function.Column,
-                Math.Max(1, function.Name.Length),
-                summary,
-                ErrorSeverity.Warning,
-                "Return a smaller error/value payload or pass large data through caller-owned storage.");
-        }
-
-        if (summary.IsHot
-            && function.ReturnType != null
-            && _typePolicy.ContainsRefLikeType(function.ReturnType)
-            && string.IsNullOrWhiteSpace(function.ReturnLifetime))
-        {
-            AddFinding("NSYS080", "lifetime", "[hot] function returns a ref-like value with an unknown lifetime", function.Line, function.Column, Math.Max(1, function.Name.Length), summary, ErrorSeverity.Error, "Use `returns 'a`, `returns heap(owner)`, or return an owned value instead of a ref-like view.");
-        }
-    }
-
     private void CheckIgnoredResult(Expression expression, WalkContext context)
     {
         if (expression is not CallExpression call)
@@ -447,46 +367,6 @@ public sealed class SystemsAnalyzer
             context,
             context.Summary.IsHot || IsSystemsProfile ? ErrorSeverity.Error : ErrorSeverity.Warning,
             "Bind the Result, return it, or explicitly inspect IsOk/IsErr so the error path is handled.");
-    }
-
-    private void CheckPoolBalance(MutableFunctionSummary summary)
-    {
-        if (!summary.IsHot && !IsSystemsProfile)
-            return;
-
-        foreach (var rent in summary.PoolRents.Values.Where(rent => !rent.Returned))
-        {
-            AddFinding(
-                "NSYS130",
-                "pool",
-                $"pooled buffer '{rent.VariableName}' rented here is not returned on an obvious lexical path",
-                rent.Line,
-                rent.Column,
-                Math.Max(1, rent.VariableName.Length),
-                summary,
-                summary.IsHot ? ErrorSeverity.Error : ErrorSeverity.Warning,
-                "Return the buffer in a finally block, use a recognized owner/disposable pattern, or keep pooling inside a [boundary].");
-        }
-    }
-
-    private void CheckResourceBalance(MutableFunctionSummary summary)
-    {
-        if (!summary.IsHot && !IsSystemsProfile)
-            return;
-
-        foreach (var resource in summary.ResourceLocals.Values.Where(resource => !resource.Disposed))
-        {
-            AddFinding(
-                "NSYS090",
-                "resource",
-                $"disposable resource '{resource.VariableName}' created as {resource.Kind} is not disposed on an obvious lexical path",
-                resource.Line,
-                resource.Column,
-                Math.Max(1, resource.VariableName.Length),
-                summary,
-                ErrorSeverity.Error,
-                "Use `using`, call Dispose/DisposeAsync in a finally block, or return/transfer through an explicit owner once ownership is modeled.");
-        }
     }
 
     private void WalkStatement(Statement statement, WalkContext context)
