@@ -21,9 +21,6 @@ namespace NSharpLang.Compiler;
 /// </summary>
 public class Analyzer : IDisposable
 {
-    private static List<FunctionTypeInfo> GetNSharpMethodGroupFunctions(NSharpMethodGroupInfo methodGroup)
-        => NSharpMethodGroupInfoFactory.GetFunctions(methodGroup);
-
     private readonly List<CompilerError> _errors = new();
     private readonly AnalyzerScopeStack _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -379,6 +376,21 @@ public class Analyzer : IDisposable
     // a driver that asks for an EFFECT: the assemblies a namespace import implies are loaded through
     // the MetadataLoadContext, which is task 021's surface and stays here.
     private readonly AnalyzerImports _imports;
+    // WHAT IT MEANS TO DECLARE SOMETHING: a symbol (including the overload merge and the shadowing
+    // ban), a type (including its canonical identity), a parameter with a default value, and a
+    // package name. NOT rebuilt with the SCC — everything it holds is constructed once; the semantic
+    // model, the binding map and the current file arrive through its own `BeginAnalysis`, and the
+    // declaration-context path through its own setter, because that is established later.
+    private readonly AnalyzerDeclarationPolicy _declarationPolicy;
+    // WHAT HAPPENS TO EVERY EXPRESSION'S TYPE once the dispatch has computed it: null flow, the two
+    // semantic-model records, and the four ordered guards that decide whether the value may be used
+    // as a value at all. NOT rebuilt with the SCC; the semantic model arrives at `BeginAnalysis`.
+    private readonly AnalyzerExpressionTail _expressionTail;
+    // WHEN A FAILED REFERENCE LOAD IS WORTH REPORTING: only when the analysis also failed to resolve
+    // a type. Holds the analyzer's own failure table by reference because the assembly-loading
+    // surface writes into it throughout; the resolver's table arrives at the call because the
+    // resolver is replaced when the load context is rebuilt.
+    private readonly AnalyzerReferenceLoadReport _referenceLoadReport;
     private bool _disposed;
 
     public Analyzer()
@@ -488,6 +500,13 @@ public class Analyzer : IDisposable
             _functionTypeFactory, _mlcAssemblies, _usingNamespaces, _usingAliases,
             _importedSymbolsByAlias, _importedDeclarationsByAlias, _typeDeclarationFiles,
             _referencedPackageNames);
+        _declarationPolicy = new AnalyzerDeclarationPolicy(
+            _diagnostics, _spans, _scopes, _nullFlow, _declarationContext, _typeResolver,
+            _parameterDeclarations, _projectDiscovery, _mlcAssemblies, _usingAliases,
+            _importedSymbolsByAlias, _importedDeclarationsByAlias, _typeDeclarationFiles);
+        _expressionTail = new AnalyzerExpressionTail(
+            _diagnostics, _spans, _nullFlow, _ambient, _soaDirectColumnCalls, _reflectionCallReporter);
+        _referenceLoadReport = new AnalyzerReferenceLoadReport(_diagnostics, _referenceLoadFailures);
     }
 
     private AnalyzerAttributeValidator CreateAttributeValidator()
@@ -734,6 +753,7 @@ public class Analyzer : IDisposable
         _declarationContextFilePath = !string.IsNullOrWhiteSpace(currentFilePath)
             ? Path.GetFullPath(currentFilePath)
             : Path.Combine(effectiveRoot, ".nsharp-analyzer-memory.nl");
+        _declarationPolicy.SetDeclarationContextFilePath(_declarationContextFilePath);
         _declarationContext.Reset(effectiveRoot, _mlcAssemblies);
         _declarationContext.AddCompilationUnit(_declarationContextFilePath, unit);
 
@@ -764,6 +784,8 @@ public class Analyzer : IDisposable
         _identifierResolution.BeginAnalysis(unit, _semanticModel, _bindingMap);
         _memberAccess.BeginAnalysis(unit, _bindingMap);
         _imports.BeginAnalysis(_semanticModel, _bindingMap);
+        _declarationPolicy.BeginAnalysis(_semanticModel, _bindingMap, currentFilePath, unit);
+        _expressionTail.BeginAnalysis(_semanticModel);
         _typeDeclarationFiles.Clear();
 
         InitializeDeclarationContext(unit, currentFilePath, projectRoot);
@@ -778,7 +800,7 @@ public class Analyzer : IDisposable
         // Validate package declaration if present
         if (unit.Package != null)
         {
-            ValidatePackageName(unit.Package);
+            _declarationPolicy.ValidatePackageName(unit.Package);
         }
 
         // Create global scope first (needed for adding imported symbols)
@@ -797,28 +819,28 @@ public class Analyzer : IDisposable
         foreach (var decl in unit.Declarations)
         {
             if (decl is ClassDeclaration classDecl)
-                DeclareType(classDecl.Name, NominalTypeInfoFactory.FromClassDeclaration(classDecl), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(classDecl.Name, NominalTypeInfoFactory.FromClassDeclaration(classDecl), decl.Line, decl.Column);
             else if (decl is StructDeclaration structDecl)
-                DeclareType(structDecl.Name, NominalTypeInfoFactory.FromStructDeclaration(structDecl), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(structDecl.Name, NominalTypeInfoFactory.FromStructDeclaration(structDecl), decl.Line, decl.Column);
             else if (decl is RecordDeclaration recordDecl)
-                DeclareType(recordDecl.Name, NominalTypeInfoFactory.FromRecordDeclaration(recordDecl), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(recordDecl.Name, NominalTypeInfoFactory.FromRecordDeclaration(recordDecl), decl.Line, decl.Column);
             else if (decl is SoaRecordDeclaration soaRecordDecl)
-                DeclareType(soaRecordDecl.Name, SoaTypeInfoFactory.FromDeclaration(soaRecordDecl), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(soaRecordDecl.Name, SoaTypeInfoFactory.FromDeclaration(soaRecordDecl), decl.Line, decl.Column);
             else if (decl is InterfaceDeclaration interfaceDecl)
-                DeclareType(interfaceDecl.Name, NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(interfaceDecl.Name, NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl), decl.Line, decl.Column);
             else if (decl is UnionDeclaration unionDecl)
-                DeclareType(unionDecl.Name, UnionTypeInfoFactory.FromDeclaration(unionDecl), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(unionDecl.Name, UnionTypeInfoFactory.FromDeclaration(unionDecl), decl.Line, decl.Column);
             else if (decl is EnumDeclaration enumDecl)
-                DeclareType(enumDecl.Name, EnumTypeInfoFactory.FromDeclaration(enumDecl), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(enumDecl.Name, EnumTypeInfoFactory.FromDeclaration(enumDecl), decl.Line, decl.Column);
             else if (decl is TypeAliasDeclaration aliasDecl)
-                DeclareType(aliasDecl.Name, new AliasTypeInfo(aliasDecl.Type), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(aliasDecl.Name, new AliasTypeInfo(aliasDecl.Type), decl.Line, decl.Column);
             else if (decl is NewtypeDeclaration newtypeDecl)
-                DeclareType(newtypeDecl.Name, new NewtypeInfo(newtypeDecl.Name, newtypeDecl.UnderlyingType), decl.Line, decl.Column);
+                _declarationPolicy.DeclareType(newtypeDecl.Name, new NewtypeInfo(newtypeDecl.Name, newtypeDecl.UnderlyingType), decl.Line, decl.Column);
             else if (decl is FunctionDeclaration func)
             {
                 // Add function signatures to enable forward references
                 var funcTypeInfo = _functionTypeFactory.CreateFromDeclaration(func, _ambient.CurrentTypeName);
-                DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
+                _declarationPolicy.DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column, null, true);
             }
         }
 
@@ -834,47 +856,9 @@ public class Analyzer : IDisposable
 
         PopScope();
 
-        ReportReferenceLoadFailures();
+        _referenceLoadReport.Report(_metadataResolver?.LoadFailures);
 
         return new AnalysisResult(_errors, _semanticModel, _bindingMap);
-    }
-
-    /// <summary>
-    /// Surfaces recorded reference-load failures as NL923 warnings, but only when this
-    /// analysis also produced unresolved-type errors. A reference assembly that fails to
-    /// load is the classic root cause behind misleading "type not found" diagnostics; pairing
-    /// the two makes the failure diagnosable. Healthy compilations stay quiet even if a
-    /// best-effort probe failed along the way.
-    /// </summary>
-    private void ReportReferenceLoadFailures()
-    {
-        var resolverFailures = _metadataResolver?.LoadFailures;
-        if (_referenceLoadFailures.Count == 0 && (resolverFailures == null || resolverFailures.Count == 0))
-            return;
-
-        var hasUnresolvedTypeError = _errors.Any(e =>
-            e.Severity == ErrorSeverity.Error &&
-            e.Code is ErrorCode.TypeNotFound
-                or ErrorCode.CannotResolveType
-                or ErrorCode.UndefinedType
-                or ErrorCode.UndefinedVariable);
-        if (!hasUnresolvedTypeError)
-            return;
-
-        var failures = new SortedDictionary<string, string>(_referenceLoadFailures, StringComparer.Ordinal);
-        if (resolverFailures != null)
-        {
-            foreach (var (identity, detail) in resolverFailures)
-                failures.TryAdd(identity, detail);
-        }
-
-        foreach (var (identity, detail) in failures)
-        {
-            Warning(
-                ErrorCode.ReferenceLoadFailure,
-                $"Reference assembly '{identity}' could not be loaded or fully inspected ({detail}); types from it may be reported as not found.",
-                1, 1);
-        }
     }
 
     private void AnalyzeDeclaration(Declaration decl)
@@ -1179,7 +1163,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(ScopeKind.Function), step.Line, step.Column);
                     break;
                 case 3:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, true);
                     break;
                 case 4:
                     _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
@@ -1191,7 +1175,7 @@ public class Analyzer : IDisposable
                     PopScope();
                     break;
                 case 7:
-                    ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    DriveParameterDeclarations(_declarationPolicy.BeginParameterDeclarations(step.Parameters!, step.Line, step.Column));
                     break;
                 case 8:
                     _scopes.RecordFunction(_semanticModel, step.Name!, step.CarriedType);
@@ -1229,7 +1213,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(ScopeKind.Function), step.Line, step.Column);
                     break;
                 case 3:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, step.RecordsBinding);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, step.RecordsBinding);
                     break;
                 case 4:
                     _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
@@ -1238,7 +1222,7 @@ public class Analyzer : IDisposable
                     PopScope();
                     break;
                 case 6:
-                    ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    DriveParameterDeclarations(_declarationPolicy.BeginParameterDeclarations(step.Parameters!, step.Line, step.Column));
                     break;
                 case 7:
                     AnalyzeStatement(step.Body!);
@@ -1285,7 +1269,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(step.CarriedScopeKind), step.Line, step.Column);
                     break;
                 case 3:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, step.RecordsBinding);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, step.RecordsBinding);
                     break;
                 case 4:
                     _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
@@ -1294,7 +1278,7 @@ public class Analyzer : IDisposable
                     PopScope();
                     break;
                 case 6:
-                    ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    DriveParameterDeclarations(_declarationPolicy.BeginParameterDeclarations(step.Parameters!, step.Line, step.Column));
                     break;
                 case 7:
                     AnalyzeDeclaration(step.Member!);
@@ -1356,7 +1340,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(ScopeKind.Function), step.Line, step.Column);
                     break;
                 case 3:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, true);
                     break;
                 case 4:
                     _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
@@ -1368,7 +1352,7 @@ public class Analyzer : IDisposable
                     PopScope();
                     break;
                 case 7:
-                    ValidateParameterDeclarations(step.Parameters!, step.Line, step.Column);
+                    DriveParameterDeclarations(_declarationPolicy.BeginParameterDeclarations(step.Parameters!, step.Line, step.Column));
                     break;
                 case 8:
                     AnalyzeStatement(step.Body!);
@@ -1404,6 +1388,30 @@ public class Analyzer : IDisposable
         }
     }
 
+    /// <summary>
+    /// The one step the N#-owned parameter walk cannot take for itself: analysing a default-value
+    /// expression against its parameter's type. The bracket around the ambient expected type is a
+    /// <c>try</c>/<c>finally</c> that must survive a throw, which is a guarantee an owner-held pair
+    /// spanning a suspension cannot keep, so the analysis stays here. Nothing is carried back: the
+    /// walk counts the sink's own diagnostics on both sides of the step.
+    /// </summary>
+    private void DriveParameterDeclarations(ParameterWalkState state)
+    {
+        for (var step = _declarationPolicy.NextStep(state);
+             step != null;
+             step = _declarationPolicy.NextStep(state))
+        {
+            switch (step.Kind)
+            {
+                case 1:
+                    AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType);
+                    break;
+            }
+
+            _declarationPolicy.Supply(state);
+        }
+    }
+
     private void DriveLocalDeclaration(VariableDeclarationState state)
     {
         for (var step = _variableDeclaration.NextStep(state);
@@ -1421,7 +1429,7 @@ public class Analyzer : IDisposable
                     break;
                 }
                 case 4:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, step.Text);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, step.Text, true);
                     break;
                 case 5:
                     _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
@@ -1470,7 +1478,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
                     break;
                 case 3:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, true);
                     break;
                 case 4:
                     _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
@@ -1522,7 +1530,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(ScopeKind.Block), step.Line, step.Column);
                     break;
                 case 3:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, true);
                     break;
                 case 4:
                     _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
@@ -1613,7 +1621,7 @@ public class Analyzer : IDisposable
                     answer = AnalyzeExpression(step.Node!);
                     break;
                 case 4:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, true);
                     break;
                 case 5:
                     AnalyzePattern(step.Pattern!, step.CarriedType);
@@ -1965,74 +1973,7 @@ public class Analyzer : IDisposable
             _ => BuiltInTypes.Unknown
         };
 
-        var nullState = _nullFlow.GetExpressionNullState(expr, type);
-        var flowType = _nullFlow.ApplyNullabilityFlowType(type, nullState);
-
-        _semanticModel.RecordExpressionType(expr.Line, expr.Column, flowType);
-        _semanticModel.RecordExpressionNullState(expr.Line, expr.Column, nullState);
-
-        _ambient.RecordWriteTargetExpressionType(expr, flowType);
-
-        if (!_ambient.AllowSyntheticSoaOperationReference
-            && flowType is FunctionTypeInfo { SyntheticName: { Length: > 0 } } syntheticSoaOperation
-            && !AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(syntheticSoaOperation))
-        {
-            ReportSyntheticSoaOperationUsedAsValue(expr, syntheticSoaOperation);
-            return BuiltInTypes.Unknown;
-        }
-
-        if (!_ambient.AnalyzingCallCallee
-            && _soaDirectColumnCalls.ReportUnsupportedArrayInstanceMethodReferenceIfNeeded(expr, flowType, isCall: false))
-        {
-            return BuiltInTypes.Unknown;
-        }
-
-        if (!_ambient.AllowUnboundCallableReference
-            && _reflectionCallReporter.IsUnboundCallableReference(expr, flowType, _ambient.CurrentExpectedType))
-        {
-            _reflectionCallReporter.ReportMethodGroupUsedAsValue(expr, flowType);
-            return BuiltInTypes.Unknown;
-        }
-
-        // A .NET event can only be touched via `on`/`off`. Catch every other use of it as a value
-        // here (the `on`/`off`/assignment paths open the ambient suppression to opt out and emit their
-        // own tailored diagnostics).
-        if (!_ambient.AllowEventReference && flowType is ReflectionEventInfo bareEvent)
-        {
-            ReportEventUsedAsValue(expr, bareEvent);
-            return BuiltInTypes.Unknown;
-        }
-
-        return flowType;
-    }
-
-    private void ReportSyntheticSoaOperationUsedAsValue(Expression expression, FunctionTypeInfo operation)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expression);
-        var operationName = operation.SyntheticName ?? "operation";
-        var callTarget = RenderSyntheticSoaOperationTarget(expression, operationName);
-        var callShape = operation.ParameterTypes is { Count: 0 }
-            ? $"{callTarget}()"
-            : $"{callTarget}(...)";
-        Error(
-            ErrorCode.InvalidSyntax,
-            $"SoA table generated operation '{operationName}' cannot be used as a value",
-            line,
-            column,
-            $"Call {callShape} directly; generated SoA operations mutate table storage and are not delegate values.",
-            length);
-    }
-
-    private static string RenderSyntheticSoaOperationTarget(Expression expression, string fallbackName)
-    {
-        return expression switch
-        {
-            MemberAccessExpression memberAccess => AnalyzerAssignment.RenderEventTarget(memberAccess),
-            ParenthesizedExpression parenthesized => RenderSyntheticSoaOperationTarget(parenthesized.Inner, fallbackName),
-            CheckedExpression checkedExpression => RenderSyntheticSoaOperationTarget(checkedExpression.Expression, fallbackName),
-            UncheckedExpression uncheckedExpression => RenderSyntheticSoaOperationTarget(uncheckedExpression.Expression, fallbackName),
-            _ => fallbackName
-        };
+        return _expressionTail.Finish(expr, type);
     }
 
     /// <summary>
@@ -2084,9 +2025,6 @@ public class Analyzer : IDisposable
 
         return _rangeExpression.Result(state);
     }
-
-    private TypeInfo GetNonNullableType(TypeInfo type)
-        => _declarationContext.ResolveDeclaredAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
 
     /// <summary>
     /// The steps the N#-owned call walk cannot take for itself, which are now nothing but the
@@ -2168,36 +2106,6 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Rejects DIRECT circular constraint dependencies between type parameters (`where T: T`,
-    /// `where T: U where U: T`) — the CLR refuses such metadata at load, and the emitter's base-chain
-    /// walks (a constrained parameter's BaseType is its constraint) would otherwise spin forever.
-    /// Only BARE type-parameter constraints form edges: F-bounded shapes (`where T: IComparable&lt;T&gt;`)
-    /// are legal and untouched. Mirrors N#'s CS0454.
-    /// </summary>
-    private TypeInfo ResolveDeclaredFunctionCallReturnType(FunctionDeclaration decl)
-    {
-        var sourceReturnType = decl.ReturnType != null
-            ? _typeResolver.ResolveType(decl.ReturnType)
-            : BuiltInTypes.Void;
-
-        return AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            decl.Name,
-            decl.Modifiers.HasFlag(Modifiers.Async),
-            decl.Modifiers.HasFlag(Modifiers.Generator),
-            sourceReturnType);
-    }
-
-    private TypeInfo ResolveDeclaredFunctionCallReturnType(DeclaredMemberInfo member)
-    {
-        var sourceReturnType = member.ReturnType != null
-            ? _typeResolver.ResolveType(member.ReturnType)
-            : BuiltInTypes.Void;
-
-        return AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            member.Name, member.IsAsync, member.IsGenerator, sourceReturnType);
-    }
-
-    /// <summary>
     /// The two steps the N#-owned `on` walk cannot take for itself. What may be subscribed to, in
     /// which order its four failures are reported, and which expected type the handler is given are
     /// all the walk's decisions; this loop performs the one operation it is handed. The bare-event
@@ -2238,19 +2146,6 @@ public class Analyzer : IDisposable
         return state.Result;
     }
 
-    private void ReportEventUsedAsValue(Expression expr, ReflectionEventInfo eventRef)
-    {
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(expr);
-        var target = AnalyzerAssignment.RenderEventTarget(expr);
-        Error(
-            ErrorCode.EventRequiresOnOff,
-            $"'{eventRef.Name}' is a .NET event and can only be used with `on`/`off`",
-            line,
-            column,
-            $"Subscribe with `on {target} (sender, args) => {{ ... }}`; the result is a subscription you can later pass to `off`.",
-            length);
-    }
-
     /// <summary>
     /// The steps the N#-owned lambda walk cannot take for itself. The walk runs in
     /// <see cref="AnalyzerLambdaAnalysis"/> and owns everything about a lambda that is a decision:
@@ -2279,7 +2174,7 @@ public class Analyzer : IDisposable
                     PushScope(new Scope(ScopeKind.Function), step.Line, step.Column);
                     break;
                 case 3:
-                    DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column);
+                    _declarationPolicy.DeclareSymbol(step.Name!, step.CarriedType, step.Line, step.Column, null, true);
                     break;
                 case 4:
                     _scopes.RecordVariable(_semanticModel, step.Name!, step.CarriedType);
@@ -2372,11 +2267,6 @@ public class Analyzer : IDisposable
         return _construction.Result(state);
     }
 
-    private void PushScope(Scope scope)
-    {
-        PushScope(scope, 0, 0);
-    }
-
     private void PushScope(Scope scope, int startLine, int startColumn)
     {
         _scopes.Push(_semanticModel, scope, startLine, startColumn);
@@ -2385,303 +2275,6 @@ public class Analyzer : IDisposable
     private void PopScope()
     {
         _scopes.Pop(_semanticModel);
-    }
-
-    private void DeclareSymbol(
-        string name,
-        TypeInfo type,
-        int line,
-        int column,
-        string? declarationKind = null,
-        bool recordBindingDeclaration = true)
-    {
-        var currentScope = _scopes.Peek();
-        var nameColumn = _spans.GetDeclarationNameColumn(name, line, column);
-        var shouldRecordBindingDeclaration = recordBindingDeclaration;
-        if (currentScope.Symbols.TryGetValue(name, out var existing))
-        {
-            if (type is FunctionTypeInfo newFunction && AnalyzerOverloadSignatureFacts.HasSourceParameterSignature(newFunction))
-            {
-                if (existing is FunctionTypeInfo existingFunction && AnalyzerOverloadSignatureFacts.HasSourceParameterSignature(existingFunction))
-                {
-                    if (AnalyzerOverloadSignatureFacts.HasDistinctParameterSignature(newFunction, new[] { existingFunction }))
-                    {
-                        currentScope.Symbols[name] = NSharpMethodGroupInfoFactory.FromFunctions(
-                            new[] { existingFunction, newFunction });
-                        if (shouldRecordBindingDeclaration)
-                        {
-                            var kind = declarationKind ?? AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
-                            var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
-                            _bindingMap.RecordDeclaration(decl);
-                        }
-                        return;
-                    }
-                }
-
-                if (existing is NSharpMethodGroupInfo group)
-                {
-                    var functions = GetNSharpMethodGroupFunctions(group);
-                    if (functions.All(AnalyzerOverloadSignatureFacts.HasSourceParameterSignature)
-                        && AnalyzerOverloadSignatureFacts.HasDistinctParameterSignature(newFunction, functions))
-                    {
-                        NSharpMethodGroupInfoFactory.AddFunction(group, newFunction);
-                        if (shouldRecordBindingDeclaration)
-                        {
-                            var kind = declarationKind ?? AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
-                            var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
-                            _bindingMap.RecordDeclaration(decl);
-                        }
-                        return;
-                    }
-                }
-            }
-
-            Error(
-                ErrorCode.DuplicateDeclaration,
-                $"'{name}' is already declared in this scope — each name must be unique within the same scope",
-                line,
-                nameColumn,
-                length: Math.Max(1, name.Length));
-        }
-        else
-        {
-            CheckShadowedDeclaration(name, type, line, nameColumn);
-
-            currentScope.Symbols[name] = type;
-            currentScope.NullStates[name] = _nullFlow.GetDefaultNullState(type);
-
-            var kind = declarationKind ?? AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
-            if (shouldRecordBindingDeclaration)
-            {
-                var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
-                _bindingMap.RecordDeclaration(decl);
-                currentScope.RecordDeclarationLocation(name, _currentFilePath, line, nameColumn, kind);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Compiler-level shadowing guarantee (NL316). A local or parameter declaration
-    /// that shadows a local/parameter from an enclosing function/block scope is a hard,
-    /// build-blocking error. This is authoritative: when it fires the file has a compiler
-    /// error, which suppresses the linter's NL020 for the same file (see
-    /// CodeIntelligenceService.GetDiagnostics), so the user sees exactly one diagnostic.
-    /// </summary>
-    private void CheckShadowedDeclaration(string name, TypeInfo type, int line, int nameColumn)
-    {
-        if (!_scopes.ShadowsEnclosingValueBinding(name, type))
-            return;
-
-        Error(
-            ErrorCode.ShadowedDeclaration,
-            $"'{name}' shadows an existing '{name}' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs",
-            line,
-            nameColumn,
-            ErrorSuggestions.GetSuggestion(ErrorCode.ShadowedDeclaration, name),
-            Math.Max(1, name.Length));
-    }
-
-    private void DeclareType(string name, TypeInfo type, int line, int column)
-    {
-        if (_declarationContextFilePath != null && type is not AliasTypeInfo)
-        {
-            if (_declarationContext.TryGetCanonicalType(
-                    _declarationContextFilePath,
-                    name,
-                    out var canonicalType)
-                && !BuiltInTypes.IsUnknown(canonicalType))
-            {
-                type = canonicalType;
-            }
-        }
-
-        var currentScope = _scopes.Peek();
-        var nameColumn = _spans.GetDeclarationNameColumn(name, line, column);
-        if (currentScope.Types.ContainsKey(name))
-        {
-            Error(
-                ErrorCode.DuplicateDeclaration,
-                $"A type named '{name}' already exists — each type name must be unique",
-                line,
-                nameColumn,
-                length: Math.Max(1, name.Length));
-        }
-        else
-        {
-            currentScope.Types[name] = type;
-            _semanticModel.RecordType(name, type);
-            if (!string.IsNullOrEmpty(_currentFilePath))
-                _typeDeclarationFiles[name] = _currentFilePath;
-            if (_declarationContextFilePath != null)
-            {
-                if (type is AliasTypeInfo declaredAlias)
-                    _declarationContext.RegisterDeclaredAlias(_declarationContextFilePath, declaredAlias);
-                else
-                    _declarationContext.RegisterCanonicalType(_declarationContextFilePath, name, type);
-            }
-
-            var kind = AnalyzerBindingFacts.TypeInfoToDeclarationKind(type);
-            var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
-            _bindingMap.RecordDeclaration(decl);
-            currentScope.RecordDeclarationLocation(name, _currentFilePath, line, nameColumn, kind);
-        }
-    }
-
-    private void ValidateParameterDeclarations(List<Parameter> parameters, int line, int column)
-    {
-        _parameterDeclarations.ValidateParamsParameters(parameters, line, column);
-        ValidateDefaultParameters(parameters, line, column);
-    }
-
-    private void ValidateDefaultParameters(List<Parameter> parameters, int line, int column)
-    {
-        bool foundOptional = false;
-
-        for (int i = 0; i < parameters.Count; i++)
-        {
-            var param = parameters[i];
-
-            if (param.IsThis || param.Modifier == Ast.ParameterModifier.Params)
-                continue;
-
-            bool hasDefault = param.DefaultValue != null;
-
-            if (hasDefault)
-            {
-                foundOptional = true;
-                var reportedSoaDefaultParameterDiagnostic = ReportSoaDefaultParameterValueIfNeeded(param);
-
-                if (!reportedSoaDefaultParameterDiagnostic
-                    && !IsValidDefaultValue(param.DefaultValue!, param.Type))
-                {
-                    var (defaultLine, defaultColumn, defaultLength) = _spans.GetExpressionDiagnosticSpan(param.DefaultValue!);
-                    Error(ErrorCode.InvalidDefaultParameterValue,
-                        $"The default value for '{param.Name}' must be something the compiler can evaluate — use a literal, null, or a simple constant",
-                        defaultLine, defaultColumn, length: defaultLength);
-                }
-            }
-            else
-            {
-                if (foundOptional)
-                {
-                    var (paramLine, paramColumn, paramLength) = AnalyzerDiagnosticSpanFacts.GetParameterDiagnosticSpan(param, line, column);
-                    Error(ErrorCode.RequiredParameterAfterOptional,
-                        $"Required parameter '{param.Name}' can't come after optional parameters — move it before the optional ones, or give it a default value too",
-                        paramLine, paramColumn, length: paramLength);
-                }
-            }
-        }
-    }
-
-    private bool ReportSoaDefaultParameterValueIfNeeded(Parameter parameter)
-    {
-        if (!SoaFeature.IsEnabled || parameter.DefaultValue == null)
-        {
-            return false;
-        }
-
-        var parameterType = _typeResolver.ResolveDeclaredType(parameter.Type);
-        if (_declarationContext.ResolveDeclaredAlias(GetNonNullableType(parameterType)) is not SoaRecordTypeInfo soaRecordType)
-        {
-            return false;
-        }
-
-        var errorsBefore = _errors.Count;
-        AnalyzeExpressionWithExpectedType(parameter.DefaultValue, parameterType);
-        if (_errors.Count > errorsBefore)
-        {
-            return true;
-        }
-
-        var tableName = soaRecordType.Declaration.Name;
-        var (line, column, length) = _spans.GetExpressionDiagnosticSpan(parameter.DefaultValue);
-        Error(
-            ErrorCode.InvalidDefaultParameterValue,
-            $"SoA table '{tableName}' cannot be used as a default parameter value — optional parameter defaults are metadata constants, but SoA tables must be constructed or wrapped at runtime",
-            line,
-            column,
-            $"Use an overload that creates the table with 'new {tableName}(capacity)' or accepts a '{tableName}.wrap(...)' value from the caller.",
-            length);
-        return true;
-    }
-
-    private bool IsValidDefaultValue(Expression expr, TypeReference expectedType)
-    {
-        return expr switch
-        {
-            IntLiteralExpression => true,
-            FloatLiteralExpression => true,
-            CharLiteralExpression => true,
-            BoolLiteralExpression => true,
-            StringLiteralExpression => true,
-            NullLiteralExpression => true,
-
-            MemberAccessExpression memberAccess when IsMatchingEnumMemberDefault(memberAccess, expectedType) => true,
-            UnaryExpression unary when IsValidDefaultValue(unary.Operand, expectedType) => true,
-            BinaryExpression binary when IsValidDefaultValue(binary.Left, expectedType)
-                                                && IsValidDefaultValue(binary.Right, expectedType) => true,
-            ArrayLiteralExpression arrayLit => arrayLit.Elements.All(element => IsValidDefaultValue(element, expectedType)),
-
-            _ => false
-        };
-    }
-
-    private bool IsMatchingEnumMemberDefault(MemberAccessExpression memberAccess, TypeReference expectedType)
-    {
-        if (memberAccess.IsNullConditional
-            || !AnalyzerAttributeValidator.TryGetQualifiedName(memberAccess.Object, out var ownerName))
-        {
-            return false;
-        }
-
-        var ownerType = _declarationContext.ResolveDeclaredAlias(ResolveDefaultEnumTypeName(ownerName));
-        var resolvedExpectedType = _declarationContext.ResolveDeclaredAlias(
-            expectedType is SimpleTypeReference simple
-                ? ResolveDefaultEnumTypeName(simple.Name)
-                : _typeResolver.ResolveDeclaredType(expectedType));
-        if (!TypeInfoIdentityFacts.AreEqual(ownerType, resolvedExpectedType))
-        {
-            return false;
-        }
-
-        return ownerType switch
-        {
-            EnumTypeInfo sourceEnum => TypeInfoIdentityFacts.HasSourceEnumMember(sourceEnum, memberAccess.MemberName),
-            ReflectionTypeInfo { Type: var runtimeEnum }
-                when TypeInfoIdentityFacts.IsInt32BackedRuntimeEnum(runtimeEnum)
-                => TypeInfoIdentityFacts.HasRuntimeEnumMember(runtimeEnum, memberAccess.MemberName),
-            _ => false
-        };
-    }
-
-    private TypeInfo ResolveDefaultEnumTypeName(string name)
-    {
-        var separator = name.IndexOf('.');
-        if (separator <= 0 || separator >= name.Length - 1)
-            return _typeResolver.ResolveSimpleType(name, 0, 0);
-
-        var root = name[..separator];
-        var remainder = name[(separator + 1)..];
-        if (_declarationContext.TryResolveFileImportAliasType(
-                name, _currentFilePath, _importedSymbolsByAlias, _importedDeclarationsByAlias,
-                out var importedType, out _, out var fileAliasClaimed))
-            return _declarationContext.ResolveDeclaredAlias(importedType);
-        if (fileAliasClaimed)
-            return BuiltInTypes.Unknown;
-
-        if (_usingAliases.TryGetValue(root, out var namespaceName))
-        {
-            if (_projectDiscovery.TryResolveProjectTypeInNamespace(remainder, namespaceName, AnalyzerProjectSourceProvider.UnitNamespace(_compilationUnit), out var projectType, out _))
-                return projectType;
-            var expandedName = namespaceName + "." + remainder;
-            if (ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, expandedName, out var aliasedRuntimeType))
-                return new ReflectionTypeInfo(aliasedRuntimeType);
-            return _typeResolver.ResolveSimpleType(expandedName, 0, 0);
-        }
-
-        if (ExternalQualifiedTypeResolver.TryResolve(_mlcAssemblies, name, out var runtimeType))
-            return new ReflectionTypeInfo(runtimeType);
-        return _typeResolver.ResolveSimpleType(name, 0, 0);
     }
 
     private void Error(string message, int line, int column)
@@ -2701,35 +2294,6 @@ public class Analyzer : IDisposable
         => _diagnostics.Warn(code, message, line, column, suggestion, length);
 
     private string? GetSourceSnippet(int line) => _diagnostics.SourceSnippet(line);
-
-    private void ValidatePackageName(PackageDeclaration package)
-    {
-        var parts = package.Name.Split('.');
-        foreach (var part in parts)
-        {
-            if (!IsValidIdentifier(part))
-            {
-                Error($"Package name '{part}' is not a valid identifier — package names must start with a letter and contain only letters, digits, and underscores", package.Line, package.Column);
-            }
-        }
-    }
-
-    private bool IsValidIdentifier(string name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return false;
-
-        if (!char.IsLetter(name[0]) && name[0] != '_')
-            return false;
-
-        for (int i = 1; i < name.Length; i++)
-        {
-            if (!char.IsLetterOrDigit(name[i]) && name[i] != '_')
-                return false;
-        }
-
-        return true;
-    }
 
     /// <summary>
     /// Load a .NET assembly by file path for type resolution (metadata-only via MLC)

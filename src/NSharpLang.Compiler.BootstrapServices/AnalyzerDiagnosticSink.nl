@@ -133,6 +133,32 @@ class AnalyzerDiagnosticSink {
         return false
     }
 
+    // DID THIS ANALYSIS FAIL TO RESOLVE A TYPE OR A NAME? Four codes count, and they are the four a
+    // failed reference load can CAUSE: a type that was not found, one that could not be resolved, an
+    // undefined type and an undefined variable. Warnings never count, however they are coded — the
+    // question is whether the compilation actually broke.
+    //
+    // It is a door on the sink rather than a list the caller reads, for the same reason `HasReported`
+    // is: the ordered list is the sink's, and nothing outside may scan it. The one caller is
+    // `AnalyzerReferenceLoadReport`, which asks once, at the end of an analysis, and only when it
+    // already holds at least one load failure worth reporting.
+    func HasUnresolvedTypeError(): bool {
+        index := 0
+        while index < errorsValue.Count {
+            reported := errorsValue[index]
+            if reported.Severity == ErrorSeverity.Error {
+                code := reported.Code
+                if code == ErrorCode.TypeNotFound || code == ErrorCode.CannotResolveType || code == ErrorCode.UndefinedType || code == ErrorCode.UndefinedVariable {
+                    return true
+                }
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
     func Warn(code: ErrorCode, message: string, line: int, column: int, suggestion: string?, length: int) {
         errorsValue.Add(AnalyzerDiagnostics.Create(code, message, currentFilePathValue, line, column, SourceSnippet(line), suggestion, length, ErrorSeverity.Warning))
     }

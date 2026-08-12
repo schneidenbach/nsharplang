@@ -2068,7 +2068,486 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (017 arc, THIS TURN): **017 SLICE 65 — THE IMPORT / NAMESPACE FAMILY: WHAT AN
+- Active sub-slice (017 arc, THIS TURN): **017 SLICE 66 — WHAT IT MEANS TO DECLARE SOMETHING, WHAT
+  HAPPENS TO EVERY EXPRESSION'S TYPE, AND THE THREE DEAD MEMBERS. THE LAST POLICY SLICE.** Target
+  recorded BEFORE any production edit, at `43472d7ce` (`Analyzer.cs` **3,422** lines, non-blank
+  **3,148**, **210** member extents by the validated extractor; **28** driver loops; `Analyzer.cs`
+  ratchet row currentLines **3,422** / currentNonBlank **3,148**, fingerprint
+  `text-v1:21e1f4307e539ac2`, epoch ceilings **23,451 / 20,537**; `Performance/SystemsAnalyzer.cs`
+  currentLines **2,390** == epochLines **2,390** — task 018 has not started; unit suite baseline
+  **3,194**; contracts baseline **3,833**; ownership audit **18 / 18**; manifest **391** lines;
+  `reviewedHeadFingerprint head-v1:dc44d77214f9a0d5`, REPRODUCED from the unmodified manifest by the
+  independent FNV-1a walk before any write.)
+
+  **THE EXTRACTOR WAS RE-VALIDATED FIRST, AGAINST SLICE 65's OWN FIFTEEN RECORDED EXTENTS: 15 / 15
+  REPRODUCED TO THE LINE**, run over `git show 456288ecf:…/Analyzer.cs` before it was trusted at this
+  tip.
+
+  ---
+
+  **THE THREE PRICED QUESTIONS, ANSWERED BEFORE THE CUT.**
+
+  **(1) THE SCOPE PUSH/POP PAIR IS HOST — AND THE QUESTION'S PREMISE IS WRONG, SO NOTHING IS
+  PUBLISHED BACKWARD.** Measured, not argued: `PushScope(scope, startLine, startColumn)` is ONE line
+  (`_scopes.Push(_semanticModel, scope, startLine, startColumn)`) and `PopScope()` is ONE line
+  (`_scopes.Pop(_semanticModel)`). Both are relays into `AnalyzerScopeStack`, which has been the N#
+  owner of the stack and its walk semantics since slice 8. The ONLY thing the C# side contributes is
+  binding `_semanticModel`, which is `new`ed per `Analyze` and therefore cannot be held by an owner —
+  which is the DEFINITION of the mechanical-host shape, not an exception to it. **No backward
+  publication is needed anywhere**, because what the 13 driver-loop call sites actually need
+  (`_scopes.Push` / `_scopes.Pop`) is ALREADY N#; and `DeclareSymbol` / `DeclareType`, which are
+  policy, reach the same stack from N# directly. They move FORWARD like every previous slice.
+  **AND THE MEASUREMENT FOUND SOMETHING THE QUESTION DID NOT ASK FOR: the 1-argument `PushScope(Scope)`
+  overload is DEAD.** All 13 call sites pass three arguments; its only reference in the repository is
+  its own body's forwarding call. **4 lines, DELETED not moved.**
+
+  **(2) YES — `ValidatePackageName` / `IsValidIdentifier` BELONG TO 017, AND THE FILE CRITERION SAYS
+  SO WITHOUT AMBIGUITY BECAUSE 016 NO LONGER HAS A FILE.** The criterion that settled the 017/018
+  boundary in slice 60 asks which FILE's zero-policy state needs the member gone. 018's file is
+  `Performance/SystemsAnalyzer.cs`; 016's WAS `Parser.cs` — and `Parser.cs` was DELETED when 016 was
+  accepted at `53e272711`. These two members live in `Analyzer.cs`, whose zero-policy state is 017's
+  checkbox and nothing else's. There is no file left for them to belong to except this one. **27
+  lines, TAKEN.** Closure is exact: `ValidatePackageName` has ONE caller (`Analyze:781`) and
+  `IsValidIdentifier` has ONE caller (`ValidatePackageName`); the `IsValidIdentifier` hits in
+  `Linter.cs` and `SignatureHelpHandler.cs` are those owners' OWN private members, the same
+  same-name-different-owner shape slice 65 recorded for `ResolveFileImportPath`.
+
+  **(3) THE RELAY DIES; THE RULE MOVES — AND THE RELAY IS SMALLER THAN THE BRIEF REMEMBERED.**
+  Re-measured: slice 44's `ValidateParameterDeclarations` served EIGHT callers then; it serves
+  **FOUR** now (`DriveFunctionBody`, `DriveAccessorBody`, `DriveTypeDeclaration`,
+  `DriveDeclarationWalk`), the intervening slices having taken the other four with their families. Its
+  body is two calls — one already into N# (`_parameterDeclarations.ValidateParamsParameters`), one
+  into the C# default-parameter rule. So the 5-line member IS a pure relay and DIES. But the rule
+  behind it is NOT a relay: `ValidateDefaultParameters` (39) owns the required-after-optional ordering
+  AND the invalid-default report; `IsValidDefaultValue` (20) owns which expression shapes are
+  compile-time constants, recursively; `ResolveDefaultEnumTypeName` (29) owns a four-way name
+  resolution with alias, file-import, external and project fallbacks; `ReportSoaDefaultParameterValueIfNeeded`
+  (31) owns the SoA report AND re-enters the expression walk. Only `IsMatchingEnumMemberDefault` (27)
+  is half-owned by the three N# questions slice 64 landed, and it still DECIDES with them. **The rule
+  moves whole; only the relay dies.**
+
+  ---
+
+  **THE EXPRESSION-TAIL RESIDUE, INVENTORIED PRECISELY — AND IT IS NOT WHAT THE BRIEF GUESSED.** The
+  "~69 lines" resolves to EXACTLY 69 across exactly 6 extents, and it is NOT slice 54's
+  method-group/unbound-callable machinery — that machinery already routes to `_reflectionCallReporter`
+  and `_soaDirectColumnCalls`, both N#. What is actually there is three different things:
+  * **28 LINES ARE DEAD.** `ResolveDeclaredFunctionCallReturnType(FunctionDeclaration)` **19** and
+    `ResolveDeclaredFunctionCallReturnType(DeclaredMemberInfo)` **9** have **ZERO callers repo-wide** —
+    the only two references in `src`, `tests` and `editors` are their own declarations. The doc comment
+    sitting above them describes circular type-parameter constraints (`where T: T`), a rule they do not
+    implement, which is the orphaning showing through. **DELETED, not moved.**
+  * **39 LINES ARE THE `AnalyzeExpression` TAIL'S TWO REPORTERS AND THEIR RENDERER** —
+    `ReportSyntheticSoaOperationUsedAsValue` **16**, `RenderSyntheticSoaOperationTarget` **11**,
+    `ReportEventUsedAsValue` **12**.
+  * **2 LINES BELONG TO THE OTHER FAMILY.** `GetNonNullableType` **2** has exactly ONE caller, and it
+    is `ReportSoaDefaultParameterValueIfNeeded` — the default-parameter rule. It moves THERE.
+
+  **AND THE TAIL BODY ITSELF MOVES, BECAUSE THE ZERO-POLICY REVIEW'S OWN CRITERION WOULD FAIL IT.**
+  The dispatch obligation recorded in slice 63 requires that no dispatch arm "carries a stay-behind
+  report". `AnalyzeExpression`'s tail (`:1968`–`:2006`, **39 lines** after the switch) carries TWO,
+  and its FOUR ordered guards decide WHICH value-misuse diagnostic wins — an order the user can see.
+  Leaving it would hand the review a dispatch it must fail. **It moves whole**, and `AnalyzeExpression`
+  becomes a pure dispatch plus one call.
+
+  ---
+
+  **THE TARGET — 20 EXTENTS / 466 LINES, RE-MEASURED AT THIS TIP.**
+  * **THE DECLARATION FAMILY (139)**: `DeclareSymbol` 72, `CheckShadowedDeclaration` 20,
+    `DeclareType` 45, `GetNSharpMethodGroupFunctions` 2 (whose one caller is `DeclareSymbol`).
+  * **THE DEFAULT-PARAMETER FAMILY (153)**: `ValidateParameterDeclarations` 5,
+    `ValidateDefaultParameters` 39, `ReportSoaDefaultParameterValueIfNeeded` 31,
+    `IsValidDefaultValue` 20, `IsMatchingEnumMemberDefault` 27, `ResolveDefaultEnumTypeName` 29,
+    `GetNonNullableType` 2.
+  * **THE PACKAGE NAME (27)**: `ValidatePackageName` 11, `IsValidIdentifier` 16.
+  * **THE EXPRESSION TAIL (78)**: `ReportSyntheticSoaOperationUsedAsValue` 16,
+    `RenderSyntheticSoaOperationTarget` 11, `ReportEventUsedAsValue` 12, plus the 39-line tail body
+    inside `AnalyzeExpression`.
+  * **THE REFERENCE-LOAD REPORT (37)**: `ReportReferenceLoadFailures`, whose rule is "surface NL923
+    only when the analysis ALSO produced unresolved-type errors", plus an Ordinal-sorted merge in
+    which a recorded failure beats a resolver failure of the same identity.
+  * **DEAD, DELETED NOT MOVED (32)**: `PushScope(Scope)` 4 and the two
+    `ResolveDeclaredFunctionCallReturnType` overloads 19 + 9.
+
+  **THE CLOSURE, MEASURED THREE WAYS** — caller attribution over the whole file, a raw `\b<name>\b`
+  grep over `src`, `tests` and `editors` for all 20 names, and a re-read of the entry.
+  **EXTERNAL CONSUMERS: ZERO for all 20.** Every non-`Analyzer.cs` hit is either a documentation
+  comment in a shipped `.nl` owner or a same-named private member in another owner (`Linter.cs`'s own
+  `PushScope`/`PopScope`/`IsValidIdentifier`, `SignatureHelpHandler.cs`'s own `IsValidIdentifier`).
+  **EVERY COLLABORATOR IS ALREADY N#**, verified by locating each type's definition:
+  `AnalyzerScopeStack`, `AnalyzerDiagnosticSpans`, `AnalyzerDiagnosticSink`, `AnalyzerNullFlow`,
+  `AnalyzerAmbientContext`, `BindingMap`, `SemanticModel`, `SymbolDeclaration`, `AnalyzerBindingFacts`,
+  `AnalyzerOverloadSignatureFacts`, `NSharpMethodGroupInfoFactory`, `AnalyzerDeclarationContext`,
+  `AnalyzerTypeResolver`, `AnalyzerParameterDeclarations`, `AnalyzerProjectTypeDiscovery`,
+  `ExternalQualifiedTypeResolver`, `TypeInfoIdentityFacts`, `AnalyzerAttributeValidator`,
+  `AnalyzerSoaDirectColumnCalls`, `AnalyzerReflectionCallReporter`, `AnalyzerCallableReferenceFacts`,
+  `AnalyzerAssignment`, `ErrorSuggestions`, `SoaFeature` — all `.nl`.
+  **ONE RE-ENTRY, AND IT NEEDS A DRIVER**: `ReportSoaDefaultParameterValueIfNeeded` calls
+  `AnalyzeExpressionWithExpectedType` — the shell's ambient-bracket-plus-lambda door, which brackets
+  with `try`/`finally` so the ambient is restored even if the analysis THROWS, a guarantee an
+  owner-held pair spanning a suspension cannot keep. So it stays, and the default-parameter walk
+  suspends at it: **28 → 29 driver loops.**
+
+  **THE SPLIT DECISION: THREE OWNERS, BY WHAT THE RULE IS ABOUT.** `AnalyzerDeclarationPolicy` (what
+  it means to declare something: a symbol, a type, a parameter with a default, a package),
+  `AnalyzerExpressionTail` (what happens to every expression's type once it is computed, and which of
+  the four value-misuse reports wins), and `AnalyzerReferenceLoadReport` (when a failed reference load
+  is worth telling the user about). Each is one connected component with its own entry; merging any
+  two would put unrelated per-analysis state in one owner.
+
+  **THE EXPECTED CUT**: 20 C# extents / **466 named lines**, of which **32 are deleted as
+  proven-dead** rather than ported. ADDED: three fields, three constructor calls, one `BeginAnalysis`
+  line, one driver loop, and the re-pointed call sites.
+
+  ---
+
+  **LANDED (no commit — mandate) — `Analyzer.cs` HOLDS NO SEMANTIC POLICY. THE ARC'S LAST POLICY
+  SLICE, AND THE ONLY ONE THAT DELETED THREE MEMBERS OUTRIGHT INSTEAD OF MOVING THEM.**
+
+  **THE CUT — 20 C# EXTENTS, 466 NAMED LINES, OF WHICH 32 WERE DEAD.** Gone by group: the DECLARATION
+  FAMILY (**139** — `DeclareSymbol` 72, `CheckShadowedDeclaration` 20, `DeclareType` 45,
+  `GetNSharpMethodGroupFunctions` 2); the DEFAULT-PARAMETER FAMILY (**153** —
+  `ValidateParameterDeclarations` 5, `ValidateDefaultParameters` 39,
+  `ReportSoaDefaultParameterValueIfNeeded` 31, `IsValidDefaultValue` 20, `IsMatchingEnumMemberDefault`
+  27, `ResolveDefaultEnumTypeName` 29, `GetNonNullableType` 2); the PACKAGE NAME (**27** —
+  `ValidatePackageName` 11, `IsValidIdentifier` 16); the EXPRESSION TAIL (**78** —
+  `ReportSyntheticSoaOperationUsedAsValue` 16, `RenderSyntheticSoaOperationTarget` 11,
+  `ReportEventUsedAsValue` 12, plus the **39**-line tail body inside `AnalyzeExpression`); the
+  REFERENCE-LOAD REPORT (**37**); and **THREE PROVEN-DEAD MEMBERS DELETED RATHER THAN PORTED (32)** —
+  `PushScope(Scope)` 4 and both `ResolveDeclaredFunctionCallReturnType` overloads 19 + 9.
+  `git diff` on `Analyzer.cs` **+75 / −511 = net −436**. The file goes **3,422 → 2,986**, non-blank
+  **3,148 → 2,767 (−381)**, member extents **210 → 194**. `AnalyzeExpression` goes **77 → 39** and is
+  now a pure dispatch plus one call. **BOTH RATCHET CEILINGS FALL** — down from 23,451 at the epoch,
+  an **87.3 %** cut.
+
+  **THE DRIVER COUNT GOES 28 → 29, AND THE NEW ONE IS THE RAREST IN THE ARC.** It relays an EFFECT,
+  like slice 65's: analyse this default-value expression against its parameter's type. The analysis
+  must stay in the shell because it brackets the ambient expected type in a `try`/`finally` that has
+  to survive a throw — a guarantee no owner-held pair spanning a suspension can keep. The step carries
+  no answer: the walk counts the SINK's own diagnostics on both sides of the suspension instead. The
+  transcript below measures how rare it is: **6,857 walks, ONE step.**
+
+  **N# ADDED — THREE NEW OWNERS, 1,099 PRODUCTION LINES, 5 TYPES, 37 MEMBERS.**
+  `AnalyzerDeclarationPolicy.nl` **750** (`ParameterWalkRequest`, `ParameterWalkState`,
+  `AnalyzerDeclarationPolicy`; 28 members), `AnalyzerExpressionTail.nl` **191** (1 type, 6 members),
+  `AnalyzerReferenceLoadReport.nl` **158** (1 type, 3 members). `AnalyzerDiagnosticSink.nl` is
+  **+26**: one new DOOR, `HasUnresolvedTypeError`, written the way `HasReported` already was, because
+  the sink's own rule is that nothing outside may scan its ordered list. `Analyzer.cs` is the only
+  other production file touched.
+
+  ---
+
+  **FIVE FINDINGS, ALL RECORDED RATHER THAN PAPERED OVER.**
+  1. **THE OVERLOAD MERGE WAS NEARLY LOST, AND RE-VERIFICATION CAUGHT IT BEFORE THE ORACLE DID.** The
+     C# asks `HasDistinctParameterSignature(newFunction, new[] { existingFunction })` — the array holds
+     the EXISTING function ALONE. The first draft of the port passed a list holding BOTH, which would
+     have compared the incoming function with ITSELF, matched, and turned **every overload in the
+     language** into a duplicate-declaration error. It was found by re-reading the C# against the port
+     before any oracle ran, and it is now pinned from both directions by the first two contracts in
+     the new file. **RULE: a restructured control flow must be re-read against its original, argument
+     by argument, before it is trusted to a differential — a differential over a corpus that happens
+     not to overload would have passed it.**
+  2. **`_referenceLoadFailures` HAS BEEN WRITE-DEAD SINCE BEFORE THIS SLICE.** Measured at the base
+     commit: the analyzer's own failure table has exactly THREE references in `Analyzer.cs` and NONE
+     of them is a write. Half of the NL923 pairing rule's input is therefore never populated; only the
+     metadata resolver's table is live. The port preserves the shape exactly — the owner still holds
+     the analyzer table BY REFERENCE, so the rule works the moment the loading surface starts writing
+     it — and the fact is recorded rather than silently tidied, because deleting it would decide a
+     task-021 question this slice does not own.
+  3. **`ValidatePackageName` IS REACHABLE ONLY THROUGH PARSER ERROR RECOVERY.** The parser rejects a
+     malformed package segment first, so by the time the rule runs the segment has been replaced by an
+     `<error>` placeholder and the report names `'<error>'` rather than what the developer wrote. Both
+     CLIs produce that identical row. Pre-existing, preserved byte-for-byte, and now written into the
+     owner's header so the next reader does not mistake the rule's shape for its reach.
+  4. **THE TASK-021 MLC SURFACE IS 30 EXTENTS / 655 LINES, NOT THE RECORDED "18 MEMBERS / 264
+     LINES".** Re-measured with the validated extractor at this tip: 15 top-level loading extents
+     (**467**) plus the nested resolver and SemVer comparer (15 extents, **188**). Slice 65's figure
+     was a substantial undercount and is corrected here; the review must carry the real number.
+  5. **SHADOWING DOES NOT ABANDON THE DECLARATION, AND STOPS AT THE GLOBAL SCOPE.** Two contracts
+     written against the rule's NAME failed against production and were corrected: the report is made
+     and the name is then STILL BOUND (which is what keeps one shadowing mistake to one diagnostic
+     instead of a cascade of "undefined" reports behind it), and the deciding walk stops dead at the
+     first global or type-level scope, so a local named after a global shadows nothing. The owner's
+     header carried the same wrong claim and was corrected with them.
+
+  ---
+
+  **PROOF — SIX ORACLE DIFFERENTIALS, ALL ZERO**, with fresh Release CLIs at the pristine tip
+  `43472d7ce` (`/private/tmp/nl66base`) and at the working tree, both pointed at the SAME source copy
+  (`/private/tmp/nl66corpus`), and re-run in full against the FINAL byte-identical build after the
+  temporary trace instrumentation was removed. FOUR of the six reproduce a previously recorded md5.
+  * **CORPUS: ORACLE_DIFFS = 0 over 71 rows**, md5 `8590f4c698c24cd92535dd523ca94d49` — **the same
+    md5 slices 61-65 recorded** — 33 diagnostics across 5 codes, `stderrBytes = 0`, ZERO `PARSE-FAIL`,
+    the same seven known no-`results` targets.
+  * **SELF-HOST: ORACLE_DIFFS = 0**, md5 `0477bc39588ed5babb8f3122a49f5aa9` — **285 findings across
+    10 codes, slice 65's count EXACTLY, over three more files.**
+  * **SLICE-66 FIXTURES: ORACLE_DIFFS = 0 over 29 rows**, md5 `d67ab180ca4cf227749d19136fc37a8e`,
+    36 diagnostics across 11 codes.
+  * **SoA FIXTURES (env-gated): ORACLE_DIFFS = 0 over 27 rows**, md5
+    `df61922f54b28156e91fa7b5044dff9c` — **the same md5 slices 60-65 recorded**.
+  * **SLICE-65 FIXTURES, re-run as an inherited regression: ORACLE_DIFFS = 0 over 40 rows**, md5
+    `ede5bb0ba9976af3277a7661bdaa1845` — **the same md5 slice 65 recorded**.
+  * **SUPPLEMENTARY: ORACLE_DIFFS = 0 over 9 rows**, md5 `228dfc3809752a90f77da3c61121f2fa` — **the
+    same md5 slices 61-65 recorded**.
+  **PARSE-ERROR CENSUS: ONE KNOWN, DELIBERATE, BASE-IDENTICAL; ZERO NEW.** NL101/NL102 appear in
+  exactly ONE slice-66 fixture, `t66-a-package-segment-starting-with-a-digit-is-rejected`, whose
+  `package good.9bad` is the ONLY way to reach the package-name rule at all (finding 3). A second such
+  fixture was written and then DROPPED, because parser recovery collapses both bad segments into one
+  `<error>` and it could not prove the "two reports" its name claimed — that claim is pinned by a
+  CONTRACT instead, where the rule can be called directly.
+
+  **PROOF — THE FIXTURES ARE NON-VACUOUS AND WERE MEASURED TO BE.** 29 fixtures, `ROWS_BASE = 29`,
+  `NO_RESULTS = 0`, `PARSE_FAIL = 0`, 36 diagnostics across 11 codes, naming this slice's own rules:
+  **NL306 × 4** (duplicate declarations of both symbols and types), **NL410 × 5** and **NL409 × 3**
+  (the invalid-default and required-after-optional reports), **NL316 × 2** (shadowing), plus the
+  package-name NL103. The SILENCE cases — two-way and three-way overload merges, arity-only overloads,
+  sibling-block name reuse, every literal default, the negated and arithmetic defaults, the matching
+  enum member, a valid package name and an underscore one — are silent on BOTH sides.
+
+  **PROOF — THE PROTOCOL TRANSCRIPT, WHICH THIS SLICE OWES BECAUSE IT HAS A DRIVER.** A temporary
+  env-gated trace in `DriveParameterDeclarations` recorded every `ENTER` / `STEP` / `ANSWER` /
+  `RESULT` over a **58-target** workload (the 29 slice-66 fixtures + the self-host project + the 27
+  SoA fixtures + a purpose-built SoA-default fixture), captured **FIVE times: 13,716 lines each,
+  byte-identical md5 `0d04a1a4870fed49aca7d79f2f64f542` on ALL FIVE**, `RUN1_VS_RUNn DIFFS = 0` for
+  n = 2..5. **6,857 walks, `ENTERS == RESULTS` (6,857 = 6,857), 1 step, `STEPS == ANSWERS` (1 = 1),
+  VIOLATIONS = 0** against four invariants — and the invariant checker was written for a RE-ENTRANT
+  driver (a stack with LIFO discipline, not "one walk at a time"), because analysing a default value
+  can in principle reach a lambda whose own parameters start another walk; measured
+  `MAX_NESTING_DEPTH = 1`, so it never does in this workload. **THE ONE STEP IS THE POINT**: the
+  suspension exists only for an SoA-typed default parameter, which is why a fixture was built
+  specifically to fire it (`NL410`, verified directly before the trace ran) — without it the driver's
+  `case 1` would have been dead in the workload and the transcript would have proved nothing.
+  **THE INSTRUMENTATION WAS THEN REMOVED AND THE TREE REBUILT** — `grep -c NL66` on `Analyzer.cs` is
+  **0** — and every oracle above was re-run against that final build.
+
+  **PROOF — THE MULTIPLICITY AND ORDERING PIN.** The whole ordered diagnostic surface of a
+  **141-target** workload, with each target's error COUNT and every row's index, file, line, column,
+  code, length, message and suggestion **in list order, undeduplicated and unsorted**, captured **FIVE
+  times: 570 lines each, byte-identical md5 `80e19515d658e7c8dacf3420364874bb` on ALL FIVE**,
+  `RUN1_VS_RUNn DIFFS = 0`. 134 targets with results, 7 without, **429 diagnostic rows across 28
+  codes**. A family that reported twice, reordered, or dropped a report under repetition would move
+  that md5 — and the default-parameter walk's list order is exactly what it would move.
+
+  **PROOF — THE CORPUS IL CONTROL IS REPRODUCIBLE AND THE EXPERIMENT IS BYTE-EXACT, CONTROL FIRST.**
+  **CONTROL (the BASE CLI building two independent fresh copies of the whole corpus): 118 compared,
+  SAME 118, DIFFERENT 0, ONLY_A 0, ONLY_B 0.** **EXPERIMENT (base vs work): 118 compared, and ALL 63
+  N#-EMITTED ASSEMBLIES ARE BYTE-IDENTICAL.** The 55 that differ are **55 COPIES OF ONE
+  `NSharpLang.Runtime.dll`** — measured: exactly ONE distinct normalised runtime binary per sweep, in
+  both sweeps — a C# assembly this slice does not touch, differing by **232 normalised bytes**, while
+  `git diff --stat src/NSharpLang.Runtime` reports NOTHING. Inherited, not produced; the same class of
+  difference slices 60 and 62-65 measured. **ZERO non-Runtime differences.** Every sweep reports
+  `TARGETS=73 BUILT=55 ASSEMBLIES=118`.
+
+  **PROOF — THE UNSORTED BUILD TRANSCRIPT.** With the tree path and elapsed-time text normalised in
+  PYTHON: **CONTROL_TRANSCRIPT_DIFFS = 0 and TRANSCRIPT_DIFFS = 0 over 1,557 lines**, md5
+  **`1ff6a3797a58c74f8a52bc410519794b`** — **the same md5 slices 63, 64 and 65 recorded** — with
+  identical exit codes (**0 × 55, 1 × 18**).
+
+  **THE CONTRACTS: 3,889 / 3,889 PASSED, 0 FAILED — 3,833 → 3,889 (+56).**
+  `AnalyzerDeclarationPolicy.tests.nl` is **NEW, 591 lines, 39 contracts**, organised by the overload
+  merge and its two shapes, plain declaration and shadowing, a type and its four records, the package
+  name, and the default-parameter walk's protocol. `AnalyzerReferenceLoadReport.tests.nl` is **NEW,
+  239 lines, 17 contracts**, organised by the pairing rule, which diagnostics unlock it, whose detail
+  wins the merge, and the ordinal order — which is directly assertable precisely BECAUSE the order is
+  written out rather than delegated. No existing contract file changed.
+
+  **`nlc check` ON THE COMPILER'S OWN SOURCE: 285 findings over 348 files, and the new owners
+  contribute ZERO.** The count is slice 65's exactly, over three more files. Four findings the first
+  drafts did produce were fixed rather than suppressed: two unused imports, one NL202 (a nullable
+  re-assigned inside a guard is not narrowed — gotcha 66.4) and one NL402 on `Array.Sort`'s
+  four-argument overload (gotcha 66.3). Format canon green: **"All files are properly formatted"**.
+
+  **THE RATCHET.** The independent FNV-1a walk reproduced the stored `head-v1:dc44d77214f9a0d5` from
+  the UNMODIFIED manifest EXACTLY before any write. Applied: `Analyzer.cs` currentLines 3,422 →
+  **2,986**, currentNonBlankLines 3,148 → **2,767**, fingerprint → **`text-v1:9bd21fec8d514c98`**;
+  `reviewedHeadFingerprint` → **`head-v1:87421b733ed2e1a4`**, mirrored into `OwnershipAudit.nl`.
+  Epoch ceilings 23,451 / 20,537 PRESERVED, now clear by **20,465 / 17,770** — up from
+  20,029 / 17,389. `wc -l` on the manifest is **391 before AND after**, no BOM; its `git diff` is
+  exactly 2 changed lines and `OwnershipAudit.nl`'s exactly 1. **NO NEW MANIFEST ROW WAS NEEDED**:
+  every file this slice adds is `.nl`, which the policy does not audit. `ColumnarIlEmitter.cs` and
+  `SystemsAnalyzer.cs` are UNTOUCHED. **Ownership audit: 18 / 18.**
+
+  **THE UNIT SUITE: 3,194 / 3,194 PASSED, 0 FAILED** — the `43472d7ce` baseline exactly; this slice
+  adds and removes no unit test. **`./scripts/dev.sh --since` TOOK ITS FAIL-SAFE PATH** over the tree
+  and ran the FULL suite (`Scope: full unit suite (no filter)`, seven unmapped-path triggers named:
+  the three new owners, their two contract files, the diagnostic sink and `OwnershipAudit.nl`):
+  **3,194 / 3,194, 0 failed, 4m 36s.**
+
+  **THE FULL VS CODE-ENABLED GATE, FRESH AND ISOLATED: `ALL TESTS PASSED`, EXIT 0, 17 TIMED STEPS,
+  108 PASSES AND ZERO FAILURES, 21m 41s.** `./scripts/test-all.sh --commit` — VS Code tests NOT
+  skipped — reported: build the N# compiler 2m 09s; **Step 2b's format contract 0m 02s**; **unit tests
+  6m 27s (3,194 / 3,194)**; **native N# tests 3m 50s** — every native project individually,
+  `ownership-audit` among them; **VS Code integration tests 2m 57s** against a freshly built extension
+  and language server; pack and install the MSBuild SDK 5m 36s; templates, template creation and the
+  template-generated build; the example builds; `nlc check` on examples; and **the IL verification gate
+  0m 20s — `All 67 N# assemblies pass IL verification (no new errors vs baseline)`**. It ran from an
+  isolated snapshot and STORED a new validated cache result **`ad91fa2154b634b5 (1302s)`** rather than
+  hitting a cached one, so it is fresh by construction. **AND THE BYTE-FINAL LIMIT IS CLOSED AGAIN**:
+  the nine code and manifest files this slice writes were md5'd immediately BEFORE the gate started
+  and again after it exited, and all nine hashes are IDENTICAL — the gate ran over the byte-final
+  tree, proved rather than argued. (`STATUS.md` itself was written during the run; it is documentation
+  and is compiled by nothing.)
+
+  **THE VSIX WAS REPACKAGED AND REINSTALLED** over that same byte-final tree — language server
+  rebuilt, `nsharp-0.6.0.vsix` packaged (**289 files, 3.98 MB**) and installed with `--force`
+  (`successfully installed`); the installed
+  `~/.vscode/extensions/nsharp.nsharp-0.6.0/server/Compiler.dll` is byte-for-byte the post-slice
+  build. **NO COMPUTER-USE VERIFICATION WAS TAKEN.** This slice changes no LSP handler, no VS Code
+  extension code and no IDE protocol surface; what it changes is WHO decides what a declaration means
+  — which the gate's VS Code integration suite (fresh extension and language server) and all six
+  diagnostic oracles cover.
+
+  **GOTCHAS (SLICE 66's OWN, ADDED TO THE CUMULATIVE LIST).**
+  **(66.1) A FREE FUNCTION IN A `.tests.nl` FILE THAT SHARES A NAME WITH ANY `func` ANYWHERE IN THE
+  COMPILED ESTATE BREAKS THE OTHER FILE, AND THE DECLINE NAMES THE INNOCENT ONE.** Three collisions
+  were hit in one contract file — `FindDeclarationAt` (a `static func` inside `BindingLookupKernels`),
+  `ValidateParameters` (an instance `func` inside `AnalyzerDeclarationWalkers`) and `Param` (a
+  `public static func` in another `.tests.nl`) — and every one of them reported NL103 at the OTHER
+  file's call site, never at the test file that caused it. A `^func` grep does NOT find them: the
+  colliding declarations are indented class members. **Prefix every free function in a contract file
+  with the owner's name, and grep `func <name>(` — not `^func` — before trusting a helper name.**
+  **(66.2) `ErrorSuggestions.GetSuggestion` MUST BE CALLED WITH ALL THREE ARGUMENTS.** Omitting the
+  two defaulted ones declines BOTH inline and bound to a local (`emit.expression-statement.call`, then
+  `emit.local.initializer`) — the second decline makes it look like the local was the problem when the
+  arity was. This is the recorded "omitting a defaulted free-func param" gotcha, confirmed for a
+  static with two defaults; every shipped caller passes `null, null` explicitly.
+  **(66.3) FOUR ROUTES TO AN ORDINAL STRING ORDER, AND THREE OF THEM DECLINE.**
+  `Array.Sort(T[], int, int, IComparer<T>)` EMITS but trips NL402 on `nlc check` (the analyzer's
+  overload table lacks it — the same finding stands today on `BatchQueryKernels.nl:127`);
+  `Array.Sort(T[], IComparer<T>)`, `string.CompareOrdinal` and `StringComparer.Ordinal.Compare` are
+  all unmodeled on emit. Writing the comparison out by UTF-16 code unit satisfies both gates and turns
+  a user-visible report order into a rule.
+  **(66.4) A NULLABLE RE-ASSIGNED INSIDE A GUARD IS NOT NARROWED AT A LATER CALL.**
+  `name := x.Maybe` then `if name == null { name = "fallback" }` still fails NL202 when `name` is
+  passed to a non-nullable parameter. Bind a SEPARATE non-nullable local initialised to the fallback
+  and overwrite it under the positive test. This is the 64.6 / 65.3 family in its assignment form.
+  **(66.5) macOS `sed` HAS NO `\b`.** A `sed -i '' 's/\bName\b/Other/g'` rename silently replaces
+  NOTHING and reports success. Rename with Python's `re.subn` and read the count it returns.
+
+  **THE IDE-FACING SURFACE THIS SLICE OWNS.** Every squiggle a developer sees when they introduce a
+  name: that two functions of one name are an OVERLOAD and not an error whenever their written
+  signatures differ, that a third and fourth join the same group, and that two with the same signature
+  are still a duplicate; that a local hiding an enclosing local is a build-blocking error with a
+  suggestion, that a local named after a global is not, and that the shadowed name is still bound so
+  the mistake stays one diagnostic; that a duplicate type says "a type named X already exists" and the
+  FIRST one keeps the name; that a required parameter after an optional one is underlined on the
+  PARAMETER while an unevaluatable default is underlined on the VALUE; that an enum member is a legal
+  default only for its own enum; that an SoA table gets its own sentence and a working suggestion
+  rather than the generic one; that a method group used as a value, a bare .NET event, and a generated
+  SoA operation each produce their own tailored report and, when an expression qualifies for more than
+  one, always the same one first; and that a failed reference load is named only when it might
+  actually be the cause of the errors on screen.
+
+  **WALL STATUS: ZERO.** Four language walls were hit, all found by EXECUTION against the pinned
+  toolset, all routed around INSIDE the language with no semantic loss (gotchas 66.1-66.4).
+  **NO TOOLSET REPIN WAS TAKEN AND NONE WAS NEEDED.**
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** Worktrees: `/private/tmp/nl66base` (pristine
+  `43472d7ce` + Release CLI) and `/private/tmp/nl66corpus` (the shared source copy both CLIs check,
+  kept in sync with the working tree's new files). Fixtures: `/private/tmp/nl66fixtures` (29, with
+  `targets.txt`), `/private/tmp/nl66soadefault` (the one SoA-default fixture that fires the driver),
+  plus slice 65's `/private/tmp/nl65fixtures` (40) and `/private/tmp/nl62soafx` (27). IL captures and
+  build trees: `/private/tmp/nl66il{Ctrl,A,B}Tree` with outputs under `/private/tmp/nl66out{Ctrl,A,B}`;
+  the protocol transcripts in `/private/tmp/nl66trace`. Harnesses in the scratchpad:
+  `nl62_members.py` (**the extractor, re-VALIDATED against slice 65's fifteen recorded extents —
+  15/15 to the line before it was trusted**), `nl66-callers.py` (**the caller-attribution walk that
+  found the three dead members**), `nl66-delete.py`, `nl66-oracle.sh`, `nl66-run-oracles.sh`,
+  `nl66-ilsweep.sh`, `nl66-ilnorm.py`, `nl66-ilcompare.py`, `nl66-transnorm.py`, `nl66-repin.py`,
+  `nl66-make-fixtures.py`, `nl66-trace-run.sh` and `nl66-determinism.sh`. **`/private/tmp` IS
+  REAPED** — regenerate rather than assume.
+
+  ---
+
+  * **NEXT SLICE: THE ZERO-POLICY REVIEW — AND FOR THE FIRST TIME IN THE ARC IT CAN PASS ITS OWN
+    CRITERION.** Slice 63 recorded that a review run then would have FAILED, because `Analyzer.cs`
+    still held ~1,815 lines of policy across ~80 members. Slices 64, 65 and 66 took all of it. **THE
+    RESIDUAL POLICY IS NOW ZERO**, and the review's job is to PROVE that member by member rather than
+    to assert it.
+
+    **THE FILE THE REVIEW INHERITS: 2,986 lines, 2,767 non-blank, 194 member extents**, which
+    partition exactly as follows — this partition IS the review's worksheet, and every extent is in
+    exactly one class:
+    + **THE FIELD BLOCK — 93 single-line extents.** Declares nothing, decides nothing.
+    + **THE CONSTRUCTOR + 26 `Create*` FACTORIES — 165 lines.** Dependency injection written out.
+    + **THE TWO ENTRY POINTS AND THEIR RESET BLOCK** (`Analyze` ×2, `InitializeDeclarationContext`,
+      `SetProjectSourceTexts`, `GetTypeDeclarationFiles`, `GetNuGetPackagesRoot`).
+    + **29 DRIVER LOOPS** by the `for (var step = …)` metric — 28 `Drive*` members plus the one
+      inside `AnalyzeCall`.
+    + **FIVE DISPATCHES — 267 lines** (`AnalyzeDeclaration` 65, `AnalyzeStatement` 106,
+      `AnalyzeExpression` 39, `AnalyzeCall` 55, `AnalyzePattern` 2).
+    + **THE AMBIENT BRACKET** (`AnalyzeExpressionWithExpectedType` 22) and **THE SCOPE PAIR**
+      (`PushScope` 4, `PopScope` 4) — one-line relays that exist only to bind `_semanticModel`.
+    + **`Error`/`Warning`/`GetSourceSnippet` — 5 extents.**
+    + **THE TASK-021 ASSEMBLY-LOADING / MLC SURFACE — 30 extents / 655 lines.**
+
+    **WHAT THE REVIEW MUST PROVE, PER MEMBER CLASS.** Slice 63's obligations stand unchanged; slices
+    64, 65 and 66 added four cases, and all of them are now settled precedent rather than open
+    questions:
+    + **THE 29 DRIVER LOOPS + THE FIVE DISPATCHES**: that each `case` performs exactly one operation
+      with exactly the operands the owner handed it, that no arm reads the state it is driving, that
+      no arm carries a STAY-BEHIND REPORT, and that every `Supply` is called exactly once per step.
+      **The protocol transcript is the shape of that proof** — `ENTER == RESULT`, `STEP == ANSWER`,
+      five runs, byte-identical, over a workload that actually fires the step. **SLICE 66 ADDS TWO
+      REQUIREMENTS TO IT.** (a) The "no stay-behind report" clause is not decorative: it is what
+      forced `AnalyzeExpression`'s tail out in this slice, and the review must apply it to the other
+      four dispatches by reading their tails, not just their arms. (b) A transcript over a workload
+      that never fires a driver's step proves NOTHING about that driver — slice 66's parameter driver
+      took ONE step in 6,857 walks, and only because a fixture was built to fire it. **The review must
+      report, per driver, the step COUNT its workload achieved, and treat a zero as an unproven
+      driver.**
+    + **THE 26 `Create*` FACTORIES AND THE REBUILD SITES — FOUR SHAPES, ALL NOW NAMED**: (1) an owner
+      rebuilt with the `AnalyzerWellKnownTypes` SCC; (2) an owner NOT rebuilt that receives a rebuilt
+      collaborator at `Begin`; (3) **an owner rebuilt with the SCC that holds NO per-analysis state
+      and NO driver (`_attributeValidator`) — the cheapest correct shape, named as the template by
+      slice 64**; (4) **an owner NOT rebuilt that holds its own per-analysis state and is reset
+      through its own `BeginAnalysis` from the entry's reset block.** Slice 66 adds THREE members to
+      shape (4) — `_declarationPolicy`, `_expressionTail`, `_referenceLoadReport` — so it is now the
+      arc's most common shape, not an exception. **THE RESET ORDER IS PART OF THE OBLIGATION AND MUST
+      BE CHECKED POSITIONALLY, NOT JUST BY MEMBERSHIP**: `_imports`, `_declarationPolicy` and
+      `_expressionTail` must all be reset AFTER `_semanticModel` and `_bindingMap` are recreated, and
+      `_declarationPolicy` additionally takes its declaration-context path LATER, from
+      `InitializeDeclarationContext`, through its own setter — a review that only checked WHICH owners
+      are rebuilt would catch none of this.
+    + **DRIVERLESS OWNERS**: the five-run byte-identical capture of the ordered diagnostic surface is
+      the standing substitute for a protocol transcript, and it must be used rather than declaring the
+      obligation inapplicable. Slice 66's capture is the template: 141 targets, 570 lines, 429 rows
+      across 28 codes, five runs, one md5.
+    + **`Analyze` / `BeginAnalysis`**: that the reset block's ORDER is observable only through the
+      entry diagnostics, which the protocol transcripts and the ordering pin already hold.
+    + **THE FIELD BLOCK AND `Error`/`Warning`/`GetSourceSnippet`**: that they decide nothing.
+    + **THE SCOPE PAIR AND THE AMBIENT BRACKET**: slice 66 measured and settled these. `PushScope` and
+      `PopScope` are ONE-LINE relays into `AnalyzerScopeStack`, which has owned the stack and its walk
+      semantics since slice 8; the only thing the C# contributes is binding `_semanticModel`, which is
+      `new`ed per `Analyze` and so cannot be held. `AnalyzeExpressionWithExpectedType` is the same
+      shape plus a `try`/`finally` that must survive a throw. **All three are mechanical hosts and
+      nothing is published backward** — the review should record the argument, not re-open it.
+
+    **WHAT THE REVIEW MUST RECORD, WHATEVER ELSE IT DOES — THE TASK-021 RETIREMENT STATEMENT, WITH THE
+    NUMBER CORRECTED.** The **ASSEMBLY-LOADING / `MetadataLoadContext` SURFACE IS 30 EXTENTS / 655
+    LINES** — 15 top-level loading extents (`LoadReferencedAssembly` 37, `LoadReferencedAssemblyByName`
+    14, `RegisterMetadataAssembly` 12, the three `IsMetadataAssembly*Loaded` probes 25,
+    `LoadSystemAssemblies` 101, `Dispose` 41, `LoadFromProjectConfig` 72, `LoadProjectReference` 29,
+    `LoadNuGetPackage` 47, `TryGetRestoredPackageVersion` 4, `GetRestoredPackageVersions` 42,
+    `LoadProjectReferenceFile` 30, `GetNuGetPackagesRoot` 13 = **467**) plus the nested
+    `NSharpMetadataResolver` and its SemVer comparer (15 extents, **188**). **Slice 65's recorded "18
+    members / 264 lines" was a substantial undercount and is superseded.** This surface **RETIRES UNDER
+    TASK 021, NOT 017**: it is neither policy nor a walk host, it is reflection-based assembly loading,
+    and `project_aot_vs_reflection_kernel_loading` records that it is LOAD-BEARING under the AOT
+    single-binary end-state and must be replaced by STATIC BINDING rather than deleted. Naming that
+    boundary is part of closing 017, not part of doing it. The review must also carry slice 66's
+    finding that `_referenceLoadFailures` is WRITE-DEAD — the NL923 rule's analyzer-side input is
+    never populated — because that is a task-021 defect sitting behind a now-N#-owned report.
+
+    **WHAT CLOSES THE CHECKBOX.** Every one of the 194 remaining extents classified into exactly one
+    of the eight classes above, with the policy-freedom argument written per class and the per-member
+    exceptions named; the protocol proof taken for every driver WITH its step count; the five-run
+    ordering capture taken for the driverless owners; the four `Create*` shapes and the reset ORDER
+    checked positionally; the task-021 boundary recorded with the corrected 30/655 figure; and the
+    completion assessment corrected so the ledger's claim matches the file. **`Analyzer.cs` will not be
+    DELETED — the task-021 surface keeps it alive — so 017 closes on the checkbox's SECOND arm: a
+    reviewed zero-policy mechanical host.**
+
+- Active sub-slice (017 arc, PRIOR TURN, LANDED at `43472d7ce`): **017 SLICE 65 — THE IMPORT / NAMESPACE FAMILY: WHAT AN
   `import` MEANS. TERMINAL.** Target recorded BEFORE any production edit, at `456288ecf`
   (`Analyzer.cs` **3,866** lines, non-blank **3,538**, **225** member extents / **131**
   method-shaped members by the validated extractor and **213** by the modifier-line metric;
