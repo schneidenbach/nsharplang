@@ -1,6 +1,40 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-12 (**TASK 018 SLICE 1 LANDED (no commit — mandate) — THE SYSTEMS-ANALYZER
+Last updated: 2026-08-12 (**TASK 018 SLICE 2 LANDED (no commit — mandate) — N# OWNS WHAT A TYPE IS
+WORTH, WHETHER IT MAY CROSS A SYSTEMS BOUNDARY, AND WHETHER AN EXPRESSION ALLOCATES. THREE FAMILIES
+IN ONE CUT, AND ALL THREE REGISTRATION SETS GO WITH THEM.** F2, F3 and F10 had to move together —
+slice 1's state-exclusivity census proved `_structTypes` and `_enumTypes` are read by three and four
+different rules, so any one family taken alone leaves the sets behind. **THE THREE PRICING QUESTIONS
+WERE ANSWERED BY MEASUREMENT FIRST AND ALL THREE ANSWERS HELD**: `RecordAllocation` needed **six
+bools and nothing else**, never the sink, so it moved NOW behind a violation record extended with a
+severity field; `IsSystemsHostileSurface`'s defaulted `constraints` had **zero live omissions**, so
+it became REQUIRED and the free-func-default gotcha never arose, while the `out reason` became an
+exact nullable-string return; and the keyword-only size keying was pinned in both directions rather
+than widened. **10 C# MEMBERS DIE WHOLE (169 named extent lines), AN ELEVENTH BECOMES A 15-LINE
+ZERO-POLICY RELAY, THREE FIELDS BECOME ONE**; `SystemsAnalyzer.cs` **2,261 → 2,048**, non-blank
+**2,045 → 1,854**, extents **163 → 151**, `git diff` **+28 / −241 = net −213** — **9.4 % in this
+slice, 14.3 % since the epoch**. N# adds **569 production lines on two files** and **44 contracts**
+(3,940 → 3,984). **THE PROOF IS AN EXHAUSTIVE TWO-SIDED DIFFERENTIAL: 17,157 CELLS, 0 MISMATCHES,
+byte-identical md5 on both sides**, with the allocation section driven through the analyzer's OWN
+`RecordAllocation` on both sides so the relay, the sink's severity downgrades and the whole emitted
+finding are compared — non-vacuous by census (30 distinct hostile reasons, 13 distinct allocation
+outcomes, 17 distinct sizes). **THE TERMINALITY GREP FOUND A RESIDUE AND IT MOVED**: the v1 hot-path
+**128-byte Result-ABI threshold and the sentence quoting it** — and its contracts pin that the
+`IsResultType` identity guard is load-bearing, because a non-`Result` generic of arity two reaches the
+same 176 bytes and must stay silent; the grid straddles the threshold by execution (128 silent, 129
+reports). The whole verification was RE-TAKEN after that change and every md5 reproduced exactly.
+**SIX ORACLE DIFFERENTIALS ALL ZERO**, four reproducing recorded censuses to the digit, and **TWO of
+the three corpus-live NSYS codes are decided by this cut** (NSYS001 × 9, NSYS070 × 3). **25 fixtures
+fire 61 NSYS findings over 8 codes byte-identically on both CLIs**, parse-error census ZERO;
+**CORPUS IL 63 / 63 N#-emitted assemblies byte-identical with the CONTROL FIRST (118/118 SAME)** and
+the 55 `NSharpLang.Runtime.dll` copies proved INHERITED (208 bytes, 0 source files differ); unsorted
+build transcripts 1,557 lines, 0 diffs, the same md5 in all THREE sweeps; the five-run ordering pin
+byte-identical over 195 targets; unit suite **3,194 / 3,194**; contracts **3,984 / 3,984**; audit
+**18 / 18**; manifest 391 lines, no BOM. **NO LANGUAGE WALL — every shape compiled on the FIRST
+build because the cumulative gotcha list was applied pre-emptively. WALL STATUS: ZERO — NO REPIN.**
+Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-12 (**TASK 018 SLICE 1 LANDED (no commit — mandate) — THE SYSTEMS-ANALYZER
 BURN-DOWN OPENS, AND `SystemsAnalyzer.cs` LEAVES ITS EPOCH FOR THE FIRST TIME IN THE CAMPAIGN.**
 The opening family was CHOSEN BY MEASUREMENT, not by line count: a closure walk scored all **17**
 families in the file, and a **state-exclusivity census over every one of the analyzer's 18 fields and
@@ -2135,7 +2169,270 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (018 arc, THIS TURN): **018 SLICE 1 — THE SYSTEMS-ANALYZER BURN-DOWN OPENS.
+- Active sub-slice (018 arc, THIS TURN): **018 SLICE 2 — THE JOINED TYPE-POLICY FAMILIES (F2 + F3 +
+  F10). N# OWNS WHAT A TYPE IS WORTH, WHETHER IT MAY CROSS A SYSTEMS BOUNDARY, AND WHETHER AN
+  EXPRESSION ALLOCATES.** Target, pricing answers and re-verified inventory recorded BEFORE any
+  production edit, at `56174a687` (`SystemsAnalyzer.cs` **2,261** lines, non-blank **2,045**,
+  **163** member extents summing **2,113** lines by the validated extractor; ratchet row
+  `currentLines 2,261 / currentNonBlank 2,045`, fingerprint `text-v1:512e79f93f3690c3`,
+  `reviewedHeadFingerprint head-v1:86058e6510b6e4d2` REPRODUCED from the unmodified manifest by the
+  independent FNV-1a walk before any write; unit suite baseline **3,194**; contracts baseline
+  **3,940**; audit **18 / 18**; manifest **391** lines, no BOM.)
+
+  **THE EXTRACTOR WAS RE-VALIDATED AGAINST SLICE 1's OWN RECORDED EXTENTS FIRST: 171 over
+  `git show dae23a74d:…/SystemsAnalyzer.cs`, 163 over the tip, and all EIGHT of slice 1's deleted
+  members reproduced to the line (`SimpleName` 5, `TypeReferenceName` 9,
+  `IsStackallocLengthWithinBudget` 34, `TryGetStackallocElementCount` 22,
+  `TryGetUnsignedIntegerMagnitude` 12, `UnwrapStackallocLengthExpression` 22,
+  `IsStackallocIntLikeCast` 5, `ResolveTypeAliasName` 11 — TOTAL 120, slice 1's recorded number).**
+
+  **THE BRIEF'S OWN ARITHMETIC WAS CORRECTED BY MEASUREMENT.** The next-family brief said "305 lines
+  over 11 members"; the extractor says **222 lines over 11 members**, and the closure table's own
+  per-family figures agree (F2 67 + F3 82 + F10 73 = 222). The 11 extents at the tip:
+  `RecordAllocation` 1349-1401 (53), `IsHeapAllocation` 1403-1413 (11), `IsValueTypeName` 1415-1423
+  (9), `IsRefLikeType` 1730-1736 (7), `ContainsRefLikeType` 1738-1752 (15), `IsResultType` 1754-1760
+  (7), `EstimateResultSize` 1762-1770 (9), `EstimateTypeSize` 1772-1783 (12),
+  `EstimateSimpleTypeSize` 1785-1801 (17), `IsSystemsHostileSurface` 1803-1880 (78),
+  `IsValueConstrainedGenericParameter` 1882-1885 (4).
+
+  **THE THREE PRICING QUESTIONS, ANSWERED BY MEASUREMENT BEFORE THE CUT.**
+  1. **`RecordAllocation` MOVES NOW, BEHIND A VIOLATION RECORD. IT DOES NOT WAIT FOR THE SINK.** Its
+     inputs were enumerated rather than assumed: `context.Summary.IsHot`, `.AllocNone`, `.IsBoundary`,
+     `context.IsAllowed("alloc")`, `IsSystemsProfile` and its own `explicitAllocation` — **six bools
+     and nothing else**. It touches neither `_findings` nor `AddFinding`'s 22-caller sink, and needs
+     neither `WalkContext` nor `MutableFunctionSummary` as a TYPE. Its outputs are one unconditional
+     summary write (`Allocates = true`, the first statement, not a decision) and **at most one**
+     finding at `expression.Line/Column`, length 1. So it is slice 1's `SystemsStackallocViolation`
+     shape with ONE field added — `Severity`, because unlike the stackalloc rule this family reports
+     an error on two arms and a warning on the third. F8 is not a prerequisite; the sink family stays
+     later. The four call sites keep ONE mechanical relay member (summary write + policy call +
+     `AddFinding` relay, zero decisions) rather than four copies of it.
+     ONE evaluation-order note, checked rather than waved: the relay calls `IsAllowed("alloc")`
+     eagerly while the original called it only under `IsHot || AllocNone`. `WalkContext.IsAllowed`
+     reads `Summary.FunctionAllows` and the allow stack and mutates nothing, so the change is
+     unobservable — and the differential compares the ANSWER, not the call count.
+  2. **`IsSystemsHostileSurface`'s DEFAULT IS NEVER EXERCISED, SO THE GOTCHA NEVER APPLIES.** Both
+     external call sites (`CheckFunctionSurface` :389 and :405) pass `function.Constraints`
+     explicitly, and all five recursive calls pass it through; the `= null` default has **zero** live
+     omissions. The N# member therefore takes `constraints` as a REQUIRED parameter and the
+     "omitting a defaulted free-func param declines" gotcha is routed around by construction rather
+     than by luck. The `out reason` becomes a NULLABLE-STRING RETURN (`HostileSurfaceReason`): every
+     one of the five `return true` paths assigns a non-empty reason first (three of them a matched
+     table name, two an interpolated sentence) and the union arm propagates one by induction, so
+     `hostile ⟺ reason non-null` is exact, not approximate — and it is pinned by contract AND by the
+     two-sided differential rather than asserted. `reason` is not on the reserved-local list
+     (`type`, `newtype`, `union`, `partial`, `match`, `record`); `union` IS, so the union arm's local
+     is `unionType`.
+  3. **THE SIZE TABLE'S KEYWORD-ONLY KEYING IS REPRODUCED, NOT WIDENED**, and this family's own
+     asymmetry is now pinned too: `EstimateTypeSize` simplifies BEFORE it sizes
+     (`EstimateSimpleTypeSize(SimpleName(simple.Name))`), so `System.Int32` arrives as `Int32`,
+     misses the keyword table and lands on the **8-byte** unknown default while `int` lands on 4 —
+     the same shape slice 1 pinned at 16 bytes for the stackalloc element table, with a different
+     default. Widening either belongs to a slice that owns the whole size subject.
+
+  **THE STATE-EXCLUSIVITY CENSUS, RE-TAKEN AT THIS TIP.** `_structTypes`: 7 touchers — `Analyze`'s
+  `Clear()` :62, `RegisterDeclarations` writes :129 and :137, readers :1421 (`IsValueTypeName`),
+  :1789 (`EstimateSimpleTypeSize`), :1870 (`IsSystemsHostileSurface`) — **every reader is inside the
+  cut**, so it moves. `_refStructTypes`: `Clear()` :63, write :131, reader :1735 (`IsRefLikeType`) —
+  exclusive, moves. `_enumTypes`: `Clear()` :64, write :151, readers :1422, :1787, :1870 **and
+  :1006, which is `WalkExpression`'s NSYS110 static-receiver test — the one reader OUTSIDE the
+  cut.** Slice 60's rule for shared members applies: the set moves and that read becomes a PUBLISHED
+  query (`IsEnumTypeName`), not a stay-behind. Taking F2, F3 and F10 separately would have left all
+  three sets in C#; taking them together retires all three.
+
+  **THE ROUTING SURFACE, COUNTED: 18 SITES.** 12 member re-entries (`IsRefLikeType` :326;
+  `ContainsRefLikeType` :438; `IsResultType` :420, :453; `EstimateResultSize` :421;
+  `IsSystemsHostileSurface` :389, :405; `IsHeapAllocation` :967; `RecordAllocation` :968, :981,
+  :986, :1106), the one out-of-cut `_enumTypes` read :1006, four registration writes (:129, :131,
+  :137, :151) and one `BeginAnalysis` replacing three `Clear()`s. Four members
+  (`EstimateTypeSize`, `EstimateSimpleTypeSize`, `IsValueTypeName`,
+  `IsValueConstrainedGenericParameter`) have NO external caller at all. Nothing outside the file
+  can reach any of them — `SystemsAnalyzer` is a single non-partial file and all eleven are
+  `private`. The MultiFileCompiler seam is NOT touched: the analyzer's public surface is unchanged.
+
+  **THE ESTATE AND WHERE THE PROOF COMES FROM. TWO OF THE THREE CORPUS-LIVE CODES ARE THIS CUT'S.**
+  Codes whose decision this family owns: NSYS001 (`RecordAllocation` ×2), NSYS010
+  (`RecordAllocation`), NSYS070 (`CheckFunctionSurface`, decided by `HostileSurfaceReason`), NSYS080
+  (`CheckRefLikeFields` via `IsRefLikeType`, `CheckFunctionSurface` via `ContainsRefLikeType`),
+  NSYS160 (`CheckIgnoredResult` via `IsResultType`) and NSYS170 (`CheckFunctionSurface` via
+  `IsResultType` + `EstimateResultSize`). Slice 1's corpus census fires **NSYS001 × 9 and
+  NSYS070 × 3** — two of the three live codes in the whole 71-target corpus are decided by this cut,
+  so the corpus oracle is a real ordering pin here rather than a formality. NSYS010, NSYS080,
+  NSYS160 and NSYS170 are corpus-silent and carry FIXTURE proof.
+
+  **EVIDENCE BAR (unchanged):** two-sided reflection differential against the deleted C# originals
+  over an exhaustive grid, the parse-error census read BEFORE any transcript is trusted (gotcha
+  67.2), six oracle differentials, corpus IL byte-exact with the CONTROL FIRST, unsorted build
+  transcripts, five-run determinism, full unit suite (3,194), contracts (3,940 baseline), audit
+  18/18, manifest 391 no BOM, `dev.sh --since`, `nlc check` + format canon, and the full VS
+  Code-enabled gate over the byte-final tree. Vacuity counters on every harness. **The ratchet repin
+  is the LAST edit** (slice 1's gate-caught rule).
+
+  ---
+
+  **LANDED (no commit — mandate) — N# OWNS WHAT A TYPE IS WORTH, WHETHER IT MAY CROSS A SYSTEMS
+  BOUNDARY, AND WHETHER AN EXPRESSION ALLOCATES. THREE FAMILIES, ONE CUT, AND ALL THREE
+  REGISTRATION SETS GO WITH THEM.**
+
+  **10 C# MEMBERS DIE WHOLE (169 NAMED EXTENT LINES), AN ELEVENTH BECOMES A 15-LINE ZERO-POLICY
+  RELAY, AND THREE FIELDS BECOME ONE.** Dead whole: `IsValueTypeName` 9, `IsHeapAllocation` 11,
+  `IsRefLikeType` 7, `ContainsRefLikeType` 15, `IsResultType` 7, `EstimateResultSize` 9,
+  `EstimateTypeSize` 12, `EstimateSimpleTypeSize` 17, `IsSystemsHostileSurface` 78,
+  `IsValueConstrainedGenericParameter` 4. `RecordAllocation` **53 → 15** (summary write, policy
+  call, `AddFinding` relay — no decision left). `_structTypes` / `_refStructTypes` / `_enumTypes`
+  → one `_typePolicy`. `SystemsAnalyzer.cs` **2,261 → 2,048**, non-blank **2,045 → 1,854**, member
+  extents **163 → 151**, `git diff` **+28 / −241 = net −213**. **THE RATCHET ROW**: `currentLines
+  2,261 → 2,048`, `currentNonBlank 2,045 → 1,854`, fingerprint `text-v1:512e79f93f3690c3 →
+  text-v1:368b74c14a419081`, head `head-v1:86058e6510b6e4d2 → head-v1:4123f6f16d75e51d`, mirrored
+  into `OwnershipAudit.nl`; **9.4 % of the file gone in this slice and 14.3 % since the epoch**
+  (2,390 → 2,048 in two slices); manifest 391 lines, no BOM; audit **18 / 18**. N# adds **569
+  production lines on two new files** — `SystemsTypePolicy.nl` (500, 21 members: the three
+  registration sets, the value-type and ref-like predicates, the whole size walk, the Result ABI
+  rule and the hostile-surface rule with its reason) and `SystemsAllocationPolicy.nl` (69, one
+  violation record + 2 members) — and **549 contract lines / 44 contracts**; contracts **3,940 →
+  3,984**, all green. **14 CALL SITES ROUTE INTO N#** and nothing calls back.
+
+  **THE THREE PRICING QUESTIONS WERE ANSWERED BY MEASUREMENT AND ALL THREE ANSWERS HELD.**
+  `RecordAllocation` needed **six bools and nothing else** — never the sink — so it moved NOW behind
+  a violation record extended with a `Severity` field, and F8 stayed later exactly as planned. The
+  `out reason` became a nullable-string return and the defaulted `constraints` became REQUIRED
+  because the default had **zero live omissions**, so the "omitting a defaulted free-func param
+  declines" gotcha never came up. The keyword-only size keying was reproduced and pinned in both
+  directions rather than widened.
+
+  **THE PROOF THAT COST THE MOST IS THE EXHAUSTIVE TWO-SIDED DIFFERENTIAL, AND IT IS BYTE-IDENTICAL:
+  17,157 CELLS, 0 MISMATCHES, md5 `c5ab3d3dcbadb6f1124abd98521c47fb` ON BOTH SIDES.** The SAME grid
+  text compiled twice — once against the pristine `56174a687` worktree's `Compiler.dll` (reaching the
+  deleted private members, AND the private `_structTypes`/`_refStructTypes`/`_enumTypes` fields,
+  through reflection) and once against the N# owners. **THE ALLOCATION SECTION IS DRIVEN THROUGH THE
+  ANALYZER'S OWN `RecordAllocation` ON BOTH SIDES** — the member survives as a relay — so the
+  comparison covers the relay, the sink's boundary-and-audit severity downgrades and the whole
+  emitted `SystemsFinding`, not just the predicate. **NON-VACUOUS BY CENSUS**: HOSTILE produces **30
+  distinct answers** over 12,166 rows covering every arm and both interpolated sentences; ALLOC
+  produces **13 distinct outcomes** over 384 rows including both `NSYS010` sentences, both `NSYS001`
+  arms and the audit-mode downgrade; TYPESIZE **17** distinct sizes, RESULTSIZE **10**, SIMPLESIZE
+  all **6** table widths; and every boolean section fires both ways in volume (REFLIKE 73/473,
+  CONTAINSREF 112/434, RESULT 35/511, HEAPALLOC 114/26, VALUENAME 152/156, CONSTRAINED 5/479).
+
+  **THE TERMINALITY GREP FOUND A RESIDUE AND IT MOVED, EXACTLY AS SLICE 1's DID.** A sweep for every
+  remaining decision about type worth found one: `CheckFunctionSurface`'s inline `EstimateResultSize
+  (…) is > 128 and var resultSize` — the **v1 hot-path guidance threshold and the sentence that
+  quotes it**, the last numeric policy about what a type costs. It moved as `ResultAbiReason`, and the
+  contracts that came with it pin the asymmetry that makes it a rule rather than an arithmetic test:
+  the `IsResultType` identity guard is LOAD-BEARING, because any generic of arity two sizes as
+  `16 + both payloads`, so `Unknown<Result<Vec,Vec>, Result<Vec,Vec>>` reaches the same 176 bytes and
+  must stay silent. The grid straddles the threshold by execution — **128 bytes reports nothing, 129
+  reports** — and the impostor at 176 bytes is silent while the real `Result` at 176 is not.
+  **THE WHOLE VERIFICATION WAS RE-TAKEN AFTER THE CHANGE**: all six oracles reproduced their md5s
+  EXACTLY. After it, `SystemsAnalyzer.cs` contains **not one decision** about what a type is worth,
+  whether it is ref-like, whether it may cross a boundary, or whether an expression allocates: all 14
+  remaining mentions are routes, and the only policy still touching this neighbourhood is the
+  reporting family's — severity choice, position, code and the `[hot]`/`[boundary]` prefix — which is
+  F15 and the sink.
+
+  **SIX ORACLE DIFFERENTIALS, ALL ZERO, FOUR REPRODUCING RECORDED CENSUSES TO THE DIGIT.** Corpus
+  **0 diffs over 71 rows**, md5 `8590f4c698c24cd92535dd523ca94d49`, census **NSYS050:14 NSYS001:9
+  NL303:5 NSYS070:3 NL402:2** — and **TWO of the three corpus-live NSYS codes are decided by this cut**
+  (NSYS001 by the allocation rule, NSYS070 by the hostile-surface rule), so the ordering pin is a real
+  one here; self-host **285 findings / 10 codes** with **ZERO findings from either new owner**;
+  slice-69 fixtures 0 diffs over 25 rows; SoA fixtures 0 diffs over 27 rows at the recorded census;
+  slice-68 fixtures 0 diffs, md5 `48733945296bd257e9c63a89fd4f47a6` with NSYS080:18 intact;
+  supplementary 0 diffs. **PARSE_ERRORS = 0 in all six.**
+
+  **FOUR OF THE SIX CODES ARE CORPUS-SILENT, SO 25 PURPOSE-BUILT FIXTURES CARRY THE END-TO-END
+  PROOF** and fire **61 NSYS findings over 8 codes** — NSYS010 × 9 (both sentences, the `[hot]`-wins
+  case, the `allow(alloc)` silence and the ban-outranks-boundary precedence), NSYS070 × 7 (the named
+  collection, the unsummarized simple and generic sentences, the parameter and return forms, and the
+  array-drops-strictness / by-ref-keeps-it pair), NSYS001 × 2 (the boundary warning and the strict
+  error), NSYS080 × 2 (the ref-like field and the hot ref-like return), NSYS160, NSYS170, NSYS110 × 1
+  (the enum route: `Color.Red` is silent while `Registry.Count` warns, which is the published
+  `IsEnumTypeName` proving itself end to end) — and the base and work CLIs produce them
+  **byte-identically** (md5 `1f68a3c928cf7fe31dee4eca0fbd7f99`). **PARSE-ERROR CENSUS READ FIRST
+  (gotcha 67.2): ZERO from all 25 fixtures.**
+
+  **CORPUS IL, WITH THE CONTROL FIRST.** Control (base CLI twice over fresh archives):
+  **COMPARED 118, SAME 118, DIFFERENT 0**. Product (base vs work): **63 / 63 N#-EMITTED ASSEMBLIES
+  BYTE-IDENTICAL**, and the 55 differing files are **all `NSharpLang.Runtime.dll` copies, proved
+  INHERITED**: each side's 55 copies are ONE binary (distinct raw hashes = 1 on both sides), the
+  Runtime SOURCE is **0 files different** between base and work, and the normalised delta is **208 of
+  14,848 bytes** — slice 67's and slice 68's finding reproduced. **NON_RUNTIME_DIFFS = 0.**
+  **Unsorted build transcripts: 1,557 lines, 0 diffs in BOTH comparisons, the same md5
+  `1ff6a3797a58c74f8a52bc410519794b` in all THREE sweeps** (73 target headers, 55 successful builds) —
+  byte-for-byte the md5 slice 1 recorded.
+
+  **THE FIVE-RUN ORDERING PIN: 195 TARGETS, 811 LINES, BYTE-IDENTICAL md5
+  `f0dd8c9ff73e491c9faa32706c595bd8` ON ALL FIVE**, `RUN1_VS_RUNn DIFFS = 0` for n = 2..5;
+  **616 diagnostic rows over 36 codes**, carrying every code this cut decides (NSYS001:11, NSYS010:9,
+  NSYS070:10, NSYS080:20, NSYS160:1, NSYS170:1, NSYS110:1). The 4 `NL101`/`NL102` rows belong to the
+  two INHERITED fixtures whose whole purpose is to be unparseable
+  (`t65-file-imported-syntax-error-reports`, `t66-a-package-segment-starting-with-a-digit-is-rejected`).
+
+  Unit suite **3,194 / 3,194** via `dev.sh --since`'s fail-safe FULL path (a central change, so it
+  refused to narrow); contracts **3,984 / 3,984**; audit **18 / 18**; `nlc format` canonical
+  (**"Formatted 0 file(s)"** on the second pass — the authored text was already canonical) and
+  `format --check` clean.
+
+  **THE FULL VS CODE-ENABLED GATE PASSED OVER THE BYTE-FINAL TREE: `ALL TESTS PASSED`, 16 steps,
+  20m11s, ZERO failures** — unit 3,194 / 3,194, native N# contracts 3,984 / 3,984, the whole native
+  product estate green, **VS Code integration tests (Step 3b) PASSED**, the format contract gate
+  green, SDK + templates packed and installed, examples and single-file examples built, `nlc check`
+  on examples clean, and IL verification green on **all 67 N# assemblies with no new errors vs
+  baseline**. The tree hash taken BEFORE the gate and again AFTER it is **identical**
+  (`3864f8c91803594c2f01110224e26474` over 1,251 tracked-plus-new files), so the gate ran over
+  exactly the bytes this slice leaves behind; the production-only hash excluding this ledger is
+  `1fcd95b5ab41ad643c9e3defce30f1d3` over 1,250 files and is unchanged by this paragraph. **THE
+  RATCHET REPIN WAS THE LAST PRODUCTION EDIT** — slice 1's gate-caught rule applied rather than
+  rediscovered, and the audit was green on the first gate run. The VSIX was rebuilt and reinstalled
+  from that same tree.
+
+  **NO LANGUAGE WALL WAS HIT. WALL STATUS: ZERO — NO TOOLSET REPIN.** Every shape this family needed
+  compiled on the FIRST build: the three `HashSet<string>` fields with an `StringComparer.Ordinal`
+  constructor, `HashSet.Add` discarded as a statement, a nullable-string return used as a
+  three-valued answer, mutual recursion across four members, a `SpecialConstraintKind` flag test via
+  `Convert.ToInt32` (slice-63's precedent), and an `ErrorSeverity` field on a `record` crossing the
+  assembly boundary. The cumulative gotcha list was applied PRE-EMPTIVELY rather than rediscovered:
+  every `record` carries a `{}` body (68.1), the union locals are named `unionType` because `union`
+  is reserved (63.1), and no `while true` was needed. The one deliberate non-mechanical decision is
+  that `IsSystemsHostileSurface`'s single 78-line `switch` became FOUR members
+  (`HostileSurfaceReason` + `HostileGenericReason` + `HostileSimpleReason` +
+  `IsHostileGenericConstructorName`), which changes nothing the differential can see and makes the
+  fourteen-name table nameable.
+
+  **A DEAD GUARD WAS PRESERVED RATHER THAN TIDIED, AND SAID SO.** The strict-profile arm's
+  `!isBoundary` conjunct is unreachable — the arm above it returns on exactly that condition — and it
+  is kept as the original wrote it, with the reason recorded in the owner's own comment: removing a
+  redundant guard is behaviour-neutral only for as long as the arm above it keeps returning.
+
+  **ONE EVALUATION-ORDER CHANGE WAS CHECKED RATHER THAN WAVED.** The relay calls
+  `context.IsAllowed("alloc")` eagerly while the original called it only under `IsHot || AllocNone`.
+  `WalkContext.IsAllowed` reads `Summary.FunctionAllows` and the allow stack and mutates nothing, so
+  the change is unobservable — and the 384-row ALLOC section compares the ANSWER through the real
+  `RecordAllocation`, which would have caught it if it were not.
+
+  **THE BRIEF'S OWN ARITHMETIC WAS CORRECTED BY MEASUREMENT**: it said "305 lines over 11 members";
+  the validated extractor says **222**, and the closure table's own per-family figures agree
+  (67 + 82 + 73 = 222). Recorded so the next brief's numbers are read as claims to check, not facts.
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT 018 SLICE.** Worktrees: `/private/tmp/nl69base` (pristine
+  `56174a687` + Release CLI) and `/private/tmp/nl69corpus` (the shared source copy both CLIs check —
+  a copy of the WORK tree, so the self-host oracle checks the new owners too). Fixtures:
+  `/private/tmp/nl69fixtures` (**25**, with `targets.txt`, all parsing clean), beside slice 68's
+  `/private/tmp/nl68fixtures` (20), 67's (9), 66's (29), 65's (40) and `/private/tmp/nl62soafx` (27).
+  IL trees and captures: `/private/tmp/nl69il{Ctrl,A,B}Tree` with outputs under
+  `/private/tmp/nl69out{Ctrl,A,B}`. **The two-sided differential harness is `/private/tmp/nl69grid`**
+  — ONE `Grid.cs` compiled twice (`base/Base.csproj` with `NL69_BASE` against the base worktree's
+  `Compiler.csproj`, `work/Work.csproj` against the repo's); slice 1's shape, extended with the
+  reflection recipe for driving a private VOID member that reports into a private sink (build
+  `MutableFunctionSummary` via its non-public constructor, set the init-only properties by
+  `PropertyInfo.SetValue`, construct `FunctionEntry` and `WalkContext` by `Activator`, clear
+  `_findings` per cell and render every finding property by name with a property-then-field fallback,
+  because the N# record's members are not all properties). Harnesses in the scratchpad:
+  `nl62_members.py` (**the extractor, re-validated at 171 / 163 / 120 before it was trusted**),
+  `nl69-make-fixtures.py`, `nl69-oracle.sh`, `nl69-run-oracles.sh`, `nl69-ilsweep.sh`,
+  `nl69-ilnorm.py`, `nl69-ilcompare.py`, `nl69-transnorm.py`, `nl69-determinism.sh` and
+  `nl69-repin.py`. **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+- Active sub-slice (018 arc, PRIOR TURN, ACCEPTED at `56174a687`): **018 SLICE 1 — THE SYSTEMS-ANALYZER BURN-DOWN OPENS.
   N# OWNS WHAT A `stackalloc` MAY RESERVE AND WHAT IT MAY NOT OUTLIVE.** Target and full scored
   inventory recorded BEFORE any production edit, at `dae23a74d`
   (`src/NSharpLang.Compiler/Performance/SystemsAnalyzer.cs` **2,390** lines, non-blank **2,156**,
@@ -26544,8 +26841,65 @@ These are populated only when their task becomes current.
   them either calls a funnel directly or recurses into `IsAssignable`, which does. There is no
   remaining "pure leaf predicate" cut in that neighbourhood — slice 2 took the last of them, and
   slice 3 confirmed it by inventory.
-- Task 018 next systems-policy sub-slice: **F2+F3+F10 TOGETHER — WHAT A TYPE IS WORTH AND WHAT IT MAY
-  CROSS (the ref-like/size/hostile-surface/allocation neighbourhood), 305 lines over 11 members.**
+- Task 018 next systems-policy sub-slice: **F6 + F7 + THE LAST OF F17 — WHAT A CALL TARGET IS, AND
+  WHAT A LOCAL STILL OWES. 141 lines over 15 members, and it is the LAST family in the file with no
+  reporting dependency at all.** Re-scored at `SystemsAnalyzer.cs` **2,048 lines / 151 extents** by
+  the validated extractor and the closure/state harnesses (`nl69-closure.py --nontransitive`,
+  `nl69-state.py`) AFTER slice 2. **The inventory, updated:**
+
+  | family | members | lines | re-entries | blocking out-edges | NSYS codes |
+  |---|---|---|---|---|---|
+  | F1 guard / trap proof | 13 | 114 | 6 | `ExpressionKey`, `Guards` | — |
+  | **F6 call-target classification** | **11** | **83** | **9** | **`GetCallTarget`** | **—** |
+  | **F7 resource / pool marking** | **2** | **44** | **2** | **`GetCallTarget`, `PoolRents`, `ResourceLocals`** | **—** |
+  | **F17 remainder** | **2** | **14** | **2** | **—** | **—** |
+  | F4 attribute rules | 9 | 90 | 6 | `AddFinding`, `_attributes` | NSYS150, NSYS180 |
+  | F8 finding construction (THE SINK) | 4 | 119 | 4 | `_findings`, `_config`, `MutableFunctionSummary`, `WalkContext` | — |
+  | F9 callee resolution | 8 | 177 | 2 | `_semanticModels`, `_functionEntriesBySite`, `_visibleDeclarationFilesByFile` | — |
+  | F11 unknown external call | 1 | 51 | 1 | `AddFinding`, `_config` | NSYS050 |
+  | F12 hot-summary application | 3 | 106 | 3 | `AddFinding`, `_config`, `_hotSummaries` | 11 codes |
+  | F13 callee policy violations | 2 | 41 | 1 | `AddFinding` | — |
+  | F14 balance checks | 2 | 38 | 2 | `AddFinding`, `PoolRents`, `ResourceLocals` | NSYS090, NSYS130 |
+  | F15 function surface | 2 | 82 | 2 | `AddFinding` | NSYS070, NSYS080, NSYS160, NSYS170 |
+  | F16 registration | 4 | 96 | 1 | `AddTypeFinding` | NSYS080 |
+  | F2 / F3 / F5 / F10 | **0** | **0** | — | — | **OWNED BY N#** |
+
+  **THE STATE CENSUS RE-TAKEN AFTER SLICE 2 IS THE REASON F6 IS NEXT.** `_structTypes`,
+  `_refStructTypes`, `_enumTypes` and `_typeAliases` now report **ZERO touchers** — they are gone
+  from the C# host entirely. F6 keeps **no analyzer-scoped state at all**: its eleven members are
+  pure predicates over a call target string and an expression shape. **It reports NO NSYS code**, so
+  unlike every other remaining family it is NOT blocked behind `AddFinding`'s 22 callers — the same
+  property that made F5 the opening cut. Its ONLY blocking out-edge is `GetCallTarget` (7 lines, 7
+  call sites), the last surviving member of F17 besides `ExpressionKey`; publishing it the way slice
+  1 published `SimpleName`/`TypeReferenceName` unblocks F6 AND F7 at once, which is why the two move
+  together with it. Take `ExpressionKey` (7 lines, 7 call sites) in the same publish: it is F1's
+  blocking out-edge and the only other thing left in F17, so F17 disappears and F1 becomes
+  out-edge-free for a later slice.
+  **THREE THINGS TO PRICE BEFORE CUTTING**: (1) F7's `PoolRents` and `ResourceLocals` are SUMMARY
+  collections with 4 and 3 touchers (`CheckPoolBalance`/`CheckResourceBalance` from F14,
+  `WalkStatement`, and F7 itself) — so they do NOT move with F7 under the slice-65 rule, and F7 must
+  take them as ARGUMENTS the way slice 1's `EscapeViolation` takes `stackallocLocals`; measure
+  whether that is a clean hand-off or whether F7 should wait for F14. (2) `IsResourceCreationExpression`
+  is 22 lines and the largest member in the cut — read whether its `File`/`Stream` factory table is a
+  name table or something that consults state before assuming it is a table. (3) `GetCallTarget` and
+  `ExpressionKey` are both expression-bodied one-liners over `MemberAccessExpression`/
+  `IdentifierExpression`; slice 1's erase-vs-render finding says CHECK whether either duplicates an
+  already-N#-owned projection (`SystemsTypeNames.SimpleName`, `TypeReferenceFacts`) **by measurement,
+  not by reading** — the two name functions that looked identical were proved to DISAGREE.
+  Codes carried: **none** — which means the proof must be the two-sided differential plus fixtures
+  that drive the CONSUMERS (NSYS090 resource, NSYS100, NSYS130 pool balance, NSYS050 unknown external
+  call), because no diagnostic names this family directly.
+  **THE FAMILY THAT MUST COME BEFORE MOST OF THE REST IS F8, THE SINK** (4 members, 119 lines, 22
+  callers): F4, F11, F12, F13, F14, F15 and F16 are each blocked on `AddFinding` or `AddTypeFinding`
+  alone. Slice 2 proved a reporting family can move ahead of the sink when its inputs are scalars
+  (`RecordAllocation` needed six bools), so each of those should be PRICED the same way before being
+  deferred — but F15 in particular reads `MutableFunctionSummary` for position, name and severity on
+  four separate findings, so it is the natural first consumer of a moved sink rather than a
+  scalar-input candidate.
+
+- Task 018 PRIOR sub-slice (DONE, slice 2): **F2+F3+F10 TOGETHER — WHAT A TYPE IS WORTH AND WHAT IT MAY
+  CROSS (the ref-like/size/hostile-surface/allocation neighbourhood), 222 lines over 11 members
+  (the brief's "305" was corrected by measurement).**
   Slice 1's state-exclusivity census says WHY these three must move as ONE cut and not as three:
   `_structTypes` (5 touchers) and `_enumTypes` (6) are read by `IsValueTypeName`,
   `EstimateSimpleTypeSize`, `IsSystemsHostileSurface` and `WalkExpression`, so any one family taken

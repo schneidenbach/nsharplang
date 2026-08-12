@@ -27,9 +27,7 @@ public sealed class SystemsAnalyzer
     private readonly Dictionary<FunctionDeclaration, MutableFunctionSummary> _summaryCache = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<FunctionDeclaration> _visitingFunctions = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<FunctionDeclaration> _emittedFunctions = new(ReferenceEqualityComparer.Instance);
-    private readonly HashSet<string> _structTypes = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _refStructTypes = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _enumTypes = new(StringComparer.Ordinal);
+    private readonly SystemsTypePolicy _typePolicy = new();
     private readonly SystemsStackallocPolicy _stackalloc = new();
     private readonly Dictionary<string, string> _memberTypeNames = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
@@ -59,9 +57,7 @@ public sealed class SystemsAnalyzer
         _summaryCache.Clear();
         _visitingFunctions.Clear();
         _emittedFunctions.Clear();
-        _structTypes.Clear();
-        _refStructTypes.Clear();
-        _enumTypes.Clear();
+        _typePolicy.BeginAnalysis();
         _stackalloc.BeginAnalysis(_config);
         _memberTypeNames.Clear();
         _semanticModels = semanticModels ?? EmptySemanticModels;
@@ -126,15 +122,15 @@ public sealed class SystemsAnalyzer
                     RegisterDeclarations(file, cls.Members, cls.Name);
                     break;
                 case StructDeclaration st:
-                    _structTypes.Add(st.Name);
+                    _typePolicy.RegisterStructType(st.Name);
                     if (st.IsRefStruct)
-                        _refStructTypes.Add(st.Name);
+                        _typePolicy.RegisterRefStructType(st.Name);
                     CheckRefLikeFields(file, st.Name, st.IsRefStruct, st.Members);
                     RegisterDeclarations(file, st.Members, st.Name);
                     break;
                 case RecordDeclaration rec:
                     if (rec.IsStruct)
-                        _structTypes.Add(rec.Name);
+                        _typePolicy.RegisterStructType(rec.Name);
                     CheckRefLikeFields(file, rec.Name, isRefStruct: false, rec.Members);
                     RegisterDeclarations(file, rec.Members, rec.Name);
                     break;
@@ -148,7 +144,7 @@ public sealed class SystemsAnalyzer
                     RegisterDeclarations(file, iface.Members, iface.Name);
                     break;
                 case EnumDeclaration enm:
-                    _enumTypes.Add(enm.Name);
+                    _typePolicy.RegisterEnumType(enm.Name);
                     break;
                 case TypeAliasDeclaration alias:
                     _stackalloc.RegisterTypeAlias(alias.Name, alias.Type);
@@ -323,7 +319,7 @@ public sealed class SystemsAnalyzer
 
         foreach (var field in members.OfType<FieldDeclaration>())
         {
-            if (field.Type != null && IsRefLikeType(field.Type))
+            if (field.Type != null && _typePolicy.IsRefLikeType(field.Type))
             {
                 AddTypeFinding(
                     "NSYS080",
@@ -386,7 +382,7 @@ public sealed class SystemsAnalyzer
 
         foreach (var parameter in function.Parameters)
         {
-            if (IsSystemsHostileSurface(parameter.Type, hotStrict: summary.IsHot, out var reason, function.Constraints))
+            if (_typePolicy.HostileSurfaceReason(parameter.Type, summary.IsHot, function.Constraints) is { } reason)
             {
                 AddFinding(
                     "NSYS070",
@@ -402,7 +398,7 @@ public sealed class SystemsAnalyzer
         }
 
         if (function.ReturnType != null
-            && IsSystemsHostileSurface(function.ReturnType, hotStrict: summary.IsHot, out var returnReason, function.Constraints))
+            && _typePolicy.HostileSurfaceReason(function.ReturnType, summary.IsHot, function.Constraints) is { } returnReason)
         {
             AddFinding(
                 "NSYS070",
@@ -416,15 +412,13 @@ public sealed class SystemsAnalyzer
                 "Return Result<T,E>, Span/ReadOnlySpan with a known lifetime, a primitive, enum, or systems-safe struct.");
         }
 
-        if (function.ReturnType != null
-            && IsResultType(function.ReturnType)
-            && EstimateResultSize(function.ReturnType) is > 128 and var resultSize)
+        if (_typePolicy.ResultAbiReason(function.ReturnType) is { } resultAbiReason)
         {
             AddFinding(
                 // resultAbi gets its own code (NSYS170); NSYS160 is reserved for resultMustUse (M5).
                 "NSYS170",
                 "resultAbi",
-                $"Result<T,E> copy shape is estimated at {resultSize} bytes, above the v1 hot-path guidance of 128 bytes",
+                resultAbiReason,
                 function.Line,
                 function.Column,
                 Math.Max(1, function.Name.Length),
@@ -435,7 +429,7 @@ public sealed class SystemsAnalyzer
 
         if (summary.IsHot
             && function.ReturnType != null
-            && ContainsRefLikeType(function.ReturnType)
+            && _typePolicy.ContainsRefLikeType(function.ReturnType)
             && string.IsNullOrWhiteSpace(function.ReturnLifetime))
         {
             AddFinding("NSYS080", "lifetime", "[hot] function returns a ref-like value with an unknown lifetime", function.Line, function.Column, Math.Max(1, function.Name.Length), summary, ErrorSeverity.Error, "Use `returns 'a`, `returns heap(owner)`, or return an owned value instead of a ref-like view.");
@@ -450,7 +444,7 @@ public sealed class SystemsAnalyzer
         if (!TryResolveDeclaredCallee(call, context, out var entry))
             return;
 
-        if (entry.Function.ReturnType == null || !IsResultType(entry.Function.ReturnType))
+        if (entry.Function.ReturnType == null || !_typePolicy.IsResultType(entry.Function.ReturnType))
             return;
 
         AddFinding(
@@ -964,7 +958,7 @@ public sealed class SystemsAnalyzer
                     WalkExpression(newExpression.ArrayLengthExpression, context);
                 if (newExpression.Initializer != null)
                     WalkExpression(newExpression.Initializer, context);
-                if (IsHeapAllocation(newExpression))
+                if (_typePolicy.IsHeapAllocation(newExpression))
                     RecordAllocation(newExpression, context, explicitAllocation || context.InAllocZone);
                 break;
             case ObjectInitializerExpression initializer:
@@ -1003,7 +997,7 @@ public sealed class SystemsAnalyzer
                     && member.Object is IdentifierExpression receiver
                     && receiver.Name.Length > 0
                     && char.IsUpper(receiver.Name[0])
-                    && !_enumTypes.Contains(receiver.Name)
+                    && !_typePolicy.IsEnumTypeName(receiver.Name)
                     && !IsKnownStaticHotReceiver(receiver.Name)
                     && !_hotSummaries.HasReceiverSummary(receiver.Name, _config.TargetFramework)
                     && _config.Language.Systems.Warmup.Count == 0)
@@ -1350,76 +1344,26 @@ public sealed class SystemsAnalyzer
     {
         context.Summary.Allocates = true;
 
-        if (context.Summary.IsHot || context.Summary.AllocNone)
-        {
-            if (!context.IsAllowed("alloc"))
-            {
-                AddFinding(
-                    "NSYS010",
-                    "allocation",
-                    context.Summary.IsHot
-                        ? "allocation not allowed in [hot] function"
-                        : "allocation not allowed in [alloc(none)] function",
-                    expression.Line,
-                    expression.Column,
-                    1,
-                    context,
-                    ErrorSeverity.Error,
-                    "Move allocation behind a [boundary], return caller-provided storage, or use a narrow allow(alloc) only for a cold path.");
-            }
-            return;
-        }
-
-        if (context.Summary.IsBoundary)
+        var violation = SystemsAllocationPolicy.Violation(
+            context.Summary.IsHot,
+            context.Summary.AllocNone,
+            context.Summary.IsBoundary,
+            context.IsAllowed("alloc"),
+            IsSystemsProfile,
+            explicitAllocation);
+        if (violation != null)
         {
             AddFinding(
-                "NSYS001",
-                "allocation",
-                "boundary allocation reported for systems handoff review",
+                violation.Code,
+                violation.Effect,
+                violation.Message,
                 expression.Line,
                 expression.Column,
                 1,
                 context,
-                ErrorSeverity.Warning,
-                "Keep allocation inside the [boundary] and hand systems code explicit values, spans, or Result<T,E>.");
-            return;
+                violation.Severity,
+                violation.Suggestion);
         }
-
-        if (IsSystemsProfile && !context.Summary.IsBoundary && !explicitAllocation)
-        {
-            AddFinding(
-                "NSYS001",
-                "allocation",
-                "heap allocation in systems strict must be marked with alloc",
-                expression.Line,
-                expression.Column,
-                1,
-                context,
-                ErrorSeverity.Error,
-                "Write alloc new/alloc [...]/alloc $\"...\" or move this work into a [boundary].");
-        }
-    }
-
-    private bool IsHeapAllocation(NewExpression expression)
-    {
-        if (expression.Type == null)
-            return true;
-
-        if (expression.Type is ArrayTypeReference)
-            return true;
-
-        var name = SystemsTypeNames.ErasedName(expression.Type);
-        return !IsValueTypeName(name);
-    }
-
-    private bool IsValueTypeName(string name)
-    {
-        name = SystemsTypeNames.SimpleName(name);
-        return name is "bool" or "byte" or "sbyte" or "short" or "ushort" or "int" or "uint"
-            or "long" or "ulong" or "float" or "double" or "decimal" or "char" or "nint" or "nuint"
-            or "DateTime" or "Guid" or "TimeSpan"
-            || _structTypes.Contains(name)
-            || _enumTypes.Contains(name);
     }
 
     private void AddUnknownExternalCall(string target, int line, int column, WalkContext context)
@@ -1726,163 +1670,6 @@ public sealed class SystemsAnalyzer
         return _memberTypeNames.TryGetValue(ExpressionKey(receiver), out var receiverType)
                && SystemsTypeNames.SimpleName(receiverType) is "Dictionary";
     }
-
-    private bool IsRefLikeType(TypeReference type)
-    {
-        var name = SystemsTypeNames.SimpleName(SystemsTypeNames.ErasedName(type));
-        return name is "Span" or "ReadOnlySpan"
-            || type is ByRefTypeReference
-            || _refStructTypes.Contains(name);
-    }
-
-    private bool ContainsRefLikeType(TypeReference type)
-    {
-        if (IsRefLikeType(type))
-            return true;
-
-        return type switch
-        {
-            GenericTypeReference generic => generic.TypeArguments.Any(ContainsRefLikeType),
-            ArrayTypeReference array => ContainsRefLikeType(array.ElementType),
-            NullableTypeReference nullable => ContainsRefLikeType(nullable.InnerType),
-            UnionTypeReference union => union.Arms.Any(ContainsRefLikeType),
-            ByRefTypeReference byRef => ContainsRefLikeType(byRef.InnerType),
-            _ => false
-        };
-    }
-
-    private static bool IsResultType(TypeReference type)
-    {
-        if (type is not GenericTypeReference generic)
-            return false;
-
-        return SystemsTypeNames.SimpleName(generic.Name) is "Result" && generic.TypeArguments.Count == 2;
-    }
-
-    private int EstimateResultSize(TypeReference type)
-    {
-        if (type is not GenericTypeReference generic || generic.TypeArguments.Count != 2)
-            return 0;
-
-        // byte tag + padding plus both payload fields. This is deliberately a
-        // conservative copy-shape estimate, not a replacement for runtime sizeof.
-        return 16 + EstimateTypeSize(generic.TypeArguments[0]) + EstimateTypeSize(generic.TypeArguments[1]);
-    }
-
-    private int EstimateTypeSize(TypeReference type) => type switch
-    {
-        SimpleTypeReference simple => EstimateSimpleTypeSize(SystemsTypeNames.SimpleName(simple.Name)),
-        GenericTypeReference generic when SystemsTypeNames.SimpleName(generic.Name) is "Span" or "ReadOnlySpan" or "Memory" or "ReadOnlyMemory" => 16,
-        GenericTypeReference generic when SystemsTypeNames.SimpleName(generic.Name) is "Result" => EstimateResultSize(generic),
-        GenericTypeReference => 32,
-        ArrayTypeReference => 8,
-        NullableTypeReference nullable => EstimateTypeSize(nullable.InnerType) + 1,
-        ByRefTypeReference => 8,
-        UnionTypeReference union => union.Arms.Count == 0 ? 0 : union.Arms.Max(EstimateTypeSize) + 8,
-        _ => 32
-    };
-
-    private int EstimateSimpleTypeSize(string name)
-    {
-        if (_enumTypes.Contains(name))
-            return 4;
-        if (_structTypes.Contains(name))
-            return 32;
-        return name switch
-        {
-            "bool" or "byte" or "sbyte" => 1,
-            "short" or "ushort" or "char" => 2,
-            "int" or "uint" or "float" => 4,
-            "long" or "ulong" or "double" or "nint" or "nuint" => 8,
-            "decimal" or "Guid" => 16,
-            "DateTime" or "TimeSpan" => 8,
-            _ => 8
-        };
-    }
-
-    private bool IsSystemsHostileSurface(
-        TypeReference type,
-        bool hotStrict,
-        out string reason,
-        IReadOnlyList<GenericConstraint>? constraints = null)
-    {
-        reason = string.Empty;
-
-        switch (type)
-        {
-            case ByRefTypeReference byRef:
-                return IsSystemsHostileSurface(byRef.InnerType, hotStrict, out reason, constraints);
-            case ArrayTypeReference array:
-                return IsSystemsHostileSurface(array.ElementType, hotStrict: false, out reason, constraints);
-            case NullableTypeReference nullable:
-                return IsSystemsHostileSurface(nullable.InnerType, hotStrict, out reason, constraints);
-            case UnionTypeReference union:
-                foreach (var arm in union.Arms)
-                {
-                    if (IsSystemsHostileSurface(arm, hotStrict, out reason, constraints))
-                        return true;
-                }
-                return false;
-            case GenericTypeReference generic:
-            {
-                var name = SystemsTypeNames.SimpleName(generic.Name);
-                if (name is "Result")
-                {
-                    foreach (var argument in generic.TypeArguments)
-                    {
-                        if (IsSystemsHostileSurface(argument, hotStrict, out reason, constraints))
-                            return true;
-                    }
-                    return false;
-                }
-
-                if (name is "Span" or "ReadOnlySpan" or "Memory" or "ReadOnlyMemory")
-                    return false;
-
-                if (name is "IEnumerable" or "IQueryable" or "IEnumerator" or "IAsyncEnumerable"
-                    or "Task" or "ValueTask" or "Func" or "Action" or "List" or "Dictionary"
-                    or "IList" or "ICollection" or "IReadOnlyList" or "IReadOnlyCollection")
-                {
-                    reason = name;
-                    return true;
-                }
-
-                if (hotStrict)
-                {
-                    reason = $"generic type '{name}' has no HotSummary surface rule";
-                    return true;
-                }
-
-                return false;
-            }
-            case SimpleTypeReference simple:
-            {
-                var name = SystemsTypeNames.SimpleName(simple.Name);
-                if (IsValueConstrainedGenericParameter(name, constraints))
-                    return false;
-                if (IsValueTypeName(name) || name is "string" or "ReadOnlySpan" or "Span")
-                    return false;
-                if (name is "object" or "dynamic" or "Type" or "Stream" or "Delegate")
-                {
-                    reason = name;
-                    return true;
-                }
-                if (hotStrict && !_structTypes.Contains(name) && !_enumTypes.Contains(name))
-                {
-                    reason = $"managed or unsummarized type '{name}'";
-                    return true;
-                }
-                return false;
-            }
-            default:
-                return false;
-        }
-    }
-
-    private static bool IsValueConstrainedGenericParameter(string name, IReadOnlyList<GenericConstraint>? constraints)
-        => constraints?.Any(constraint =>
-            string.Equals(constraint.TypeParameter, name, StringComparison.Ordinal)
-            && constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct)) == true;
 
     private static bool IsKnownStaticHotReceiver(string name)
         => name is "BinaryPrimitives" or "MemoryMarshal" or "BitOperations" or "Math" or "MathF"
