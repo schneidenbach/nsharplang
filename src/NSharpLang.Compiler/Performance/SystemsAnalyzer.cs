@@ -30,7 +30,7 @@ public sealed class SystemsAnalyzer
     private readonly HashSet<string> _structTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _refStructTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _enumTypes = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _typeAliases = new(StringComparer.Ordinal);
+    private readonly SystemsStackallocPolicy _stackalloc = new();
     private readonly Dictionary<string, string> _memberTypeNames = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
     private HotSummaryCatalog _hotSummaries;
@@ -62,7 +62,7 @@ public sealed class SystemsAnalyzer
         _structTypes.Clear();
         _refStructTypes.Clear();
         _enumTypes.Clear();
-        _typeAliases.Clear();
+        _stackalloc.BeginAnalysis(_config);
         _memberTypeNames.Clear();
         _semanticModels = semanticModels ?? EmptySemanticModels;
         _hotSummaries = HotSummaryCatalog.Load(_projectRoot, _config);
@@ -151,7 +151,7 @@ public sealed class SystemsAnalyzer
                     _enumTypes.Add(enm.Name);
                     break;
                 case TypeAliasDeclaration alias:
-                    _typeAliases[alias.Name] = TypeReferenceName(alias.Type);
+                    _stackalloc.RegisterTypeAlias(alias.Name, alias.Type);
                     break;
             }
         }
@@ -162,7 +162,7 @@ public sealed class SystemsAnalyzer
         if (containingType == null || type == null)
             return;
 
-        _memberTypeNames[$"{containingType}.{memberName}"] = TypeReferenceName(type);
+        _memberTypeNames[$"{containingType}.{memberName}"] = SystemsTypeNames.ErasedName(type);
     }
 
     private void RegisterFunction(string file, string? containingType, FunctionDeclaration function)
@@ -579,7 +579,7 @@ public sealed class SystemsAnalyzer
                         context.Summary.Resource = true;
                         context.Summary.ResourceLocals[variable.Name] = new ResourceLocal(variable.Name, resourceKind, variable.Line, variable.Column);
                     }
-                    if (variable.Initializer is StackAllocExpression)
+                    if (_stackalloc.IsStackallocBackedInitializer(variable.Initializer))
                     {
                         context.Summary.StackallocLocals.Add(variable.Name);
                     }
@@ -632,11 +632,10 @@ public sealed class SystemsAnalyzer
             case ReturnStatement returnStatement:
                 if (returnStatement.Value != null)
                 {
-                    if (returnStatement.Value is IdentifierExpression returned
-                        && context.Summary.StackallocLocals.Contains(returned.Name))
+                    if (_stackalloc.EscapeViolation(returnStatement.Value, context.Summary.StackallocLocals) is { } escape)
                     {
                         context.Summary.ImplicitTrap = true;
-                        AddFinding("NSYS080", "lifetime", "stackalloc span cannot escape through a return value", returnStatement.Line, returnStatement.Column, "return".Length, context, ErrorSeverity.Error, "Copy into caller-provided storage or return a heap/parameter-backed span with an explicit lifetime.");
+                        AddFinding(escape.Code, escape.Effect, escape.Message, returnStatement.Line, returnStatement.Column, "return".Length, context, ErrorSeverity.Error, escape.Suggestion);
                     }
                     WalkExpression(returnStatement.Value, context);
                 }
@@ -952,10 +951,10 @@ public sealed class SystemsAnalyzer
                 break;
             case StackAllocExpression stackAlloc:
                 WalkExpression(stackAlloc.LengthExpression, context);
-                if (!IsStackallocLengthWithinBudget(stackAlloc, out var stackallocReason))
+                if (_stackalloc.BudgetViolation(stackAlloc) is { } budget)
                 {
                     context.Summary.ImplicitTrap = true;
-                    AddFinding("NSYS080", "lifetime", stackallocReason, stackAlloc.Line, stackAlloc.Column, "stackalloc".Length, context, ErrorSeverity.Error, "Use a constant within the systems stack budget, guard the maximum size, or allocate outside the hot path.");
+                    AddFinding(budget.Code, budget.Effect, budget.Message, stackAlloc.Line, stackAlloc.Column, "stackalloc".Length, context, ErrorSeverity.Error, budget.Suggestion);
                 }
                 break;
             case NewExpression newExpression:
@@ -1052,7 +1051,7 @@ public sealed class SystemsAnalyzer
                 break;
             case CastExpression cast:
                 WalkExpression(cast.Expression, context);
-                if (TypeReferenceName(cast.TargetType) is "object" or "System.Object")
+                if (SystemsTypeNames.ErasedName(cast.TargetType) is "object" or "System.Object")
                 {
                     context.Summary.Boxes = true;
                     AddFindingForPolicy("NSYS020", "boxing", "cast to object may box a value on systems paths", cast, context, "Keep values concrete or use a generic/constrained API.");
@@ -1272,7 +1271,7 @@ public sealed class SystemsAnalyzer
                 $"sidecar HotSummary for '{target}' is not allowed to satisfy [hot] by project policy",
                 call.Line,
                 call.Column,
-                Math.Max(1, SimpleName(target).Length),
+                Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
                 context,
                 ErrorSeverity.Error,
                 "Set language.systems.allowHotSidecars only after auditing the sidecar identity and body hash, or move the call behind a [boundary].");
@@ -1290,7 +1289,7 @@ public sealed class SystemsAnalyzer
                 $"sidecar HotSummary for '{target}' is missing body identity or package version, so per-fact drift cannot be audited",
                 call.Line,
                 call.Column,
-                Math.Max(1, SimpleName(target).Length),
+                Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
                 context,
                 ErrorSeverity.Error,
                 "Key sidecar facts by MVID/body hash, source hash, or package version plus metadata identity.");
@@ -1409,13 +1408,13 @@ public sealed class SystemsAnalyzer
         if (expression.Type is ArrayTypeReference)
             return true;
 
-        var name = TypeReferenceName(expression.Type);
+        var name = SystemsTypeNames.ErasedName(expression.Type);
         return !IsValueTypeName(name);
     }
 
     private bool IsValueTypeName(string name)
     {
-        name = SimpleName(name);
+        name = SystemsTypeNames.SimpleName(name);
         return name is "bool" or "byte" or "sbyte" or "short" or "ushort" or "int" or "uint"
             or "long" or "ulong" or "float" or "double" or "decimal" or "char" or "nint" or "nuint"
             or "DateTime" or "Guid" or "TimeSpan"
@@ -1434,7 +1433,7 @@ public sealed class SystemsAnalyzer
                 $"unknown external call '{target}' is not callable from [hot]",
                 line,
                 column,
-                Math.Max(1, SimpleName(target).Length),
+                Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
                 context,
                 ErrorSeverity.Error,
                 "Add a compiler/HotSummary entry, make the callee [hot], or move this call behind a [boundary].");
@@ -1449,7 +1448,7 @@ public sealed class SystemsAnalyzer
                 $"boundary external call '{target}' reported for systems handoff review",
                 line,
                 column,
-                Math.Max(1, SimpleName(target).Length),
+                Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
                 context,
                 ErrorSeverity.Warning,
                 "Keep unknown external work inside the [boundary] and expose a systems-safe result.");
@@ -1469,7 +1468,7 @@ public sealed class SystemsAnalyzer
             $"unknown external call '{target}' has no systems summary",
             line,
             column,
-            Math.Max(1, SimpleName(target).Length),
+            Math.Max(1, SystemsTypeNames.SimpleName(target).Length),
             context,
             policy == "error" ? ErrorSeverity.Error : ErrorSeverity.Warning,
             "Add a sidecar HotSummary or put the call in a [boundary].");
@@ -1725,28 +1724,12 @@ public sealed class SystemsAnalyzer
             return false;
 
         return _memberTypeNames.TryGetValue(ExpressionKey(receiver), out var receiverType)
-               && SimpleName(receiverType) is "Dictionary";
+               && SystemsTypeNames.SimpleName(receiverType) is "Dictionary";
     }
-
-    private static string SimpleName(string value)
-    {
-        var index = value.LastIndexOf('.');
-        return index >= 0 ? value[(index + 1)..] : value;
-    }
-
-    private static string TypeReferenceName(TypeReference type) => type switch
-    {
-        SimpleTypeReference simple => simple.Name,
-        GenericTypeReference generic => generic.Name,
-        ArrayTypeReference array => TypeReferenceName(array.ElementType) + "[]",
-        NullableTypeReference nullable => TypeReferenceName(nullable.InnerType) + "?",
-        ByRefTypeReference byRef => "&" + TypeReferenceName(byRef.InnerType),
-        _ => type.ToString() ?? string.Empty
-    };
 
     private bool IsRefLikeType(TypeReference type)
     {
-        var name = SimpleName(TypeReferenceName(type));
+        var name = SystemsTypeNames.SimpleName(SystemsTypeNames.ErasedName(type));
         return name is "Span" or "ReadOnlySpan"
             || type is ByRefTypeReference
             || _refStructTypes.Contains(name);
@@ -1773,7 +1756,7 @@ public sealed class SystemsAnalyzer
         if (type is not GenericTypeReference generic)
             return false;
 
-        return SimpleName(generic.Name) is "Result" && generic.TypeArguments.Count == 2;
+        return SystemsTypeNames.SimpleName(generic.Name) is "Result" && generic.TypeArguments.Count == 2;
     }
 
     private int EstimateResultSize(TypeReference type)
@@ -1788,9 +1771,9 @@ public sealed class SystemsAnalyzer
 
     private int EstimateTypeSize(TypeReference type) => type switch
     {
-        SimpleTypeReference simple => EstimateSimpleTypeSize(SimpleName(simple.Name)),
-        GenericTypeReference generic when SimpleName(generic.Name) is "Span" or "ReadOnlySpan" or "Memory" or "ReadOnlyMemory" => 16,
-        GenericTypeReference generic when SimpleName(generic.Name) is "Result" => EstimateResultSize(generic),
+        SimpleTypeReference simple => EstimateSimpleTypeSize(SystemsTypeNames.SimpleName(simple.Name)),
+        GenericTypeReference generic when SystemsTypeNames.SimpleName(generic.Name) is "Span" or "ReadOnlySpan" or "Memory" or "ReadOnlyMemory" => 16,
+        GenericTypeReference generic when SystemsTypeNames.SimpleName(generic.Name) is "Result" => EstimateResultSize(generic),
         GenericTypeReference => 32,
         ArrayTypeReference => 8,
         NullableTypeReference nullable => EstimateTypeSize(nullable.InnerType) + 1,
@@ -1842,7 +1825,7 @@ public sealed class SystemsAnalyzer
                 return false;
             case GenericTypeReference generic:
             {
-                var name = SimpleName(generic.Name);
+                var name = SystemsTypeNames.SimpleName(generic.Name);
                 if (name is "Result")
                 {
                     foreach (var argument in generic.TypeArguments)
@@ -1874,7 +1857,7 @@ public sealed class SystemsAnalyzer
             }
             case SimpleTypeReference simple:
             {
-                var name = SimpleName(simple.Name);
+                var name = SystemsTypeNames.SimpleName(simple.Name);
                 if (IsValueConstrainedGenericParameter(name, constraints))
                     return false;
                 if (IsValueTypeName(name) || name is "string" or "ReadOnlySpan" or "Span")
@@ -1951,7 +1934,7 @@ public sealed class SystemsAnalyzer
             case AllocExpression alloc:
                 return IsResourceCreationExpression(alloc.Expression, out kind);
             case NewExpression { Type: not null } newExpression:
-                var typeName = SimpleName(TypeReferenceName(newExpression.Type));
+                var typeName = SystemsTypeNames.SimpleName(SystemsTypeNames.ErasedName(newExpression.Type));
                 if (IsKnownDisposableType(typeName))
                 {
                     kind = typeName;
@@ -2020,118 +2003,6 @@ public sealed class SystemsAnalyzer
                 rent.Returned = true;
             }
         }
-    }
-
-    private bool IsStackallocLengthWithinBudget(StackAllocExpression stackAlloc, out string reason)
-    {
-        reason = string.Empty;
-
-        if (!TryGetStackallocElementCount(stackAlloc.LengthExpression, out var elementCount))
-        {
-            reason = "stackalloc length must be statically bounded in Systems N# v1";
-            return false;
-        }
-
-        if (elementCount < 0)
-        {
-            reason = "stackalloc length cannot be negative";
-            return false;
-        }
-
-        var elementSize = ResolveTypeAliasName(TypeReferenceName(stackAlloc.ElementType)) switch
-        {
-            "bool" or "byte" or "sbyte" => 1,
-            "short" or "ushort" or "char" => 2,
-            "int" or "uint" or "float" => 4,
-            "long" or "ulong" or "double" => 8,
-            "decimal" => 16,
-            _ => 16
-        };
-        // Compute in long: int*int overflows for large counts (e.g. `stackalloc int[2_000_000_000]`)
-        // and would wrap to a small/negative value that wrongly passes the budget check (M4).
-        var total = (long)elementCount * elementSize;
-        if (total <= _config.Language.Systems.StackBudgetBytes)
-            return true;
-
-        reason = $"stackalloc reserves {total} bytes, above the configured systems stack budget of {_config.Language.Systems.StackBudgetBytes} bytes";
-        return false;
-    }
-
-    private bool TryGetStackallocElementCount(Expression expression, out long elementCount)
-    {
-        expression = UnwrapStackallocLengthExpression(expression);
-
-        if (expression is UnaryExpression { Operator: UnaryOperator.Negate, Operand: var operand }
-            && TryGetUnsignedIntegerMagnitude(operand, out var negativeMagnitude))
-        {
-            elementCount = negativeMagnitude == 0 ? 0 : -1;
-            return true;
-        }
-
-        if (expression is IntLiteralExpression literal
-            && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out var magnitude)
-            && magnitude <= long.MaxValue)
-        {
-            elementCount = (long)magnitude;
-            return true;
-        }
-
-        elementCount = 0;
-        return false;
-    }
-
-    private bool TryGetUnsignedIntegerMagnitude(Expression expression, out ulong magnitude)
-    {
-        expression = UnwrapStackallocLengthExpression(expression);
-        if (expression is IntLiteralExpression literal
-            && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out magnitude))
-        {
-            return true;
-        }
-
-        magnitude = 0;
-        return false;
-    }
-
-    private Expression UnwrapStackallocLengthExpression(Expression expression)
-    {
-        while (true)
-        {
-            expression = expression switch
-            {
-                ParenthesizedExpression parenthesized => parenthesized.Inner,
-                CheckedExpression checkedExpression => checkedExpression.Expression,
-                UncheckedExpression uncheckedExpression => uncheckedExpression.Expression,
-                CastExpression castExpression when IsStackallocIntLikeCast(castExpression.TargetType) => castExpression.Expression,
-                _ => expression
-            };
-
-            if (expression is not ParenthesizedExpression
-                and not CheckedExpression
-                and not UncheckedExpression
-                && (expression is not CastExpression remainingCast || !IsStackallocIntLikeCast(remainingCast.TargetType)))
-            {
-                return expression;
-            }
-        }
-    }
-
-    private bool IsStackallocIntLikeCast(TypeReference type)
-    {
-        var typeName = ResolveTypeAliasName(TypeReferenceName(type));
-        return typeName is "int" or "short" or "sbyte" or "byte" or "ushort" or "char";
-    }
-
-    private string ResolveTypeAliasName(string typeName)
-    {
-        var simpleName = SimpleName(typeName);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        while (_typeAliases.TryGetValue(simpleName, out var aliasedName) && seen.Add(simpleName))
-        {
-            simpleName = SimpleName(aliasedName);
-        }
-
-        return simpleName;
     }
 
     private static bool IsReflectionOrDynamicCall(string target, out bool dynamicCode)
