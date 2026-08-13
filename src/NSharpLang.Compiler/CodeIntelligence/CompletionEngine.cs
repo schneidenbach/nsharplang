@@ -130,7 +130,7 @@ public class CompletionEngine
                     displayReceiver,
                     snapshot,
                     completions,
-                    GetMemberFilter(displayReceiver, receiverType));
+                    CompletionReflectionFacts.GetMemberFilter(displayReceiver, receiverType));
                 if (memberResult != null) return memberResult;
             }
         }
@@ -151,12 +151,12 @@ public class CompletionEngine
                     receiver,
                     snapshot,
                     completions,
-                    GetMemberFilter(receiver, typeInfo));
+                    CompletionReflectionFacts.GetMemberFilter(receiver, typeInfo));
                 if (memberResult != null) return memberResult;
             }
         }
 
-        var literalTypeInfo = ResolveLiteralReceiverType(receiver);
+        var literalTypeInfo = CompletionReflectionFacts.ResolveLiteralReceiverType(receiver);
         if (literalTypeInfo != null)
         {
             var memberResult = ResolveMemberCompletionsFromTypeInfo(
@@ -174,41 +174,6 @@ public class CompletionEngine
     private static TypeInfo? LookupIdentifierAtPosition(SemanticModel semanticModel, string name, int line, int column)
     {
         return semanticModel.LookupIdentifierAtPosition(name, line, column);
-    }
-
-    private static CompletionMemberFilter GetMemberFilter(string receiver, TypeInfo typeInfo)
-    {
-        return IsStaticTypeReceiver(receiver, typeInfo)
-            ? CompletionMemberFilter.StaticOnly
-            : CompletionMemberFilter.InstanceOnly;
-    }
-
-    private static bool IsStaticTypeReceiver(string receiver, TypeInfo typeInfo)
-    {
-        if (!VisibilityConventions.IsExportedIdentifier(receiver))
-            return false;
-
-        return typeInfo is ReflectionTypeInfo
-            or ClassTypeInfo
-            or StructTypeInfo
-            or EnumTypeInfo
-            or InterfaceTypeInfo;
-    }
-
-    private static TypeInfo? ResolveLiteralReceiverType(string receiver)
-    {
-        return IsStringLiteralReceiver(receiver)
-            ? new SimpleTypeInfo("System.String")
-            : null;
-    }
-
-    private static bool IsStringLiteralReceiver(string receiver)
-    {
-        var index = 0;
-        while (index < receiver.Length && receiver[index] == '$')
-            index++;
-
-        return index < receiver.Length && receiver[index] == '"';
     }
 
     // ── General Identifier Completions ──────────────────────────────────
@@ -316,39 +281,6 @@ public class CompletionEngine
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Convert a TypeReference (AST) to a TypeInfo (semantic) for completion resolution.
-    /// </summary>
-    private static TypeInfo ResolveTypeReferenceToTypeInfo(TypeReference typeRef, ProjectSnapshot snapshot)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference s => new SimpleTypeInfo(s.Name),
-            GenericTypeReference g => new GenericTypeInfo(g.Name,
-                g.TypeArguments.Select(a => ResolveTypeReferenceToTypeInfo(a, snapshot)).ToList()),
-            ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReferenceToTypeInfo(a.ElementType, snapshot)),
-            NullableTypeReference n => new NullableTypeInfo(ResolveTypeReferenceToTypeInfo(n.InnerType, snapshot)),
-            UnionTypeReference u => new AnonymousUnionTypeInfo(FlattenUnionTypeReference(u).Select(a => ResolveTypeReferenceToTypeInfo(a, snapshot)).ToList()),
-            _ => new SimpleTypeInfo("unknown")
-        };
-    }
-
-    private static IEnumerable<TypeReference> FlattenUnionTypeReference(TypeReference typeRef)
-    {
-        if (typeRef is UnionTypeReference union)
-        {
-            foreach (var arm in union.Arms)
-            {
-                foreach (var nested in FlattenUnionTypeReference(arm))
-                    yield return nested;
-            }
-        }
-        else
-        {
-            yield return typeRef;
-        }
     }
 
     private static MemberAccessExpression? FindMemberAccessAtPosition(CompilationUnit cu, int line, int col)

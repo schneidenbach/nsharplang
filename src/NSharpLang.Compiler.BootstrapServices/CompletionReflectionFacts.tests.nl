@@ -506,7 +506,169 @@ test "a metadata argument that the built-in table can spell is NOT poisoned, bec
 }
 
 
+// ── what kind of receiver this is (task 019 slice 3) ─────────────────────────────────────────
+
+test "an exported receiver over a type shape asks for the statics" {
+    classType: TypeInfo = CrfClass("Person")
+    assert CompletionReflectionFacts.GetMemberFilter("Person", classType) == CompletionMemberFilter.StaticOnly
+    assert CompletionReflectionFacts.IsStaticTypeReceiver("Person", classType)
+}
+
+test "a camelCase receiver over the very same type shape asks for the instance members" {
+    classType: TypeInfo = CrfClass("Person")
+
+    // The TEXT is the only thing that changed, and it flips the answer. This is why the receiver
+    // spelling is read at all: the resolved type cannot tell a type name from a variable of it.
+    assert CompletionReflectionFacts.GetMemberFilter("person", classType) == CompletionMemberFilter.InstanceOnly
+    assert !CompletionReflectionFacts.IsStaticTypeReceiver("person", classType)
+}
+
+test "all five type shapes are static receivers when the text is exported" {
+    classType: TypeInfo = CrfClass("Shape")
+    structType: TypeInfo = CrfStruct("Shape")
+    interfaceType: TypeInfo = CrfInterface("Shape")
+    enumType: TypeInfo = CrfEnum("Shape")
+    reflectionType: TypeInfo = new ReflectionTypeInfo(typeof(string))
+
+    assert CompletionReflectionFacts.IsStaticTypeReceiver("Shape", classType)
+    assert CompletionReflectionFacts.IsStaticTypeReceiver("Shape", structType)
+    assert CompletionReflectionFacts.IsStaticTypeReceiver("Shape", interfaceType)
+    assert CompletionReflectionFacts.IsStaticTypeReceiver("Shape", enumType)
+    assert CompletionReflectionFacts.IsStaticTypeReceiver("String", reflectionType)
+}
+
+test "an exported name over a NON-type shape is not a static receiver" {
+    // The naming convention alone does not decide. A `SimpleTypeInfo` is what an unresolved name
+    // becomes, and offering it the statics would be a guess.
+    simple: TypeInfo = new SimpleTypeInfo("Person")
+    assert !CompletionReflectionFacts.IsStaticTypeReceiver("Person", simple)
+    assert CompletionReflectionFacts.GetMemberFilter("Person", simple) == CompletionMemberFilter.InstanceOnly
+
+    arrayType: TypeInfo = new ArrayTypeInfo(new SimpleTypeInfo("int"))
+    assert !CompletionReflectionFacts.IsStaticTypeReceiver("Person", arrayType)
+}
+
+test "a receiver a person could not have written as an identifier is never static" {
+    classType: TypeInfo = CrfClass("Person")
+
+    // An empty receiver, a dotted chain and a call result all fail the exported-identifier read,
+    // and none of them can name a type.
+    assert !CompletionReflectionFacts.IsStaticTypeReceiver("", classType)
+    assert !CompletionReflectionFacts.IsStaticTypeReceiver("_Person", classType)
+    assert CompletionReflectionFacts.GetMemberFilter("", classType) == CompletionMemberFilter.InstanceOnly
+}
+
+test "a receiver read this way is never the unfiltered All" {
+    classType: TypeInfo = CrfClass("Person")
+    simple: TypeInfo = new SimpleTypeInfo("Person")
+
+    assert CompletionReflectionFacts.GetMemberFilter("Person", classType) != CompletionMemberFilter.All
+    assert CompletionReflectionFacts.GetMemberFilter("person", classType) != CompletionMemberFilter.All
+    assert CompletionReflectionFacts.GetMemberFilter("Person", simple) != CompletionMemberFilter.All
+}
+
+test "a string literal receiver resolves to System.String and everything else resolves to nothing" {
+    quoted := CompletionReflectionFacts.ResolveLiteralReceiverType("\"text\"")
+    assert quoted != null
+    assert CompletionTypeTextFacts.FormatTypeText(quoted) == "System.String"
+
+    assert CompletionReflectionFacts.ResolveLiteralReceiverType("person") == null
+    assert CompletionReflectionFacts.ResolveLiteralReceiverType("") == null
+    assert CompletionReflectionFacts.ResolveLiteralReceiverType("42") == null
+}
+
+test "the literal receiver's answer is a NAME that the file's own resolution turns into a Type" {
+    // This is the whole reason the arm answers a `SimpleTypeInfo` rather than a `Type`: a literal
+    // receiver lands on exactly the same path as a declared one.
+    resolved := CompletionReflectionFacts.ResolveLiteralReceiverType("$\"{count}\"")
+    assert resolved != null
+    assert CompletionReflectionFacts.ResolveCompletionReflectionType(resolved) == typeof(string)
+}
+
+test "an interpolated literal is a string literal receiver however many dollars it carries" {
+    assert CompletionReflectionFacts.IsStringLiteralReceiver("\"text\"")
+    assert CompletionReflectionFacts.IsStringLiteralReceiver("$\"text\"")
+    assert CompletionReflectionFacts.IsStringLiteralReceiver("$$\"text\"")
+    assert CompletionReflectionFacts.IsStringLiteralReceiver("$$$\"\"\"text\"\"\"")
+}
+
+test "a literal that has not closed yet is still a string literal receiver" {
+    // A completion is asked inside half-written code, so requiring the closing quote would refuse
+    // the very receiver the caller is standing on.
+    assert CompletionReflectionFacts.IsStringLiteralReceiver("\"half")
+    assert CompletionReflectionFacts.IsStringLiteralReceiver("\"")
+    assert CompletionReflectionFacts.IsStringLiteralReceiver("$\"")
+}
+
+test "text that is not a literal is not a string literal receiver" {
+    assert !CompletionReflectionFacts.IsStringLiteralReceiver("")
+    assert !CompletionReflectionFacts.IsStringLiteralReceiver("$")
+    assert !CompletionReflectionFacts.IsStringLiteralReceiver("$$$")
+    assert !CompletionReflectionFacts.IsStringLiteralReceiver("name")
+    assert !CompletionReflectionFacts.IsStringLiteralReceiver("x\"")
+    assert !CompletionReflectionFacts.IsStringLiteralReceiver("'c'")
+}
+
+test "the filter a receiver chooses is the filter the reflected read then uses" {
+    // The two halves of this file joined: what the receiver asks for, and what that asks the CLR.
+    consoleType: TypeInfo = new ReflectionTypeInfo(CompletionReflectionFacts.KnownReceiverType("Console"))
+
+    staticFilter := CompletionReflectionFacts.GetMemberFilter("Console", consoleType)
+    assert staticFilter == CompletionMemberFilter.StaticOnly
+
+    resolved := CompletionReflectionFacts.ResolveCompletionReflectionType(consoleType)
+    assert resolved != null
+
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(
+        resolved,
+        CompletionReflectionFacts.GetReflectionBindingFlags(staticFilter))
+    assert CrfFind(items, "WriteLine") != null
+
+    // And the instance read of the same static class offers nothing but what Object declares.
+    instanceItems := CompletionReflectionFacts.BuildReflectionMemberItems(resolved, CrfInstanceFlags())
+    assert CrfFind(instanceItems, "WriteLine") == null
+}
+
+
 // ── fixtures ─────────────────────────────────────────────────────────────────────────────────
+
+func CrfNoTypeReferences(): TypeReference[] {
+    return new TypeReference[](0)
+}
+
+func CrfNoTypeParameters(): TypeParameter[] {
+    return new TypeParameter[](0)
+}
+
+func CrfNoParameters(): ParameterDeclarationInfo[] {
+    return new ParameterDeclarationInfo[](0)
+}
+
+func CrfNoMembers(): DeclaredMemberInfo[] {
+    return new DeclaredMemberInfo[](0)
+}
+
+func CrfNoNestedTypes(): NestedTypeInfo[] {
+    return new NestedTypeInfo[](0)
+}
+
+func CrfClass(name: string): ClassTypeInfo {
+    return new ClassTypeInfo(name, 1, 1, false, null, CrfNoTypeReferences(), CrfNoTypeParameters(), CrfNoParameters(), CrfNoMembers(), CrfNoNestedTypes(), true)
+}
+
+func CrfStruct(name: string): StructTypeInfo {
+    return new StructTypeInfo(name, 1, 1, CrfNoTypeReferences(), CrfNoTypeParameters(), CrfNoParameters(), CrfNoMembers(), CrfNoNestedTypes())
+}
+
+func CrfInterface(name: string): InterfaceTypeInfo {
+    return new InterfaceTypeInfo(name, 1, 1, false, CrfNoTypeReferences(), CrfNoTypeParameters(), CrfNoMembers(), CrfNoNestedTypes())
+}
+
+func CrfEnum(name: string): EnumTypeInfo {
+    members := new List<EnumMemberInfo>()
+    members.Add(new EnumMemberInfo("One", 1, 1, EnumMemberValueKind.None, null))
+    return new EnumTypeInfo(new EnumDeclarationInfo(name, members, EnumType.Int, 1, 1))
+}
 
 class CrfBase {
     static func BaseStatic(): int {

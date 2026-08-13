@@ -7,11 +7,11 @@ import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 
-// WHICH REFLECTED MEMBERS A RECEIVER OFFERS.
+// WHAT KIND OF RECEIVER THIS IS, AND WHICH REFLECTED MEMBERS IT OFFERS.
 //
 // A receiver that no source declaration explains is answered from METADATA instead, and that is the
-// whole of this file: turn a `TypeInfo` into the CLR type a completion should reflect over, decide
-// which members that type may show, and read them.
+// whole of this file: read what was written before the dot, turn it into the CLR type a completion
+// should reflect over, decide which members that type may show, and read them.
 //
 // ONE RULE RUNS THROUGH IT: THE FAMILY NEVER ANSWERS A TYPE IT CANNOT READ. Every arm that cannot
 // produce a readable `Type` answers null, and the caller then shows no members at all — which is
@@ -42,6 +42,54 @@ enum CompletionMemberFilter {
 }
 
 class CompletionReflectionFacts {
+
+    // WHICH HALF A RECEIVER IS ASKING FOR. `Person.` is a TYPE NAME and wants the statics; `person.`
+    // is a VALUE and wants the instance members. A receiver read this way is never `All`: the
+    // unfiltered read exists for callers that are not looking at a receiver at all.
+    static func GetMemberFilter(receiver: string, typeInfo: TypeInfo): CompletionMemberFilter {
+        if IsStaticTypeReceiver(receiver, typeInfo) {
+            return CompletionMemberFilter.StaticOnly
+        }
+
+        return CompletionMemberFilter.InstanceOnly
+    }
+
+    // A RECEIVER IS A TYPE NAME ONLY WHEN BOTH HALVES AGREE: the TEXT is spelled the way N# spells
+    // an exported name, and what it RESOLVED to is one of the five shapes a type can be. Neither
+    // half is sufficient alone — an exported local would pass the first, and a variable's own type
+    // is one of these five shapes too — so the conjunction is the rule and not an optimisation.
+    static func IsStaticTypeReceiver(receiver: string, typeInfo: TypeInfo): bool {
+        if !VisibilityConventions.IsExportedIdentifier(receiver) {
+            return false
+        }
+
+        return typeInfo is ReflectionTypeInfo || typeInfo is ClassTypeInfo || typeInfo is StructTypeInfo || typeInfo is EnumTypeInfo || typeInfo is InterfaceTypeInfo
+    }
+
+    // A LITERAL RECEIVER HAS A TYPE NOBODY DECLARED, so the text is the only evidence there is. A
+    // string literal is the one literal the engine answers, and it answers the NAME rather than the
+    // `Type` — `ResolveCompletionReflectionType` above is what turns a name into one, and routing
+    // through it is what keeps a literal receiver on exactly the same path as a declared one.
+    static func ResolveLiteralReceiverType(receiver: string): TypeInfo? {
+        if IsStringLiteralReceiver(receiver) {
+            return new SimpleTypeInfo("System.String")
+        }
+
+        return null
+    }
+
+    // A run of `$` — none, one, or an interpolation's worth — and then a quote. Nothing after the
+    // quote is read, and in particular the literal is NOT required to close: a completion is asked
+    // inside half-written code by definition, so demanding a closing quote would refuse the very
+    // receiver the caller is standing on.
+    static func IsStringLiteralReceiver(receiver: string): bool {
+        index := 0
+        while index < receiver.Length && receiver[index] == '$' {
+            index = index + 1
+        }
+
+        return index < receiver.Length && receiver[index] == '"'
+    }
 
     // THE BINDING FLAGS A COMPLETION READS WITH, AND THE THREE THINGS THEY DELIBERATELY OMIT.
     // `Public` is always set and `NonPublic` never is, so a completion offers only what a caller
