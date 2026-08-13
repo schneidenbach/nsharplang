@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
 import System.Collections
+import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
@@ -180,5 +181,143 @@ class CompletionDeclarationFacts {
         }
 
         return modifiers[index]
+    }
+
+    // ── WHICH MEMBERS A SOURCE-DECLARED TYPE OFFERS ─────────────────────────────────────────────
+    //
+    // THE RULE THE WHOLE SECTION EXISTS FOR: A TYPE THE PROJECT DECLARED ANSWERS ITS OWN MEMBERS,
+    // AND NOTHING ELSE GETS TO ANSWER FOR IT. A completion for `Person.` must show the `Person` the
+    // user wrote, never some unrelated `Person` that happens to be loaded from metadata — so this
+    // resolution runs FIRST and, whenever it produces at least one item, the reflected read never
+    // happens.
+    //
+    // AN EMPTY ANSWER IS NOT A WINNING ANSWER, and the distinction is deliberate. Null means "no
+    // declaration explains this name" and an empty list means "one does, and it offered nothing" —
+    // but the caller treats both the same and falls through to reflection, because a declared type
+    // that shows nothing at all is a worse answer than a metadata type that shows something. The
+    // three ways to reach empty are a declaration with no members, a declaration whose members all
+    // lack a completion shape, and a name only a LATER semantic model would have explained.
+    //
+    // THE SEARCH WIDENS IN THREE STEPS AND STOPS AT THE FIRST THAT ANSWERS: the `TypeInfo` in hand
+    // may already BE a declaration and carry its members directly; otherwise its display text is
+    // looked up in each semantic model by full name and then by simple name; otherwise every type
+    // name in that model is scanned for one whose tail is `.simpleName`. The scan is what lets a
+    // receiver typed as `Person` reach a `Models.Person` that no import brought into scope.
+    //
+    // THE FIRST MODEL THAT RECOGNISES THE NAME IS THE ANSWER — including when that model's entry
+    // carries no members at all. The walk does not keep looking for a better match in a later file,
+    // and it must not: two files declaring the same simple name is an ambiguity the completion
+    // cannot resolve, and quietly preferring whichever one had members would make the answer depend
+    // on file order in a way nothing else in the engine does.
+
+    // The declared members of the four declaration families that HAVE them; every other `TypeInfo`
+    // answers null, which is the signal to fall through to reflection.
+    //
+    // DELIBERATELY NOT `AnalyzerStructuralAssignability.GetDeclaredMembers`, WHICH IS THE SAME NAME
+    // AND A NARROWER ANSWER: that one covers class / struct / record and stops, because a duck
+    // interface is compared against the three families that can satisfy one. A completion offers
+    // members from an INTERFACE receiver too, so reusing it would have silently dropped every
+    // interface member from every member-access completion.
+    static func DeclaredMembersOfType(typeInfo: TypeInfo): DeclaredMemberInfo[]? {
+        classType := typeInfo as ClassTypeInfo
+        if classType != null {
+            return classType.DeclaredMembers
+        }
+
+        structType := typeInfo as StructTypeInfo
+        if structType != null {
+            return structType.DeclaredMembers
+        }
+
+        recordType := typeInfo as RecordTypeInfo
+        if recordType != null {
+            return recordType.DeclaredMembers
+        }
+
+        interfaceType := typeInfo as InterfaceTypeInfo
+        if interfaceType != null {
+            return interfaceType.DeclaredMembers
+        }
+
+        return null
+    }
+
+    // One semantic model's answer for a type name. Exact full name first, exact simple name next,
+    // then the `.simpleName` tail scan — in that order, because an exact match must never lose to a
+    // suffix match found earlier in the table.
+    static func TryResolveSemanticType(semanticModel: SemanticModel, typeName: string, simpleName: string, out typeInfo: TypeInfo?): bool {
+        types := semanticModel.Types
+        if types.TryGetValue(typeName, out typeInfo) {
+            return true
+        }
+
+        if types.TryGetValue(simpleName, out typeInfo) {
+            return true
+        }
+
+        suffix := "." + simpleName
+        for pair in types {
+            candidateName := pair.Key
+            if candidateName == typeName || candidateName == simpleName || candidateName.EndsWith(suffix, StringComparison.Ordinal) {
+                typeInfo = pair.Value
+                return true
+            }
+        }
+
+        typeInfo = null
+        return false
+    }
+
+    // The declared members behind a `TypeInfo`, searched across the project's semantic models.
+    // `semanticModels` is the snapshot's model collection: the walk reads nothing else from a
+    // snapshot, so the collection is what crosses the boundary rather than the snapshot itself.
+    static func ResolveDeclaredMembers(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>): DeclaredMemberInfo[]? {
+        directMembers := DeclaredMembersOfType(typeInfo)
+        if directMembers != null {
+            return directMembers
+        }
+
+        typeName := CompletionTypeTextFacts.FormatTypeText(typeInfo)
+        simpleName := typeName
+        separator := typeName.LastIndexOf(".", StringComparison.Ordinal)
+        if separator >= 0 {
+            simpleName = typeName.Substring(separator + 1)
+        }
+
+        for semanticModel in semanticModels {
+            semanticType: TypeInfo? = null
+            if TryResolveSemanticType(semanticModel, typeName, simpleName, out semanticType) {
+                if semanticType == null {
+                    return null
+                }
+
+                return DeclaredMembersOfType(semanticType)
+            }
+        }
+
+        return null
+    }
+
+    // The completion items a source-declared type offers, in declaration order. A member with no
+    // completion shape is dropped, so this list can be shorter than the member list and can be
+    // empty — and an empty list still means "declared", which is the whole point of the section.
+    static func GetTypeMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>): List<CompletionItem> {
+        items := new List<CompletionItem>()
+        members := ResolveDeclaredMembers(typeInfo, semanticModels)
+        if members == null {
+            return items
+        }
+
+        index := 0
+        while index < members.Length {
+            item := DeclaredMemberToCompletionItem(members[index], true)
+            if item != null {
+                items.Add(item)
+            }
+
+            index = index + 1
+        }
+
+        return items
     }
 }

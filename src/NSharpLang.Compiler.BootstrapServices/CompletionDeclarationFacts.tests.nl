@@ -50,6 +50,38 @@ func CdfSimple(name: string): TypeReference {
     return reference
 }
 
+func CdfOneMember(name: string): DeclaredMemberInfo[] {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = CdfMember(name, DeclaredMemberKind.Property, CdfSimple("int"), false)
+    return members
+}
+
+func CdfNoMembers(): DeclaredMemberInfo[] {
+    return new DeclaredMemberInfo[](0)
+}
+
+func CdfModel(typeName: string, typeInfo: TypeInfo): SemanticModel {
+    model := new SemanticModel()
+    types := model.Types
+    types[typeName] = typeInfo
+    return model
+}
+
+func CdfModels(models: SemanticModel[]): List<SemanticModel> {
+    list := new List<SemanticModel>()
+    index := 0
+    while index < models.Length {
+        list.Add(models[index])
+        index = index + 1
+    }
+
+    return list
+}
+
+func CdfNoModels(): List<SemanticModel> {
+    return new List<SemanticModel>()
+}
+
 test "a function is offered as a function at file scope and as a method after a dot" {
     member := CdfFunction("Combine", CdfSimple("bool"), false, CdfNoNames(), CdfNoTypes(), CdfNoModifiers(), 0)
 
@@ -233,4 +265,143 @@ test "the declared member modifier read is total in both directions" {
     emptyMember := CdfFunction("None", null, false, CdfNoNames(), CdfNoTypes(), CdfNoModifiers(), 0)
     assert CompletionDeclarationFacts.GetDeclaredMemberParameterModifier(emptyMember, 0) == ParameterModifier.None
     assert CompletionDeclarationFacts.GetDeclaredMemberParameterModifier(emptyMember, -1) == ParameterModifier.None
+}
+
+// ── CONTRACTS FOR WHICH MEMBERS A SOURCE-DECLARED TYPE OFFERS (task 019 slice 4) ────────────────
+
+
+test "the four declaration families answer their own members and every other type answers nothing" {
+    assert CompletionDeclarationFacts.DeclaredMembersOfType(CdfTypes.Class("C", CdfOneMember("A"))) != null
+    assert CompletionDeclarationFacts.DeclaredMembersOfType(CdfTypes.Interface("I", CdfOneMember("B"))) != null
+
+    // THE INTERFACE ARM IS THE ONE THAT MAKES THIS DIFFERENT FROM ITS SAME-NAMED SIBLING.
+    // `AnalyzerStructuralAssignability.GetDeclaredMembers` covers class / struct / record and stops,
+    // because a duck interface is compared against the three families that can SATISFY one. A
+    // completion offers members FROM an interface receiver, so this one has a fourth arm — and
+    // reusing that sibling would have silently dropped every interface member from every
+    // member-access completion.
+    interfaceMembers := CompletionDeclarationFacts.DeclaredMembersOfType(CdfTypes.Interface("I", CdfOneMember("B")))
+    assert interfaceMembers != null
+    assert interfaceMembers.Length == 1
+    assert interfaceMembers[0].Name == "B"
+
+    // Anything that is not a declaration family answers null — which is the signal to reflect, not
+    // an empty member list.
+    assert CompletionDeclarationFacts.DeclaredMembersOfType(BuiltInTypes.Int) == null
+    assert CompletionDeclarationFacts.DeclaredMembersOfType(BuiltInTypes.String) == null
+
+    // An EMPTY declaration answers an empty array, which is a different thing from null.
+    empty := CompletionDeclarationFacts.DeclaredMembersOfType(CdfTypes.Class("Hollow", CdfNoMembers()))
+    assert empty != null
+    assert empty.Length == 0
+}
+
+test "a semantic model is asked for the full name, then the simple name, then the dotted tail" {
+    target := CdfTypes.Class("Person", CdfOneMember("Name"))
+
+    // Exact full name.
+    full := CdfModel("Models.Person", target)
+    resolvedFull: TypeInfo? = null
+    assert CompletionDeclarationFacts.TryResolveSemanticType(full, "Models.Person", "Person", out resolvedFull)
+    assert resolvedFull != null
+
+    // Exact simple name, when the table is keyed that way.
+    simple := CdfModel("Person", target)
+    resolvedSimple: TypeInfo? = null
+    assert CompletionDeclarationFacts.TryResolveSemanticType(simple, "Models.Person", "Person", out resolvedSimple)
+    assert resolvedSimple != null
+
+    // THE TAIL SCAN is the arm the two exact lookups cannot cover: the receiver is typed `Person`
+    // and the project declared `Models.Person`, which no key equality would ever match.
+    tail := CdfModel("Models.Person", target)
+    resolvedTail: TypeInfo? = null
+    assert CompletionDeclarationFacts.TryResolveSemanticType(tail, "Person", "Person", out resolvedTail)
+    assert resolvedTail != null
+
+    // The tail must be a WHOLE segment: `Person` does not match `SuperPerson`.
+    decoy := CdfModel("Models.SuperPerson", target)
+    resolvedDecoy: TypeInfo? = null
+    assert !CompletionDeclarationFacts.TryResolveSemanticType(decoy, "Person", "Person", out resolvedDecoy)
+    assert resolvedDecoy == null
+
+    // A model that knows nothing answers false and a null out.
+    unknown: TypeInfo? = null
+    assert !CompletionDeclarationFacts.TryResolveSemanticType(new SemanticModel(), "Person", "Person", out unknown)
+    assert unknown == null
+}
+
+test "a type that carries its own members never consults a model, and one that does not consults them in order" {
+    // Direct members short-circuit: no model is even offered here.
+    directOwner := CdfTypes.Class("Person", CdfOneMember("Name"))
+    direct := CompletionDeclarationFacts.ResolveDeclaredMembers(directOwner, CdfNoModels())
+    assert direct != null
+    assert direct.Length == 1
+    assert direct[0].Name == "Name"
+
+    // A type with no members of its own is looked up by its DISPLAY TEXT across the models.
+    target := CdfTypes.Class("Person", CdfOneMember("Name"))
+    models := new SemanticModel[](2)
+    models[0] = new SemanticModel()
+    models[1] = CdfModel("Person", target)
+    resolved := CompletionDeclarationFacts.ResolveDeclaredMembers(new SimpleTypeInfo("Person"), CdfModels(models))
+    assert resolved != null
+    assert resolved.Length == 1
+    assert resolved[0].Name == "Name"
+
+    // THE FIRST MODEL THAT RECOGNISES THE NAME IS THE ANSWER, EVEN WHEN IT CARRIES NOTHING. The
+    // walk does not keep looking for a better match in a later file: two files declaring the same
+    // simple name is an ambiguity the completion cannot resolve, and quietly preferring whichever
+    // one had members would make the answer depend on file order.
+    shadowed := new SemanticModel[](2)
+    shadowed[0] = CdfModel("Person", new SimpleTypeInfo("Person"))
+    shadowed[1] = CdfModel("Person", target)
+    assert CompletionDeclarationFacts.ResolveDeclaredMembers(new SimpleTypeInfo("Person"), CdfModels(shadowed)) == null
+
+    // No model explains the name at all.
+    assert CompletionDeclarationFacts.ResolveDeclaredMembers(new SimpleTypeInfo("Nobody"), CdfNoModels()) == null
+}
+
+test "the offered items drop the members that have no completion shape and keep declaration order" {
+    members := new DeclaredMemberInfo[](3)
+    members[0] = CdfMember("First", DeclaredMemberKind.Property, CdfSimple("int"), false)
+    members[1] = CdfMember("Hidden", DeclaredMemberKind.Constructor, null, false)
+    members[2] = CdfMember("Second", DeclaredMemberKind.Field, CdfSimple("string"), false)
+
+    items := CompletionDeclarationFacts.GetTypeMemberItems(CdfTypes.Class("Person", members), CdfNoModels())
+    assert items.Count == 2
+    assert items[0].Name == "First"
+    assert items[1].Name == "Second"
+
+    // Both are offered as "property" after a dot — a field and a property are the same offer.
+    assert items[0].Kind == "property"
+    assert items[1].Kind == "property"
+
+    // A type no declaration explains offers an EMPTY list rather than faulting, and that empty list
+    // is what tells the caller to reflect instead.
+    assert CompletionDeclarationFacts.GetTypeMemberItems(BuiltInTypes.String, CdfNoModels()).Count == 0
+
+    // A declaration whose every member lacks a completion shape reaches the same empty list by the
+    // other road — declared, and still nothing to offer.
+    shapeless := new DeclaredMemberInfo[](1)
+    shapeless[0] = CdfMember("Ctor", DeclaredMemberKind.Constructor, null, false)
+    assert CompletionDeclarationFacts.GetTypeMemberItems(CdfTypes.Class("Person", shapeless), CdfNoModels()).Count == 0
+}
+
+class CdfTypes {
+    static func Class(name: string, members: DeclaredMemberInfo[]): TypeInfo {
+        interfaces := new TypeReference[](0)
+        typeParameters := new TypeParameter[](0)
+        constructorParameters := new ParameterDeclarationInfo[](0)
+        nestedTypes := new NestedTypeInfo[](0)
+        classType: TypeInfo = new ClassTypeInfo(name, 1, 1, false, null, interfaces, typeParameters, constructorParameters, members, nestedTypes, true)
+        return classType
+    }
+
+    static func Interface(name: string, members: DeclaredMemberInfo[]): TypeInfo {
+        baseInterfaces := new TypeReference[](0)
+        typeParameters := new TypeParameter[](0)
+        nestedTypes := new NestedTypeInfo[](0)
+        interfaceType: TypeInfo = new InterfaceTypeInfo(name, 1, 1, false, baseInterfaces, typeParameters, members, nestedTypes)
+        return interfaceType
+    }
 }

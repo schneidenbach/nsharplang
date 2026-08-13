@@ -3,6 +3,8 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.Text
+import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 class CompletionReceiverClassification {
     isMemberAccessValue: bool
@@ -588,5 +590,148 @@ class CompletionEngineKernels {
 
     static func IsCompletionHexDigit(ch: char): bool {
         return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+    }
+
+    // ── WHAT A POSITION THAT IS NOT AFTER A DOT OFFERS ──────────────────────────────────────────
+    //
+    // `ClassifyCompletionReceiver` above decides which of the two answers a caret gets; this is the
+    // other one. Where a member access asks "what does THIS thing have", an identifier position
+    // asks "what can I write here at all", and the answer is everything in scope, grouped.
+    //
+    // THE GROUPS ARE ALWAYS IN THIS ORDER — variables, functions, types, then the three vocabulary
+    // tables — and an EMPTY GROUP IS OMITTED RATHER THAN EMITTED EMPTY. That is a wire-format
+    // contract, not a tidiness preference: the CLI's JSON and text renderers both walk the
+    // dictionary in insertion order, so the order here is the order a caller sees.
+    //
+    // A NAME THAT IS BOTH A VARIABLE AND A FUNCTION IS SHOWN ONCE, AS A FUNCTION. The semantic
+    // model records a local function under both, and offering it twice would be two entries the
+    // caller has to reconcile; the function entry is the one that carries a parameter list, so it
+    // is the one that survives.
+    //
+    // THE VARIABLE SET IS POSITION-AWARE ONLY WHEN IT CAN BE. With a real line and a model that
+    // recorded scopes, the answer is the variables visible AT that point; without either, it is
+    // every variable the file declared. The fallback is deliberately wider rather than empty — a
+    // caller that gave no position gets too much rather than nothing.
+    //
+    // KEYWORDS, PRIMITIVE TYPES AND MODIFIERS ARE OFF BY DEFAULT, and that is the LLM-first rule
+    // this engine was built for: a model already knows the language's vocabulary, so spending
+    // tokens on it is waste. An editor asks for them explicitly.
+    static func GetIdentifierCompletions(unit: CompilationUnit, semanticModel: SemanticModel?, includeKeywords: bool, line: int, column: int): CompletionResult {
+        completions := new Dictionary<string, List<CompletionItem>>()
+
+        if semanticModel != null {
+            variables := VisibleVariableItems(semanticModel, line, column)
+            if variables.Count > 0 {
+                completions["variables"] = variables
+            }
+
+            functions := FunctionItems(semanticModel)
+            if functions.Count > 0 {
+                completions["functions"] = functions
+            }
+        }
+
+        types := DeclaredTypeItems(unit)
+        if types.Count > 0 {
+            completions["types"] = types
+        }
+
+        if includeKeywords {
+            keywords := NSharpKeywordItems()
+            completions["keywords"] = keywords
+
+            primitiveTypes := PrimitiveTypeItems()
+            completions["primitiveTypes"] = primitiveTypes
+
+            modifiers := ModifierItems()
+            completions["modifiers"] = modifiers
+        }
+
+        return new CompletionResult(CompletionContext.Identifier, null, null, completions)
+    }
+
+    // The variables offered at a position. A name the model also records as a function is skipped
+    // here and offered by `FunctionItems` instead.
+    static func VisibleVariableItems(semanticModel: SemanticModel, line: int, column: int): List<CompletionItem> {
+        scopes := semanticModel.Scopes
+        visible := semanticModel.Variables
+        if line > 0 && scopes.Count > 0 {
+            visible = semanticModel.GetVisibleVariablesAtPosition(line, column)
+        }
+
+        functions := semanticModel.Functions
+        items := new List<CompletionItem>()
+        for pair in visible {
+            if !functions.ContainsKey(pair.Key) {
+                items.Add(new CompletionItem(pair.Key, "variable", CompletionTypeTextFacts.FormatTypeText(pair.Value), null, null, false))
+            }
+        }
+
+        return items
+    }
+
+    // The functions in scope. Only a function TYPE can show a parameter list; anything else the
+    // model filed as a function shows its type text alone rather than a fabricated signature.
+    static func FunctionItems(semanticModel: SemanticModel): List<CompletionItem> {
+        items := new List<CompletionItem>()
+        for pair in semanticModel.Functions {
+            parameterText: string? = null
+            functionType := pair.Value as FunctionTypeInfo
+            if functionType != null {
+                parameterText = CompletionTypeTextFacts.FormatFunctionTypeParameters(functionType)
+            }
+
+            items.Add(new CompletionItem(pair.Key, "function", CompletionTypeTextFacts.FormatTypeText(pair.Value), parameterText, null, false))
+        }
+
+        return items
+    }
+
+    // The types this file declares, in source order. A declaration with no completion shape is
+    // dropped rather than named.
+    static func DeclaredTypeItems(unit: CompilationUnit): List<CompletionItem> {
+        items := new List<CompletionItem>()
+        declarations := unit.Declarations
+
+        index := 0
+        while index < declarations.Count {
+            item := CompletionDeclarationFacts.ToCompletionItem(declarations[index])
+            if item != null {
+                items.Add(item)
+            }
+
+            index = index + 1
+        }
+
+        return items
+    }
+
+    // A vocabulary table rendered as completion items, in table order.
+    static func WordCompletionItems(words: string, kind: string): List<CompletionItem> {
+        items := new List<CompletionItem>()
+        parts := words.Split(' ')
+
+        index := 0
+        while index < parts.Length {
+            items.Add(new CompletionItem(parts[index], kind, null, null, null, false))
+            index = index + 1
+        }
+
+        return items
+    }
+
+    // THE THREE VOCABULARY TABLES. Order is the order an editor sees them in, so each table is
+    // written in the grouping the language reads in — declaration forms, then control flow, then
+    // expression keywords, then literals — and not alphabetically.
+    static func NSharpKeywordItems(): List<CompletionItem> {
+        return WordCompletionItems("func class struct record interface enum union if else for foreach while return break continue match switch case when yield await async throw try catch finally lock must new this base import namespace print test assert true false null is as typeof nameof", "keyword")
+    }
+
+    static func ModifierItems(): List<CompletionItem> {
+        return WordCompletionItems("pub static virtual override abstract sealed partial readonly const required init async", "modifier")
+    }
+
+    static func PrimitiveTypeItems(): List<CompletionItem> {
+        return WordCompletionItems("int long float double bool string void object byte short char decimal uint ulong ushort sbyte", "type")
     }
 }
