@@ -1,6 +1,64 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-13 (**TASK 019 SLICE 6 LANDED (no commit — mandate) — `DocQuery.cs` NO LONGER
+Last updated: 2026-08-13 (**TASK 019 SLICE 7 LANDED (no commit — mandate) — `Linter.cs` NO LONGER
+KNOWS WHICH NAMESPACE PROVIDES A NAME, AND NL010 IS NOW N# ON BOTH ARMS.** The extractor was
+re-validated on **SIX** checkpoints before it was trusted (**30 / 623**, **27 / 476**, **21 / 414**,
+**4 / 81**, **43 / 292**, **38 / 206** — slice 6's own checkpoints to the line) and it reproduces the
+`Linter.cs` ratchet row exactly (**65 extents summing 1,531** on **1,611 / 1,453**); the dead sweep
+ran BEFORE any scoring (**1,042 files, DEAD 0, DETACHED 51**); and the reflection-door census over
+**all 64 member names** in a **1,595-file** corpus is **CLEAN — `typeof(Linter)` = 0 and ONE literal
+hit**, `"_config"` inside a VS Code theme JSON under `editors/vscode/.vscode-test/`. **No door means
+no C# test migrates, and the unit suite is unchanged at 3,192 — which is the census's prediction, not
+a coincidence.** **FOUR C# EXTENTS DIE WHOLE AND A FIFTH IS HALVED**: `Linter.cs` **1,611 → 1,340**
+lines (non-blank **1,453 → 1,197**, extents **65 → 61** summing **1,531 → 1,267**, `git diff`
+**+5 / −276 = net −271, 16.8 %**), where the 238-line table pair plus `CheckUnusedImports` **52 → 26**
+account for the 264-line extent drop to the line and the namespace arm's fifteen lines of
+`TryGetValue` / `Any` become a single ternary. N# adds **489 lines in ONE NEW owner**
+(`LinterNamespaceImportUsage.nl`, the twin of the already-N# `LinterFileImportUsage.nl`, so NL010 has
+no C# policy left on either arm) plus **22 contracts / 123 assertions (4,423 → 4,445)**, green on
+their FIRST run. **THE `HashSet` BECAME AN ARRAY ON PURPOSE**: the only question ever asked of a row
+is membership, and the shape was decided by execution — a 43-element one-line array literal, a direct
+`return [...]`, `new string[](0)` and a `HashSet<string>` parameter all **BUILD AND RUN** against the
+pinned toolset, and `nlc format` does not reflow the literals. **THE DIFFERENTIAL IS BYTE-IDENTICAL —
+7,726 rows, md5 `15bf908427471c3ba761a6a108065031` on BOTH sides, 0 mismatches, 0 faults, 113
+distinct answers** over a 45-spelling table grid, a 36-combination decision grid answering **1,290
+USED / 330 UNUSED**, a **186-name × 13-namespace × 2-half sweep** answering **1,294 hits / 3,542
+misses**, and a **705-source live `Linter.Lint` oracle** (0 NO-PARSE, 25 NL010, 202 sources
+reporting, 527 real `.nl` files) whose base side re-runs **the deleted arm verbatim** over the
+reflected privates; the two-sided declared divergence is **4 PRESENT→ABSENT and 6 ABSENT→PRESENT**.
+**AND `nlc lint` ITSELF WAS RUN ON BOTH CLIs, TWICE EACH: 214 rows, 0 diffs, md5 `cfa65f42…` across
+all four time-normalised transcripts, 54,463 bytes, 214 non-empty, exit codes equal on every row.**
+**TEN oracle differentials all zero** and the nine
+standing ones reproduce slice 6's md5s to the digit (corpus `86a4928f…` for the fifteenth slice
+running, self-host `e659c044…` at `checkedFiles=364, count=285`); the LIVE-TREE tenth reports 0
+diffs, `checkedFiles=369, count=288` and **ZERO diagnostics naming the new owner** — its three-row
+gap against the frozen snapshot was run down to `CompletionReceiverFacts.nl`, a slice-3 file the
+snapshot predates, reported identically by the pristine base CLI. Corpus IL **63 / 63 byte-identical
+with the CONTROL FIRST (118 / 118 SAME)**; transcripts 1,573 lines, 0 diffs, md5 `eb430931…`; the
+five-run ordering pin byte-identical at the recorded `db729409…` with **NL010: 220** in its census;
+unit **3,192 / 3,192**; contracts **4,445 / 4,445**; format gate clean; audit **18 / 18** after the
+repin, having correctly FAILED **17 / 18** before it; manifest 391 no BOM; **the full VS Code-enabled
+gate `ALL TESTS PASSED` in 22m 47s with 108 green steps, zero failures and 36 VS Code integration
+tests inside it**, and every headline number re-taken on the byte-final tree afterwards. **FIVE
+FINDINGS — the sharpest being that a string LITERAL inside an interpolation hole declines at
+`emit.interpolation.split` and blames the enclosing FUNCTION, which nearly condemned the owner's
+shape on the strength of the probe harness's own bug; that a differential which only asks the table
+cannot see a row dropped from BOTH sides, so a data move needs exact-count contracts and a live
+oracle that does not read the table; and that the post-gate re-take EARNED ITS KEEP — it turned the
+`nlc lint` oracle's raw `DIFFS=0` into a 4-line diff of nothing but elapsed times, proving the first
+zero was luck and the transcript needed the estate's own time normaliser.** **WALL STATUS: ZERO — NO
+REPIN.** **THE WALKERS WERE MEASURED
+AND ARE NOT FUNDED BY ANY ONE SLICE**: Tarjan finds two SCCs — {`VisitStatement` 223, `VisitFunction`
+95, `VisitExpressionInternal` 70, `VisitExpression` 34, `VisitChildExpressions` 7} = **429 lines** and
+{`VisitDeclaration` 73 + the four type visitors} = **110** — joined into one 539-line territory by
+`VisitDeclaration`'s edges, every arm mutating `LintVisitor`'s privates in place (`VisitFunction`
+alone touches nine fields and ten members), so they need a state-carrier slice FIRST on the 017
+model. Task 019 stays UNCHECKED; the next family is `Linter.cs`'s three **zero-out-edge** predicates
+— `ContainsParserErrorPlaceholder` 55, `IsValidIdentifier` 18, `GetBaseTypeName` 13 = **86 lines, 4
+referrers, no visitor state** — then NL002's missing-import pair (108). Recorded in the Cursor block
+below)
+
+Last updated (prior): 2026-08-13 (**TASK 019 SLICE 6 LANDED (no commit — mandate) — `DocQuery.cs` NO LONGER
 DECIDES WHICH TYPE A NAME MEANS OR WHAT A TYPE READS AS, AND IT IS THE FIRST FILE IN THE ARC THAT
 DOES *NOT* CLOSE — FOR A MEASURED REASON RATHER THAN A CONCEDED ONE.** The extractor was re-validated
 on **SIX** checkpoints before it was trusted (**30 / 623**, **27 / 476**, **21 / 414**, **4 / 81**,
@@ -2635,18 +2693,25 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. The arc is OPEN, and its FIRST FILE IS
-  CLOSED.** Its territory is the seven files `tasks/019-compiler-contained-tooling.md` names; six
+- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. The arc is OPEN; TWO FILES ARE CLOSED,
+  ONE IS WALLED, AND THE REMAINING THREE ARE BEING REDUCED.** Its territory is the seven files
+  `tasks/019-compiler-contained-tooling.md` names; six
   were live and one (`NullabilityMetadata.cs`) was already `state: removed` in the ratchet, so the
   arc opened at **7,739 lines / 6,892 non-blank / 341 member extents summing 7,257** by the validated
-  extractor. After slice 4 it stands at **7,037 / 6,281 / 304 / 6,593**, and
+  extractor. **After slice 7 it stands at 6,365 / 5,688 / 267 / 5,974** — `Formatter` 2,302,
+  `CodeIntelligenceService` 1,897, `Linter` 1,340, `DocQuery` 446 (WALLED), `OutputFormatter` 271
+  (CLOSED), `CompletionEngine` 109 (CLOSED). Slice 7 took NL010's namespace arm out of `Linter.cs`
+  into `LinterNamespaceImportUsage.nl`, the twin of the already-N# file arm, so **NL010 has no C#
+  policy left**; the walkers were measured as two SCCs joined into one 539-line territory that needs
+  a state-carrier slice FIRST, and the next family is the three zero-out-edge predicates (86 lines).
+  (Prior, after slice 4 the arc stood at **7,037 / 6,281 / 304 / 6,593**, and
   **`CompletionEngine.cs` is a reviewed zero-policy mechanical host: 805 → 109 lines in four slices
   (−86.5 %), `UNCLASSIFIED = 0` and `POLICY = 0` by an executable four-class partition whose
   non-vacuity control reports `POLICY = 12` on the pre-cut file.** It is not deleted, and the reason
   is measured rather than preferred: `ProjectSnapshot` is a C# type declared in
   `CodeIntelligenceService.cs` :1851 that `NSharpLang.Compiler.BootstrapServices` cannot reference,
   and seven production call sites hand one to `GetCompletions`. The scored inventory, the closure
-  review and the next family are in the 019 slice-4 record below. (Prior: **018 IS
+  review and the next family are in the 019 slice-4 record below.) (Prior: **018 IS
   COMPLETE — `tasks/README.md`'s 018 box is CHECKED by slice 8.**
   `SystemsAnalyzer.cs` is a reviewed zero-policy mechanical host: `UNCLASSIFIED = 0` by the executable
   six-class partition, `NSYS = 0` by census, `MISMATCHED = 0` by the eight-driver trace. Its three
@@ -2676,7 +2741,340 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `5d4a204bc`):
+- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `f10eb1274`):
+  **019 SLICE 7 — THE LINTER'S KNOWN-NAMESPACE TABLES: WHICH NAMESPACE PROVIDES A NAME, AND WHAT
+  MAKES A NAMESPACE IMPORT USED.**
+
+  **TARGET (recorded before any production edit).** `src/NSharpLang.Compiler/Linter.cs`
+  `_knownNamespaceTypes` :1271–1272 (**2**), `BuildKnownNamespaceTypes` :1274–1418 (**145**),
+  `_knownNamespaceMembers` :1422–1423 (**2**) and `BuildKnownNamespaceMembers` :1425–1513 (**89**) —
+  **238 lines over 4 extents** — plus the NAMESPACE ARM of `CheckUnusedImports` :1515–1566, which is
+  the single in-file referrer of both tables and the only thing that reads them. **The contract**:
+  `LinterNamespaceImportUsage.IsUsed(namespaceName, codeIdentifiers, memberAccessNames): bool` — the
+  mirror of the already-N# `LinterFileImportUsage.IsUsed` on the file arm of the same rule (NL010).
+  **The C# deletion target** is all four extents whole plus the namespace arm's body; what survives
+  in `CheckUnusedImports` is a two-way `isFile` fork into two N# owners and the `AddDiagnostic` call.
+
+  **THE EXTRACTOR WAS RE-VALIDATED ON SIX CHECKPOINTS BEFORE IT WAS TRUSTED.** `nl62_members.py`
+  returns **30 / 623**, **27 / 476**, **21 / 414** and **4 / 81** over `CompletionEngine.cs` at
+  `0d55966e8`, `228081146`, `294035b7c` and the tip, and **43 / 292** and **38 / 206** over
+  `OutputFormatter.cs` at `be95ec85e` and the tip — slice 6's own six checkpoints to the line. Over
+  `Linter.cs` it returns **65 extents summing 1,531** on a **1,611-line / 1,453-non-blank** file: the
+  ratchet row exactly.
+
+  **THE DEAD SWEEP RAN BEFORE ANY SCORING** (`nl78-deadsweep.py`, accessibility-aware, **1,042-file**
+  corpus): **DEAD COUNT = 0**, `DETACHED COUNT = 51`. Every family is LIVE.
+
+  **THE CENSUS OVER ALL 64 `Linter.cs` MEMBER NAMES IS CLEAN AND CONFIRMS THE INHERITED BRIEF.**
+  `nl81-census.py` over a **1,595-file** corpus: `typeof(Linter)` / `Linter).Get…` reflection
+  **= 0**, and **one** string-literal hit on any member name — `"_config"`, a key inside a VS Code
+  theme JSON under `editors/vscode/.vscode-test/`, a corpus artefact and not a door. **No reflection
+  door on this file, so nothing here is kept alive by a test naming it as a string** and no C# test
+  migrates with the members.
+
+  **THE DATA, COUNTED RATHER THAN EYEBALLED.** The type table holds **112 entries over 10
+  namespaces** (`System` 43, `System.Collections.Generic` 22, `System.IO` 14, `System.Text.Json` 7,
+  `System.Linq` 7, `System.Threading` 6, `System.Net.Http` 5, `System.Text.RegularExpressions` 3,
+  `System.Threading.Tasks` 3, `System.Text` 2) with **zero duplicate keys** — it is a
+  `Dictionary<string,string>` literal, so a duplicate would have thrown at static init — and the
+  member table holds **66 entries in `System.Linq` alone**, also all distinct. Both collapse to
+  `HashSet` values whose counts therefore equal the entry counts, and the only question ever asked of
+  either is *existence*, never order.
+
+  **BASELINES, TAKEN BEFORE ANY WRITE.** Ratchet row `src/NSharpLang.Compiler/Linter.cs`
+  `currentLines 1611 / currentNonBlank 1453`, fingerprint `text-v1:4742d8ec0ddf5109`, epoch ceilings
+  **1611 / 1454**. `reviewedHeadFingerprint head-v1:04ab2c0bc3e9b0ca` **REPRODUCED from the
+  unmodified manifest by the independent FNV-1a walk before any write** (`HEAD_REPRODUCED`).
+  Inherited: unit suite **3,192**; contracts **4,423**; audit **18 / 18**; manifest **391** lines, no
+  BOM.
+
+  ---
+
+  **LANDED (no commit — mandate) — `Linter.cs` NO LONGER KNOWS WHICH NAMESPACE PROVIDES A NAME, AND
+  NL010's NAMESPACE ARM IS A TWO-WAY FORK INTO TWO N# OWNERS.**
+
+  **FOUR C# EXTENTS DIE WHOLE AND A FIFTH IS HALVED.** `Linter.cs` **1,611 → 1,340** lines, non-blank
+  **1,453 → 1,197**, member extents **65 → 61** summing **1,531 → 1,267**, `git diff` **+5 / −276 =
+  net −271, 16.8 %**. The accounting closes exactly: the four table extents are **238** lines
+  (`_knownNamespaceTypes` 2, `BuildKnownNamespaceTypes` 145, `_knownNamespaceMembers` 2,
+  `BuildKnownNamespaceMembers` 89), their two doc-comment headers and three separating blanks are
+  **6** more, one trailing blank makes **245**, and `CheckUnusedImports` **52 → 26** contributes the
+  last **26** — 238 + 26 = **264**, the extent-sum drop to the line. **The namespace arm did not
+  survive as a shell**: the deleted body's fifteen lines of `TryGetValue` / `hasKnownTypes` /
+  `hasKnownMembers` / two `Any` lambdas become a single ternary naming
+  `LinterFileImportUsage.IsUsed` and `LinterNamespaceImportUsage.IsUsed`, so the surviving C# is a
+  `foreach`, a fork and an `AddDiagnostic` — no policy at all.
+
+  **THE OWNER IS THE TWIN OF THE FILE ARM, WHICH IS WHY IT IS ONE FILE AND NOT TWO.**
+  `LinterNamespaceImportUsage.nl` (**NEW**, 148 / 115) sits beside the already-N#
+  `LinterFileImportUsage.nl`, and between them NL010 has no C# left. `IsUsed` is the entry;
+  `KnownTypeNames` and `KnownMemberNames` are the two halves; **ten named per-namespace funcs are the
+  table** (`SystemTypeNames` 43, `CollectionsGenericTypeNames` 22, `IoTypeNames` 14,
+  `TextJsonTypeNames` 7, `LinqTypeNames` 7, `ThreadingTypeNames` 6, `NetHttpTypeNames` 5,
+  `RegularExpressionsTypeNames` 3, `ThreadingTasksTypeNames` 3, `TextTypeNames` 2, plus
+  `LinqMemberNames` 66); `ContainsAny` is the scan and `NoNames` the empty row. **The `HashSet` became
+  an ARRAY on purpose and the change is measured, not stylistic**: the only question ever asked of a
+  row is membership, the sets in the deleted C# were built solely to answer `Any(t => …Contains(t))`,
+  and rebuilding two dictionaries per lint to answer a membership question is work the shape does not
+  need. **"Absent from the table" and "has an empty row" are encoded as the same state**, which is
+  sound only because no row is empty — and that is asserted rather than assumed.
+
+  **N# ADDS 489 LINES IN ONE NEW OWNER AND 22 CONTRACTS / 123 ASSERTIONS**
+  (`LinterNamespaceImportUsage.nl` 148 / 115, `LinterNamespaceImportUsage.tests.nl` 341 / 282);
+  contracts **4,423 → 4,445**. **The unit suite does NOT move — 3,192 → 3,192 — and that is the
+  census's prediction, not a coincidence**: `Linter.cs` has no reflection door, so no C# test names a
+  deleted member and none migrates. The existing `tests/ExampleLintTests.cs` NL010 tests go on
+  asserting the same behaviour through the public `Linter.Lint`, which is now answered by N#.
+
+  **THE MOVEABLE BOUNDARY WAS DRAWN BY EXECUTION FIRST, IN A ONE-CONSTRUCT-PER-PROJECT PROBE, AND
+  NOTHING THE FAMILY NEEDS IS MISSING.** Against the **pinned** toolset (`Sdk 0.1.0` from the local
+  feed): `values := ["A", "B", "C"]` **BUILDS AND RUNS**; `return ["A", "B", "C"]` as a direct
+  array-literal return **BUILDS AND RUNS**; and the whole production shape at full scale — a class
+  with a **43-element** one-line string-array literal, `new string[](0)`, a static dispatcher on
+  `namespaceName ==`, and a `HashSet<string>` parameter answered with `.Contains` — **BUILDS AND RUNS**
+  (`43 0 True False`). **WALL STATUS: ZERO. NO REPIN.** The only two declines seen all slice were
+  the probe HARNESS's own (gotcha 82.1), not the owner's.
+
+  **THE TERMINALITY GREP IS CLEAN ON ALL FOUR NAMES.** Repo-wide, excluding this file's own record,
+  `_knownNamespaceTypes`, `_knownNamespaceMembers` and `BuildKnownNamespaceMembers` are named
+  **nowhere at all**, and `BuildKnownNamespaceTypes` survives as **one** word inside a comment in the
+  new contracts file explaining which rows shared a source line. `Linter.cs` names neither table.
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL THAT IS BYTE-IDENTICAL: 7,726 COMMON ROWS, md5
+  `15bf908427471c3ba761a6a108065031` ON BOTH SIDES, 0 MISMATCHES, 0 FAULTS, 113 DISTINCT ANSWERS.**
+  One `Grid.cs` compiled twice (`base/Base.csproj` with `NL82_BASE` against a pristine `f10eb1274`
+  worktree, `work/Work.csproj` against the repo's), **both by ProjectReference**; the base side
+  reflects `LintVisitor`'s private statics and re-runs **the deleted arm verbatim** over them, the
+  work side calls the N# owner. **Non-vacuous by census, and both answers appear everywhere**:
+  **270 TABLE rows** over 45 namespace spellings × 6 questions (count, sorted names and distinct
+  count for each half) including every near-miss (`System.Collections`, `System.Net`,
+  `System.Text.Json.Serialization`, `System.Threading.Channels`), every case variant, the empty
+  string, `"   "`, `"."`, `".."`, a tab and a newline; **1,620 DECIDE rows** over those spellings × 36
+  identifier/member combinations, answering **1,290 USED and 330 UNUSED**; **4,837 SWEEP rows** —
+  **186 names** (every name either side's OWN table carries, plus nine that no row carries) × 13
+  namespaces × both halves — answering **1,294 hits and 3,542 misses**; and **35 `ContainsAny` cells**
+  over five haystacks × seven needle sets. **The last 953 rows are the LIVE ORACLE**: the product's
+  own `ColumnarParserRecovery.ParseFileAst` + `Linter.Lint` over **705 sources** — a bare and a used
+  file for every table namespace, one file per LINQ method for all **66**, one file per type name for
+  four namespaces, multi-import files, and **527 real `.nl` files** snapshotted so both sides read
+  identical bytes — with **0 NO-PARSE**, **25 NL010 diagnostics** and **202 sources reporting**.
+  **The negative half is the sharper one**: all 66 `linq-<method>` files and all 86 `type-<name>`
+  files report their import USED on both sides while the matching `bare-` file reports it UNUSED, so
+  a single lost table row would have shown as a new NL010.
+  **The declared divergence runs on BOTH sides against the SAME names**: `LintVisitor`'s two fields
+  and two build methods report **PRESENT on the base and ABSENT on the work side**, and
+  `LinterNamespaceImportUsage` plus its five statics report **ABSENT on the base and PRESENT on the
+  work side** — 4 for 4 and 6 for 6.
+
+  **AND `nlc lint` ITSELF WAS RUN ON BOTH CLIs, TWICE EACH: 214 ROWS, 0 DIFFS, md5
+  `cfa65f428b4a1fa912d5180e9013fc34` ACROSS ALL FOUR TRANSCRIPTS, 54,463 BYTES, 214 NON-EMPTY** —
+  107 targets × the JSON and `--text` renderings, **exit codes equal on every row** (186 `rc=0`, 28
+  `rc=1`), spanning a bare and a used file for all ten table namespaces, six non-table namespaces, 19
+  LINQ operators, both multi-import shapes and **60 real repository `.nl` files**, with 32 NL010 rows
+  in the transcript. **The md5 is the TIME-NORMALISED one and that correction is finding 82.5**: the
+  raw transcripts agreed by luck on the first run and disagreed on the post-gate re-take in exactly
+  two rows, both `Linted 1 file — no issues. [0.1s]` against `[0.0s]`.
+
+  **TEN ORACLE DIFFERENTIALS, ALL ZERO — AND THE NINE STANDING ONES REPRODUCE SLICE 6's md5s TO THE
+  DIGIT**: corpus **`86a4928f…`** (the FIFTEENTH slice running byte-identical), self-host
+  **`e659c04401d1a13682f9c8e91a6b8a6a`** at `checkedFiles=364, count=285`, fx75 `6c12cc5a…`,
+  fx74 `309f7902…`, fx73 `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA `b1045814…`,
+  supplementary `228dfc38…`; parse errors **0** on every one, and the inherited `NO-RESULTS` counts
+  (**7** corpus, **6** supplementary) reproduce exactly. The **LIVE-TREE tenth** — the differential
+  over the repo's own `BootstrapServices`, which the frozen self-host snapshot cannot see — reports
+  **0 diffs, md5 `eb900a30f10863add6a9bc13d4eea0b7` on both sides, `checkedFiles=369, count=288`,
+  parse errors 0, and ZERO diagnostics naming the new owner**. Its three-diagnostic gap against the
+  frozen snapshot was RUN DOWN rather than assumed: all three sit on `CompletionReceiverFacts.nl`
+  (one `NL010`, two `NL202`), a file **slice 3 added after the snapshot was taken** and which is
+  **absent from the frozen tree entirely**; the pristine base CLI reports them identically, so they
+  predate this slice. **They were flagged as a chip, the chip was taken, and it landed as `f8f512918`
+  mid-slice — which is what moved the tip; see the RECONCILIATION below.**
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** and proved the harness stable
+  (`CONTROL vs A` **118 / 118 SAME**, both the base CLI over a fresh archive); `A vs B`
+  then gives **63 / 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files counted and
+  proved **55-of-55 copied `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps report
+  `TARGETS=73 BUILT=55 ASSEMBLIES=118`. Unsorted build transcripts **0 diffs across all three
+  sweeps** — **1,573 lines / md5 `eb430931247159501846a08df5b1a07c`** on the `f10eb1274` archive,
+  slice 6's digits exactly, and **1,557 / `1ff6a3797a58c74f8a52bc410519794b`** on the reconciled
+  `f8f512918` one (see the RECONCILIATION below; the 16-line drop was proved to be the concurrent
+  chip's by diffing the BASE CLI's own two transcripts, whose entire delta is the two
+  `CompletionReceiverFacts.nl` NL010 blocks). The five-run
+  ordering pin is byte-identical over **398 targets, 391 with results, 1,255 diagnostic rows over 48
+  codes**, `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, md5 **`db729409fb7e7100a2c5bdb6401e6a78`** — the recorded
+  value, and its census carries **NL010: 220**, so this slice's own rule is the pin's second most
+  frequent code. (The pin's whole workload is frozen snapshots and fixture directories, so the
+  concurrent chip cannot reach it.) Unit suite **3,192 / 3,192**; contracts **4,445 / 4,445** green on
+  their FIRST run;
+  the format gate reports "All files are properly formatted" (the new owner needed one blank line the
+  formatter inserted; the long one-line array literals were NOT reflowed); the pre-scoring dead sweep
+  **DEAD 0 / DETACHED 51** over 1,042 files; `dev.sh --since` selected the **FULL unit suite by its
+  own fail-safe** — it names both new `.nl` paths as unmapped — and passed **3,192 / 3,192**.
+
+  **RECONCILIATION ONTO A TIP THAT MOVED MID-SLICE, AND THE MOVE WAS THIS SLICE'S OWN CHIP.** The
+  live-tree oracle's post-gate re-take changed (`eb900a30… count=288` → `cdcdb677… count=285`) and
+  was run down rather than re-run: a concurrent session had committed **`f8f512918` "Fix pre-existing
+  NL010/NL202 errors in `CompletionReceiverFacts.nl`"** — the chip THIS slice filed when the
+  live-tree oracle first surfaced those three diagnostics. It touches **one `.nl` file, no manifest
+  row, nothing this slice touches**, and `f10eb1274` remains an ancestor. Reconciled by rebasing the
+  differential base worktree onto `f8f512918`, rebuilding its CLI and the base grid side, and
+  **re-running every tip-sensitive proof**: the differential is **still 7,726 rows / md5
+  `15bf908427471c3ba761a6a108065031` on both sides / 0 diffs / 0 faults / 113 distinct**, with the
+  declared divergence still 4-for-4 and 6-for-6; `nlc lint` across both CLIs is **still 0 normalised
+  diffs at `cfa65f42…`**, now over **three runs and six transcripts**; the live-tree oracle is
+  `ORACLE_DIFFS=0` at `cdcdb677f53f9397cebc230f9fd78868`, `checkedFiles=369, count=285`, `NL010: 7`,
+  parse errors 0 and **ZERO diagnostics naming the new owner**; and the IL sweep was re-run against
+  the `f8f512918` archive with the CONTROL again first. **The nine frozen-snapshot oracles are
+  unaffected by construction** and reproduce their md5s on both runs.
+
+  **THE FULL VS CODE-ENABLED GATE WAS RUN TWICE AND PASSED BOTH TIMES, THE SECOND ON THE BYTE-FINAL
+  RECONCILED TREE: `ALL TESTS PASSED` in 22m 47s and again in 20m 12s, 108 GREEN STEPS AND ZERO
+  FAILURES EACH, WITH THE VS CODE INTEGRATION TESTS INSIDE** (Step 3b, 3m 22s then 2m 59s, **36
+  passing** both times — extension, diagnostics, hover and completion) — each run fresh in an isolated
+  tree under `--commit`, including the unit suite **3,192 / 3,192**, the whole native `.tests.nl`
+  estate with contracts **4,445 / 4,445** and the ownership audit **18 / 18** inside it, and the IL
+  verification gate over **67 N# assemblies** with no new errors against baseline. Per standing
+  precedent (9+ consecutive denials) computer-use visual verification was NOT requested and the
+  gate's VS Code evidence stands in — but unlike slice 6 this slice is **NOT** off the IDE path and
+  the gate was run for that reason, not for form: `DocumentManager.cs` :286 does `new
+  Linter(linterConfig)`, so NL010's answer reaches the editor's squiggles. What the LSP does **not**
+  name is either table or the new owner (`grep` over `src/NSharpLang.LanguageServer` = **0**); it
+  consumes `Linter.Lint`, whose output the differential and both `nlc lint` renderings prove
+  unchanged.
+
+  **EVERY HEADLINE NUMBER WAS RE-TAKEN ON THE BYTE-FINAL TREE AFTER EACH GATE, AND ONE MOVED — WHICH
+  IS WHY THE RE-TAKE EXISTS.** The CLI, `BootstrapServices` and both differential sides were rebuilt
+  against the SDK each gate repacked, and: the differential is still **7,726 rows, DIFFS = 0, 0
+  faults, md5 `15bf908427471c3ba761a6a108065031` on BOTH sides** on all four runs; the extractor still
+  reports **61 extents summing 1,267** on a **1,340 / 1,197** file; the format gate is clean; the
+  audit is **18 / 18**; the manifest is **391** lines with the head still reproducing at
+  `54a8fc2c91320c94`. **The one number that moved was the `nlc lint` oracle's RAW md5 — finding
+  82.5 — and it moved by two elapsed-time strings, not by a diagnostic.**
+
+  **RATCHET.** One row repinned AS THE LAST EDIT, after every production edit and after the whole
+  differential / oracle / IL / determinism set had been run: `src/NSharpLang.Compiler/Linter.cs`
+  **1,611 / 1,453 → 1,340 / 1,197**, fingerprint `4742d8ec0ddf5109 → 77e1552ad3efc9b7`. **It moves
+  DOWN**, and stays under its epoch ceiling of 1611 / 1454. Head
+  `04ab2c0bc3e9b0ca → 54a8fc2c91320c94`, mirrored into `OwnershipAudit.nl`, and the stored head was
+  REPRODUCED by the independent FNV-1a walk both before the write (`HEAD_REPRODUCED`) and after it.
+  **The repin is non-vacuous by execution**: the audit reports **17 / 18 with 1 FAILED** against the
+  pre-repin manifest and **18 / 18** against the repinned one. Manifest **391** lines, no BOM; it
+  still holds **0** `.nl` rows, which is what makes a slice adding 489 N# lines a pure downward move.
+
+  **FIVE FINDINGS.**
+  **(82.1) A STRING LITERAL INSIDE AN INTERPOLATION HOLE DECLINES, AND IT NEARLY CONDEMNED THE
+  OWNER.** `$"{Probe.KnownTypeNames("System").Length}"` declines at
+  `emit.interpolation.split: interpolated string literal could not be split into literal and hole
+  parts` — and the decline names the enclosing function, `Main`, not the hole, so the first reading
+  was "the table shape does not emit". Binding the call to a local and interpolating the local builds
+  and runs. **When a probe declines, prove the decline is the SUBJECT's before believing it**: the
+  same probe re-run with named locals passed at full 43-element scale.
+  **(82.2) A DIRECT ARRAY-LITERAL RETURN IS PUBLISHED SURFACE AND THE FORMATTER LEAVES IT ALONE.**
+  `return ["A", "B", "C"]` from a `string[]` func builds and runs, at 43 and at 66 elements, and
+  `nlc format` does **not** reflow a long single-line array literal — so a data table can be one row
+  per line without fighting the formatter. The estate had no production precedent for it (only
+  `NameSet([...])` as a call argument), which is why it was probed rather than assumed.
+  `new string[](0)` remains the empty-array spelling; there is no `[]` literal for it.
+  **(82.3) zsh EATS `$rev:path` IN A HARNESS AND FAILS SILENTLY.** `git show $r:src/…` expands as a
+  zsh `:s` history modifier and produced four mangled paths, which read as "the extractor cannot see
+  these files" rather than "the shell rewrote the argument". Brace it — `git show "${r}:src/…"`. A
+  whole extractor-validation round was lost to this; the six checkpoints only reproduced on the
+  second attempt.
+  **(82.4) A LOSS IN A DATA TABLE IS INVISIBLE TO A DIFFERENTIAL THAT ONLY ASKS THE TABLE.** The
+  sweep asks every name each side's OWN table carries, so a row dropped from BOTH sides would agree
+  with itself. The defences are the exact-count contracts (112 over ten namespaces, 66 in
+  `System.Linq`) and the LIVE oracle's one-file-per-name probes, where a lost row surfaces as a new
+  NL010. Neither alone is enough; a table move needs a census that does not come from the table.
+  **(82.5) A CLI ORACLE MUST BE TIME-NORMALISED, AND A ZERO THAT WAS NEVER NORMALISED IS LUCK.**
+  `nlc lint --text` prints an elapsed time (`Linted 1 file — no issues. [0.1s]`). The first
+  base-vs-work run reported `DIFFS=0` on the RAW transcripts; the post-gate re-take reported **4**,
+  all of them `[0.1s]` against `[0.0s]` on two rows. The estate already owns the normaliser
+  (`nl80-transnorm.py` does exactly this for build transcripts) and the lint oracle simply had not
+  applied it. Under normalisation all FOUR transcripts — both sides, both runs — are byte-identical
+  at `cfa65f428b4a1fa912d5180e9013fc34`. **The lesson is not "re-run until it agrees": it is that the
+  post-gate re-take is what CAUGHT it, and a differential whose transcript carries a clock has no
+  meaningful md5 until the clock is stripped.**
+
+  **THE WALKERS WERE MEASURED AND THEY ARE NOT FUNDED — NOT BY THIS SLICE AND NOT BY ANY ONE SLICE.**
+  The brief offered them if the verified slice funded them honestly. It does not, and the reason is
+  an executable graph rather than a feeling. Tarjan over `Linter.cs`'s in-file call graph finds
+  **exactly two non-trivial SCCs and they are the walkers**:
+  | SCC | members | lines |
+  |---|---|---|
+  | statements and expressions | `VisitStatement` 223, `VisitFunction` 95, `VisitExpressionInternal` 70, `VisitExpression` 34, `VisitChildExpressions` 7 | **429** |
+  | declarations | `VisitDeclaration` 73, `VisitClass` 10, `VisitStruct` 10, `VisitRecord` 10, `VisitInterface` 7 | **110** |
+  `VisitDeclaration` calls `VisitFunction`, `VisitStatement` and `VisitExpression`, so the two SCCs
+  are **one territory of 539 lines over 10 members**, and no member of it can be cut alone. Worse
+  than the recursion is the STATE: every arm mutates `LintVisitor`'s privates in place —
+  `VisitFunction` alone reads or writes **nine** fields (`_allCodeIdentifiers`, `_config`,
+  `_currentFunctionParams`, `_currentFunctionParamUsages`, `_declaredVariables`, `_filePath`,
+  `_hasAwaitInFunction`, `_inAsyncFunction`, `_paramFrames`) and calls **ten** other members;
+  `VisitStatement` names **fifteen** out-edges; `VisitExpressionInternal` **fifteen**. Moving any one
+  of them without the state carrier requires a callback across the boundary, which the mandate
+  forbids outright. **So the walkers are the 017 model: a state-carrier slice FIRST** — an N# owner
+  taking the ~20 `LintVisitor` fields plus `PushScope` / `PopScope` / `DeclareVariable` /
+  `MarkVariableUsed` (63, 5 referrers) / `TrackTypeReference` (42, 5 referrers) / `AddDiagnostic`
+  (16, **10** referrers) — **and then the arms one at a time**. That is a multi-slice arc, and
+  claiming it as a sub-slice of a table move would have been the shortest path rather than the
+  correct one.
+
+  **NEXT FAMILY — `Linter.cs`'s ZERO-OUT-EDGE PREDICATES, RE-SCORED ON THE POST-CUT FILE.**
+  `Linter.cs` now stands at **1,340 / 1,197 / 61 extents / 1,267**. The three members with **zero
+  out-edges** — no member call, no field read, pure questions about an AST node or a string — are
+  `ContainsParserErrorPlaceholder` **55** (1 referrer, `VisitStatement`), `IsValidIdentifier` **18**
+  (1 referrer, `ExtractIdentifiersFromExpression`) and `GetBaseTypeName` **13** (2 referrers):
+  **86 lines, 3 extents, 0 out-edges, 4 referrers**, and none of them touches the visitor's state.
+  That is the next slice, and it is the same shape as the one just landed. **After that, NL002's
+  missing-import pair** — `CheckMissingImport` **55** and `CheckMissingImportForType` **53** =
+  **108 lines**, one referrer each (`VisitExpressionInternal`), whose only out-edges are
+  `AddDiagnostic` and four read-only fields (`_config`, `_filePath`, `_importedFileSymbols`,
+  `_importedNamespaces`, `_typeMemberNameScopes`) — a rule that decides from inputs and reports,
+  exactly like NL010 did. **Then `HandleStringInterpolation` 57 + `ExtractIdentifiersFromExpression`
+  25** (one out-edge each, into the pair just moved), and the three small NL003/NL016/NL020 reporters
+  `CheckUnnecessaryNullCheck` 42, `CheckRedundantNullCheckOnNewOrLiteral` 39, `CheckShadowedVariable`
+  24, each of which reaches only `AddDiagnostic` plus `_config` / `_filePath`. **The walkers and the
+  state carrier come last inside `Linter.cs`**, because every one of the above shrinks the state the
+  carrier has to take.
+  **`CodeIntelligenceService` (1,897 / 1,659 / 92 / 1,770) STILL STAYS LAST**: it is the file the LSP
+  consumes and the one that declares `ProjectSnapshot`, and closing it is what would let
+  `CompletionEngine.cs` be DELETED rather than reviewed.
+  **019's COMPLETION SHAPE IS UNCHANGED BY THIS SLICE AND IS STILL NOT "ALL SIX CLOSED".** Two files
+  are reviewed zero-policy hosts (`CompletionEngine` 109, `OutputFormatter` 271); `DocQuery.cs` is a
+  **walled** host at 446 whose `UNEXPLAINED = 0` behind two named catalog gaps; `Formatter` (2,302),
+  `Linter` (1,340) and `CodeIntelligenceService` (1,897) are the three still to reduce. **The honest
+  close of 019 remains: those three reduced, and `DocQuery` either finished by a `System.Xml.Linq`
+  catalog repin or accepted at 402 walled lines** — a toolset decision, not a slice decision.
+
+  **THE ARC'S SURFACE AFTER THIS SLICE, RE-MEASURED BY THE VALIDATED EXTRACTOR.** Six live files
+  **6,365 lines / 5,688 non-blank / 267 extents summing 5,974** — down from **6,636 / 5,944 / 271 /
+  6,238** at slice 6's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257**:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,302 | 2,127 | 49 | 2,248 |
+  | `CodeIntelligenceService` | 1,897 | 1,659 | 92 | 1,770 |
+  | `Linter` | 1,340 | 1,197 | 61 | 1,267 |
+  | `DocQuery` (WALLED, not closed) | 446 | 382 | 23 | 402 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+
+  **ARTEFACTS LEFT ON DISK FOR 019 SLICE 8.** The `/private/tmp/nl82base` worktree (pristine
+  `f8f512918` + Release Compiler and CLI) — **slice 8's base must be the commit that lands THIS
+  slice**, so re-create rather than reuse. **The two-sided differential harness is
+  `/private/tmp/nl82grid`** — ONE `Grid.cs` compiled twice, carrying the 45-spelling table grid, the
+  36-combination decision grid, the 186-name × 13-namespace × 2-half sweep, the `ContainsAny` cells,
+  the 705-source live `Linter.Lint` oracle and the two-sided declared-divergence section. **The
+  `nlc lint` oracle is `/private/tmp/nl82-lintoracle.sh`** with its target list in the scratchpad and
+  its synthesized corpus under `/private/tmp/nl82lint`; the live-oracle source snapshot is
+  `/private/tmp/nl82corpus` (527 `.nl` files). **The N# emit probes are `/private/tmp/nl82iso`** — a
+  one-construct-per-project isolation harness (`run.sh <name> <body-file>`) that names each decline
+  exactly. IL trees and captures: `/private/tmp/nl82il{Ctrl,A,B}Tree` with outputs under
+  `/private/tmp/nl82out{Ctrl,A,B}`. Harnesses in the scratchpad: `nl62_members.py` (the extractor,
+  re-validated on SIX checkpoints), `nl78-deadsweep.py`, `nl81/nl81-census.py`, `nl82-oracle.sh`,
+  `nl82-run-oracles.sh`, `nl82-ilsweep.sh`, `nl82-run-il.sh`, `nl82-ilcompare.py`, `nl80-transnorm.py`,
+  `nl82-determinism.sh` and `nl82-repin.py`. **`/private/tmp` IS REAPED** — regenerate rather than
+  assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `f10eb1274`):
   **019 SLICE 6 — DOCQUERY: WHICH CLR TYPE A NAME MEANS, AND WHAT A REFLECTED TYPE READS AS.**
 
   **THE EXTRACTOR WAS RE-VALIDATED ON SIX CHECKPOINTS BEFORE IT WAS TRUSTED, NOT THE REQUIRED TWO.**
