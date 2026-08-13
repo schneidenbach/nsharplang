@@ -221,19 +221,14 @@ test "ordinal order is by CODE UNIT, so every uppercase letter sorts before ever
     assert warnings[1].Message.Contains("'alpha'")
 }
 
-test "the ordinal comparison answers the three outcomes" {
-    assert AnalyzerReferenceLoadReport.CompareOrdinal("a", "b") < 0
-    assert AnalyzerReferenceLoadReport.CompareOrdinal("b", "a") > 0
-    assert AnalyzerReferenceLoadReport.CompareOrdinal("same", "same") == 0
-}
-
 test "a prefix sorts before the longer name it is a prefix of" {
-    assert AnalyzerReferenceLoadReport.CompareOrdinal("System", "System.Text") < 0
-    assert AnalyzerReferenceLoadReport.CompareOrdinal("System.Text", "System") > 0
-    assert AnalyzerReferenceLoadReport.CompareOrdinal("", "a") < 0
-}
-
-test "uppercase sorts before lowercase, which is what Ordinal means and what Culture would not give" {
-    assert AnalyzerReferenceLoadReport.CompareOrdinal("Z", "a") < 0
-    assert AnalyzerReferenceLoadReport.CompareOrdinal("A", "a") < 0
+    harness := ReferenceReportHarnessNew()
+    harness.Failures["System.Text"] = "longer"
+    harness.Failures["System"] = "prefix"
+    ReportUnresolvedType(harness)
+    harness.Owner.Report(null)
+    warnings := ReferenceWarnings(harness)
+    assert warnings.Count == 2
+    assert warnings[0].Message.Contains("'System'")
+    assert warnings[1].Message.Contains("'System.Text'")
 }

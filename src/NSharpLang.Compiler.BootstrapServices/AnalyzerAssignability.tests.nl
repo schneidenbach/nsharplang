@@ -422,3 +422,81 @@ test "nominal subtyping walks reflection hierarchies and refuses identity" {
     // A source with no declared bases and no reflection identity answers false rather than throwing.
     assert !assignability.IsSubtypeOf(BuiltInTypes.Int, BuiltInTypes.Object)
 }
+
+// The bridge's own harness, with the well-known-type bag the production analyzer carries: the
+// generic-target side of the cross-representation arm converts through the bag, so the bagless
+// default cannot exercise it.
+func AssignabilityWithWellKnownTypes(loadContext: MetadataLoadContext): AnalyzerAssignability {
+    core := loadContext.LoadFromAssemblyName("System.Runtime")
+    wellKnown := new AnalyzerWellKnownTypes(loadContext, core)
+    context := new AnalyzerDeclarationContext()
+    context.Reset(Path.GetFullPath("."), new List<Assembly>())
+    scopes := new AnalyzerScopeStack()
+    scopes.Push(new SemanticModel(), new Scope(ScopeKind.Global), 1, 1)
+    provider := new AnalyzerProjectSourceProvider()
+    discovery := new AnalyzerProjectTypeDiscovery(
+        provider,
+        context,
+        new List<string>(),
+        new Dictionary<string, string>(StringComparer.Ordinal))
+    probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
+    resolver := new AnalyzerTypeResolver(
+        scopes,
+        context,
+        discovery,
+        probe,
+        new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
+        new Dictionary<string, string>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new SemanticModel(),
+        new BindingMap())
+    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
+    facts := new AnalyzerAssignabilityFacts(context, wellKnown)
+    structural := new AnalyzerStructuralAssignability(resolver, probe)
+    clrConversion := new AnalyzerClrTypeConversion(context, wellKnown)
+    guard := new AnalyzerImplicitConversionGuard()
+    return new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
+}
+
+test "the cross-representation bridge takes the CLR's answer when one side is reflected" {
+    // Bagless half: a source-spelled array against the reflected Array base — the exact shape the
+    // non-generic BCL overloads put in front of the finalise walk.
+    assignability := AssignabilityDefault()
+    arrayBase: TypeInfo = new ReflectionTypeInfo(AssignabilityRuntimeType("System.Array"))
+    stringArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.String)
+    assert assignability.IsAssignable(arrayBase, stringArray)
+
+    // The bridge only ACCEPTS — the reverse question still refuses.
+    assert !assignability.IsAssignable(stringArray, arrayBase)
+}
+
+test "the bridge answers a reflected comparer against the source-spelled interface it implements" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        assignability := AssignabilityWithWellKnownTypes(context)
+        core := context.LoadFromAssemblyName("System.Runtime")
+
+        comparerDefinitionType := core.GetType("System.Collections.Generic.IComparer`1")
+        assert comparerDefinitionType != null
+        stringComparerType := core.GetType("System.StringComparer")
+        assert stringComparerType != null
+
+        comparerDefinition: TypeInfo = new ReflectionTypeInfo(comparerDefinitionType)
+        comparerOfString: TypeInfo = new GenericTypeInfo(
+            "IComparer", AssignabilityOne(BuiltInTypes.String), comparerDefinition)
+        stringComparer: TypeInfo = new ReflectionTypeInfo(stringComparerType)
+
+        // StringComparer implements IComparer<string>: the NL402/NL202 shape this bridge exists for.
+        assert assignability.IsAssignable(comparerOfString, stringComparer)
+
+        // The instantiation is exact: the same comparer does NOT satisfy IComparer<int>.
+        comparerOfInt: TypeInfo = new GenericTypeInfo(
+            "IComparer", AssignabilityOne(BuiltInTypes.Int), comparerDefinition)
+        assert !assignability.IsAssignable(comparerOfInt, stringComparer)
+    } finally {
+        scan.Dispose()
+    }
+}

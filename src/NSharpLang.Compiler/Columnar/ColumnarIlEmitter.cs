@@ -14819,12 +14819,6 @@ internal sealed class ColumnarIlEmitter
             type = typeof(bool);
             return true;
         }
-        if (typeName == "OperatingSystem" && member == nameof(OperatingSystem.IsWindows) && argCount == 0)
-        {
-            _il.Emit(OpCodes.Call, typeof(OperatingSystem).GetMethod(nameof(OperatingSystem.IsWindows), Type.EmptyTypes)!);
-            type = typeof(bool);
-            return true;
-        }
         if ((typeName == "String" || typeName == "string") && member == "Compare")
         {
             // String.Compare overloads -> int (ordinal/culture comparison sign). Two shapes are modelled:
@@ -14858,6 +14852,18 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
             return false;
+        }
+        if ((typeName == "String" || typeName == "string") && member == nameof(string.CompareOrdinal) && argCount == 2)
+        {
+            // String.CompareOrdinal(string, string) -> int (ordinal comparison sign by UTF-16 code unit).
+            var method = typeof(string).GetMethod(nameof(string.CompareOrdinal), new[] { typeof(string), typeof(string) });
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !EmitArg(callIdx, 2, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(int);
+            return true;
         }
         if ((typeName == "String" || typeName == "string") && member == "IsNullOrWhiteSpace" && argCount == 1)
         {
@@ -14937,15 +14943,18 @@ internal sealed class ColumnarIlEmitter
             type = typeof(void);
             return true;
         }
-        if (typeName == "Array" && member == "Sort" && (argCount == 1 || argCount == 3 || argCount == 4))
+        if (typeName == "Array" && member == "Sort" && (argCount == 1 || argCount == 2 || argCount == 3 || argCount == 4))
         {
-            // Array.Sort<T>(T[] array), Array.Sort<T>(T[] array, int index, int length), and the ranged
-            // IComparer<T> overload -> void. Keep this to one supported SZ array; key/value parallel arrays and
-            // comparison-delegate overloads stay declined.
+            // Array.Sort<T>(T[] array), Array.Sort<T>(T[] array, IComparer<T> comparer),
+            // Array.Sort<T>(T[] array, int index, int length), and the ranged IComparer<T> overload -> void.
+            // Keep this to one supported SZ array; key/value parallel arrays and comparison-delegate
+            // overloads stay declined.
             if (!EmitExpression(Child(callIdx, 1), out var arrayType) || !arrayType.IsSZArray)
                 return false;
             var elementType = arrayType.GetElementType()!;
             if (!IsSupportedElementType(elementType))
+                return false;
+            if (argCount == 2 && !EmitArg(callIdx, 2, typeof(IComparer<>).MakeGenericType(elementType)))
                 return false;
             if (argCount == 3 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int))))
                 return false;
@@ -15103,30 +15112,30 @@ internal sealed class ColumnarIlEmitter
         return null;
     }
 
-    // System.Array.Sort<T>(T[] array[, int index, int length[, IComparer<T> comparer]]) as a generic method
-    // DEFINITION.
+    // System.Array.Sort<T>(T[] array[, int index, int length][, IComparer<T> comparer]) as a generic method
+    // DEFINITION: 1 = array only, 2 = array + comparer, 3 = array + range, 4 = array + range + comparer.
+    // The single-type-parameter guard keeps the key/value Sort<TKey, TValue> family out of every arity.
     private static MethodInfo? ResolveArraySort(int parameterCount)
     {
         foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
         {
-            if (m.Name != "Sort" || !m.IsGenericMethodDefinition)
+            if (m.Name != "Sort" || !m.IsGenericMethodDefinition || m.GetGenericArguments().Length != 1)
                 continue;
             var parameters = m.GetParameters();
             if (parameters.Length != parameterCount
                 || !parameters[0].ParameterType.IsSZArray
                 || !parameters[0].ParameterType.GetElementType()!.IsGenericParameter)
                 continue;
-            if (parameterCount == 1
-                || (parameters[1].ParameterType == typeof(int) && parameters[2].ParameterType == typeof(int)))
+            if (parameterCount >= 3
+                && (parameters[1].ParameterType != typeof(int) || parameters[2].ParameterType != typeof(int)))
+                continue;
+            if (parameterCount is 2 or 4)
             {
-                if (parameterCount == 4)
-                {
-                    var comparerType = parameters[3].ParameterType;
-                    if (!comparerType.IsGenericType || comparerType.GetGenericTypeDefinition() != typeof(IComparer<>))
-                        continue;
-                }
-                return m;
+                var comparerType = parameters[parameterCount - 1].ParameterType;
+                if (!comparerType.IsGenericType || comparerType.GetGenericTypeDefinition() != typeof(IComparer<>))
+                    continue;
             }
+            return m;
         }
         return null;
     }
@@ -17958,18 +17967,6 @@ internal sealed class ColumnarIlEmitter
             && TryEmitGenericParameterConstrainedInterfaceCall(callIdx, receiverType, member, argCount, out type))
             return true;
 
-        if (receiverType == typeof(AppDomain) && member == nameof(AppDomain.GetAssemblies) && argCount == 0)
-        {
-            _il.Emit(OpCodes.Callvirt, typeof(AppDomain).GetMethod(nameof(AppDomain.GetAssemblies), Type.EmptyTypes)!);
-            type = typeof(Assembly[]);
-            return true;
-        }
-        if (receiverType == typeof(JsonDocument) && member == nameof(JsonDocument.Dispose) && argCount == 0)
-        {
-            _il.Emit(OpCodes.Callvirt, typeof(JsonDocument).GetMethod(nameof(JsonDocument.Dispose), Type.EmptyTypes)!);
-            type = typeof(void);
-            return true;
-        }
         if (receiverType == typeof(DeserializerBuilder))
         {
             if (member == nameof(BuilderSkeleton<DeserializerBuilder>.WithNamingConvention) && argCount == 1)

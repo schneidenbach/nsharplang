@@ -1314,3 +1314,80 @@ test "the filtered method enumeration declines every near miss" {
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Type", "GetMethods", twoArguments).IsSupported
 }
+
+test "the string comparer's own string pair is on the instance call surface" {
+    stringPair := new string[](2)
+    stringPair[0] = "System.String"
+    stringPair[1] = "System.String"
+    AssertVirtualCall(
+        "System.StringComparer",
+        "Compare",
+        stringPair,
+        "System.Int32")
+
+    // The receiver is spelled exactly — not the short name.
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "StringComparer", "Compare", stringPair).IsSupported
+
+    // Only the string pair is modeled: the boxing Compare(object, object) overload is not, and
+    // neither is any other arity.
+    objectPair := new string[](2)
+    objectPair[0] = "System.Object"
+    objectPair[1] = "System.Object"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.StringComparer", "Compare", objectPair).IsSupported
+    oneString := new string[](1)
+    oneString[0] = "System.String"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.StringComparer", "Compare", oneString).IsSupported
+
+    // The member name is exact: the equality surface is not implied by the comparison one.
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.StringComparer", "Equals", stringPair).IsSupported
+}
+
+test "the migrated legacy arms are on the plan surface with their exact identities" {
+    // OperatingSystem.IsWindows(): both owner spellings, no arguments, boolean answer.
+    AssertStaticCall(
+        "OperatingSystem",
+        "IsWindows",
+        new string[](0),
+        new string[](0),
+        "System.OperatingSystem",
+        "System.Boolean")
+    AssertStaticCall(
+        "System.OperatingSystem",
+        "IsWindows",
+        new string[](0),
+        new string[](0),
+        "System.OperatingSystem",
+        "System.Boolean")
+    oneString := new string[](1)
+    oneString[0] = "System.String"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "OperatingSystem", "IsWindows", oneString).IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "OperatingSystem", "IsLinux", new string[](0)).IsSupported
+
+    // AppDomain.GetAssemblies(): the CoreLib instance enumeration.
+    AssertVirtualCall(
+        "System.AppDomain",
+        "GetAssemblies",
+        new string[](0),
+        "System.Reflection.Assembly[]")
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "AppDomain", "GetAssemblies", new string[](0)).IsSupported
+
+    // JsonDocument.Dispose(): declared OUTSIDE CoreLib, so the identity is asserted inline —
+    // the shared helper pins the CoreLib suffix and cannot speak for System.Text.Json.
+    disposePlan := ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Text.Json.JsonDocument", "Dispose", new string[](0))
+    assert disposePlan.IsSupported
+    assert disposePlan.Kind == ColumnarExternalCallKind.CallVirtual
+    assert disposePlan.DeclaringTypeName == "System.Text.Json.JsonDocument, System.Text.Json"
+    assert disposePlan.MemberName == "Dispose"
+    assert disposePlan.ParameterTypeNames.Length == 0
+    assert disposePlan.ReturnTypeName == "System.Void, System.Private.CoreLib"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "JsonDocument", "Dispose", new string[](0)).IsSupported
+}
