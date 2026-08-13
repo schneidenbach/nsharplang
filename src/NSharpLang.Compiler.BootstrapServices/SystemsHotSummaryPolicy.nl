@@ -64,6 +64,45 @@ class SystemsHotSummaryPolicy {
         aotTargetValue = config.Language.Systems.AotTarget
     }
 
+    // A STATIC MEMBER ACCESS ON A HOT PATH IS FIRST-USE WORK UNLESS SOMETHING SAYS OTHERWISE. Reading
+    // `Foo.Bar` runs `Foo`'s class initializer the first time it happens, and an initializer is
+    // exactly the unbounded first-use work a `[hot]` function promises not to do. FOUR ANSWERS CLEAR
+    // IT AND ANY ONE IS ENOUGH: the project declares a warmup at all, the receiver is an enum, the
+    // call family knows it as a hot-ready static receiver, or a target-qualified HotSummary carries a
+    // readiness fact for it. That last one is why this rule lives with the sidecars rather than with
+    // the walk.
+    //
+    // THE RECEIVER MUST BE AN UPPER-CASE IDENTIFIER, which is this compiler's own type-name
+    // convention: `buffer.Length` reads a field on a local and `Buffer.MemoryCopy` reaches a static
+    // member, and nothing else in the expression tells them apart.
+    //
+    // THE FOUR ARE ASKED IN COST ORDER, NOT IN THE ORIGINAL'S WRITTEN ORDER. The project's warmup is
+    // a field read and the catalog answer is a scan, so the cheap one is asked first; all four are
+    // pure, so the reordering is not observable. THE THREE COLLABORATORS ARE HANDED IN rather than
+    // held, because the catalog is reloaded per analysis while the two policies belong to the walk.
+    //
+    // RETURNS WHETHER THE FUNCTION REQUIRES WARMUP. The rule decides; the walk records the bit.
+    func ReportStaticReceiverWarmup(receiverName: string, memberName: string, typePolicy: SystemsTypePolicy, callPolicy: SystemsCallPolicy, hotSummaries: HotSummaryCatalog, targetFramework: string, line: int, column: int, filePath: string, functionName: string, isHot: bool, isBoundary: bool): bool {
+        if !isHot || hasWarmupValue {
+            return false
+        }
+
+        if receiverName.Length == 0 || !char.IsUpper(receiverName[0]) {
+            return false
+        }
+
+        if typePolicy.IsEnumTypeName(receiverName) || callPolicy.IsKnownStaticHotReceiver(receiverName) {
+            return false
+        }
+
+        if hotSummaries.HasReceiverSummary(receiverName, targetFramework) {
+            return false
+        }
+
+        sinkValue.AddWhenHot("NSYS110", "hotReadiness", "static member access '" + receiverName + "." + memberName + "' requires a warmup or HotSummary readiness fact", line, column, filePath, functionName, isHot, isBoundary)
+        return true
+    }
+
     // `Buffer.MemoryCopy` IS THE ONE CALL THE SYSTEMS PROFILE REQUIRES A SYNTACTIC CAGE FOR. It reads
     // and writes raw memory with no bounds check of any kind, so the profile insists the call sit
     // inside an `unsafe` block where a reader can see the proof obligation, and reports it under the

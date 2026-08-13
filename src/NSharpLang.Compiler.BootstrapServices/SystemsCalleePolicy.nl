@@ -8,11 +8,13 @@ import NSharpLang.Compiler.Ast
 
 // WHAT A CALL COSTS ITS CALLER.
 //
-// Three rules, one subject seen from three sides. A call the analyzer could NOT resolve costs the
-// caller an unknown-external-call finding. A call it COULD resolve costs the caller whatever the
-// callee's effects are, reported at the call and named for both ends. And a resolved callee that
-// hands back a `Result` nobody binds costs the caller the error path it silently dropped. All three
-// report at the CALL's position and about the CALLER's promise, which is why they are one owner.
+// Seven rules, one subject seen from several sides. A call the analyzer could NOT resolve costs the
+// caller an unknown-external-call finding. A call it could not resolve but DID classify — an
+// unsupported concurrency primitive, runtime dispatch, a pool rent, reflection — costs the caller
+// that classification's own sentence. A call it COULD resolve costs the caller whatever the callee's
+// effects are, reported at the call and named for both ends. And a resolved callee that hands back a
+// `Result` nobody binds costs the caller the error path it silently dropped. Every one of them
+// reports at the CALL's position and about the CALLER's promise, which is why they are one owner.
 //
 // THIS IS NOT `SystemsCallPolicy`. That one classifies call TARGETS — is this a pool rent, a
 // reflection call, a resource factory — and answers about the callee in isolation. This one prices
@@ -153,6 +155,53 @@ class SystemsCalleePolicy {
         if callee.RequiresWarmup {
             Report("NSYS110", "hotReadiness", "callee '" + calleeName + "' requires warmup before the hot path is warm-ready", "Add the required warmup function to language.systems.warmup or remove first-use work.", line, column, length, callerFile, callerName, callerIsHot, callerIsBoundary, callPath)
         }
+    }
+
+    // WHAT AN UNRESOLVED TARGET COSTS ITS CALLER, IN FOUR SENTENCES. `SystemsCallPolicy` classifies
+    // the target — is it a pool rent, a reflection call, a threading primitive — and these four price
+    // the answer against the caller's promise. They are the same subject as `ReportUnknownExternalCall`
+    // above seen one classification later: a target the analyzer DID recognise, and recognised as
+    // something a systems path must be told about.
+    //
+    // ALL FOUR REPORT AT THE CALL and name the target inside the sentence, because the reader needs to
+    // know which call in the line it is. THREE OF THE FOUR ARE POLICY FINDINGS — a narrow `allow(...)`
+    // on the effect silences them and a `[boundary]` downgrades them — and the fourth, the hot pool
+    // rent, is `[hot]`-only, because renting from a pool is ordinary work everywhere else.
+
+    // A CONCURRENCY PRIMITIVE WITH NO v1 SEMANTICS. The call family knows a small set the profile can
+    // reason about — volatile reads and writes, the interlocked operations, an explicit memory
+    // barrier — and everything else in the threading surface is a primitive whose cost the profile
+    // cannot state. Reported rather than silently accepted, because a primitive the analyzer cannot
+    // price is exactly the thing a hot path must not reach by accident.
+    func ReportUnsupportedConcurrencyPrimitive(target: string, allows: SystemsAllowStack, line: int, column: int, filePath: string, functionName: string, isHot: bool, isBoundary: bool) {
+        sinkValue.AddForPolicy("NSYS140", "concurrency", "concurrency primitive '" + target + "' has no v1 HotSummary semantics", line, column, allows.IsAllowed("concurrency"), filePath, functionName, isHot, isBoundary, "Use Volatile.Read/Write, Interlocked.Exchange/CompareExchange/Increment/Decrement/Add, or Thread.MemoryBarrier.")
+    }
+
+    // RUNTIME DISPATCH, OR AN INTERFACE-SHAPED API WITH NO SUMMARY. Both reach a method the analyzer
+    // cannot see through, and both cost the caller the same thing, which is why they are one sentence
+    // and not two.
+    func ReportRuntimeDispatch(target: string, allows: SystemsAllowStack, line: int, column: int, filePath: string, functionName: string, isHot: bool, isBoundary: bool) {
+        sinkValue.AddForPolicy("NSYS040", "dispatch", "call to '" + target + "' uses runtime dispatch or an unsummarized interface-shaped API", line, column, allows.IsAllowed("dispatch"), filePath, functionName, isHot, isBoundary, "Use a concrete receiver, constrained generic call, or HotSummary-covered wrapper.")
+    }
+
+    // A POOL RENT INSIDE `[hot]`. Renting is ordinary work; renting on a hot path without a warm pool
+    // is a first-use stall, so the rule is `[hot]`-only and `allow(pool)` waives it. THE CALLER
+    // DECIDES WHETHER THIS CALL IS A RENT — `SystemsCallPolicy` owns that classification and the walk
+    // needs the same answer again for the warmup bit, so it is asked once and handed over.
+    func ReportHotPoolRent(isPoolRent: bool, allows: SystemsAllowStack, line: int, column: int, filePath: string, functionName: string, isHot: bool, isBoundary: bool) {
+        if !isPoolRent || allows.IsAllowed("pool") {
+            return
+        }
+
+        sinkValue.AddWhenHot("NSYS130", "pool", "[hot] pool rent requires a hot-ready pool precondition or allow(pool)", line, column, filePath, functionName, isHot, isBoundary)
+    }
+
+    // REFLECTION OR RUNTIME CODE GENERATION. The finding is about the TARGET-QUALIFIED AOT facts the
+    // call destroys, not about the call being slow, which is why it wears the `aot` effect and why the
+    // sink's AOT verdict reads it: an NSYS060 that survives at `error` is what turns the report's AOT
+    // analysis from `pass` to `fail`.
+    func ReportReflectionOrDynamicCall(target: string, allows: SystemsAllowStack, line: int, column: int, filePath: string, functionName: string, isHot: bool, isBoundary: bool) {
+        sinkValue.AddForPolicy("NSYS060", "aot", "call to '" + target + "' blocks target-qualified AOT/trimming facts", line, column, allows.IsAllowed("aot"), filePath, functionName, isHot, isBoundary, "Move reflection/dynamic code behind a [boundary] or add an audited target-qualified summary.")
     }
 
     // A `Result` NOBODY BOUND. The caller has resolved the call to a declared function and hands over

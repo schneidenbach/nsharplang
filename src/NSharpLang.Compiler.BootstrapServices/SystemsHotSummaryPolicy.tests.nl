@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.Performance
 
+import System
 import System.Collections.Generic
 import NSharpLang.Compiler
 
@@ -424,4 +425,107 @@ test "A COLD CALLER IN A DEFAULT-PROFILE PROJECT HEARS NOTHING ABOUT Buffer.Memo
     policy.BeginAnalysis(ShpConfig("default", "strict", false, false, "linux-x64"))
     policy.ReportBufferMemoryCopy(false, false, 9, 4, "copy.nl", "Owner.Copy", false, false)
     assert ShpCount(sink) == 0
+}
+
+// Native contracts for HOT READINESS — the NSYS110 arm F18 moved out of the expression walk.
+//
+// SIX THINGS IT IS EASY TO GET WRONG.
+//
+// (1) IT IS `[hot]`-ONLY. A cold systems function reads static members freely.
+//
+// (2) FOUR ANSWERS CLEAR IT AND ANY ONE IS ENOUGH — a declared warmup, an enum receiver, a known
+// hot-ready static receiver, or a HotSummary that names the receiver.
+//
+// (3) THE PROJECT-LEVEL WARMUP IS A WHOLE-PROJECT SWITCH. One warmup entry silences the rule for
+// every receiver in the program, which is the original's behaviour and is why it is read once.
+//
+// (4) THE RECEIVER MUST START WITH AN UPPER-CASE LETTER, and an empty name answers FALSE rather than
+// indexing.
+//
+// (5) THE RETURN IS THE SUMMARY BIT. `RequiresWarmup` travels to callers through the callee family,
+// so an arm that reported but answered FALSE would drop the caller's own NSYS110.
+//
+// (6) THE SENTENCE NAMES BOTH HALVES OF THE ACCESS — receiver and member — because the position
+// alone does not tell the reader which member of the line is unready.
+
+func ShpCatalog(method: string): HotSummaryCatalog {
+    entries := new List<HotSummaryEntry>()
+    entry := new HotSummaryEntry()
+    entry.Method = method
+    entry.Source = HotSummarySource.BclPack
+    entry.Effects = ShpEffects()
+    entries.Add(entry)
+    return new HotSummaryCatalog(entries)
+}
+
+func ShpEmptyCatalog(): HotSummaryCatalog {
+    return new HotSummaryCatalog(new List<HotSummaryEntry>())
+}
+
+func ShpWarmup(policy: SystemsHotSummaryPolicy, receiverName: string, catalog: HotSummaryCatalog, isHot: bool, isBoundary: bool): bool {
+    return policy.ReportStaticReceiverWarmup(receiverName, "Encode", new SystemsTypePolicy(), new SystemsCallPolicy(), catalog, "net10.0", 11, 4, "hot.nl", "Owner.Run", isHot, isBoundary)
+}
+
+test "AN UNKNOWN UPPER-CASE STATIC RECEIVER IN [hot] IS UNREADY AND SAYS WHICH MEMBER" {
+    sink := ShpSink("systems", "strict")
+    policy := ShpPolicy(sink, false, false, "linux-x64")
+    assert ShpWarmup(policy, "Codec", ShpEmptyCatalog(), true, false)
+    assert ShpCount(sink) == 1
+    assert ShpCode(sink, 0) == "NSYS110"
+    assert ShpEffectName(sink, 0) == "hotReadiness"
+    assert ShpMessage(sink, 0) == "static member access 'Codec.Encode' requires a warmup or HotSummary readiness fact"
+    assert ShpSeverity(sink, 0) == "error"
+    assert ShpLength(sink, 0) == 1
+}
+
+test "THE SAME RECEIVER IS SILENT AND UNRECORDED IN A COLD FUNCTION" {
+    sink := ShpSink("systems", "strict")
+    policy := ShpPolicy(sink, false, false, "linux-x64")
+    assert !ShpWarmup(policy, "Codec", ShpEmptyCatalog(), false, false)
+    assert ShpCount(sink) == 0
+}
+
+test "ONE DECLARED WARMUP SILENCES THE RULE FOR EVERY RECEIVER IN THE PROJECT" {
+    sink := ShpSink("systems", "strict")
+    policy := ShpPolicy(sink, false, true, "linux-x64")
+    assert !ShpWarmup(policy, "Codec", ShpEmptyCatalog(), true, false)
+    assert !ShpWarmup(policy, "Reader", ShpEmptyCatalog(), true, false)
+    assert ShpCount(sink) == 0
+}
+
+test "A LOWER-CASE RECEIVER IS A LOCAL, NOT A TYPE, AND AN EMPTY NAME ANSWERS RATHER THAN INDEXING" {
+    sink := ShpSink("systems", "strict")
+    policy := ShpPolicy(sink, false, false, "linux-x64")
+    assert !ShpWarmup(policy, "buffer", ShpEmptyCatalog(), true, false)
+    assert !ShpWarmup(policy, "", ShpEmptyCatalog(), true, false)
+    assert ShpCount(sink) == 0
+}
+
+test "A HOTSUMMARY THAT NAMES THE RECEIVER CLEARS IT, AND ONE THAT NAMES ANOTHER DOES NOT" {
+    quiet := ShpSink("systems", "strict")
+    policyQuiet := ShpPolicy(quiet, false, false, "linux-x64")
+    assert !ShpWarmup(policyQuiet, "Codec", ShpCatalog("Codec.Encode"), true, false)
+    assert ShpCount(quiet) == 0
+    loud := ShpSink("systems", "strict")
+    policyLoud := ShpPolicy(loud, false, false, "linux-x64")
+    assert ShpWarmup(policyLoud, "Codec", ShpCatalog("Reader.Next"), true, false)
+    assert ShpCount(loud) == 1
+}
+
+test "A KNOWN HOT-READY STATIC RECEIVER CLEARS IT WITHOUT ANY SUMMARY" {
+    sink := ShpSink("systems", "strict")
+    policy := ShpPolicy(sink, false, false, "linux-x64")
+    assert !ShpWarmup(policy, "Math", ShpEmptyCatalog(), true, false)
+    assert ShpCount(sink) == 0
+}
+
+test "AN ENUM RECEIVER CLEARS IT, BECAUSE AN ENUM HAS NO INITIALIZER WORTH WARMING" {
+    sink := ShpSink("systems", "strict")
+    policy := ShpPolicy(sink, false, false, "linux-x64")
+    typePolicy := new SystemsTypePolicy()
+    typePolicy.RegisterEnumType("Mode")
+    assert !policy.ReportStaticReceiverWarmup("Mode", "Fast", typePolicy, new SystemsCallPolicy(), ShpEmptyCatalog(), "net10.0", 11, 4, "hot.nl", "Owner.Run", true, false)
+    assert ShpCount(sink) == 0
+    assert policy.ReportStaticReceiverWarmup("Other", "Fast", typePolicy, new SystemsCallPolicy(), ShpEmptyCatalog(), "net10.0", 11, 4, "hot.nl", "Owner.Run", true, false)
+    assert ShpCount(sink) == 1
 }

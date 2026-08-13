@@ -38,7 +38,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [ ] [015 — Remaining emitter decisions](015-remaining-emitter-decisions.md)
 - [x] [016 — Parser and syntax-diagnostic ownership](016-parser-and-syntax-diagnostics.md)
 - [x] [017 — Semantic analyzer ownership](017-semantic-analyzer-ownership.md)
-- [ ] [018 — Systems analyzer ownership](018-systems-analyzer-ownership.md)
+- [x] [018 — Systems analyzer ownership](018-systems-analyzer-ownership.md)
 - [ ] [019 — Compiler-contained tooling ownership](019-compiler-contained-tooling.md)
 - [ ] [020 — Native N# test-runner capabilities](020-native-test-runner-capabilities.md)
 - [ ] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)

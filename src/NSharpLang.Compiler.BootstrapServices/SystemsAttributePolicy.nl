@@ -13,6 +13,12 @@ import NSharpLang.Compiler.Ast
 // other systems owner is handed the ANSWER — `isHot`, `allocNone`, an allow set — and never the
 // attribute list, so a change to how an attribute is spelled is a change to this file alone.
 //
+// THREE TYPES, ONE SUBJECT. `SystemsAttributeSet` reads the declaration and answers questions about
+// it; `SystemsAllowStack` holds the waiver set it built plus the block-level waivers the walk pushes,
+// and owns the one test that reads them; `SystemsAttributePolicy` reports what a declaration must
+// say. They are one file because they are one subject seen three ways, and only the last needs a
+// sink.
+//
 // AN ATTRIBUTE NAME IS MATCHED WITHOUT ITS `Attribute` SUFFIX AND WITHOUT CASE, BUT THE TWO HALVES
 // USE DIFFERENT COMPARISONS. The suffix strip is ORDINAL and the name comparison that follows is
 // not, so `[hot]`, `[Hot]` and `[HotAttribute]` are one attribute while `[hotattribute]` is a
@@ -210,9 +216,98 @@ class SystemsAttributeSet {
     }
 }
 
-// The reporting half of the same subject: what a declaration's waiver must SAY. Held apart from the
-// set because the set answers questions and this one emits findings, and only this half needs the
-// sink.
+// THE WAIVER STACK THE WALK CARRIES, AND THE ONE TEST THAT READS IT.
+//
+// A systems rule is silenced by `allow(effect)` written EITHER on the declaration — the set
+// `SystemsAttributeSet.AllowEffects()` above builds — OR on any enclosing `allow(...) { }` block.
+// This owns both halves: the function-level set it is constructed with, and the stack of block-level
+// sets the walk pushes and pops as it enters and leaves those blocks.
+//
+// THE TEST WIDENS ON AN `effect:` PREFIX, AND THAT WIDENING IS REACHABLE ONLY THROUGH A BLOCK-LEVEL
+// WAIVER — measured, not assumed. Over 20 attribute shapes x 9 effects with nothing pushed, this
+// test and the callee family's EXACT `Contains` agree on all 180 cells, because `AllowEffects()`
+// always inserts the bare name beside `name:value`; they disagree on 173 of the 1,440 cells that
+// push a block. A block's effects come from `AllowStatement.Effects` — the written word list, with
+// no bare-name companion — so `allow(trap: proved) { }` allows `trap` HERE and nowhere else. That is
+// why the widening lives beside the set it reads rather than inside the walk's state: it is a rule
+// about waivers, not a fact about walking.
+//
+// EVERY LEVEL IS OrdinalIgnoreCase, function-level and block-level alike, which is what makes
+// `allow(ALLOC)` silence the allocation rule.
+class SystemsAllowStack {
+    functionAllowsValue: HashSet<string>
+    blockAllowsValue: List<HashSet<string>>
+
+    constructor(functionAllows: HashSet<string>) {
+        functionAllowsValue = functionAllows
+        blockAllowsValue = new List<HashSet<string>>()
+    }
+
+    // Entering an `allow(...) { }` block. The written effect words become a set of their own rather
+    // than being merged into the function's, because leaving the block must take exactly them away
+    // and nothing else.
+    func Push(effects: List<string>) {
+        pushed := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        index := 0
+        while index < effects.Count {
+            pushed.Add(effects[index])
+            index = index + 1
+        }
+
+        blockAllowsValue.Add(pushed)
+    }
+
+    // Tolerant of an unmatched pop, exactly as the original's `Count > 0` guard is: a walk that pops
+    // more than it pushed is a bug in the walk, not a reason to throw at the user.
+    func Pop() {
+        if blockAllowsValue.Count > 0 {
+            blockAllowsValue.RemoveAt(blockAllowsValue.Count - 1)
+        }
+    }
+
+    // THE FUNCTION'S OWN WAIVER FIRST, THEN EVERY ENCLOSING BLOCK. It is an OR across all levels, so
+    // the order is not observable; the function level is written first because it is the one a reader
+    // of the declaration can see.
+    func IsAllowed(effect: string): bool {
+        if ContainsEffect(functionAllowsValue, effect) {
+            return true
+        }
+
+        index := 0
+        while index < blockAllowsValue.Count {
+            if ContainsEffect(blockAllowsValue[index], effect) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // THE WIDENING. An exact member first, then any member that QUALIFIES this effect with a colon:
+    // `alloc:pooled` allows `alloc`. See the header for why only a block-level set can reach the
+    // second arm.
+    static func ContainsEffect(effects: HashSet<string>, effect: string): bool {
+        if effects.Contains(effect) {
+            return true
+        }
+
+        prefix := effect + ":"
+        for value in effects {
+            if value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+
+        return false
+    }
+}
+
+// The reporting half of the same subject: what a declaration's waiver must SAY, what a declaration's
+// modifiers cost it, and what a declaration must have declared before an `unsafe` block is allowed
+// to appear inside it. Held apart from the set because the set answers questions and this one emits
+// findings, and only this half needs the sink.
 class SystemsAttributePolicy {
     sinkValue: SystemsFindingSink
 
@@ -246,6 +341,86 @@ class SystemsAttributePolicy {
 
             index = index + 1
         }
+    }
+
+    // `[hot]` AND A STATE MACHINE ARE INCOMPATIBLE IN v1, AND THERE ARE TWO OF THEM. `async` and
+    // `iterator` both compile to a heap-allocated state machine, so a `[hot]` function carrying
+    // either has broken its promise before its body is read. Both arms report at the DECLARATION and
+    // underline its own name, and a function that is BOTH gets both findings at that one position,
+    // async first.
+    //
+    // THE MODIFIER IS READ AS A BIT, the `VisibilityConventions` idiom — but the bit comes from the
+    // ENUM MEMBER rather than from a written number, so renumbering `Modifiers` cannot silently stop
+    // the rule. The mask is written out here rather than borrowed from `AnalyzerAmbientContext`'s
+    // identical private helper on purpose: a systems policy that reached into the semantic analyzer's
+    // ambient context for a two-line bit test would couple two families that share nothing else.
+    //
+    // RETURNS WHETHER THE DECLARATION ALLOCATES A STATE MACHINE. The rule decides; the walk records
+    // `Allocates` and `Resource` on the summary it carries.
+    func ValidateHotStateMachines(function: FunctionDeclaration, filePath: string, functionName: string, isHot: bool, isBoundary: bool): bool {
+        if !isHot {
+            return false
+        }
+
+        modifiers := Convert.ToInt32(function.Modifiers)
+        asyncBit := Convert.ToInt32(Modifiers.Async)
+        generatorBit := Convert.ToInt32(Modifiers.Generator)
+        length := Math.Max(1, function.Name.Length)
+        stateMachine := false
+        if (modifiers & asyncBit) == asyncBit {
+            stateMachine = true
+            sinkValue.AddForFunction("NSYS010", "allocation", "[hot] async functions allocate or require async machinery in Systems N# v1", function.Line, function.Column, length, filePath, functionName, isHot, isBoundary, ErrorSeverity.Error, "Move async work to a [boundary] and call hot code with explicit buffers.")
+        }
+
+        if (modifiers & generatorBit) == generatorBit {
+            stateMachine = true
+            sinkValue.AddForFunction("NSYS010", "allocation", "[hot] iterator functions allocate state machines in Systems N# v1", function.Line, function.Column, length, filePath, functionName, isHot, isBoundary, ErrorSeverity.Error, "Use a caller-provided buffer or direct loop instead of yield.")
+        }
+
+        return stateMachine
+    }
+
+    // A `[trusted]` WRAPPER IS AN AUDITED EXCEPTION AND MUST SAY SO. Three metadata fields make it
+    // auditable — WHY, WHO, and WHEN IT WAS REVIEWED — and one attribute makes it checkable: a
+    // wrapper that has not declared `[memory(safe)]` has not finished the proof it is claiming. The
+    // two arms are INDEPENDENT: a wrapper missing both gets both findings at the same position,
+    // metadata first.
+    //
+    // ONE MISSING FIELD IS ONE FINDING, NOT THREE. The sentence names all three because the fix is to
+    // write all three, and reporting per field would put three identical underlines on one
+    // declaration.
+    //
+    // `expires` IS DELIBERATELY NOT PART OF THE RULE. It travels on the trusted-site record for the
+    // report to show; a wrapper with no expiry is still audited.
+    //
+    // BOTH ARMS PREFER `Error` and neither consults an allow set: `[trusted]` IS the waiver
+    // mechanism, so waiving the rules that make a waiver auditable would leave nothing behind.
+    func ValidateTrustedFunction(reason: string?, owner: string?, review: string?, memorySafe: bool, function: FunctionDeclaration, filePath: string, functionName: string, isHot: bool, isBoundary: bool) {
+        length := Math.Max(1, function.Name.Length)
+        if string.IsNullOrWhiteSpace(reason) || string.IsNullOrWhiteSpace(owner) || string.IsNullOrWhiteSpace(review) {
+            sinkValue.AddForFunction("NSYS100", "memorySafety", "[trusted] requires reason, owner, and review metadata", function.Line, function.Column, length, filePath, functionName, isHot, isBoundary, ErrorSeverity.Error, "Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] on the wrapper.")
+        }
+
+        if !memorySafe {
+            sinkValue.AddForFunction("NSYS100", "memorySafety", "[trusted] wrappers must declare [memory(safe)] for Systems N# v1", function.Line, function.Column, length, filePath, functionName, isHot, isBoundary, ErrorSeverity.Error, "Add [memory(safe)] after documenting the unsafe proof.")
+        }
+    }
+
+    // THE SAME SENTENCE FROM THE OTHER SIDE. `ValidateTrustedFunction` tells a wrapper it has not
+    // finished its proof; this tells an `unsafe` block it has no wrapper. One rule, two subjects,
+    // deliberately not folded: a function can carry `[trusted] [memory(safe)]` and no `unsafe` block
+    // at all, and an `unsafe` block can appear in a function that claims nothing.
+    //
+    // REPORTED AS A POLICY FINDING, so a narrow `allow(memorySafety)` silences it and a `[boundary]`
+    // downgrades it — unlike the declaration arms above, which are unconditional errors. A waiver
+    // written around the block is exactly the audited-exception shape this rule is asking for, which
+    // is why it is honoured here and refused there.
+    func ReportUnsafeBlock(isTrusted: bool, memorySafe: bool, allows: SystemsAllowStack, line: int, column: int, filePath: string, functionName: string, isHot: bool, isBoundary: bool) {
+        if isTrusted && memorySafe {
+            return
+        }
+
+        sinkValue.AddForPolicy("NSYS100", "memorySafety", "unsafe block requires a [trusted] memory-safe wrapper in systems code", line, column, allows.IsAllowed("memorySafety"), filePath, functionName, isHot, isBoundary, "Wrap unsafe code in a small [trusted(reason, owner, review)] function with [memory(safe)].")
     }
 
     // The written `public` modifier OR the exported-identifier convention. See the header for why

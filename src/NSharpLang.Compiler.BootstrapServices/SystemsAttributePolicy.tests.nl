@@ -468,3 +468,234 @@ test "THE WAIVER FINDING IS REPORTED IN A DEFAULT-PROFILE PROJECT TOO" {
     assert SatCount(sink) == 1
     assert SatSeverity(sink, 0) == "error"
 }
+
+// Native contracts for THE WAIVER STACK and for the three declaration arms F18 moved.
+//
+// SEVEN THINGS THESE ARE EASY TO GET WRONG.
+//
+// (1) THE PREFIX WIDENING IS REACHABLE ONLY THROUGH A BLOCK-LEVEL WAIVER, and the reason is the
+// two-form insertion above: `AllowEffects()` always puts the bare name in beside `name:value`, so a
+// function-level set never NEEDS the prefix arm, while a block's written word list has no bare-name
+// companion and always does.
+//
+// (2) EVERY LEVEL IS CASE-INSENSITIVE, block-level included, and the block sets are built here
+// rather than handed in — a set built with the wrong comparer would silently stop waiving.
+//
+// (3) POP REMOVES EXACTLY THE LAST PUSH and an unmatched pop is tolerated, because a walk that pops
+// more than it pushed is a bug in the walk and not a reason to throw at the user.
+//
+// (4) THE TWO STATE-MACHINE ARMS ARE INDEPENDENT AND BOTH FIRE ON AN `async` ITERATOR, at one
+// position, async first.
+//
+// (5) THE STATE-MACHINE MODIFIERS ARE READ AS BITS TAKEN FROM THE ENUM MEMBERS, not from written
+// numbers, and the contracts construct declarations with `Modifiers.Async` and `Modifiers.Generator`
+// themselves — so the mapping is pinned end to end rather than assumed at both ends.
+//
+// (6) THE `[trusted]` METADATA ARM IS ONE FINDING FOR ANY MISSING FIELD, not one per field, and
+// `expires` is not one of the fields.
+//
+// (7) THE UNSAFE-BLOCK ARM IS THE ONLY ONE OF THE THREE THAT A WAIVER CAN SILENCE. The two
+// declaration arms prefer `Error` unconditionally, because `[trusted]` IS the waiver mechanism.
+
+func SatAllows(): SystemsAllowStack {
+    return new SystemsAllowStack(new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+}
+
+func SatAllowsOf(effect: string): SystemsAllowStack {
+    effects := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    effects.Add(effect)
+    return new SystemsAllowStack(effects)
+}
+
+func SatWords(word: string): List<string> {
+    words := new List<string>()
+    words.Add(word)
+    return words
+}
+
+test "THE ALLOW STACK ANSWERS FROM THE FUNCTION-LEVEL SET, WITHOUT CASE" {
+    allows := SatAllowsOf("ALLOC")
+    assert allows.IsAllowed("alloc")
+    assert allows.IsAllowed("Alloc")
+    assert !allows.IsAllowed("pool")
+}
+
+test "A BLOCK-LEVEL WAIVER ANSWERS WHILE IT IS PUSHED AND STOPS ANSWERING WHEN IT IS POPPED" {
+    allows := SatAllows()
+    assert !allows.IsAllowed("trap")
+    allows.Push(SatWords("trap"))
+    assert allows.IsAllowed("trap")
+    allows.Pop()
+    assert !allows.IsAllowed("trap")
+}
+
+test "A BLOCK-LEVEL WAIVER IS CASE-INSENSITIVE TOO" {
+    allows := SatAllows()
+    allows.Push(SatWords("TRAP"))
+    assert allows.IsAllowed("trap")
+}
+
+test "NESTED BLOCKS BOTH ANSWER, AND ONE POP REMOVES EXACTLY THE LAST" {
+    allows := SatAllows()
+    allows.Push(SatWords("alloc"))
+    allows.Push(SatWords("trap"))
+    assert allows.IsAllowed("alloc")
+    assert allows.IsAllowed("trap")
+    allows.Pop()
+    assert allows.IsAllowed("alloc")
+    assert !allows.IsAllowed("trap")
+}
+
+test "AN UNMATCHED POP IS TOLERATED AND CHANGES NOTHING" {
+    allows := SatAllowsOf("alloc")
+    allows.Pop()
+    allows.Pop()
+    assert allows.IsAllowed("alloc")
+}
+
+test "THE PREFIX WIDENING IS REACHABLE THROUGH A BLOCK-LEVEL WAIVER" {
+    allows := SatAllows()
+    allows.Push(SatWords("trap:proved"))
+    assert allows.IsAllowed("trap")
+    assert !allows.IsAllowed("alloc")
+}
+
+test "THE PREFIX WIDENING IS NOT REACHABLE THROUGH ANY SET AllowEffects CAN BUILD" {
+    arguments := SatArgs()
+    SatNamed(arguments, "alloc", SatWord("pooled"))
+    effects := SatEffects(arguments)
+    allows := new SystemsAllowStack(effects)
+    assert effects.Contains("alloc")
+    assert effects.Contains("alloc:pooled")
+    assert allows.IsAllowed("alloc")
+    assert SatWidened(effects, "alloc")
+}
+
+test "A QUALIFIED BLOCK WAIVER DOES NOT WIDEN ACROSS EFFECTS" {
+    allows := SatAllows()
+    allows.Push(SatWords("alloc:pooled"))
+    assert allows.IsAllowed("alloc")
+    assert !allows.IsAllowed("pool")
+    assert !allows.IsAllowed("allocation")
+}
+
+test "A [hot] ASYNC FUNCTION ALLOCATES AND IS TOLD SO AT ITS OWN DECLARATION" {
+    sink := SatSink("systems", "strict")
+    policy := new SystemsAttributePolicy(sink)
+    function := SatFunction("Read", Modifiers.Async, new List<AttributeNode>())
+    assert policy.ValidateHotStateMachines(function, "attr.nl", "Owner.Read", true, false)
+    assert SatCount(sink) == 1
+    assert SatCode(sink, 0) == "NSYS010"
+    assert SatEffect(sink, 0) == "allocation"
+    assert SatMessage(sink, 0) == "[hot] async functions allocate or require async machinery in Systems N# v1"
+    assert SatSeverity(sink, 0) == "error"
+    assert SatLine(sink, 0) == 7
+    assert SatColumn(sink, 0) == 3
+    assert SatLength(sink, 0) == 4
+}
+
+test "A [hot] ITERATOR IS THE SECOND ARM AND ITS SENTENCE IS NOT THE FIRST ONE'S" {
+    sink := SatSink("systems", "strict")
+    policy := new SystemsAttributePolicy(sink)
+    function := SatFunction("Walk", Modifiers.Generator, new List<AttributeNode>())
+    assert policy.ValidateHotStateMachines(function, "attr.nl", "Owner.Walk", true, false)
+    assert SatCount(sink) == 1
+    assert SatMessage(sink, 0) == "[hot] iterator functions allocate state machines in Systems N# v1"
+}
+
+test "A [hot] ASYNC ITERATOR GETS BOTH ARMS AT ONE POSITION, ASYNC FIRST" {
+    sink := SatSink("systems", "strict")
+    policy := new SystemsAttributePolicy(sink)
+    both := Modifiers.Async | Modifiers.Generator
+    function := SatFunction("Stream", both, new List<AttributeNode>())
+    assert policy.ValidateHotStateMachines(function, "attr.nl", "Owner.Stream", true, false)
+    assert SatCount(sink) == 2
+    assert SatMessage(sink, 0) == "[hot] async functions allocate or require async machinery in Systems N# v1"
+    assert SatMessage(sink, 1) == "[hot] iterator functions allocate state machines in Systems N# v1"
+    assert SatLine(sink, 0) == SatLine(sink, 1)
+}
+
+test "A COLD ASYNC FUNCTION IS SILENT AND DOES NOT ALLOCATE A STATE MACHINE FOR THIS RULE" {
+    sink := SatSink("systems", "strict")
+    policy := new SystemsAttributePolicy(sink)
+    function := SatFunction("Read", Modifiers.Async, new List<AttributeNode>())
+    assert !policy.ValidateHotStateMachines(function, "attr.nl", "Owner.Read", false, false)
+    assert SatCount(sink) == 0
+}
+
+test "A [hot] FUNCTION WITH NEITHER MODIFIER IS SILENT" {
+    sink := SatSink("systems", "strict")
+    policy := new SystemsAttributePolicy(sink)
+    function := SatFunction("Read", Modifiers.Public, new List<AttributeNode>())
+    assert !policy.ValidateHotStateMachines(function, "attr.nl", "Owner.Read", true, false)
+    assert SatCount(sink) == 0
+}
+
+test "A [trusted] WRAPPER MISSING ANY ONE FIELD GETS ONE METADATA FINDING, NOT THREE" {
+    sink := SatSink("systems", "strict")
+    policy := new SystemsAttributePolicy(sink)
+    function := SatFunction("Copy", Modifiers.None, new List<AttributeNode>())
+    policy.ValidateTrustedFunction(null, "team", "2026-01-01", true, function, "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(sink) == 1
+    assert SatCode(sink, 0) == "NSYS100"
+    assert SatEffect(sink, 0) == "memorySafety"
+    assert SatMessage(sink, 0) == "[trusted] requires reason, owner, and review metadata"
+    assert SatLength(sink, 0) == 4
+}
+
+test "A BLANK FIELD IS A MISSING FIELD, AND expires IS NOT ONE OF THE THREE" {
+    blank := SatSink("systems", "strict")
+    policyBlank := new SystemsAttributePolicy(blank)
+    function := SatFunction("Copy", Modifiers.None, new List<AttributeNode>())
+    policyBlank.ValidateTrustedFunction("   ", "team", "2026-01-01", true, function, "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(blank) == 1
+    complete := SatSink("systems", "strict")
+    policyComplete := new SystemsAttributePolicy(complete)
+    policyComplete.ValidateTrustedFunction("why", "team", "2026-01-01", true, function, "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(complete) == 0
+}
+
+test "THE TWO TRUSTED ARMS ARE INDEPENDENT AND BOTH FIRE AT ONE POSITION" {
+    sink := SatSink("systems", "strict")
+    policy := new SystemsAttributePolicy(sink)
+    function := SatFunction("Copy", Modifiers.None, new List<AttributeNode>())
+    policy.ValidateTrustedFunction(null, null, null, false, function, "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(sink) == 2
+    assert SatMessage(sink, 0) == "[trusted] requires reason, owner, and review metadata"
+    assert SatMessage(sink, 1) == "[trusted] wrappers must declare [memory(safe)] for Systems N# v1"
+    assert SatLine(sink, 0) == SatLine(sink, 1)
+}
+
+test "AN UNSAFE BLOCK IS SILENT ONLY INSIDE A TRUSTED MEMORY-SAFE WRAPPER" {
+    quiet := SatSink("systems", "strict")
+    policyQuiet := new SystemsAttributePolicy(quiet)
+    policyQuiet.ReportUnsafeBlock(true, true, SatAllows(), 5, 9, "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(quiet) == 0
+    halfTrusted := SatSink("systems", "strict")
+    policyHalf := new SystemsAttributePolicy(halfTrusted)
+    policyHalf.ReportUnsafeBlock(true, false, SatAllows(), 5, 9, "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(halfTrusted) == 1
+    assert SatCode(halfTrusted, 0) == "NSYS100"
+    assert SatEffect(halfTrusted, 0) == "memorySafety"
+    assert SatMessage(halfTrusted, 0) == "unsafe block requires a [trusted] memory-safe wrapper in systems code"
+    assert SatLine(halfTrusted, 0) == 5
+    assert SatColumn(halfTrusted, 0) == 9
+    assert SatLength(halfTrusted, 0) == 1
+}
+
+test "THE UNSAFE-BLOCK ARM IS A POLICY FINDING WHILE THE TRUSTED ARMS ARE NOT" {
+    waived := SatSink("systems", "strict")
+    policyWaived := new SystemsAttributePolicy(waived)
+    policyWaived.ReportUnsafeBlock(false, false, SatAllowsOf("memorySafety"), 5, 9, "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(waived) == 0
+    downgraded := SatSink("systems", "strict")
+    policyDowngraded := new SystemsAttributePolicy(downgraded)
+    policyDowngraded.ReportUnsafeBlock(false, false, SatAllows(), 5, 9, "attr.nl", "Owner.Copy", false, true)
+    assert SatCount(downgraded) == 1
+    assert SatSeverity(downgraded, 0) == "warning"
+    function := SatFunction("Copy", Modifiers.None, new List<AttributeNode>())
+    unwaived := SatSink("systems", "strict")
+    policyUnwaived := new SystemsAttributePolicy(unwaived)
+    policyUnwaived.ValidateTrustedFunction(null, null, null, false, function, "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(unwaived) == 2
+}

@@ -9,8 +9,9 @@ import NSharpLang.Compiler.Ast
 //
 // Two of the systems rules refuse an operation unless the program has already PROVED it safe: an
 // index access in `[hot]` needs a bounds proof, and a division in `[hot]` needs a non-zero divisor.
-// This owner decides what a proof is. It reports nothing and names no NSYS code — the walk that asks
-// does the reporting — which is why it is the only systems owner without a finding sink.
+// This owner decides what a proof is. It reports nothing and names no NSYS code — `SystemsTrapPolicy`
+// at the foot of this file is its reporting twin and holds the sink — which is why this class is the
+// only systems owner that takes no constructor argument at all.
 //
 // A GUARD IS DERIVED FROM CONTROL FLOW, NOT FROM AN ANNOTATION. Three shapes produce one:
 // a condition that must HOLD inside a scope (a loop's condition, an `if`'s then-branch), and a
@@ -398,5 +399,77 @@ class SystemsGuardPolicy {
         }
 
         return literal.Value == "0"
+    }
+}
+
+// AN UNPROVEN TRAP OBLIGATION.
+//
+// The reporting twin of `SystemsGuardPolicy` above, held apart for exactly the reason
+// `SystemsAttributeSet` and `SystemsAttributePolicy` are: that one decides what a proof IS and
+// answers questions, this one decides what an UNPROVED operation costs and needs the sink. Three
+// operations can trap at runtime with nothing in the source marking them — an index access, a
+// division or modulo, and a `checked` arithmetic expression — and inside `[hot]` each must either be
+// proved or waived.
+//
+// ALL THREE ARE `[hot]`-ONLY AND ALL THREE ARE WAIVED BY `allow(trap)`. Outside `[hot]` a systems
+// program is allowed to trap: the promise about traps is the hot path's promise, and making it
+// everywhere would report every array index in every program ever written.
+//
+// EACH ARM ANSWERS WHETHER THE WALK MUST RECORD THE OBLIGATION, which is exactly when the finding
+// fires — and NOT merely whether the operation could trap. A waived trap is a trap the author took
+// responsibility for at this site, so it must not travel to the caller through `ImplicitTrap` and be
+// reported a second time as a callee's cost. That is the original's shape and it is the reason these
+// three return a value at all.
+//
+// `checked` HAS NO PROOF SHAPE. There is no guard that proves an addition cannot overflow, so the
+// only way past that arm is the waiver — which is why it is the one of the three that takes no guard
+// list, and the asymmetry is deliberate rather than an omission.
+class SystemsTrapPolicy {
+    sinkValue: SystemsFindingSink
+
+    constructor(sink: SystemsFindingSink) {
+        sinkValue = sink
+    }
+
+    // AN INDEX ACCESS IN `[hot]` NEEDS A BOUNDS PROOF. `IsIndexGuarded` above decides what counts as
+    // one; this decides what the absence of one costs.
+    func ReportIndexTrap(index: IndexAccessExpression, guards: List<Guard>, allows: SystemsAllowStack, filePath: string, functionName: string, isHot: bool, isBoundary: bool): bool {
+        if !isHot || allows.IsAllowed("trap") || SystemsGuardPolicy.IsIndexGuarded(index, guards) {
+            return false
+        }
+
+        sinkValue.AddWhenHot("NSYS120", "implicitTrap", "index access in [hot] requires a proven bounds guard or allow(trap)", index.Line, index.Column, filePath, functionName, isHot, isBoundary)
+        return true
+    }
+
+    // A DIVISION OR MODULO IN `[hot]` NEEDS A NON-ZERO DIVISOR — proved by a guard, or by the divisor
+    // being a literal that is non-zero in any numeric shape. EVERY OTHER BINARY OPERATOR IS SILENT,
+    // which is why the operator test lives here and not at the walk that dispatches: "which operators
+    // can trap" is this rule's own first sentence, not the walk's.
+    func ReportDivisionTrap(binary: BinaryExpression, guards: List<Guard>, allows: SystemsAllowStack, filePath: string, functionName: string, isHot: bool, isBoundary: bool): bool {
+        if !isHot {
+            return false
+        }
+
+        if binary.Operator != BinaryOperator.Divide && binary.Operator != BinaryOperator.Modulo {
+            return false
+        }
+
+        if allows.IsAllowed("trap") || SystemsGuardPolicy.IsNonZeroGuarded(binary.Right, guards) || SystemsGuardPolicy.IsDefinitelyNonZero(binary.Right) {
+            return false
+        }
+
+        sinkValue.AddWhenHot("NSYS120", "implicitTrap", "division in [hot] requires a proven non-zero divisor or allow(trap)", binary.Line, binary.Column, filePath, functionName, isHot, isBoundary)
+        return true
+    }
+
+    // `checked` ARITHMETIC IN `[hot]`. See the header for why the waiver is the only way past it.
+    func ReportCheckedTrap(allows: SystemsAllowStack, line: int, column: int, filePath: string, functionName: string, isHot: bool, isBoundary: bool): bool {
+        if !isHot || allows.IsAllowed("trap") {
+            return false
+        }
+
+        sinkValue.AddWhenHot("NSYS120", "implicitTrap", "checked arithmetic in [hot] requires an overflow proof or allow(trap)", line, column, filePath, functionName, isHot, isBoundary)
+        return true
     }
 }

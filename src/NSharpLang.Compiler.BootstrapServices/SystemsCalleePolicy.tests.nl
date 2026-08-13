@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.Performance
 
+import System
 import System.Collections.Generic
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
@@ -523,4 +524,125 @@ test "A BOUNDARY DOWNGRADES A DISCARDED RESULT THAT IS NOT HOT" {
     ScpCheckIgnored(policy, ScpResultType(), false, true)
     assert ScpCount(sink) == 1
     assert ScpSeverity(sink) == "warning"
+}
+
+// Native contracts for the FOUR CLASSIFIED-TARGET ARMS F18 moved out of the call walk.
+//
+// SIX THINGS THEY ARE EASY TO GET WRONG.
+//
+// (1) THREE OF THE FOUR ARE POLICY ARMS AND THE POOL ONE IS `[hot]`-ONLY. Renting is ordinary work
+// outside `[hot]`; the other three are reported to any systems-profile function.
+//
+// (2) EACH READS ITS OWN EFFECT NAME OFF THE ALLOW STACK — `concurrency`, `dispatch`, `pool`, `aot`
+// — and getting one wrong silences the wrong rule rather than failing.
+//
+// (3) THE POOL ARM IS HANDED THE CLASSIFICATION RATHER THAN THE TARGET, because the walk needs the
+// same answer again for the warmup bit and `SystemsCallPolicy` owns it.
+//
+// (4) THE aot ARM IS WHAT THE REPORT'S AOT VERDICT READS, and only at `error`: a boundary or audit
+// downgrade leaves the verdict passing.
+//
+// (5) EVERY ONE OF THE FOUR NAMES THE TARGET INSIDE ITS SENTENCE, because a line can hold more than
+// one call.
+//
+// (6) THESE FOUR UNDERLINE ONE COLUMN — they have a node, not a name — while
+// `ReportUnknownExternalCall` above underlines the target's simple name.
+
+func ScpAllows(): SystemsAllowStack {
+    return new SystemsAllowStack(new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+}
+
+func ScpAllowsOf(effect: string): SystemsAllowStack {
+    effects := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    effects.Add(effect)
+    return new SystemsAllowStack(effects)
+}
+
+func ScpSeverityAt(sink: SystemsFindingSink, index: int): string {
+    finding := ScpAt(sink, index)
+    return finding.Severity
+}
+
+func ScpEffectAt(sink: SystemsFindingSink, index: int): string {
+    finding := ScpAt(sink, index)
+    return finding.Effect
+}
+
+func ScpLengthAt(sink: SystemsFindingSink, index: int): int {
+    finding := ScpAt(sink, index)
+    return finding.Length
+}
+
+test "THE FOUR CLASSIFIED ARMS CARRY FOUR CODES, FOUR EFFECTS AND NAME THEIR TARGET" {
+    sink := ScpSink("systems", "strict")
+    policy := ScpPolicy(sink, "systems", "strict", "warn")
+    policy.ReportUnsupportedConcurrencyPrimitive("Monitor.Enter", ScpAllows(), 1, 1, "a.nl", "Run", false, false)
+    policy.ReportRuntimeDispatch("Enumerable.Select", ScpAllows(), 2, 1, "a.nl", "Run", false, false)
+    policy.ReportHotPoolRent(true, ScpAllows(), 3, 1, "a.nl", "Run", true, false)
+    policy.ReportReflectionOrDynamicCall("Activator.CreateInstance", ScpAllows(), 4, 1, "a.nl", "Run", false, false)
+    assert ScpCount(sink) == 4
+    assert ScpCodeAt(sink, 0) == "NSYS140"
+    assert ScpEffectAt(sink, 0) == "concurrency"
+    assert ScpMessageAt(sink, 0) == "concurrency primitive 'Monitor.Enter' has no v1 HotSummary semantics"
+    assert ScpCodeAt(sink, 1) == "NSYS040"
+    assert ScpEffectAt(sink, 1) == "dispatch"
+    assert ScpMessageAt(sink, 1) == "call to 'Enumerable.Select' uses runtime dispatch or an unsummarized interface-shaped API"
+    assert ScpCodeAt(sink, 2) == "NSYS130"
+    assert ScpEffectAt(sink, 2) == "pool"
+    assert ScpMessageAt(sink, 2) == "[hot] pool rent requires a hot-ready pool precondition or allow(pool)"
+    assert ScpCodeAt(sink, 3) == "NSYS060"
+    assert ScpEffectAt(sink, 3) == "aot"
+    assert ScpMessageAt(sink, 3) == "call to 'Activator.CreateInstance' blocks target-qualified AOT/trimming facts"
+    assert ScpLengthAt(sink, 0) == 1
+    assert ScpLengthAt(sink, 3) == 1
+}
+
+test "EACH ARM IS SILENCED BY ITS OWN EFFECT AND BY NO OTHER" {
+    quiet := ScpSink("systems", "strict")
+    policyQuiet := ScpPolicy(quiet, "systems", "strict", "warn")
+    policyQuiet.ReportUnsupportedConcurrencyPrimitive("Monitor.Enter", ScpAllowsOf("concurrency"), 1, 1, "a.nl", "Run", false, false)
+    policyQuiet.ReportRuntimeDispatch("Enumerable.Select", ScpAllowsOf("dispatch"), 2, 1, "a.nl", "Run", false, false)
+    policyQuiet.ReportHotPoolRent(true, ScpAllowsOf("pool"), 3, 1, "a.nl", "Run", true, false)
+    policyQuiet.ReportReflectionOrDynamicCall("Activator.CreateInstance", ScpAllowsOf("aot"), 4, 1, "a.nl", "Run", false, false)
+    assert ScpCount(quiet) == 0
+    loud := ScpSink("systems", "strict")
+    policyLoud := ScpPolicy(loud, "systems", "strict", "warn")
+    policyLoud.ReportUnsupportedConcurrencyPrimitive("Monitor.Enter", ScpAllowsOf("aot"), 1, 1, "a.nl", "Run", false, false)
+    policyLoud.ReportRuntimeDispatch("Enumerable.Select", ScpAllowsOf("pool"), 2, 1, "a.nl", "Run", false, false)
+    policyLoud.ReportHotPoolRent(true, ScpAllowsOf("dispatch"), 3, 1, "a.nl", "Run", true, false)
+    policyLoud.ReportReflectionOrDynamicCall("Activator.CreateInstance", ScpAllowsOf("concurrency"), 4, 1, "a.nl", "Run", false, false)
+    assert ScpCount(loud) == 4
+}
+
+test "THE POOL ARM IS HOT-ONLY AND ANSWERS TO THE CLASSIFICATION IT WAS HANDED" {
+    sink := ScpSink("systems", "strict")
+    policy := ScpPolicy(sink, "systems", "strict", "warn")
+    policy.ReportHotPoolRent(true, ScpAllows(), 1, 1, "a.nl", "Run", false, false)
+    policy.ReportHotPoolRent(false, ScpAllows(), 2, 1, "a.nl", "Run", true, false)
+    assert ScpCount(sink) == 0
+    policy.ReportHotPoolRent(true, ScpAllows(), 3, 1, "a.nl", "Run", true, false)
+    assert ScpCount(sink) == 1
+}
+
+test "THE THREE POLICY ARMS ARE SILENT IN A DEFAULT-PROFILE COLD FUNCTION AND DOWNGRADE AT A BOUNDARY" {
+    silent := ScpSink("default", "strict")
+    policySilent := ScpPolicy(silent, "default", "strict", "warn")
+    policySilent.ReportRuntimeDispatch("Enumerable.Select", ScpAllows(), 1, 1, "a.nl", "Run", false, false)
+    assert ScpCount(silent) == 0
+    edge := ScpSink("systems", "strict")
+    policyEdge := ScpPolicy(edge, "systems", "strict", "warn")
+    policyEdge.ReportRuntimeDispatch("Enumerable.Select", ScpAllows(), 1, 1, "a.nl", "Run", false, true)
+    assert ScpCount(edge) == 1
+    assert ScpSeverityAt(edge, 0) == "warning"
+}
+
+test "A DOWNGRADED REFLECTION CALL DOES NOT FAIL THE AOT VERDICT AND AN UNDOWNGRADED ONE DOES" {
+    edge := ScpSink("systems", "strict")
+    policyEdge := ScpPolicy(edge, "systems", "strict", "warn")
+    policyEdge.ReportReflectionOrDynamicCall("Activator.CreateInstance", ScpAllows(), 1, 1, "a.nl", "Run", false, true)
+    assert edge.AotAnalysis() == "pass"
+    strict := ScpSink("systems", "strict")
+    policyStrict := ScpPolicy(strict, "systems", "strict", "warn")
+    policyStrict.ReportReflectionOrDynamicCall("Activator.CreateInstance", ScpAllows(), 1, 1, "a.nl", "Run", false, false)
+    assert strict.AotAnalysis() == "fail"
 }

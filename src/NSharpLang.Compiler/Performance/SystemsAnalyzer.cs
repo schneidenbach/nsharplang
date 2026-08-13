@@ -35,6 +35,8 @@ public sealed class SystemsAnalyzer
     private readonly SystemsCalleePolicy _calleePolicy;
     private readonly SystemsAttributePolicy _attributePolicy;
     private readonly SystemsHotSummaryPolicy _hotSummaryPolicy;
+    private readonly SystemsConstructPolicy _constructPolicy;
+    private readonly SystemsTrapPolicy _trapPolicy;
     private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
     private HotSummaryCatalog _hotSummaries;
 
@@ -53,6 +55,8 @@ public sealed class SystemsAnalyzer
         _attributePolicy = new SystemsAttributePolicy(_findingSink);
         _hotSummaryPolicy = new SystemsHotSummaryPolicy(_findingSink);
         _hotSummaryPolicy.BeginAnalysis(_config);
+        _constructPolicy = new SystemsConstructPolicy(_findingSink);
+        _trapPolicy = new SystemsTrapPolicy(_findingSink);
         _hotSummaries = HotSummaryCatalog.Load(projectRoot, _config);
     }
 
@@ -215,18 +219,10 @@ public sealed class SystemsAnalyzer
         if (function.ExpressionBody != null)
             WalkExpression(function.ExpressionBody, context);
 
-        if (summary.IsHot && function.Modifiers.HasFlag(Modifiers.Async))
+        if (_attributePolicy.ValidateHotStateMachines(function, summary.File, summary.Name, summary.IsHot, summary.IsBoundary))
         {
             summary.Allocates = true;
             summary.Resource = true;
-            AddFinding("NSYS010", "allocation", "[hot] async functions allocate or require async machinery in Systems N# v1", function.Line, function.Column, Math.Max(1, function.Name.Length), summary, ErrorSeverity.Error, "Move async work to a [boundary] and call hot code with explicit buffers.");
-        }
-
-        if (summary.IsHot && function.Modifiers.HasFlag(Modifiers.Generator))
-        {
-            summary.Allocates = true;
-            summary.Resource = true;
-            AddFinding("NSYS010", "allocation", "[hot] iterator functions allocate state machines in Systems N# v1", function.Line, function.Column, Math.Max(1, function.Name.Length), summary, ErrorSeverity.Error, "Use a caller-provided buffer or direct loop instead of yield.");
         }
 
         MergeDeclaredCalleeSummaries(summary, performanceFacts);
@@ -268,32 +264,7 @@ public sealed class SystemsAnalyzer
                 summary.HasUnsafe,
                 function.Body?.Statements.Count ?? 0));
 
-            if (string.IsNullOrWhiteSpace(reason) || string.IsNullOrWhiteSpace(owner) || string.IsNullOrWhiteSpace(review))
-            {
-                AddFinding(
-                    "NSYS100",
-                    "memorySafety",
-                    "[trusted] requires reason, owner, and review metadata",
-                    function.Line,
-                    function.Column,
-                    Math.Max(1, function.Name.Length),
-                    summary,
-                    ErrorSeverity.Error,
-                    "Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] on the wrapper.");
-            }
-            if (!summary.MemorySafe)
-            {
-                AddFinding(
-                    "NSYS100",
-                    "memorySafety",
-                    "[trusted] wrappers must declare [memory(safe)] for Systems N# v1",
-                    function.Line,
-                    function.Column,
-                    Math.Max(1, function.Name.Length),
-                    summary,
-                    ErrorSeverity.Error,
-                    "Add [memory(safe)] after documenting the unsafe proof.");
-            }
+            _attributePolicy.ValidateTrustedFunction(reason, owner, review, summary.MemorySafe, function, summary.File, summary.Name, summary.IsHot, summary.IsBoundary);
         }
 
         return summary;
@@ -313,16 +284,13 @@ public sealed class SystemsAnalyzer
                 context.PopAllocZone();
                 break;
             case AllowStatement allow:
-                context.PushAllows(allow.Effects);
+                context.Allows.Push(allow.Effects);
                 WalkStatement(allow.Body, context);
-                context.PopAllows();
+                context.Allows.Pop();
                 break;
             case UnsafeBlockStatement unsafeBlock:
                 context.Summary.HasUnsafe = true;
-                if (!context.Summary.IsTrusted || !context.Summary.MemorySafe)
-                {
-                    AddFindingForPolicy("NSYS100", "memorySafety", "unsafe block requires a [trusted] memory-safe wrapper in systems code", unsafeBlock, context, "Wrap unsafe code in a small [trusted(reason, owner, review)] function with [memory(safe)].");
-                }
+                _attributePolicy.ReportUnsafeBlock(context.Summary.IsTrusted, context.Summary.MemorySafe, context.Allows, unsafeBlock.Line, unsafeBlock.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 context.PushUnsafeBlock();
                 WalkStatement(unsafeBlock.Body, context);
                 context.PopUnsafeBlock();
@@ -390,7 +358,7 @@ public sealed class SystemsAnalyzer
                 break;
             case AwaitForEachStatement awaitForEachStatement:
                 context.Summary.Resource = true;
-                AddHotFinding("NSYS090", "resource", "[hot] cannot be an async iterator or await foreach boundary", awaitForEachStatement, context);
+                _constructPolicy.ReportAwaitForEach(awaitForEachStatement.Line, awaitForEachStatement.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 WalkExpression(awaitForEachStatement.Collection, context);
                 WalkStatement(awaitForEachStatement.Body, context);
                 break;
@@ -414,24 +382,18 @@ public sealed class SystemsAnalyzer
             case YieldStatement yieldStatement:
                 context.Summary.Allocates = true;
                 context.Summary.Resource = true;
-                AddHotFinding("NSYS010", "allocation", "[hot] cannot allocate iterator state machines", yieldStatement, context);
+                _constructPolicy.ReportYield(yieldStatement.Line, yieldStatement.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 if (yieldStatement.Value != null)
                     WalkExpression(yieldStatement.Value, context);
                 break;
             case ThrowStatement throwStatement:
                 context.Summary.Throws = true;
-                if (context.Summary.IsHot)
-                    AddHotFinding("NSYS120", "throw", "[hot] cannot throw exceptions", throwStatement, context);
-                else
-                    AddFindingForPolicy("NSYS120", "throw", "systems code must translate exception control flow into explicit Result/error values", throwStatement, context, "Catch exceptions at a [boundary] and return Result<T,E> or another explicit error value.");
+                _constructPolicy.ReportThrow(context.Allows, throwStatement.Line, throwStatement.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 WalkExpression(throwStatement.Expression, context);
                 break;
             case TryStatement tryStatement:
                 context.Summary.Throws = true;
-                if (context.Summary.IsHot)
-                    AddHotFinding("NSYS120", "throw", "[hot] cannot use exception control flow", tryStatement, context);
-                else
-                    AddFindingForPolicy("NSYS120", "throw", "exception control flow is reported on systems paths", tryStatement, context, "Keep try/catch inside a [boundary] and translate failures into explicit Result/error values.");
+                _constructPolicy.ReportTry(context.Allows, tryStatement.Line, tryStatement.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 WalkStatement(tryStatement.TryBlock, context);
                 foreach (var catchClause in tryStatement.CatchClauses)
                     WalkStatement(catchClause.Block, context);
@@ -440,7 +402,7 @@ public sealed class SystemsAnalyzer
                 break;
             case UsingStatement usingStatement:
                 context.Summary.Resource = true;
-                AddHotFinding("NSYS090", "resource", "[hot] cannot create or open disposable resources", usingStatement, context);
+                _constructPolicy.ReportUsing(usingStatement.Line, usingStatement.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 if (usingStatement.Declaration?.Initializer != null)
                     WalkExpression(usingStatement.Declaration.Initializer, context);
                 if (usingStatement.Expression != null)
@@ -741,7 +703,7 @@ public sealed class SystemsAnalyzer
             case LambdaExpression lambda:
                 context.Summary.Delegate = true;
                 context.Summary.Closure = true;
-                AddFindingForPolicy("NSYS030", "delegate", "delegate or closure construction is not allowed here", lambda, context, "Move delegate construction behind a [boundary] or use a direct call.");
+                _constructPolicy.ReportLambda(context.Allows, lambda.Line, lambda.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 if (lambda.ExpressionBody != null)
                     WalkExpression(lambda.ExpressionBody, context);
                 if (lambda.BlockBody != null)
@@ -752,39 +714,38 @@ public sealed class SystemsAnalyzer
                 break;
             case MemberAccessExpression member:
                 WalkExpression(member.Object, context);
-                if (context.Summary.IsHot
-                    && member.Object is IdentifierExpression receiver
-                    && receiver.Name.Length > 0
-                    && char.IsUpper(receiver.Name[0])
-                    && !_typePolicy.IsEnumTypeName(receiver.Name)
-                    && !_callPolicy.IsKnownStaticHotReceiver(receiver.Name)
-                    && !_hotSummaries.HasReceiverSummary(receiver.Name, _config.TargetFramework)
-                    && _config.Language.Systems.Warmup.Count == 0)
+                if (member.Object is IdentifierExpression receiver
+                    && _hotSummaryPolicy.ReportStaticReceiverWarmup(
+                        receiver.Name,
+                        member.MemberName,
+                        _typePolicy,
+                        _callPolicy,
+                        _hotSummaries,
+                        _config.TargetFramework,
+                        member.Line,
+                        member.Column,
+                        context.Summary.File,
+                        context.Summary.Name,
+                        context.Summary.IsHot,
+                        context.Summary.IsBoundary))
                 {
                     context.Summary.RequiresWarmup = true;
-                    AddHotFinding("NSYS110", "hotReadiness", $"static member access '{receiver.Name}.{member.MemberName}' requires a warmup or HotSummary readiness fact", member, context);
                 }
                 break;
             case IndexAccessExpression index:
                 WalkExpression(index.Object, context);
                 WalkExpression(index.Index, context);
-                if (context.Summary.IsHot && !context.IsAllowed("trap") && !SystemsGuardPolicy.IsIndexGuarded(index, context.Guards))
+                if (_trapPolicy.ReportIndexTrap(index, context.Guards, context.Allows, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary))
                 {
                     context.Summary.ImplicitTrap = true;
-                    AddHotFinding("NSYS120", "implicitTrap", "index access in [hot] requires a proven bounds guard or allow(trap)", index, context);
                 }
                 break;
             case BinaryExpression binary:
                 WalkExpression(binary.Left, context);
                 WalkExpression(binary.Right, context);
-                if (context.Summary.IsHot
-                    && (binary.Operator is BinaryOperator.Divide or BinaryOperator.Modulo)
-                    && !context.IsAllowed("trap")
-                    && !SystemsGuardPolicy.IsNonZeroGuarded(binary.Right, context.Guards)
-                    && !SystemsGuardPolicy.IsDefinitelyNonZero(binary.Right))
+                if (_trapPolicy.ReportDivisionTrap(binary, context.Guards, context.Allows, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary))
                 {
                     context.Summary.ImplicitTrap = true;
-                    AddHotFinding("NSYS120", "implicitTrap", "division in [hot] requires a proven non-zero divisor or allow(trap)", binary, context);
                 }
                 break;
             case UnaryExpression unary:
@@ -804,10 +765,9 @@ public sealed class SystemsAnalyzer
                 break;
             case CastExpression cast:
                 WalkExpression(cast.Expression, context);
-                if (SystemsTypeNames.ErasedName(cast.TargetType) is "object" or "System.Object")
+                if (_constructPolicy.ReportCastToObject(cast.TargetType, context.Allows, cast.Line, cast.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary))
                 {
                     context.Summary.Boxes = true;
-                    AddFindingForPolicy("NSYS020", "boxing", "cast to object may box a value on systems paths", cast, context, "Keep values concrete or use a generic/constrained API.");
                 }
                 break;
             case IsExpression isExpression:
@@ -815,23 +775,19 @@ public sealed class SystemsAnalyzer
                 break;
             case AwaitExpression awaitExpression:
                 context.Summary.Resource = true;
-                AddHotFinding("NSYS090", "resource", "[hot] async work is deferred in Systems N# v1", awaitExpression, context);
+                _constructPolicy.ReportAwait(awaitExpression.Line, awaitExpression.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 WalkExpression(awaitExpression.Expression, context);
                 break;
             case ThrowExpression throwExpression:
                 context.Summary.Throws = true;
-                if (context.Summary.IsHot)
-                    AddHotFinding("NSYS120", "throw", "[hot] cannot throw exceptions", throwExpression, context);
-                else
-                    AddFindingForPolicy("NSYS120", "throw", "systems code must translate exception control flow into explicit Result/error values", throwExpression, context, "Catch exceptions at a [boundary] and return Result<T,E> or another explicit error value.");
+                _constructPolicy.ReportThrow(context.Allows, throwExpression.Line, throwExpression.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 WalkExpression(throwExpression.Expression, context);
                 break;
             case CheckedExpression checkedExpression:
                 WalkExpression(checkedExpression.Expression, context);
-                if (context.Summary.IsHot && !context.IsAllowed("trap"))
+                if (_trapPolicy.ReportCheckedTrap(context.Allows, checkedExpression.Line, checkedExpression.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary))
                 {
                     context.Summary.ImplicitTrap = true;
-                    AddHotFinding("NSYS120", "implicitTrap", "checked arithmetic in [hot] requires an overflow proof or allow(trap)", checkedExpression, context);
                 }
                 break;
             case UncheckedExpression uncheckedExpression:
@@ -872,7 +828,7 @@ public sealed class SystemsAnalyzer
                 break;
             case TypeOfExpression:
                 context.Summary.Reflection = true;
-                AddFindingForPolicy("NSYS060", "aot", "typeof requires metadata and may block trimming/AOT facts", expression, context, "Move reflection to a [boundary] or add an audited target-qualified summary.");
+                _constructPolicy.ReportTypeOf(context.Allows, expression.Line, expression.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
                 break;
             case NameofExpression:
             case SizeOfExpression:
@@ -932,20 +888,14 @@ public sealed class SystemsAnalyzer
         if (_callPolicy.IsUnsupportedConcurrencyPrimitive(target))
         {
             context.Summary.ConcurrencyPrimitive = true;
-            AddFindingForPolicy(
-                "NSYS140",
-                "concurrency",
-                $"concurrency primitive '{target}' has no v1 HotSummary semantics",
-                call,
-                context,
-                "Use Volatile.Read/Write, Interlocked.Exchange/CompareExchange/Increment/Decrement/Add, or Thread.MemoryBarrier.");
+            _calleePolicy.ReportUnsupportedConcurrencyPrimitive(target, context.Allows, call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
             return;
         }
 
         if (_callPolicy.IsRuntimeDispatchCall(target))
         {
             context.Summary.Dispatch = true;
-            AddFindingForPolicy("NSYS040", "dispatch", $"call to '{target}' uses runtime dispatch or an unsummarized interface-shaped API", call, context, "Use a concrete receiver, constrained generic call, or HotSummary-covered wrapper.");
+            _calleePolicy.ReportRuntimeDispatch(target, context.Allows, call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
             return;
         }
 
@@ -953,12 +903,9 @@ public sealed class SystemsAnalyzer
         {
             context.Summary.Pool = true;
             _callPolicy.MarkPoolReturnIfRecognized(call, context.Summary.PoolRents);
-            if (context.Summary.IsHot && _callPolicy.IsPoolRentTarget(target) && !context.IsAllowed("pool"))
-            {
-                AddHotFinding("NSYS130", "pool", "[hot] pool rent requires a hot-ready pool precondition or allow(pool)", call, context);
-            }
-            if (_callPolicy.IsPoolRentTarget(target)
-                && _config.Language.Systems.Warmup.Count == 0)
+            var isPoolRent = _callPolicy.IsPoolRentTarget(target);
+            _calleePolicy.ReportHotPoolRent(isPoolRent, context.Allows, call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
+            if (isPoolRent && _config.Language.Systems.Warmup.Count == 0)
             {
                 context.Summary.RequiresWarmup = true;
             }
@@ -970,13 +917,13 @@ public sealed class SystemsAnalyzer
 
         if (_callPolicy.IsBufferMemoryCopyCall(target))
         {
-            _hotSummaryPolicy.ReportBufferMemoryCopy(context.InUnsafeBlock, context.IsAllowed("memorySafety"), call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
+            _hotSummaryPolicy.ReportBufferMemoryCopy(context.InUnsafeBlock, context.Allows.IsAllowed("memorySafety"), call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
             return;
         }
 
         if (_hotSummaries.TryResolve(target, _config.TargetFramework, out var summaryEntry))
         {
-            context.Summary.MergeEffectsFrom(_hotSummaryPolicy.ApplyHotSummary(target, summaryEntry, context.IsAllowed("aot"), call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary, context.Summary.AllocNone));
+            context.Summary.MergeEffectsFrom(_hotSummaryPolicy.ApplyHotSummary(target, summaryEntry, context.Allows.IsAllowed("aot"), call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary, context.Summary.AllocNone));
             return;
         }
 
@@ -984,7 +931,7 @@ public sealed class SystemsAnalyzer
         {
             context.Summary.Reflection = true;
             context.Summary.DynamicCode |= _callPolicy.IsDynamicCodeCall(target);
-            AddFindingForPolicy("NSYS060", "aot", $"call to '{target}' blocks target-qualified AOT/trimming facts", call, context, "Move reflection/dynamic code behind a [boundary] or add an audited target-qualified summary.");
+            _calleePolicy.ReportReflectionOrDynamicCall(target, context.Allows, call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
             return;
         }
 
@@ -1000,7 +947,7 @@ public sealed class SystemsAnalyzer
             context.Summary.IsHot,
             context.Summary.AllocNone,
             context.Summary.IsBoundary,
-            context.IsAllowed("alloc"),
+            context.Allows.IsAllowed("alloc"),
             IsSystemsProfile,
             explicitAllocation);
         if (violation != null)
@@ -1017,18 +964,6 @@ public sealed class SystemsAnalyzer
                 violation.Suggestion);
         }
     }
-
-    private void AddHotFinding(string code, string effect, string message, AstNode node, WalkContext context)
-        => _findingSink.AddWhenHot(code, effect, message, node.Line, node.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
-
-    private void AddFindingForPolicy(
-        string code,
-        string effect,
-        string message,
-        AstNode node,
-        WalkContext context,
-        string? suggestion)
-        => _findingSink.AddForPolicy(code, effect, message, node.Line, node.Column, context.IsAllowed(effect), context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary, suggestion);
 
     private void AddFinding(
         string code,
@@ -1171,7 +1106,6 @@ public sealed class SystemsAnalyzer
 
     private sealed class WalkContext
     {
-        private readonly Stack<HashSet<string>> _allowStack = new();
         // Marks (Guards.Count at push time) so Pop truncates back exactly, instead of removing by
         // value (which corrupts the set for structurally-identical nested guards — M3).
         private readonly Stack<int> _guardStack = new();
@@ -1182,10 +1116,12 @@ public sealed class SystemsAnalyzer
         {
             Entry = entry;
             Summary = summary;
+            Allows = new SystemsAllowStack(summary.FunctionAllows);
         }
 
         public FunctionEntry Entry { get; }
         public MutableFunctionSummary Summary { get; }
+        public SystemsAllowStack Allows { get; }
         public bool InAllocZone => _allocZoneDepth > 0;
         public bool InUnsafeBlock => _unsafeBlockDepth > 0;
         public List<Guard> Guards { get; } = new();
@@ -1194,23 +1130,6 @@ public sealed class SystemsAnalyzer
         public void PopAllocZone() => _allocZoneDepth = Math.Max(0, _allocZoneDepth - 1);
         public void PushUnsafeBlock() => _unsafeBlockDepth++;
         public void PopUnsafeBlock() => _unsafeBlockDepth = Math.Max(0, _unsafeBlockDepth - 1);
-
-        public void PushAllows(IEnumerable<string> effects)
-            => _allowStack.Push(new HashSet<string>(effects, StringComparer.OrdinalIgnoreCase));
-
-        public void PopAllows()
-        {
-            if (_allowStack.Count > 0)
-                _allowStack.Pop();
-        }
-
-        public bool IsAllowed(string effect)
-            => ContainsEffect(Summary.FunctionAllows, effect)
-               || _allowStack.Any(set => ContainsEffect(set, effect));
-
-        private static bool ContainsEffect(HashSet<string> effects, string effect)
-            => effects.Contains(effect)
-               || effects.Any(value => value.StartsWith(effect + ":", StringComparison.OrdinalIgnoreCase));
 
         public void AddGuards(IReadOnlyList<Guard> guards) => Guards.AddRange(guards);
 

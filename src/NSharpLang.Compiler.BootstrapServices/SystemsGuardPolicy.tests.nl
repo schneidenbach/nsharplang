@@ -1,6 +1,8 @@
 namespace NSharpLang.Compiler.Performance
 
+import System
 import System.Collections.Generic
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 // Native contracts for WHAT COUNTS AS A PROOF.
@@ -323,4 +325,180 @@ test "A THOUSANDS SEPARATOR IS NOT READABLE, WHICH IS WHAT NumberStyles.Float ME
 test "AN EXPRESSION DIVISOR THAT IS NOT A LITERAL IS NEVER PROVED BY ITSELF" {
     assert !SystemsGuardPolicy.IsDefinitelyNonZero(SgpName("d"))
     assert !SystemsGuardPolicy.IsDefinitelyNonZero(SgpMember(SgpName("x"), "d"))
+}
+
+// Native contracts for AN UNPROVEN TRAP OBLIGATION — the reporting twin above's three arms.
+//
+// These three were arms inside `WalkExpression`, not members, and they are the only consumers of the
+// thirteen proofs this file already pins. FIVE THINGS THEY ARE EASY TO GET WRONG.
+//
+// (1) THE RETURN IS "RECORD THE OBLIGATION", NOT "COULD IT TRAP". A waived index access returns
+// FALSE, so `ImplicitTrap` stays off and the caller is not told about a trap the author waived. That
+// is the original's shape and inverting it would report every waived trap a second time at every
+// call site.
+//
+// (2) ALL THREE ARE `[hot]`-ONLY. A cold systems function indexes, divides and writes `checked`
+// freely, and hears nothing — not a warning.
+//
+// (3) THE OPERATOR TEST BELONGS TO THE DIVISION ARM. `a + b` is not a trap however unproven its
+// right operand is, and `%` is one just as much as `/`.
+//
+// (4) EITHER PROOF SHAPE CLEARS THE DIVISION ARM — a guard OR a non-zero literal — and the literal
+// arm is what makes `x / 2.0f` silent.
+//
+// (5) `checked` TAKES NO GUARD LIST BECAUSE NO GUARD PROVES IT. Only `allow(trap)` clears it, and a
+// guard set full of proofs about the same identifiers does not.
+
+func StpSink(): SystemsFindingSink {
+    config := ProjectFileParser.CreateDefault("trap-policy-contract")
+    language := config.Language
+    language.Profile = "systems"
+    systems := language.Systems
+    systems.Mode = "strict"
+    sink := new SystemsFindingSink()
+    sink.BeginAnalysis(config)
+    return sink
+}
+
+func StpNoAllows(): SystemsAllowStack {
+    return new SystemsAllowStack(new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+}
+
+func StpTrapAllowed(): SystemsAllowStack {
+    effects := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    effects.Add("trap")
+    return new SystemsAllowStack(effects)
+}
+
+func StpIndex(receiverName: string, index: Expression): IndexAccessExpression {
+    return new IndexAccessExpression(SgpName(receiverName), index, false, 4, 7)
+}
+
+func StpCount(sink: SystemsFindingSink): int {
+    ordered := sink.Ordered()
+    return ordered.Length
+}
+
+func StpAt(sink: SystemsFindingSink, index: int): SystemsFinding {
+    ordered := sink.Ordered()
+    return ordered[index]
+}
+
+func StpCode(sink: SystemsFindingSink, index: int): string {
+    finding := StpAt(sink, index)
+    return finding.Code
+}
+
+func StpEffectName(sink: SystemsFindingSink, index: int): string {
+    finding := StpAt(sink, index)
+    return finding.Effect
+}
+
+func StpMessage(sink: SystemsFindingSink, index: int): string {
+    finding := StpAt(sink, index)
+    return finding.Message
+}
+
+func StpLine(sink: SystemsFindingSink, index: int): int {
+    finding := StpAt(sink, index)
+    return finding.Line
+}
+
+func StpColumn(sink: SystemsFindingSink, index: int): int {
+    finding := StpAt(sink, index)
+    return finding.Column
+}
+
+func StpNoGuards(): List<Guard> {
+    return new List<Guard>()
+}
+
+test "AN UNGUARDED INDEX IN [hot] IS AN OBLIGATION AND A FINDING AT THE INDEX'S OWN POSITION" {
+    sink := StpSink()
+    policy := new SystemsTrapPolicy(sink)
+    assert policy.ReportIndexTrap(StpIndex("data", SgpInt("4")), StpNoGuards(), StpNoAllows(), "a.nl", "hot", true, false)
+    assert StpCount(sink) == 1
+    assert StpCode(sink, 0) == "NSYS120"
+    assert StpEffectName(sink, 0) == "implicitTrap"
+    assert StpMessage(sink, 0) == "index access in [hot] requires a proven bounds guard or allow(trap)"
+    assert StpLine(sink, 0) == 4
+    assert StpColumn(sink, 0) == 7
+}
+
+test "THE SAME INDEX IS SILENT AND UNRECORDED IN A COLD SYSTEMS FUNCTION" {
+    sink := StpSink()
+    policy := new SystemsTrapPolicy(sink)
+    assert !policy.ReportIndexTrap(StpIndex("data", SgpInt("4")), StpNoGuards(), StpNoAllows(), "a.nl", "cold", false, false)
+    assert StpCount(sink) == 0
+}
+
+test "A WAIVED TRAP IS NOT RECORDED AS AN OBLIGATION, WHICH IS WHAT KEEPS IT OFF THE CALLER" {
+    sink := StpSink()
+    policy := new SystemsTrapPolicy(sink)
+    assert !policy.ReportIndexTrap(StpIndex("data", SgpInt("4")), StpNoGuards(), StpTrapAllowed(), "a.nl", "hot", true, false)
+    assert !policy.ReportCheckedTrap(StpTrapAllowed(), 1, 1, "a.nl", "hot", true, false)
+    assert StpCount(sink) == 0
+}
+
+test "A PROVED INDEX CLEARS THE ARM WITHOUT ANY WAIVER" {
+    sink := StpSink()
+    policy := new SystemsTrapPolicy(sink)
+    guards := new List<Guard>()
+    guards.Add(Guard.MinLength("data", 8))
+    assert !policy.ReportIndexTrap(StpIndex("data", SgpInt("4")), guards, StpNoAllows(), "a.nl", "hot", true, false)
+    assert policy.ReportIndexTrap(StpIndex("other", SgpInt("4")), guards, StpNoAllows(), "a.nl", "hot", true, false)
+    assert StpCount(sink) == 1
+}
+
+test "DIVISION AND MODULO TRAP AND NO OTHER OPERATOR DOES" {
+    sink := StpSink()
+    policy := new SystemsTrapPolicy(sink)
+    assert policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Divide, SgpName("d")), StpNoGuards(), StpNoAllows(), "a.nl", "hot", true, false)
+    assert policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Modulo, SgpName("d")), StpNoGuards(), StpNoAllows(), "a.nl", "hot", true, false)
+    assert !policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Add, SgpName("d")), StpNoGuards(), StpNoAllows(), "a.nl", "hot", true, false)
+    assert !policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Multiply, SgpName("d")), StpNoGuards(), StpNoAllows(), "a.nl", "hot", true, false)
+    assert StpCount(sink) == 2
+    assert StpMessage(sink, 0) == "division in [hot] requires a proven non-zero divisor or allow(trap)"
+}
+
+test "EITHER PROOF SHAPE CLEARS THE DIVISION ARM, AND THE LITERAL ONE READS EVERY NUMERIC SPELLING" {
+    sink := StpSink()
+    policy := new SystemsTrapPolicy(sink)
+    assert !policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Divide, SgpInt("2")), StpNoGuards(), StpNoAllows(), "a.nl", "hot", true, false)
+    assert !policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Divide, SgpFloat("2.0f")), StpNoGuards(), StpNoAllows(), "a.nl", "hot", true, false)
+    assert policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Divide, SgpInt("0")), StpNoGuards(), StpNoAllows(), "a.nl", "hot", true, false)
+    guards := new List<Guard>()
+    guards.Add(Guard.NonZero("d"))
+    assert !policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Divide, SgpName("d")), guards, StpNoAllows(), "a.nl", "hot", true, false)
+    assert StpCount(sink) == 1
+}
+
+test "checked IS CLEARED ONLY BY THE WAIVER AND NEVER BY A GUARD SET" {
+    sink := StpSink()
+    policy := new SystemsTrapPolicy(sink)
+    assert policy.ReportCheckedTrap(StpNoAllows(), 9, 3, "a.nl", "hot", true, false)
+    assert StpCount(sink) == 1
+    assert StpCode(sink, 0) == "NSYS120"
+    assert StpEffectName(sink, 0) == "implicitTrap"
+    assert StpMessage(sink, 0) == "checked arithmetic in [hot] requires an overflow proof or allow(trap)"
+    assert StpLine(sink, 0) == 9
+    assert StpColumn(sink, 0) == 3
+    assert !policy.ReportCheckedTrap(StpNoAllows(), 9, 3, "a.nl", "cold", false, false)
+    assert StpCount(sink) == 1
+}
+
+test "THE BLOCK-LEVEL WAIVER REACHES ALL THREE ARMS AND THE PREFIX FORM REACHES THEM TOO" {
+    sink := StpSink()
+    policy := new SystemsTrapPolicy(sink)
+    allows := StpNoAllows()
+    effects := new List<string>()
+    effects.Add("trap:proved")
+    allows.Push(effects)
+    assert !policy.ReportIndexTrap(StpIndex("data", SgpInt("4")), StpNoGuards(), allows, "a.nl", "hot", true, false)
+    assert !policy.ReportDivisionTrap(SgpBinary(SgpName("x"), BinaryOperator.Divide, SgpName("d")), StpNoGuards(), allows, "a.nl", "hot", true, false)
+    assert !policy.ReportCheckedTrap(allows, 1, 1, "a.nl", "hot", true, false)
+    assert StpCount(sink) == 0
+    allows.Pop()
+    assert policy.ReportCheckedTrap(allows, 1, 1, "a.nl", "hot", true, false)
+    assert StpCount(sink) == 1
 }
