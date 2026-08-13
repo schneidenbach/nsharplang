@@ -466,7 +466,8 @@ internal class LintVisitor
             case VariableDeclarationStatement varDecl:
                 // NL010: Track type references in variable declarations
                 TrackTypeReference(varDecl.Type);
-                var initializerHasParserError = ContainsParserErrorPlaceholder(varDecl.Initializer);
+                var initializerHasParserError = varDecl.Initializer != null &&
+                    AnalyzerParserErrorPlaceholders.ContainsInExpression(varDecl.Initializer);
                 // VariableDeclarationStatement stores the identifier location, including
                 // shorthand declarations like `name := value`.
                 var nameColumn = varDecl.Column;
@@ -658,7 +659,7 @@ internal class LintVisitor
                 break;
 
             case TupleDeconstructionStatement tupleDecl:
-                if (ContainsParserErrorPlaceholder(tupleDecl.Initializer))
+                if (AnalyzerParserErrorPlaceholders.ContainsInExpression(tupleDecl.Initializer))
                     break;
 
                 foreach (var name in tupleDecl.Names)
@@ -786,7 +787,7 @@ internal class LintVisitor
                 {
                     CheckMissingImportForType(newExpr.Type, newExpr.Line, newExpr.Column);
                     // NL010: Record the type name as a used identifier
-                    var newTypeName = GetBaseTypeName(newExpr.Type);
+                    var newTypeName = LinterTypeReferenceName.Base(newExpr.Type);
                     if (newTypeName != null)
                         _allCodeIdentifiers.Add(newTypeName);
                 }
@@ -838,62 +839,6 @@ internal class LintVisitor
         {
             VisitExpression(child);
         }
-    }
-
-    private static bool ContainsParserErrorPlaceholder(Expression? expression)
-    {
-        return expression switch
-        {
-            null => false,
-            IdentifierExpression { Name: "<error>" } => true,
-            MemberAccessExpression { MemberName: "<error>" } => true,
-            InterpolatedStringExpression interpolatedString => interpolatedString.Parts
-                .OfType<InterpolatedStringHole>()
-                .Any(hole => ContainsParserErrorPlaceholder(hole.Expression)),
-            RangeExpression range => ContainsParserErrorPlaceholder(range.Start) ||
-                                     ContainsParserErrorPlaceholder(range.End),
-            MemberAccessExpression memberAccess => ContainsParserErrorPlaceholder(memberAccess.Object),
-            CallExpression call => ContainsParserErrorPlaceholder(call.Callee) ||
-                                   call.Arguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)),
-            BinaryExpression nestedBinary => ContainsParserErrorPlaceholder(nestedBinary.Left) ||
-                                             ContainsParserErrorPlaceholder(nestedBinary.Right),
-            AssignmentExpression assignment => ContainsParserErrorPlaceholder(assignment.Target) ||
-                                               ContainsParserErrorPlaceholder(assignment.Value),
-            LambdaExpression lambda => ContainsParserErrorPlaceholder(lambda.ExpressionBody),
-            UnaryExpression unary => ContainsParserErrorPlaceholder(unary.Operand),
-            MustExpression must => ContainsParserErrorPlaceholder(must.Expression),
-            ParenthesizedExpression parenthesized => ContainsParserErrorPlaceholder(parenthesized.Inner),
-            CheckedExpression checkedExpression => ContainsParserErrorPlaceholder(checkedExpression.Expression),
-            UncheckedExpression uncheckedExpression => ContainsParserErrorPlaceholder(uncheckedExpression.Expression),
-            IndexAccessExpression indexAccess => ContainsParserErrorPlaceholder(indexAccess.Object) ||
-                                                 ContainsParserErrorPlaceholder(indexAccess.Index),
-            CastExpression cast => ContainsParserErrorPlaceholder(cast.Expression),
-            IsExpression isExpression => ContainsParserErrorPlaceholder(isExpression.Expression),
-            AwaitExpression awaitExpression => ContainsParserErrorPlaceholder(awaitExpression.Expression),
-            ThrowExpression throwExpression => ContainsParserErrorPlaceholder(throwExpression.Expression),
-            TernaryExpression ternary => ContainsParserErrorPlaceholder(ternary.Condition) ||
-                                         ContainsParserErrorPlaceholder(ternary.ThenExpression) ||
-                                         ContainsParserErrorPlaceholder(ternary.ElseExpression),
-            ArrayLiteralExpression array => array.Elements.Any(ContainsParserErrorPlaceholder),
-            TupleExpression tuple => tuple.Elements.Any(element => ContainsParserErrorPlaceholder(element.Value)),
-            NewExpression @new => @new.ConstructorArguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)) ||
-                                  ContainsParserErrorPlaceholder(@new.Initializer) ||
-                                  ContainsParserErrorPlaceholder(@new.ArrayLengthExpression),
-            ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
-                ContainsParserErrorPlaceholder(property.IndexExpression) ||
-                ContainsParserErrorPlaceholder(property.Value)),
-            WithExpression withExpression => ContainsParserErrorPlaceholder(withExpression.Target) ||
-                                             withExpression.Properties.Any(property =>
-                                                 ContainsParserErrorPlaceholder(property.IndexExpression) ||
-                                                 ContainsParserErrorPlaceholder(property.Value)),
-            SpreadExpression spread => ContainsParserErrorPlaceholder(spread.Expression),
-            MatchExpression match => ContainsParserErrorPlaceholder(match.Value) ||
-                                     match.Cases.Any(matchCase =>
-                                         ContainsParserErrorPlaceholder(matchCase.Guard) ||
-                                         ContainsParserErrorPlaceholder(matchCase.Expression)),
-            NameofExpression nameofExpression => ContainsParserErrorPlaceholder(nameofExpression.Target),
-            _ => false
-        };
     }
 
     private void DeclareVariable(string name, int line, int column)
@@ -993,128 +938,40 @@ internal class LintVisitor
         _usedVariables.Add(name);
     }
 
+    // NL002: the whole decision — which namespace a bare name needs, and whether anything already
+    // supplies it — belongs to `LinterMissingImport`; what is left here is the report.
     private void CheckMissingImport(IdentifierExpression ident)
     {
-        if (_typeMemberNameScopes.Any(scope => scope.Contains(ident.Name)))
-        {
+        var requiredNamespace = LinterMissingImport.MissingNamespaceForIdentifier(
+            ident.Name, _typeMemberNameScopes, _importedFileSymbols, _importedNamespaces);
+        if (requiredNamespace == null)
             return;
-        }
 
-        // NL002: Missing Import
-        // Check for common types that might need imports
-        var commonTypesMap = new Dictionary<string, string>
-        {
-            { "List", "System.Collections.Generic" },
-            { "Dictionary", "System.Collections.Generic" },
-            { "HashSet", "System.Collections.Generic" },
-            { "Queue", "System.Collections.Generic" },
-            { "Stack", "System.Collections.Generic" },
-            { "LinkedList", "System.Collections.Generic" },
-            { "StringBuilder", "System.Text" },
-            { "Regex", "System.Text.RegularExpressions" },
-            { "File", "System.IO" },
-            { "Directory", "System.IO" },
-            { "Path", "System.IO" },
-            { "Stream", "System.IO" },
-            { "HttpClient", "System.Net.Http" },
-            { "JsonSerializer", "System.Text.Json" },
-            { "Task", "System.Threading.Tasks" },
-            { "CancellationToken", "System.Threading" },
-            { "Encoding", "System.Text" },
-            { "DateTime", "System" },
-            { "TimeSpan", "System" },
-            { "Guid", "System" },
-            { "Uri", "System" },
-            { "Tuple", "System" },
-            { "Lazy", "System" },
-            { "Action", "System" },
-            { "Func", "System" },
-        };
-
-        if (commonTypesMap.TryGetValue(ident.Name, out var requiredNamespace))
-        {
-            if (_importedFileSymbols.Contains(ident.Name))
-                return;
-
-            // Check if the namespace is already imported
-            if (!_importedNamespaces.Contains(requiredNamespace))
-            {
-                AddDiagnostic(
-                    "NL002",
-                    $"I can't find '{ident.Name}' — it looks like a missing import",
-                    new Location(ident.Line, ident.Column, _filePath),
-                    _config.GetSeverity("NL002"),
-                    $"Add 'import {requiredNamespace}' at the top of the file");
-            }
-        }
+        AddDiagnostic(
+            "NL002",
+            LinterMissingImport.Message(ident.Name),
+            new Location(ident.Line, ident.Column, _filePath),
+            _config.GetSeverity("NL002"),
+            LinterMissingImport.Suggestion(requiredNamespace));
     }
 
     private void CheckMissingImportForType(TypeReference type, int line, int column)
     {
-        // Extract the base type name from the type reference
-        var typeName = type switch
-        {
-            SimpleTypeReference simple => simple.Name,
-            GenericTypeReference generic => generic.Name,
-            NullableTypeReference nullable => GetBaseTypeName(nullable.InnerType),
-            ArrayTypeReference array => GetBaseTypeName(array.ElementType),
-            UnionTypeReference union => union.Arms.Select(GetBaseTypeName).FirstOrDefault(name => name != null),
-            ByRefTypeReference byRef => GetBaseTypeName(byRef.InnerType),
-            _ => null
-        };
+        var typeName = LinterTypeReferenceName.Base(type);
+        if (typeName == null)
+            return;
 
-        if (typeName != null)
-        {
-            var commonTypesMap = new Dictionary<string, string>
-            {
-                { "List", "System.Collections.Generic" },
-                { "Dictionary", "System.Collections.Generic" },
-                { "HashSet", "System.Collections.Generic" },
-                { "Queue", "System.Collections.Generic" },
-                { "Stack", "System.Collections.Generic" },
-                { "LinkedList", "System.Collections.Generic" },
-                { "StringBuilder", "System.Text" },
-                { "Regex", "System.Text.RegularExpressions" },
-                { "File", "System.IO" },
-                { "Directory", "System.IO" },
-                { "Path", "System.IO" },
-                { "Stream", "System.IO" },
-                { "HttpClient", "System.Net.Http" },
-                { "JsonSerializer", "System.Text.Json" },
-                { "Task", "System.Threading.Tasks" },
-                { "CancellationToken", "System.Threading" },
-            };
+        var requiredNamespace = LinterMissingImport.MissingNamespaceForTypeName(
+            typeName, _importedFileSymbols, _importedNamespaces);
+        if (requiredNamespace == null)
+            return;
 
-            if (commonTypesMap.TryGetValue(typeName, out var requiredNamespace))
-            {
-                if (_importedFileSymbols.Contains(typeName))
-                    return;
-
-                if (!_importedNamespaces.Contains(requiredNamespace))
-                {
-                    AddDiagnostic(
-                        "NL002",
-                        $"I can't find '{typeName}' — it looks like a missing import",
-                        new Location(line, column, _filePath),
-                        _config.GetSeverity("NL002"),
-                        $"Add 'import {requiredNamespace}' at the top of the file");
-                }
-            }
-        }
-    }
-
-    private string? GetBaseTypeName(TypeReference type)
-    {
-        return type switch
-        {
-            SimpleTypeReference simple => simple.Name,
-            GenericTypeReference generic => generic.Name,
-            NullableTypeReference nullable => GetBaseTypeName(nullable.InnerType),
-            ArrayTypeReference array => GetBaseTypeName(array.ElementType),
-            UnionTypeReference union => union.Arms.Select(GetBaseTypeName).FirstOrDefault(name => name != null),
-            ByRefTypeReference byRef => GetBaseTypeName(byRef.InnerType),
-            _ => null
-        };
+        AddDiagnostic(
+            "NL002",
+            LinterMissingImport.Message(typeName),
+            new Location(line, column, _filePath),
+            _config.GetSeverity("NL002"),
+            LinterMissingImport.Suggestion(requiredNamespace));
     }
 
     /// <summary>
@@ -1238,29 +1095,10 @@ internal class LintVisitor
         string firstIdentifier = expr.Substring(0, firstSeparator).Trim();
 
         // Mark the first identifier as used (this is the variable being accessed)
-        if (!string.IsNullOrEmpty(firstIdentifier) && IsValidIdentifier(firstIdentifier))
+        if (!string.IsNullOrEmpty(firstIdentifier) && AnalyzerDeclarationPolicy.IsValidIdentifier(firstIdentifier))
         {
             MarkVariableUsed(firstIdentifier);
         }
-    }
-
-    private bool IsValidIdentifier(string name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return false;
-
-        // Must start with letter or underscore
-        if (!char.IsLetter(name[0]) && name[0] != '_')
-            return false;
-
-        // Rest must be letters, digits, or underscores
-        for (int i = 1; i < name.Length; i++)
-        {
-            if (!char.IsLetterOrDigit(name[i]) && name[i] != '_')
-                return false;
-        }
-
-        return true;
     }
 
     // -------------------------------------------------------------------------
