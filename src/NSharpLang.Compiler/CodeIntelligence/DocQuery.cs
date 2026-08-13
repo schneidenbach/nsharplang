@@ -24,6 +24,7 @@ public class DocQuery
     private readonly Dictionary<string, XDocument> _loadedDocs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Dictionary<string, XElement>> _docIndexes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, XElement> _globalDocIndex = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _globalDocOwners = new(StringComparer.Ordinal);
     private readonly DocQueryTypeIndex _typeIndex = new();
     private bool _globalDocIndexLoaded;
 
@@ -51,10 +52,13 @@ public class DocQuery
         foreach (var assembly in ExternalAssemblyScan.Loaded())
             _typeIndex.AddAssembly(assembly);
 
-        // Discover additional assemblies from reference packs
+        // Discover additional assemblies from reference packs. A pack can offer names this
+        // runtime does not carry; the N# owner notes each unloadable name and decides what a
+        // failed lookup should say about it.
         foreach (var asmName in _typeIndex.DiscoverReferencePackAssemblyNames())
         {
-            _typeIndex.AddAssembly(Assembly.Load(asmName));
+            try { _typeIndex.AddAssembly(Assembly.Load(asmName)); }
+            catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException) { _typeIndex.NoteUnloadableAssembly(asmName); }
         }
     }
 
@@ -73,10 +77,7 @@ public class DocQuery
         }
 
         var splitPlans = DocQueryKernels.GetLookupSplitPlans(query);
-        if (splitPlans.Length == 0)
-        {
-            return null;
-        }
+        if (splitPlans.Length == 0) return null;
 
         foreach (var splitPlan in splitPlans)
         {
@@ -104,6 +105,15 @@ public class DocQuery
         return null;
     }
 
+    // Explain a failed lookup: the N# owners decide whether the reference packs document the
+    // name in an assembly this runtime cannot load. Null when there is nothing helpful to say.
+    public string? DescribeLookupMiss(string query)
+    {
+        EnsureGlobalDocIndex();
+        var docIds = _globalDocOwners.Keys.ToArray();
+        return DocQueryKernels.DescribeDocLookupMiss(query, docIds, docIds.Select(id => _globalDocOwners[id]).ToArray(), _typeIndex.GetUnloadableAssemblyNames());
+    }
+
     private DocResult DescribeType(Type type)
     {
         var summary = GetTypeSummary(type);
@@ -124,10 +134,7 @@ public class DocQuery
     {
         var nestedType = type.GetNestedTypes(BindingFlags.Public)
             .FirstOrDefault(t => DocQueryKernels.IsDocMemberNameMatch(t.Name, memberName));
-        if (nestedType != null)
-        {
-            return DescribeType(nestedType);
-        }
+        if (nestedType != null) return DescribeType(nestedType);
 
         var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
             .Where(c => DocQueryKernels.IsConstructorMemberMatch(memberName, type.Name))
@@ -310,20 +317,18 @@ public class DocQuery
         var index = new Dictionary<string, XElement>();
         _docIndexes[assemblyName] = index;
 
+        var xmlPath = _typeIndex.GetXmlDocPath(assembly);
+        if (!File.Exists(xmlPath)) return;
+
+        var doc = XDocument.Load(xmlPath);
+        _loadedDocs[assemblyName] = doc;
+        var members = doc.Root?.Element("members")?.Elements("member");
+        if (members == null) return;
+
+        foreach (var member in members)
         {
-            var xmlPath = _typeIndex.GetXmlDocPath(assembly);
-            if (!File.Exists(xmlPath)) return;
-
-            var doc = XDocument.Load(xmlPath);
-            _loadedDocs[assemblyName] = doc;
-            var members = doc.Root?.Element("members")?.Elements("member");
-            if (members == null) return;
-
-            foreach (var member in members)
-            {
-                var name = member.Attribute("name")?.Value;
-                if (name != null) index[name] = member;
-            }
+            var name = member.Attribute("name")?.Value;
+            if (name != null) index[name] = member;
         }
     }
 
@@ -385,34 +390,26 @@ public class DocQuery
 
     private void EnsureGlobalDocIndex()
     {
-        if (_globalDocIndexLoaded)
-        {
-            return;
-        }
+        if (_globalDocIndexLoaded) return;
 
         _globalDocIndexLoaded = true;
 
         foreach (var refDir in _typeIndex.GetReferencePackDirectories())
         {
-            IEnumerable<string> xmlFiles;
+            foreach (var xmlFile in Directory.EnumerateFiles(refDir, "*.xml"))
             {
-                xmlFiles = Directory.EnumerateFiles(refDir, "*.xml");
-            }
+                var owner = Path.GetFileNameWithoutExtension(xmlFile);
+                var doc = XDocument.Load(xmlFile);
+                var members = doc.Root?.Element("members")?.Elements("member");
+                if (members == null) continue;
 
-            foreach (var xmlFile in xmlFiles)
-            {
+                foreach (var member in members)
                 {
-                    var doc = XDocument.Load(xmlFile);
-                    var members = doc.Root?.Element("members")?.Elements("member");
-                    if (members == null) continue;
-
-                    foreach (var member in members)
+                    var name = member.Attribute("name")?.Value;
+                    if (!string.IsNullOrWhiteSpace(name) && !_globalDocIndex.ContainsKey(name))
                     {
-                        var name = member.Attribute("name")?.Value;
-                        if (!string.IsNullOrWhiteSpace(name) && !_globalDocIndex.ContainsKey(name))
-                        {
-                            _globalDocIndex[name] = member;
-                        }
+                        _globalDocIndex[name] = member;
+                        _globalDocOwners[name] = owner;
                     }
                 }
             }

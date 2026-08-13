@@ -16,7 +16,6 @@ import System.Reflection
 // STABILITY IS THE POINT OF BOTH OF THEM. The scorer's last tie-break is source order, so a dedupe
 // that reordered would make `nlc query doc List` answer differently on different runs — which is
 // exactly the failure a first-source-order assertion catches and an equality-of-sets one does not.
-
 func DqtiIndexOfCoreLibrary(): DocQueryTypeIndex {
     index := new DocQueryTypeIndex()
     index.AddAssembly(typeof(string).get_Assembly())
@@ -225,4 +224,21 @@ test "the reference-pack directories are computed once and answered from the cac
         assert first[directoryIndex] == second[directoryIndex]
         directoryIndex = directoryIndex + 1
     }
+}
+
+test "an unloadable pack name is noted, deduped ignore-case in first-seen order, and never fatal" {
+    index := new DocQueryTypeIndex()
+
+    assert index.GetUnloadableAssemblyNames().Length == 0
+
+    index.NoteUnloadableAssembly("Microsoft.AspNetCore.HttpLogging")
+    index.NoteUnloadableAssembly("System.Threading.RateLimiting")
+    index.NoteUnloadableAssembly("microsoft.aspnetcore.httplogging")
+    index.NoteUnloadableAssembly("")
+    index.NoteUnloadableAssembly("   ")
+
+    noted := index.GetUnloadableAssemblyNames()
+    assert noted.Length == 2
+    assert noted[0] == "Microsoft.AspNetCore.HttpLogging"
+    assert noted[1] == "System.Threading.RateLimiting"
 }

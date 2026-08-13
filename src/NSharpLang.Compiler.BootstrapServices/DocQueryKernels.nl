@@ -791,6 +791,174 @@ class DocQueryKernels {
         return DeduplicateStableStringsOrdinalIgnoreCase(directories)
     }
 
+    // WHAT A FAILED LOOKUP SHOULD SAY ABOUT THE ASSEMBLIES THE RUNTIME COULD NOT LOAD. The
+    // reference packs offer more assemblies than the CLI's runtime carries — on a default install
+    // the whole ASP.NET Core surface, 140 names — so the loader skips-and-notes rather than
+    // crashing, and this is the policy for when that note is worth surfacing. The packs' XML is
+    // the evidence: docs load from disk even when their assembly does not, so a query that matches
+    // a DOCUMENTED type whose documenting assembly is on the unloadable list is told exactly which
+    // type exists and which assembly is missing. The documenting assembly comes from the XML file
+    // that carried the id — recorded, not inferred, because `.Abstractions`-style assembly names
+    // are not namespace prefixes and an inference would go silent exactly there (`IFileProvider`
+    // lives in `Microsoft.Extensions.FileProviders.Abstractions`). A query that matches nothing
+    // documented earns the note only when it names an unloadable assembly itself; any other miss
+    // reads exactly as it always has.
+    static func DescribeDocLookupMiss(query: string, documentedDocIds: string[], documentedOwners: string[], unloadableAssemblyNames: string[]): string? {
+        if unloadableAssemblyNames.Length == 0 {
+            return null
+        }
+
+        strippedQuery := StripGenericArity(query)
+        if string.IsNullOrWhiteSpace(strippedQuery) {
+            return null
+        }
+
+        rows := SelectUnloadableDocTypeRows(strippedQuery, documentedDocIds, documentedOwners, unloadableAssemblyNames)
+        if rows.Length > 0 {
+            return FormatUnloadableDocTypeNote(rows)
+        }
+
+        assemblyName := SelectUnloadableAssemblyForName(strippedQuery, unloadableAssemblyNames)
+        if assemblyName == null {
+            return null
+        }
+
+        return "Assembly '" + (assemblyName ?? "") + "' is installed as a reference pack but is not part of this runtime, so `nlc query doc` cannot describe its types."
+    }
+
+    // EVERY DOCUMENTED TYPE THE QUERY COULD HAVE MEANT whose documenting assembly is unloadable,
+    // as display rows, SORTED then deduped — the doc ids arrive in dictionary walk order, and a
+    // note that changed wording between runs would fail the arc's determinism bar. The match doors
+    // mirror `ResolveType`'s: the full name as typed, a dotted suffix (only for a query that
+    // contains a dot, the same gate the index applies), and the bare simple name.
+    static func SelectUnloadableDocTypeRows(strippedQuery: string, documentedDocIds: string[], documentedOwners: string[], unloadableAssemblyNames: string[]): string[] {
+        shortName := GetResolveTypeShortName(strippedQuery)
+        rows := new List<string>()
+        i := 0
+        while i < documentedDocIds.Length && i < documentedOwners.Length {
+            docId := documentedDocIds[i]
+            if docId.Length > 2 && docId[0] == 'T' && docId[1] == ':' {
+                typeName := StripGenericArity(docId.Substring(2))
+                if IsDocMissTypeNameMatch(typeName, strippedQuery, shortName) && IsUnloadableAssemblyName(documentedOwners[i], unloadableAssemblyNames) {
+                    rows.Add("'" + typeName + "' (assembly '" + documentedOwners[i] + "')")
+                }
+            }
+
+            i = i + 1
+        }
+
+        return DeduplicateStableStringsOrdinalIgnoreCase(SortStringsOrdinalIgnoreCase(rows.ToArray()))
+    }
+
+    static func IsUnloadableAssemblyName(assemblyName: string, unloadableAssemblyNames: string[]): bool {
+        i := 0
+        while i < unloadableAssemblyNames.Length {
+            if DocQueryEqualsIgnoreCase(assemblyName, unloadableAssemblyNames[i]) {
+                return true
+            }
+
+            i = i + 1
+        }
+
+        return false
+    }
+
+    static func IsDocMissTypeNameMatch(typeName: string, strippedQuery: string, shortName: string): bool {
+        if DocQueryEqualsIgnoreCase(typeName, strippedQuery) {
+            return true
+        }
+
+        if ShouldSearchQualifiedSuffix(strippedQuery) && IsQualifiedTypeSuffixMatch(typeName, strippedQuery) {
+            return true
+        }
+
+        return DocQueryEqualsIgnoreCase(GetResolveTypeShortName(typeName), shortName)
+    }
+
+    // WHICH UNLOADABLE ASSEMBLY A DOTTED NAME BELONGS TO: the LONGEST name that is the whole of it
+    // or a dot-aligned prefix. Longest, because `Microsoft.AspNetCore.HttpLogging` must win over
+    // `Microsoft.AspNetCore` for `Microsoft.AspNetCore.HttpLogging.HttpLoggingOptions`; and
+    // dot-ALIGNED, because `Microsoft.AspNetCore.Http` is not a prefix of that name at all.
+    static func SelectUnloadableAssemblyForName(name: string, unloadableAssemblyNames: string[]): string? {
+        best: string? = null
+        bestLength := 0
+        i := 0
+        while i < unloadableAssemblyNames.Length {
+            candidate := unloadableAssemblyNames[i]
+            if candidate.Length > bestLength && IsDotAlignedPrefixIgnoreCase(name, candidate) {
+                best = candidate
+                bestLength = candidate.Length
+            }
+
+            i = i + 1
+        }
+
+        return best
+    }
+
+    static func IsDotAlignedPrefixIgnoreCase(name: string, prefix: string): bool {
+        if DocQueryEqualsIgnoreCase(name, prefix) {
+            return true
+        }
+
+        return name.Length > prefix.Length && name[prefix.Length] == '.' && DocQueryStartsWithIgnoreCase(name, prefix)
+    }
+
+    // THE NOTE NAMES AT MOST THREE TYPES AND SAYS HOW MANY IT LEFT OUT. 140 assemblies are
+    // unloadable on a default install; a diagnostic that lists everything explains nothing.
+    static func FormatUnloadableDocTypeNote(rows: string[]): string {
+        if rows.Length == 1 {
+            return "The reference packs document " + rows[0] + ", but that assembly is not part of this runtime, so `nlc query doc` cannot describe it."
+        }
+
+        shown := rows.Length
+        if shown > 3 {
+            shown = 3
+        }
+
+        listed := ""
+        i := 0
+        while i < shown {
+            if i > 0 {
+                listed = listed + ", "
+            }
+
+            listed = listed + rows[i]
+            i = i + 1
+        }
+
+        tail := "."
+        if rows.Length > shown {
+            tail = ", and " + (rows.Length - shown).ToString() + " more."
+        }
+
+        return "The reference packs document matching types whose assemblies are not part of this runtime: " + listed + tail
+    }
+
+    static func SortStringsOrdinalIgnoreCase(values: string[]): string[] {
+        sorted := new string[](values.Length)
+        i := 0
+        while i < values.Length {
+            sorted[i] = values[i]
+            i = i + 1
+        }
+
+        i = 1
+        while i < sorted.Length {
+            current := sorted[i]
+            j := i - 1
+            while j >= 0 && String.Compare(sorted[j], current, StringComparison.OrdinalIgnoreCase) > 0 {
+                sorted[j + 1] = sorted[j]
+                j = j - 1
+            }
+
+            sorted[j + 1] = current
+            i = i + 1
+        }
+
+        return sorted
+    }
+
     static func GetLookupSplitPlans(query: string): DocQueryLookupSplitPlan[] {
         parts := query.Split('.')
         if parts.Length < 2 {

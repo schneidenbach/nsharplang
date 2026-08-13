@@ -425,7 +425,7 @@ internal static class BatchQueryRunner
         var result = DocQuery.Value.Lookup(query);
         if (result == null)
         {
-            return OutputFormatter.ErrorToJson("doc", QueryCommandKernels.GetNoDocumentationMessage(query));
+            return OutputFormatter.ErrorToJson("doc", QueryCommandKernels.GetNoDocumentationMessage(query, DocQuery.Value.DescribeLookupMiss(query)));
         }
 
         return OutputFormatter.DocToJson(result, query);

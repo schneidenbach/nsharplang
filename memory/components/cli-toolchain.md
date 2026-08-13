@@ -71,6 +71,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query refs --file F --pos L:C` | All references to symbol | `nlc query refs --file Program.nl --pos 5:12` |
 | `nlc query completions --file F --pos L:C` | Completions at position | `nlc query completions --file Program.nl --pos 5:12` |
 | `nlc query hover --file F --pos L:C` | Signature + docs at position (shared model with LSP) | `nlc query hover --file Program.nl --pos 5:6` |
+| `nlc query doc <name>` | .NET API documentation for a type or member, from the reference packs' XML | `nlc query doc Console.WriteLine` |
 | `nlc query call-graph --function N` | Callers and callees of a function | `nlc query call-graph --function Main` |
 | `nlc query call-graph` | All call edges in the project (--limit N, default 100) | `nlc query call-graph --limit 50` |
 | `nlc query implementors --name I` | Concrete types implementing an interface (by name) | `nlc query implementors --name IShape` |
@@ -464,6 +465,18 @@ $ nlc query hover --file Program.nl --pos 5:6
 ```
 
 Exit code 0 on success, 1 with a structured `noSymbol` error envelope if there is no symbol at the given position.
+
+### `nlc query doc` — .NET API Documentation
+
+Resolves a type or member name (`Console`, `System.Console`, `List.Add`, `Environment.SpecialFolder`, case-insensitive, arity-blind) against every assembly the CLI's runtime can load — a fixed BCL seed list plus every reference-pack assembly — and renders the XML documentation from the packs: summary, members, parameters, base types. `--text` renders Elm-style text; the default is the versioned JSON envelope.
+
+**Loading semantics.** The reference packs offer more assembly names than the CLI's own runtime carries (on a default install, the entire ASP.NET Core surface — ~140 names). A name the runtime cannot load is **skipped and noted, never fatal**: the query answers over everything that did load. A miss is explained when the evidence allows it — the packs' XML loads from disk even when its assembly does not, so:
+
+- if the packs document a matching type whose documenting assembly could not be loaded, the error names that exact type and assembly ("The reference packs document 'Microsoft.AspNetCore.HttpLogging.HttpLoggingOptions' (assembly 'Microsoft.AspNetCore.HttpLogging'), but that assembly is not part of this runtime…");
+- if the query itself names an unloadable assembly, the error says which one;
+- otherwise the message stays the plain `No documentation found for '<query>'.`
+
+Exit code 0 with a doc envelope on success, 1 with an error envelope on a miss (the `message` carries the unloadable-assembly note when there is one). The skip-and-note state lives in the N# owner `DocQueryTypeIndex.nl`; the miss-explanation policy is `DocQueryKernels.DescribeDocLookupMiss`.
 
 ### `nlc query call-graph` — Callers and Callees
 

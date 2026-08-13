@@ -890,14 +890,11 @@ public static class QueryCommand
         var result = _docQuery.Value.Lookup(query);
         if (result == null)
         {
+            var message = QueryCommandKernels.GetNoDocumentationMessage(query, _docQuery.Value.DescribeLookupMiss(query));
             if (outputMode == 2)
-            {
-                Console.Error.WriteLine(QueryCommandKernels.GetNoDocumentationMessage(query));
-            }
+                Console.Error.WriteLine(message);
             else
-            {
-                Console.Write(OutputFormatter.ErrorToJson("doc", QueryCommandKernels.GetNoDocumentationMessage(query)));
-            }
+                Console.Write(OutputFormatter.ErrorToJson("doc", message));
             return 1;
         }
 
