@@ -404,22 +404,42 @@ class AnalyzerDeclarationPolicy {
     // One report per bad SEGMENT: a name with two bad segments is two mistakes, and stopping at the
     // first would hide the second until the first was fixed.
     //
-    // MEASURED REACHABILITY, recorded because it is not what the rule's shape suggests: the parser
-    // rejects a malformed package segment first, so in practice this rule is reached only through
-    // parser ERROR RECOVERY, where the offending segment has already been replaced by an `<error>`
-    // placeholder — and the report therefore names `'<error>'` rather than what the developer wrote.
-    // That is pre-existing behaviour, preserved here byte-for-byte; improving the message means
-    // giving recovery a real segment to carry, which is the parser's side of the boundary.
+    // The parser's recovery preserves each segment AS WRITTEN, with its span
+    // (ColumnarParserRecovery.ParsePackageSegment), so the report can name `'9bad'` and underline
+    // it. A segment whose text is the `<error>` placeholder had no written text to carry (end of
+    // file, reserved keyword, detached offender) and the parser has already reported precisely at
+    // that site — a second report naming the placeholder would be noise, so it is skipped. The
+    // Name-splitting fallback serves hand-constructed declarations with no parser segments; its
+    // reports anchor on the declaration, exactly as before segments existed.
     func ValidatePackageName(declaration: PackageDeclaration) {
+        segments := declaration.Segments
+        if segments != null {
+            segmentIndex := 0
+            while segmentIndex < segments.Count {
+                segment := segments[segmentIndex]
+                if segment.Text != "<error>" && !IsValidIdentifier(segment.Text) {
+                    diagnostics.Report(ErrorCode.InvalidSyntax, PackageNameReport(segment.Text), segment.Line, segment.Column, null, segment.Length)
+                }
+
+                segmentIndex = segmentIndex + 1
+            }
+
+            return
+        }
+
         parts := declaration.Name.Split('.')
         index := 0
         while index < parts.Length {
             if !IsValidIdentifier(parts[index]) {
-                diagnostics.Report(ErrorCode.InvalidSyntax, "Package name '" + parts[index] + "' is not a valid identifier — package names must start with a letter and contain only letters, digits, and underscores", declaration.Line, declaration.Column, null, 0)
+                diagnostics.Report(ErrorCode.InvalidSyntax, PackageNameReport(parts[index]), declaration.Line, declaration.Column, null, 0)
             }
 
             index = index + 1
         }
+    }
+
+    static func PackageNameReport(segment: string): string {
+        return "Package name '" + segment + "' is not a valid identifier — package names must start with a letter and contain only letters, digits, and underscores"
     }
 
     // A letter or an underscore, then letters, digits and underscores. An empty segment — which is

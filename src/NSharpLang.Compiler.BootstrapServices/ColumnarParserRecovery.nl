@@ -683,12 +683,130 @@ class ColumnarParserRecovery {
         NamespaceNode = new NamespaceDeclaration(name, line, column)
     }
 
+    // The package name is parsed segment-by-segment rather than through ParseQualifiedName so a
+    // malformed segment can preserve WHAT THE DEVELOPER WROTE. `package good.9bad` used to report
+    // "Expected identifier after '.'" here, leave `9`/`bad` for the top-level loop's
+    // unexpected-token + `<error>`-class cascade, and hand the analyzer a name whose bad segment
+    // was the `<error>` placeholder — its invalid-package-name report then NAMED THE PLACEHOLDER.
+    // Now a word-like run written attached to the name is consumed as the segment, text and span
+    // intact, with NO parser diagnostic: the segment fails the analyzer's identifier rule, whose
+    // one report names and underlines `9bad` and states the actual naming rule. Segments with no
+    // written text to carry (end of file, reserved keyword, detached offender) keep the previous
+    // ConsumeIdentifier diagnostics and record an `<error>` placeholder segment, which tells the
+    // analyzer the parser has already spoken (AnalyzerDeclarationPolicy.ValidatePackageName).
     func ParsePackage() {
         line := Current().Line
         column := Current().Column
+        keyword := Current()
         Advance()
-        name := ParseQualifiedName()
-        PackageNode = new PackageDeclaration(name, line, column)
+        segments := new List<PackageNameSegment>()
+        name := ParsePackageSegment(segments, keyword)
+        while Check(TokenType.Dot) {
+            dot := Current()
+            Advance()
+            name = name + "." + ParsePackageSegment(segments, dot)
+        }
+        declaration := new PackageDeclaration(name, line, column)
+        declaration.Segments = segments
+        PackageNode = declaration
+    }
+
+    // One package-name segment. `preceding` is the token the segment hangs off — the `package`
+    // keyword for the first segment, the separating dot for the rest — and decides both the
+    // ConsumeIdentifier message variant and whether an offending token counts as written-attached.
+    func ParsePackageSegment(segments: List<PackageNameSegment>, preceding: Token): string {
+        if Check(TokenType.Identifier) {
+            token := Advance()
+            segments.Add(new PackageNameSegment(token.Value, token.Line, token.Column, TokenLength(token)))
+            return token.Value
+        }
+
+        if CanRecoverMalformedPackageSegment(preceding) {
+            first := Advance()
+            text := first.Value
+            endColumn := first.Column + first.Value.Length
+            while ContinuesMalformedPackageSegment(first.Line, endColumn) {
+                next := Advance()
+                text = text + next.Value
+                endColumn = next.Column + next.Value.Length
+            }
+            segments.Add(new PackageNameSegment(text, first.Line, first.Column, endColumn - first.Column))
+            return text
+        }
+
+        message := preceding.Type == TokenType.Dot ? "Expected identifier after '.'" : "Expected identifier"
+        placeholder := ConsumeIdentifier(message)
+        segments.Add(new PackageNameSegment(placeholder, preceding.Line, preceding.Column, 0))
+        return placeholder
+    }
+
+    // A malformed segment is recoverable-with-text when the offender sits on the name's own line
+    // and is word-like (`good.9bad`, `package 9bad`). Reserved keywords are excluded: their
+    // keyword-specific ConsumeIdentifier diagnostic is more precise than the identifier-shape rule.
+    func CanRecoverMalformedPackageSegment(preceding: Token): bool {
+        if IsAtEnd() {
+            return false
+        }
+        token := Current()
+        if token.Line != preceding.Line {
+            return false
+        }
+        if Lexer.IsReservedKeyword(token.Type) {
+            return false
+        }
+        return IsPackageSegmentRunToken(token)
+    }
+
+    // The run keeps consuming only tokens written ADJACENT to it (no gap, same line), so
+    // `package good.9bad stray` carries `9bad` and leaves `stray` genuinely unexpected. A dot is
+    // never part of a run — it separates segments — and mid-run reserved keywords are plain text
+    // (`9class` is one written word, not a keyword use).
+    func ContinuesMalformedPackageSegment(runLine: int, endColumn: int): bool {
+        if IsAtEnd() {
+            return false
+        }
+        token := Current()
+        if token.Type == TokenType.Dot {
+            return false
+        }
+        if token.Line != runLine {
+            return false
+        }
+        if token.Column != endColumn {
+            return false
+        }
+        return IsPackageSegmentRunToken(token)
+    }
+
+    // Word-like: a token whose written form is name material. Literal token types are listed
+    // because their VALUES can carry non-word characters (`9.5` keeps its dot yet is still one
+    // written number); everything else — keywords included — qualifies by spelling alone.
+    func IsPackageSegmentRunToken(token: Token): bool {
+        if token.Type == TokenType.IntLiteral {
+            return true
+        }
+        if token.Type == TokenType.FloatLiteral {
+            return true
+        }
+        if token.Type == TokenType.Identifier {
+            return true
+        }
+        return TokenTextIsWordLike(token.Value)
+    }
+
+    static func TokenTextIsWordLike(text: string): bool {
+        if text.Length == 0 {
+            return false
+        }
+        index := 0
+        while index < text.Length {
+            current := text[index]
+            if !char.IsLetterOrDigit(current) && current != '_' {
+                return false
+            }
+            index = index + 1
+        }
+        return true
     }
 
     func ParseImport() {

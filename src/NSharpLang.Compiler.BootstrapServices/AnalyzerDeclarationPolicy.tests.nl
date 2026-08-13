@@ -454,6 +454,51 @@ test "the identifier rule itself answers each shape" {
     assert !AnalyzerDeclarationPolicy.IsValidIdentifier("has space")
 }
 
+// When the parser supplies segments (the production path), the report names the segment AS WRITTEN
+// and anchors on ITS span — not on the declaration keyword.
+
+test "with parser segments, the report names the written segment and underlines its span" {
+    harness := DeclarationPolicyHarnessNew()
+    declaration := new PackageDeclaration("good.9bad", 1, 1)
+    segments := new List<PackageNameSegment>()
+    segments.Add(new PackageNameSegment("good", 1, 9, 4))
+    segments.Add(new PackageNameSegment("9bad", 1, 14, 4))
+    declaration.Segments = segments
+    harness.Owner.ValidatePackageName(declaration)
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Package name '9bad' is not a valid identifier — package names must start with a letter and contain only letters, digits, and underscores"
+    assert harness.Errors[0].Line == 1
+    assert harness.Errors[0].Column == 14
+    assert harness.Errors[0].Length == 4
+}
+
+test "with parser segments, two bad segments are still two reports, each on its own span" {
+    harness := DeclarationPolicyHarnessNew()
+    declaration := new PackageDeclaration("1bad.2worse", 1, 1)
+    segments := new List<PackageNameSegment>()
+    segments.Add(new PackageNameSegment("1bad", 1, 9, 4))
+    segments.Add(new PackageNameSegment("2worse", 1, 14, 6))
+    declaration.Segments = segments
+    harness.Owner.ValidatePackageName(declaration)
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Column == 9
+    assert harness.Errors[1].Column == 14
+}
+
+test "an `<error>` placeholder segment is the parser's report, not repeated here" {
+    // Recovery records `<error>` only when it had no written text to carry (end of file, reserved
+    // keyword, detached offender) — and in each of those paths the parser has already reported at
+    // that exact site. Naming the placeholder again would be the noise this family used to emit.
+    harness := DeclarationPolicyHarnessNew()
+    declaration := new PackageDeclaration("good.<error>", 1, 1)
+    segments := new List<PackageNameSegment>()
+    segments.Add(new PackageNameSegment("good", 1, 9, 4))
+    segments.Add(new PackageNameSegment("<error>", 1, 13, 0))
+    declaration.Segments = segments
+    harness.Owner.ValidatePackageName(declaration)
+    assert harness.Errors.Count == 0
+}
+
 // ---- (6) the default-parameter walk ------------------------------------------------------------------
 
 // The driver exactly as `Analyzer.cs` writes it, minus the expression analysis the shell owns: the
