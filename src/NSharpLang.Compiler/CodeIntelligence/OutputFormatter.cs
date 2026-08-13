@@ -1,12 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Linq;
-using System.Reflection;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
-using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
@@ -20,19 +13,6 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 /// </summary>
 public static class OutputFormatter
 {
-    private const int SchemaVersion = 1;
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        MaxDepth = 256,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
-    };
-
-    private static string? NormalizePath(string? path) => OutputFormatterNormalizationKernels.NormalizePath(path);
-
     public static DiagnosticSummary SummarizeDiagnostics(IReadOnlyList<DiagnosticResult> results)
         => OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results);
 
@@ -60,93 +40,6 @@ public static class OutputFormatter
     public static string OutlineToJson(OutlineResult result)
     {
         return OutputFormatterJsonKernels.OutlineToJson(result);
-    }
-
-    /// <summary>
-    /// Serializes one or more parsed compilation-unit ASTs to the stable versioned JSON envelope.
-    /// Each AST node is emitted as { "node": "&lt;ConcreteNodeType&gt;", &lt;camelCased properties&gt; }, recursing
-    /// into child nodes and lists, so the concrete node kind (which a plain System.Text.Json polymorphic
-    /// serialization of the Declaration/Statement/Expression bases would drop) is always present. This is
-    /// the canonical AST representation for `nlc query ast` (LLM-first navigation) and for verifying a
-    /// future N# parser against the C# parser. Property order is declaration order (stable per node type).
-    /// </summary>
-    // DEFERRED: nlc query ast is the C#-parser-verification surface; it dies with the C# AST (Track H front-end deletion). Reason: Type.GetProperties/MetadataToken not readable from N#.
-    public static string AstToJson(IReadOnlyList<(string File, CompilationUnit Unit)> units)
-    {
-        var files = new JsonArray();
-        foreach (var (file, unit) in units)
-        {
-            files.Add(new JsonObject
-            {
-                ["file"] = NormalizePath(file),
-                ["ast"] = AstValueToJson(unit)
-            });
-        }
-
-        var envelope = new JsonObject
-        {
-            ["schemaVersion"] = SchemaVersion,
-            ["command"] = "query.ast",
-            ["ok"] = true,
-            ["files"] = files
-        };
-        return envelope.ToJsonString(JsonOptions);
-    }
-
-    private static JsonNode? AstValueToJson(object? value)
-    {
-        switch (value)
-        {
-            case null:
-                return null;
-            case string s:
-                return JsonValue.Create(s);
-            case bool b:
-                return JsonValue.Create(b);
-            case char c:
-                return JsonValue.Create(c.ToString());
-            case Enum e:
-                return JsonValue.Create(e.ToString());
-            case int i:
-                return JsonValue.Create(i);
-            case long l:
-                return JsonValue.Create(l);
-            case double d:
-                return JsonValue.Create(d);
-        }
-
-        var type = value.GetType();
-        if (type.IsPrimitive)
-        {
-            return JsonValue.Create(Convert.ToString(value, CultureInfo.InvariantCulture));
-        }
-
-        if (value is System.Collections.IEnumerable sequence)
-        {
-            var array = new JsonArray();
-            foreach (var item in sequence)
-            {
-                array.Add(AstValueToJson(item));
-            }
-
-            return array;
-        }
-
-        // An AST node object: N# classes emit data as fields (older records used properties); read
-        // both, ordered by metadata token for a stable shape.
-        var obj = new JsonObject { ["node"] = type.Name };
-        var members = type.GetFields(BindingFlags.Public | BindingFlags.Instance)
-            .Select(f => (f.MetadataToken, f.Name, Value: f.GetValue(value)))
-            .Concat(type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(static p => p.GetIndexParameters().Length == 0 && p.Name != "EqualityContract")
-                .Select(p => (p.MetadataToken, p.Name, Value: p.GetValue(value))))
-            .OrderBy(static m => m.MetadataToken);
-        foreach (var member in members)
-        {
-            obj[JsonNamingPolicy.CamelCase.ConvertName(member.Name)] = AstValueToJson(member.Value);
-        }
-
-        return obj;
     }
 
     public static string DiagnosticsToJson(List<DiagnosticResult> results, string? projectRoot = null)

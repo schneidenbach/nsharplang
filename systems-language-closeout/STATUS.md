@@ -1,6 +1,50 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-13 (**TASK 019 SLICE 3 LANDED (no commit — mandate) — THE SIX TOOLING FILES NOW
+Last updated: 2026-08-13 (**TASK 019 SLICE 5 LANDED (no commit — mandate) — `OutputFormatter.cs` IS
+CLOSED: IT FORMATS NOTHING.** The extractor was re-validated on FOUR checkpoints before it was
+trusted (**30 / 623**, **27 / 476**, **21 / 414**, **4 / 81** — slices 2, 3 and 4 pre- and post-cut to
+the line), the dead sweep ran BEFORE any scoring (**1,036 files, DEAD 0**) and the string-literal
+census is **0 on all five names with 0 reflection doors**. **FIVE C# EXTENTS DIE WHOLE**:
+`OutputFormatter.cs` **378 → 271** lines (non-blank **322 → 226**, extents **43 → 38** summing
+**292 → 206**, `git diff` **0 insertions / 107 deletions, −28.3 %**), where the 86-line extent drop is
+the AST → JSON family's closure exactly and the other 21 lines are the 9-line `DEFERRED` banner and
+doc comment, **7 now-dead `using`s** and 5 blanks. N# adds **170 lines in ONE NEW owner**
+(`OutputFormatterAstJsonKernels.nl`) plus **31 contracts (4,361 → 4,392)**; `QueryCommand.cs` moves
+**DOWN** (1,085 → 1,084) from exactly its epoch ceiling, because the routing is three mechanical lines
+and one dead `using`. **THE INHERITED "DEFERRED" BANNER IS REFUTED AND DELETED WITH THE FAMILY, AND
+THE RENDERING PATH WAS DECIDED BY EXECUTION RATHER THAN BY PRECEDENT**: the whole
+`System.Text.Json.Nodes` construction surface is a WALL (`new JsonObject()` / `new JsonArray()`
+decline at `emit.local.initializer`, `JsonValue.Create` at `emit.call.static-member-unmodeled`, and
+the analyzer refuses the indexer with **NL202** before emit is consulted), while the
+neutral-`Dictionary` path the file's own N# half already uses was proved **BYTE-IDENTICAL** to the
+live `JsonNode` renderer over **208 project loads / 597 compilation units, `mismatches = 0`**,
+including 234 MB of `BootstrapServices` JSON — so the long-term-correct choice and the only available
+one coincide and the owner keeps ONE JSON idiom. **THE SUBSTITUTIONS ARE PROVED, NOT ASSUMED**:
+`as IList` replaces `is IEnumerable` because the sequence branch is reached by **20 distinct runtime
+types with `nonIList = 0`**, and the metadata-token sort is kept because it **reorders 477,032 of
+716,042 node rows (66.6 %)** while `tokenTies = 0` makes its instability unobservable. **THE
+DIFFERENTIAL IS BYTE-IDENTICAL — 217 rows, md5 `c96549497a7c8d5d7274ad206e2b9932` on BOTH sides, 0
+mismatches, 0 faults, 205 distinct answers** over 48 leaf values, 20 expression shapes, 9 path
+spellings, 4 arities and 7 depths straddling 64 — with a **two-sided declared divergence** (5 members
+PRESENT→ABSENT, 3 N# types ABSENT→PRESENT) and **129 rows of live oracle** (536 units, 246,833,404
+bytes). **AND `nlc query ast` ITSELF WAS RUN ON BOTH CLIs**: **129 projects, 0 diffs, 246,832,614
+bytes**; a NEW 24-project fixture set, **24 rows, 0 diffs, 32,312,872 bytes, ZERO tiny outputs**; and
+the `--file` filtered arm, **24 rows, 0 diffs, 24 non-empty**. **THE FILE IS A REVIEWED ZERO-POLICY
+MECHANICAL HOST BY AN EXECUTABLE PARTITION — `UNCLASSIFIED = 0, POLICY = 0` over 38 extents — whose
+non-vacuity control on the pre-cut file reports `POLICY = 2` and names `AstToJson` and
+`AstValueToJson`.** Nine oracle differentials all zero and all nine md5s reproduce slice 4's digits
+(corpus `86a4928f…` for the thirteenth slice running, self-host `e659c044…` byte-identical at
+`checkedFiles=364, count=285`); corpus IL **63 / 63 byte-identical with the CONTROL FIRST
+(118 / 118 SAME)** and 55-of-55 differing files the copied runtime; transcripts 1,573 lines, 0 diffs
+across all three sweeps; unit **3,194 / 3,194**; contracts **4,392 / 4,392**; format gate clean; the
+post-cut dead sweep **DEAD 0** over 1,038 files. **SIX FINDINGS — the sharpest being that `file` is a
+RESERVED KEYWORD whose NL109 the emit-only path hides behind a `parse.struct` at the class header
+(bisect it in a throwaway project), and that a reflection-door census must be run over EVERY member
+name rather than the one remembered: `DocQuery` has TWO doors, not one, plus a false positive.
+WALL STATUS: ZERO — NO REPIN.** Task 019 stays UNCHECKED; **two of the six files are now closed**, and
+the next family is `DocQuery`, whose census is already run and recorded in the Cursor block below)
+
+Last updated (prior): 2026-08-13 (**TASK 019 SLICE 3 LANDED (no commit — mandate) — THE SIX TOOLING FILES NOW
 HOLD ZERO UNREACHABLE MEMBERS, AND `CompletionEngine.cs` NO LONGER DECIDES WHAT KIND OF RECEIVER IT
 IS LOOKING AT.** The extractor was re-validated against slice 2's own recorded extents first
 (**30 / 623** pre-cut, **27 / 476** post-cut, all three deleted spellings to the line). **SIX C#
@@ -2569,7 +2613,376 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `294035b7c`):
+- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `be95ec85e`):
+  **019 SLICE 5 — OUTPUTFORMATTER'S LAST POLICY: WHAT A PARSED FILE LOOKS LIKE AS JSON.**
+
+  **THE EXTRACTOR WAS RE-VALIDATED ON FOUR CHECKPOINTS BEFORE IT WAS TRUSTED, NOT THE REQUIRED TWO.**
+  `nl62_members.py` returns **30 extents summing 623** over `git show 0d55966e8:…/CompletionEngine.cs`,
+  **27 summing 476** over `228081146`, **21 summing 414** over `294035b7c` and **4 summing 81** over
+  the tip — slice 2's, slice 3's and slice 4's pre- and post-cut figures to the line. Over
+  `OutputFormatter.cs` it returns **43 extents summing 292** on a **378-line / 322-non-blank** file:
+  the ratchet row exactly.
+
+  **THE DEAD SWEEP RAN BEFORE ANY SCORING** (`nl78-deadsweep.py`, accessibility-aware, **1,036-file**
+  corpus): **DEAD COUNT = 0**, `DETACHED COUNT = 53`. Every family is LIVE.
+
+  **THE STRING-LITERAL CENSUS IS ZERO ON ALL FIVE NAMES.** An exact-match literal scan over every
+  `.cs` / `.nl` / `.ts` / `.json` / `.md` file in the repository finds **0** occurrences of
+  `"AstToJson"`, `"AstValueToJson"`, `"JsonOptions"`, `"NormalizePath"` and `"SchemaVersion"`, and
+  `typeof(OutputFormatter)` / `OutputFormatter).Get…` reflection is **0**. **No reflection door** — so
+  unlike finding 78.1's `DocQuery` counter-example, nothing here is kept alive by a test naming it as
+  a string.
+
+  **THE FAMILY, AND IT IS CLOSED WITHIN THE FILE.** `SchemaVersion` :23 (1), `JsonOptions` :25–32 (8),
+  `NormalizePath` :34 (1), `AstToJson` :74–94 (21), `AstValueToJson` :96–150 (55) = **86**, plus the
+  **9 lines of doc comment and `DEFERRED` banner** at :65–73 that the extractor does not count and the
+  deletion takes with it. Each of the five is named **exactly once** outside its own declaration and
+  every one of those uses is inside `AstToJson` / `AstValueToJson`; the only out-edge is
+  `OutputFormatterNormalizationKernels.NormalizePath`, **already N#**. **0 within-file re-entries,
+  0 out-of-territory C# edges.** The consumer is `src/NSharpLang.Cli/Commands/QueryCommand.cs` :127 —
+  `nlc query ast` — and it is the ONLY one.
+
+  **THE `System.Text.Json.Nodes` QUESTION IS ANSWERED BY EXECUTION, AND THE ANSWER IS A WALL — SO THE
+  RENDERING PATH IS DECIDED BY MEASUREMENT, NOT BY PRECEDENT-FOLLOWING.** Compiled-and-run N# probes
+  against the **pinned** toolset (`Sdk 0.1.0` from the local feed, the same one that builds
+  `BootstrapServices`):
+  | construct | result |
+  |---|---|
+  | `obj["k"] = JsonValue.Create(1)` | **NL202** — `actual: JsonValue?` vs `expected: JsonNode`; the N# indexer models the value as non-nullable where C#'s is `JsonNode?` |
+  | `new JsonObject()` | **DECLINES** `emit.local.initializer` |
+  | `new JsonArray()` | **DECLINES** `emit.local.initializer` |
+  | `JsonValue.Create(1)` | **DECLINES** `emit.call.static-member-unmodeled` |
+  The whole Nodes *construction* surface is unreachable. **The neutral-structure path — the one
+  `OutputFormatterJsonKernels.nl` already uses for all 22 other envelopes — was then proved
+  BYTE-IDENTICAL to the live `JsonNode` renderer rather than assumed to be.** A two-renderer probe
+  compiles ONE `Shape.cs` that calls the product's own `OutputFormatter.AstToJson` and a
+  `Dictionary<string,object>` / `List<object>` + `JsonSerializer.Serialize` reimplementation over the
+  SAME real ASTs: **203 fixture projects (204 units) and 5 large real projects (393 units, including
+  the whole 365-unit `BootstrapServices` at 234,404,220 bytes of JSON) — `mismatches = 0`, md5 equal
+  on every row.** So the choice is not "expedient vs correct": the Nodes path does not exist, the
+  neutral path is byte-exact, and it is also the cleaner owner (ONE JSON idiom in the file's N# half
+  instead of two).
+
+  **EVERY REMAINING PIECE OF THE NEUTRAL PATH EMITS AND RUNS, MEASURED THE SAME WAY.**
+  `Dictionary<string, object?>` / `List<object?>` carrying **null values** serialise as `null`,
+  in insertion order, indented; `new JsonSerializerOptions { WriteIndented: true, MaxDepth: 256 }`;
+  `JsonSerializer.Serialize(envelope, options)`; `JsonNamingPolicy.CamelCase.ConvertName` →
+  `nameSpan`, `isPublic`, `a`; `Convert.ToString(boxed, CultureInfo.InvariantCulture)` → `3.5`; all
+  nine boxed type tests dispatch (`string`, `bool`, `char`, enum, `int`, `long`, `double`, sequence,
+  node); `GetFields`/`GetProperties` **with the flags bound to a local** (the recorded catch),
+  `get_MetadataToken()`, `GetIndexParameters()`, `GetValue`. **Three shapes had to be routed around,
+  all inside existing published surface**: a bare `null` literal assigned through a dictionary indexer
+  declines (`emit.expression.unhandled-kind`) and must be bound to an `object?` local first; a local
+  of type `System.Collections.IEnumerable` declines (`emit.local.unsupported-type`) and
+  `typeof(IEnumerable).IsAssignableFrom(t)` declines with it, so the sequence test uses **`as IList`**
+  — which is exactly what the estate's existing N# AST walker `AstChildrenCore.GetRequiredList`
+  already does; and `for x in` a non-generic `IEnumerable` is refused by the analyzer outright.
+  **The `IList` substitution is proved sound by census, not by taste: over 393 real compilation units
+  the sequence branch is reached by 20 distinct runtime types and `nonIList = 0`** — every one is a
+  `List<T>`.
+
+  **THE SORT IS LOAD-BEARING AND ITS STABILITY IS NOT, AND BOTH ARE MEASURED.** Over **716,042** node
+  rows, ordering by `MetadataToken` **reorders 477,032 of them (66.6 %)** — because `GetFields`
+  returns a derived type's own fields before its base's, and the base's tokens are lower — so the sort
+  cannot be dropped. **`tokenTies = 0`**, so any correct sort gives the same answer and an insertion
+  sort is sufficient. The two `.Where` filters are preserved for faithfulness although the census
+  shows they never fire on this corpus (`equalityContract = 0`, `indexedProperties = 0`).
+
+  **THE OWNER ASSIGNMENT — ONE NEW OWNER, NO NEW ASSEMBLY.**
+  | extents | subject | owner |
+  |---|---|---|
+  | `AstToJson`, `AstValueToJson`, `JsonOptions`, `SchemaVersion`, `NormalizePath` | what a parsed file looks like as JSON | **`OutputFormatterAstJsonKernels.nl` (NEW)** |
+  The anonymous C# tuple `(string File, CompilationUnit Unit)` is replaced by an **N#-owned named pair**
+  so the driver's line count is unchanged and the N# signature is typed.
+
+  **BASELINES, TAKEN BEFORE ANY WRITE.** Ratchet row `OutputFormatter.cs` `currentLines 378 /
+  currentNonBlank 322`, fingerprint `text-v1:0b6975e36f77f83d` (**re-walked equal on disk**), epoch
+  ceilings 379 / 322. `QueryCommand.cs` row `1085 / 921`, `text-v1:f402d470b1d55268` — recorded
+  because it is **exactly at its epoch ceiling**, so the routing edit must be net-zero or net-negative.
+  `reviewedHeadFingerprint head-v1:06305ce2229f3476` **REPRODUCED from the unmodified manifest by the
+  independent FNV-1a walk before any write** (`HEAD_REPRODUCED`). Inherited: unit suite **3,194**;
+  contracts **4,361**; audit **18 / 18**; manifest **391** lines, no BOM.
+
+  ---
+
+  **LANDED (no commit — mandate) — `OutputFormatter.cs` IS CLOSED. IT FORMATS NOTHING.**
+
+  **FIVE C# EXTENTS DIE WHOLE AND NOT ONE BECOMES A RELAY.** `OutputFormatter.cs` **378 → 271** lines,
+  non-blank **322 → 226**, member extents **43 → 38** summing **292 → 206**, `git diff`
+  **0 insertions / 107 deletions** — **28.3 % in this slice**. The 86-line extent drop is the family's
+  closure **exactly**; the other 21 deleted lines are the **9-line doc comment and `DEFERRED` banner**
+  the extractor does not count, **7 now-dead `using` directives** (`System.Globalization`,
+  `System.Linq`, `System.Reflection`, `System.Text.Json`, `System.Text.Json.Nodes`,
+  `System.Text.Json.Serialization`, `NSharpLang.Compiler.Ast`) and **5 blank lines**. N# adds **170
+  production lines in ONE NEW owner**, `OutputFormatterAstJsonKernels.nl`, and **31 contracts / 356
+  contract lines**; contracts **4,361 → 4,392**.
+
+  **THE DRIVER MOVED DOWN, NOT UP, AND IT WAS AT ITS CEILING.** `QueryCommand.cs` is **1,085 → 1,084 /
+  921 → 920** (`+3 / −4`): three mechanical lines change (`List<AstJsonUnit>`,
+  `units.Add(new AstJsonUnit(pair.Key, pair.Value))`, `OutputFormatterAstJsonKernels.AstToJson(units)`)
+  and the file's `using NSharpLang.Compiler.Ast;` is deleted because **the census proves no
+  `NSharpLang.Compiler.Ast` type is named in the file any more**. The anonymous C# tuple is gone; the
+  boundary type is the N#-owned `AstJsonUnit`. **No new C# logic of any kind.**
+
+  **THE RENDERING PATH WAS CHOSEN BY EXECUTION, AND THE DOOR THE MANDATE ASKED ABOUT IS SHUT.** Three
+  compiled-and-run probes against the pinned toolset put the entire `System.Text.Json.Nodes`
+  *construction* surface out of reach — `new JsonObject()` and `new JsonArray()` decline at
+  `emit.local.initializer`, `JsonValue.Create(1)` at `emit.call.static-member-unmodeled`, and the
+  analyzer refuses `obj["k"] = JsonValue.Create(1)` with **NL202** before emit is even consulted
+  (`JsonValue?` against a `JsonNode` the N# indexer models as non-nullable). The neutral-structure
+  path was then **proved byte-identical rather than assumed**: one `Shape.cs` runs the product's own
+  `OutputFormatter.AstToJson` and a `Dictionary<string,object>` / `List<object>` +
+  `JsonSerializer.Serialize` reimplementation over the SAME real ASTs — **208 project loads, 597
+  compilation units, `mismatches = 0`, md5 equal on every row**, including the whole 365-unit
+  `BootstrapServices` at **234,404,220 bytes** of JSON. So the long-term-correct choice and the only
+  available one coincide, and the owner keeps **ONE** JSON idiom instead of two.
+
+  **THE ONE SUBSTITUTION IN THE PORT IS PROVED BY CENSUS, NOT BY TASTE.** `value is IEnumerable` had
+  to become `value as IList` (a local of type `System.Collections.IEnumerable` declines,
+  `typeof(IEnumerable).IsAssignableFrom` declines, and `for x in` a non-generic `IEnumerable` is
+  refused by the analyzer). Over **393 real compilation units** the sequence branch is reached by
+  **20 distinct runtime types and `nonIList = 0`** — every one a `List<T>` — and `as IList` is already
+  the estate's shape for exactly this walk in `AstChildrenCore.GetRequiredList`.
+
+  **THE SORT IS LOAD-BEARING AND ITS STABILITY IS NOT, AND BOTH WERE MEASURED BEFORE A LINE WAS
+  WRITTEN.** Over **716,042** node rows, ordering by `MetadataToken` **reorders 477,032 (66.6 %)** —
+  `GetFields` returns a derived type's own fields before its base's and the base's tokens are lower —
+  so the sort cannot be dropped; **`tokenTies = 0`**, so an insertion sort is sufficient and its
+  instability is unobservable. The two `.Where` filters are preserved for faithfulness even though the
+  census shows they never fire here (`equalityContract = 0`, `indexedProperties = 0`).
+
+  **THE FILE-CLOSURE VERDICT: A REVIEWED ZERO-POLICY MECHANICAL HOST, WITH A CLASSIFIER THAT CAN SAY
+  NO AND DOES.** `nl80-partition.py` assigns every surviving extent to one class by a RULE APPLIED TO
+  ITS BODY — the set of call targets after comments, attributes and the signature line are stripped —
+  and reports **UNCLASSIFIED = 0, POLICY = 0** over **38 extents / 206 lines**: **NSHARP-RELAY = 36**
+  and **ARGUMENT-DEFAULTING = 2** (`BuildPerfReportToJson` and `PerfToJson`, whose only non-relay call
+  is `Array.Empty<T>()` null-coalescing). **THE PARTITION IS NON-VACUOUS: the same rule over the
+  pre-cut file reports `POLICY = 2` and `NOT A ZERO-POLICY HOST`**, naming `AstToJson` (21) and
+  `AstValueToJson` (55) — and the unmatched-call evidence it prints for them is the family itself
+  (`type.GetFields`, `type.GetProperties`, `p.GetIndexParameters`, `Convert.ToString`,
+  `JsonValue.Create`, `Select`/`Where`/`Concat`/`OrderBy`). **DELETION WHOLE WAS CONSIDERED AND
+  REFUSED FOR A MEASURED REASON:** the file's 38 surviving members are the **public façade that
+  `OutputFormatter.` is named through at 163 call sites by census** — 98 in production
+  (`QueryCommand.cs` 44, `BatchQueryRunner.cs` 21, `DaemonServer.cs` 18, `CheckCommand.cs` 8,
+  `LintCommand.cs` 5, `Program.cs` 1, `FixCommand.cs` 1) and 65 in `tests/` — and every one of the 38
+  already ends in an N# kernel on its first line, so the file is now **271 lines of nothing but
+  that**. Deleting it is a 163-site rename, not an ownership question, and it is not this slice.
+
+  **THE TERMINALITY GREP IS CLEAN ON TWENTY CLAIMS.** In `OutputFormatter.cs`: `AstToJson` **0**,
+  `AstValueToJson` **0**, `JsonOptions` **0**, `SchemaVersion` **0**, `NormalizePath` **0**,
+  `JsonNode` **0**, `JsonObject` **0**, `JsonArray` **0**, `JsonValue` **0**, `JsonNamingPolicy` **0**,
+  `JsonSerializerOptions` **0**, `BindingFlags` **0**, `MetadataToken` **0**, `CompilationUnit` **0**,
+  `Convert` **0**, `CultureInfo` **0**, `IEnumerable` **0**, `System.Linq` **0**, `Reflection` **0**,
+  `Globalization` **0** — **the file no longer names a JSON value, a reflection concept, a culture,
+  LINQ, or an AST node at all.** Repo-wide, the moved names appear **only** in the N# owner and its
+  contracts; the sole survivors elsewhere are the two `AstJsonUnit` mentions in `QueryCommand.cs`,
+  which are the N#-owned boundary type. The LSP still names `OutputFormatter` **0** times.
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL THAT IS BYTE-IDENTICAL: 217 ROWS, 0 MISMATCHES, md5
+  `c96549497a7c8d5d7274ad206e2b9932` ON BOTH SIDES.** One `Grid.cs` compiled twice
+  (`base/Base.csproj` with `NL80_BASE` against a pristine `be95ec85e` worktree, `work/Work.csproj`
+  against the repo's), both **by ProjectReference**; the base side reaches the deleted members by
+  reflection on `OutputFormatter`'s privates, the work side calls the N# owner. **The declared
+  divergence is itself an assertion and it runs on BOTH sides against the SAME type**: five members
+  report **PRESENT on the base and ABSENT on the work side**, and the three N# types report **ABSENT
+  on the base and PRESENT on the work side** — 5 for 5 and 3 for 3.
+  **Non-vacuous by census**: **205 distinct answers, 0 faults**, over **48 leaf values** (every
+  primitive width, every escape class, emoji, `int.MinValue`, `1e300`, `1/3f`, empty/nested/array
+  sequences), **20 expression shapes** rendered inside whole envelopes, **9 path spellings**
+  (UNC, drive-letter, empty, unicode), **4 envelope arities** and **7 nesting depths** — 1, 8, 63,
+  **64, 65**, 120 and **200**, which straddles the serializer's default limit in both directions and
+  faults on neither side.
+  **THE LAST 129 ROWS ARE THE LIVE ORACLE** — the product's own path over real projects, driven
+  exactly as `QueryCommand.AstCommand` drives it: **536 compilation units, 246,833,404 bytes of JSON,
+  119 of the 129 projects returning a populated envelope.**
+
+  **AND THE COMMAND ITSELF WAS RUN ON BOTH CLIs, WHICH IS THE ASSERTION THE MANDATE ASKED FOR.**
+  `nlc query ast` executed from the base CLI and the work CLI over the same working directories:
+  **129 projects — 0 diffs, 246,832,614 bytes**, exit codes equal on every row; a **NEW 24-project
+  fixture set** (`/private/tmp/nl80fixtures`, one project per syntactic family — the AST node
+  hierarchy itself, declarations and modifiers, the reflection walker, dictionaries and generics, the
+  owner's own source, numeric literals, long escaped strings, records and arrays, systems attributes,
+  enums and tables, test blocks and asserts, the 5,000-line parser corpus, interpolated raw strings,
+  preprocessor directives, file-scoped types) — **24 rows, 0 diffs, 32,312,872 bytes, and ZERO tiny
+  outputs**, so no row is empty because a project failed to load; and the **`--file` FILTERED ARM**,
+  which exercises the branch the whole-project run never touches — **24 rows, 0 diffs, 24 non-empty.**
+
+  **NINE ORACLE DIFFERENTIALS, ALL ZERO — AND ALL NINE REPRODUCE SLICE 4's RECORDED md5s TO THE
+  DIGIT**: corpus **`86a4928f…`** (the THIRTEENTH slice running byte-identical), self-host
+  **`e659c04401d1a13682f9c8e91a6b8a6a`** — byte-identical, `checkedFiles=364, count=285` — fx75
+  `6c12cc5a…`, fx74 `309f7902…`, fx73 `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA
+  `b1045814…`, supplementary `228dfc38…`. Parse errors **0** on every one of the nine; the inherited
+  `NO-RESULTS` counts (**7** corpus, **6** supplementary) reproduce exactly. The self-host oracle
+  checks the tree that CONTAINS the two new `.nl` files, so it is also the proof that the new owner
+  introduces no diagnostic of its own.
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** and proved the harness stable
+  (`CONTROL vs A` **118 / 118 SAME**, both the base CLI over a fresh `be95ec85e` archive); `A vs B`
+  then gives **63 / 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files counted and
+  proved to be **55-of-55 copied `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps
+  report `TARGETS=73 BUILT=55 ASSEMBLIES=118`. Unsorted build transcripts **1,573 lines, 0 diffs
+  across all three sweeps**, md5 **`eb430931247159501846a08df5b1a07c`** — **not** slice 4's
+  `1ff6a379…`, and correctly so: the sweep archives `be95ec85e` where slice 4 archived `294035b7c`, so
+  the transcript's SOURCE changed; the CONTROL-vs-A leg is what proves the harness, and it is 0.
+  The post-cut dead sweep over a **1,038-file** corpus reports **DEAD COUNT = 0** and
+  `DETACHED COUNT = 52`. Unit suite **3,194 / 3,194**; contracts **4,392 / 4,392**; the format gate
+  reports "All files are properly formatted"; `dev.sh --since` selected the **FULL unit suite by its
+  own fail-safe** (both new `.nl` paths are unmapped, and it says so) and passed **3,194 / 3,194**.
+
+  **THE FULL VS CODE-ENABLED GATE: `ALL TESTS PASSED` in 19m 34s, 108 GREEN STEPS AND ZERO FAILURES,
+  WITH THE VS CODE INTEGRATION TESTS INSIDE IT** (Step 3b, 2m 54s — extension, diagnostics, hover and
+  completion) — run fresh in an isolated tree under `--commit`, every one of the sixteen steps green,
+  including the unit suite **3,194 / 3,194** (6m 18s), the whole native `.tests.nl` estate with
+  contracts **4,392 / 4,392**, the ownership audit **18 / 18**, and the IL verification gate over
+  **67 N# assemblies** with no new errors against baseline. Per standing precedent (7+ consecutive
+  denials) computer-use visual verification was NOT requested; the gate's VS Code evidence stands in,
+  and this slice touches no LSP surface in any case — `grep` over `src/NSharpLang.LanguageServer`
+  finds **no reference to `OutputFormatter`**.
+
+  **EVERY HEADLINE NUMBER WAS RE-TAKEN ON THE BYTE-FINAL TREE AFTER THE GATE AND REPRODUCED.** The CLI
+  and the work differential side were rebuilt against the SDK the gate repacked, and: the differential
+  is still **217 rows, DIFFS = 0, md5 equal on both sides**, with the declared divergence still
+  5 PRESENT→ABSENT and 3 ABSENT→PRESENT; the corpus oracle is still `ORACLE_DIFFS=0` at
+  **`86a4928f…`** and the self-host still `ORACLE_DIFFS=0` at **`e659c044…`**, parse errors 0 on both;
+  the 24-project `nlc query ast` fixture oracle is still **24 rows, 0 diffs, 32,312,872 bytes, 0 tiny
+  outputs**; the extractor still reports **38 extents summing 206** on a 271 / 226 file; the partition
+  still reports `UNCLASSIFIED = 0, POLICY = 0`; the format gate is clean; the manifest is 391 lines
+  with the head still reproducing.
+  **ONE NUMBER MOVED AND THE MOVE IS EXPLAINED TO THE ROW.** The differential's md5 went
+  `c96549497a7c8d5d7274ad206e2b9932 → 2f73e23a16087523732b01e465d3b968` because **exactly one of its
+  217 rows changed**: the `F.oracle` row for `tests/native/ownership-audit`, whose rendered AST
+  contains `OwnershipAudit.nl` — the file the ratchet repin edited to mirror the new head. A row-level
+  diff confirms it is the only one, the byte count is unchanged at 2,783,374, the A / B / C / D / E
+  sections are byte-identical to the pre-gate run, and **both sides still agree exactly**. A slice
+  that repins the ratchet and then re-renders the ratchet's own source is expected to move that row;
+  a slice where any OTHER row moved would not be.
+
+  **THE ARC'S SURFACE AFTER THIS SLICE, RE-MEASURED BY THE VALIDATED EXTRACTOR.** Six live files
+  **6,930 lines / 6,185 non-blank / 299 extents summing 6,507** — down from **7,037 / 6,281 / 304 /
+  6,593** at slice 4's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257**:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,302 | 2,127 | 49 | 2,248 |
+  | `CodeIntelligenceService` | 1,897 | 1,659 | 92 | 1,770 |
+  | `Linter` | 1,611 | 1,453 | 65 | 1,531 |
+  | `DocQuery` | 740 | 623 | 51 | 671 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+  **TWO OF THE SIX FILES ARE NOW REVIEWED ZERO-POLICY HOSTS**, each with an executable partition and a
+  non-vacuous control.
+
+  **SIX FINDINGS.**
+  **(80.1) `file` IS A RESERVED KEYWORD, AND THE EMIT-ONLY PATH HIDES WHICH ONE.** `constructor(file:
+  string, …)` fails the BootstrapServices build as `parse.struct` **pointed at the class header**,
+  with no name in the message. The SAME source in a standalone project reports **NL109 — "Expected
+  parameter name. Got the reserved keyword 'file'"** with the exact column. **Bisect a `parse.struct`
+  in the compiler project by re-compiling the offending type in a throwaway project**, which turns a
+  useless position into a named keyword in one build. Join `file` to the unusable-name list with
+  `type`, `nameof`, `on`, `params`, `union` and `alloc`.
+  **(80.2) THE `System.Text.Json.Nodes` CONSTRUCTION SURFACE IS A WALL, AND THE ANALYZER GETS THERE
+  FIRST.** The inherited brief asked whether to prove the `JsonNode` surface or follow the
+  neutral-structure precedent. It is not a choice: `new JsonObject()` / `new JsonArray()` decline at
+  `emit.local.initializer` and `JsonValue.Create` at `emit.call.static-member-unmodeled` — but before
+  any of that, `obj["k"] = JsonValue.Create(1)` is **NL202**, because the N# indexer models
+  `JsonNode` where C#'s is `JsonNode?`. **A surface can be modelled by the analyzer and still be
+  unbuildable; measuring only the emitter would have missed the nullability wall entirely.**
+  **(80.3) A BARE `null` LITERAL ASSIGNED THROUGH A DICTIONARY INDEXER DECLINES.**
+  `envelope["missing"] = null` is `emit.expression.unhandled-kind` (node kind 5). Bind it to an
+  `object?` local first. This is the shape any neutral JSON structure needs, so it is the first thing
+  to reach for when porting one.
+  **(80.4) THE NON-GENERIC `IEnumerable` IS UNUSABLE THREE WAYS AT ONCE.** A local of that type
+  declines (`emit.local.unsupported-type`), `typeof(IEnumerable).IsAssignableFrom(t)` declines
+  (`emit.local.initializer`), and `for x in` one is refused by the ANALYZER
+  (`foreach collection must be enumerable, but this collection is 'IEnumerable'`). `as IList` plus an
+  index walk is the estate's answer and `AstChildrenCore` has used it all along — **but the
+  substitution is only sound because a census said so**, and a census is what should decide it.
+  **(80.5) `JsonSerializerOptions` PROPERTY READS DECLINE, EVEN BOUND TO A LOCAL.**
+  `options.WriteIndented` and `options.MaxDepth` are both `emit.statement.block-child` in an `assert`.
+  The contracts pin the indentation and the depth allowance **through the rendered output** instead —
+  two spaces per level, and a 100-deep tree that renders rather than throwing — which is the better
+  contract in any case: it pins what a consumer of `nlc query ast` sees, not what a field holds.
+  **(80.6) A REFLECTION-DOOR CENSUS MUST BE RUN OVER THE WHOLE FILE, NOT OVER ONE REMEMBERED NAME.**
+  Finding 78.1 recorded ONE `DocQuery` member kept alive by a test naming it as a string. The
+  executable census over **all 115 member names in `DocQuery.cs` and `Linter.cs`** finds **TWO**
+  (`DeduplicateReferencePackAssemblyNames` `tests/DocQueryTests.cs` :92 and `DeduplicateTypeCandidates`
+  :120, both `typeof(DocQuery).GetMethod(…)`), plus **one false positive** — `"Lookup"` twice in
+  `tests/SystemsNSharpTests.cs`, which is an N# fixture's function NAME inside an assertion, not a
+  door. **The census must be read, not just counted.**
+
+  **WALL STATUS: ZERO — NO TOOLSET REPIN.** Five emit declines and two analyzer refusals were met
+  (80.1–80.5) and every one was routed around inside **existing published surface**. The one surface
+  that is genuinely missing — `System.Text.Json.Nodes` construction — **is not needed**, because the
+  path that avoids it is byte-identical by measurement and is the file's own existing idiom. Nothing
+  was proven missing that the product requires, so nothing was repinned.
+
+  **RATCHET.** Two rows repinned AS THE LAST EDIT, after every production edit and after the whole
+  differential / oracle / IL / determinism set had been run: `OutputFormatter.cs`
+  **378 / 322 → 271 / 226**, fingerprint `0b6975e36f77f83d → bcebf83867dbcd74`; `QueryCommand.cs`
+  **1,085 / 921 → 1,084 / 920**, fingerprint `f402d470b1d55268 → b0679cd5c5003379`. **Both move DOWN**,
+  and `QueryCommand.cs` moves off a ceiling it had been sitting exactly on. Head
+  `06305ce2229f3476 → 5a27bd85ac5b84f3`, mirrored into `OwnershipAudit.nl`, and the stored head was
+  REPRODUCED by the independent FNV-1a walk both before the write (`HEAD_REPRODUCED`) and after it.
+  **No `.nl` file needs a ratchet row** — the manifest holds **0** of them by census over all 381
+  rows, which is what makes a slice that adds 170 N# production lines and deletes 111 C# ones a pure
+  downward move. Manifest **391** lines, no BOM.
+
+  **NEXT FAMILY — `DocQuery`, AND ITS STRING-LITERAL CENSUS IS ALREADY RUN AND ALREADY CORRECTS THE
+  INHERITED BRIEF.** `DocQuery.cs` is **740 lines / 623 non-blank / 51 extents summing 671**. The
+  inherited note says its remaining C# is REFLECTION PLUMBING over `DocQueryKernels` rather than
+  policy — `FormatType`, `FormatMethodSignature`, `FormatParameters`, `FormatTypeForDocId`,
+  `GetTypeKind`, `SelectBestType` and `DeduplicateTypeCandidates` all already end in N# — so a slice
+  there moves `Type` reads, and after this slice **those reads are no longer a wall**:
+  `GetProperties` / `GetFields` / `MetadataToken` / `GetIndexParameters` / `IsPrimitive` / `GetValue`
+  are all proved live through the pinned pipeline, with the flags bound to a local.
+  **THE CENSUS FINDS TWO REFLECTION DOORS, NOT ONE, AND ONE FALSE POSITIVE** (finding 80.6):
+  `DeduplicateReferencePackAssemblyNames` (`tests/DocQueryTests.cs` :92) and
+  `DeduplicateTypeCandidates` (:120) are BOTH
+  `typeof(DocQuery).GetMethod(…, NonPublic | Static)` with a
+  `?? throw new InvalidOperationException("DocQuery did not emit …")` guard, so **both tests must
+  migrate with their members or they fail the moment the C# goes**; `"Lookup"` twice in
+  `tests/SystemsNSharpTests.cs` is an N# fixture's function NAME inside an `NSYS050` assertion and is
+  **not** a door — finding 78.2's same-name trap wearing a string literal.
+  **AFTER THAT the inventory reads:** `Linter`'s known-namespace tables, **re-measured by the
+  validated extractor at 234 lines, not the inherited 238** (`BuildKnownNamespaceTypes` :1274–1418
+  **145**, `BuildKnownNamespaceMembers` :1425–1513 **89**) — still the biggest zero-out-edge cut and
+  DATA rather than policy; and the three walkers are multi-slice arcs on the 017 model, whose largest
+  single extents are `Linter.VisitStatement` **223**, `Linter.VisitFunction` **95** and
+  `Linter.VisitDeclaration` **73**. **`CodeIntelligenceService` (1,897 / 92 extents / 1,770) remains
+  the one the LSP itself consumes and the one that declares `ProjectSnapshot`; closing it is what
+  would finally let `CompletionEngine.cs` be DELETED rather than reviewed** — and, by the same
+  argument, what would make `OutputFormatter.cs`'s 163-site façade worth renaming away.
+
+  **ARTEFACTS LEFT ON DISK FOR 019 SLICE 6.** The `/private/tmp/nl80base` worktree (pristine
+  `be95ec85e` + Release Compiler and CLI) is **deliberately removed after the final verification** —
+  slice 6's base must be the commit that lands THIS slice, not `be95ec85e`, so keeping it would only
+  invite a stale comparison. **The differential's base side survives the removal**: `Nl80Base.dll` and
+  the `be95ec85e` `Compiler.dll` were copied into `/private/tmp/nl80grid/base/bin/Release/net10.0` at
+  build time. **The two-sided differential harness is `/private/tmp/nl80grid`** — ONE `Grid.cs`
+  compiled twice (`base/Base.csproj` with `NL80_BASE`, `work/Work.csproj`), both by ProjectReference,
+  carrying the 48-value leaf grid, the 20-shape expression grid, the path grid, the arity and depth
+  grids, the 129-project live oracle, and the two-sided declared-divergence section. **The
+  rendering-path measurement is `/private/tmp/nl80shape`** — one `Shape.cs` that runs the product's
+  `AstToJson` and a neutral-structure reimplementation over the same real ASTs and diffs the bytes;
+  it also carries the sequence-type census and the metadata-token order census, and it is the thing to
+  re-run before trusting any claim about the two renderers. **The N# emit probes are
+  `/private/tmp/nl80probe` (the neutral path, which builds and runs) and `/private/tmp/nl80nodes`
+  (the isolation harness that named each `System.Text.Json.Nodes` decline)** — real N# projects
+  pinned to `Sdk 0.1.0` by their own `global.json`; rebuild and run them rather than trusting the
+  tables above. **A NEW 24-project AST fixture set is `/private/tmp/nl80fixtures`** with its
+  `targets.txt`, one project per syntactic family, driven by `/private/tmp/nl80-astoracle.sh`
+  (whole-project) and `/private/tmp/nl80-astoracle2.sh` (the `--file` filtered arm). IL trees and
+  captures: `/private/tmp/nl80il{Ctrl,A,B}Tree` with outputs under `/private/tmp/nl80out{Ctrl,A,B}`.
+  Harnesses in the scratchpad: `nl62_members.py` (the extractor, **re-validated on FOUR checkpoints —
+  30 / 623, 27 / 476, 21 / 414 and 4 / 81 — before it was trusted**), `nl78-deadsweep.py` (still the
+  tool every slice should run BEFORE scoring anything), **`nl80-partition.py` — THE EXECUTABLE
+  ZERO-POLICY PARTITION, which takes `--control <ref>` and points the SAME rule at a pre-cut revision
+  as its own non-vacuity control**, `nl80-oracle.sh`, `nl80-run-oracles.sh`, `nl80-ilsweep.sh`,
+  `nl80-run-il.sh`, `nl80-ilnorm.py`, `nl80-ilcompare.py`, `nl80-transnorm.py`, `nl80-determinism.sh`
+  and `nl80-repin.py`. The inherited fixture sets `/private/tmp/nl6{5,6,7,8,9}fixtures` and
+  `/private/tmp/nl7{0,1,2,3,4,5}fixtures` all survived and are wired into the oracle and determinism
+  runs. **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `be95ec85e`):
   **019 SLICE 4 — THE FILE CLOSES: WHERE THE CURSOR IS, WHAT THE TEXT BEFORE THE DOT SAYS, WHICH
   DECLARED MEMBERS A TYPE HAS, AND WHAT AN IDENTIFIER CONTEXT OFFERS.**
 

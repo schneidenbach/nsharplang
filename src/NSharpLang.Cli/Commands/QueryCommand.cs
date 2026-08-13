@@ -5,7 +5,6 @@ using System.Linq;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Daemon;
 using NSharpLang.Compiler;
-using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
@@ -105,7 +104,7 @@ public static class QueryCommand
         var summary = QueryCommandKernels.GetDaemonParameterSummary(args);
         var fileFilter = summary.File ?? options.File;
 
-        var units = new List<(string File, CompilationUnit Unit)>();
+        var units = new List<AstJsonUnit>();
         foreach (var pair in snapshot.CompilationUnits.OrderBy(static kvp => kvp.Key, StringComparer.Ordinal))
         {
             if (fileFilter != null)
@@ -113,7 +112,7 @@ public static class QueryCommand
                 if (!QueryCommandDogfoodKernels.MatchesCompilationUnitFile(pair.Key, fileFilter)) continue;
             }
 
-            units.Add((pair.Key, pair.Value));
+            units.Add(new AstJsonUnit(pair.Key, pair.Value));
         }
 
         if (units.Count == 0)
@@ -124,7 +123,7 @@ public static class QueryCommand
         }
 
         // The AST is structured data; `ast` always emits the stable JSON envelope (LLM-first).
-        Console.Write(OutputFormatter.AstToJson(units));
+        Console.Write(OutputFormatterAstJsonKernels.AstToJson(units));
         return 0;
     }
 
