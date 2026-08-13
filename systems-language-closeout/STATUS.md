@@ -1,6 +1,54 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-12 (**TASK 019 SLICE 1 LANDED (no commit — mandate) — THE TOOLING BURN-DOWN
+Last updated: 2026-08-13 (**TASK 019 SLICE 2 LANDED (no commit — mandate) — `CompletionEngine.cs` NO
+LONGER REFLECTS, AND THE MOVE FOUND THREE CRASHES THE C# HAD BEEN CARRYING.** The reflection member
+items family — `TryGetCompletionReflectionType` 66 + `GetReflectionTypeArgumentOrObject` 25 +
+`BuildReflectionMemberItems` 55 = **146 closure lines, 2 re-entries (both the same driver), 0
+out-edges** — was RE-VERIFIED by the validated extractor before a line was edited, the extractor
+itself re-validated against slice 1's own recorded extents (**40 / 740** pre-cut, **30 / 623**
+post-cut, all ten deleted spellings to the line). **ALL THREE C# EXTENTS DIE WHOLE AND A NESTED TYPE
+GOES WITH THEM**: `CompletionEngine.cs` **678 → 526** lines (non-blank **594 → 456**, extents
+**30 → 27** summing **623 → 476**, `git diff` **+12 / −164 = net −152, 22.4 %**, **34.7 % below the
+epoch**), and `private enum MemberFilter` moves to N# as `CompletionMemberFilter` because it is the
+DATA the `BindingFlags` decision reads. N# adds **371 production lines on ONE new owner**,
+`CompletionReflectionFacts.nl`, plus **23 contracts (4,305 → 4,328)**. **THE BINDING FLAGS SEMANTICS
+WERE MEASURED BY EXECUTION, NOT READ**: `InstanceOnly = 20 / StaticOnly = 24 / All = 28` with
+`DeclaredOnly`, `NonPublic` and `FlattenHierarchy` ALL UNSET — so **inherited INSTANCE members ARE
+offered and inherited STATICS ARE NOT**, the two arms are not mirror images, and the walk's own
+`System.Object` skip is **asymmetric** (properties and fields dropped, methods kept). **THE MLC
+DIMENSION IS REACHABLE AND MEASURING IT FOUND A LIVE PRODUCT CRASH**: `ReflectionTypeInfo.Type` is
+built straight out of a `MetadataLoadContext` by `AnalyzerDeclarationPolicy`, and a LIVE
+`typeof(List<>)` closed over a metadata argument **does not throw — it answers a
+`TypeBuilderInstantiation` whose `GetMethods` throws `NotSupportedException`**. **THE PROOF IS A
+PARTITIONED TWO-SIDED DIFFERENTIAL WHOSE DIVERGENCE SET IS DECLARED UP FRONT: 1,193 cells, 1,176
+byte-identical, md5s `a726b23852c34e86a68137615682a07c` and `05ca9e1b348d8d85e0eda7b4a0b9fe62` on
+BOTH sides, ZERO undeclared mismatches and ZERO work-side faults anywhere** — non-vacuous by census
+(254 distinct answers, **688 distinct rendered members**, 164 method / 88 property / 43 field rows,
+115 static / 191 instance, 210 resolved, 469 declines), its last 185 rows a LIVE oracle on
+`GetCompletions` at **38 harness-COMPUTED positions over 13 receiver types**, plus **204 rows driving
+the private `ResolveMemberCompletionsFromTypeInfo` on both sides over all three filters** so the
+DECISION is compared rather than restated. **ALL 17 DIVERGENCES ARE A BASE-SIDE CRASH TURNED INTO A
+CLEAN DECLINE AND THERE ARE NO OTHERS** — 9 of them `Nullable<T>` over a REFERENCE type, which needs
+no MLC at all and is reachable from source a user can type today. **The fix invents no policy**: the
+predicate is the estate's own `AnalyzerClrTypeConversion.IsPoisonedMixedInstantiation`. **NINE ORACLE
+DIFFERENTIALS ALL ZERO, SEVEN REPRODUCING SLICE 1's md5s TO THE DIGIT**; the corpus transcript is
+byte-identical to slice 1's for the TENTH slice running and the self-host differs in EXACTLY ONE
+FIELD (`checkedFiles=363 → 364`) with its 285 rows byte-identical — **and that one-field assertion is
+what caught an unused import in this slice's own new file**. **CORPUS IL 63 / 63 N#-emitted
+assemblies byte-identical with the CONTROL FIRST (118/118 SAME)**, the 55 differing files counted and
+proved to be 55-of-55 copied `NSharpLang.Runtime.dll` with 0 non-runtime; unsorted transcripts 1,557
+lines, 0 diffs, slice 1's md5; the five-run ordering pin byte-identical over **398 targets and 1,255
+rows over 48 codes**, slice 1's md5; unit **3,194 / 3,194**; contracts **4,328 / 4,328**; audit
+**18 / 18** (correctly 17/18 before the repin); manifest 391 no BOM; `dev.sh --since` fail-safed to
+the full suite and passed. **TEN FINDINGS — including that an OPEN-GENERIC `typeof` does not PARSE,
+that `typeof` of a STATIC CLASS does not EMIT, that `typeof` of a type OUTSIDE THE CORE LIBRARY does
+not either, that a camelCase N# field is emitted PUBLIC, and that `Type.GetFields(BindingFlags)` is
+published after all — the catalog claim refuted a THIRD time, by execution. WALL STATUS: ZERO — NO
+REPIN.** Task 019 stays UNCHECKED; the next family is `ResolveTypeReferenceToTypeInfo` +
+`FlattenUnionTypeReference`, which the measurement proved **DEAD and a stale weaker fork of a live
+sibling** — 31 lines, zero N# work — recorded in the Cursor block below)
+
+Last updated (prior): 2026-08-12 (**TASK 019 SLICE 1 LANDED (no commit — mandate) — THE TOOLING BURN-DOWN
 OPENS, AND `CompletionEngine.cs` NOW DECIDES NOTHING ABOUT WHAT A COMPLETION SAYS.** The six live
 files task 019 names were inventoried the 017/018 way first — **7,739 lines / 6,892 non-blank / 341
 extents summing 7,257** by the validated extractor (`NullabilityMetadata.cs` is already `removed`) —
@@ -2463,9 +2511,364 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN): **019 SLICE 1 — WHAT A COMPLETION ITEM SAYS. THE TOOLING
-  BURN-DOWN OPENS.** Scored inventory, family selection and baselines recorded BEFORE any production
-  edit, at `554174624`.
+- Active sub-slice (019 arc, THIS TURN): **019 SLICE 2 — WHICH REFLECTED MEMBERS A RECEIVER OFFERS.**
+  Target, re-verified closure, measured semantics and baselines recorded BEFORE any production edit,
+  at `0d55966e8`.
+
+  **THE EXTRACTOR WAS RE-VALIDATED AGAINST SLICE 1's OWN RECORDED EXTENTS FIRST.** `nl62_members.py`
+  over `git show 554174624:…/CompletionEngine.cs` returns **40 extents summing 740** and over the tip
+  **30 summing 623** — slice 1's pre- and post-cut figures to the line — and **all ten of slice 1's
+  deleted extent spellings reproduce exactly** (`FormatClrType` 19, `DeclaredMemberToCompletionItem`
+  17, `FormatParameters` 9 / 17 / 19, `GetFunctionParameterTypeText` 10,
+  `GetFunctionParameterModifier` 7, `GetDeclaredMemberParameterModifier` 7, `FormatTypeInfo` 6,
+  `PluralizeCompletionKind` 6).
+
+  **THE FAMILY, RE-VERIFIED BY THE EXTRACTOR-BACKED SCORER AND NOT INHERITED.**
+  `TryGetCompletionReflectionType` :323–388 (**66**), `GetReflectionTypeArgumentOrObject` :390–414
+  (**25**), `BuildReflectionMemberItems` :416–470 (**55**) = **146 closure lines, 2 re-entries,
+  0 out-edges** — the brief's numbers reproduced to the digit. **BOTH RE-ENTRIES ARE THE SAME DRIVER**
+  (`ResolveMemberCompletionsFromTypeInfo` :302 and :308), so the family has exactly one caller and
+  **`grep` proves it has ZERO consumers anywhere else in the repository** — no test, no sibling, no
+  CLI, no LSP names any of the three. Terminal.
+
+  **THE BINDING FLAGS DECISION, MEASURED BY EXECUTION — NOT READ OFF THE SOURCE.** The driver spells
+  `Public | (StaticOnly ? Static : InstanceOnly ? Instance : Static|Instance)`, which executes as
+  **InstanceOnly = 20 `Instance, Public`; StaticOnly = 24 `Static, Public`; All = 28
+  `Instance, Static, Public`**. `DeclaredOnly`, `NonPublic` and `FlattenHierarchy` are **all
+  UNSET**, and that is three distinct semantics, each measured on a live type:
+  1. **NO `DeclaredOnly` ⇒ INHERITED INSTANCE MEMBERS ARE OFFERED.** `typeof(string)` answers
+     **107** public instance methods, **1** of them declared by `System.Object` (`GetType`), and a
+     purpose-built `Derived : Base1` answers `Equals,GetHashCode,GetType,IBase,IDer,ToString`.
+  2. **NO `FlattenHierarchy` ⇒ INHERITED STATICS ARE *NOT* OFFERED.** The same `Derived` answers
+     **exactly one** public static method, `SDer` — `SBase` is not offered. The two arms of the
+     filter are therefore NOT mirror images, and that asymmetry is the platform's, not the file's.
+  3. **NO `NonPublic` ⇒ public only**, and property/event accessors DO travel as methods
+     (`typeof(string)` carries 2 `IsSpecialName` methods among its 107).
+  **AND THE WALK'S OWN `System.Object` SKIP IS ASYMMETRIC ON PURPOSE:** properties and fields whose
+  `DeclaringType.FullName` is `System.Object` are dropped, **methods are not** — which is why
+  `GetType` survives into a `string` completion but no `Object` property would. Both halves move
+  verbatim.
+
+  **THE MLC DIMENSION IS REACHABLE, AND MEASURING IT FOUND A LIVE PRODUCT CRASH.**
+  `ReflectionTypeInfo.Type` is **not always a live `Type`**: `AnalyzerDeclarationPolicy` :717 / :734
+  build one straight out of `ExternalQualifiedTypeResolver.TryResolve(mlcAssemblies, …)`, so a
+  `MetadataLoadContext` type reaches this family through the daemon and the CLI alike. Measured by
+  execution against a real `MetadataLoadContext` over the shared framework:
+  - **The reflection WALK is MLC-clean.** An MLC `System.String` answers **107 / 2 / 1** for
+    methods / properties / static fields — the same shape as its live twin — its member types answer
+    real `FullName`s, and the `System.Object` skip is a `FullName` STRING compare, so it holds
+    identically. `FormatClrTypeText` is already keyed on `get_FullName()`, so the tail is MLC-safe.
+  - **The `MakeGenericType` ARM IS NOT.** `TryGetCompletionReflectionType` closes a **LIVE**
+    `typeof(List<>)` over whatever `GetReflectionTypeArgumentOrObject` returns, and that returns
+    `reflectionType.Type` — the MLC type — verbatim. The live-definition / MLC-argument mix
+    **does not throw: it answers a `TypeBuilderInstantiation`**, and `BuildReflectionMemberItems`
+    then calls `GetMethods` on it and gets **`NotSupportedException`**. The all-live control (57
+    methods) and the all-metadata control (57 methods) both succeed; the REVERSE mix (metadata
+    definition, live argument) throws `ArgumentException` outright.
+  - **The shape is produced by the product, not only by the harness.**
+    `AnalyzerReflectionTypeConversion.ConvertReflectionType` :99–111 builds exactly
+    `GenericTypeInfo(name, [ConvertReflectionType(arg)…], …)`, and its catch-all for a non-built-in
+    argument is `new ReflectionTypeInfo(clrType)` — so `List<SomeExternalType>` read through the
+    MLC is precisely the poisoned input. `List<int>` is safe only because the built-in table
+    intercepts `System.Int32` first.
+  **THIS IS THE ESTATE'S OWN ALREADY-SOLVED PROBLEM.**
+  `AnalyzerClrTypeConversion.CloseGenericDefinition`'s banner describes this exact
+  `TypeBuilderInstantiation` and records that it *"crashed `nlc check` on any member use of an
+  `async func(): T` call result"*. Its predicate `IsPoisonedMixedInstantiation` is a pure static N#
+  one-liner, already contract-pinned. **The N# owner will reuse it and DECLINE — no new policy is
+  invented and no re-home is possible here** (the completion table's definitions are already live;
+  it is the ARGUMENT that is foreign, and the family holds no MLC to re-home into).
+
+  **THE RECONCILIATION IS THEREFORE "THE WIDER WAY", SLICE 1's `index < 0` RULE APPLIED TWICE.** The
+  new owner's stated rule is **THE FAMILY NEVER ANSWERS A TYPE IT CANNOT READ**: a poisoned mixed
+  instantiation is a non-answer, and so is a null `Type` inside a `ReflectionTypeInfo` (which the C#
+  reports as `true` with a null `out`, handing the walk a `NullReferenceException`). Both are
+  crash → decline, both in the same direction, both pinned by contract, and both are recorded
+  DIVERGENCES from the deleted C# rather than smuggled through a byte-identical claim.
+
+  **THE OWNER ASSIGNMENT — ONE NEW OWNER, ONE ENUM MOVES WITH IT.**
+  | extents | subject | owner |
+  |---|---|---|
+  | `TryGetCompletionReflectionType`, `GetReflectionTypeArgumentOrObject`, `BuildReflectionMemberItems`, and the driver's 4-line `BindingFlags` ternary | which reflected members a receiver offers | **`CompletionReflectionFacts.nl` (NEW)** |
+  | `private enum MemberFilter { All, StaticOnly, InstanceOnly }` | the DATA the `BindingFlags` decision reads | moves to N# as `CompletionMemberFilter` — 018 slice 7's nested-type precedent |
+
+  **BASELINES, TAKEN BEFORE ANY WRITE.** Ratchet row `CompletionEngine.cs`
+  `currentLines 678 / currentNonBlank 594`, fingerprint `text-v1:843a3869e803aa12`, epoch ceilings
+  805 / 703. `reviewedHeadFingerprint head-v1:f57f6572bf740277` **REPRODUCED from the unmodified
+  manifest by the independent FNV-1a walk before any write** (`HEAD_REPRODUCED`). Inherited: unit
+  suite **3,194**; contracts **4,305**; audit **18 / 18**; manifest **391** lines, no BOM.
+
+  ---
+
+  **LANDED (no commit — mandate) — `CompletionEngine.cs` NO LONGER REFLECTS, AND THE MOVE FOUND
+  THREE CRASHES THE C# HAD BEEN CARRYING.**
+
+  **ALL THREE C# EXTENTS DIE WHOLE AND NOT ONE BECOMES A RELAY, AND A NESTED TYPE GOES WITH THEM.**
+  `CompletionEngine.cs` **678 → 526** lines, non-blank **594 → 456**, member extents **30 → 27**
+  summing **623 → 476**, `git diff` **+12 / −164 = net −152** — **22.4 % in this slice and 34.7 %
+  below the epoch** (805 → 526 in two slices). The 147-line extent drop is the family's **146** plus
+  the one line the driver lost when its four-line `BindingFlags` ternary became a call. N# adds
+  **371 production lines on ONE new owner** — `CompletionReflectionFacts.nl` — and **23 contracts /
+  553 contract lines**; contracts **4,305 → 4,328**.
+
+  **THE EXTENT-BY-EXTENT MOVE.**
+  - **`CompletionReflectionFacts.nl` (NEW) takes all three extents and the decision.**
+    `TryGetCompletionReflectionType` (66) → `ResolveCompletionReflectionType` + the split-out
+    `CloseKnownReceiverDefinition` / `KnownReceiverType` / `KnownReceiverGenericDefinition`;
+    `GetReflectionTypeArgumentOrObject` (25) → the same name plus `KnownArgumentType`;
+    `BuildReflectionMemberItems` (55) → the same name plus `DeclaredBySystemObject` /
+    `PropertyIsStatic`; and the driver's `BindingFlags` ternary → `GetReflectionBindingFlags`.
+  - **`private enum MemberFilter` MOVES TO N# as `CompletionMemberFilter`** — 018 slice 7's
+    nested-type precedent. It is the DATA the `BindingFlags` decision reads, so leaving it in C#
+    would have stranded the decision behind a two-`bool` door.
+  - **`GetNSharpTypeMembers` LOST ITS `filter` PARAMETER.** Retyping it exposed that it never read
+    it: the N# declared-member path does not filter by static/instance at all. The signature no
+    longer claims to. **That omission is a real gap and it belongs to the NEXT family** — recorded
+    below, not fixed here.
+
+  **THE TERMINALITY GREP IS CLEAN.** `CompletionEngine.cs` names `TryGetCompletionReflectionType`
+  **0** times, `GetReflectionTypeArgumentOrObject` **0**, `System.Reflection` **0**, and its only
+  surviving mentions of `BindingFlags` and `BuildReflectionMemberItems` are the two N# calls. The
+  `using BindingFlags = System.Reflection.BindingFlags;` alias is gone. All three names are **0
+  elsewhere in the repository** — the family never had a second consumer.
+
+  **THE BINDING FLAGS SEMANTICS, MEASURED BY EXECUTION AND THEN PINNED.** `InstanceOnly = 20`,
+  `StaticOnly = 24`, `All = 28`; `DeclaredOnly`, `NonPublic` and `FlattenHierarchy` all UNSET. That
+  is three separate behaviours and all three are now contracts: **inherited INSTANCE members ARE
+  offered** (a `string` receiver shows `System.Object`'s `GetType`), **inherited STATICS are NOT**
+  (a purpose-built `CrfDerived` offers `DerivedStatic` and not `BaseStatic`), and the walk's own
+  `System.Object` skip is **ASYMMETRIC** — properties and fields dropped, methods kept.
+
+  **THE PROOF IS A PARTITIONED TWO-SIDED DIFFERENTIAL WHOSE DIVERGENCE SET IS DECLARED UP FRONT:
+  1,193 CELLS, 1,176 BYTE-IDENTICAL, ZERO UNDECLARED MISMATCHES, ZERO WORK-SIDE FAULTS.** One
+  `Grid.cs` compiled twice (`base/Base.csproj` with `NL77_BASE` against a pristine `0d55966e8`
+  worktree, `work/Work.csproj` against the repo's), both **by ProjectReference**; the base side
+  reaches the three deleted members by reflection on `CompletionEngine`'s private statics — including
+  the `out` parameter — and the work side calls the N# owner. The common projection md5s are
+  **`a726b23852c34e86a68137615682a07c`** (1,169 rows) and **`05ca9e1b348d8d85e0eda7b4a0b9fe62`**
+  (7 MLC rows), **identical on both sides**. **Non-vacuous by census**: 254 distinct answers, **688
+  distinct rendered members**, 164 rows naming a method / 88 a property / 43 a field, 115 static /
+  191 instance, 210 resolved answers, 469 declines, **0 faults**.
+  **THE LAST 185 ROWS ARE THE LIVE ORACLE** — the product's own public `CompletionEngine.GetCompletions`
+  on both sides at **38 harness-COMPUTED positions** (30 MemberAccess, 8 Identifier) over
+  **13 distinct receiver types**, including the reflected `System.String`, `System.Int32`,
+  `System.Double`, `System.Boolean`, `System.Char`, `System.DateTime`, `System.Math`,
+  `System.Console`, `List<int>` and `Dictionary<string,int>` that drive the moved family end to end —
+  **plus 204 rows driving the private `ResolveMemberCompletionsFromTypeInfo` itself**, on both sides,
+  over all three filter values, which is how the `BindingFlags` DECISION is compared rather than
+  restated.
+
+  **EVERY ONE OF THE 17 DIVERGENCES IS A BASE-SIDE CRASH TURNED INTO A DECLINE. THERE ARE NO
+  OTHERS.**
+  | # | shape | base | work |
+  |---|---|---|---|
+  | 9 | `Nullable<T>` closed over a REFERENCE type | `<<ArgumentException>>` | decline |
+  | 2 | a LIVE definition closed over an MLC argument, then walked | `<<NotSupportedException>>` | decline |
+  | 3 | the same close, and what it answers | `True/TypeBuilderInstantiation` | `False/<null>` |
+  | 2 | a `ReflectionTypeInfo` carrying a null `Type` | `True/<null>` then `<<NullReferenceException>>` | decline |
+  | 1 | (the poisoned `Nullable` / `Dictionary` variants of the same) | poisoned | decline |
+
+  **THE `Nullable` ONE NEEDS NO `MetadataLoadContext` AT ALL.** `Nullable<T>` is constrained to value
+  types, so `typeof(Nullable<>).MakeGenericType(typeof(string))` THROWS — and `x: Nullable<string>`
+  is something a person can type. The completion engine's whole job is to answer inside half-written
+  code, so the deleted C# let an `ArgumentException` escape `GetCompletions` on source a user could
+  write today. It was found by the differential, not by reading.
+
+  **THE MLC MEASUREMENT, IN FULL.** `ReflectionTypeInfo.Type` is NOT always live —
+  `AnalyzerDeclarationPolicy` :717 / :734 build one straight out of
+  `ExternalQualifiedTypeResolver.TryResolve(mlcAssemblies, …)`. Measured against a real
+  `MetadataLoadContext`: **the reflection WALK is MLC-clean and the differential proves it member for
+  member** — a metadata `System.String` answers **109 items whose name, kind, type text and static
+  flag are byte-identical to the live twin's**, because nothing in the read compares a `Type` by
+  identity (the `System.Object` skip is a `FullName` compare and the type text is keyed on
+  `get_FullName()`). **The `MakeGenericType` ARM was not**: the mix does not throw, it answers a
+  `TypeBuilderInstantiation`, and the walk's `GetMethods` on it throws `NotSupportedException`. The
+  shape is produced by the product — `AnalyzerReflectionTypeConversion.ConvertReflectionType` :99–111
+  builds exactly `GenericTypeInfo(name, [ReflectionTypeInfo(mlcArg)…])` for `List<SomeExternalType>`.
+  **`List<int>` is safe only because the built-in table intercepts `System.Int32` first**, and the
+  differential's control row proves it (`RuntimeType`, a real close).
+
+  **NO NEW POLICY WAS INVENTED FOR THE FIX.** The predicate is the estate's own
+  `AnalyzerClrTypeConversion.IsPoisonedMixedInstantiation`, already contract-pinned, whose banner
+  records that this exact `TypeBuilderInstantiation` *"crashed `nlc check` on any member use of an
+  `async func(): T` call result"*. Re-homing — which that owner can do — is impossible here: this
+  file's definitions are always LIVE and it is the ARGUMENT that is foreign, so declining is the only
+  sound answer, and it is what the caller already does for every receiver the family refuses.
+
+  **NINE ORACLE DIFFERENTIALS, ALL ZERO — AND SEVEN REPRODUCE SLICE 1's RECORDED md5s TO THE DIGIT**
+  (fx75 `6c12cc5a…`, fx74 `309f7902…`, fx73 `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA
+  `b1045814…`, supplementary `228dfc38…`). **The corpus transcript is BYTE-IDENTICAL to slice 1's —
+  0 diff lines, the TENTH slice running** — and the self-host differs in **EXACTLY ONE FIELD**
+  (`checkedFiles=363 → 364`, the one new production `.nl`) with its **285 rows byte-identical**.
+  **Parse errors 0 on every one of the nine**, and the inherited `NO-RESULTS` counts (7 corpus,
+  6 supplementary) reproduce slice 1's exactly, so they are inherited and not introduced.
+  **THE SELF-HOST CAUGHT A DEFECT IN THIS SLICE'S OWN FILE.** Its first run was `checkedFiles=364,
+  count=286` — one row MORE than slice 1's 285 — and the extra row was **NL010 on
+  `CompletionReflectionFacts.nl` :6, an unused `import System.Threading.Tasks`** left behind when
+  `Task<>` / `ValueTask<>` moved to metadata-name lookup. Removed, and the count returned to 285.
+  **The one-field claim is the assertion that found it.**
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** and proved the harness stable
+  (`CONTROL vs A` **118 / 118 SAME**, both the base CLI over a fresh `0d55966e8` archive); `A vs B`
+  then gives **63 / 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, with the 55 differing files being
+  **every one of them the COPIED `NSharpLang.Runtime.dll`** — counted, not assumed: 55 of 55 match
+  that name and **0 do not**. All three sweeps report `TARGETS=73 BUILT=55 ASSEMBLIES=118`. Unsorted
+  build transcripts **1,557 lines, 0 diffs across all three sweeps**, md5
+  **`1ff6a3797a58c74f8a52bc410519794b` — slice 1's md5 to the digit**. The five-run ordering pin is
+  **byte-identical on all five runs** — md5 **`db729409fb7e7100a2c5bdb6401e6a78`, also slice 1's to
+  the digit** — over **398 targets, 391 with results, 1,255 diagnostic rows over 48 codes**,
+  `RUN1_VS_RUN{2,3,4,5} DIFFS=0`. Unit suite **3,194 / 3,194**; contracts **4,328 / 4,328**; the
+  format gate reports "All files are properly formatted" on all four directories; audit **18 / 18**;
+  manifest **391** lines, no BOM. **`./scripts/dev.sh --since` FAIL-SAFED to the full unit suite**
+  (`Scope: full unit suite (no filter)`) and passed **3,194 / 3,194** — the change-aware filter
+  correctly refusing to narrow on a compiler-central edit. **THE DIFFERENTIAL WAS RE-RUN ON THE
+  BYTE-FINAL TREE AND REPRODUCED BOTH md5s EXACTLY**, as were the corpus and self-host oracles.
+  **THE FULL VS CODE-ENABLED GATE: `ALL TESTS PASSED` in 19m 58s with 36 VS CODE INTEGRATION TESTS
+  PASSING** — every one of the sixteen steps green, including the IL verification gate over 67 N#
+  assemblies — run fresh in an isolated tree, over a production tree hash **unchanged before and
+  after: `e765fb0ae6fd81a57a4b313d93050f21` across 1,275 production files**. Per standing precedent
+  (5+ consecutive denials) computer-use visual verification was NOT requested; the gate's VS Code
+  integration evidence stands in, and this slice touches no LSP surface in any case (`grep` over
+  `src/NSharpLang.LanguageServer` still finds **no reference to `CompletionEngine`**).
+
+  **TEN FINDINGS.**
+  **(77.1) `typeof` OF AN OPEN GENERIC DOES NOT PARSE.** `typeof(List<>)` fails NL103 at
+  `parse.struct` — and it takes the WHOLE ENCLOSING CLASS with it, which is why the error points at
+  the class header and not at the expression. A NEW entry for the cumulative gotcha list.
+  **(77.2) `typeof` OF A STATIC CLASS DOES NOT EMIT.** `typeof(Math)` and `typeof(Console)` both fail
+  at `emit.return.expression`. **`Math` is in the core library, so it is the `abstract sealed` SHAPE
+  that decides and not the assembly** — measured, not inferred.
+  **(77.3) `typeof` OF A TYPE OUTSIDE THE CORE LIBRARY DOES NOT EMIT EITHER.** `typeof(Uri)`
+  (`System.Private.Uri`) and `typeof(ConsoleColor)` (`System.Console`) decline where
+  `typeof(Exception)`, `typeof(DateTime)` and `typeof(List<int>)` (all core library) emit. **Two
+  independent causes, both found by execution after the first one was fixed.**
+  **THE ROUTE THROUGH ALL THREE is `Type.GetType("<metadata name>")`**, assembly-qualified only where
+  the type is neither in the core library nor forwarded to it. Measured, per name:
+  `System.Collections.Generic.Stack\`1` needs `, System.Collections`; `Queue\`1` and `HashSet\`1` do
+  NOT (they are forwarded); `System.Console` needs `, System.Console`; `System.Math` does not. All
+  fifteen definitions and both static classes were proven **reference-equal to the live `typeof`**
+  before the table was written, and the contracts pin every one.
+  **(77.4) A CAMELCASE N# FIELD IS EMITTED AS A PUBLIC IL FIELD.** The file-private naming convention
+  is a LINT rule, not a metadata one, so a property's backing field appears in the reflected member
+  list of its own type. It broke a contract that counted fields, and the fixture was rewritten to
+  carry no backing field at all. **This is product-visible: a completion over an N# type reached by
+  reflection shows its backing fields.**
+  **(77.5) A SET-ONLY PROPERTY DECLINES AT PARSE.** `static WriteOnly: string { set { … } }` fails
+  `parse.struct`. The `property.GetMethod == null ⇒ not static` arm therefore could not be pinned in
+  N#, and is pinned instead in the differential harness — which is C# SCAFFOLDING in `/private/tmp`,
+  not product code — over a `GridShape` both sides reflect identically.
+  **(77.6) A THREE-DEEP CALL CHAIN AS A RECEIVER DECLINES.** `type.get_Assembly().GetName().Name`
+  fails `emit.statement.block-child`; the same expression broken into two locals emits. This is the
+  same family as the recorded `properties[i].get_Name()` rule — **the receiver's SHAPE decides, not
+  the member** — and it now has a second witness.
+  **(77.7) `Type.GetFields(BindingFlags)` IS PUBLISHED — THE CATALOG CLAIM IS REFUTED A THIRD TIME,
+  BY EXECUTION.** `GetFields`, `GetProperties` and `GetMethods` all take `BindingFlags` in production
+  `.nl` today (`AnalyzerWriteTargets`, `AnalyzerMemberAccess`, `AnalyzerIndexAccess`,
+  `AnalyzerPatternShapes`) and all three compiled here on the first attempt. **The standing
+  instruction to re-verify this claim by execution should be replaced by the fact that it is false.**
+  **(77.8) A COMPLETION FIXTURE IS SUPPOSED TO HAVE PARSE ERRORS.** A member-access probe sits at
+  `x.`, which is by definition incomplete: the two live-oracle fixtures produce **NL101 ×2 and
+  NL102 ×12**, and that is the shape under test rather than a defect — the recovery parser still
+  yielded an AST rich enough for **13 distinct receiver types**. **The parse-error census of 0 belongs
+  to the DIAGNOSTIC oracle sets; it does not apply to completion fixtures**, and both sides see
+  byte-identical text at identically COMPUTED positions, so the comparison is unaffected.
+  **(77.9) `GetNSharpTypeMembers` NEVER READ ITS `filter`.** Retyping the parameter for the enum move
+  exposed that the N# declared-member path does not filter by static/instance AT ALL — so `Person.`
+  offers instance members and `person.` offers statics whenever a source-declared type answers first.
+  The parameter is gone and the signature no longer lies. **The gap itself belongs to the
+  declared-member family**, named in the brief below.
+
+  **(77.10) THE GATE'S DEPENDENCY CACHE CAN GO STALE AND IT FAILS AS A PRODUCT ERROR, NOT A CACHE
+  ERROR.** The gate was run THREE times. The first was **SIGTERM'd from outside at 980s** while
+  Step 3 sat silent for eleven minutes — not a test failure, and the fix is a **stdout heartbeat**
+  beside the background run so the harness watchdog sees progress; every later run used one. The
+  second reached the end and failed **exactly one step of sixteen**: Step 4, *Pack and Install
+  MSBuild SDK*, with `Could not load file or assembly 'Mono.Cecil, Version=0.11.6.0'` raised from
+  `NSharpLang.Build.Tasks.EmitIlAssembly.SynchronizeReferenceAssembly` inside
+  **`~/Library/Caches/NSharpLang/test-all/dependencies/<key>/…/nsharplang.sdk/0.1.0/Sdk/Sdk.targets`**
+  — a CACHED dependency tree, not the tree under test. **Deleting that one cache entry and re-running
+  produced `ALL TESTS PASSED` with no source change whatsoever**, which is the proof that the failure
+  was the cache and not the slice. **A `Mono.Cecil` load failure out of Step 4 is a stale-cache
+  signature; clear `~/Library/Caches/NSharpLang/test-all/dependencies/<key>` before suspecting the
+  diff.** The cache is 6.7 GB and is shared across runs, so it is the one part of the "fresh isolated
+  run" that is not fresh.
+
+  **WALL STATUS: ZERO — NO TOOLSET REPIN.** Three `typeof` declines and two shape declines, every one
+  routed around inside N# with a spelling proven equal to the one it replaced. Nothing here needed
+  new catalog surface.
+
+  **RATCHET.** One row repinned AS THE LAST EDIT, after every production edit and after the whole
+  differential / oracle / IL / determinism set had been re-run on the byte-final tree:
+  `CompletionEngine.cs` **678 / 594 → 526 / 456**, fingerprint `843a3869e803aa12 → 4c86f82c0ebcf243`.
+  It moves DOWN and does not approach its epoch ceiling (805 / 703). Head
+  `f57f6572bf740277 → e51424c65edc190a`, mirrored into `OwnershipAudit.nl`, and the stored head was
+  REPRODUCED by the independent FNV-1a walk both before the write (`HEAD_REPRODUCED`) and after it.
+  Manifest **391** lines, no BOM; audit **18 / 18** after the repin, having correctly FAILED 1 / 18
+  before it.
+
+  **NEXT FAMILY, WITH THE POST-CUT SCORES RE-MEASURED — AND THE MEASUREMENT FOUND A FREE 31 LINES.**
+  `CompletionEngine.cs` is now **526 lines / 456 non-blank / 27 extents summing 476**, and the four
+  families left in it score:
+
+  | family | closure lines | re-entries | out-edges | note |
+  |---|---|---|---|---|
+  | **TypeReference → TypeInfo** (`ResolveTypeReferenceToTypeInfo` 16, `FlattenUnionTypeReference` 15) | **31** | **0** | 0 | **THE RECOMMENDED NEXT SLICE, AND IT NEEDS NO N# WORK AT ALL — IT IS DEAD.** See below. |
+  | declared-member resolution (`TryResolveSemanticType` 26, `ResolveNSharpDeclaredMembers` 19, `GetNSharpTypeMembers` 15, `GetDeclaredMembers` 8) | 68 | 1 | 0 | now also OWES the filtering gap finding 77.9 exposed. Still blocked on two `for-in` over a `Dictionary` (`snapshot.SemanticModels.Values`, `semanticModel.Types`) and a `[NotNullWhen(true)] out`. |
+  | receiver text (`FormatReceiverExpression` 20, `FormatInterpolatedStringReceiver` 11, `FormatMemberAccessReceiver` 8) | 39 | 1 | 0 | clean, small, no known blockers |
+  | receiver classification (`IsStaticTypeReceiver` 11, `IsStringLiteralReceiver` 8, `GetMemberFilter` 6, `ResolveLiteralReceiverType` 6) | 31 | 2 | 0 | clean; `VisibilityConventions` and now `CompletionMemberFilter` are already N# |
+  | position finding (`FindMemberAccessAtPosition` 16, `GetNearbyColumns` 12) | 28 | 1 | 0 | newly separable now that the reflection family is gone |
+
+  **`CompletionEngine.ResolveTypeReferenceToTypeInfo` AND `FlattenUnionTypeReference` ARE DEAD, AND
+  THEY ARE A STALE FORK OF A LIVE SIBLING.** Both are `private`, **nothing in the file calls them**,
+  **nothing anywhere in the repository calls them**, and no test reflects into `CompletionEngine`'s
+  privates. `CodeIntelligenceService.cs` :1492 / :1506 carries the LIVE pair with **16 call sites** —
+  and the two are **NOT the same code**: the live one resolves a simple name through
+  `FindNamedTypeInfo(snapshot, s.Name)` before falling back, and renders its final fallback from the
+  `TypeReference` itself; the dead one does neither. So this is not a duplicate to reconcile, it is a
+  **stale weaker fork that would silently regress anything wired to it**, and deleting it removes a
+  trap rather than a copy.
+  **THE LESSON FOR THE INVENTORY, AND IT IS THE THIRD TIME THIS ARC HAS PAID FOR IT.** Slice 1's own
+  table scored this family at **zero re-entries** and called it *"fully detached — the only family in
+  the file with ZERO re-entries"*. **For a family of PRIVATE members, zero re-entries does not mean
+  detached; it means DEAD.** The scorer reports the number and the reader must draw the conclusion:
+  **a zero-re-entry private family is a deletion candidate BEFORE it is a move candidate.** It was
+  dead before this slice — no cut of mine killed its last caller — so it is left for the next one
+  rather than folded in, but it is a 31-line, zero-risk, zero-N# opener.
+
+  Beyond this file the scored inventory stands: `OutputFormatter`'s AST→JSON (86, zero re-entries)
+  and perf-report→JSON (61, zero re-entries) are the cheapest whole-file progress in the arc — **and
+  both should now be re-checked for the same deadness before any work is planned on them**;
+  `Linter`'s known-namespace tables (238, DATA not policy) are the biggest single zero-out-edge cut;
+  and the `Formatter` / `CodeIntelligenceService` / `Linter` walkers are multi-slice arcs on the 017
+  model. **`CodeIntelligenceService` is the one the LSP itself consumes — when its turn comes the
+  VS Code gate stops being a formality.**
+
+  **ARTEFACTS LEFT ON DISK FOR 019 SLICE 3.** Worktree `/private/tmp/nl77base` (pristine `0d55966e8`
+  + Release Compiler and CLI) and `/private/tmp/nl77corpus` (an rsync of the byte-final work tree).
+  **The two-sided differential harness is `/private/tmp/nl77grid`** — ONE `Grid.cs` compiled twice
+  (`base/Base.csproj` with `NL77_BASE`, `work/Work.csproj` against the repo's), both **by
+  ProjectReference**, carrying the live oracle, the private-driver comparison and the
+  `MetadataLoadContext` section. Its comparator is **`nl77-compare.py`, which DECLARES the permitted
+  divergence set up front and fails on any other** — the tool to reuse whenever a slice must change
+  behaviour rather than preserve it. IL trees and captures: `/private/tmp/nl77il{Ctrl,A,B}Tree` with
+  outputs under `/private/tmp/nl77out{Ctrl,A,B}`. Harnesses in the scratchpad: `nl62_members.py` (the
+  extractor, **re-validated at 40 / 740 and 30 / 623 against slice 1's own recorded numbers, with all
+  ten of its deleted extent spellings reproduced, before it was trusted**), `nl76-closure.py` (the
+  extractor-backed family scorer — takes any path and any seed sets), `nl77-compare.py`,
+  `nl77-oracle.sh`, `nl77-run-oracles.sh`, `nl77-ilsweep.sh`, `nl77-run-il.sh`, `nl77-ilnorm.py`,
+  `nl77-ilcompare.py`, `nl77-transnorm.py`, `nl77-determinism.sh`, `nl77-treehash.sh` and
+  `nl77-repin.py`. Two standalone C# probes measured the platform questions before any N# was
+  written and are worth keeping for the next reflection slice: **`/private/tmp/nl77mlc`** (the
+  `BindingFlags` semantics and the whole `MetadataLoadContext` mix matrix — live/live, live/metadata,
+  metadata/metadata and metadata/live) and **`/private/tmp/nl77tp`** (the metadata-name lookup table,
+  proving all fifteen definitions and both static classes reference-equal to their `typeof`).
+  The inherited fixture sets `/private/tmp/nl6{5,6,7,8,9}fixtures` and
+  `/private/tmp/nl7{0,1,2,3,4,5}fixtures` all survived and are wired into the oracle and determinism
+  runs. **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, ACCEPTED at `0d55966e8`): **019 SLICE 1 — WHAT A COMPLETION
+  ITEM SAYS. THE TOOLING BURN-DOWN OPENS.** Scored inventory, family selection and baselines recorded
+  BEFORE any production edit, at `554174624`.
 
   **THE EXTRACTOR WAS RE-VALIDATED FIRST**, on 018 slice 8's own post-cut numbers:
   `nl62_members.py` over `SystemsAnalyzer.cs` returns **100 extents summing 1,082** — the recorded

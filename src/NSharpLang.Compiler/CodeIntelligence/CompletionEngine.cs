@@ -4,7 +4,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
-using BindingFlags = System.Reflection.BindingFlags;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -165,7 +164,7 @@ public class CompletionEngine
                 receiver,
                 snapshot,
                 completions,
-                MemberFilter.InstanceOnly);
+                CompletionMemberFilter.InstanceOnly);
             if (memberResult != null) return memberResult;
         }
 
@@ -177,11 +176,11 @@ public class CompletionEngine
         return semanticModel.LookupIdentifierAtPosition(name, line, column);
     }
 
-    private static MemberFilter GetMemberFilter(string receiver, TypeInfo typeInfo)
+    private static CompletionMemberFilter GetMemberFilter(string receiver, TypeInfo typeInfo)
     {
         return IsStaticTypeReceiver(receiver, typeInfo)
-            ? MemberFilter.StaticOnly
-            : MemberFilter.InstanceOnly;
+            ? CompletionMemberFilter.StaticOnly
+            : CompletionMemberFilter.InstanceOnly;
     }
 
     private static bool IsStaticTypeReceiver(string receiver, TypeInfo typeInfo)
@@ -284,7 +283,7 @@ public class CompletionEngine
         string receiver,
         ProjectSnapshot snapshot,
         Dictionary<string, List<CompletionItem>> completions,
-        MemberFilter filter)
+        CompletionMemberFilter filter)
     {
         var typeName = CompletionTypeTextFacts.FormatTypeText(typeInfo);
 
@@ -292,20 +291,19 @@ public class CompletionEngine
         // The Language Server already follows this rule; the shared playground/CLI
         // engine needs the same behavior so `Person.` does not accidentally bind to
         // an unrelated loaded CLR type named Person.
-        var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot, filter);
+        var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot);
         if (nsharpMembers.Count > 0)
         {
             AddGroupedCompletionsByKind(nsharpMembers, completions);
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
         }
 
-        if (TryGetCompletionReflectionType(typeInfo, out var clrType))
+        var clrType = CompletionReflectionFacts.ResolveCompletionReflectionType(typeInfo);
+        if (clrType != null)
         {
-            var flags = BindingFlags.Public |
-                (filter == MemberFilter.StaticOnly ? BindingFlags.Static :
-                 filter == MemberFilter.InstanceOnly ? BindingFlags.Instance :
-                 BindingFlags.Static | BindingFlags.Instance);
-            var reflectionMembers = BuildReflectionMemberItems(clrType, flags);
+            var reflectionMembers = CompletionReflectionFacts.BuildReflectionMemberItems(
+                clrType,
+                CompletionReflectionFacts.GetReflectionBindingFlags(filter));
             if (reflectionMembers.Count > 0)
             {
                 AddGroupedCompletionsByKind(reflectionMembers, completions);
@@ -318,155 +316,6 @@ public class CompletionEngine
         }
 
         return null;
-    }
-
-    private static bool TryGetCompletionReflectionType(
-        TypeInfo typeInfo,
-        [NotNullWhen(true)] out Type? clrType)
-    {
-        if (typeInfo is ReflectionTypeInfo reflectionType)
-        {
-            clrType = reflectionType.Type;
-            return true;
-        }
-
-        if (typeInfo is SimpleTypeInfo simpleType)
-        {
-            clrType = simpleType.Name switch
-            {
-                "string" or "System.String" => typeof(string),
-                "int" or "System.Int32" => typeof(int),
-                "long" or "System.Int64" => typeof(long),
-                "bool" or "System.Boolean" => typeof(bool),
-                "double" or "System.Double" => typeof(double),
-                "float" or "System.Single" => typeof(float),
-                "char" or "System.Char" => typeof(char),
-                "object" or "System.Object" => typeof(object),
-                "Console" or "System.Console" => typeof(Console),
-                "Math" or "System.Math" => typeof(Math),
-                "DateTime" or "System.DateTime" => typeof(DateTime),
-                _ => null
-            };
-            return clrType != null;
-        }
-
-        if (typeInfo is GenericTypeInfo genericType)
-        {
-            var genericDefinition = genericType.Name switch
-            {
-                "List" or "System.Collections.Generic.List" => typeof(List<>),
-                "IEnumerable" or "System.Collections.Generic.IEnumerable" => typeof(IEnumerable<>),
-                "ICollection" or "System.Collections.Generic.ICollection" => typeof(ICollection<>),
-                "IList" or "System.Collections.Generic.IList" => typeof(IList<>),
-                "IReadOnlyCollection" or "System.Collections.Generic.IReadOnlyCollection" => typeof(IReadOnlyCollection<>),
-                "IReadOnlyList" or "System.Collections.Generic.IReadOnlyList" => typeof(IReadOnlyList<>),
-                "Dictionary" or "System.Collections.Generic.Dictionary" => typeof(Dictionary<,>),
-                "IDictionary" or "System.Collections.Generic.IDictionary" => typeof(IDictionary<,>),
-                "IReadOnlyDictionary" or "System.Collections.Generic.IReadOnlyDictionary" => typeof(IReadOnlyDictionary<,>),
-                "HashSet" or "System.Collections.Generic.HashSet" => typeof(HashSet<>),
-                "Queue" or "System.Collections.Generic.Queue" => typeof(Queue<>),
-                "Stack" or "System.Collections.Generic.Stack" => typeof(Stack<>),
-                "Nullable" or "System.Nullable" => typeof(Nullable<>),
-                "Task" or "System.Threading.Tasks.Task" => typeof(System.Threading.Tasks.Task<>),
-                "ValueTask" or "System.Threading.Tasks.ValueTask" => typeof(System.Threading.Tasks.ValueTask<>),
-                _ => null
-            };
-
-            if (genericDefinition != null &&
-                genericDefinition.GetGenericArguments().Length == genericType.TypeArguments.Count)
-            {
-                var genericArguments = genericType.TypeArguments
-                    .Select(GetReflectionTypeArgumentOrObject)
-                    .ToArray();
-                clrType = genericDefinition.MakeGenericType(genericArguments);
-                return true;
-            }
-        }
-
-        clrType = null;
-        return false;
-    }
-
-    private static Type GetReflectionTypeArgumentOrObject(TypeInfo typeInfo)
-        => typeInfo switch
-        {
-            ReflectionTypeInfo reflectionType => reflectionType.Type,
-            SimpleTypeInfo simpleType => simpleType.Name switch
-            {
-                "string" or "System.String" => typeof(string),
-                "int" or "System.Int32" => typeof(int),
-                "long" or "System.Int64" => typeof(long),
-                "bool" or "System.Boolean" => typeof(bool),
-                "double" or "System.Double" => typeof(double),
-                "float" or "System.Single" => typeof(float),
-                "char" or "System.Char" => typeof(char),
-                "object" or "System.Object" => typeof(object),
-                "decimal" or "System.Decimal" => typeof(decimal),
-                "byte" or "System.Byte" => typeof(byte),
-                "short" or "System.Int16" => typeof(short),
-                "uint" or "System.UInt32" => typeof(uint),
-                "ulong" or "System.UInt64" => typeof(ulong),
-                "ushort" or "System.UInt16" => typeof(ushort),
-                "sbyte" or "System.SByte" => typeof(sbyte),
-                _ => typeof(object)
-            },
-            _ => typeof(object)
-        };
-
-    private static List<CompletionItem> BuildReflectionMemberItems(Type clrType, BindingFlags flags)
-    {
-        var methods = clrType.GetMethods(flags);
-        var properties = clrType.GetProperties(flags);
-        var fields = clrType.GetFields(flags);
-        var count = methods.Length + properties.Length + fields.Length;
-        var names = new string[count];
-        var kinds = new string[count];
-        var typeTexts = new string[count];
-        var isStaticValues = new bool[count];
-        var index = 0;
-
-        foreach (var method in methods)
-        {
-            names[index] = method.Name;
-            kinds[index] = "method";
-            typeTexts[index] = CompletionTypeTextFacts.FormatClrTypeText(method.ReturnType);
-            isStaticValues[index] = method.IsStatic;
-            index++;
-        }
-
-        foreach (var property in properties)
-        {
-            if (property.DeclaringType?.FullName == "System.Object")
-                continue;
-
-            names[index] = property.Name;
-            kinds[index] = "property";
-            typeTexts[index] = CompletionTypeTextFacts.FormatClrTypeText(property.PropertyType);
-            isStaticValues[index] = property.GetMethod?.IsStatic ?? false;
-            index++;
-        }
-
-        foreach (var field in fields)
-        {
-            if (field.DeclaringType?.FullName == "System.Object")
-                continue;
-
-            names[index] = field.Name;
-            kinds[index] = "field";
-            typeTexts[index] = CompletionTypeTextFacts.FormatClrTypeText(field.FieldType);
-            isStaticValues[index] = field.IsStatic;
-            index++;
-        }
-
-        if (index != count)
-        {
-            Array.Resize(ref names, index);
-            Array.Resize(ref kinds, index);
-            Array.Resize(ref typeTexts, index);
-            Array.Resize(ref isStaticValues, index);
-        }
-
-        return CompletionEngineKernels.BuildMemberItemsFromRows(names, kinds, typeTexts, isStaticValues);
     }
 
     /// <summary>
@@ -576,8 +425,7 @@ public class CompletionEngine
 
     // ── Type Member Resolution ──────────────────────────────────────────
 
-    private enum MemberFilter { All, StaticOnly, InstanceOnly }
-    private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot, MemberFilter filter)
+    private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot)
     {
         var items = new List<CompletionItem>();
         var members = ResolveNSharpDeclaredMembers(typeInfo, snapshot);
