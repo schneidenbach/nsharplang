@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
 import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler
@@ -259,13 +258,7 @@ class CompletionReceiverFacts {
             receiverExpression := memberAccess.Object
             receiverType := semanticModel.LookupTypeAtPosition(receiverExpression.Line, receiverExpression.Column)
             if receiverType != null && !BuiltInTypes.IsUnknown(receiverType) {
-                displayReceiver := receiver
-                if displayReceiver == null {
-                    displayReceiver = FormatReceiverExpression(receiverExpression)
-                }
-                if displayReceiver == null {
-                    displayReceiver = "<expression>"
-                }
+                displayReceiver := receiver ?? FormatReceiverExpression(receiverExpression) ?? "<expression>"
 
                 filter := CompletionReflectionFacts.GetMemberFilter(displayReceiver, receiverType)
                 expressionResult := ResolveMemberCompletions(receiverType, displayReceiver, semanticModels, completions, filter)
