@@ -1,6 +1,69 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-13 (**TASK 019 SLICE 5 LANDED (no commit — mandate) — `OutputFormatter.cs` IS
+Last updated: 2026-08-13 (**TASK 019 SLICE 6 LANDED (no commit — mandate) — `DocQuery.cs` NO LONGER
+DECIDES WHICH TYPE A NAME MEANS OR WHAT A TYPE READS AS, AND IT IS THE FIRST FILE IN THE ARC THAT
+DOES *NOT* CLOSE — FOR A MEASURED REASON RATHER THAN A CONCEDED ONE.** The extractor was re-validated
+on **SIX** checkpoints before it was trusted (**30 / 623**, **27 / 476**, **21 / 414**, **4 / 81**,
+**43 / 292**, **38 / 206** — slices 2 through 5 pre- and post-cut to the line), the dead sweep ran
+BEFORE any scoring (**1,038 files, DEAD 0, DETACHED 52**), and the reflection-door census over **all
+51 member names** in a **1,591-file** corpus corrects the inherited brief a second time: **TWO real
+doors** (`DeduplicateReferencePackAssemblyNames` :92 and `DeduplicateTypeCandidates` :120) and a
+**THREE-hit** false positive on `"Lookup"`, not the inherited two — the third is
+`{ "Lookup", "System.Linq" }` in `Linter.cs` :1404. **TWENTY-THREE C# EXTENTS AND SIX FIELDS DIE —
+TWENTY MOVE AND THREE SIMPLY END**: `DocQuery.cs` **740 → 446** lines (non-blank **623 → 382**,
+extents **51 → 23** summing **671 → 402**, `git diff` **+45 / −339 = net −294, 39.7 %**, the arc's
+largest single-file cut), where `GetLookupTypeName`, `StripGenericArity` and
+`DeduplicateReferencePackAssemblyNames` were pure relays whose behaviour already lived in
+`DocQueryKernels`, so the surviving call sites name the kernel directly instead of carrying a dead
+hop into N#. N# adds **498 production lines in TWO NEW owners** (`DocQueryReflectionFacts.nl`,
+`DocQueryTypeIndex.nl` — the first **stateful** N# owner in this arc, holding the whole type index)
+plus **31 contracts / 121 assertions (4,392 → 4,423)**. **BOTH REFLECTION DOORS ARE SHUT AND THEIR
+TESTS MIGRATED, WHICH IS THE WHOLE OF THE UNIT-COUNT CHANGE**: `tests/DocQueryTests.cs` **142 → 85**
+(8 tests → 6, markers 37 → 31) and the suite is **3,194 → 3,192 — exactly those two tests and nothing
+else**. **THE MOVEABLE BOUNDARY WAS DRAWN BY EXECUTION AND TWO WALLS DREW IT, EACH CONFIRMED TWICE —
+in a standalone probe AND in the production emit path of `BootstrapServices` itself**:
+`System.Xml.Linq` is a TOTAL wall (`XElement` cannot even be a method PARAMETER type —
+`emit.declaration.method-param` — so the tempting "C# loads, N# traverses" split does not exist), and
+`typeof(<arbitrary external type>)` declines (`Console`, `Environment`, `File`, `Enumerable`,
+`Regex`, `HttpClient`, `JsonSerializer`, `Guid`, `Path` all decline; `object`, `string`, `int`,
+`int[]`, `DateTime`, `Task`, `List<int>`, `StringComparer`, `Process` build and run), so
+`LoadSystemAssemblies`' nine-`typeof` seed list — six of which decline — cannot move either.
+**THE CLOSURE VERDICT IS EXECUTABLE ON BOTH HALVES**: the partition reports
+`UNCLASSIFIED = 0, POLICY = 18` over 23 extents / 402 lines against a pre-cut control of
+**`POLICY = 35` over 51 / 671** (the slice removes **17 of 35, 48.6 %**), and a second classifier
+assigns every surviving extent a REASON by rule — **WALLED 9 extents / 142 lines, DOWNSTREAM 12 /
+258, FIELD 2 / 2, and `UNEXPLAINED = 0`**: every remaining line but the index handle and the
+global-index flag is behind a named catalog gap. **THE DIFFERENTIAL IS BYTE-IDENTICAL — 2,638 rows,
+md5 `f77c825fb0ddd9356b87f2d148b3c228` on BOTH sides, 0 mismatches, 0 faults, 1,807 distinct
+answers** over **90 `Type` shapes × 7 questions**, **563 methods × 3**, 15 arity spellings, 11
+order-sensitive dedupe cells, **73 query spellings asked TWICE**, 24 nested chains and 24
+reference-pack cells, with a **99-row live oracle** (86 populated, 608,468 bytes, 83 carrying real
+XML summaries) and a **two-sided declared divergence of 29 PRESENT→ABSENT and 3 ABSENT→PRESENT**.
+**AND `nlc query doc` ITSELF WAS RUN ON BOTH CLIs: 130 rows, 0 diffs, 837,199 bytes, 130 non-empty**
+— which is also how a **PRE-EXISTING PRODUCT DEFECT** surfaced: `nlc query doc` crashes from the
+shipped launcher with `FileNotFoundException: Microsoft.AspNetCore.HttpLogging`, identically on the
+base CLI and the installed 0.1.0 nlc, because `LoadSystemAssemblies` `Assembly.Load`s every
+reference-pack name it discovers. **TEN oracle differentials all zero** and the nine standing ones
+reproduce slice 5's md5s to the digit (corpus `86a4928f…` for the fourteenth slice running, self-host
+`e659c044…`); a TENTH was added because the inherited self-host target is a frozen snapshot that does
+not contain this slice's files — over the LIVE tree it reports 0 diffs, `checkedFiles=368,
+count=288` and **ZERO diagnostics naming either new owner**. Corpus IL **63 / 63 byte-identical with
+the CONTROL FIRST (118 / 118 SAME)**; transcripts 1,573 lines, 0 diffs, md5 `eb430931…`; the five-run
+ordering pin byte-identical at the recorded `db729409…`; unit **3,192 / 3,192**; contracts
+**4,423 / 4,423**; format gate clean; audit **18 / 18** after the repin, having correctly FAILED
+**17 / 18** before it; manifest 391 no BOM; **the full VS Code-enabled gate `ALL TESTS PASSED` in
+19m 42s with 108 green steps, zero failures and 36 VS Code integration tests inside it**; and every
+headline number re-taken on the byte-final tree afterwards — **not one moved**. **SEVEN FINDINGS — the
+sharpest being that a `.tests.nl` is NOT evidence about the production emit path** (`typeof(Console)`
+builds in a contract file and declines in a production `.nl` of the SAME project, because
+`NSharpExcludeTests=true` compiles them on different paths), and that a reflection property read must
+be spelled `get_X()` while every instance call needs a NAMED receiver — chained *or* indexed.
+**WALL STATUS: TWO REAL WALLS, MEASURED TWICE EACH — AND NO REPIN**, because the boundary they draw
+is exactly the boundary this slice cut to. Task 019 stays UNCHECKED; **two of the six files are
+closed and a third is walled**, and the next family is `Linter`'s known-namespace tables, whose door
+census is already run and is CLEAN — recorded in the Cursor block below)
+
+Last updated (prior): 2026-08-13 (**TASK 019 SLICE 5 LANDED (no commit — mandate) — `OutputFormatter.cs` IS
 CLOSED: IT FORMATS NOTHING.** The extractor was re-validated on FOUR checkpoints before it was
 trusted (**30 / 623**, **27 / 476**, **21 / 414**, **4 / 81** — slices 2, 3 and 4 pre- and post-cut to
 the line), the dead sweep ran BEFORE any scoring (**1,036 files, DEAD 0**) and the string-literal
@@ -2613,7 +2676,381 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `be95ec85e`):
+- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `5d4a204bc`):
+  **019 SLICE 6 — DOCQUERY: WHICH CLR TYPE A NAME MEANS, AND WHAT A REFLECTED TYPE READS AS.**
+
+  **THE EXTRACTOR WAS RE-VALIDATED ON SIX CHECKPOINTS BEFORE IT WAS TRUSTED, NOT THE REQUIRED TWO.**
+  `nl62_members.py` returns **30 / 623**, **27 / 476**, **21 / 414** and **4 / 81** over
+  `CompletionEngine.cs` at `0d55966e8`, `228081146`, `294035b7c` and the tip, and **43 / 292** and
+  **38 / 206** over `OutputFormatter.cs` at `be95ec85e` and the tip — slices 2, 3, 4 and 5's pre- and
+  post-cut figures to the line. Over `DocQuery.cs` it returns **51 extents summing 671** on a
+  **740-line / 623-non-blank** file: the ratchet row exactly.
+
+  **THE DEAD SWEEP RAN BEFORE ANY SCORING** (`nl78-deadsweep.py`, accessibility-aware, **1,038-file**
+  corpus): **DEAD COUNT = 0**, `DETACHED COUNT = 52`. Every family is LIVE.
+
+  **THE TWO-DOOR STRING-LITERAL CENSUS IS RE-RUN OVER ALL 51 MEMBER NAMES AND IT CORRECTS THE
+  INHERITED BRIEF AGAIN.** An exact-match literal scan (`"Name"`) over every `.cs` / `.nl` / `.ts` /
+  `.json` / `.md` / `.yml` file in a **1,591-file** corpus reports **5 hits on 3 names**:
+  `DeduplicateReferencePackAssemblyNames` (`tests/DocQueryTests.cs` :92) and
+  `DeduplicateTypeCandidates` (:120) are the **TWO REAL DOORS**, and `"Lookup"` is a **THREE-hit**
+  false positive, not the inherited two — `tests/SystemsNSharpTests.cs` :975 and :1008 are an N#
+  fixture's function NAME inside an `NSYS050` assertion, and `src/NSharpLang.Compiler/Linter.cs`
+  :1404 is the `{ "Lookup", "System.Linq" }` row of the known-namespace table (`Enumerable.Lookup`).
+  `typeof(DocQuery)` reflection is **exactly 2**, both the doors. **BOTH TESTS MIGRATE WITH THEIR
+  MEMBERS.**
+
+  **THE MOVEABLE BOUNDARY IS DECIDED BY EXECUTION, AND TWO WALLS DRAW IT.** Compiled-and-run N#
+  probes against the **pinned** toolset (`Sdk 0.1.0` from the local feed), one construct per project
+  so a decline names exactly one shape:
+  | construct | result |
+  |---|---|
+  | `XElement` as a method **parameter type** | **DECLINES** `emit.declaration.method-param: static method parameter type 'XElement' could not be resolved` |
+  | `Dictionary<string, XElement>` local | **DECLINES** `emit.local.initializer` |
+  | `XDocument.Load(path)` | **DECLINES** `emit.call.static-member-unmodeled` |
+  | `XName.Get("members")` | **DECLINES** `emit.call.static-member-unmodeled` |
+  | `element.Element("members")` | **NL402** — only `Element(XName)` exists; no `string` → `XName` |
+  | `typeof(Console)` / `typeof(Environment)` / `typeof(File)` / `typeof(Enumerable)` / `typeof(Regex)` / `typeof(HttpClient)` / `typeof(JsonSerializer)` / `typeof(Guid)` / `typeof(Path)` | **DECLINE** `emit.local.initializer` |
+  | `typeof(object)` / `typeof(string)` / `typeof(DateTime)` / `typeof(Task)` / `typeof(List<int>)` / `typeof(StringComparer)` / `typeof(Process)` | **BUILD AND RUN** |
+  `System.Xml.Linq` is not a *partial* wall whose static entry points could be kept in C# while N#
+  traverses: the TYPE ITSELF is unresolvable at the declaration boundary, so nothing that touches an
+  `XElement` can move at all. And `LoadSystemAssemblies`'s seed list is 9 `typeof(T).Assembly` reads
+  of which **6 decline**, so the seed cannot move either.
+
+  **EVERYTHING ELSE THE FAMILIES NEED WAS PROVED LIVE THE SAME WAY.** A stateful N# index class
+  holding `List<Assembly>`, `Dictionary<string, Type>`, `Dictionary<string, List<Type>>` and
+  `HashSet<string>` — all three constructed with `StringComparer.OrdinalIgnoreCase` — plus a lazy
+  `List<string>?`, builds and runs end to end (`assembly.GetTypes()` → 1,343 indexed types,
+  `Resolve("String")` → `System.String`, `Dirs()` → 2). `Assembly.Load(name)`, `get_Location()`,
+  `GetName().get_Name()`, `get_Assembly()`, `GetNestedTypes()` **with and without flags**,
+  `GetConstructors/GetMethods/GetEvents(flags)`, `GetProperty/GetField/GetEvent(name, flags)` with
+  `IgnoreCase`, `MethodBase` + `is ConstructorInfo` + `get_DeclaringType()`, `ParameterInfo`
+  `get_Name()` / `get_ParameterType()`, and the whole `Type` predicate set the doc-id and kind
+  families read (`IsByRef`, `IsPointer`, `IsArray`, `GetArrayRank`, `GetElementType`,
+  `IsGenericParameter`, `get_DeclaringMethod`, `get_GenericParameterPosition`, `IsGenericType`,
+  `IsGenericTypeDefinition`, `GetGenericTypeDefinition`, `GetGenericArguments`, `IsEnum`,
+  `IsInterface`, `IsValueType`, `IsAbstract`, `IsSealed`, `IsNested`, `IsPublic`, `IsNestedPublic`,
+  `get_DeclaringType`, `get_Namespace`, `get_FullName`, `get_BaseType`, `GetInterfaces`) all build
+  and run. **`for kvp in dict` NOW WORKS** — slice 4's recorded `for-in`-over-a-`Dictionary` blocker
+  is GONE — while `new List<string>(dict.Keys)` still declines at `emit.local.initializer`, so a key
+  copy is a `for kvp` loop.
+
+  **THE THREE FAMILIES AND THEIR EXTENTS (validated extractor, this tip).**
+  | family | extents | lines | doors |
+  |---|---|---|---|
+  | type text — what a reflected type, signature, doc id and base list read as | `FormatType` (17), `FormatTypeName` (15), `FormatQualifiedType` (13), `FormatMethodSignature` (11), `FormatParameters` (7), `FormatTypeForDocId` (30), `GetMethodDocId` (7), `GetTypeKind` (9), `GetLookupTypeName` (2), `StripGenericArity` (2), `GetBaseTypes` (9) | **122** | — |
+  | type index and resolution — which CLR type a name means | `AddAssembly` (22), `GetPublicTypes` (4), `AddTypeIndex` (13), `CacheType` (9), `ResolveType` (38), `SelectBestType` (6), `DeduplicateTypeCandidates` (4), `ResolveNestedTypeChain` (18) + 5 index fields | **114** + 5 | **DOOR 2** |
+  | reference packs — where the XML docs live | `GetReferencePackDirectories` (13), `DiscoverReferencePackAssemblyNames` (4), `DeduplicateReferencePackAssemblyNames` (4), `GetXmlDocPath` (7) + 1 cache field | **28** + 1 | **DOOR 1** |
+  **270 lines / 29 extents of 671 / 51.**
+
+  **THE OWNER ASSIGNMENT — TWO NEW OWNERS, NO NEW ASSEMBLY.**
+  | extents | subject | owner |
+  |---|---|---|
+  | the type-text family | what a reflected type reads as | **`DocQueryReflectionFacts.nl` (NEW, static)** |
+  | the index + resolution + reference-pack families | which CLR type a name means, and where its docs live | **`DocQueryTypeIndex.nl` (NEW, stateful instance class)** |
+
+  **BASELINES, TAKEN BEFORE ANY WRITE.** Ratchet row `DocQuery.cs` `currentLines 740 /
+  currentNonBlank 623`, fingerprint `text-v1:3de5e338f1558272`, epoch ceilings 740 / 623.
+  `tests/DocQueryTests.cs` `142 / 118`, 37 assertion markers, `text-v1:871e8d54490da622`.
+  `reviewedHeadFingerprint head-v1:5a27bd85ac5b84f3` **REPRODUCED from the unmodified manifest by the
+  independent FNV-1a walk before any write** (`HEAD_REPRODUCED`). Inherited: unit suite **3,194**;
+  contracts **4,392**; audit **18 / 18**; manifest **391** lines, no BOM.
+
+  ---
+
+  **LANDED (no commit — mandate) — `DocQuery.cs` NO LONGER DECIDES WHICH TYPE A NAME MEANS OR WHAT A
+  TYPE READS AS. IT IS NOT CLOSED, AND THE REASON IS MEASURED RATHER THAN CLAIMED.**
+
+  **TWENTY-THREE C# EXTENTS AND SIX FIELDS DIE; TWENTY MOVE AND THREE SIMPLY END.**
+  `DocQuery.cs` **740 → 446** lines, non-blank **623 → 382**, member extents **51 → 23** summing
+  **671 → 402**, `git diff` **+45 / −339 = net −294, 39.7 %** — the arc's largest single-file cut so
+  far. The extent drop is **269** (270 moved lines less the one new `_typeIndex` field line) and the
+  other 25 deleted lines are 24 blanks and the now-empty `// ── Type Formatting ──` banner.
+  Nine extents move to **`DocQueryReflectionFacts.nl` (NEW)**, eleven plus all six fields to
+  **`DocQueryTypeIndex.nl` (NEW)**, and **three DO NOT MOVE — THEY END**: `GetLookupTypeName` (2),
+  `StripGenericArity` (2) and `DeduplicateReferencePackAssemblyNames` (4) were pure relays whose
+  behaviour already lived in `DocQueryKernels`, so the surviving C# call sites now name the kernel
+  directly instead of carrying a dead hop into N#. N# adds **498 production lines in TWO NEW owners**
+  (`DocQueryReflectionFacts.nl` 252 / 216, `DocQueryTypeIndex.nl` 246 / 210) and **31 contracts /
+  121 assertions / 484 contract lines**; contracts **4,392 → 4,423**.
+
+  **THE TWO REFLECTION DOORS ARE SHUT AND THEIR TESTS MIGRATED WITH THEM, WHICH IS WHY THE UNIT
+  COUNT MOVES.** `tests/DocQueryTests.cs` **142 → 85** lines (118 → 69, 8 tests → 6, assertion
+  markers 37 → 31): `DeduplicateTypeCandidates_PreservesFirstSourceOrder` and
+  `DeduplicateReferencePackAssemblyNames_PreservesFirstSourceOrder` — both
+  `typeof(DocQuery).GetMethod(…, NonPublic | Static)` with a throwing guard — are gone, and with them
+  `using System.Linq` and `using System.Reflection`. **The unit suite is therefore 3,194 → 3,192, and
+  the difference is exactly those two tests and nothing else.** Their assertions live on as native
+  contracts calling their subject directly: the type-candidate one on
+  `DocQueryTypeIndex.DeduplicateTypeCandidates`, and the assembly-name one on
+  `DocQueryKernels.DeduplicateStableStringsOrdinalIgnoreCase` — the kernel the reference-pack scan
+  actually calls, because the C# relay it reached through was **production-dead** (zero in-file
+  referrers; the test was the only thing keeping it alive) and carrying it into N# would have
+  imported dead code.
+
+  **THE MOVEABLE BOUNDARY WAS DRAWN BY EXECUTION AND TWO WALLS DREW IT — AND BOTH WALLS WERE
+  CONFIRMED TWICE, IN A STANDALONE PROBE AND AGAIN IN THE PRODUCTION EMIT PATH OF
+  `BootstrapServices` ITSELF.**
+  **(1) `System.Xml.Linq` IS A TOTAL WALL, NOT A PARTIAL ONE.** `XElement` cannot even be a method
+  PARAMETER TYPE — `emit.declaration.method-param: static method parameter type 'XElement' could not
+  be resolved` — so the tempting split (C# does `XDocument.Load`, N# traverses) does not exist.
+  `Dictionary<string, XElement>` declines at `emit.local.initializer`; `XDocument.Load` and
+  `XName.Get` at `emit.call.static-member-unmodeled`; and `element.Element("members")` is **NL402**
+  because only `Element(XName)` exists and there is no `string` → `XName`.
+  **(2) `typeof(T)` OF AN ARBITRARY EXTERNAL TYPE DECLINES.** `typeof(Console)`, `typeof(Environment)`,
+  `typeof(File)`, `typeof(Enumerable)`, `typeof(Regex)`, `typeof(HttpClient)`,
+  `typeof(JsonSerializer)`, `typeof(Guid)` and `typeof(Path)` all decline at
+  `emit.local.initializer`, while `typeof(object)`, `typeof(string)`, `typeof(int)`, `typeof(int[])`,
+  `typeof(DateTime)`, `typeof(Task)`, `typeof(List<int>)`, `typeof(StringComparer)` and
+  `typeof(Process)` build and run. In `BootstrapServices` the same seed array declines at
+  `emit.statement.block-child` on **block child 2**, which is `seeds[1] = typeof(Console).get_Assembly()`.
+  So `LoadSystemAssemblies`, whose seed list is nine `typeof(T).Assembly` reads of which **six
+  decline**, cannot move either.
+
+  **EVERYTHING ELSE THE THREE FAMILIES NEEDED WAS PROVED LIVE THE SAME WAY.** A stateful N# index
+  class holding `List<Assembly>`, `Dictionary<string, Type>`, two `Dictionary<string, List<Type>>`
+  and a `HashSet<string>` — all constructed with `StringComparer.OrdinalIgnoreCase` — plus a lazily
+  computed `string[]?`, builds and runs end to end (1,343 indexed types, `Resolve("String")` →
+  `System.String`). `Assembly.Load`, `get_Location`, `GetName().get_Name`, `get_Assembly`,
+  `GetTypes`, `GetNestedTypes` **with and without flags**,
+  `GetConstructors`/`GetMethods`/`GetEvents(flags)`, `GetProperty`/`GetField`/`GetEvent(name, flags)`
+  with `IgnoreCase`, `MethodBase` + `is ConstructorInfo` + `get_DeclaringType`, `ParameterInfo`
+  `get_Name`/`get_ParameterType`, and the entire `Type` predicate set the doc-id, kind and base-list
+  families read all build and run.
+
+  **THE CLOSURE VERDICT: `DocQuery.cs` IS *NOT* A ZERO-POLICY HOST, AND EVERY SURVIVING LINE IS
+  BEHIND A WALL — WHICH IS AN EXECUTABLE CLAIM, NOT A CONCESSION.** The slice-5 partition rule,
+  pointed at this file, reports **`UNCLASSIFIED = 0, POLICY = 18` over 23 extents / 402 lines**, and
+  its non-vacuity control on the pre-cut revision reports **`POLICY = 35` over 51 extents / 671
+  lines** — so the slice removes **17 of the 35 policy extents, 48.6 %**. A second classifier
+  (`nl81-wallreach.py`) then assigns every surviving extent a REASON by rule: a member is **WALLED**
+  if its own body names a `System.Xml.Linq` type or a `typeof(T)` proved undeliverable by execution,
+  **DOWNSTREAM** if it transitively calls a walled one, and **UNEXPLAINED** otherwise. It reports
+  **WALLED = 9 extents / 142 lines, DOWNSTREAM = 12 / 258, FIELD = 2 / 2, and UNEXPLAINED = 0** —
+  every one of the file's 402 remaining lines except the index handle and the global-index flag is
+  behind a measured wall. `Lookup` (45), `DescribeType` (15), `LookupMember` (112) and
+  `GetTypeMembers` (55) are DOWNSTREAM: they are pure policy and would move today but for the XML
+  summaries they read, and they are what the `System.Xml.Linq` catalog surface would unlock.
+
+  **THE TERMINALITY GREP IS CLEAN ON ALL TWENTY-THREE NAMES.** Every moved name now appears in
+  `DocQuery.cs` **only** as a qualified call into an N# owner — `bare = 0` on all 23 — and eleven of
+  them (`FormatTypeName`, `FormatTypeForDocId`, `GetLookupTypeName`, `GetPublicTypes`, `AddTypeIndex`,
+  `CacheType`, `SelectBestType`, `DeduplicateTypeCandidates`, `DeduplicateReferencePackAssemblyNames`,
+  and the two dead relays) appear **zero** times. Repo-wide, `FormatTypeForDocId`, `SelectBestType`,
+  `CacheType`, `AddTypeIndex`, `GetPublicTypes` and `DeduplicateTypeCandidates` are named **only** in
+  the two new N# owners and their contracts; `GetLookupTypeName` and
+  `DeduplicateReferencePackAssemblyNames` are named **nowhere at all**. The LSP names `DocQuery`
+  **0** times.
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL THAT IS BYTE-IDENTICAL: 2,638 COMMON ROWS, md5
+  `f77c825fb0ddd9356b87f2d148b3c228` ON BOTH SIDES, 0 MISMATCHES, 0 FAULTS, 1,807 DISTINCT ANSWERS.**
+  One `Grid.cs` compiled twice (`base/Base.csproj` with `NL81_BASE` against a pristine `5d4a204bc`
+  worktree, `work/Work.csproj` against the repo's), **both by ProjectReference**; the base side
+  reaches the deleted members by reflection on `DocQuery`'s privates, the work side calls the N#
+  owners. **Non-vacuous by census**: **630 rows over 90 `Type` shapes × 7 questions** (every
+  primitive, `void`, enums, interfaces, abstract and sealed classes, 1-D / jagged / rank-2 / rank-3 /
+  rank-4 arrays, closed and open generics, nested-in-generic, generic parameters of a TYPE and of a
+  METHOD, by-ref, pointer, pointer-to-pointer and by-ref-of-pointer); **1,689 rows over 563 methods
+  and constructors × 3** drawn from twelve BCL owners in metadata-token order; **15 arity spellings**
+  including `Outer\`1+Inner\`2`, `\`\`0` and `X\`999`; **11 order-sensitive dedupe cells**; **146
+  resolution cells over 73 query spellings asked TWICE** (so the memo is differenced, not just the
+  first answer), including the empty string, `"   "`, `"."`, `".."`, a lone backtick and `List<T>`;
+  **24 nested-chain cells** over four owners including a half-matching chain; and **24 reference-pack
+  and public-type cells**. **The last 99 rows are the LIVE ORACLE** — the product's own
+  `DocQuery.Lookup` over 99 queries, rendered field by field including every member row: **86 return
+  a populated answer, 608,468 bytes, 83 of them carrying real XML summaries.**
+  **The declared divergence is itself an assertion and it runs on BOTH sides against the SAME type**:
+  **23 members and 6 fields report PRESENT on the base and ABSENT on the work side**, and **2 N#
+  types and the `_typeIndex` field report ABSENT on the base and PRESENT on the work side** — 23 for
+  23, 6 for 6, 2 for 2 and 1 for 1.
+
+  **AND `nlc query doc` ITSELF WAS RUN ON BOTH CLIs: 130 ROWS, 0 DIFFS, 837,199 BYTES, 130
+  NON-EMPTY** — 65 query spellings × the JSON and `--format text` renderings, exit codes equal on
+  every row, spanning type lookups, member lookups, nested types, case variations, arity spellings,
+  suffix spellings and four deliberate misses.
+
+  **A PRE-EXISTING PRODUCT DEFECT WAS FOUND BY RUNNING THE COMMAND, AND IT IS NOT THIS SLICE'S.**
+  `nlc query doc` **crashes** from the shipped launcher with
+  `FileNotFoundException: Microsoft.AspNetCore.HttpLogging`, because `LoadSystemAssemblies`
+  `Assembly.Load`s **every** name the reference-pack scan discovers and the CLI's runtimeconfig
+  carries only `Microsoft.NETCore.App`. **The base CLI at `5d4a204bc` and the installed `0.1.0` nlc
+  crash identically**, so it predates this slice; the oracle above runs both CLIs from copies whose
+  `runtimeconfig.json` also lists `Microsoft.AspNetCore.App`, which is the only harness difference
+  and is applied identically to both sides. **This wants its own slice**: the fix is a product
+  decision (skip un-loadable pack assemblies, or add the framework reference), not an ownership move,
+  and this slice adds no C# policy.
+
+  **TEN ORACLE DIFFERENTIALS, ALL ZERO — AND THE NINE STANDING ONES REPRODUCE SLICE 5's md5s TO THE
+  DIGIT**: corpus **`86a4928f…`** (the FOURTEENTH slice running byte-identical), self-host
+  **`e659c04401d1a13682f9c8e91a6b8a6a`** at `checkedFiles=364, count=285`, fx75 `6c12cc5a…`,
+  fx74 `309f7902…`, fx73 `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA `b1045814…`,
+  supplementary `228dfc38…`; parse errors **0** on every one, and the inherited `NO-RESULTS` counts
+  (**7** corpus, **6** supplementary) reproduce exactly. **A TENTH ORACLE WAS ADDED BECAUSE THE
+  INHERITED SELF-HOST TARGET IS A FROZEN SNAPSHOT (`/private/tmp/nl78corpus`) THAT DOES NOT CONTAIN
+  THIS SLICE'S NEW FILES**: the same differential over the **LIVE** `BootstrapServices` tree reports
+  **0 diffs, md5 `2f1a42c4a1ba5f90f83ab30e2bbfe3b1` on both sides, `checkedFiles=368, count=288`,
+  parse errors 0, and ZERO diagnostics naming either new owner** — which is the assertion the frozen
+  target cannot make. Its first run found **one** (`NL010`, an unused
+  `import System.Collections.Generic` in `DocQueryReflectionFacts.nl`, at `error` severity); the
+  import was deleted and the oracle re-run to zero.
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** and proved the harness stable
+  (`CONTROL vs A` **118 / 118 SAME**, both the base CLI over a fresh `5d4a204bc` archive); `A vs B`
+  then gives **63 / 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files counted and
+  proved **55-of-55 copied `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps report
+  `TARGETS=73 BUILT=55 ASSEMBLIES=118`. Unsorted build transcripts **1,573 lines, 0 diffs across all
+  three sweeps**, md5 **`eb430931247159501846a08df5b1a07c`** — slice 5's digits exactly. The five-run
+  ordering pin is byte-identical over **398 targets, 391 with results, 1,255 diagnostic rows over 48
+  codes**, `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, md5 **`db729409fb7e7100a2c5bdb6401e6a78`** — the recorded
+  value. Unit suite **3,192 / 3,192**; contracts **4,423 / 4,423**; the format gate reports "All
+  files are properly formatted" (`GetTypeKind`'s five-argument call was reflowed by `nlc format` and
+  the file re-checked clean); the pre-scoring dead sweep **DEAD 0 / DETACHED 52** over 1,038 files;
+  `dev.sh --since` selected the **FULL unit suite by its own fail-safe** — it names all four new
+  `.nl` paths as unmapped — and passed **3,192 / 3,192**.
+
+  **THE FULL VS CODE-ENABLED GATE: `ALL TESTS PASSED` in 19m 42s, 108 GREEN STEPS AND ZERO FAILURES,
+  WITH THE VS CODE INTEGRATION TESTS INSIDE IT** (Step 3b, 2m 54s, **36 passing** — extension,
+  diagnostics, hover and completion) — run fresh in an isolated tree under `--commit`, every one of
+  the sixteen steps green, including the unit suite **3,192 / 3,192** (6m 20s), the whole native
+  `.tests.nl` estate with contracts **4,423 / 4,423** and the ownership audit **18 / 18** inside it,
+  and the IL verification gate over **67 N# assemblies** with no new errors against baseline. Per
+  standing precedent (8+ consecutive denials) computer-use visual verification was NOT requested; the
+  gate's VS Code evidence stands in, and this slice touches no LSP surface in any case — `grep` over
+  `src/NSharpLang.LanguageServer` finds **no reference to `DocQuery`**.
+
+  **EVERY HEADLINE NUMBER WAS RE-TAKEN ON THE BYTE-FINAL TREE AFTER THE GATE AND EVERY ONE
+  REPRODUCED — NOT ONE MOVED.** The CLI, `BootstrapServices` and the work differential side were
+  rebuilt against the SDK the gate repacked, and: the differential is still **2,638 rows, DIFFS = 0,
+  0 faults, md5 `f77c825fb0ddd9356b87f2d148b3c228` on BOTH sides**, with the declared divergence
+  still **29 PRESENT → ABSENT and 3 ABSENT → PRESENT**; `nlc query doc` across both CLIs is still
+  **130 rows, 0 diffs, 837,199 bytes, 130 non-empty**; the corpus oracle is still `ORACLE_DIFFS=0` at
+  **`86a4928f…`** (`NO-RESULTS` 7), the self-host still `ORACLE_DIFFS=0` at **`e659c044…`**, and the
+  live-tree oracle still `ORACLE_DIFFS=0` at **`2f1a42c4…`** with `checkedFiles=368, count=288` and
+  **0 diagnostics naming either new owner**; parse errors 0 on all three; the extractor still reports
+  **23 extents summing 402** on a **446 / 382** file; the partition still reports
+  `UNCLASSIFIED = 0, POLICY = 18`; the wall-reach classifier still reports
+  **WALLED 9 / 142, DOWNSTREAM 12 / 258, FIELD 2 / 2, UNEXPLAINED 0**; contracts **4,423 / 4,423**;
+  the audit **18 / 18**; the format gate clean; and the manifest is **391 lines with the head still
+  reproducing** at `04ab2c0bc3e9b0ca`. **Unlike slice 5, not even the ratchet's own row moved**,
+  because this slice renders no AST that contains `OwnershipAudit.nl`.
+
+  **RATCHET.** Two rows repinned AS THE LAST EDIT, after every production edit and after the whole
+  differential / oracle / IL / determinism set had been run: `DocQuery.cs`
+  **740 / 623 → 446 / 382**, fingerprint `3de5e338f1558272 → 2dd2de7ca1aaa308`;
+  `tests/DocQueryTests.cs` **142 / 118 → 85 / 69** with **assertion markers 37 → 31**, fingerprint
+  `871e8d54490da622 → d6f02d0329a166c3`. **Both move DOWN.** Head
+  `5a27bd85ac5b84f3 → 04ab2c0bc3e9b0ca`, mirrored into `OwnershipAudit.nl`, and the stored head was
+  REPRODUCED by the independent FNV-1a walk both before the write (`HEAD_REPRODUCED`) and after it.
+  **The repin script had to be EXTENDED and that is a finding in itself**: slice 5's `nl80-repin.py`
+  never touched `currentAssertionMarkers`, which no previous slice needed because no previous slice
+  deleted a C# test — this one deletes two, so the marker count had to be recomputed by exactly
+  `OwnershipAudit.CountAssertionMarkers`' seven ordinal markers or the head would not reproduce.
+  **The repin is non-vacuous by execution**: the audit reports **17 / 18 with 1 FAILED** against the
+  pre-repin manifest and **18 / 18** against the repinned one. Manifest **391** lines, no BOM; the
+  manifest still holds **0** `.nl` rows, which is what makes a slice adding 982 N# lines a pure
+  downward move.
+
+  **SEVEN FINDINGS.**
+  **(81.1) A `.tests.nl` IS NOT EVIDENCE ABOUT THE PRODUCTION EMIT PATH.** `typeof(Console)` appears
+  in `CompletionReflectionFacts.tests.nl` and builds — which nearly overturned the seed-list wall on
+  the strength of a grep. It does not: `NSharpExcludeTests=true` keeps `.tests.nl` out of the
+  production build entirely, and the same `typeof(Console)` in a production `.nl` of the SAME project
+  declines. **Measure the production path in the production project; a contract file compiles
+  somewhere else.**
+  **(81.2) `System.Xml.Linq` IS UNAVAILABLE AT THE DECLARATION BOUNDARY, NOT MERELY AT THE CALL.**
+  The instinct is to check whether the static entry points are modelled and, if not, keep them in C#
+  while N# traverses. `XElement` cannot be a parameter type at all
+  (`emit.declaration.method-param`), so there is no traversal half to move. **Probe a foreign
+  surface's TYPE before probing its methods** — the answer arrives in one build instead of five.
+  **(81.3) A REFLECTION PROPERTY READ MUST BE SPELLED `get_X()`, AND THE `if` CONDITION IS WHERE IT
+  BITES.** `reflectionType.FullName` in a `:=` initialiser builds (`DocQueryKernels` has used it all
+  along), but `if reflectionType.IsGenericParameter {` declines at `emit.if.condition`. Spell every
+  reflection property read as the accessor call and the whole family emits.
+  **(81.4) AN INSTANCE CALL NEEDS A NAMED RECEIVER — CHAINED *OR* INDEXED.** Both
+  `parameters[0].get_ParameterType()` and `first.get_ParameterType().get_FullName()` decline at
+  `emit.call.instance-member-unmodeled`; binding the receiver to a local fixes both. This is the
+  single most common edit in porting a reflection walk and it is mechanical.
+  **(81.5) `TryGetValue`'s OUT LOCAL MUST BE SEEDED NON-NULL.** `list: List<Type>? = null` gives
+  **NL402** — the overload takes `out TValue`, not `out TValue?` — so the estate's idiom
+  (`bucket := new List<Type>()` immediately before the call, discarded on a hit) is not a style
+  choice, it is the only shape that compiles.
+  **(81.6) `for kvp in dict` NOW WORKS AND SLICE 4's BLOCKER IS GONE**, which is what makes
+  `ResolveType`'s suffix search portable at all. `new List<string>(dict.Keys)` still declines at
+  `emit.local.initializer`, so a key copy is a `for kvp` loop. **Re-measure a recorded blocker before
+  designing around it.**
+  **(81.7) A CONTRACT MUST ASSERT WHAT THE PRODUCT DOES, AND THREE OF MINE DID NOT.** Three new
+  contracts failed on their first run and every one was the CONTRACT being wrong, not the port: a
+  doc-id KEEPS the arity suffix (`System.Collections.Generic.List\`1{System.String}`) where the human
+  spelling drops it; a by-ref parameter has no built-in alias and reads as `Int32&`; and `List<T>` is
+  not a resolvable index key because `StripGenericArity` strips `` \`N `` and not `<T>`. All three
+  are now assertions about the real behaviour, and the arity pair is the sharpest contract in the
+  file.
+
+  **WALL STATUS: TWO REAL WALLS, MEASURED TWICE EACH — AND NO REPIN.** `System.Xml.Linq` and
+  `typeof(<arbitrary external type>)` are genuinely missing catalog surface, and this slice **STOPS**
+  at them rather than repinning the toolset: the boundary they draw is exactly the boundary this
+  slice cut to, nothing that moved needed them, and everything that needs them is named above as the
+  next slice's prerequisite. Five emit declines and one analyzer refusal inside the moved families
+  (81.3–81.6) were all routed around inside existing published surface.
+
+  **THE ARC'S SURFACE AFTER THIS SLICE, RE-MEASURED BY THE VALIDATED EXTRACTOR.** Six live files
+  **6,636 lines / 5,944 non-blank / 271 extents summing 6,238** — down from **6,930 / 6,185 / 299 /
+  6,507** at slice 5's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257**:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,302 | 2,127 | 49 | 2,248 |
+  | `CodeIntelligenceService` | 1,897 | 1,659 | 92 | 1,770 |
+  | `Linter` | 1,611 | 1,453 | 65 | 1,531 |
+  | `DocQuery` (WALLED, not closed) | 446 | 382 | 23 | 402 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+
+  **NEXT FAMILY — `Linter`'s KNOWN-NAMESPACE TABLES, AND ITS DOOR CENSUS IS ALREADY RUN AND IS
+  CLEAN.** The executable census over **all 64 member names in `Linter.cs`** finds **ZERO reflection
+  doors** (`typeof(Linter)` / `Linter).Get…` = **0**) and exactly one string-literal hit, `"_config"`,
+  which is a key inside a **VS Code theme JSON** under `editors/vscode/.vscode-test/` — a corpus
+  artefact, not a door. `BuildKnownNamespaceTypes` :1274–1418 (**145**) and
+  `BuildKnownNamespaceMembers` :1425–1513 (**89**) re-measure at **234** together, each with exactly
+  **1 in-file referrer and 0 out-edges** — DATA rather than policy, and still the biggest zero-out-edge
+  cut in the arc. **After that the three walkers** are multi-slice arcs on the 017 model, whose
+  largest extents re-measure at `VisitStatement` **223**, `VisitFunction` **95**,
+  `VisitDeclaration` **73**, then `VisitExpressionInternal` **70**, `MarkVariableUsed` **63** and
+  `HandleStringInterpolation` **57**. **`CodeIntelligenceService` (1,897 / 92 / 1,770) stays LAST**:
+  it is the file the LSP itself consumes and the one that declares `ProjectSnapshot`, and closing it
+  is what would let `CompletionEngine.cs` be DELETED rather than reviewed and make
+  `OutputFormatter.cs`'s 163-site façade worth renaming away.
+  **019's COMPLETION SHAPE IS NOW VISIBLE AND IT IS NOT "ALL SIX CLOSED".** Two files are reviewed
+  zero-policy hosts; `DocQuery.cs` is a **walled** host whose remaining 402 lines are `UNEXPLAINED = 0`
+  behind two named catalog gaps; the task's own bar — "deleted or reduced to reviewed, non-growing
+  mechanical hosts" — is met by a walled host **only if the wall is recorded as the reason**, which
+  it now is. **The honest close of 019 is: `Formatter`, `Linter` and `CodeIntelligenceService`
+  reduced, and `DocQuery` either finished by a `System.Xml.Linq` catalog repin or accepted at 402
+  walled lines.** That repin is a toolset decision, not a slice decision, and it should be taken
+  deliberately rather than as a side effect.
+
+  **ARTEFACTS LEFT ON DISK FOR 019 SLICE 7.** The `/private/tmp/nl81base` worktree (pristine
+  `5d4a204bc` + Release Compiler and CLI) — **slice 7's base must be the commit that lands THIS
+  slice**, so re-create rather than reuse. **The two-sided differential harness is
+  `/private/tmp/nl81grid`** — ONE `Grid.cs` compiled twice, carrying the 90-type census, the
+  563-method census, the arity, dedupe, resolution, nested-chain and reference-pack grids, the
+  99-row live oracle and the two-sided declared-divergence section. **The `nlc query doc` oracle is
+  `/private/tmp/nl81-docoracle.sh` with `/private/tmp/nl81-doc-queries.txt`**, driving
+  `/private/tmp/nl81cli{A,B}` — copies of both CLIs whose `runtimeconfig.json` lists
+  `Microsoft.AspNetCore.App`, **without which `nlc query doc` crashes on both sides**. **The N# emit
+  probes are `/private/tmp/nl81iso`** — a one-construct-per-project isolation harness
+  (`run.sh <name> <body-file>`) that names each decline exactly, plus `/private/tmp/nl81iso/stateclass`,
+  the stateful-index proof. IL trees and captures: `/private/tmp/nl81il{Ctrl,A,B}Tree` with outputs
+  under `/private/tmp/nl81out{Ctrl,A,B}`. Harnesses in the scratchpad: `nl62_members.py` (the
+  extractor, **re-validated on SIX checkpoints before it was trusted**), `nl78-deadsweep.py`,
+  **`nl81/nl81-census.py` — THE WHOLE-FILE REFLECTION-DOOR CENSUS, which prints the surrounding line
+  so a hit can be READ rather than counted**, `nl81-partition.py` (takes `--control <ref>`),
+  **`nl81-wallreach.py` — the executable "why does this line still exist" classifier whose
+  `UNEXPLAINED` count is the honest closure verdict**, `nl81-oracle.sh`, `nl81-run-oracles.sh`,
+  `nl81-ilsweep.sh`, `nl81-run-il.sh`, `nl80-ilcompare.py`, `nl80-transnorm.py`,
+  `nl81-determinism.sh` and **`nl81-repin.py`, which now recomputes `currentAssertionMarkers`**.
+  **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `5d4a204bc`):
   **019 SLICE 5 — OUTPUTFORMATTER'S LAST POLICY: WHAT A PARSED FILE LOOKS LIKE AS JSON.**
 
   **THE EXTRACTOR WAS RE-VALIDATED ON FOUR CHECKPOINTS BEFORE IT WAS TRUSTED, NOT THE REQUIRED TWO.**

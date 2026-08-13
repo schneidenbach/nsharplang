@@ -17,19 +17,14 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 ///   var result = query.Lookup("Console");              // → System.Console
 ///   var result = query.Lookup("Console.WriteLine");    // → System.Console.WriteLine overloads
 ///   var result = query.Lookup("System.Console");       // → exact match
-///   var result = query.Lookup("List");                 // → System.Collections.Generic.List<T>
+///   var result = query.Lookup("List");                 // → System.Collections.Generic.List&lt;T&gt;
 /// </summary>
 public class DocQuery
 {
     private readonly Dictionary<string, XDocument> _loadedDocs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Dictionary<string, XElement>> _docIndexes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, XElement> _globalDocIndex = new(StringComparer.Ordinal);
-    private readonly List<Assembly> _assemblies = new();
-    private readonly Dictionary<string, Type> _typeCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, List<Type>> _typesBySimpleName = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, List<Type>> _typesByQualifiedName = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _loadedAssemblyNames = new(StringComparer.OrdinalIgnoreCase);
-    private List<string>? _referencePackDirectories;
+    private readonly DocQueryTypeIndex _typeIndex = new();
     private bool _globalDocIndexLoaded;
 
     /// <summary>
@@ -51,15 +46,15 @@ public class DocQuery
         };
 
         foreach (var assembly in seedAssemblies)
-            AddAssembly(assembly);
+            _typeIndex.AddAssembly(assembly);
 
         foreach (var assembly in ExternalAssemblyScan.Loaded())
-            AddAssembly(assembly);
+            _typeIndex.AddAssembly(assembly);
 
         // Discover additional assemblies from reference packs
-        foreach (var asmName in DiscoverReferencePackAssemblyNames())
+        foreach (var asmName in _typeIndex.DiscoverReferencePackAssemblyNames())
         {
-            AddAssembly(Assembly.Load(asmName));
+            _typeIndex.AddAssembly(Assembly.Load(asmName));
         }
     }
 
@@ -71,7 +66,7 @@ public class DocQuery
     {
         if (string.IsNullOrWhiteSpace(query)) return null;
 
-        var exactType = ResolveType(query);
+        var exactType = _typeIndex.ResolveType(query);
         if (exactType != null)
         {
             return DescribeType(exactType);
@@ -85,10 +80,10 @@ public class DocQuery
 
         foreach (var splitPlan in splitPlans)
         {
-            var type = ResolveType(splitPlan.TypeCandidate);
+            var type = _typeIndex.ResolveType(splitPlan.TypeCandidate);
             if (type == null) continue;
 
-            var nestedType = ResolveNestedTypeChain(type, splitPlan.RemainderParts);
+            var nestedType = DocQueryTypeIndex.ResolveNestedTypeChain(type, splitPlan.RemainderParts);
             if (nestedType != null)
             {
                 return DescribeType(nestedType);
@@ -96,7 +91,7 @@ public class DocQuery
 
             if (splitPlan.HasContainingType)
             {
-                var containingType = ResolveNestedTypeChain(type, splitPlan.ContainingTypeParts);
+                var containingType = DocQueryTypeIndex.ResolveNestedTypeChain(type, splitPlan.ContainingTypeParts);
                 if (containingType != null)
                 {
                     return LookupMember(containingType, splitPlan.LastRemainder);
@@ -113,12 +108,12 @@ public class DocQuery
     {
         var summary = GetTypeSummary(type);
         var members = GetTypeMembers(type);
-        var baseTypes = GetBaseTypes(type);
+        var baseTypes = DocQueryReflectionFacts.GetBaseTypes(type);
 
         return DocQueryKernels.CreateTypeDocResult(
-            StripGenericArity(type.Name),
-            FormatQualifiedType(type),
-            GetTypeKind(type),
+            DocQueryKernels.StripGenericArity(type.Name),
+            DocQueryReflectionFacts.FormatQualifiedType(type),
+            DocQueryReflectionFacts.GetTypeKind(type),
             summary,
             type.Namespace,
             members,
@@ -141,22 +136,22 @@ public class DocQuery
         if (constructors.Length > 0)
         {
             var overloads = constructors.Select(c => DocQueryKernels.CreateDocMemberResult(
-                FormatMethodSignature(c),
+                DocQueryReflectionFacts.FormatMethodSignature(c),
                 "constructor",
                 null,
                 GetMethodSummary(c),
-                FormatParameters(c)
+                DocQueryReflectionFacts.FormatParameters(c)
             )).ToArray();
 
             return DocQueryKernels.CreateCallableDocResult(
-                StripGenericArity(type.Name),
-                FormatQualifiedType(type),
+                DocQueryKernels.StripGenericArity(type.Name),
+                DocQueryReflectionFacts.FormatQualifiedType(type),
                 DocQueryKernels.GetOverloadKindText("constructor", constructors.Length),
                 GetMethodSummary(constructors[0]),
                 type.Namespace,
                 overloads,
                 constructors[0].GetParameters().Select(p => DocQueryKernels.CreateDocParameterResult(
-                    p.Name, FormatType(p.ParameterType), GetParameterSummary(constructors[0], p.Name)
+                    p.Name, DocQueryReflectionFacts.FormatType(p.ParameterType), GetParameterSummary(constructors[0], p.Name)
                 )).ToArray(),
                 null,
                 null);
@@ -171,26 +166,26 @@ public class DocQuery
         {
             // Return all overloads
             var overloads = methods.Select(m => DocQueryKernels.CreateDocMemberResult(
-                FormatMethodSignature(m),
+                DocQueryReflectionFacts.FormatMethodSignature(m),
                 "method",
-                FormatType(m.ReturnType),
+                DocQueryReflectionFacts.FormatType(m.ReturnType),
                 GetMethodSummary(m),
-                FormatParameters(m)
+                DocQueryReflectionFacts.FormatParameters(m)
             )).ToArray();
 
             var firstDoc = GetMethodSummary(methods[0]);
 
             return DocQueryKernels.CreateCallableDocResult(
                 memberName,
-                DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), memberName),
+                DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(type), memberName),
                 DocQueryKernels.GetOverloadKindText("method", methods.Length),
                 firstDoc,
                 type.Namespace,
                 overloads,
                 methods[0].GetParameters().Select(p => DocQueryKernels.CreateDocParameterResult(
-                    p.Name, FormatType(p.ParameterType), GetParameterSummary(methods[0], p.Name)
+                    p.Name, DocQueryReflectionFacts.FormatType(p.ParameterType), GetParameterSummary(methods[0], p.Name)
                 )).ToArray(),
-                FormatType(methods[0].ReturnType),
+                DocQueryReflectionFacts.FormatType(methods[0].ReturnType),
                 GetReturnsSummary(methods[0]));
         }
 
@@ -201,11 +196,11 @@ public class DocQuery
         {
             return DocQueryKernels.CreateValueDocResult(
                 prop.Name,
-                DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), prop.Name),
+                DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(type), prop.Name),
                 "property",
                 GetPropertySummary(prop),
                 type.Namespace,
-                FormatType(prop.PropertyType));
+                DocQueryReflectionFacts.FormatType(prop.PropertyType));
         }
 
         // Look for fields
@@ -215,11 +210,11 @@ public class DocQuery
         {
             return DocQueryKernels.CreateValueDocResult(
                 field.Name,
-                DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), field.Name),
+                DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(type), field.Name),
                 "field",
                 GetFieldSummary(field),
                 type.Namespace,
-                FormatType(field.FieldType));
+                DocQueryReflectionFacts.FormatType(field.FieldType));
         }
 
         var evt = type.GetEvent(memberName,
@@ -228,50 +223,11 @@ public class DocQuery
         {
             return DocQueryKernels.CreateValueDocResult(
                 evt.Name,
-                DocQueryKernels.FormatMemberFullName(FormatQualifiedType(type), evt.Name),
+                DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(type), evt.Name),
                 "event",
                 GetEventSummary(evt),
                 type.Namespace,
-                evt.EventHandlerType != null ? FormatType(evt.EventHandlerType) : null);
-        }
-
-        return null;
-    }
-
-    private Type? ResolveType(string name)
-    {
-        if (_typeCache.TryGetValue(name, out var cached))
-            return cached;
-
-        var strippedName = StripGenericArity(name);
-
-        if (_typesByQualifiedName.TryGetValue(name, out var exactMatches) && exactMatches.Count > 0)
-        {
-            return CacheType(name, SelectBestType(name, exactMatches));
-        }
-
-        if (_typesByQualifiedName.TryGetValue(strippedName, out var strippedMatches) && strippedMatches.Count > 0)
-        {
-            return CacheType(name, SelectBestType(name, strippedMatches));
-        }
-
-        if (DocQueryKernels.ShouldSearchQualifiedSuffix(strippedName))
-        {
-            var suffixMatches = DeduplicateTypeCandidates(_typesByQualifiedName
-                .Where(kvp => DocQueryKernels.IsQualifiedTypeSuffixMatch(kvp.Key, strippedName))
-                .SelectMany(kvp => kvp.Value)
-                .ToArray());
-
-            if (suffixMatches.Length > 0)
-            {
-                return CacheType(name, SelectBestType(name, suffixMatches));
-            }
-        }
-
-        var shortName = DocQueryKernels.GetResolveTypeShortName(strippedName);
-        if (_typesBySimpleName.TryGetValue(shortName, out var simpleMatches) && simpleMatches.Count > 0)
-        {
-            return CacheType(name, SelectBestType(name, simpleMatches));
+                evt.EventHandlerType != null ? DocQueryReflectionFacts.FormatType(evt.EventHandlerType) : null);
         }
 
         return null;
@@ -283,7 +239,7 @@ public class DocQuery
         GetDocSummary(type.Assembly, DocQueryKernels.GetReflectionTypeDocId(type));
 
     private string? GetMethodSummary(MethodBase method) =>
-        GetDocSummary(method.DeclaringType?.Assembly, GetMethodDocId(method));
+        GetDocSummary(method.DeclaringType?.Assembly, DocQueryReflectionFacts.GetMethodDocId(method));
 
     private string? GetPropertySummary(PropertyInfo prop) =>
         GetDocSummary(prop.DeclaringType?.Assembly,
@@ -300,7 +256,7 @@ public class DocQuery
     private string? GetParameterSummary(MethodBase method, string? paramName)
     {
         if (paramName == null) return null;
-        var element = GetDocElement(method.DeclaringType?.Assembly, GetMethodDocId(method));
+        var element = GetDocElement(method.DeclaringType?.Assembly, DocQueryReflectionFacts.GetMethodDocId(method));
         return FormatDocText(element?.Elements("param")
             .FirstOrDefault(p => p.Attribute("name")?.Value == paramName)
         );
@@ -308,7 +264,7 @@ public class DocQuery
 
     private string? GetReturnsSummary(MethodInfo method)
     {
-        var element = GetDocElement(method.DeclaringType?.Assembly, GetMethodDocId(method));
+        var element = GetDocElement(method.DeclaringType?.Assembly, DocQueryReflectionFacts.GetMethodDocId(method));
         return FormatDocText(element?.Element("returns"));
     }
 
@@ -355,7 +311,7 @@ public class DocQuery
         _docIndexes[assemblyName] = index;
 
         {
-            var xmlPath = GetXmlDocPath(assembly);
+            var xmlPath = _typeIndex.GetXmlDocPath(assembly);
             if (!File.Exists(xmlPath)) return;
 
             var doc = XDocument.Load(xmlPath);
@@ -371,8 +327,6 @@ public class DocQuery
         }
     }
 
-    // ── Type Formatting ──────────────────────────────────────────────────
-
     private DocMemberResult[] GetTypeMembers(Type type)
     {
         var results = new List<DocMemberResult>();
@@ -380,9 +334,9 @@ public class DocQuery
         foreach (var nestedType in type.GetNestedTypes(BindingFlags.Public))
         {
             results.Add(DocQueryKernels.CreateDocMemberResult(
-                StripGenericArity(nestedType.Name),
+                DocQueryKernels.StripGenericArity(nestedType.Name),
                 "nested type",
-                FormatQualifiedType(nestedType),
+                DocQueryReflectionFacts.FormatQualifiedType(nestedType),
                 GetTypeSummary(nestedType),
                 null));
         }
@@ -390,17 +344,17 @@ public class DocQuery
         foreach (var ctor in type.GetConstructors(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
         {
             results.Add(DocQueryKernels.CreateDocMemberResult(
-                FormatMethodSignature(ctor),
+                DocQueryReflectionFacts.FormatMethodSignature(ctor),
                 "constructor",
                 null,
                 GetMethodSummary(ctor),
-                FormatParameters(ctor)));
+                DocQueryReflectionFacts.FormatParameters(ctor)));
         }
 
         // Properties
         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
         {
-            results.Add(DocQueryKernels.CreateDocMemberResult(prop.Name, "property", FormatType(prop.PropertyType),
+            results.Add(DocQueryKernels.CreateDocMemberResult(prop.Name, "property", DocQueryReflectionFacts.FormatType(prop.PropertyType),
                 GetPropertySummary(prop), null));
         }
 
@@ -408,216 +362,25 @@ public class DocQuery
         foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
             .Where(m => !m.IsSpecialName))
         {
-            results.Add(DocQueryKernels.CreateDocMemberResult(method.Name, "method", FormatType(method.ReturnType),
-                GetMethodSummary(method), FormatParameters(method)));
+            results.Add(DocQueryKernels.CreateDocMemberResult(method.Name, "method", DocQueryReflectionFacts.FormatType(method.ReturnType),
+                GetMethodSummary(method), DocQueryReflectionFacts.FormatParameters(method)));
         }
 
         // Fields
         foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
         {
-            results.Add(DocQueryKernels.CreateDocMemberResult(field.Name, "field", FormatType(field.FieldType),
+            results.Add(DocQueryKernels.CreateDocMemberResult(field.Name, "field", DocQueryReflectionFacts.FormatType(field.FieldType),
                 GetFieldSummary(field), null));
         }
 
         foreach (var evt in type.GetEvents(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
         {
             results.Add(DocQueryKernels.CreateDocMemberResult(evt.Name, "event",
-                evt.EventHandlerType != null ? FormatType(evt.EventHandlerType) : null,
+                evt.EventHandlerType != null ? DocQueryReflectionFacts.FormatType(evt.EventHandlerType) : null,
                 GetEventSummary(evt), null));
         }
 
         return DocQueryKernels.OrderDocMembers(results);
-    }
-
-    private string[] GetBaseTypes(Type type)
-    {
-        var baseTypeDisplayName = type.BaseType != null ? FormatType(type.BaseType) : null;
-        var interfaceDisplayNames = type.GetInterfaces().Select(FormatType).ToArray();
-        return DocQueryKernels.FormatBaseTypeList(
-            type.BaseType?.FullName,
-            baseTypeDisplayName,
-            interfaceDisplayNames);
-    }
-
-    private static string FormatType(Type type)
-    {
-        if (type.IsGenericParameter) return type.Name;
-        var builtinName = DocQueryKernels.FormatBuiltinTypeName(type.FullName);
-        if (builtinName != null) return builtinName;
-
-        if (type.IsGenericType)
-        {
-            var formattedArgs = type.GetGenericArguments().Select(FormatType).ToArray();
-            return DocQueryKernels.FormatGenericTypeName(type.Name, formattedArgs);
-        }
-
-        if (type.IsArray)
-            return DocQueryKernels.FormatArrayTypeName(FormatType(type.GetElementType()!));
-
-        return StripGenericArity(type.Name);
-    }
-
-    private static string FormatMethodSignature(MethodBase method)
-    {
-        var parameters = method.GetParameters();
-        var parameterNames = parameters.Select(p => p.Name ?? "").ToArray();
-        var parameterTypeNames = parameters.Select(p => FormatType(p.ParameterType)).ToArray();
-        var name = DocQueryKernels.GetMethodSignatureName(
-            method.Name,
-            method.DeclaringType?.Name,
-            method is ConstructorInfo);
-        return DocQueryKernels.FormatMethodSignature(name, parameterNames, parameterTypeNames);
-    }
-
-    private static string FormatParameters(MethodBase method)
-    {
-        var parameters = method.GetParameters();
-        var parameterNames = parameters.Select(p => p.Name ?? "").ToArray();
-        var parameterTypeNames = parameters.Select(p => FormatType(p.ParameterType)).ToArray();
-        return DocQueryKernels.FormatParameterList(parameterNames, parameterTypeNames);
-    }
-
-    private static string FormatTypeForDocId(Type type)
-    {
-        if (type.IsByRef)
-            return DocQueryKernels.FormatByRefTypeDocId(FormatTypeForDocId(type.GetElementType()!));
-
-        if (type.IsPointer)
-            return DocQueryKernels.FormatPointerTypeDocId(FormatTypeForDocId(type.GetElementType()!));
-
-        if (type.IsArray)
-        {
-            var elementType = FormatTypeForDocId(type.GetElementType()!);
-            return DocQueryKernels.FormatArrayTypeDocId(elementType, type.GetArrayRank());
-        }
-
-        if (type.IsGenericParameter)
-        {
-            return DocQueryKernels.FormatGenericParameterDocId(
-                type.DeclaringMethod != null,
-                type.GenericParameterPosition);
-        }
-
-        if (type.IsGenericType)
-        {
-            var genericType = type.IsGenericTypeDefinition ? type : type.GetGenericTypeDefinition();
-            var parameterTypeDocIds = type.GetGenericArguments().Select(FormatTypeForDocId).ToArray();
-            return DocQueryKernels.FormatGenericTypeDocId(genericType.FullName, parameterTypeDocIds);
-        }
-
-        return DocQueryKernels.FormatNamedTypeDocId(type.FullName, type.Name);
-    }
-
-    private static string GetTypeKind(Type type)
-    {
-        return DocQueryKernels.GetReflectionTypeKind(
-            type.IsEnum,
-            type.IsInterface,
-            type.IsValueType,
-            type.IsAbstract,
-            type.IsSealed);
-    }
-
-    private void AddAssembly(Assembly assembly)
-    {
-        var assemblyName = assembly.GetName().Name ?? assembly.FullName;
-        if (string.IsNullOrWhiteSpace(assemblyName) || !_loadedAssemblyNames.Add(assemblyName))
-        {
-            return;
-        }
-
-        _assemblies.Add(assembly);
-
-        foreach (var type in GetPublicTypes(assembly))
-        {
-            AddTypeIndex(_typesBySimpleName, StripGenericArity(type.Name), type);
-            AddTypeIndex(_typesByQualifiedName, GetLookupTypeName(type), type);
-
-            var fullName = DocQueryKernels.GetQualifiedTypeIndexName(type.FullName);
-            if (fullName != null)
-            {
-                AddTypeIndex(_typesByQualifiedName, fullName, type);
-            }
-        }
-    }
-
-    private static IEnumerable<Type> GetPublicTypes(Assembly assembly)
-    {
-            return assembly.GetTypes().Where(t => DocQueryKernels.ShouldIncludePublicType(t.IsPublic, t.IsNestedPublic));
-    }
-
-    private static void AddTypeIndex(Dictionary<string, List<Type>> index, string key, Type type)
-    {
-        if (!index.TryGetValue(key, out var list))
-        {
-            list = new List<Type>();
-            index[key] = list;
-        }
-
-        if (!list.Contains(type))
-        {
-            list.Add(type);
-        }
-    }
-
-    private Type? CacheType(string name, Type? type)
-    {
-        if (type != null)
-        {
-            _typeCache[name] = type;
-        }
-
-        return type;
-    }
-
-    private static Type? ResolveNestedTypeChain(Type type, IEnumerable<string> parts)
-    {
-        var current = type;
-        foreach (var part in parts)
-        {
-            var next = current.GetNestedTypes(BindingFlags.Public)
-                .FirstOrDefault(t => DocQueryKernels.IsDocMemberNameMatch(t.Name, part));
-
-            if (next == null)
-            {
-                return null;
-            }
-
-            current = next;
-        }
-
-        return current;
-    }
-
-    private static Type? SelectBestType(string query, IEnumerable<Type> candidates)
-    {
-        var candidateList = candidates as IReadOnlyList<Type> ?? candidates.ToArray();
-        var distinctCandidates = DeduplicateTypeCandidates(candidateList);
-        return DocQueryKernels.SelectBestDocType(query, distinctCandidates);
-    }
-
-    private static Type[] DeduplicateTypeCandidates(IReadOnlyList<Type> candidates)
-    {
-        return DocQueryKernels.DeduplicateStableTypes(candidates);
-    }
-
-    private static string GetLookupTypeName(Type type)
-        => DocQueryKernels.GetReflectionLookupTypeName(type);
-
-    private static string GetMethodDocId(MethodBase method)
-    {
-        var parameters = method.GetParameters();
-        var parameterTypeDocIds = parameters.Select(p => FormatTypeForDocId(p.ParameterType)).ToArray();
-        var memberName = DocQueryKernels.GetMethodDocMemberName(method.Name, method is ConstructorInfo);
-        return DocQueryKernels.GetMethodDocId(method.DeclaringType?.FullName, memberName, parameterTypeDocIds);
-    }
-
-    private string GetXmlDocPath(Assembly assembly)
-    {
-        return DocQueryKernels.GetXmlDocPath(
-            assembly.Location,
-            assembly.GetName().Name,
-            GetReferencePackDirectories().ToArray());
     }
 
     private void EnsureGlobalDocIndex()
@@ -629,7 +392,7 @@ public class DocQuery
 
         _globalDocIndexLoaded = true;
 
-        foreach (var refDir in GetReferencePackDirectories())
+        foreach (var refDir in _typeIndex.GetReferencePackDirectories())
         {
             IEnumerable<string> xmlFiles;
             {
@@ -655,63 +418,6 @@ public class DocQuery
             }
         }
     }
-
-    private IEnumerable<string> DiscoverReferencePackAssemblyNames()
-    {
-        return DocQueryKernels.DiscoverReferencePackAssemblyNames(GetReferencePackDirectories().ToArray());
-    }
-
-    private static string[] DeduplicateReferencePackAssemblyNames(IReadOnlyList<string> names)
-    {
-        return DocQueryKernels.DeduplicateStableStringsOrdinalIgnoreCase(names);
-    }
-
-    private IEnumerable<string> GetReferencePackDirectories()
-    {
-        if (_referencePackDirectories != null)
-        {
-            return _referencePackDirectories;
-        }
-
-        _referencePackDirectories = DocQueryKernels.GetReferencePackDirectories(
-            _assemblies.Select(assembly => assembly.Location).ToArray(),
-            Environment.GetEnvironmentVariable("DOTNET_ROOT")).ToList();
-
-        return _referencePackDirectories;
-    }
-
-    private static string FormatQualifiedType(Type type)
-    {
-        if (type.IsGenericParameter) return type.Name;
-
-        if (type.IsNested && type.DeclaringType != null)
-        {
-            return DocQueryKernels.FormatNestedQualifiedTypeName(
-                FormatQualifiedType(type.DeclaringType),
-                FormatTypeName(type));
-        }
-
-        return DocQueryKernels.FormatQualifiedTypeName(type.Namespace, FormatTypeName(type));
-    }
-
-    private static string FormatTypeName(Type type)
-    {
-        var name = StripGenericArity(type.Name);
-        if (!type.IsGenericType)
-        {
-            return name;
-        }
-
-        var args = type.GetGenericArguments();
-        var formattedArgs = type.IsGenericTypeDefinition
-            ? args.Select(a => a.Name)
-            : args.Select(FormatType);
-
-        return DocQueryKernels.FormatGenericTypeName(name, formattedArgs.ToArray());
-    }
-
-    private static string StripGenericArity(string name)
-        => DocQueryKernels.StripGenericArity(name);
 
     private static string? FormatDocText(XElement? element)
     {
