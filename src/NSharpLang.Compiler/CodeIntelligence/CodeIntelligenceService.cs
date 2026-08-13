@@ -1593,12 +1593,6 @@ public class CodeIntelligenceService
         };
     }
 
-    /// <summary>
-    /// Public accessor for type reference formatting (used by CompletionEngine).
-    /// </summary>
-    public static string FormatTypeReferencePublic(TypeReference? typeRef)
-        => TypeReferenceFacts.GetDisplayNameOrVoid(typeRef);
-
     private static string FormatTypeReference(TypeReference? typeRef)
         => TypeReferenceFacts.GetDisplayNameOrVoid(typeRef);
 

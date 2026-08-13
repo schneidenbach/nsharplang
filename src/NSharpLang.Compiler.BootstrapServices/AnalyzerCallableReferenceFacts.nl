@@ -139,10 +139,13 @@ class AnalyzerCallableReferenceFacts {
     }
 
     // The declared modifier of parameter `index`, or `None` when the function type carries no
-    // modifier list or the list is shorter than the parameter list.
+    // modifier list or the index falls outside it. The read is TOTAL in both directions: a negative
+    // index is `None`, not a fault. (The completion engine's own copy of this rule carried the
+    // `index < 0` arm and the analyzer's did not; task 019 slice 1 deleted the copy and kept the
+    // wider guard, because the two callers must not disagree about what an out-of-range read means.)
     static func GetFunctionParameterModifier(functionType: FunctionTypeInfo, index: int): ParameterModifier {
         modifiers := functionType.ParameterModifiers
-        if modifiers == null || index >= modifiers.Count {
+        if modifiers == null || index < 0 || index >= modifiers.Count {
             return ParameterModifier.None
         }
 

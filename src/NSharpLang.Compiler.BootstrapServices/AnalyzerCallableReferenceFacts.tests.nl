@@ -219,6 +219,13 @@ test "the delegate parameter modifier read is total over absent and short modifi
     // Reading PAST the list is `None`, not a fault: an unmodified trailing parameter is the norm.
     assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, 4) == ParameterModifier.None
     assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, 99) == ParameterModifier.None
+
+    // And reading BEFORE it is `None` too — the guard the completion engine's deleted copy carried
+    // (task 019 slice 1). Without it this is an index fault, not an answer.
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, -1) == ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, -99) == ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(absent, -1) == ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(empty, -1) == ParameterModifier.None
 }
 
 test "delegate signature matching erases params and keeps ref and out" {

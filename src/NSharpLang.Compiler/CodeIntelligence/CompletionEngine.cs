@@ -236,7 +236,7 @@ public class CompletionEngine
             foreach (var (name, typeInfo) in visibleVars)
             {
                 if (semanticModel.Functions.ContainsKey(name)) continue; // shown as functions
-                variables.Add(new CompletionItem(name, "variable", FormatTypeInfo(typeInfo), null, null, false));
+                variables.Add(new CompletionItem(name, "variable", CompletionTypeTextFacts.FormatTypeText(typeInfo), null, null, false));
             }
             if (variables.Count > 0)
                 completions["variables"] = variables;
@@ -245,9 +245,9 @@ public class CompletionEngine
             foreach (var (name, typeInfo) in semanticModel.Functions)
             {
                 var paramStr = typeInfo is FunctionTypeInfo functionType
-                    ? FormatParameters(functionType)
+                    ? CompletionTypeTextFacts.FormatFunctionTypeParameters(functionType)
                     : null;
-                functions.Add(new CompletionItem(name, "function", FormatTypeInfo(typeInfo), paramStr, null, false));
+                functions.Add(new CompletionItem(name, "function", CompletionTypeTextFacts.FormatTypeText(typeInfo), paramStr, null, false));
             }
             if (functions.Count > 0)
                 completions["functions"] = functions;
@@ -286,7 +286,7 @@ public class CompletionEngine
         Dictionary<string, List<CompletionItem>> completions,
         MemberFilter filter)
     {
-        var typeName = FormatTypeInfo(typeInfo);
+        var typeName = CompletionTypeTextFacts.FormatTypeText(typeInfo);
 
         // Prefer source-defined N# members over CLR types with the same simple name.
         // The Language Server already follows this rule; the shared playground/CLI
@@ -429,7 +429,7 @@ public class CompletionEngine
         {
             names[index] = method.Name;
             kinds[index] = "method";
-            typeTexts[index] = FormatClrType(method.ReturnType);
+            typeTexts[index] = CompletionTypeTextFacts.FormatClrTypeText(method.ReturnType);
             isStaticValues[index] = method.IsStatic;
             index++;
         }
@@ -441,7 +441,7 @@ public class CompletionEngine
 
             names[index] = property.Name;
             kinds[index] = "property";
-            typeTexts[index] = FormatClrType(property.PropertyType);
+            typeTexts[index] = CompletionTypeTextFacts.FormatClrTypeText(property.PropertyType);
             isStaticValues[index] = property.GetMethod?.IsStatic ?? false;
             index++;
         }
@@ -453,7 +453,7 @@ public class CompletionEngine
 
             names[index] = field.Name;
             kinds[index] = "field";
-            typeTexts[index] = FormatClrType(field.FieldType);
+            typeTexts[index] = CompletionTypeTextFacts.FormatClrTypeText(field.FieldType);
             isStaticValues[index] = field.IsStatic;
             index++;
         }
@@ -467,26 +467,6 @@ public class CompletionEngine
         }
 
         return CompletionEngineKernels.BuildMemberItemsFromRows(names, kinds, typeTexts, isStaticValues);
-    }
-
-    private static string FormatClrType(Type type)
-    {
-        if (type.FullName == "System.Void") return "void";
-        if (type.FullName == "System.Int32") return "int";
-        if (type.FullName == "System.Int64") return "long";
-        if (type.FullName == "System.String") return "string";
-        if (type.FullName == "System.Boolean") return "bool";
-        if (type.FullName == "System.Double") return "double";
-        if (type.FullName == "System.Single") return "float";
-        if (type.FullName == "System.Object") return "object";
-        if (type.IsGenericType)
-        {
-            var baseName = type.Name.Split('`')[0];
-            var args = string.Join(", ", type.GetGenericArguments().Select(FormatClrType));
-            return $"{baseName}<{args}>";
-        }
-
-        return type.Name;
     }
 
     /// <summary>
@@ -606,7 +586,7 @@ public class CompletionEngine
 
         foreach (var member in members)
         {
-            var item = DeclaredMemberToCompletionItem(member, memberContext: true);
+            var item = CompletionDeclarationFacts.DeclaredMemberToCompletionItem(member, true);
             if (item != null) items.Add(item);
         }
 
@@ -619,7 +599,7 @@ public class CompletionEngine
         if (directMembers != null)
             return directMembers;
 
-        var typeName = FormatTypeInfo(typeInfo);
+        var typeName = CompletionTypeTextFacts.FormatTypeText(typeInfo);
         var simpleName = typeName.Contains('.', StringComparison.Ordinal)
             ? typeName.Split('.').Last()
             : typeName;
@@ -671,106 +651,6 @@ public class CompletionEngine
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    private static CompletionItem? DeclaredMemberToCompletionItem(DeclaredMemberInfo member, bool memberContext = false) => member.Kind switch
-    {
-        DeclaredMemberKind.Function => new CompletionItem(member.Name, memberContext ? "method" : "function",
-            CodeIntelligenceService.FormatTypeReferencePublic(member.ReturnType),
-            FormatParameters(member), null, member.IsStatic),
-        DeclaredMemberKind.Class => new CompletionItem(member.Name, "class", null, null, null, false),
-        DeclaredMemberKind.Struct => new CompletionItem(member.Name, "struct", null, null, null, false),
-        DeclaredMemberKind.Record => new CompletionItem(member.Name, "record", null, null, null, false),
-        DeclaredMemberKind.Interface => new CompletionItem(member.Name, "interface", null, null, null, false),
-        DeclaredMemberKind.Enum => new CompletionItem(member.Name, "enum", null, null, null, false),
-        DeclaredMemberKind.Union => new CompletionItem(member.Name, "union", null, null, null, false),
-        DeclaredMemberKind.Field => new CompletionItem(member.Name, "property",
-            CodeIntelligenceService.FormatTypeReferencePublic(member.Type), null, null, member.IsStatic),
-        DeclaredMemberKind.Property => new CompletionItem(member.Name, "property",
-            CodeIntelligenceService.FormatTypeReferencePublic(member.Type), null, null, member.IsStatic),
-        _ => null
-    };
-
-    private static string FormatParameters(List<Parameter> parameters)
-    {
-        var parts = parameters.Select(p =>
-        {
-            var typeStr = CodeIntelligenceService.FormatTypeReferencePublic(p.Type);
-            return p.DefaultValue != null ? $"{p.Name} {typeStr} = ..." : $"{p.Name} {typeStr}";
-        });
-        return $"({string.Join(", ", parts)})";
-    }
-
-    private static string FormatParameters(DeclaredMemberInfo member)
-    {
-        var parts = new List<string>(member.ParameterNames.Length);
-        for (var index = 0; index < member.ParameterNames.Length; index++)
-        {
-            var typeStr = index < member.ParameterTypes.Length
-                ? CodeIntelligenceService.FormatTypeReferencePublic(member.ParameterTypes[index])
-                : "unknown";
-            var hasDefaultValue = index >= member.RequiredParameterCount
-                && GetDeclaredMemberParameterModifier(member, index) != ParameterModifier.Params;
-            parts.Add(hasDefaultValue
-                ? $"{member.ParameterNames[index]} {typeStr} = ..."
-                : $"{member.ParameterNames[index]} {typeStr}");
-        }
-
-        return $"({string.Join(", ", parts)})";
-    }
-
-    private static string? FormatParameters(FunctionTypeInfo function)
-    {
-        if (function.ParameterNames == null)
-            return null;
-
-        var parts = new List<string>(function.ParameterNames.Count);
-        for (var index = 0; index < function.ParameterNames.Count; index++)
-        {
-            var typeStr = GetFunctionParameterTypeText(function, index);
-            var hasDefaultValue = function.RequiredParameterCount.HasValue
-                && index >= function.RequiredParameterCount.Value
-                && GetFunctionParameterModifier(function, index) != ParameterModifier.Params;
-            parts.Add(hasDefaultValue
-                ? $"{function.ParameterNames[index]} {typeStr} = ..."
-                : $"{function.ParameterNames[index]} {typeStr}");
-        }
-
-        return $"({string.Join(", ", parts)})";
-    }
-
-    private static string GetFunctionParameterTypeText(FunctionTypeInfo function, int index)
-    {
-        if (function.SourceParameterTypes != null && index < function.SourceParameterTypes.Count)
-            return CodeIntelligenceService.FormatTypeReferencePublic(function.SourceParameterTypes[index]);
-
-        if (function.ParameterTypes != null && index < function.ParameterTypes.Count)
-            return NullabilityMetadataReflection.FormatTypeInfo(function.ParameterTypes[index]);
-
-        return "unknown";
-    }
-
-    private static ParameterModifier GetFunctionParameterModifier(FunctionTypeInfo function, int index)
-    {
-        if (function.ParameterModifiers == null || index < 0 || index >= function.ParameterModifiers.Count)
-            return ParameterModifier.None;
-
-        return function.ParameterModifiers[index];
-    }
-
-    private static ParameterModifier GetDeclaredMemberParameterModifier(DeclaredMemberInfo member, int index)
-    {
-        if (index < 0 || index >= member.ParameterModifiers.Length)
-            return ParameterModifier.None;
-
-        return member.ParameterModifiers[index];
-    }
-
-    private static string FormatTypeInfo(TypeInfo typeInfo)
-        => typeInfo is FunctionTypeInfo { SourceReturnType: not null } functionType
-            ? CodeIntelligenceService.FormatTypeReferencePublic(functionType.SourceReturnType)
-            : typeInfo is FunctionTypeInfo { ReturnType: not null } resolvedFunctionType
-                ? NullabilityMetadataReflection.FormatTypeInfo(resolvedFunctionType.ReturnType)
-            : NullabilityMetadataReflection.FormatTypeInfo(typeInfo);
-
     private (string filePath, CompilationUnit? cu) FindCompilationUnit(ProjectSnapshot snapshot, string file)
     {
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
@@ -790,13 +670,6 @@ public class CompletionEngine
     {
         CompletionEngineKernels.AddGroupedCompletionItemsByKind(items, completions);
     }
-
-    internal static string PluralizeCompletionKind(string kind) => kind switch
-    {
-        "property" => "properties",
-        "class" => "classes",
-        _ => kind + "s"
-    };
 
     private static CompletionResult EmptyResult(CompletionContext context)
     {
