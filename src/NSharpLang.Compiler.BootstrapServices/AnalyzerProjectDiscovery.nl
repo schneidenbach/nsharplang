@@ -18,7 +18,8 @@ import NSharpLang.Compiler.Columnar
 //
 //   * `AnalyzerProjectSourceProvider` — the SOURCE AND UNIT PROVIDER. The project's source texts (an
 //     in-memory snapshot when one was supplied, the files on disk otherwise), the parsed unit per
-//     file, and the two namespace questions asked of files rather than of units. Four caches.
+//     file, and the two namespace questions — asked of files, answered from their cached units.
+//     Four caches.
 //   * `AnalyzerProjectTypeDiscovery` — the DISCOVERY WALK itself: the visible-namespace sweep, the
 //     unique-exported fallback, the materialisation of a selection into a type plus a symbol
 //     declaration, and the inaccessible-declaration DECISION.
@@ -40,10 +41,15 @@ import NSharpLang.Compiler.Columnar
 //      file" — and the shell keeps the report. That ordering matters: the probe runs BETWEEN the
 //      namespace sweep and the unique-exported fallback, so a single entry point returns all three
 //      outcomes rather than letting the shell interleave them.
-//   3. A NEGATIVE PARSE IS CACHED. A file that fails to parse caches a null unit, so it is parsed
-//      once and skipped thereafter. `Analyze` does NOT clear that cache or the source snapshot —
-//      only `SetProjectSourceTexts` does — while the two namespace caches ARE cleared per analysis.
-//      That asymmetry is reproduced, not tidied.
+//   3. A FILE IS PARSED AT MOST ONCE PER SNAPSHOT. Every question about a file — its unit, its
+//      declared namespace, the project's namespace set — is answered through ONE parsed-unit cache,
+//      snapshot text first and disk text otherwise. A file that fails to parse caches a null unit,
+//      so it is parsed once and skipped thereafter. `Analyze` does NOT clear that cache or the
+//      source snapshot — only `SetProjectSourceTexts` does — while the two namespace caches ARE
+//      cleared per analysis. The namespace caches may be cheap to rebuild ONLY because rebuilding
+//      them walks already-parsed units: a shared analyzer runs one `Analyze` per project file, so a
+//      namespace rebuild that re-parsed the project would parse it once per file — O(files²), the
+//      2026-08 `nlc query completions` hang (693 files, 480k recovery parses, tens of minutes).
 
 // The analyzer's view of the project's sources: which files there are, what they contain, what they
 // parse to, and what namespace they declare. Constructed once per analyzer and never rebuilt, because
@@ -237,8 +243,10 @@ class AnalyzerProjectSourceProvider {
         return ProjectNamespaces(root).Contains(namespaceName)
     }
 
-    // Every namespace declared by the files under a root. Enumerated and parsed from DISK, not from
-    // the snapshot, and memoised per root for the analysis.
+    // Every namespace declared by the files under a root. The file SET is the disk enumeration, but
+    // each file's text and parse go through the SAME unit cache every other project question uses —
+    // snapshot text first, disk otherwise, parsed at most once per snapshot (rule 3). Memoised per
+    // root for the analysis; the per-analysis rebuild is a walk over cached units, never a re-parse.
     func ProjectNamespaces(projectRoot: string): HashSet<string> {
         cached := new HashSet<string>(StringComparer.Ordinal)
         if namespaceCache.TryGetValue(projectRoot, out cached) {
@@ -247,9 +255,7 @@ class AnalyzerProjectSourceProvider {
 
         namespaces := new HashSet<string>(StringComparer.Ordinal)
         for filePath in ProjectConfig.EnumerateSourceFiles(projectRoot) {
-            source := File.ReadAllText(filePath)
-            parseResult := ColumnarParserRecovery.ParseFileAst(source, filePath)
-            declaredNamespace := UnitNamespace(parseResult.CompilationUnit)
+            declaredNamespace := UnitNamespace(GetProjectCompilationUnit(filePath))
             if !string.IsNullOrWhiteSpace(declaredNamespace) {
                 namespaces.Add(declaredNamespace)
             }
@@ -259,8 +265,9 @@ class AnalyzerProjectSourceProvider {
         return namespaces
     }
 
-    // The namespace a FILE declares, read from disk and memoised for the analysis — including the
-    // negative answer for a file that does not exist.
+    // The namespace a FILE declares — the snapshot's text when the file is in it, the disk's
+    // otherwise, through the shared unit cache (rule 3) — memoised for the analysis, including the
+    // negative answer for a file that exists nowhere.
     func GetNamespaceForFile(filePath: string?): string? {
         if filePath == null || string.IsNullOrWhiteSpace(filePath) {
             return null
@@ -272,15 +279,13 @@ class AnalyzerProjectSourceProvider {
             return cached
         }
 
-        if !File.Exists(fullPath) {
+        if !ContainsSourceText(fullPath) && !File.Exists(fullPath) {
             missingNamespace: string? = null
             fileNamespaceCache[fullPath] = missingNamespace
             return null
         }
 
-        source := File.ReadAllText(fullPath)
-        parseResult := ColumnarParserRecovery.ParseFileAst(source, fullPath)
-        declaredNamespace := UnitNamespace(parseResult.CompilationUnit)
+        declaredNamespace := UnitNamespace(GetProjectCompilationUnit(fullPath))
         fileNamespaceCache[fullPath] = declaredNamespace
         return declaredNamespace
     }
