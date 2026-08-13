@@ -122,6 +122,40 @@ class AnalyzerReferenceLoadReport {
         return sorted
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // THE DETAIL PHRASING. Every detail string the load surface records — the parenthesised clause
+    // inside the NL923 message — is composed HERE, so the words a user reads are owned and pinned
+    // with the rule that surfaces them. The C# surface records facts; this owner phrases them.
+    // ---------------------------------------------------------------------------------------------
+
+    // A load that failed with an exception: the exception's type name carries the diagnosis
+    // ("FileNotFoundException" vs "BadImageFormatException" IS the difference between "build the
+    // referenced project" and "that file is not a managed assembly").
+    static func ExceptionDetail(exceptionTypeName: string, message: string): string {
+        return exceptionTypeName + ": " + message
+    }
+
+    // A NuGet package whose cache directory does not exist at all: never restored on this machine.
+    static func PackageMissingDetail(cachePath: string): string {
+        return "NuGet package not found in the cache at " + cachePath
+    }
+
+    // A package directory that exists but cannot serve the requested version — pinned but not
+    // extracted, or holding no extracted versions at all.
+    static func PackageVersionDeadEndDetail(version: string?, cachePath: string): string {
+        if version != null {
+            return "version " + version + " is not extracted in the NuGet cache at " + cachePath
+        }
+
+        return "no extracted versions in the NuGet cache at " + cachePath
+    }
+
+    // An extracted version with no loadable assembly under lib/ — analyzers-only and native-only
+    // packages land here, and so do packages targeting only frameworks the probe list does not carry.
+    static func PackageLibAssetMissingDetail(packageName: string, libRoot: string): string {
+        return "no " + packageName + ".dll under " + libRoot + " for any supported target framework"
+    }
+
     // ORDINAL COMPARISON, BY UTF-16 CODE UNIT — which is precisely what `StringComparer.Ordinal`
     // does. Shorter sorts before longer when one is a prefix of the other.
     static func CompareOrdinal(left: string, right: string): int {
