@@ -18,6 +18,24 @@ import NSharpLang.Compiler.Ast
 class CodeIntelligenceSourceDoor {
 
     // ── The path every result row carries ────────────────────────────────
+    // THE PROJECT'S TEXT FOR A FILE — the door slice 13 could not move and slice 15 stage 2 owns.
+    // A cached text is the LSP's unsaved-buffer path (the editor's in-memory content for a file whose
+    // disk copy is stale); anything else is read from disk, and a path that does not exist THROWS.
+    // The lookup key is always the FULL path, which is why a relative caller still finds its entry.
+    static func SourceText(sourceTexts: IReadOnlyDictionary<string, string>, filePath: string?): string? {
+        if filePath == null {
+            return null
+        }
+
+        fullPath := Path.GetFullPath(filePath)
+        text := ""
+        if sourceTexts.TryGetValue(fullPath, out text) && text != null {
+            return text
+        }
+
+        return File.ReadAllText(fullPath)
+    }
+
     static func RelativePath(projectRoot: string, filePath: string): string {
         try {
             return Path.GetRelativePath(projectRoot, filePath)

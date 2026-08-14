@@ -138,7 +138,7 @@ public static class CheckCommand
             {
                 foreach (var error in CompilerErrorSeverityFilter.Filter(compileResult.Errors, ErrorSeverity.Error))
                 {
-                    results.Add(CodeIntelligenceService.ToDiagnosticResult(error, projectDir));
+                    results.Add(CodeIntelligenceDiagnostics.FromCompilerError(error, projectDir, null));
                 }
             }
         }

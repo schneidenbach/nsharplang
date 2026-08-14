@@ -30,7 +30,7 @@ import NSharpLang.Compiler.Ast
 // before the walk discovers there is no unit to lint, so a file deleted between analysis and this
 // call throws rather than being skipped.
 class CodeIntelligenceDiagnostics {
-    static func Build(projectRoot: string, allErrors: List<CompilerError>, sourceFiles: List<string>, compilationUnits: Dictionary<string, CompilationUnit>, sourceTexts: Dictionary<string, string>, fileFilter: string?): List<DiagnosticResult> {
+    static func Build(projectRoot: string, allErrors: IReadOnlyList<CompilerError>, sourceFiles: IReadOnlyList<string>, compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, sourceTexts: IReadOnlyDictionary<string, string>, fileFilter: string?): List<DiagnosticResult> {
         results := new List<DiagnosticResult>()
         filesWithCompilerShadowingErrors := CompilerShadowingErrorFiles(allErrors, projectRoot)
 
@@ -60,7 +60,7 @@ class CodeIntelligenceDiagnostics {
 
     // The suppression list is built from EVERY compiler error, not the filtered ones: a `--file`
     // query still suppresses using the whole project's shadowing errors.
-    static func CompilerShadowingErrorFiles(allErrors: List<CompilerError>, projectRoot: string): List<string> {
+    static func CompilerShadowingErrorFiles(allErrors: IReadOnlyList<CompilerError>, projectRoot: string): List<string> {
         files := new List<string>()
 
         errorIndex := 0
@@ -81,10 +81,10 @@ class CodeIntelligenceDiagnostics {
     // A PROJECT error, as `GetDiagnostics` reports it: the snippet falls back to the source line
     // through the FULL-PATH source-text door (which reads from disk when the text is not cached), and
     // the docs URL is whatever the error carried — `null` included.
-    static func FromProjectError(error: CompilerError, projectRoot: string, errorFile: string, sourceTexts: Dictionary<string, string>): DiagnosticResult {
+    static func FromProjectError(error: CompilerError, projectRoot: string, errorFile: string, sourceTexts: IReadOnlyDictionary<string, string>): DiagnosticResult {
         snippet := error.SourceSnippet
         if String.IsNullOrWhiteSpace(snippet) && error.Line > 0 {
-            snippet = CodeIntelligenceSourceDoor.SourceLine(SourceTextIn(sourceTexts, errorFile), error.Line)
+            snippet = CodeIntelligenceSourceDoor.SourceLine(CodeIntelligenceSourceDoor.SourceText(sourceTexts, errorFile), error.Line)
         }
 
         return new DiagnosticResult(error.DiagnosticId, SeverityText(error.Severity), error.Message, CodeIntelligenceSourceDoor.RelativePath(projectRoot, errorFile), error.Line, error.Column, error.Length, snippet, error.HumanExplanation, error.Suggestion ?? CodeIntelligenceDisplayText.FormatSuggestions(error.Suggestions), error.ContextualHint, error.ExpectedType, error.ActualType, error.DocsUrl)
@@ -98,7 +98,7 @@ class CodeIntelligenceDiagnostics {
     }
 
     // ── The lint walk ───────────────────────────────────────────────────
-    static func LintDiagnostics(projectRoot: string, sourceFiles: List<string>, compilationUnits: Dictionary<string, CompilationUnit>, sourceTexts: Dictionary<string, string>, fileFilter: string?): List<DiagnosticResult> {
+    static func LintDiagnostics(projectRoot: string, sourceFiles: IReadOnlyList<string>, compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, sourceTexts: IReadOnlyDictionary<string, string>, fileFilter: string?): List<DiagnosticResult> {
         results := new List<DiagnosticResult>()
 
         fileIndex := 0
@@ -139,6 +139,24 @@ class CodeIntelligenceDiagnostics {
         return results
     }
 
+    // `nlc check`'s OWN entry, and the third of the three DiagnosticResult shapes. It differs from
+    // `FromProjectError` in exactly two places, and both are contracts: the snippet is looked up on
+    // the error's RAW file string rather than through the full-path door (so a relative error file
+    // finds nothing rather than reading from disk), and the docs URL FALLS BACK to the catalog when
+    // the error carries none. A NULL dictionary is not an empty one: it skips the lookup entirely,
+    // which leaves a blank-but-present snippet UNTOUCHED where an empty dictionary would blank it.
+    static func FromCompilerError(error: CompilerError, projectRoot: string, sourceTexts: IReadOnlyDictionary<string, string>?): DiagnosticResult {
+        errorFile := error.FileName ?? "unknown"
+        snippet := error.SourceSnippet
+        if String.IsNullOrWhiteSpace(snippet) && error.Line > 0 && sourceTexts != null {
+            errorSource := ""
+            sourceTexts.TryGetValue(errorFile, out errorSource)
+            snippet = CodeIntelligenceSourceDoor.SourceLine(errorSource, error.Line)
+        }
+
+        return new DiagnosticResult(error.DiagnosticId, SeverityText(error.Severity), error.Message, CodeIntelligenceSourceDoor.RelativePath(projectRoot, errorFile), error.Line, error.Column, error.Length, snippet, error.HumanExplanation, error.Suggestion ?? CodeIntelligenceDisplayText.FormatSuggestions(error.Suggestions), error.ContextualHint, error.ExpectedType, error.ActualType, error.DocsUrl ?? DiagnosticCatalog.DocsUrlFor(error.DiagnosticId))
+    }
+
     // ── The two severity renderings, which are NOT the same map ─────────
     // A compiler error has two levels and anything that is not an error is a warning; a lint
     // diagnostic has three, and its third is `info`. The strings are the JSON contract.
@@ -160,22 +178,5 @@ class CodeIntelligenceDiagnostics {
             return "warning"
         }
         return "info"
-    }
-
-    // The full-path source-text door: a cached text wins, and anything else is read from disk. The
-    // concrete dictionary is what crosses the boundary; the read-only interface is the same door
-    // with a wider parameter and belongs to the member that still owns it in C#.
-    static func SourceTextIn(sourceTexts: Dictionary<string, string>, filePath: string?): string? {
-        if filePath == null {
-            return null
-        }
-
-        fullPath := Path.GetFullPath(filePath)
-        text := ""
-        if sourceTexts.TryGetValue(fullPath, out text) && text != null {
-            return text
-        }
-
-        return File.ReadAllText(fullPath)
     }
 }

@@ -131,56 +131,18 @@ public class CodeIntelligenceService
     /// <remarks>
     /// Mechanical driver: <see cref="ProjectSnapshot"/> is a C# type this assembly declares, so the
     /// five reads it carries are materialised here and every diagnostic decision belongs to
-    /// <see cref="CodeIntelligenceDiagnostics"/>. Both dictionaries are rebuilt with the same
-    /// OrdinalIgnoreCase comparer the project snapshot itself is built with.
+    /// <see cref="CodeIntelligenceDiagnostics"/>. The snapshot's own collections cross unchanged —
+    /// the published IReadOnlyDictionary catalog row removed the two per-call rebuilds this driver
+    /// used to need, which is a real saving on the LSP's publish path.
     /// </remarks>
     public List<DiagnosticResult> GetDiagnostics(ProjectSnapshot snapshot, string? file = null)
         => CodeIntelligenceDiagnostics.Build(
             snapshot.ProjectRoot,
-            snapshot.AllErrors.ToList(),
-            snapshot.SourceFiles.ToList(),
-            snapshot.CompilationUnits.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase),
-            snapshot.SourceTexts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase),
+            snapshot.AllErrors,
+            snapshot.SourceFiles,
+            snapshot.CompilationUnits,
+            snapshot.SourceTexts,
             file);
-
-    // WALLED: this overload's `IReadOnlyDictionary<string, string>` parameter is the ONE shape the
-    // columnar emitter's resolvable-type catalog did not carry when the family moved. It moves the
-    // moment the published catalog row reaches the toolset.
-    public static DiagnosticResult ToDiagnosticResult(
-        CompilerError error,
-        string projectRoot,
-        IReadOnlyDictionary<string, string>? sourceTexts = null)
-    {
-        var errorFile = error.FileName ?? "unknown";
-        var relativeFile = CodeIntelligenceSourceDoor.RelativePath(projectRoot, errorFile);
-        var snippet = error.SourceSnippet;
-        if (string.IsNullOrWhiteSpace(snippet) && error.Line > 0 && sourceTexts != null)
-        {
-            sourceTexts.TryGetValue(errorFile, out var errorSource);
-            snippet = CodeIntelligenceSourceDoor.SourceLine(errorSource, error.Line);
-        }
-
-        return new DiagnosticResult(
-            Code: error.DiagnosticId,
-            Severity: error.Severity switch
-            {
-                ErrorSeverity.Error => "error",
-                ErrorSeverity.Warning => "warning",
-                _ => "info"
-            },
-            Message: error.Message,
-            File: relativeFile,
-            Line: error.Line,
-            Column: error.Column,
-            Length: error.Length,
-            SourceSnippet: snippet,
-            Explanation: error.HumanExplanation,
-            Suggestion: error.Suggestion ?? CodeIntelligenceDisplayText.FormatSuggestions(error.Suggestions),
-            Hint: error.ContextualHint,
-            ExpectedType: error.ExpectedType,
-            ActualType: error.ActualType,
-            DocsUrl: error.DocsUrl ?? DiagnosticCatalog.DocsUrlFor(error.DiagnosticId));
-    }
 
     // ── Navigation Queries ──────────────────────────────────────────────
 
@@ -205,7 +167,7 @@ public class CodeIntelligenceService
 
         var expr = FindExpressionAtPositionRobust(cu, line, col);
         var candidateNames = CodeIntelligenceSourceDoor.CandidateQueryNames(
-            expr, GetSourceText(snapshot, filePath), line, col);
+            expr, CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, filePath), line, col);
         var name = candidateNames.FirstOrDefault();
         var typeInfo = ResolveTypeInfoAtPosition(expr, candidateNames, semanticModel, snapshot, cu, out var resolvedName);
         if (typeInfo == null) return null;
@@ -225,7 +187,7 @@ public class CodeIntelligenceService
     public DefinitionResult? FindDefinition(ProjectSnapshot snapshot, string file, int line, int col)
     {
         var declaration = ResolveDefinitionSymbolAtPosition(snapshot, file, line, col);
-        return declaration != null ? ToDefinitionResult(snapshot, declaration) : null;
+        return declaration != null ? CodeIntelligenceReferenceResults.ToDefinition(snapshot.ProjectRoot, declaration) : null;
     }
 
     /// <summary>
@@ -240,7 +202,7 @@ public class CodeIntelligenceService
 
         var declaration = ResolveStrictReferenceDeclaration(snapshot, filePath, line, col);
         return declaration != null
-            ? BuildReferenceResultsFromDeclaration(snapshot, declaration)
+            ? CodeIntelligenceReferenceResults.FromDeclaration(snapshot.ProjectRoot, snapshot.SourceTexts, snapshot.Bindings, declaration)
             : new List<ReferenceResult>();
     }
 
@@ -257,7 +219,8 @@ public class CodeIntelligenceService
         if (declaration == null)
             return new List<ReferenceResult>();
 
-        return BuildReferenceResultsFromDeclaration(snapshot, declaration);
+        return CodeIntelligenceReferenceResults.FromDeclaration(
+            snapshot.ProjectRoot, snapshot.SourceTexts, snapshot.Bindings, declaration);
     }
 
     private SymbolDeclaration? ResolveStrictReferenceDeclaration(ProjectSnapshot snapshot, string filePath, int line, int col)
@@ -267,58 +230,6 @@ public class CodeIntelligenceService
             return declaration;
 
             return null;
-    }
-
-    private List<ReferenceResult> BuildReferenceResultsFromDeclaration(ProjectSnapshot snapshot, SymbolDeclaration declaration)
-    {
-        var results = new List<ReferenceResult>
-        {
-            new(
-                CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
-                declaration.Line,
-                declaration.Column,
-                declaration.Name.Length,
-                declaration.Line > 0
-                    ? CodeIntelligenceSourceDoor.SourceContext(GetSourceText(snapshot, declaration.File), declaration.Line)
-                    : null,
-                IsDefinition: true)
-        };
-
-        if (snapshot.Bindings != null)
-        {
-            foreach (var usage in snapshot.Bindings.GetReferences(declaration))
-            {
-                var isDefinition = usage.File == declaration.File
-                    && usage.Line == declaration.Line
-                    && usage.Column == declaration.Column;
-                var overlapsDefinitionName = usage.File == declaration.File
-                    && usage.Line == declaration.Line
-                    && usage.Column >= declaration.Column
-                    && usage.Column < declaration.Column + declaration.Name.Length;
-
-                if (isDefinition || overlapsDefinitionName)
-                {
-                    continue;
-                }
-
-                results.Add(new ReferenceResult(
-                    CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, usage.File ?? string.Empty),
-                    usage.Line,
-                    usage.Column,
-                    usage.Length,
-                    usage.Line > 0
-                        ? CodeIntelligenceSourceDoor.SourceContext(GetSourceText(snapshot, usage.File), usage.Line)
-                        : null,
-                    IsDefinition: false));
-            }
-        }
-
-        return DeduplicateAndSortReferenceResults(results);
-    }
-
-    private static List<ReferenceResult> DeduplicateAndSortReferenceResults(IReadOnlyList<ReferenceResult> results)
-    {
-        return CodeIntelligenceResultKernels.DeduplicateReferenceResults(results);
     }
 
     // ── Hover Query ─────────────────────────────────────────────────────
@@ -352,7 +263,7 @@ public class CodeIntelligenceService
             var docPath = CodeIntelligenceSourceDoor.ResolveAbsolutePath(snapshot.CompilationUnits.Keys, definedIn);
             if (docPath != null)
             {
-                documentation = CodeIntelligenceSourceDoor.DocComment(GetSourceText(snapshot, docPath), definitionLine);
+                documentation = CodeIntelligenceSourceDoor.DocComment(CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, docPath), definitionLine);
             }
         }
 
@@ -403,15 +314,6 @@ public class CodeIntelligenceService
         return CodeIntelligenceImplementors.Build(units, relativeFiles, interfaceName);
     }
 
-    private DefinitionResult ToDefinitionResult(ProjectSnapshot snapshot, SymbolDeclaration declaration)
-        => new(
-            declaration.Name,
-            declaration.Kind,
-            CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
-            declaration.Line,
-            declaration.Column,
-            declaration.Name.Length);
-
     private TypeResult? ResolveTypeUseAtPosition(ProjectSnapshot snapshot, string filePath, CompilationUnit currentUnit,
         SemanticModel? semanticModel, int line, int col)
     {
@@ -419,7 +321,7 @@ public class CodeIntelligenceService
         if (declaration == null || !AnalyzerBindingFacts.IsTypeDeclarationKind(declaration.Kind))
             return null;
 
-        var span = CodeIntelligenceSourceDoor.IdentifierSpanAt(GetSourceText(snapshot, filePath), line, col);
+        var span = CodeIntelligenceSourceDoor.IdentifierSpanAt(CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, filePath), line, col);
         var typeInfo = span != null
             ? semanticModel?.LookupTypeReferenceAtPosition(line, span.Value.Item1)
             : null;
@@ -439,7 +341,7 @@ public class CodeIntelligenceService
     private TypeResult? ResolveDeclaredNameTypeAtPosition(ProjectSnapshot snapshot, string filePath, CompilationUnit currentUnit,
         int line, int col)
     {
-        var selectedName = CodeIntelligenceSourceDoor.WordAt(GetSourceText(snapshot, filePath), line, col);
+        var selectedName = CodeIntelligenceSourceDoor.WordAt(CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, filePath), line, col);
         if (string.IsNullOrWhiteSpace(selectedName))
             return null;
 
@@ -568,7 +470,7 @@ public class CodeIntelligenceService
 
     private static int[] GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
-        var span = CodeIntelligenceSourceDoor.IdentifierSpanAt(GetSourceText(snapshot, filePath), line, col);
+        var span = CodeIntelligenceSourceDoor.IdentifierSpanAt(CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, filePath), line, col);
         if (!BindingLookupKernels.TryGetBindingCandidateColumns(col, span, out var dogfoodCandidateColumns))
             throw new InvalidOperationException("N# binding candidate column kernel rejected the source.");
 
@@ -931,29 +833,6 @@ public class CodeIntelligenceService
         return null;
     }
 
-    /// <summary>
-    /// The snapshot's text for a file: the in-memory override when the caller supplied one (this is
-    /// the LSP's unsaved-buffer path), otherwise disk.
-    ///
-    /// This is the ONE member of the text family that could not move to N#, and the reason is
-    /// measured rather than preferred: <see cref="ProjectSnapshot.SourceTexts"/> is an
-    /// IReadOnlyDictionary, and IReadOnlyDictionary&lt;K, V&gt; is absent from the columnar
-    /// emitter's resolvable-type catalog — a static N# parameter of that type declines at
-    /// emit.declaration.method-param. So the text crosses the boundary as a string, exactly as
-    /// every CodeIntelligenceSourceTextKernels entry point already requires. It carries no policy
-    /// beyond that lookup.
-    /// </summary>
-    private static string? GetSourceText(ProjectSnapshot snapshot, string? filePath)
-    {
-        if (filePath == null)
-            return null;
-
-        var fullPath = Path.GetFullPath(filePath);
-        if (snapshot.SourceTexts.TryGetValue(fullPath, out var text))
-            return text;
-
-        return File.ReadAllText(fullPath);
-    }
 
 }
 

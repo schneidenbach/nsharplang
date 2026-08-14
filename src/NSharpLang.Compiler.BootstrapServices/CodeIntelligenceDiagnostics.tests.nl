@@ -222,8 +222,48 @@ test "the source-text door prefers the cached FULL-PATH text and answers null fo
     texts := CidNoTexts()
     texts[System.IO.Path.GetFullPath("/p/a.nl")] = "cached"
 
-    assert CodeIntelligenceDiagnostics.SourceTextIn(texts, "/p/a.nl") == "cached"
-    assert CodeIntelligenceDiagnostics.SourceTextIn(texts, null) == null
+    assert CodeIntelligenceSourceDoor.SourceText(texts, "/p/a.nl") == "cached"
+    assert CodeIntelligenceSourceDoor.SourceText(texts, null) == null
+}
+
+test "nlc check's own entry differs from the project arm in exactly two places" {
+    texts := CidNoTexts()
+    texts["/p/a.nl"] = "alpha\nbeta\ngamma\n"
+
+    blank := new CompilerError(ErrorCode.InvalidSyntax, "m", 2, 1, ErrorSeverity.Error) {
+        FileName: "/p/a.nl",
+        SourceSnippet: "   "
+    }
+
+    // (1) THE LOOKUP KEY IS THE ERROR'S RAW FILE STRING, not the full path the project arm uses —
+    // which is why this entry finds a text keyed by the raw string and the project arm would not.
+    found := CodeIntelligenceDiagnostics.FromCompilerError(blank, "/p", texts)
+    assert found.SourceSnippet == "beta"
+
+    // (2) THE DOCS URL FALLS BACK TO THE CATALOG. The project arm leaves it null. Asked with a
+    // NON-blank snippet, because the project arm's full-path door would otherwise read from disk and
+    // throw — which is itself the first difference, stated from the other side.
+    filled := new CompilerError(ErrorCode.InvalidSyntax, "m", 2, 1, ErrorSeverity.Error) {
+        FileName: "/p/a.nl",
+        SourceSnippet: "snip"
+    }
+    assert found.DocsUrl != null
+    assert CodeIntelligenceDiagnostics.FromProjectError(filled, "/p", "/p/a.nl", CidNoTexts()).DocsUrl == null
+    assert CodeIntelligenceDiagnostics.FromCompilerError(filled, "/p", CidNoTexts()).DocsUrl != null
+
+    // A NULL DICTIONARY IS NOT AN EMPTY ONE. Null skips the lookup entirely and leaves the blank
+    // snippet UNTOUCHED; an empty dictionary runs the lookup and blanks it to null. This distinction
+    // was unreachable while the parameter could not cross the boundary at all.
+    assert CodeIntelligenceDiagnostics.FromCompilerError(blank, "/p", null).SourceSnippet == "   "
+    assert CodeIntelligenceDiagnostics.FromCompilerError(blank, "/p", CidNoTexts()).SourceSnippet == null
+
+    // A carried DocsUrl still wins over the catalog fallback.
+    carried := new CompilerError(ErrorCode.InvalidSyntax, "m", 1, 1, ErrorSeverity.Error) {
+        FileName: "/p/a.nl",
+        SourceSnippet: "snip",
+        DocsUrl: "https://example.test/own"
+    }
+    assert CodeIntelligenceDiagnostics.FromCompilerError(carried, "/p", null).DocsUrl == "https://example.test/own"
 }
 
 func CodeIntelligenceDiagnosticsSuggestions(): List<string> {

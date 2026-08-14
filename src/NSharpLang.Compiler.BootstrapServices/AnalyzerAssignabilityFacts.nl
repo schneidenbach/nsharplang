@@ -341,6 +341,15 @@ class AnalyzerAssignabilityFacts {
             return sourceName == "List"
         }
 
+        // The two-argument mirror of the row above, and the analyser half of the columnar catalog's
+        // `Dictionary`/`SortedDictionary` -> `IReadOnlyDictionary` upcast. It is deliberately absent
+        // from `IsCovariantKnownGenericTarget`: the read-only dictionary is covariant in its VALUE
+        // only, and its KEY is invariant, so both arguments must match exactly — which is the same
+        // rule the emitter's conversion row enforces.
+        if targetName == "IReadOnlyDictionary" {
+            return sourceName == "Dictionary" || sourceName == "SortedDictionary"
+        }
+
         return false
     }
 

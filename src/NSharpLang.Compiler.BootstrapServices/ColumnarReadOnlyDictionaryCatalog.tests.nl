@@ -123,3 +123,22 @@ test "a concrete dictionary upcasts to the read-only head and nothing upcasts ba
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(typeof(HashSet<string>), typeof(IReadOnlySet<string>))
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(typeof(List<string>), typeof(IReadOnlyList<int>)) == false
 }
+
+test "the ANALYSER half of the row agrees with the emitter half, and neither is looser" {
+    assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("IReadOnlyDictionary", "Dictionary")
+    assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("IReadOnlyDictionary", "SortedDictionary")
+
+    // NEGATIVES — the upcast is one-directional, and no unrelated head reaches it.
+    assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("Dictionary", "IReadOnlyDictionary") == false
+    assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("IReadOnlyDictionary", "List") == false
+    assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("IReadOnlyDictionary", "IReadOnlyDictionary") == false
+
+    // THE KEY IS INVARIANT, so the read-only dictionary is deliberately NOT a covariant target — the
+    // emitter's conversion row requires BOTH arguments to match exactly and this is its twin.
+    assert AnalyzerAssignabilityFacts.IsCovariantKnownGenericTarget("IReadOnlyDictionary") == false
+    assert AnalyzerAssignabilityFacts.IsCovariantKnownGenericTarget("IReadOnlyList")
+
+    // CONTROL — the one-argument row it mirrors is unchanged.
+    assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("IReadOnlyList", "List")
+    assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("IReadOnlyList", "HashSet") == false
+}
