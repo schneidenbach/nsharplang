@@ -4,7 +4,7 @@ import System
 import System.Text
 
 class CodeIntelligenceSourceTextKernels {
-    static func TryExtractIdentifierSpan(snapshot: object, filePathValue: string, source: string, line: int, column: int, out span: ValueTuple<int, int>?): bool {
+    static func TryExtractIdentifierSpan(source: string, line: int, column: int, out span: ValueTuple<int, int>?): bool {
         span = null
 
         start := 0
@@ -17,7 +17,7 @@ class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    static func TryExtractDocComment(snapshot: object, filePathValue: string, source: string, definitionLine: int, out documentation: string?): bool {
+    static func TryExtractDocComment(source: string, definitionLine: int, out documentation: string?): bool {
         documentation = null
 
         lineStarts := new int[](source.Length + 1)
@@ -75,7 +75,7 @@ class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    static func TryExtractIdentifierName(snapshot: object, filePathValue: string, source: string, line: int, column: int, out name: string?): bool {
+    static func TryExtractIdentifierName(source: string, line: int, column: int, out name: string?): bool {
         name = null
 
         start := 0
@@ -89,7 +89,7 @@ class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    static func TryExtractSourceContext(snapshot: object, filePathValue: string, source: string, line: int, out context: string?): bool {
+    static func TryExtractSourceContext(source: string, line: int, out context: string?): bool {
         context = null
 
         lineStart := 0
@@ -118,10 +118,10 @@ class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    static func TryExtractSourceLine(snapshot: object, filePathValue: string, source: string, line: int, out text: string?): bool {
-        return TryExtractSourceLine(source, line, out text)
-    }
-
+    // The `(snapshot, filePathValue, …)` forwarder this pair used to carry is GONE: its two leading
+    // parameters were never read, its only callers were the three `CodeIntelligenceService`
+    // `ExtractSourceLine` shapes that slice 13 deleted, and while both overloads existed the checker
+    // could not resolve EITHER of them (an NL402 on this very file, at the forwarder's own call).
     static func TryExtractSourceLine(source: string, line: int, out text: string?): bool {
         text = null
 
@@ -179,7 +179,7 @@ class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    static func TryExtractVariableDeclarationName(snapshot: object, filePathValue: string, source: string, line: int, out name: string?): bool {
+    static func TryExtractVariableDeclarationName(source: string, line: int, out name: string?): bool {
         name = null
 
         lineStart := 0

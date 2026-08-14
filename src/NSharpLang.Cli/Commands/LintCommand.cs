@@ -99,7 +99,7 @@ public static class LintCommand
                                 allDiagnostics.Add(new DiagnosticResult(
                                     "PARSE", "error", err.Message,
                                     relativePath, err.Line, err.Column, Math.Max(err.Length, 1),
-                                    ExtractSourceLine(source, err.Line),
+                                    CodeIntelligenceSourceDoor.SourceLine(source, err.Line),
                                     null, null, null, null, null, null));
                             }
                         }
@@ -129,7 +129,7 @@ public static class LintCommand
                             diag.Location.Line,
                             diag.Location.Column,
                             Math.Max(diag.Length, 1),
-                            ExtractSourceLine(source, diag.Location.Line),
+                            CodeIntelligenceSourceDoor.SourceLine(source, diag.Location.Line),
                             null,
                             diag.Suggestion,
                             null,
@@ -196,7 +196,4 @@ public static class LintCommand
 
         return 1;
     }
-
-    private static string? ExtractSourceLine(string source, int line) =>
-        CodeIntelligenceService.ExtractSourceLineForDiagnostics(source, line);
 }

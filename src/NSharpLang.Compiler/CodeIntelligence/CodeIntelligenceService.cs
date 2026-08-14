@@ -73,7 +73,7 @@ public class CodeIntelligenceService
             if (file != null && !CodeIntelligenceResultKernels.MatchesFilePath(filePath, file))
                 continue;
 
-            var relativeFile = GetRelativePath(snapshot.ProjectRoot, filePath);
+            var relativeFile = CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath);
             ExtractDeclarationSymbols(cu.Declarations, relativeFile, results);
         }
 
@@ -103,7 +103,7 @@ public class CodeIntelligenceService
             .Cast<OutlineEntry>()
             .ToArray();
 
-        return new OutlineResult(GetRelativePath(snapshot.ProjectRoot, filePath), imports, outline);
+        return new OutlineResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath), imports, outline);
     }
 
     /// <summary>
@@ -149,13 +149,13 @@ public class CodeIntelligenceService
             if (file != null && !CodeIntelligenceResultKernels.MatchesFilePath(errorFile, file))
                 continue;
 
-            var relativeFile = GetRelativePath(snapshot.ProjectRoot, errorFile);
+            var relativeFile = CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, errorFile);
 
             // Try to extract source snippet if not already provided
             var snippet = error.SourceSnippet;
             if (string.IsNullOrWhiteSpace(snippet) && error.Line > 0)
             {
-                snippet = ExtractSourceLine(snapshot, errorFile, error.Line);
+                snippet = CodeIntelligenceSourceDoor.SourceLine(GetSourceText(snapshot, errorFile), error.Line);
             }
 
             results.Add(new DiagnosticResult(
@@ -173,7 +173,7 @@ public class CodeIntelligenceService
                 Length: error.Length,
                 SourceSnippet: snippet,
                 Explanation: error.HumanExplanation,
-                Suggestion: error.Suggestion ?? FormatSuggestions(error.Suggestions),
+                Suggestion: error.Suggestion ?? CodeIntelligenceDisplayText.FormatSuggestions(error.Suggestions),
                 Hint: error.ContextualHint,
                 ExpectedType: error.ExpectedType,
                 ActualType: error.ActualType,
@@ -199,7 +199,7 @@ public class CodeIntelligenceService
         {
             if (error.Code == ErrorCode.ShadowedDeclaration && !string.IsNullOrWhiteSpace(error.FileName))
             {
-                files.Add(GetRelativePath(snapshot.ProjectRoot, error.FileName!));
+                files.Add(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, error.FileName!));
             }
         }
 
@@ -221,11 +221,12 @@ public class CodeIntelligenceService
         IReadOnlyDictionary<string, string>? sourceTexts = null)
     {
         var errorFile = error.FileName ?? "unknown";
-        var relativeFile = GetRelativePath(projectRoot, errorFile);
+        var relativeFile = CodeIntelligenceSourceDoor.RelativePath(projectRoot, errorFile);
         var snippet = error.SourceSnippet;
         if (string.IsNullOrWhiteSpace(snippet) && error.Line > 0 && sourceTexts != null)
         {
-            snippet = ExtractSourceLine(sourceTexts, errorFile, error.Line);
+            sourceTexts.TryGetValue(errorFile, out var errorSource);
+            snippet = CodeIntelligenceSourceDoor.SourceLine(errorSource, error.Line);
         }
 
         return new DiagnosticResult(
@@ -243,7 +244,7 @@ public class CodeIntelligenceService
             Length: error.Length,
             SourceSnippet: snippet,
             Explanation: error.HumanExplanation,
-            Suggestion: error.Suggestion ?? FormatSuggestions(error.Suggestions),
+            Suggestion: error.Suggestion ?? CodeIntelligenceDisplayText.FormatSuggestions(error.Suggestions),
             Hint: error.ContextualHint,
             ExpectedType: error.ExpectedType,
             ActualType: error.ActualType,
@@ -261,11 +262,11 @@ public class CodeIntelligenceService
                 _ => "info"
             },
             diagnostic.Message,
-            GetRelativePath(projectRoot, sourceFile),
+            CodeIntelligenceSourceDoor.RelativePath(projectRoot, sourceFile),
             diagnostic.Location.Line,
             diagnostic.Location.Column,
             Math.Max(diagnostic.Length, 1),
-            source != null ? ExtractSourceLine(source, diagnostic.Location.Line) : null,
+            CodeIntelligenceSourceDoor.SourceLine(source, diagnostic.Location.Line),
             null,
             diagnostic.Suggestion,
             null,
@@ -273,9 +274,6 @@ public class CodeIntelligenceService
             null,
             DiagnosticCatalog.DocsUrlFor(diagnostic.Code));
     }
-
-    public static string? ExtractSourceLineForDiagnostics(string source, int line) =>
-        ExtractSourceLine(source, line);
 
     private static List<DiagnosticResult> GetLintDiagnostics(
         string projectRoot,
@@ -339,15 +337,16 @@ public class CodeIntelligenceService
             return typeUse;
 
         var expr = FindExpressionAtPositionRobust(cu, line, col);
-        var candidateNames = GetCandidateQueryNames(expr, snapshot, filePath, line, col);
+        var candidateNames = CodeIntelligenceSourceDoor.CandidateQueryNames(
+            expr, GetSourceText(snapshot, filePath), line, col);
         var name = candidateNames.FirstOrDefault();
         var typeInfo = ResolveTypeInfoAtPosition(expr, candidateNames, semanticModel, snapshot, cu, out var resolvedName);
         if (typeInfo == null) return null;
 
         var resolvedType = NullabilityMetadataReflection.FormatTypeInfo(typeInfo);
-        var kind = TypeInfoToKind(typeInfo);
+        var kind = CodeIntelligenceDisplayText.TypeInfoToKind(typeInfo);
         var definition = resolvedName != null ? FindDefinitionLocation(snapshot, resolvedName) : null;
-        var displayName = resolvedName ?? name ?? GetTypeDisplayName(typeInfo, resolvedType);
+        var displayName = resolvedName ?? name ?? CodeIntelligenceDisplayText.GetTypeDisplayName(typeInfo, resolvedType);
         var nullability = GetNullabilityForExpression(semanticModel, expr, typeInfo);
 
         return new TypeResult(displayName, resolvedType, kind, definition, nullability);
@@ -408,11 +407,13 @@ public class CodeIntelligenceService
         var results = new List<ReferenceResult>
         {
             new(
-                GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
+                CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
                 declaration.Line,
                 declaration.Column,
                 declaration.Name.Length,
-                GetSourceContext(snapshot, declaration.File, declaration.Line),
+                declaration.Line > 0
+                    ? CodeIntelligenceSourceDoor.SourceContext(GetSourceText(snapshot, declaration.File), declaration.Line)
+                    : null,
                 IsDefinition: true)
         };
 
@@ -434,11 +435,13 @@ public class CodeIntelligenceService
                 }
 
                 results.Add(new ReferenceResult(
-                    GetRelativePath(snapshot.ProjectRoot, usage.File ?? string.Empty),
+                    CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, usage.File ?? string.Empty),
                     usage.Line,
                     usage.Column,
                     usage.Length,
-                    GetSourceContext(snapshot, usage.File, usage.Line),
+                    usage.Line > 0
+                        ? CodeIntelligenceSourceDoor.SourceContext(GetSourceText(snapshot, usage.File), usage.Line)
+                        : null,
                     IsDefinition: false));
             }
         }
@@ -473,44 +476,20 @@ public class CodeIntelligenceService
         // Build a human-readable signature
         var signature = CodeIntelligenceSignatureKernels.GetFallbackSignatureText(kind, name, type?.ResolvedType);
 
-        // Extract doc comment from the definition site
-        var documentation = definedIn != null
-            ? ExtractDocComment(snapshot, definedIn, definition?.Line ?? 0)
-            : null;
-
-        return new HoverResult(signature, documentation, definedIn, kind);
-    }
-
-    private string? ExtractDocComment(ProjectSnapshot snapshot, string relativeFile, int definitionLine)
-    {
-        if (definitionLine <= 1) return null;
-
-        // Find the absolute path
-        string? absolutePath = null;
-        foreach (var (filePath, _) in snapshot.CompilationUnits)
+        // Extract doc comment from the definition site. The path is resolved first because the
+        // source text can only be fetched once the absolute path is known.
+        string? documentation = null;
+        var definitionLine = definition?.Line ?? 0;
+        if (definedIn != null && definitionLine > 1)
         {
-            if (CodeIntelligenceResultKernels.MatchesFilePath(filePath, relativeFile))
+            var docPath = CodeIntelligenceSourceDoor.ResolveAbsolutePath(snapshot.CompilationUnits.Keys, definedIn);
+            if (docPath != null)
             {
-                absolutePath = filePath;
-                break;
+                documentation = CodeIntelligenceSourceDoor.DocComment(GetSourceText(snapshot, docPath), definitionLine);
             }
         }
 
-        if (absolutePath == null) return null;
-
-        var source = GetSourceText(snapshot, absolutePath);
-        if (source == null)
-            return null;
-
-        if (!CodeIntelligenceSourceTextKernels.TryExtractDocComment(
-                snapshot,
-                absolutePath,
-                source,
-                definitionLine,
-                out var dogfoodDocumentation))
-            throw new InvalidOperationException("N# doc comment kernel rejected the source.");
-
-        return dogfoodDocumentation;
+        return new HoverResult(signature, documentation, definedIn, kind);
     }
 
     // ── Call Graph ──────────────────────────────────────────────────────
@@ -527,7 +506,7 @@ public class CodeIntelligenceService
 
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
         {
-            var relFile = GetRelativePath(snapshot.ProjectRoot, filePath);
+            var relFile = CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath);
             CollectCallSites(cu, relFile, callSites);
         }
 
@@ -690,7 +669,7 @@ public class CodeIntelligenceService
         switch (expr)
         {
             case CallExpression call:
-                var calleeName = ExtractCalleeName(call.Callee);
+                var calleeName = CodeIntelligenceDisplayText.ExtractCalleeName(call.Callee);
                 if (calleeName != null)
                 {
                     callSites[callerName].Add((calleeName, relativeFile, call.Line, call.Column));
@@ -719,13 +698,6 @@ public class CodeIntelligenceService
         }
     }
 
-    private static string? ExtractCalleeName(Expression callee) => callee switch
-    {
-        IdentifierExpression id => id.Name,
-        MemberAccessExpression ma => ma.MemberName,
-        _ => null
-    };
-
     // ── Implementors ────────────────────────────────────────────────────
 
     /// <summary>
@@ -738,7 +710,7 @@ public class CodeIntelligenceService
 
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
         {
-            var relFile = GetRelativePath(snapshot.ProjectRoot, filePath);
+            var relFile = CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath);
             CollectImplementors(cu, interfaceName, relFile, results);
         }
 
@@ -758,20 +730,20 @@ public class CodeIntelligenceService
                 case ClassDeclaration cls:
                     // BaseClass holds the first colon-separated type (may be an interface when there is no actual base class)
                     // Interfaces holds additional comma-separated types
-                    if ((cls.BaseClass != null && InterfaceNameMatches(cls.BaseClass, interfaceName))
-                        || cls.Interfaces.Any(i => InterfaceNameMatches(i, interfaceName)))
+                    if ((cls.BaseClass != null && CodeIntelligenceDisplayText.InterfaceNameMatches(cls.BaseClass, interfaceName))
+                        || cls.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, interfaceName)))
                     {
                         results.Add(new ImplementorResult(cls.Name, "class", relativeFile, cls.Line, cls.Column));
                     }
                     break;
                 case StructDeclaration str:
-                    if (str.Interfaces.Any(i => InterfaceNameMatches(i, interfaceName)))
+                    if (str.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, interfaceName)))
                     {
                         results.Add(new ImplementorResult(str.Name, "struct", relativeFile, str.Line, str.Column));
                     }
                     break;
                 case RecordDeclaration rec:
-                    if (rec.Interfaces.Any(i => InterfaceNameMatches(i, interfaceName)))
+                    if (rec.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, interfaceName)))
                     {
                         results.Add(new ImplementorResult(rec.Name, "record", relativeFile, rec.Line, rec.Column));
                     }
@@ -780,41 +752,11 @@ public class CodeIntelligenceService
         }
     }
 
-    private static bool InterfaceNameMatches(TypeReference typeRef, string interfaceName)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference s => string.Equals(s.Name, interfaceName, StringComparison.Ordinal),
-            GenericTypeReference g => string.Equals(g.Name, interfaceName, StringComparison.Ordinal),
-            _ => false
-        };
-    }
-
-    private string? GetSourceContext(ProjectSnapshot snapshot, string? filePath, int line)
-    {
-        if (filePath == null || line <= 0) return null;
-
-        var source = GetSourceText(snapshot, filePath);
-        if (source == null) return null;
-
-        if (CodeIntelligenceSourceTextKernels.TryExtractSourceContext(
-                snapshot,
-                filePath,
-                source,
-                line,
-                out var dogfoodContext))
-        {
-            return dogfoodContext;
-        }
-
-        return null;
-    }
-
     private DefinitionResult ToDefinitionResult(ProjectSnapshot snapshot, SymbolDeclaration declaration)
         => new(
             declaration.Name,
             declaration.Kind,
-            GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
+            CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
             declaration.Line,
             declaration.Column,
             declaration.Name.Length);
@@ -826,9 +768,9 @@ public class CodeIntelligenceService
         if (declaration == null || !AnalyzerBindingFacts.IsTypeDeclarationKind(declaration.Kind))
             return null;
 
-        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        var span = CodeIntelligenceSourceDoor.IdentifierSpanAt(GetSourceText(snapshot, filePath), line, col);
         var typeInfo = span != null
-            ? semanticModel?.LookupTypeReferenceAtPosition(line, span.Value.StartColumn)
+            ? semanticModel?.LookupTypeReferenceAtPosition(line, span.Value.Item1)
             : null;
 
         var resolvedType = typeInfo != null ? NullabilityMetadataReflection.FormatTypeInfo(typeInfo) : declaration.Name;
@@ -837,7 +779,7 @@ public class CodeIntelligenceService
             resolvedType,
             declaration.Kind,
             new LocationResult(
-                GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
+                CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
                 declaration.Line,
                 declaration.Column),
             typeInfo != null ? NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo)) : null);
@@ -846,7 +788,7 @@ public class CodeIntelligenceService
     private TypeResult? ResolveDeclaredNameTypeAtPosition(ProjectSnapshot snapshot, string filePath, CompilationUnit currentUnit,
         int line, int col)
     {
-        var selectedName = ExtractWordAtPosition(snapshot, filePath, line, col);
+        var selectedName = CodeIntelligenceSourceDoor.WordAt(GetSourceText(snapshot, filePath), line, col);
         if (string.IsNullOrWhiteSpace(selectedName))
             return null;
 
@@ -877,8 +819,8 @@ public class CodeIntelligenceService
             return new TypeResult(
                 selectedName,
                 resolvedType,
-                TypeInfoToKind(typeInfo),
-                new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), declaration.Line, declaration.Column),
+                CodeIntelligenceDisplayText.TypeInfoToKind(typeInfo),
+                new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath), declaration.Line, declaration.Column),
                 NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo)));
         }
 
@@ -975,7 +917,7 @@ public class CodeIntelligenceService
 
     private static int[] GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
-        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        var span = CodeIntelligenceSourceDoor.IdentifierSpanAt(GetSourceText(snapshot, filePath), line, col);
         if (!BindingLookupKernels.TryGetBindingCandidateColumns(col, span, out var dogfoodCandidateColumns))
             throw new InvalidOperationException("N# binding candidate column kernel rejected the source.");
 
@@ -1007,12 +949,12 @@ public class CodeIntelligenceService
         {
             FunctionDeclaration f => new SymbolResult(
                 f.Name, SymbolKind.Function, file, f.Line, f.Column,
-                TypeName: FormatTypeReference(f.ReturnType),
-                Modifiers: FormatModifiers(f.Modifiers),
+                TypeName: CodeIntelligenceDisplayText.FormatTypeReference(f.ReturnType),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(f.Modifiers),
                 Members: null,
                 Parameters: f.Parameters.Select(p => new ParameterResult(
                     p.Name,
-                    FormatTypeReference(p.Type),
+                    CodeIntelligenceDisplayText.FormatTypeReference(p.Type),
                     p.DefaultValue != null,
                     p.DefaultValue?.ToString()
                 )).ToArray()),
@@ -1020,7 +962,7 @@ public class CodeIntelligenceService
             ClassDeclaration c => new SymbolResult(
                 c.Name, SymbolKind.Class, file, c.Line, c.Column,
                 TypeName: null,
-                Modifiers: FormatModifiers(c.Modifiers),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(c.Modifiers),
                 Members: (DeclarationFacts.GetDeclarationMembers(c)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
                     .Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member))
                     .Select(m => DeclarationToSymbol(m, file))
@@ -1032,7 +974,7 @@ public class CodeIntelligenceService
             StructDeclaration s => new SymbolResult(
                 s.Name, SymbolKind.Struct, file, s.Line, s.Column,
                 TypeName: null,
-                Modifiers: FormatModifiers(s.Modifiers),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(s.Modifiers),
                 Members: (DeclarationFacts.GetDeclarationMembers(s)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
                     .Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member))
                     .Select(m => DeclarationToSymbol(m, file))
@@ -1044,7 +986,7 @@ public class CodeIntelligenceService
             RecordDeclaration r => new SymbolResult(
                 r.Name, SymbolKind.Record, file, r.Line, r.Column,
                 TypeName: null,
-                Modifiers: FormatModifiers(r.Modifiers),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(r.Modifiers),
                 Members: (DeclarationFacts.GetDeclarationMembers(r)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
                     .Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member))
                     .Select(m => DeclarationToSymbol(m, file))
@@ -1056,14 +998,14 @@ public class CodeIntelligenceService
             SoaRecordDeclaration soa => new SymbolResult(
                 soa.Name, SymbolKind.Record, file, soa.Line, soa.Column,
                 TypeName: "soa",
-                Modifiers: FormatModifiers(soa.Modifiers),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(soa.Modifiers),
                 Members: soa.Columns.Select(c => new SymbolResult(
                     c.Name,
                     SymbolKind.Field,
                     file,
                     c.Line,
                     c.Column,
-                    FormatTypeReference(c.Type),
+                    CodeIntelligenceDisplayText.FormatTypeReference(c.Type),
                     null,
                     null,
                     null)).ToArray(),
@@ -1072,7 +1014,7 @@ public class CodeIntelligenceService
             InterfaceDeclaration i => new SymbolResult(
                 i.Name, SymbolKind.Interface, file, i.Line, i.Column,
                 TypeName: null,
-                Modifiers: FormatModifiers(i.Modifiers),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(i.Modifiers),
                 Members: (DeclarationFacts.GetDeclarationMembers(i)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
                     .Where(member => DeclarationFacts.IsPublicSurfaceDeclaration(member))
                     .Select(m => DeclarationToSymbol(m, file))
@@ -1084,7 +1026,7 @@ public class CodeIntelligenceService
             EnumDeclaration e => new SymbolResult(
                 e.Name, SymbolKind.Enum, file, e.Line, e.Column,
                 TypeName: null,
-                Modifiers: FormatModifiers(e.Modifiers),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(e.Modifiers),
                 Members: e.Members.Select(m => new SymbolResult(
                     m.Name, SymbolKind.EnumMember, file, 0, 0, null, null, null, null)).ToArray(),
                 Parameters: null),
@@ -1092,7 +1034,7 @@ public class CodeIntelligenceService
             UnionDeclaration u => new SymbolResult(
                 u.Name, SymbolKind.Union, file, u.Line, u.Column,
                 TypeName: null,
-                Modifiers: FormatModifiers(u.Modifiers),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(u.Modifiers),
                 Members: u.Cases.Where(c => VisibilityConventions.IsExportedIdentifier(c.Name, Modifiers.None)).Select(c => new SymbolResult(
                     c.Name, SymbolKind.EnumMember, file, 0, 0, null, null, null, null)).ToArray(),
                 Parameters: null),
@@ -1101,36 +1043,36 @@ public class CodeIntelligenceService
                 fd.Name,
                 fd.Modifiers.HasFlag(Ast.Modifiers.Static) ? SymbolKind.Field : SymbolKind.Property,
                 file, fd.Line, fd.Column,
-                TypeName: FormatTypeReference(fd.Type),
-                Modifiers: FormatModifiers(fd.Modifiers),
+                TypeName: CodeIntelligenceDisplayText.FormatTypeReference(fd.Type),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(fd.Modifiers),
                 Members: null,
                 Parameters: null),
 
             PropertyDeclaration pd => new SymbolResult(
                 pd.Name, SymbolKind.Property, file, pd.Line, pd.Column,
-                TypeName: FormatTypeReference(pd.Type),
-                Modifiers: FormatModifiers(pd.Modifiers),
+                TypeName: CodeIntelligenceDisplayText.FormatTypeReference(pd.Type),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(pd.Modifiers),
                 Members: null,
                 Parameters: null),
 
             ConstructorDeclaration cd => new SymbolResult(
                 "constructor", SymbolKind.Constructor, file, cd.Line, cd.Column,
                 TypeName: null,
-                Modifiers: FormatModifiers(cd.Modifiers),
+                Modifiers: CodeIntelligenceDisplayText.FormatModifiers(cd.Modifiers),
                 Members: null,
                 Parameters: cd.Parameters.Select(p => new ParameterResult(
-                    p.Name, FormatTypeReference(p.Type), p.DefaultValue != null, null)).ToArray()),
+                    p.Name, CodeIntelligenceDisplayText.FormatTypeReference(p.Type), p.DefaultValue != null, null)).ToArray()),
 
             TypeAliasDeclaration ta => new SymbolResult(
                 ta.Name, SymbolKind.TypeAlias, file, ta.Line, ta.Column,
-                TypeName: FormatTypeReference(ta.Type),
+                TypeName: CodeIntelligenceDisplayText.FormatTypeReference(ta.Type),
                 Modifiers: null,
                 Members: null,
                 Parameters: null),
 
             NewtypeDeclaration nt => new SymbolResult(
                 nt.Name, SymbolKind.Struct, file, nt.Line, nt.Column,
-                TypeName: FormatTypeReference(nt.UnderlyingType),
+                TypeName: CodeIntelligenceDisplayText.FormatTypeReference(nt.UnderlyingType),
                 Modifiers: null,
                 Members: null,
                 Parameters: null),
@@ -1152,7 +1094,7 @@ public class CodeIntelligenceService
         {
             FunctionDeclaration f => new OutlineEntry(
                 f.Name, SymbolKind.Function, f.Line, DeclarationFacts.EstimateDeclarationEndLine(f),
-                ReturnType: FormatTypeReference(f.ReturnType),
+                ReturnType: CodeIntelligenceDisplayText.FormatTypeReference(f.ReturnType),
                 TypeName: null,
                 Children: null),
 
@@ -1196,7 +1138,7 @@ public class CodeIntelligenceService
                     c.Line,
                     c.Line,
                     ReturnType: null,
-                    TypeName: FormatTypeReference(c.Type),
+                    TypeName: CodeIntelligenceDisplayText.FormatTypeReference(c.Type),
                     Children: null)).ToArray()),
 
             InterfaceDeclaration i => new OutlineEntry(
@@ -1224,13 +1166,13 @@ public class CodeIntelligenceService
             FieldDeclaration fd => new OutlineEntry(
                 fd.Name, SymbolKind.Property, fd.Line, fd.Line,
                 ReturnType: null,
-                TypeName: FormatTypeReference(fd.Type),
+                TypeName: CodeIntelligenceDisplayText.FormatTypeReference(fd.Type),
                 Children: null),
 
             PropertyDeclaration pd => new OutlineEntry(
                 pd.Name, SymbolKind.Property, pd.Line, pd.Line,
                 ReturnType: null,
-                TypeName: FormatTypeReference(pd.Type),
+                TypeName: CodeIntelligenceDisplayText.FormatTypeReference(pd.Type),
                 Children: null),
 
             TestDeclaration td => new OutlineEntry(
@@ -1262,7 +1204,7 @@ public class CodeIntelligenceService
 
     private static Expression? FindExpressionAtPositionRobust(CompilationUnit cu, int line, int col)
     {
-        foreach (var candidateColumn in GetNearbyColumns(col, maxDistance: 3))
+        foreach (var candidateColumn in CodeIntelligenceSourceDoor.NearbyColumns(col, 3))
         {
             // CLI positions are 1-based. AstNodeFinder historically expected 0-based coordinates,
             // so try both until all callers are aligned.
@@ -1278,7 +1220,7 @@ public class CodeIntelligenceService
     private TypeInfo? ResolveTypeInfoAtPosition(Expression? expr, IReadOnlyList<string> candidateNames,
         SemanticModel? semanticModel, ProjectSnapshot snapshot, CompilationUnit currentUnit, out string? resolvedName)
     {
-        resolvedName = GetExpressionQueryName(expr);
+        resolvedName = CodeIntelligenceDisplayText.GetExpressionQueryName(expr);
         var fromExpression = ResolveTypeInfoFromExpression(expr, semanticModel, snapshot, currentUnit);
         if (fromExpression != null)
             return fromExpression;
@@ -1294,29 +1236,6 @@ public class CodeIntelligenceService
         }
 
         return null;
-    }
-
-    private static List<string> GetCandidateQueryNames(Expression? expr, ProjectSnapshot snapshot, string filePath,
-        int line, int col)
-    {
-        var names = new List<string>();
-
-        AddCandidateName(names, GetExpressionQueryName(expr));
-        AddCandidateName(names, ExtractWordAtPosition(snapshot, filePath, line, col));
-        AddCandidateName(names, ExtractWordAtPosition(snapshot, filePath, line, Math.Max(0, col - 1)));
-        AddCandidateName(names, ExtractWordAtPosition(snapshot, filePath, line, col + 1));
-        AddCandidateName(names, ExtractVariableDeclarationNameAtPosition(snapshot, filePath, line));
-
-        return names;
-    }
-
-    private static void AddCandidateName(List<string> names, string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return;
-
-        if (!names.Contains(name, StringComparer.Ordinal))
-            names.Add(name);
     }
 
     private TypeInfo? ResolveTypeInfoFromExpression(Expression? expr, SemanticModel? semanticModel,
@@ -1547,55 +1466,6 @@ public class CodeIntelligenceService
         return null;
     }
 
-    private static string? GetExpressionQueryName(Expression? expr)
-    {
-        return expr switch
-        {
-            IdentifierExpression id => id.Name,
-            MemberAccessExpression ma => ma.MemberName,
-            CallExpression call => GetExpressionQueryName(call.Callee),
-            NewExpression newExpr when newExpr.Type != null => GetTypeReferenceName(newExpr.Type),
-            WithExpression withExpr => GetExpressionQueryName(withExpr.Target),
-            AwaitExpression awaitExpr => GetExpressionQueryName(awaitExpr.Expression),
-            CastExpression castExpr => GetTypeReferenceName(castExpr.TargetType),
-            ParenthesizedExpression paren => GetExpressionQueryName(paren.Inner),
-            _ => null
-        };
-    }
-
-    private static string? GetTypeReferenceName(TypeReference? typeRef)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference s => s.Name,
-            GenericTypeReference g => g.Name,
-            NullableTypeReference n => GetTypeReferenceName(n.InnerType),
-            ArrayTypeReference a => GetTypeReferenceName(a.ElementType),
-            UnionTypeReference u => string.Join(" | ", u.Arms.Select(FormatTypeReference)),
-            _ => null
-        };
-    }
-
-    private static string GetTypeDisplayName(TypeInfo typeInfo, string fallback)
-    {
-        return typeInfo switch
-        {
-            ClassTypeInfo c => c.Name,
-            StructTypeInfo s => s.Name,
-            RecordTypeInfo r => r.Name,
-            SoaRecordTypeInfo soa => soa.Declaration.Name,
-            InterfaceTypeInfo i => i.Name,
-            EnumTypeInfo e => e.Declaration.Name,
-            AnonymousUnionTypeInfo u => string.Join(" | ", u.Arms.Select(NullabilityMetadataReflection.FormatTypeInfo)),
-            UnionTypeInfo u => u.Declaration.Name,
-            ReflectionTypeInfo r => r.Type.Name,
-            _ => fallback
-        };
-    }
-
-    private static string FormatTypeReference(TypeReference? typeRef)
-        => TypeReferenceFacts.GetDisplayNameOrVoid(typeRef);
-
     private static string GetNullabilityForExpression(SemanticModel? semanticModel, Expression? expression, TypeInfo typeInfo)
     {
         if (expression != null
@@ -1622,48 +1492,6 @@ public class CodeIntelligenceService
         };
     }
 
-    private static string TypeInfoToKind(TypeInfo typeInfo) => typeInfo switch
-    {
-        ClassTypeInfo => "class",
-        StructTypeInfo => "struct",
-        RecordTypeInfo => "record",
-        SoaRecordTypeInfo => "soaRecord",
-        InterfaceTypeInfo => "interface",
-        EnumTypeInfo => "enum",
-        AnonymousUnionTypeInfo => "union",
-        UnionTypeInfo => "union",
-        FunctionTypeInfo => "function",
-        GenericTypeInfo => "generic",
-        ArrayTypeInfo => "array",
-        NullableTypeInfo => "nullable",
-        ObliviousTypeInfo => "oblivious",
-        ReflectionTypeInfo r => r.Type.IsEnum ? "enum" : (r.Type.IsValueType ? "struct" : "class"),
-        ReflectionMethodInfo => "method",
-        ReflectionMethodGroupInfo => "method",
-        SimpleTypeInfo => "primitive",
-        _ => "unknown"
-    };
-
-    private static string[]? FormatModifiers(Ast.Modifiers modifiers)
-    {
-        if (modifiers == Ast.Modifiers.None) return null;
-
-        var result = new List<string>();
-        if (modifiers.HasFlag(Ast.Modifiers.Public)) result.Add("pub");
-        if (modifiers.HasFlag(Ast.Modifiers.Private)) result.Add("priv");
-        if (modifiers.HasFlag(Ast.Modifiers.Internal)) result.Add("internal");
-        if (modifiers.HasFlag(Ast.Modifiers.Protected)) result.Add("protected");
-        if (modifiers.HasFlag(Ast.Modifiers.Static)) result.Add("static");
-        if (modifiers.HasFlag(Ast.Modifiers.Virtual)) result.Add("virtual");
-        if (modifiers.HasFlag(Ast.Modifiers.Abstract)) result.Add("abstract");
-        if (modifiers.HasFlag(Ast.Modifiers.Sealed)) result.Add("sealed");
-        if (modifiers.HasFlag(Ast.Modifiers.Async)) result.Add("async");
-        if (modifiers.HasFlag(Ast.Modifiers.Override)) result.Add("override");
-        if (modifiers.HasFlag(Ast.Modifiers.Readonly)) result.Add("readonly");
-
-        return result.Count > 0 ? result.ToArray() : null;
-    }
-
     private LocationResult? FindDefinitionLocation(ProjectSnapshot snapshot, string name)
     {
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
@@ -1681,7 +1509,7 @@ public class CodeIntelligenceService
     private LocationResult? FindDefinitionLocationInDeclaration(ProjectSnapshot snapshot, string filePath, Declaration decl, string name)
     {
         if (DeclarationFacts.GetDeclarationName(decl) == name)
-            return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), decl.Line, decl.Column);
+            return new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath), decl.Line, decl.Column);
 
         foreach (var member in DeclarationFacts.GetDeclarationMembers(decl)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
         {
@@ -1695,7 +1523,7 @@ public class CodeIntelligenceService
             foreach (var member in enumDecl.Members)
             {
                 if (member.Name == name)
-                    return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), enumDecl.Line, enumDecl.Column);
+                    return new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath), enumDecl.Line, enumDecl.Column);
             }
         }
 
@@ -1704,142 +1532,35 @@ public class CodeIntelligenceService
             foreach (var unionCase in unionDecl.Cases)
             {
                 if (unionCase.Name == name)
-                    return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), unionDecl.Line, unionDecl.Column);
+                    return new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath), unionDecl.Line, unionDecl.Column);
             }
         }
 
         return null;
     }
 
-    private static string? GetSourceText(ProjectSnapshot snapshot, string filePath)
+    /// <summary>
+    /// The snapshot's text for a file: the in-memory override when the caller supplied one (this is
+    /// the LSP's unsaved-buffer path), otherwise disk.
+    ///
+    /// This is the ONE member of the text family that could not move to N#, and the reason is
+    /// measured rather than preferred: <see cref="ProjectSnapshot.SourceTexts"/> is an
+    /// IReadOnlyDictionary, and IReadOnlyDictionary&lt;K, V&gt; is absent from the columnar
+    /// emitter's resolvable-type catalog — a static N# parameter of that type declines at
+    /// emit.declaration.method-param. So the text crosses the boundary as a string, exactly as
+    /// every CodeIntelligenceSourceTextKernels entry point already requires. It carries no policy
+    /// beyond that lookup.
+    /// </summary>
+    private static string? GetSourceText(ProjectSnapshot snapshot, string? filePath)
     {
+        if (filePath == null)
+            return null;
+
         var fullPath = Path.GetFullPath(filePath);
         if (snapshot.SourceTexts.TryGetValue(fullPath, out var text))
             return text;
 
-            return File.ReadAllText(fullPath);
-    }
-
-    private static string? ExtractWordAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
-    {
-            var source = GetSourceText(snapshot, filePath);
-            if (source == null)
-                return null;
-
-            if (CodeIntelligenceSourceTextKernels.TryExtractIdentifierName(
-                    snapshot,
-                    filePath,
-                    source,
-                    line,
-                    col,
-                    out var dogfoodName))
-            {
-                return dogfoodName;
-            }
-
-            return null;
-    }
-
-    private static (int StartColumn, int EndColumn)? ExtractIdentifierSpanAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
-    {
-            var source = GetSourceText(snapshot, filePath);
-            if (source == null)
-                return null;
-
-            if (CodeIntelligenceSourceTextKernels.TryExtractIdentifierSpan(
-                    snapshot,
-                    filePath,
-                    source,
-                    line,
-                    col,
-                    out var dogfoodSpan))
-            {
-                return dogfoodSpan;
-            }
-
-            return null;
-    }
-
-    private static IEnumerable<int> GetNearbyColumns(int col, int maxDistance)
-    {
-        if (col > 0)
-            yield return col;
-
-        for (int distance = 1; distance <= maxDistance; distance++)
-        {
-            if (col - distance > 0)
-                yield return col - distance;
-
-            yield return col + distance;
-        }
-    }
-
-    private static string? ExtractVariableDeclarationNameAtPosition(ProjectSnapshot snapshot, string filePath, int line)
-    {
-            var source = GetSourceText(snapshot, filePath);
-            if (source == null)
-                return null;
-
-            if (CodeIntelligenceSourceTextKernels.TryExtractVariableDeclarationName(
-                    snapshot,
-                    filePath,
-                    source,
-                    line,
-                    out var dogfoodName))
-            {
-                return dogfoodName;
-            }
-
-            return null;
-    }
-
-    private static string? ExtractSourceLine(IReadOnlyDictionary<string, string> sourceTexts, string filePath, int line)
-    {
-        if (!sourceTexts.TryGetValue(filePath, out var source)) return null;
-        return ExtractSourceLine(source, line);
-    }
-
-    private static string? ExtractSourceLine(ProjectSnapshot snapshot, string filePath, int line)
-    {
-        var source = GetSourceText(snapshot, filePath);
-        if (source == null)
-            return null;
-
-        if (!CodeIntelligenceSourceTextKernels.TryExtractSourceLine(
-                snapshot,
-                filePath,
-                source,
-                line,
-                out var dogfoodLine))
-            throw new InvalidOperationException("N# source line kernel rejected the source.");
-
-        return dogfoodLine;
-    }
-
-    private static string? ExtractSourceLine(string source, int line)
-    {
-        if (!CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
-            throw new InvalidOperationException("N# source line kernel rejected the source.");
-
-        return dogfoodLine;
-    }
-
-    private static string? FormatSuggestions(List<string>? suggestions)
-    {
-        if (suggestions == null || suggestions.Count == 0) return null;
-        return string.Join("; ", suggestions);
-    }
-
-    private static string GetRelativePath(string projectRoot, string filePath)
-    {
-        try
-        {
-            return Path.GetRelativePath(projectRoot, filePath);
-        }
-        catch
-        {
-            return filePath;
-        }
+        return File.ReadAllText(fullPath);
     }
 
 }
