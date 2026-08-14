@@ -1,0 +1,576 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import NSharpLang.Compiler.Ast
+
+
+// THE LINT WALK ITSELF: THE FUNCTION ARM, THE STATEMENT ARM AND THE EXPRESSION ARM.
+//
+// These five members were one strongly connected component in `LintVisitor` and could not move one at
+// a time. The expression sub-territory alone escapes to `VisitStatement` (a lambda's block body);
+// adding `VisitStatement` escapes to `VisitFunction` (a local function); adding `VisitFunction`
+// escapes to nothing. The smallest closed cut is therefore all three arms, and the only way in is
+// `VisitDeclaration` — which is why the DECLARATION walk is what stays in C#.
+//
+// WHAT THIS OWNER HOLDS is the expression-recursion guard and nothing else. Every other piece of
+// per-file state belongs to `LinterWalkState`, which the previous slice took; an arm reaches it
+// through a method on that object rather than by mutating a visitor field.
+//
+// THE GUARD IS A `HashSet<object>`, AND THAT IS A MEASURED SUBSTITUTION, NOT A CONVENIENCE. The C#
+// spelled it `HashSet<Expression>(ReferenceEqualityComparer.Instance)` — a set that asks "is this the
+// same NODE", not "is this an equal node", because an AST that shares a subtree must not be treated
+// as circular. `HashSet<object>` states the same rule, because no AST node type overrides `Equals` or
+// `GetHashCode`: `object`'s reference-identity implementations are what both sets end up calling. Two
+// structurally identical nodes are two entries, and re-adding one instance answers false.
+//
+// THE DEPTH COUNTER AND THE VISITING SET ARE BOTH NEEDED and they answer different questions. The
+// counter bounds how DEEP a walk may go; the set catches a node that is its own descendant, which
+// would otherwise recurse until the counter tripped and turned a recoverable cycle into a throw.
+class LinterWalk {
+    state: LinterWalkState
+    visitingStack: HashSet<object>
+    recursionDepth: int
+
+    constructor(walkState: LinterWalkState) {
+        state = walkState
+        visitingStack = new HashSet<object>()
+        recursionDepth = 0
+    }
+
+    // Deliberately low: the point is to catch a malformed tree quickly, not to support deep ones.
+    static func MaxRecursionDepth(): int {
+        return 100
+    }
+
+    // ---- the function arm -------------------------------------------------------------------------
+
+    // One function, its parameters and its body. The frame the state hands back is held in a LOCAL and
+    // restored on the straight line, with no `finally`: a throw inside the nested walk abandons it,
+    // exactly as the C# locals it replaces did.
+    func VisitFunction(declaration: FunctionDeclaration) {
+        // NL010: the signature's type references are used names.
+        state.TrackTypeReference(declaration.ReturnType)
+        for parameter in declaration.Parameters {
+            state.TrackTypeReference(parameter.Type)
+        }
+
+        frame := state.EnterFunction(IsAsync(declaration))
+
+        body := declaration.Body
+        expressionBody := declaration.ExpressionBody
+        if body != null {
+            state.PushScope()
+            DeclareParameters(declaration)
+            VisitStatement(body)
+            state.CheckUnusedParameters(declaration.Name)
+            state.PopScope()
+        } else if expressionBody != null {
+            state.PushScope()
+            DeclareParameters(declaration)
+            VisitExpression(expressionBody)
+            state.CheckUnusedParameters(declaration.Name)
+            state.PopScope()
+        }
+
+        // NL004: async without await.
+        state.CheckAsyncWithoutAwait(declaration)
+        state.ExitFunction(frame)
+    }
+
+    // Binds this function's parameters into the scope that was just opened, and records that scope so a
+    // read from a nested lambda or local function can be credited to the parameter it resolves to.
+    // A parameter is exempt from NL001 — it is reported by NL012 instead — which is what the `false`
+    // says: this is a BINDING site, not a read that credits an enclosing parameter.
+    func DeclareParameters(declaration: FunctionDeclaration) {
+        for parameter in declaration.Parameters {
+            parameterLine := declaration.Line
+            if parameter.Line > 0 {
+                parameterLine = parameter.Line
+            }
+
+            parameterColumn := declaration.Column
+            if parameter.Column > 0 {
+                parameterColumn = parameter.Column
+            }
+
+            state.DeclareVariable(parameter.Name, parameterLine, parameterColumn)
+            state.MarkVariableUsed(parameter.Name, false)
+            state.AddParameter(parameter.Name, parameterLine, parameterColumn)
+        }
+
+        state.RecordParameterScope()
+    }
+
+    // The `async` modifier, read as a flag bit. `Modifiers` is a flags enum and the test is the same
+    // mask test `HasFlag` performs.
+    static func IsAsync(declaration: FunctionDeclaration): bool {
+        modifierBits := Convert.ToInt32(declaration.Modifiers)
+        asyncBits := Convert.ToInt32(Modifiers.Async)
+        return (modifierBits & asyncBits) == asyncBits
+    }
+
+    // ---- the statement arm ------------------------------------------------------------------------
+
+    // Every statement shape the walk understands. A shape with no arm here is walked no further, which
+    // is deliberate: a statement that carries no binding, no expression and no nested body has nothing
+    // the linter needs to see.
+    func VisitStatement(statement: Statement) {
+        variableDeclaration := statement as VariableDeclarationStatement
+        if variableDeclaration != null {
+            VisitVariableDeclaration(variableDeclaration)
+            return
+        }
+
+        block := statement as BlockStatement
+        if block != null {
+            VisitBlock(block)
+            return
+        }
+
+        ifStatement := statement as IfStatement
+        if ifStatement != null {
+            VisitExpression(ifStatement.Condition)
+            // NL003 and NL016 both read the condition and neither walks it.
+            state.CheckUnnecessaryNullCheck(ifStatement.Condition)
+            state.CheckRedundantNullCheck(ifStatement.Condition)
+            VisitStatement(ifStatement.ThenStatement)
+            elseStatement := ifStatement.ElseStatement
+            if elseStatement != null {
+                VisitStatement(elseStatement)
+            }
+
+            return
+        }
+
+        forStatement := statement as ForStatement
+        if forStatement != null {
+            VisitFor(forStatement)
+            return
+        }
+
+        foreachStatement := statement as ForeachStatement
+        if foreachStatement != null {
+            // The collection is read in the OUTER scope, before the loop variable exists.
+            VisitExpression(foreachStatement.Collection)
+            state.PushScope()
+            state.DeclareVariable(foreachStatement.VariableName, foreachStatement.Line, foreachStatement.Column)
+            state.MarkVariableUsed(foreachStatement.VariableName, false)
+            VisitStatement(foreachStatement.Body)
+            state.PopScope()
+            return
+        }
+
+        whileStatement := statement as WhileStatement
+        if whileStatement != null {
+            VisitExpression(whileStatement.Condition)
+            state.CheckUnnecessaryNullCheck(whileStatement.Condition)
+            state.CheckRedundantNullCheck(whileStatement.Condition)
+            VisitStatement(whileStatement.Body)
+            return
+        }
+
+        returnStatement := statement as ReturnStatement
+        if returnStatement != null {
+            returnValue := returnStatement.Value
+            if returnValue != null {
+                VisitExpression(returnValue)
+            }
+
+            return
+        }
+
+        expressionStatement := statement as ExpressionStatement
+        if expressionStatement != null {
+            VisitExpression(expressionStatement.Expression)
+            return
+        }
+
+        tryStatement := statement as TryStatement
+        if tryStatement != null {
+            VisitTry(tryStatement)
+            return
+        }
+
+        usingStatement := statement as UsingStatement
+        if usingStatement != null {
+            VisitUsing(usingStatement)
+            return
+        }
+
+        switchStatement := statement as SwitchStatement
+        if switchStatement != null {
+            VisitSwitch(switchStatement)
+            return
+        }
+
+        throwStatement := statement as ThrowStatement
+        if throwStatement != null {
+            VisitExpression(throwStatement.Expression)
+            return
+        }
+
+        localFunction := statement as LocalFunctionStatement
+        if localFunction != null {
+            VisitFunction(localFunction.Function)
+            return
+        }
+
+        printStatement := statement as PrintStatement
+        if printStatement != null {
+            VisitExpression(printStatement.Value)
+            return
+        }
+
+        assertStatement := statement as AssertStatement
+        if assertStatement != null {
+            VisitExpression(assertStatement.Condition)
+            assertMessage := assertStatement.Message
+            if assertMessage != null {
+                VisitExpression(assertMessage)
+            }
+
+            return
+        }
+
+        assertThrows := statement as AssertThrowsStatement
+        if assertThrows != null {
+            state.TrackTypeReference(assertThrows.ExceptionType)
+            VisitStatement(assertThrows.Body)
+            return
+        }
+
+        lockStatement := statement as LockStatement
+        if lockStatement != null {
+            VisitExpression(lockStatement.LockObject)
+            VisitStatement(lockStatement.Body)
+            return
+        }
+
+        yieldStatement := statement as YieldStatement
+        if yieldStatement != null {
+            yieldValue := yieldStatement.Value
+            if yieldValue != null {
+                VisitExpression(yieldValue)
+            }
+
+            return
+        }
+
+        tupleDeconstruction := statement as TupleDeconstructionStatement
+        if tupleDeconstruction != null {
+            VisitTupleDeconstruction(tupleDeconstruction)
+            return
+        }
+
+        awaitForEach := statement as AwaitForEachStatement
+        if awaitForEach != null {
+            // `await foreach` is a genuine await usage — record it so NL004 does not misfire on async
+            // functions that only consume async streams.
+            state.NoteAwait()
+            VisitExpression(awaitForEach.Collection)
+            state.PushScope()
+            state.DeclareVariable(awaitForEach.VariableName, awaitForEach.Line, awaitForEach.Column)
+            state.MarkVariableUsed(awaitForEach.VariableName, false)
+            VisitStatement(awaitForEach.Body)
+            state.PopScope()
+        }
+    }
+
+    // A declaration binds its name and then walks its initializer — unless the initializer carries a
+    // parser-error placeholder, in which case NEITHER happens: a name the parser could not read must
+    // not be reported as unused, and a broken subtree must not cascade further diagnostics.
+    func VisitVariableDeclaration(declaration: VariableDeclarationStatement) {
+        state.TrackTypeReference(declaration.Type)
+
+        initializer := declaration.Initializer
+        initializerHasParserError := false
+        if initializer != null {
+            initializerHasParserError = AnalyzerParserErrorPlaceholders.ContainsInExpression(initializer)
+        }
+
+        if !initializerHasParserError {
+            // The statement's own column is the IDENTIFIER's location, including for a shorthand
+            // declaration like `name := value`.
+            state.DeclareVariable(declaration.Name, declaration.Line, declaration.Column)
+        }
+
+        if initializer != null && !initializerHasParserError {
+            VisitExpression(initializer)
+        }
+    }
+
+    // A block opens a scope and closes it. NL006 is reported ONCE per block, at the first statement the
+    // walk cannot reach, and the statements after it are not walked at all: an unreachable statement
+    // must not cascade NL001-class findings of its own.
+    func VisitBlock(block: BlockStatement) {
+        state.PushScope()
+        unreachableReported := false
+        restIsUnreachable := false
+
+        for statement in block.Statements {
+            if restIsUnreachable {
+                if !unreachableReported {
+                    state.ReportUnreachableCode(statement.Line, statement.Column)
+                    unreachableReported = true
+                }
+
+                continue
+            }
+
+            VisitStatement(statement)
+
+            if IsFlowTerminator(statement) {
+                restIsUnreachable = true
+            }
+        }
+
+        state.PopScope()
+    }
+
+    // What makes the rest of a block unreachable. Only an unconditional exit counts.
+    static func IsFlowTerminator(statement: Statement): bool {
+        if (statement as ReturnStatement) != null {
+            return true
+        }
+
+        return (statement as ThrowStatement) != null
+    }
+
+    // A `for` owns a scope so its initializer's bindings do not leak past the loop.
+    func VisitFor(statement: ForStatement) {
+        state.PushScope()
+        initializer := statement.Initializer
+        if initializer != null {
+            VisitStatement(initializer)
+        }
+
+        condition := statement.Condition
+        if condition != null {
+            VisitExpression(condition)
+        }
+
+        iterator := statement.Iterator
+        if iterator != null {
+            VisitExpression(iterator)
+        }
+
+        VisitStatement(statement.Body)
+        state.PopScope()
+    }
+
+    // Each catch clause owns a scope holding its exception variable, which is exempt from NL001. An
+    // EMPTY catch block is NL011 and is not walked — there is nothing in it to walk.
+    func VisitTry(statement: TryStatement) {
+        VisitStatement(statement.TryBlock)
+        for catchClause in statement.CatchClauses {
+            catchBlockIsEmpty := catchClause.Block.Statements.Count == 0
+
+            if catchBlockIsEmpty {
+                state.ReportEmptyCatchBlock(catchClause.Block.Line, catchClause.Block.Column)
+            }
+
+            state.PushScope()
+            variableName := catchClause.VariableName
+            if variableName != null {
+                state.DeclareVariable(variableName, catchClause.Block.Line, catchClause.Block.Column)
+                state.MarkVariableUsed(variableName, false)
+            }
+
+            if !catchBlockIsEmpty {
+                VisitStatement(catchClause.Block)
+            }
+
+            state.PopScope()
+        }
+
+        finallyBlock := statement.FinallyBlock
+        if finallyBlock != null {
+            VisitStatement(finallyBlock)
+        }
+    }
+
+    // A `using` owns a scope so the resource it declares is not visible after it.
+    func VisitUsing(statement: UsingStatement) {
+        state.PushScope()
+        declaration := statement.Declaration
+        if declaration != null {
+            VisitStatement(declaration)
+        }
+
+        resource := statement.Expression
+        if resource != null {
+            VisitExpression(resource)
+        }
+
+        body := statement.Body
+        if body != null {
+            VisitStatement(body)
+        }
+
+        state.PopScope()
+    }
+
+    // Every case owns its own scope: two cases may bind the same name without shadowing each other.
+    func VisitSwitch(statement: SwitchStatement) {
+        VisitExpression(statement.Value)
+        for switchCase in statement.Cases {
+            state.PushScope()
+            for caseStatement in switchCase.Statements {
+                VisitStatement(caseStatement)
+            }
+
+            state.PopScope()
+        }
+    }
+
+    // A deconstruction binds every name but the discard. A parser-error placeholder in the initializer
+    // suppresses the whole statement, bindings included, for the same reason a broken declaration is
+    // suppressed.
+    func VisitTupleDeconstruction(statement: TupleDeconstructionStatement) {
+        if AnalyzerParserErrorPlaceholders.ContainsInExpression(statement.Initializer) {
+            return
+        }
+
+        for name in statement.Names {
+            if name != "_" {
+                state.DeclareVariable(name, statement.Line, statement.Column)
+            }
+        }
+
+        VisitExpression(statement.Initializer)
+    }
+
+    // ---- the expression arm -----------------------------------------------------------------------
+
+    // THE GUARDED ENTRY POINT. Two different failures are guarded against, and they are not the same
+    // failure: the DEPTH counter bounds an unbounded descent, and the VISITING SET catches a node that
+    // is currently on the stack — a node that is its own descendant.
+    //
+    // A node already being visited is NOT walked again, but an identifier still counts as a READ.
+    // That is deliberate and it is why the arm exists at all: a circular AST would otherwise lose the
+    // usage and report a false NL001 against a variable the code plainly reads.
+    func VisitExpression(expression: Expression) {
+        recursionDepth = recursionDepth + 1
+        if recursionDepth > MaxRecursionDepth() {
+            // The receiver must be object-typed for `GetType()` to emit.
+            node: object = expression
+            throw new InvalidOperationException("Maximum recursion depth exceeded while visiting expression at line " + expression.Line.ToString() + ", column " + expression.Column.ToString() + ". Expression type: " + node.GetType().Name)
+        }
+
+        if !visitingStack.Add(expression) {
+            identifier := expression as IdentifierExpression
+            if identifier != null {
+                state.MarkVariableUsed(identifier.Name, true)
+            }
+
+            recursionDepth = recursionDepth - 1
+            return
+        }
+
+        try {
+            VisitExpressionInternal(expression)
+        } finally {
+            recursionDepth = recursionDepth - 1
+            visitingStack.Remove(expression)
+        }
+    }
+
+    // The shapes that mean something to a rule. Everything else is purely structural and is handled by
+    // the child walk below.
+    func VisitExpressionInternal(expression: Expression) {
+        identifier := expression as IdentifierExpression
+        if identifier != null {
+            state.MarkVariableUsed(identifier.Name, true)
+            // NL010: every identifier the code mentions is a use of whatever import supplies it.
+            state.NoteCodeIdentifier(identifier.Name)
+            // NL002: a bare name that looks like a type may need an import.
+            state.CheckMissingImport(identifier)
+            return
+        }
+
+        stringLiteral := expression as StringLiteralExpression
+        if stringLiteral != null {
+            // The RAW literal text, `$"…"` and all: the scan needs the interpolation syntax itself.
+            state.HandleStringInterpolation(stringLiteral.Value)
+            return
+        }
+
+        newExpression := expression as NewExpression
+        if newExpression != null {
+            constructedType := newExpression.Type
+            if constructedType != null {
+                state.CheckMissingImportForType(constructedType, newExpression.Line, newExpression.Column)
+                // NL010: the constructed type's base name is a used identifier.
+                newTypeName := LinterTypeReferenceName.Base(constructedType)
+                if newTypeName != null {
+                    state.NoteCodeIdentifier(newTypeName)
+                }
+            }
+
+            VisitChildExpressions(newExpression)
+            return
+        }
+
+        memberAccess := expression as MemberAccessExpression
+        if memberAccess != null {
+            // NL010: a member name may be an extension method supplied by an import.
+            state.NoteMemberAccessName(memberAccess.MemberName)
+            VisitChildExpressions(memberAccess)
+            return
+        }
+
+        awaitExpression := expression as AwaitExpression
+        if awaitExpression != null {
+            state.NoteAwait()
+            VisitChildExpressions(awaitExpression)
+            return
+        }
+
+        typeOfExpression := expression as TypeOfExpression
+        if typeOfExpression != null {
+            // NL010: `typeof`'s operand is a TypeReference, not an expression child, so the structural
+            // walk never reaches it — track it explicitly.
+            state.TrackTypeReference(typeOfExpression.Type)
+            return
+        }
+
+        lambda := expression as LambdaExpression
+        if lambda != null {
+            state.PushScope()
+            for parameter in lambda.Parameters {
+                state.DeclareVariable(parameter.Name, lambda.Line, lambda.Column)
+                state.MarkVariableUsed(parameter.Name, false)
+            }
+
+            blockBody := lambda.BlockBody
+            if blockBody != null {
+                VisitStatement(blockBody)
+            }
+
+            lambdaBody := lambda.ExpressionBody
+            if lambdaBody != null {
+                VisitExpression(lambdaBody)
+            }
+
+            state.PopScope()
+            return
+        }
+
+        VisitChildExpressions(expression)
+    }
+
+    // Routing through `AstChildrenCore` instead of a per-node child list keeps this FAIL-SAFE: a node
+    // kind or a child slot missing from the walk cannot silently skip a subtree and produce false
+    // NL001/NL010-class diagnostics — `AstChildrenCore.Of` throws for a node it does not know.
+    func VisitChildExpressions(expression: Expression) {
+        for child in AstChildrenCore.Of(expression) {
+            childExpression := child as Expression
+            if childExpression == null {
+                throw new InvalidCastException("Unable to cast object of type '" + child.GetType().Name + "' to type 'NSharpLang.Compiler.Ast.Expression'.")
+            }
+
+            VisitExpression(childExpression)
+        }
+    }
+}

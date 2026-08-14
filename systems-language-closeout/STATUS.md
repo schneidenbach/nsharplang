@@ -1,6 +1,57 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-13 (**TASK 019 SLICE 7 LANDED (no commit — mandate) — `Linter.cs` NO LONGER
+Last updated: 2026-08-14 (**TASK 019 SLICE 11 LANDED (no commit — mandate) — `LintVisitor` NO LONGER
+WALKS A STATEMENT, AN EXPRESSION OR A FUNCTION; IT WALKS DECLARATIONS AND NOTHING ELSE.** The
+extractor was re-validated on **SIX** checkpoints before it was trusted (**30 / 623**, **27 / 476**,
+**21 / 414**, **43 / 292**, **58 / 910** and **21 / 545** — slice 10's own pre- and post-cut rows to
+the line); the dead sweep ran BEFORE any scoring (**1,056 files, DEAD 0, DETACHED 51**); and the
+reflection-door census over all **21** member names in a **1,609-file** corpus is **CLEAN — 0
+`typeof` doors and ONE literal hit**, the same VS Code theme-JSON artefact slices 9 and 10 met, so
+**no C# test migrates and the unit suite does not move — 3,192 → 3,192, which is the census's
+prediction, not a coincidence.** **THE INHERITED BRIEF WAS OVERTURNED BY EXECUTION, TWICE.** It named
+an **111-line** expression sub-territory; `nl86-edges.py` reports that set **ESCAPES TO
+`VisitStatement`**, that adding it escapes to `VisitFunction`, and that adding *that* **escapes to
+NOTHING** — so the smallest cut that closes without an N#→C# callback is the whole **379-line** SCC,
+entered only from `VisitDeclaration`. **FIVE C# EXTENTS DIE WHOLE AND THE LAST THREE FIELDS GO WITH
+THEM**: `Linter.cs` **584 → 197** lines (non-blank **510 → 177**, extents **21 → 14** summing
+**545 → 165**, `git diff` **+15 / −402 = net −387, −66.3 %**; over two slices **984 → 197, −80.0 %**),
+and **−379 −3 +1 +1 = −380** closes the extent-sum drop to the line. **This slice adds NO C# policy at
+all** — the only new C# is a `_walk` field and its constructor line, and ten `VisitX(…)` call sites
+become `_walk.VisitX(…)`. N# adds **1,301 lines in ONE NEW OWNER** (`LinterWalk.nl` 576 / 486) plus
+**53 contracts (4,596 → 4,649)**, green on their FIRST run. **THE RECURSION GUARD'S SUBSTITUTION WAS
+PROVED BY EXECUTION BEFORE THE PORT WAS WRITTEN**: an isolated probe against the pinned toolset
+answers `addA=True addAAgain=False addB=True count=2` for a plain `HashSet<object>`, and the
+differential then asks the AST assembly by reflection — **97 node types, `overriders = 0`**, every
+`Equals`/`GetHashCode` declared by `System.Object` — before running
+`HashSet<Expression>(ReferenceEqualityComparer.Instance)` and `new HashSet<object>()` SIDE BY SIDE
+with `agree=True` on every add and remove. **THE DIFFERENTIAL IS BYTE-IDENTICAL ON EVERY BEHAVIOURAL
+ROW — 963 rows, md5 `2f4ad5cb85e4690757b0c2922a203aa4` on BOTH sides, 0 faults, 0 diffs** over **82
+walk scenarios** (all twenty statement arms, all eight expression arms, seven guard behaviours,
+twelve function shapes), **111 identity rows** and a **766-source live `Linter.Lint` oracle** (0
+NO-PARSE, 66 reporting) whose base side drives the DELETED private methods and whose work side reaches
+the N# owner THROUGH `LintVisitor`'s own `_walk` field; the two-sided declared divergence is **8
+PRESENT→ABSENT and 2 ABSENT→PRESENT** plus two counts. **AND `nlc lint` ITSELF WAS RUN ON BOTH CLIs,
+FIVE TIMES EACH: 4,025 rows, 0 diffs, md5 `61125bff…` across all ten time-normalised transcripts,
+242,533 bytes, both clocks present.** **TEN oracle differentials all zero** and the nine standing ones
+reproduce slice 10's md5s to the digit (corpus `86a4928f…` for the nineteenth slice running, self-host
+`e659c044…`); the LIVE-TREE tenth reports 0 diffs and **ZERO diagnostics naming the new owner**, and
+the direct live-tree `nlc check` — **LOAD-BEARING, because `BootstrapServices` builds with legacy
+analysis off** — reports `checkedFiles=376, count=285` with slice 10's census to the digit. Corpus IL
+**63 / 63 byte-identical with the CONTROL FIRST (118 / 118 SAME)**; transcripts 1,557 lines, 0 diffs,
+md5 `1ff6a379…`; the five-run ordering pin byte-identical at the recorded `db729409…`; PARSE-ERROR
+CENSUS `PARSE_ERRORS = 0` on all ten oracles with `NL101: 2 / NL102: 2` in the pin; unit
+**3,192 / 3,192**; contracts **4,649 / 4,649**; format gate clean FIRST run; `dev.sh --since` took the
+full suite by its fail-safe; audit **18 / 18** after the repin, having correctly FAILED **17 / 18**
+before it; manifest 391 no BOM; **the full VS Code-enabled gate `ALL TESTS PASSED` in 26m 53s with 108
+green steps, zero failures and 36 VS Code integration tests inside it**. **SEVEN FINDINGS — the
+sharpest being that a callback which makes a member "immovable" may only be immovable in its current
+company: `VisitWithTypeMemberScope`'s `Action` was marked reviewed-mechanical by slice 10 and is in
+fact INSIDE the next territory's closure, dissolving the moment its three callers are N#.** **WALL
+STATUS: ZERO — NO REPIN.** **`Linter.cs` NOW CLOSES IN ONE MORE SLICE**: the declaration walk plus
+`Visit` is **146 lines escaping to nothing**, and with `Lint`/`Diagnostics` the whole of `LintVisitor`
+is one 153-line closed cut. Task 019 stays UNCHECKED. Recorded in the Cursor block below)
+
+Last updated (prior): 2026-08-13 (**TASK 019 SLICE 7 LANDED (no commit — mandate) — `Linter.cs` NO LONGER
 KNOWS WHICH NAMESPACE PROVIDES A NAME, AND NL010 IS NOW N# ON BOTH ARMS.** The extractor was
 re-validated on **SIX** checkpoints before it was trusted (**30 / 623**, **27 / 476**, **21 / 414**,
 **4 / 81**, **43 / 292**, **38 / 206** — slice 6's own checkpoints to the line) and it reproduces the
@@ -2760,7 +2811,325 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `da2688e4d`):
+- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `3e2bec5a3`):
+  **019 SLICE 11 — THE LINT WALKER ARMS: THE EXPRESSION SUB-TERRITORY, THE STATEMENT WALK AND THE
+  FUNCTION ARM — THE WHOLE WALKER SCC, BECAUSE 111 LINES DO NOT CLOSE AND THE CLOSURE WAS MEASURED.**
+
+  **TARGET (recorded before any production edit, at tip `3e2bec5a3`).**
+  `src/NSharpLang.Compiler/Linter.cs` at **584 / 510 / 21 extents / 545**.
+  **THE MEMBERS TAKEN — the whole 5-member SCC, 379 lines.** `VisitFunction` :143–201 (**59**),
+  `VisitStatement` :260–468 (**209**), `VisitExpression` :470–503 (**34**),
+  `VisitExpressionInternal` :505–574 (**70**), `VisitChildExpressions` :576–582 (**7**).
+  **THE FIELDS TAKEN — the last 3.** `_visitingStack` :36, `_recursionDepth` :37,
+  `MAX_RECURSION_DEPTH` :38 — the expression-recursion guard, which slice 10 measured as
+  `VisitExpression`'s OWN state and left behind so it would move with its arm.
+  **THE CUT IS 379 AND NOT 111, AND THAT IS A MEASUREMENT, NOT A PREFERENCE.** The inherited brief
+  named the expression sub-territory (111) as the next slice. Re-measured with `nl86-edges.py` over
+  the post-carrier file, the set {`VisitExpression`, `VisitExpressionInternal`,
+  `VisitChildExpressions`} **ESCAPES TO `VisitStatement`** — the `LambdaExpression` arm's block body —
+  so porting it alone would need an N#→C# callback, which the mandate forbids. Adding
+  `VisitStatement` escapes to `VisitFunction` (the `LocalFunctionStatement` arm); adding
+  `VisitFunction` **escapes to NOTHING**. **The smallest closed cut containing the expression
+  sub-territory is the whole SCC, entered only from `VisitDeclaration`.**
+  **THE CONTRACT.** One N# owner, `LinterWalk`, holding the recursion guard and a `LinterWalkState`,
+  exposing the three entry points `VisitFunction`, `VisitStatement` and `VisitExpression` that
+  `VisitDeclaration` calls. `LintVisitor` keeps the DECLARATION walk and nothing else.
+  **The C# deletion target** is those 5 extents whole and the 3 guard fields.
+  **The measured blocker** is the guard's `HashSet<Expression>(ReferenceEqualityComparer.Instance)`;
+  the candidate route is `new HashSet<object>()` (as `AnalyzerDeclarationContext` already does), to
+  be proved BY EXECUTION before the port is written.
+
+  **THE EXTRACTOR WAS RE-VALIDATED ON SIX CHECKPOINTS BEFORE IT WAS TRUSTED.** `nl62_members.py`
+  returns **30 / 623**, **27 / 476**, **21 / 414** over `CodeIntelligence/CompletionEngine.cs` at
+  `0d55966e8`, `228081146` and `294035b7c`, **43 / 292** over `CodeIntelligence/OutputFormatter.cs`
+  at `be95ec85e`, **58 extents summing 910** on the `984 / 869` `Linter.cs` at `da2688e4d`, and
+  **21 summing 545** on the `584 / 510` `Linter.cs` at the tip — slice 10's ratchet row exactly.
+  (The two `CodeIntelligence/` paths are the trap slice 9 recorded in another form: the extractor
+  answers `0 / 0` for a path that does not exist, so a checkpoint that silently "passes" as zero is
+  not a validation.)
+
+  **THE DEAD SWEEP RAN BEFORE ANY SCORING** (`nl78-deadsweep.py`, accessibility-aware, **1,056-file**
+  corpus): **DEAD COUNT = 0**, `DETACHED COUNT = 51`. Every target is LIVE.
+
+  **THE CENSUS IS CLEAN.** `nl81-census.py` over a **1,609-file** corpus, over all 21 member names:
+  `typeof(…)` / `…).Get…` reflection **= 0** for both `Linter` and `LintVisitor`; string-literal hits
+  **= 1**, the same corpus artefact slices 9 and 10 met — `"_config"` inside VS Code's bundled
+  `vs-seti-icon-theme.json`. **No reflection door, so no C# test migrates with the members.**
+
+  **BASELINES, TAKEN BEFORE ANY WRITE.** Ratchet row `Linter.cs` **584 / 510**, fingerprint
+  `text-v1:307b271473f049a6`, ceilings **1611 / 1454**; `reviewedHeadFingerprint
+  head-v1:04278df142a9e705`, REPRODUCED by the independent FNV-1a walk before the write. Inherited:
+  unit suite **3,192**; contracts **4,596**; audit **18 / 18**; manifest **391** lines, no BOM.
+
+  ---
+
+  **LANDED (no commit — mandate) — `LintVisitor` NO LONGER WALKS A STATEMENT, AN EXPRESSION OR A
+  FUNCTION. IT WALKS DECLARATIONS AND NOTHING ELSE.** `Linter.cs` **584 → 197** lines, non-blank
+  **510 → 177**, extents **21 → 14** summing **545 → 165**; `git diff` **+15 / −402 = net −387,
+  −66.3 %**. Over the two slices the file is **984 → 197 (−80.0 %)**.
+
+  **THE 111-LINE BRIEF WAS OVERTURNED BY EXECUTION, AND THE OVERTURN IS THE SLICE'S FIRST FINDING.**
+  `nl86-edges.py` prints every in-file edge and then answers a closure question for any requested
+  set. `{VisitExpression, VisitExpressionInternal, VisitChildExpressions}` = **111 lines, ESCAPES TO
+  [VisitStatement]**; `+VisitStatement` = **320, ESCAPES TO [VisitFunction]**; `+VisitFunction` =
+  **379, ESCAPES TO []**, ENTERED FROM `[VisitDeclaration]`. The escape is not incidental: it is the
+  `LambdaExpression` arm's BLOCK body and the `LocalFunctionStatement` arm's function. **A 111-line
+  slice would have had to hand the N# owner a callback into C#, which the mandate forbids — so the
+  honest cut was the whole SCC, and it was measured rather than negotiated.**
+
+  **THE GUARD'S SUBSTITUTION WAS PROVED BY EXECUTION, TWICE, BEFORE THE PORT WAS WRITTEN AND AGAIN
+  INSIDE THE DIFFERENTIAL.** (1) An isolated project against the PINNED toolset builds and runs a
+  `HashSet<object>` field over a mini AST: **`addA=True addAAgain=False addB=True count=2`** — two
+  structurally identical nodes are two entries and re-adding one instance answers false. (2) The
+  differential asks the real AST assembly by reflection: **97 node types, `overriders = 0`** — every
+  `Equals(object)` and `GetHashCode()` is declared by `System.Object`, so
+  `HashSet<Expression>(ReferenceEqualityComparer.Instance)` and `new HashSet<object>()` cannot
+  disagree. (3) The two sets are then run SIDE BY SIDE over six real nodes including a duplicate and
+  a shared instance: **`agree=True` on every add and every remove, final counts equal.**
+
+  **THE C#: 5 EXTENTS DELETED WHOLE, 3 FIELDS DELETED, AND THE ACCOUNTING CLOSES TO THE LINE.**
+  Deleted whole (**−379**): `VisitFunction` 59, `VisitStatement` 209, `VisitExpression` 34,
+  `VisitExpressionInternal` 70, `VisitChildExpressions` 7. Fields **−3** (`_visitingStack`,
+  `_recursionDepth`, `MAX_RECURSION_DEPTH`). Added: the `_walk` field (**+1**) and its constructor
+  line (**+1**). **545 − 379 − 3 + 1 + 1 = 165**, the extent sum exactly, and
+  **21 − 5 − 3 + 1 = 14** extents exactly. **This slice adds NO C# policy at all**: every other change
+  in the file is `VisitX(...)` becoming `_walk.VisitX(...)` at ten call sites inside
+  `VisitDeclaration`.
+
+  **N# ADDS 1,301 LINES AND 53 CONTRACTS.** `LinterWalk.nl` (**576**) and `LinterWalk.tests.nl`
+  (**725**). Contracts **4,596 → 4,649**, green on their FIRST run; the unit suite does not move,
+  which the census predicted.
+
+  **THREE THINGS THAT WERE PROSE OR UNMEASURED ARE NOW CONTRACTS.**
+  (a) **the guard is a STACK, not a visited-set** — a subtree reachable twice is walked twice, and
+  only a node that is its own ANCESTOR is skipped. The difference is observable because NL002 reports
+  once per visit, and both halves are asserted (two equal nodes → two reports; one shared instance in
+  two child slots → two reports; a self-containing node → one).
+  (b) **the two guards answer different questions** — the depth counter bounds a deep tree, the
+  visiting set bounds a circular one, and each is asserted alone. A cyclic AST is a shape **no parser
+  can produce and no end-to-end test could ever have built**; the contract builds one by mutating the
+  child LIST after the node that owns it exists.
+  (c) **the cycle arm's IDENTIFIER half is preserved and is UNREACHABLE through the child walk**, and
+  the reason is executable rather than argued: `AstChildrenCore.IsLeafExpression("IdentifierExpression")`
+  is TRUE and `AstChildrenCore.Of(identifier).Count == 0`, so an identifier has no children and can
+  never be its own ancestor. It is reproduced exactly rather than tidied — the same discipline slice
+  10 applied to its measured-vacuous double report.
+
+  **THE MOVEABLE BOUNDARY WAS DRAWN BY EXECUTION FIRST, AGAINST THE PINNED TOOLSET (`Sdk 0.1.0` from
+  the local feed), IN AN ISOLATED PROJECT BEFORE ANY PRODUCTION EDIT.** BUILDS AND RUNS: a
+  `HashSet<object>` instance field used as a recursion guard, three mutually recursive INSTANCE
+  methods, `try`/`finally` decrementing an `int` field, an `as`-dispatch chain over a flat sibling
+  hierarchy, a throw whose message is built by concatenation, an `InvalidCastException` reproduction
+  of `.Cast<T>()`, a `for` loop with a `bool` guard and `continue`, an or-test over two sibling types,
+  and a flags test spelled as a bit mask. **ONE SHAPE DECLINED AND IT HAD A ROUTE**: `GetType()` on a
+  TYPED receiver declines at **`emit.statement.block-child` (node kind 48)** — the recorded gotcha,
+  routed by an `object`-typed local. **WALL STATUS: ZERO — NO REPIN.**
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL OF 984 ROWS PER SIDE WITH 0 FAULTS ON BOTH SIDES AND 12
+  DIFFERING ROWS, ALL OF THEM DECLARED.** One `Grid.cs` compiled twice (`base/Base.csproj` against a
+  pristine `3e2bec5a3` worktree, `work/Work.csproj` against the repo's). **The base side drives the
+  DELETED walker arms through `LintVisitor`'s OWN private methods; the work side reaches the N# owner
+  THROUGH `LintVisitor`'s own `_walk` field**, so a byte-identical answer is a proof about the routing
+  and not merely about the owner. **The 963 behavioural rows are byte-identical — md5
+  `2f4ad5cb85e4690757b0c2922a203aa4` on BOTH sides, `diff` = 0.** The 21-row divergence section
+  carries the whole difference: **5 methods and 3 guard fields PRESENT → ABSENT**, `_walk` and
+  `LinterWalk` **ABSENT → PRESENT**, instance fields **3 → 2** and declared methods **13 → 8**.
+  **Behavioural differing rows: ZERO.** Non-vacuity: **82 walk scenarios** cover every one of the
+  twenty statement arms, all eight expression arms, all seven guard behaviours and twelve function-arm
+  shapes; **111 identity rows**; and the live section runs `ColumnarParserRecovery.ParseFileAst` +
+  `Linter.Lint` over **766 sources** (718 real `.nl` files snapshotted from the BASE tree so both
+  sides read identical bytes, plus 48 probes aimed at the moved arms) with **0 NO-PARSE, 66 sources
+  reporting**, census `NL001:12 NL002:4 NL004:1 NL006:3 NL010:30 NL011:18 NL012:37 NL020:1`.
+  **NL003 and NL016 are absent from the corpus and that is stated rather than glossed** — they are
+  covered instead by two walk scenarios (`stmt-if-null-check-literal`, `stmt-if-null-check-new`) and
+  by the contracts.
+
+  **A STRUCTURAL CROSS-CHECK WAS RUN BESIDE THE BEHAVIOURAL ONE, AND IT NAMES THE SLICE'S ONLY
+  DELIBERATE SHAPE CHANGE.** A script counts every `_state.X(` call and every AST arm in the deleted
+  C# and in the N# owner. **Twenty statement arms and seven expression arms match ONE-FOR-ONE**, and
+  seventeen of the twenty-one state calls match exactly. The four that do not are all the same fact:
+  the C# `VisitFunction` DUPLICATED its parameter loop across the block-bodied and expression-bodied
+  arms, so `AddParameter` and `RecordParameterScope` read **2 → 1** and `DeclareVariable` /
+  `MarkVariableUsed` read **8 → 7**. The owner factors that identical loop into `DeclareParameters`
+  and calls it from both arms; the differential's `fn-unused-parameter`, `fn-expression-body`,
+  `fn-parameter-position-fallback` and `fn-captured-parameter` rows are byte-identical, so the
+  de-duplication is proved as well as declared.
+
+  **THE LOAD-BEARING LIVE-TREE `nlc check` IS CLEAN.** `BootstrapServices` builds with
+  `NSharpEmitValidateWithLegacyAnalysis=false`, so a green build and 4,649 green contracts are NOT
+  evidence that a new `.nl` file is clean (finding 85.7). Over the LIVE tree the check reports
+  **`checkedFiles=376, count=285`** with census
+  `NL202:91 NL402:90 NL012:32 NL905:26 NL011:17 NL301:16 NL010:7 NL412:3 NL303:2 NL002:1` — slice
+  10's inherited counts **to the digit**, with the file count up by exactly one, the new owner — and
+  **ZERO diagnostics naming `LinterWalk`**. The format gate reports "All files are properly
+  formatted" on its FIRST run.
+
+  **`nlc lint` ITSELF WAS RUN ON BOTH CLIs, FIVE TIMES EACH: 4,025 ROWS, 0 DIFFS, md5
+  `61125bff8146185b6b78ecfaad6ca3af` ACROSS ALL TEN TRANSCRIPTS, 242,533 BYTES** — 172 targets × the
+  JSON and `--text` renderings, **258 `rc=0` / 86 `rc=1`**, carrying **NL001 × 18, NL003 × 18,
+  NL020 × 8, NL010 × 6, NL012 × 6, NL016 × 6, NL006 × 4, NL004 × 2, NL011 × 2**. **BOTH CLOCKS ARE
+  PRESENT AND BOTH ARE NORMALISED** — **138** rows carry the bracketed form and **34** carry
+  `Linted in …` (finding 83.2). As in slice 10 the transcript does NOT carry NL002, and that is
+  stated rather than glossed: NL002 is covered instead by the differential's live oracle (4 rows), by
+  eight walk scenarios and by the contracts.
+
+  **TEN ORACLE DIFFERENTIALS, ALL ZERO — AND THE NINE STANDING ONES REPRODUCE SLICE 10's md5s TO THE
+  DIGIT**: corpus **`86a4928f87495854f48cbd5df7d5c571`** (the NINETEENTH slice running byte-identical),
+  self-host **`e659c04401d1a13682f9c8e91a6b8a6a`**, fx75 `6c12cc5a…`, fx74 `309f7902…`, fx73
+  `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA `b1045814…`, supplementary `228dfc38…`; the
+  inherited `NO-RESULTS` counts (**7** corpus, **6** supplementary) reproduce exactly. The
+  **LIVE-TREE tenth** reports **0 diffs, md5 `783648a7331a6a1697efd78a8265aa14` on both sides**,
+  285 diagnostics over 10 codes, and the same census as the direct check.
+
+  **PARSE-ERROR CENSUS.** `PARSE_FAIL = 0` and `PARSE_ERRORS = 0` on **every one of the ten**
+  differentials; the five-run pin's workload carries `NL101: 2` and `NL102: 2` — slice 10's counts
+  exactly; and the differential's 766-source corpus reports **0 NO-PARSE** with one deliberate
+  malformed probe in it.
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** and proved the harness stable
+  (`CONTROL vs A` **118 / 118 SAME**, both the base CLI over fresh `3e2bec5a3` archives); `A vs B`
+  then gives **63 / 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files counted and
+  proved **55-of-55 copied `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps report
+  `TARGETS=73 BUILT=55 ASSEMBLIES=118`. Unsorted build transcripts **0 diffs across all three
+  sweeps** — **1,557 lines / md5 `1ff6a3797a58c74f8a52bc410519794b`**, slice 10's digits exactly.
+  Unit suite **3,192 / 3,192**; contracts **4,649 / 4,649**; the format gate clean on its FIRST run;
+  `dev.sh --since` selected the **FULL unit suite by its own fail-safe** and passed **3,192 / 3,192**.
+  **The five-run ordering pin is byte-identical over 398 targets, 391 with results, 1,255 diagnostic
+  rows over 48 codes**, `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, md5
+  **`db729409fb7e7100a2c5bdb6401e6a78`** — the recorded value, with **NL010: 220**, **NL012: 55**,
+  **NL001: 38**, **NL011: 17**, **NL004: 2** and **NL002: 1** in its census.
+
+  **THE TERMINALITY GREP IS CLEAN.** `_visitingStack`, `_recursionDepth` and `MAX_RECURSION_DEPTH`
+  occur **ZERO** times repo-wide. `VisitExpressionInternal` and `VisitChildExpressions` occur only in
+  the N# owner. `VisitStatement`, `VisitExpression` and `VisitFunction` occur in the owner, its
+  contracts, the ten C# call sites that route to it, and two comment mentions in `LinterWalkState.nl`
+  — plus two PRE-EXISTING and unrelated owners of the same names, checked rather than assumed:
+  `DocumentManager.cs`'s LSP-local `VisitStatement` and `AstNodeFinderCore.nl`'s own walk.
+
+  **RATCHET.** One row repinned AS THE LAST EDIT, after every production edit and after the whole
+  differential / oracle / lint-oracle / IL / determinism set had been run: `Linter.cs`
+  **584 / 510 → 197 / 177** (`307b271473f049a6 → 0b3caf8b26a9ccbb`), far under its epoch ceiling of
+  **1611 / 1454**. Head `04278df142a9e705 → 82124ffb92bd11d3`, mirrored into `OwnershipAudit.nl`, and
+  the stored head was REPRODUCED by the independent FNV-1a walk both before the write and after it.
+  **The repin is non-vacuous by execution**: the audit reports **17 / 18 with 1 FAILED** against the
+  pre-repin manifest and **18 / 18** against the repinned one, run in that order. Manifest **391**
+  lines, no BOM; it still holds **0** `.nl` rows, which is what makes a slice adding 1,301 N# lines a
+  pure downward move. `OwnershipAudit.nl` fails `nlc format --check`, and that was checked rather than
+  assumed to be drift: **the PRISTINE base worktree fails it identically**, and this slice's diff to
+  that file is one 16-hex-digit fingerprint string.
+
+  **THE FULL VS CODE-ENABLED GATE WAS RUN ON THE BYTE-FINAL REPINNED TREE AND PASSED: `ALL TESTS
+  PASSED` in 26m 53s, 108 GREEN STEPS AND ZERO FAILURES, WITH THE VS CODE INTEGRATION TESTS INSIDE**
+  (Step 3b, 3m 00s, **36 passing** — extension, diagnostics, hover and completion) — fresh in an
+  isolated tree under `--commit` with `NSHARP_TEST_STEP_CACHE_OFF=1`, including the unit suite
+  **3,192 / 3,192**, the whole native `.tests.nl` estate with contracts **4,649 / 4,649** and the
+  ownership audit **18 / 18** inside it, the format contract gate, and the IL verification gate over
+  **67 N# assemblies** with no new errors against baseline. **`VSCODE_TESTS=skip` was not an option
+  and the reason is the product, not form: the linter is what paints squiggles in the editor**, and
+  this slice moved every walk that reaches a diagnostic onto a new owner. **No LSP source changed**, so
+  a VSIX reload was not required — stated as a checked conclusion (`git status` names exactly the four
+  modified files and the two new ones), not an assumption. Per standing precedent computer-use visual
+  verification was NOT requested and the gate's VS Code evidence stands in.
+
+  **SEVEN FINDINGS.**
+  **(86.1) A BRIEF'S LINE COUNT IS A HYPOTHESIS UNTIL THE CLOSURE IS RUN.** The inherited brief named
+  111 lines; the measured closure is 379. The tool that settles it is four lines of set arithmetic
+  over the call graph — "which members does this set call that are not in it" — and it should be run
+  BEFORE a territory slice is scoped, not after it is attempted. The same tool then overturned the
+  brief's *other* instruction in the same run (see 86.7).
+  **(86.2) `GetType()` ON A TYPED RECEIVER DECLINES AT `emit.statement.block-child`, AND THE ERROR
+  NAMES THE ENCLOSING METHOD, NOT THE CALL.** The recorded gotcha reproduced exactly: the decline
+  reads `block child 0 (node kind 48) could not be emitted in 'Walker.VisitExpression'`. The route is
+  an `object`-typed local, which is why `AstChildrenCore` has always spelled it that way.
+  **(86.3) `.Cast<T>()` HAS NO N# SPELLING, AND THE FAITHFUL REPLACEMENT IS A THROW, NOT A SKIP.**
+  `foreach (var c in AstChildrenCore.Of(e).Cast<Expression>())` throws `InvalidCastException` on a
+  non-expression; an `as` plus a null-SKIP would silently drop a subtree and produce false
+  NL001/NL010. The owner casts with `as` and THROWS on null, so the failure mode is preserved.
+  **(86.4) A `dotnet restore` WITH NO NETWORK COSTS TEN MINUTES OF WALL TIME PER INVOCATION**, and it
+  looks exactly like a hang: 0.8 s of CPU over twelve minutes while NuGet times out against
+  `api.nuget.org`. Two builds were killed as "stalled" before the pattern was recognised. Check
+  `obj/project.assets.json`'s mtime before concluding a build is stuck.
+  **(86.5) TWO 21-HOUR-OLD `dotnet build` PROCESSES FROM AN EARLIER SESSION BLOCKED THIS ONE.** A
+  build sitting at 0 % CPU since the previous day held enough of the MSBuild/NuGet state that a fresh
+  build made no progress until they were killed. `ps -o lstart=` distinguishes a slow build from a
+  dead one; elapsed CPU alone does not.
+  **(86.6) A STRUCTURAL CROSS-CHECK CATCHES WHAT A BEHAVIOURAL ONE CANNOT NAME.** Counting
+  `_state.X(` calls and AST arms on both sides took minutes and produced a four-row disagreement that
+  is entirely the deliberate de-duplication of `VisitFunction`'s parameter loop. A differential proves
+  the answers match; the count proves you know WHY they match, and that there is exactly one shape
+  change to defend.
+  **(86.7) THE CALLBACK THAT MAKES A MEMBER "IMMOVABLE" MAY ONLY BE IMMOVABLE IN ITS CURRENT
+  COMPANY.** Slice 10 marked `VisitWithTypeMemberScope` for reviewed-mechanical because its `Action`
+  is a callback the mandate forbids relocating. Re-measured, it is INSIDE the declaration territory's
+  closure and escapes to nothing: once its three callers are N#, each writes its own `try`/`finally`
+  around its own loop and the `Action` ceases to exist. **A callback introduced by a C# extraction is
+  not a language boundary — it is an artefact of where the extraction was drawn.**
+
+  **NEXT — `Linter.cs` CLOSES IN ONE MORE SLICE, AND THE `Action` THAT MADE `VisitWithTypeMemberScope`
+  IMMOVABLE DISSOLVES WHEN IT MOVES.** Tarjan over the post-cut file reports members **16 → 11** and
+  **ONE** non-trivial SCC left — the declaration one, **110 lines** ({`VisitDeclaration` 73,
+  `VisitClass` 10, `VisitStruct` 10, `VisitRecord` 10, `VisitInterface` 7}) — the statement/expression
+  territory having gone entirely. `nl86-edges.py` then answers the closure question three times:
+  1. `{VisitDeclaration, VisitClass, VisitStruct, VisitRecord, VisitInterface,
+     VisitWithTypeMemberScope}` = **125 lines, ESCAPES TO NOTHING**, entered only from `Visit`.
+  2. `+ Visit` = **146 lines, ESCAPES TO NOTHING**, entered only from `Lint`.
+  3. `+ Lint + Diagnostics` = **153 lines**, escaping only to the `LintVisitor` constructor.
+  **So the whole of `LintVisitor` is one closed cut, and the next slice is the declaration walk with
+  `Visit` as its entry.**
+  **THE INHERITED BRIEF'S "MARK `VisitWithTypeMemberScope` REVIEWED-MECHANICAL" IS OVERTURNED BY THAT
+  MEASUREMENT, EXACTLY AS THE 111-LINE BRIEF WAS.** Its `Action` is a callback only because the C#
+  extracted a bracket that three callers share; the moment `VisitClass`, `VisitStruct` and
+  `VisitRecord` are themselves N#, each writes its own `try { for member in members { … } } finally`
+  around its own loop and the callback has nothing to carry. It is IN the closed set — it escapes to
+  nothing — so it moves WITH the walk rather than being left behind as a permanent host.
+  **What `Linter.cs` would keep is the public `Linter` type** (`_config`, its constructor and `Lint`)
+  — the API surface the CLI and the LSP consume — which is a reviewed mechanical host of a handful of
+  lines, or is itself replaced by an N# `Linter` if the consumers can take one.
+  **`CodeIntelligenceService` (1,897 / 1,659 / 92 / 1,770) STILL STAYS LAST**: it is the file the LSP
+  consumes and the one that declares `ProjectSnapshot`, and closing it is what would let
+  `CompletionEngine.cs` be DELETED rather than reviewed.
+  **019's COMPLETION SHAPE IS UNCHANGED BY THIS SLICE.** Two files are reviewed zero-policy hosts
+  (`CompletionEngine` 109, `OutputFormatter` 271); `DocQuery.cs` is a **walled** host at 446 whose
+  `UNEXPLAINED = 0` behind two named catalog gaps; `Formatter` (2,302), `Linter` (**197**) and
+  `CodeIntelligenceService` (1,897) are the three still to reduce. **The honest close of 019 remains:
+  those three reduced, and `DocQuery` either finished by a `System.Xml.Linq` catalog repin or accepted
+  at 402 walled lines** — a toolset decision, not a slice decision.
+
+  **THE ARC'S SURFACE AFTER THIS SLICE, RE-MEASURED BY THE VALIDATED EXTRACTOR.** Six live files
+  **5,222 lines / 4,668 non-blank / 220 extents summing 4,872** — down from **5,609 / 5,001 / 227 /
+  5,252** at slice 10's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257**, a **−32.5 %**
+  cut on lines over eleven slices:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,302 | 2,127 | 49 | 2,248 |
+  | `CodeIntelligenceService` | 1,897 | 1,659 | 92 | 1,770 |
+  | `DocQuery` (WALLED, not closed) | 446 | 382 | 23 | 402 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | `Linter` | **197** | **177** | **14** | **165** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+
+  **ARTEFACTS LEFT ON DISK FOR 019 SLICE 12.** The base worktree is `/private/tmp/nl86base` (pristine
+  `3e2bec5a3` + Release Compiler and CLI). **The compiler project file is
+  `src/NSharpLang.Compiler/Compiler.csproj`, NOT `NSharpLang.Compiler.csproj`**, and the CLI's is
+  `src/NSharpLang.Cli/Cli.csproj` — the wrong-name trap slices 9 and 10 recorded. **The two-sided
+  differential harness is `/private/tmp/nl86grid`** — ONE `Grid.cs` compiled twice, carrying the
+  82-scenario walk differential, the 111-row identity proof, the 766-source live oracle and the
+  declared-divergence section. Its corpus is `/private/tmp/nl86corpus` (718 real + 48 probes,
+  regenerated by `/private/tmp/nl86probes/gen.py`). **The N# emit probe is `/private/tmp/nl86iso/p1`.**
+  The `nlc lint` oracle is `nl86-lintoracle.sh` with its two-clock normaliser `nl86-lintnorm.py` and
+  its target list `/private/tmp/nl86-lint-targets.txt` (172 targets). IL trees and captures:
+  `/private/tmp/nl86il{Ctrl,A,B}Tree` with outputs under `/private/tmp/nl86out{Ctrl,A,B}`. Harnesses
+  in the scratchpad: `nl62_members.py` (the extractor, re-validated on six checkpoints),
+  `nl78-deadsweep.py`, `nl81/nl81-census.py`, `nl85-tarjan.py` / `nl86-tarjan.py` (the SCC
+  measurement) and **`nl86-edges.py` (NEW — the per-member in/out edges plus an executable CLOSURE
+  question for any requested set; this is the tool that decides a territory slice's true extent)**,
+  `nl86-oracle.sh`, `nl86-run-oracles.sh`, `nl86-ilsweep.sh` (**its `git archive` commit must be
+  repointed each slice**), `nl86-run-il.sh`, `nl82-ilcompare.py` (**give it the OUT dir, not the `asm`
+  dir**), `nl80-transnorm.py` (**three arguments: raw, tree, out**), `nl86-determinism.sh`,
+  `nl86-repin.py` and the sequenced `nl86-chain2.sh`. **`/private/tmp` IS REAPED** — regenerate rather
+  than assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `3e2bec5a3`):
   **019 SLICE 10 — THE LINT WALKER'S STATE CARRIER: EVERY PIECE OF PER-FILE STATE THE WALKERS MUTATE
   IN PLACE, PLUS THE REPORTING SPINE THAT READS IT.**
 
