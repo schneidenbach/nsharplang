@@ -124,6 +124,32 @@ func LmiArms(first: TypeReference, second: TypeReference): List<TypeReference> {
     return arms
 }
 
+func LmiTypeArguments(only: TypeReference): List<TypeReference> {
+    arguments := new List<TypeReference>()
+    arguments.Add(only)
+    return arguments
+}
+
+// Exact set equality: every expected name mentioned, and nothing else mentioned. Both halves
+// matter — a walk that missed an arm and a walk that invented a name are different defects.
+func LmiMentions(typeReference: TypeReference, expected: string[]): bool {
+    mentioned := LinterTypeReferenceName.MentionedNames(typeReference)
+    if mentioned.Count != expected.Length {
+        return false
+    }
+
+    index := 0
+    while index < expected.Length {
+        if !mentioned.Contains(expected[index]) {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
 
 // ── what a type reference is called ──────────────────────────────────────────────────────────
 
@@ -183,6 +209,125 @@ test "the nameless kinds answer NOTHING, and that silence is the contract" {
     // `(int, int)[]` and NL010 must not record one as a used identifier.
     assert LinterTypeReferenceName.Base(new ArrayTypeReference(new TupleTypeReference(new List<TupleTypeElement>()))) == null
     assert LinterTypeReferenceName.Base(new NullableTypeReference(new TupleTypeReference(new List<TupleTypeElement>()))) == null
+}
+
+
+// ── what a type reference MENTIONS (task 019 slice 9) ────────────────────────────────────────
+//
+// NL010's side of the same subject. `Base` answers with ONE name and stops; `MentionedNames` walks
+// the whole reference. Running the two here together is what keeps them from drifting: the shapes
+// below are asked of both, and the cases where they differ are named rather than discovered later
+// as a wrongly-reported unused import.
+
+test "a simple and a generic type mention their own name" {
+    assert LmiMentions(LmiSimple("Widget"), ["Widget"])
+    assert LmiMentions(LmiGeneric("List"), ["List", "int"])
+}
+
+test "a generic mentions its ARGUMENTS too, which is where Base and MentionedNames part company" {
+    inner := new List<TypeReference>()
+    inner.Add(LmiSimple("string"))
+    inner.Add(new GenericTypeReference("List", LmiTypeArguments(LmiSimple("Widget")), 1, 1))
+    dictionary := new GenericTypeReference("Dictionary", inner, 1, 1)
+
+    assert LinterTypeReferenceName.Base(dictionary) == "Dictionary"
+    assert LmiMentions(dictionary, ["Dictionary", "string", "List", "Widget"])
+}
+
+test "the wrappers are transparent here too, at any depth" {
+    assert LmiMentions(new NullableTypeReference(LmiSimple("Widget")), ["Widget"])
+    assert LmiMentions(new ArrayTypeReference(LmiSimple("Widget")), ["Widget"])
+    assert LmiMentions(new ByRefTypeReference(LmiSimple("Widget")), ["Widget"])
+    assert LmiMentions(new ArrayTypeReference(new NullableTypeReference(LmiGeneric("List"))), ["List", "int"])
+}
+
+test "a union mentions EVERY arm, not just the first named one — the sharpest difference" {
+    // `int | Widget` is CALLED `int` and MENTIONS both. Dropping `Widget` would report a live
+    // import as unused, which for NL010 at error severity breaks a green build.
+    twoArms := LmiUnion(LmiArms(LmiSimple("int"), LmiSimple("Widget")))
+    assert LinterTypeReferenceName.Base(twoArms) == "int"
+    assert LmiMentions(twoArms, ["int", "Widget"])
+}
+
+test "the kinds that are CALLED nothing still mention what they contain" {
+    // A tuple, a function type and their contents: `Base` answers null for all three, and every
+    // name inside them is still a real import usage.
+    tupleElements := new List<TupleTypeElement>()
+    tupleElements.Add(new TupleTypeElement(LmiSimple("Widget"), "first"))
+    tupleElements.Add(new TupleTypeElement(LmiGeneric("List"), null))
+    tuple := new TupleTypeReference(tupleElements)
+    assert LinterTypeReferenceName.Base(tuple) == null
+    assert LmiMentions(tuple, ["Widget", "List", "int"])
+
+    parameterTypes := new List<TypeReference>()
+    parameterTypes.Add(LmiSimple("Guid"))
+    parameterTypes.Add(LmiSimple("Uri"))
+    functionType := new FunctionTypeReference(parameterTypes, LmiSimple("Task"))
+    assert LinterTypeReferenceName.Base(functionType) == null
+    assert LmiMentions(functionType, ["Guid", "Uri", "Task"])
+}
+
+test "an empty union, an empty tuple and a null reference mention nothing" {
+    assert LmiMentions(LmiUnion(new List<TypeReference>()), [])
+    assert LmiMentions(new TupleTypeReference(new List<TupleTypeElement>()), [])
+    assert LinterTypeReferenceName.MentionedNames(null).Count == 0
+}
+
+test "the answer is a SET, so a name written twice is mentioned once" {
+    repeated := LmiUnion(LmiArms(LmiSimple("Widget"), LmiSimple("Widget")))
+    assert LmiMentions(repeated, ["Widget"])
+}
+
+test "the set is ordinal — two names differing only in case are two mentions" {
+    cased := LmiUnion(LmiArms(LmiSimple("Widget"), LmiSimple("widget")))
+    assert LmiMentions(cased, ["Widget", "widget"])
+}
+
+test "every name Base finds is also a name MentionedNames finds" {
+    // The two questions have different answers, but never contradictory ones: whatever a reference
+    // is CALLED is certainly one of the names it MENTIONS. Stated over every shape above.
+    subjects := new List<TypeReference>()
+    subjects.Add(LmiSimple("Widget"))
+    subjects.Add(LmiGeneric("List"))
+    subjects.Add(new NullableTypeReference(LmiSimple("Guid")))
+    subjects.Add(new ArrayTypeReference(new NullableTypeReference(LmiGeneric("List"))))
+    subjects.Add(LmiUnion(LmiArms(LmiSimple("int"), LmiSimple("Widget"))))
+    subjects.Add(LmiUnion(LmiArms(new TupleTypeReference(new List<TupleTypeElement>()), LmiGeneric("List"))))
+    subjects.Add(new ByRefTypeReference(LmiSimple("Uri")))
+
+    named := 0
+    index := 0
+    while index < subjects.Count {
+        baseName := LinterTypeReferenceName.Base(subjects[index])
+        if baseName != null {
+            assert LinterTypeReferenceName.MentionedNames(subjects[index]).Contains(baseName)
+            named = named + 1
+        }
+
+        index = index + 1
+    }
+
+    // Non-vacuity: every subject above IS named, so the containment was actually checked seven times.
+    assert named == 7
+}
+
+test "the accumulator form and the answering form are the same walk" {
+    // The linter calls the accumulator on every declared type in a file, into one shared set. The
+    // two must not drift, so the union of two accumulator calls is asserted against the union of
+    // the two answers.
+    shared := new HashSet<string>(StringComparer.Ordinal)
+    LinterTypeReferenceName.CollectMentionedNames(LmiGeneric("List"), shared)
+    LinterTypeReferenceName.CollectMentionedNames(new ArrayTypeReference(LmiSimple("Widget")), shared)
+
+    assert shared.Count == 3
+    assert shared.Contains("List")
+    assert shared.Contains("int")
+    assert shared.Contains("Widget")
+
+    // A null reference leaves the accumulator untouched rather than throwing — the linter passes
+    // optional types straight through.
+    LinterTypeReferenceName.CollectMentionedNames(null, shared)
+    assert shared.Count == 3
 }
 
 

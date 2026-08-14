@@ -1,5 +1,6 @@
 import System
 import System.Text
+import NSharpLang.Compiler
 
 
 // Static columnar parser kernels formerly emitted through the Dogfood assembly.
@@ -2196,7 +2197,7 @@ func TokenizeMetadataCore(source: string, metadata: LexerTokenMetadataTable): in
 
         if IsIdentifierStart(ch) {
             position = position + 1
-            while position < length && IsIdentifierPart(source[position]) {
+            while position < length && IdentifierText.IsPart(source[position]) {
                 position = position + 1
             }
 
@@ -2502,12 +2503,12 @@ func IsLifetimeContextAt(source: string, position: int): bool {
         return true
     }
 
-    if !IsIdentifierPart(previous) {
+    if !IdentifierText.IsPart(previous) {
         return false
     }
 
     end := index + 1
-    while index >= 0 && IsIdentifierPart(source[index]) {
+    while index >= 0 && IdentifierText.IsPart(source[index]) {
         index = index - 1
     }
 
@@ -2533,7 +2534,7 @@ func IsLifetimeStartAt(source: string, position: int, length: int): bool {
 
 func ScanLifetime(source: string, position: int, length: int): int {
     position = position + 1
-    while position < length && IsIdentifierPart(source[position]) {
+    while position < length && IdentifierText.IsPart(source[position]) {
         position = position + 1
     }
 
@@ -3271,10 +3272,6 @@ func IsWhitespaceExceptNewline(ch: char): bool {
 
 func IsIdentifierStart(ch: char): bool {
     return ch == '_' || char.IsLetter(ch)
-}
-
-func IsIdentifierPart(ch: char): bool {
-    return ch == '_' || char.IsLetterOrDigit(ch)
 }
 
 func IsDigit(ch: char): bool {

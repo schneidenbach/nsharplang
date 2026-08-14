@@ -422,7 +422,7 @@ class Lexer {
     func ReadIdentifier(startLine: int, startColumn: int): Token {
         builder := new StringBuilder()
 
-        while !IsAtEnd() && IsIdentifierPart(Peek()) {
+        while !IsAtEnd() && IdentifierText.IsPart(Peek()) {
             builder.Append(Peek())
             Advance()
         }
@@ -765,7 +765,7 @@ class Lexer {
         }
 
         end := index + 1
-        while index >= 0 && IsIdentifierPart(sourceText[index]) {
+        while index >= 0 && IdentifierText.IsPart(sourceText[index]) {
             index = index - 1
         }
 
@@ -780,7 +780,7 @@ class Lexer {
 
         while !IsAtEnd() {
             ch := Peek()
-            if !IsIdentifierPart(ch) {
+            if !IdentifierText.IsPart(ch) {
                 break
             }
 
@@ -976,10 +976,6 @@ class Lexer {
 
     func IsAtEnd(): bool {
         return position >= sourceText.Length
-    }
-
-    static func IsIdentifierPart(ch: char): bool {
-        return char.IsLetterOrDigit(ch) || ch == '_'
     }
 
     static func LineFeedText(): string {

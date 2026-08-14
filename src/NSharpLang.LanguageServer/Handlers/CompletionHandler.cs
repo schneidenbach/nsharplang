@@ -519,17 +519,12 @@ public class CompletionHandler : CompletionHandlerBase
         var lineText = lines[line];
         var end = Math.Clamp(character, 0, lineText.Length);
         var start = end;
-        while (start > 0 && IsIdentifierPart(lineText[start - 1]))
+        while (start > 0 && IdentifierText.IsPart(lineText[start - 1]))
         {
             start--;
         }
 
         return lineText[start..end];
-    }
-
-    private static bool IsIdentifierPart(char value)
-    {
-        return char.IsLetterOrDigit(value) || value == '_';
     }
 
     private static bool IsNamespaceInScope(Models.DocumentState? doc, string namespaceName)

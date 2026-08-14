@@ -150,6 +150,16 @@ internal class LintVisitor
         }
     }
 
+    // Mechanical shell: an N# rule owner answers with a finding or with nothing, and a finding is
+    // reported exactly as any other diagnostic. No rule decides anything here.
+    private void Report(LinterRuleFinding? finding)
+    {
+        if (finding == null)
+            return;
+
+        AddDiagnostic(finding.Code, finding.Message, new Location(finding.Line, finding.Column, _filePath), finding.Severity, finding.Suggestion);
+    }
+
     private void AddDiagnostic(string code, string message, Location location, DiagnosticSeverity severity, string? suggestion = null, int length = 0)
     {
         if (!_config.IsRuleEnabled(code))
@@ -686,45 +696,7 @@ internal class LintVisitor
 
     private void CheckUnnecessaryNullCheck(Expression condition)
     {
-        // NL003: Unnecessary Null Check
-        // Check for patterns like: x != null or x == null where x is a value type
-        if (condition is BinaryExpression binary)
-        {
-            if (binary.Operator == BinaryOperator.NotEqual || binary.Operator == BinaryOperator.Equal)
-            {
-                var isNullCheck = binary.Right is NullLiteralExpression || binary.Left is NullLiteralExpression;
-
-                if (isNullCheck)
-                {
-                    var checkedExpr = binary.Right is NullLiteralExpression ? binary.Left : binary.Right;
-
-                    // Check for direct value-type comparisons (e.g., comparing an int literal
-                    // against null). These can never be null, so the check is unnecessary.
-                    if (checkedExpr is IntLiteralExpression ||
-                        checkedExpr is FloatLiteralExpression ||
-                        checkedExpr is CharLiteralExpression ||
-                        checkedExpr is BoolLiteralExpression)
-                    {
-                        var typeName = checkedExpr switch
-                        {
-                            IntLiteralExpression => "int",
-                            FloatLiteralExpression => "float",
-                            CharLiteralExpression => "char",
-                            BoolLiteralExpression => "bool",
-                            _ => "value type"
-                        };
-
-                        // Underline the offending value-type operand, not the whole condition.
-                        AddDiagnostic(
-                            "NL003",
-                            $"This null check is unnecessary — '{typeName}' is a value type and can never be null",
-                            new Location(checkedExpr.Line, checkedExpr.Column, _filePath),
-                            _config.GetSeverity("NL003"),
-                            "You can safely remove this null check");
-                    }
-                }
-            }
-        }
+        Report(LinterNullCheckPolicy.UnnecessaryNullCheck(condition, _config));
     }
 
     private void VisitExpression(Expression expression)
@@ -851,27 +823,7 @@ internal class LintVisitor
 
     private void CheckShadowedVariable(string name, int line, int column)
     {
-        if (!_config.RuleSeverities.ContainsKey("NL020"))
-            return;
-
-        // Skip discard (_) and underscore-prefixed names
-        if (name == "_" || name.StartsWith("_", StringComparison.Ordinal))
-            return;
-
-        // Check all outer scopes on the stack (not the current scope, which we're declaring into)
-        foreach (var scope in _scopeStack)
-        {
-            if (scope.ContainsKey(name))
-            {
-                AddDiagnostic(
-                    "NL020",
-                    $"Variable '{name}' shadows another '{name}' from an outer scope — this can lead to confusing bugs",
-                    new Location(line, column, _filePath),
-                    _config.GetSeverity("NL020"),
-                    $"Consider renaming to avoid confusion with the outer '{name}'");
-                return;
-            }
-        }
+        Report(LinterShadowedVariable.ShadowedVariable(name, line, column, _scopeStack, _config));
     }
 
     private void MarkVariableUsed(string name, bool creditEnclosingParameter = true)
@@ -975,129 +927,18 @@ internal class LintVisitor
     }
 
     /// <summary>
-    /// NL010: Track all type names in a type reference as used code identifiers.
-    /// This ensures that types used in field declarations, parameter types, return types, etc.
-    /// are recognized as usages for unused-import detection.
+    /// NL010: Track every type name a written type reference mentions as a used code identifier.
     /// </summary>
     private void TrackTypeReference(TypeReference? type)
     {
-        if (type == null) return;
-        switch (type)
-        {
-            case SimpleTypeReference simple:
-                _allCodeIdentifiers.Add(simple.Name);
-                break;
-            case GenericTypeReference generic:
-                _allCodeIdentifiers.Add(generic.Name);
-                foreach (var arg in generic.TypeArguments)
-                    TrackTypeReference(arg);
-                break;
-            case NullableTypeReference nullable:
-                TrackTypeReference(nullable.InnerType);
-                break;
-            case ArrayTypeReference array:
-                TrackTypeReference(array.ElementType);
-                break;
-            case UnionTypeReference union:
-                foreach (var arm in union.Arms)
-                    TrackTypeReference(arm);
-                break;
-            case TupleTypeReference tuple:
-                foreach (var element in tuple.Elements)
-                    TrackTypeReference(element.Type);
-                break;
-            case FunctionTypeReference funcType:
-                TrackTypeReference(funcType.ReturnType);
-                foreach (var paramType in funcType.ParameterTypes)
-                    TrackTypeReference(paramType);
-                break;
-            case ByRefTypeReference byRef:
-                TrackTypeReference(byRef.InnerType);
-                break;
-        }
+        LinterTypeReferenceName.CollectMentionedNames(type, _allCodeIdentifiers);
     }
 
     private void HandleStringInterpolation(string value)
     {
-        // Check if this is an interpolated string ($"..." or $""\"...\""")
-        if (!value.StartsWith("$"))
-            return;
-
-        // Extract interpolated expressions between { and }
-        // Handle both $"..." and $"""...""" formats
-        int i = 0;
-        if (value.StartsWith("$\"\"\""))
+        foreach (var name in LinterInterpolationScan.UsedIdentifiers(value))
         {
-            i = 4; // Start after $"""
-        }
-        else if (value.StartsWith("$\""))
-        {
-            i = 2; // Start after $"
-        }
-        else
-        {
-            return; // Not an interpolated string
-        }
-
-        while (i < value.Length)
-        {
-            if (value[i] == '{')
-            {
-                // Found start of interpolation
-                int braceDepth = 1;
-                i++;
-                int exprStart = i;
-
-                // Find the matching closing brace
-                while (i < value.Length && braceDepth > 0)
-                {
-                    if (value[i] == '{')
-                        braceDepth++;
-                    else if (value[i] == '}')
-                        braceDepth--;
-                    i++;
-                }
-
-                // Extract the expression between braces
-                if (braceDepth == 0)
-                {
-                    string expr = value.Substring(exprStart, i - exprStart - 1).Trim();
-
-                    // Extract identifier(s) from the expression
-                    // Simple cases: {name}, {obj.Property}, {list[0]}
-                    ExtractIdentifiersFromExpression(expr);
-                }
-            }
-            else
-            {
-                i++;
-            }
-        }
-    }
-
-    private void ExtractIdentifiersFromExpression(string expr)
-    {
-        // Simple identifier extraction from interpolated expressions
-        // Handles: name, obj.Property, obj?.Property, list[0], obj.Method()
-
-        // Split by common operators and extract the first identifier
-        var separators = new[] { '.', '?', '[', '(', ' ', '+', '-', '*', '/', '%', '&', '|', '^', '!', '=', '<', '>', ':', ',' };
-
-        // Find the first identifier (before any operator)
-        int firstSeparator = expr.Length;
-        foreach (var sep in separators)
-        {
-            int index = expr.IndexOf(sep);
-            if (index >= 0 && index < firstSeparator)
-                firstSeparator = index;
-        }
-
-        string firstIdentifier = expr.Substring(0, firstSeparator).Trim();
-
-        // Mark the first identifier as used (this is the variable being accessed)
-        if (!string.IsNullOrEmpty(firstIdentifier) && AnalyzerDeclarationPolicy.IsValidIdentifier(firstIdentifier))
-        {
-            MarkVariableUsed(firstIdentifier);
+            MarkVariableUsed(name);
         }
     }
 
@@ -1137,42 +978,7 @@ internal class LintVisitor
     // -------------------------------------------------------------------------
     private void CheckRedundantNullCheckOnNewOrLiteral(Expression condition)
     {
-        if (!_config.RuleSeverities.ContainsKey("NL016"))
-            return;
-
-        if (condition is not BinaryExpression binary)
-            return;
-
-        if (binary.Operator != BinaryOperator.NotEqual && binary.Operator != BinaryOperator.Equal)
-            return;
-
-        var isNullCheck = binary.Right is NullLiteralExpression || binary.Left is NullLiteralExpression;
-        if (!isNullCheck)
-            return;
-
-        var checkedExpr = binary.Right is NullLiteralExpression ? binary.Left : binary.Right;
-
-        // Only flag when the expression being checked was just created via `new` or an
-        // array literal. Scalar value-type literals (int/float/char/bool) are handled by
-        // NL003 instead, so we deliberately exclude them here to avoid double-reporting.
-        var alwaysNonNull = checkedExpr switch
-        {
-            NewExpression => true,
-            ArrayLiteralExpression => true,
-            _ => false
-        };
-
-        if (alwaysNonNull)
-        {
-            var verb = binary.Operator == BinaryOperator.NotEqual ? "always true" : "always false";
-            // Underline the always-non-null operand rather than the whole condition.
-            AddDiagnostic(
-                "NL016",
-                $"This null check is redundant — the expression was just created and can never be null (this is {verb})",
-                new Location(checkedExpr.Line, checkedExpr.Column, _filePath),
-                _config.GetSeverity("NL016"),
-                "Remove the null check — the value cannot be null");
-        }
+        Report(LinterNullCheckPolicy.RedundantNullCheck(condition, _config));
     }
 
 }

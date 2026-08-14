@@ -82,9 +82,9 @@ class LinterBlockOwnerSpanResolver {
         searchIndex := text.Length - keyword.Length
         while searchIndex >= 0 {
             if MatchesAt(text, keyword, searchIndex) {
-                beforeIsIdentifier := searchIndex > 0 && IsIdentifierPart(text[searchIndex - 1])
+                beforeIsIdentifier := searchIndex > 0 && IdentifierText.IsPart(text[searchIndex - 1])
                 afterIndex := searchIndex + keyword.Length
-                afterIsIdentifier := afterIndex < text.Length && IsIdentifierPart(text[afterIndex])
+                afterIsIdentifier := afterIndex < text.Length && IdentifierText.IsPart(text[afterIndex])
                 if !beforeIsIdentifier && !afterIsIdentifier {
                     return searchIndex + 1
                 }
@@ -111,9 +111,5 @@ class LinterBlockOwnerSpanResolver {
         }
 
         return true
-    }
-
-    static func IsIdentifierPart(ch: char): bool {
-        return char.IsLetterOrDigit(ch) || ch == '_'
     }
 }

@@ -270,7 +270,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     {
         receiverTypeInfo = null!;
 
-        if (doc.SemanticModel == null || !IsValidIdentifier(receiverName))
+        if (doc.SemanticModel == null || !IdentifierText.IsValid(receiverName))
         {
             return false;
         }
@@ -407,7 +407,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         var lastPart = parts[parts.Length - 1];
 
         // Check if it's a constructor call: "new TypeName("
-        if (parts.Length >= 2 && parts[parts.Length - 2] == "new" && IsValidIdentifier(lastPart))
+        if (parts.Length >= 2 && parts[parts.Length - 2] == "new" && IdentifierText.IsValid(lastPart))
         {
             return (null, lastPart, IsConstructor: true);
         }
@@ -422,38 +422,12 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         }
 
         // Bare function call — return with null TypeName
-        if (IsValidIdentifier(lastPart))
+        if (IdentifierText.IsValid(lastPart))
         {
             return (null, lastPart, IsConstructor: false);
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Check if a string is a valid N# identifier.
-    /// </summary>
-    private static bool IsValidIdentifier(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return false;
-        }
-
-        if (!char.IsLetter(text[0]) && text[0] != '_')
-        {
-            return false;
-        }
-
-        for (var i = 1; i < text.Length; i++)
-        {
-            if (!char.IsLetterOrDigit(text[i]) && text[i] != '_')
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /// <summary>

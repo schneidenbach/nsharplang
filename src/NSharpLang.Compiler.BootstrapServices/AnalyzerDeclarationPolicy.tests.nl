@@ -444,15 +444,9 @@ test "underscores are valid, leading and within" {
     assert harness.Errors.Count == 0
 }
 
-test "the identifier rule itself answers each shape" {
-    assert AnalyzerDeclarationPolicy.IsValidIdentifier("Name")
-    assert AnalyzerDeclarationPolicy.IsValidIdentifier("_name")
-    assert AnalyzerDeclarationPolicy.IsValidIdentifier("n1")
-    assert !AnalyzerDeclarationPolicy.IsValidIdentifier("1n")
-    assert !AnalyzerDeclarationPolicy.IsValidIdentifier("")
-    assert !AnalyzerDeclarationPolicy.IsValidIdentifier("has-dash")
-    assert !AnalyzerDeclarationPolicy.IsValidIdentifier("has space")
-}
+// The identifier rule itself moved to `IdentifierText` with task 019 slice 9, and its contracts
+// moved with it — see `IdentifierText.tests.nl`. What stays here is the package-name rule that
+// CONSUMES it, above: the two are different questions and only one of them is this file's.
 
 // ---- (6) the default-parameter walk ------------------------------------------------------------------
 

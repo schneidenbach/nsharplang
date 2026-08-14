@@ -270,7 +270,7 @@ class ColumnarInterpolationSplitter {
                 expectIdentifierStart = false
             } else if ch == '.' {
                 expectIdentifierStart = true
-            } else if !ColumnarInterpolatedStringIsIdentifierPart(ch) {
+            } else if !IdentifierText.IsPart(ch) {
                 return false
             }
 
@@ -381,7 +381,7 @@ class ColumnarInterpolationSplitter {
         }
 
         i = 1
-        while i < length && ColumnarInterpolatedStringIsIdentifierPart(literal[start + i]) {
+        while i < length && IdentifierText.IsPart(literal[start + i]) {
             i = i + 1
         }
 
@@ -408,7 +408,7 @@ class ColumnarInterpolationSplitter {
             }
 
             i = i + 1
-            while i < length && ColumnarInterpolatedStringIsIdentifierPart(literal[start + i]) {
+            while i < length && IdentifierText.IsPart(literal[start + i]) {
                 i = i + 1
             }
         }
@@ -441,7 +441,7 @@ class ColumnarInterpolationSplitter {
             }
 
             i = i + 1
-            while i < length && ColumnarInterpolatedStringIsIdentifierPart(literal[start + i]) {
+            while i < length && IdentifierText.IsPart(literal[start + i]) {
                 i = i + 1
             }
         }
@@ -1012,13 +1012,5 @@ class ColumnarInterpolationSplitter {
         }
 
         return char.IsLetter(ch)
-    }
-
-    static func ColumnarInterpolatedStringIsIdentifierPart(ch: char): bool {
-        if ch == '_' {
-            return true
-        }
-
-        return char.IsLetterOrDigit(ch)
     }
 }

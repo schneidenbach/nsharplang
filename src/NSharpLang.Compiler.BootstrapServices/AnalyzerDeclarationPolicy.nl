@@ -414,41 +414,12 @@ class AnalyzerDeclarationPolicy {
         parts := declaration.Name.Split('.')
         index := 0
         while index < parts.Length {
-            if !IsValidIdentifier(parts[index]) {
+            if !IdentifierText.IsValid(parts[index]) {
                 diagnostics.Report(ErrorCode.InvalidSyntax, "Package name '" + parts[index] + "' is not a valid identifier — package names must start with a letter and contain only letters, digits, and underscores", declaration.Line, declaration.Column, null, 0)
             }
 
             index = index + 1
         }
-    }
-
-    // A letter or an underscore, then letters, digits and underscores. An empty segment — which is
-    // what a leading, trailing or doubled dot produces — is not valid.
-    static func IsValidIdentifier(name: string): bool {
-        if name == null {
-            return false
-        }
-
-        if name.Length == 0 {
-            return false
-        }
-
-        first := name[0]
-        if !char.IsLetter(first) && first != '_' {
-            return false
-        }
-
-        index := 1
-        while index < name.Length {
-            current := name[index]
-            if !char.IsLetterOrDigit(current) && current != '_' {
-                return false
-            }
-
-            index = index + 1
-        }
-
-        return true
     }
 
     // ----------------------------------------------------------------------------------------------

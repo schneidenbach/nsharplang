@@ -79,9 +79,9 @@ class DiagnosticSpanResolver {
             return -1
         }
 
-        if IsIdentifierPart(sourceLine[index]) {
+        if IdentifierText.IsPart(sourceLine[index]) {
             while index > 0 {
-                if !IsIdentifierPart(sourceLine[index - 1]) {
+                if !IdentifierText.IsPart(sourceLine[index - 1]) {
                     break
                 }
 
@@ -90,10 +90,6 @@ class DiagnosticSpanResolver {
         }
 
         return index
-    }
-
-    static func IsIdentifierPart(ch: char): bool {
-        return char.IsLetterOrDigit(ch) || ch == '_'
     }
 
     static func InferVisibleTokenLength(sourceLine: string, zeroBasedStart: int): int {
@@ -117,7 +113,7 @@ class DiagnosticSpanResolver {
             }
         }
 
-        if IsIdentifierPart(sourceLine[zeroBasedStart]) {
+        if IdentifierText.IsPart(sourceLine[zeroBasedStart]) {
             return ScanIdentifierLikeTokenLength(sourceLine, zeroBasedStart)
         }
 
@@ -136,7 +132,7 @@ class DiagnosticSpanResolver {
 
             if ch == '.' {
                 if end + 1 < sourceLine.Length {
-                    if IsIdentifierPart(sourceLine[end + 1]) {
+                    if IdentifierText.IsPart(sourceLine[end + 1]) {
                         end = end + 1
                         continue
                     }

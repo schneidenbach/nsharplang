@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
@@ -58,6 +59,109 @@ class LinterTypeReferenceName {
         }
 
         return null
+    }
+
+    // EVERY name a written type mentions, not just the one it is CALLED. `Base` answers with one
+    // name and stops; this walks the whole reference and collects them all, so
+    // `Dictionary<string, List<Widget>>` mentions four names and not one.
+    //
+    // THE TWO ARE DIFFERENT QUESTIONS ASKED BY TWO DIFFERENT RULES, and running them together here
+    // is what keeps them from drifting apart. NL002 asks what a type is CALLED, because it needs a
+    // single name to look up in its table. NL010 asks what a type MENTIONS, because an import is
+    // used the moment any name it provides appears anywhere in a written type — including inside a
+    // type argument, a tuple element or a function type's parameter list, none of which `Base` ever
+    // reaches. A union is where the difference is sharpest: `int | Widget` is CALLED `int`, but it
+    // MENTIONS `Widget` too, and dropping that would report a live import as unused.
+    //
+    // The result is written into a caller-owned set rather than returned, because the linter calls
+    // this on every declared field, property, parameter and return type in a file and a per-call
+    // allocation would be the walk's dominant cost. `MentionedNames` is the same walk with its own
+    // list, for callers that want one.
+    static func CollectMentionedNames(typeReference: TypeReference?, into: HashSet<string>) {
+        if typeReference == null {
+            return
+        }
+
+        simple := typeReference as SimpleTypeReference
+        if simple != null {
+            into.Add(simple.Name)
+            return
+        }
+
+        generic := typeReference as GenericTypeReference
+        if generic != null {
+            into.Add(generic.Name)
+            arguments := generic.TypeArguments
+            index := 0
+            while index < arguments.Count {
+                CollectMentionedNames(arguments[index], into)
+                index = index + 1
+            }
+
+            return
+        }
+
+        nullable := typeReference as NullableTypeReference
+        if nullable != null {
+            CollectMentionedNames(nullable.InnerType, into)
+            return
+        }
+
+        array := typeReference as ArrayTypeReference
+        if array != null {
+            CollectMentionedNames(array.ElementType, into)
+            return
+        }
+
+        unionReference := typeReference as UnionTypeReference
+        if unionReference != null {
+            arms := unionReference.Arms
+            armIndex := 0
+            while armIndex < arms.Count {
+                CollectMentionedNames(arms[armIndex], into)
+                armIndex = armIndex + 1
+            }
+
+            return
+        }
+
+        tuple := typeReference as TupleTypeReference
+        if tuple != null {
+            elements := tuple.Elements
+            elementIndex := 0
+            while elementIndex < elements.Count {
+                CollectMentionedNames(elements[elementIndex].Type, into)
+                elementIndex = elementIndex + 1
+            }
+
+            return
+        }
+
+        functionReference := typeReference as FunctionTypeReference
+        if functionReference != null {
+            CollectMentionedNames(functionReference.ReturnType, into)
+            parameterTypes := functionReference.ParameterTypes
+            parameterIndex := 0
+            while parameterIndex < parameterTypes.Count {
+                CollectMentionedNames(parameterTypes[parameterIndex], into)
+                parameterIndex = parameterIndex + 1
+            }
+
+            return
+        }
+
+        byRefReference := typeReference as ByRefTypeReference
+        if byRefReference != null {
+            CollectMentionedNames(byRefReference.InnerType, into)
+        }
+    }
+
+    // The same walk with its own set, for callers that want the answer rather than an accumulator.
+    // Ordinal, because a type name differing only in case is a different type.
+    static func MentionedNames(typeReference: TypeReference?): HashSet<string> {
+        result := new HashSet<string>(StringComparer.Ordinal)
+        CollectMentionedNames(typeReference, result)
+        return result
     }
 }
 
