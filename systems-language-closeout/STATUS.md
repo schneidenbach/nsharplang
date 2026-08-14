@@ -2749,16 +2749,25 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   `tasks/019-compiler-contained-tooling.md` names; six
   were live and one (`NullabilityMetadata.cs`) was already `state: removed` in the ratchet, so the
   arc opened at **7,739 lines / 6,892 non-blank / 341 member extents summing 7,257** by the validated
-  extractor. **After slice 13 it stands at 4,746 / 4,257 / 184 / 4,450 (−38.7 % on lines)** —
-  `Formatter` 2,302, `CodeIntelligenceService` 1,618, `DocQuery` 446 (WALLED),
+  extractor. **After slice 14 it stands at 4,294 / 3,846 / 177 / 4,005 (−44.5 % on lines)** —
+  `Formatter` 2,302, `CodeIntelligenceService` 1,166, `DocQuery` 446 (WALLED),
   `OutputFormatter` 271 (CLOSED), `CompletionEngine` 109 (CLOSED), **`Linter` 0 (DELETED)**.
-  **SLICE 13 TOOK `CodeIntelligenceService.cs`'s FIRST FAMILY — THE WORDS EVERY ANSWER CARRIES.**
+  **SLICE 14 TOOK `CodeIntelligenceService.cs`'s SECOND AND THIRD FAMILIES — THE DECLARATION
+  PROJECTORS AND THE CALL-SITE COLLECTOR — AND TOOK `GetCallGraph`'s POLICY WITH THEM (`1,618 →
+  1,166`, −452).** Seven names left C# for two N# owners with **NO WALL AND NO SURVIVOR**: the
+  tuple-valued accumulator that the inherited brief priced as a catalog question never crosses a
+  boundary at all, because owning the selection as well as the walk made it internal. The proof is a
+  135-row byte-identical two-sided differential plus a 40,386-line LSP-question live oracle at 357
+  computed positions, both 0-diff — and the oracle exposed that **slice 13's call-graph rows had all
+  been the unfiltered arm**, because the selector is `--function` and not `--name`.
+  **WALL STATUS: ZERO. NO REPIN.**
+  (Prior: **SLICE 13 TOOK `CodeIntelligenceService.cs`'s FIRST FAMILY — THE WORDS EVERY ANSWER CARRIES.**
   Twenty of its twenty-one names left C# for two N# owners (`1,897 → 1,618`); the twenty-first,
   `GetSourceText`, is held by ONE measured wall — `IReadOnlyDictionary<K, V>` is not in the columnar
   emitter's resolvable-type catalog — which was ROUTED AROUND, not repinned, by letting the source
   text cross as a `string?` exactly as the already-shipped kernels do. The proof is a 496-row
   byte-identical two-sided differential plus a 39,458-line LSP-question live oracle at 368 computed
-  positions, both 0-diff. **WALL STATUS: ONE, NAMED, NO REPIN.**
+  positions, both 0-diff.)
   (Prior: **SLICE 12 DELETED `Linter.cs` WHOLE.** The escape analysis says the remaining 165 lines are ONE
   closed cut entered from nothing, and the deletion arm was available because every type in `Linter`'s
   public signature — `CompilationUnit`, `Diagnostic`, `LinterConfig` — was ALREADY N# in the same
@@ -2803,8 +2812,9 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: one terminal slice — `CodeIntelligenceService.cs`'s FIRST FAMILY, THE WORDS EVERY
-  ANSWER CARRIES: 20 of 21 names moved, 1 walled by a named catalog gap, gate GREEN with VS Code inside
+- Current iteration: one terminal slice — `CodeIntelligenceService.cs`'s SECOND AND THIRD FAMILIES,
+  THE DECLARATION PROJECTORS AND THE CALL-SITE COLLECTOR: 7 names + `GetCallGraph`'s policy moved,
+  ZERO walls, gate GREEN with VS Code inside
 - Slice-43 RECONCILIATION onto the moved tip (coordinator, before commit): the slice was cut at
   `e929453e0`; four concurrent chip commits then moved the tip (`2d2ddb39d` harness timeouts,
   `0a66db6ec` + `1e426e07d` the BootstrapServices format sweep + kernel `owed->` fix + the format
@@ -2823,7 +2833,430 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `10da4c520`):
+- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `04bc0d021`):
+  **019 SLICE 14 — `CodeIntelligenceService.cs`'s SECOND AND THIRD CLOSED FAMILIES: THE DECLARATION
+  PROJECTORS AND THE CALL-SITE COLLECTOR. 7 MEMBERS, 381 LINES, BOTH FAMILIES ESCAPING TO NOTHING,
+  ENTERED FROM FOUR PUBLIC ANSWERS THAT ALL STAY BEHIND AS DRIVERS.**
+
+  **TARGET (recorded before any production edit, at tip `04bc0d021`).**
+  `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` at
+  **1,618 / 1,425 / 70 extents / 1,513** — the ratchet row exactly, reproduced by the re-validated
+  extractor.
+
+  **THE TWO FAMILIES, MEASURED BY THE HARDENED ESCAPE TOOL BEFORE THEY WERE NAMED.**
+  **(1) THE DECLARATION PROJECTORS.** `DeclarationToSymbol` :946 (**144**), `DeclarationToOutlineEntry`
+  :1091 (**96**) — the inherited brief's set — measure **240 lines, ESCAPES TO NOTHING, ENTERED FROM 3**
+  (`ExtractDeclarationSymbols`, `GetOutline`, `GetOutlineSingleFile`), the brief's numbers to the digit.
+  Adding `ExtractDeclarationSymbols` :929 (**16**) — a public-surface filter loop that is itself pure
+  projection — gives **3 members / 256 lines, STILL ESCAPING TO NOTHING**, now entered from
+  `GetSymbols`, `GetOutline`, `GetOutlineSingleFile`. **The three-member set is the one taken**: it
+  leaves `GetSymbols` a driver instead of a half-owner, which is the completer cut.
+  **(2) THE CALL-SITE COLLECTOR.** `CollectCallSites` :575 (**10**), `CollectCallSitesInDeclaration`
+  :586 (**38**), `CollectCallSitesInStatement` :625 (**37**), `CollectCallSitesInExpression` :663
+  (**37**) measure **125 lines, ESCAPES TO NOTHING, ENTERED FROM `GetCallGraph` ALONE** — again the
+  brief's numbers exactly. **Adding `GetCallGraph` :502 (74) gives 5 members / 199 lines that ESCAPE TO
+  NOTHING *AND ARE ENTERED FROM NOTHING* — a completely closed territory**, entered only from outside
+  the file. That is the set taken, and the reason is the wall: the family's accumulator is
+  `Dictionary<string, List<(string, string?, int, int)>>`, and a tuple-valued dictionary crossing the
+  boundary is a catalog question slice 13 taught us to avoid asking. **Owning `GetCallGraph`'s policy
+  makes the accumulator INTERNAL to N#, so the wall is not crossed, not probed, and not repinned** —
+  it is designed out. The C# `GetCallGraph` survives only as a mechanical `ProjectSnapshot` → two
+  arrays driver.
+  **Union of both families: 7 members, 381 lines** (`--quiet` set report), escaping to nothing.
+
+  **THE HARDENED TOOL WAS USED AND ITS HARDENING IS REPORTED AS ZERO THIS TIME.**
+  `nl88-edges.py` reports `METHOD-GROUP-ONLY EDGES = []` over the post-slice-13 file: the one
+  method-group edge the file ever had (`u.Arms.Select(FormatTypeReference)`) left with slice 13. The
+  service itself now measures **54 members / 58 extents / 1,472 lines**; `ProjectSnapshot`'s
+  **12 extents / 41 lines** are excluded by line range as before.
+
+  **THE DELETION ARM IS AVAILABLE BECAUSE FINDING 87.1's SECOND HALF HOLDS FOR A THIRD TIME: EVERY
+  RESULT TYPE IN BOTH FAMILIES' SIGNATURES IS ALREADY N#.** `SymbolResult`, `OutlineEntry`,
+  `OutlineResult` and `SymbolKind` (`CodeIntelligenceModels.nl`), `ParameterResult`
+  (`CodeIntelligenceParameterResult.nl`), `CallSiteResult` and `CallGraphResult`
+  (`CodeIntelligenceCallGraphModels.nl`); and so is every input type — `Declaration` and all fifteen
+  arms plus `CompilationUnit` (`Declarations.nl`), `Statement` and its seven arms (`Statements.nl`),
+  `Expression` and its arms plus `Argument` and `InterpolatedStringHole` (`Expressions.nl`),
+  `SoaColumnDeclaration`/`UnionCase` (`DeclarationLeafModels.nl`) — and every helper both families
+  call: `DeclarationFacts`, `VisibilityConventions`, `CodeIntelligenceDisplayText` (slice 13's own
+  owner). **There is no C#-only escape anywhere in the 381 lines.** `ProjectSnapshot` appears in
+  NEITHER family's signature — the projectors never see it, and the collector sees it only through
+  `GetCallGraph`'s two reads (`CompilationUnits`, `ProjectRoot`), which stay in the C# driver.
+
+  **EVERY LSP AND CLI QUESTION THESE FAMILIES ANSWER, ENUMERATED.** The projectors are the whole of
+  **`query symbols`** (`QueryCommand` :79, :591, `BatchQueryRunner` :195, `DaemonServer` :345,
+  `DocCommand` :31 — the doc-site generator reads them), the whole of **`query outline`**
+  (`BatchQueryRunner` :215, `DaemonServer` :351, `QueryCommand` :469) and therefore of the daemon's
+  outline method; the collector is the whole of **`query call-graph`** (`QueryCommand` :191). In the
+  IDE, `DocumentManager` publishes through the same service object and the daemon serves the same
+  outline; every slice on this file is IDE-affecting and the full VS Code gate is mandatory.
+
+  **THE DEAD SWEEP RAN BEFORE ANY SCORING** (`nl88-deadsweep.py`, accessibility-aware, **1,063-file**
+  corpus): **DEAD COUNT = 0**, `DETACHED COUNT = 49`. Every target is LIVE; all seven family members
+  are private with in-file referrers, and the four public entry points carry 6, 3, 2 and 2 external
+  referrers respectively.
+
+  **THE CENSUS IS CLEAN.** `nl81-census.py` over a **1,616-file** corpus, over all 66 member names:
+  `typeof(CodeIntelligenceService)` / `CodeIntelligenceService).Get…` reflection **= 0**;
+  string-literal hits **= 26** and **not one names a family member** — `"Index"` × 22,
+  `"ProjectRoot"` × 1, `"ProjectSnapshot"` × 1, `"SystemsReport"` × 2, the same four artefacts slice 13
+  read. **No reflection door, so no C# test migrates with the families.**
+
+  **THE MEASURED BLOCKERS, WITH THEIR CANDIDATE ROUTES — ALL TO BE PROVED BY EXECUTION BEFORE THE PORT
+  IS WRITTEN.** (a) the tuple accumulator, designed out as above, but the N#-internal replacement
+  (`Dictionary<string, List<CallGraphEdge>>` over an N# record) must still emit; (b) `Dictionary`
+  ITERATION ORDER is an observable contract — the `functionName == null` arm returns the first `limit`
+  edges in dictionary order — so the port carries an EXPLICIT insertion-order caller list rather than
+  relying on `Dictionary`'s internals; (c) `fd.Modifiers.HasFlag(Ast.Modifiers.Static)` is the same
+  `HasFlag` wall slice 13 met, and the route is slice 13's own `CodeIntelligenceDisplayText.HasModifier`
+  / `ModifierMask` pair; (d) `p.DefaultValue?.ToString()` on an `Expression` returns the runtime type's
+  full name (the AST arms are plain classes) and that oddity is a contract to preserve, not fix;
+  (e) `DeclarationFacts.GetDeclarationMembers` returns a non-generic `IList?` which the C# reaches via
+  `?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>()`; the route is an index loop with an `as`
+  cast; (f) the fifteen-arm `switch` on declaration type becomes an `as`-chain, the estate's idiom.
+
+  **BASELINES, TAKEN BEFORE ANY WRITE.** Extractor RE-VALIDATED on five checkpoints before it was
+  trusted — **30 / 623** and **21 / 414** over `CompletionEngine.cs` at `0d55966e8` / `294035b7c`,
+  **43 / 292** over `OutputFormatter.cs` at `be95ec85e`, **14 / 165** over `Linter.cs` at `2d89e4b7e`,
+  **92 / 1,770** over `CodeIntelligenceService.cs` at `10da4c520` — every row exact — and then returns
+  **70 / 1,513** over the tip's **1,618 / 1,425**, the ratchet row exactly. Ratchet row fingerprint
+  `text-v1:ea5e235ccfd1cc6c`; `reviewedHeadFingerprint head-v1:28a711431b640753`. Inherited: unit suite
+  **3,192**; contracts **4,727**; audit **18 / 18**; manifest **391** lines, no BOM.
+
+  ---
+
+  **LANDED (no commit — mandate). `CodeIntelligenceService.cs` IS `1,618 → 1,166` (−452 lines,
+  −7 extents, −445 extent-lines), AND ALL SEVEN NAMES ARE GONE FROM C# ENTIRELY — NO WALL, NO REPIN,
+  NO SURVIVOR.** `git diff` is **+8 / −460** in the one touched C# file; the four new files
+  (`CodeIntelligenceDeclarationProjection.nl` **342**, `CodeIntelligenceCallGraph.nl` **306**, and
+  their contracts **418** + **451**) are the only additions. The arc stands at
+  **4,294 / 3,846 / 177 / 4,005**, a **−44.5 %** cut on lines over fourteen slices.
+
+  **THE FIFTH C# EXTENT WENT TOO, AND IT WAS THE POINT.** `GetCallGraph`'s 74-line body — the
+  tuple-dictionary accumulator, both selection arms and the truncation arithmetic — is N# as well.
+  What survives in C# is a **twelve-line mechanical driver** that turns `snapshot.CompilationUnits`
+  into two `List`s and calls `CodeIntelligenceCallGraph.Build`. **The wall slice 13 met was not met
+  again because it was designed out**: the accumulator never crosses an assembly boundary, so the
+  question "does a tuple-valued dictionary resolve in the catalog?" was never asked. **WALL STATUS:
+  ZERO. NO REPIN.**
+
+  **THE MOVEABLE BOUNDARY WAS DRAWN BY EXECUTION FIRST, IN AN ISOLATED TWO-PROJECT PROBE
+  (`/private/tmp/nl89iso`, an N# library `q1` and a C# consumer `c1`) AGAINST THE PINNED TOOLSET,
+  BEFORE ANY PRODUCTION EDIT — AND IT FOUND A WALL THE INHERITED BRIEF DID NOT NAME.**
+  Proved emitting and behaving: (a) the accumulator `Dictionary<string, List<UserRecord>>` built with
+  `StringComparer.Ordinal`, with `ContainsKey`, indexer assignment, `TryGetValue`/`out` and an
+  explicit insertion-order key list — **two units sharing a key append to one bucket in file order,
+  exactly as the C# `Dictionary` did**; (b) truncation at `limit` and at `limit = 0`;
+  (c) `Convert.ToInt32` + `(v & f) == f` reading a boxed flags enum from C# (`Public|Static` → 17,
+  `null` → 0); (d) a non-generic `IList` walked by index with an `as` cast, returning a RECURSIVE
+  user array — **`null` and `[]` stay distinguishable across the boundary**.
+  **THE WALL: `ToString()` ON A USER-DECLARED N# CLASS DOES NOT EMIT.** `value.ToString()` where
+  `value`'s type is an N# class declines at `emit.return.expression` / `emit.statement.block-child`
+  (node kind 23) — and the first probe MASKED it behind an `NL202`, so it took a second probe to see.
+  Three routes were then asked and all three emitted; two of them agree with C# to the character
+  (`(value as object).ToString()` and `Convert.ToString(value)` both give `Q1.PUnit`, the same string
+  `value.ToString()` gives in C#) and the third, an interpolation, printed the literal `{value}` and
+  was discarded. **The owner takes the boxing route**, which is the same virtual call C# makes.
+  Two more gotchas the probe cost: **`file` IS A RESERVED WORD** (`NL109`, and the C# used it as a
+  parameter name in both projectors), and **an `out` local from `TryGetValue` still needs an explicit
+  null guard** (`NL905`) even on the `true` arm.
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL OF 145 ROWS PER SIDE WITH 0 FAULTS ON BOTH SIDES AND ZERO
+  BEHAVIOURAL DIFFERENCES.** One `Grid.cs` compiled twice (`base/Base.csproj` against a pristine
+  `04bc0d021` worktree, `work/Work.csproj` against the repo's). **The base side drives the seven
+  DELETED members THROUGH REFLECTION — every one of them was private — and the work side calls the
+  two N# owners directly.** **The 135 behavioural rows are byte-identical: md5
+  `99e350d62eba914f579f75bbd71bde1c` on BOTH sides, `diff` = 0.** The 10-row structural section
+  carries the whole difference and is the terminality proof: the seven C# extents read
+  **PRESENT(1) → 0**, `GetCallGraph` reads **1 → 1** (the surviving driver), and the two N# owners
+  read **ABSENT → PRESENT (12 and 9 public statics)**.
+  **The differential is two differentials in one.** Section A asks the projectors ARM BY ARM at unit
+  level over 24 synthesized declarations covering every one of the fifteen symbol arms and twelve
+  outline arms — including the four the corpus cannot reach (`soa`, `newtype`, `constructor`, `test`)
+  — plus three file-level walks. Section B drives **both families end to end through the PUBLIC API**
+  (`LoadProject` → `GetSymbols` × 13 kind filters × 3 file filters, `GetOutline`, `GetOutlineSingleFile`,
+  and `GetCallGraph` over 8 function names × 7 limits plus the defaulted arity) against a real
+  two-file project that `nlc check` reports **`ok=true`, 0 diagnostics**. Only 5 of the 135 rows are
+  `<null>`, and 23 call-graph rows carry real edges.
+
+  **THE LSP-QUESTION LIVE ORACLE IS THE OTHER HALF, AND ITS COUNTERS ARE WHY IT MEANS ANYTHING.**
+  Both CLIs were asked the real questions over a real project at **357 COMPUTED POSITIONS** — every
+  identifier occurrence plus one column either side — through `query batch` (1,088 requests in one
+  process) plus direct `hover`, `inspect`, `implementors`, `call-graph`, `symbols`, `outline` and
+  `lint` in both renderings: **40,386 lines per side, 0 DIFFS, md5
+  `aac71ccae93301087254caa44b762612` on both.** **THE COUNTERS ARE READ, NOT ASSUMED** (finding 88.6):
+  **0 usage errors**, **1,289 hover `ok:true`**, 12 `documentation` rows, 1,277 `kind` rows, 29
+  signatures, **6 modifier-chip rows**, 714 `type` + 714 `definition` + 714 `references` answers, 28
+  `symbols`, 6 `outline`, 6 `implementors` with 35 `typeName` rows, and — this slice's own family —
+  **88 call-graph answers of which 80 carry a `function`, 36 with a non-empty caller list, 45 with a
+  non-empty callee list, 16 `truncated: true` against 72 `false`.**
+  **AND THE ORACLE ITSELF HAD A BUG THAT ONLY THIS SLICE COULD HAVE FOUND (finding 89.1).**
+  `query call-graph`'s selector is **`--function`, not `--name`** — `--name` is parsed by nothing,
+  silently ignored, and the command answers the UNFILTERED graph. Slice 13's oracle used `--name`, so
+  **every call-graph row it ever compared was the unfiltered arm**: the function-specific arm, the
+  callers list and the truncation arithmetic — three quarters of what this slice moved — had never
+  been in an oracle at all. Corrected, the oracle also had to learn that **`query outline` REQUIRES
+  its file operand** (without it the CLI prints a usage error and the outline text rendering is never
+  exercised, which is exactly how slice 13's single remaining usage error arose).
+
+  **N# ADDS 1,517 LINES AND 41 CONTRACTS.** Contracts **4,727 → 4,768**, green on their first complete
+  run and again on the byte-final tree. **FOURTEEN THINGS THAT WERE UNREACHABLE, PROSE OR VACUOUS ARE
+  NOW CONTRACTS**, reachable at all only because seven private members became public N#:
+  (a) **the two projections disagree about children ON PURPOSE** — `query symbols` filters a type's
+  members by the exported convention and `query outline` shows every one, so a lowercase method is
+  absent from one answer and present in the other from the SAME declaration, at file level too;
+  (b) **a static field is a `Field` and an instance field is a `Property` — in the SYMBOL answer only**;
+  the outline calls both a `Property`, and the C# spelled the split `HasFlag(Static)`;
+  (c) **`Members` is an EMPTY ARRAY for a childless type and NULL for a function**, a distinction
+  every JSON consumer sees;
+  (d) **a constructor's parameters carry `HasDefault` but NEVER the default text** while a function's
+  carry both — one `null` in one arm was the whole record of it;
+  (e) **a default value's text is its AST node's RUNTIME TYPE NAME**, not the source spelling;
+  (f) **an enum lists its members and a union lists only its EXPORTED cases**, and neither has any
+  outline children though both have symbol members;
+  (g) **an enum member is reported at line 0, column 0** though its AST node carries a position —
+  while a soa column keeps its own;
+  (h) **an alias, a newtype and a test carry no modifier chips at all**, and a newtype is reported as
+  a `Struct` named by its underlying type;
+  (i) **a type's outline END LINE is estimated from its members and falls back to its own line**;
+  (j) **the map's iteration order IS the call graph's answer order** — the unfiltered arm returns the
+  first `limit` edges in FIRST-DECLARATION order;
+  (k) **two functions with the same qualified name share one bucket, appended in FILE order**;
+  (l) **the unfiltered arm returns NO callers, ever**, and **a limit of zero truncates BEFORE the
+  first edge** while reaching the limit exactly is not truncation;
+  (m) **truncation is tested on the COMBINED count and then halves BOTH lists**, so a limit of 3
+  keeps one of each and not two;
+  (n) **a call records itself before its arguments and before its own callee**, an assignment's
+  TARGET is not walked, and a `for` body is not walked — the last two are shipped gaps, asserted so a
+  change to them cannot be silent.
+
+  **THE LOAD-BEARING LIVE-TREE `nlc check` REPORTS THE INHERITED BASELINE TO THE DIGIT.**
+  `BootstrapServices` builds with `NSharpEmitValidateWithLegacyAnalysis=false`, so a green build and
+  green contracts are not evidence a new `.nl` is clean (finding 85.7). The check reports
+  **`checkedFiles=381, count=272`** with
+  **`NL202:91 NL402:89 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL412:3 NL303:2 NL002:1`** —
+  every code exactly slice 13's closing number — and **ZERO diagnostics naming either new owner or
+  either new contract file.** The format gate moved bytes in both owners (the constructor calls
+  collapse to one line each), so the check, the contracts, the differential, the oracles and the
+  live-tree oracle were ALL re-run on the byte-final tree and reproduce their md5s exactly; the gate
+  then reports "All files are properly formatted".
+
+  **TEN ORACLE DIFFERENTIALS, ALL ZERO — AND THE NINE STANDING ONES REPRODUCE SLICE 13's md5s TO THE
+  DIGIT**: corpus **`86a4928f87495854f48cbd5df7d5c571`** (the TWENTY-SECOND slice running
+  byte-identical), self-host **`e659c04401d1a13682f9c8e91a6b8a6a`**, fx75 `6c12cc5a…`, fx74
+  `309f7902…`, fx73 `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA `b1045814…`, supplementary
+  `228dfc38…`; the inherited `NO-RESULTS` counts (**7** corpus, **6** supplementary) reproduce
+  exactly. The **LIVE-TREE tenth** reports **0 diffs, md5 `34f2b75eb2749e249bc39cb606ca4758` on both
+  sides**, 272 diagnostics over 10 codes and the same census as the direct check; its md5 moves from
+  slice 13's because the file set it reads now contains this slice's four new files.
+
+  **PARSE-ERROR CENSUS.** `PARSE_FAIL = 0` and `PARSE_ERRORS = 0` on **every one of the ten**
+  differentials; both new corpora (`/private/tmp/nl89grid/corpus`, `/private/tmp/nl89lsp`) report
+  `ok=true` with **0 diagnostics** from `nlc check`, which is the point of having run the census —
+  the LSP corpus cost three rounds of fixes (a union case needs a payload block, a `float` literal is
+  `1.0f`, an `async` body needs an `await`) before it was clean.
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** and proved the harness stable
+  (`CONTROL vs A` **118 / 118 SAME**, both the base CLI over fresh `04bc0d021` archives); `A vs B`
+  then gives **63 / 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files counted and
+  proved **55-of-55 copied `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps report
+  `TARGETS=73 BUILT=55 ASSEMBLIES=118`. Unsorted build transcripts **0 diffs across all three sweeps**
+  — **1,365 lines / md5 `7b545e84e8759d7469b7a88731e27402`**. Unit suite **3,192 / 3,192**; contracts
+  **4,768 / 4,768**; `dev.sh --since` selected the **FULL unit suite by its own fail-safe** (it names
+  the four new `.nl` files as unmapped paths) and passed. **The five-run ordering pin is
+  byte-identical over 398 targets, 391 with results, 1,255 diagnostic rows over 48 codes**,
+  `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, md5 **`db729409fb7e7100a2c5bdb6401e6a78`** — the recorded value,
+  with **NL010: 220**, **NL012: 55**, **NL001: 38**, **NL011: 17**, **NL004: 2** and **NL002: 1** in
+  its census, every one of them slice 13's number.
+
+  **`nlc lint` ITSELF WAS RUN ON BOTH CLIs, FIVE TIMES EACH: 4,025 ROWS, 0 DIFFS, md5
+  `682a2a802cf72a536a864340978d77dc` ACROSS ALL TEN TRANSCRIPTS, 240,088 BYTES** — slice 13's md5 AND
+  byte count to the digit. 172 targets × the JSON and `--text` renderings, **258 `rc=0` / 86 `rc=1`**,
+  carrying **NL001 × 18, NL003 × 18, NL020 × 8, NL010 × 6, NL012 × 6, NL016 × 6, NL006 × 4,
+  NL004 × 2, NL011 × 2**. **BOTH CLOCKS ARE PRESENT AND BOTH ARE NORMALISED** — **138** rows carry the
+  bracketed form and **34** carry `Linted in …` (finding 83.2).
+
+  **THE TERMINALITY GREP IS CLEAN.** All seven names are gone from **every** `.cs` file in `src` and
+  `tests` — zero hits, production and test alike — and the estate holds exactly **four** call sites
+  into the new owners, all of them in `CodeIntelligenceService.cs` (:77 `Symbols`, :100 and :120
+  `OutlineEntries`, :505 `Build`). The two duplicated outline projection chains at :100 and :120
+  collapsed into one N# function, so the slice also removes a duplication the closure did not name.
+
+  **RATCHET.** ONE row repinned AS THE LAST EDIT to any production or ratcheted file, after every
+  production edit and after the whole differential / oracle / LSP-oracle / lint-oracle / IL /
+  determinism set had been run:
+  `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` **1,618 / 1,425 → 1,166 /
+  1,014**, fingerprint `ea5e235ccfd1cc6c → e1cc9e57d914611a`. Head
+  `28a711431b640753 → 875e951dd0e1824c`, mirrored into `OwnershipAudit.nl` (a one-line diff, the
+  fingerprint string), and the stored head was REPRODUCED by the independent FNV-1a walk both before
+  the write and after it. **The repin is non-vacuous by execution, and the audit itself supplies the
+  counter**: run against the pre-repin manifest it reports **17 / 18 with 1 FAILED**
+  (`RepositoryNonNSharpOwnershipMatchesTheE0GrowthBaseline`, naming exactly `OWN004` and `OWN005` on
+  the one file that shrank) and **18 / 18** against the repinned one, run in that order. Manifest
+  **391** lines, no BOM; it still holds **0** `.nl` rows, which is what makes a slice adding 1,517 N#
+  lines a pure downward move.
+
+  **THE FULL VS CODE-ENABLED GATE WAS RUN ON THE BYTE-FINAL REPINNED TREE AND PASSED: `ALL TESTS
+  PASSED` in 30m 29s, 108 GREEN STEPS AND ZERO FAILURES, WITH THE VS CODE INTEGRATION TESTS INSIDE**
+  (Step 3b, **36 passing** in 41s — extension, diagnostics, hover and completion) — fresh under
+  `--commit` with `NSHARP_TEST_STEP_CACHE_OFF=1`, including the unit suite **3,192 / 3,192**, the whole
+  native `.tests.nl` estate with contracts **4,768 / 4,768** and the ownership audit **18 / 18** inside
+  it, the format contract gate, every example and template, and the IL verification gate with no new
+  errors against baseline. **`VSCODE_TESTS=skip` was not an option and the reason is the product, not
+  form: THIS IS THE FILE THE LSP CONSUMES**, and this slice re-pointed every symbol, every outline
+  entry and every call-graph edge it produces. **No LSP source changed**, so a VSIX reload was not
+  required — a checked conclusion (`git status` names exactly four modified files and four new `.nl`
+  files, none of them under `src/NSharpLang.LanguageServer` or `editors/vscode`), not an assumption.
+  Per standing precedent computer-use visual verification was NOT requested and the gate's VS Code
+  evidence stands in.
+  **THE GATE WAS RUN FROM AN ISOLATED `/private/tmp/nl89gate` WORKTREE, AND THAT WAS A CHECKED
+  DECISION**: the repo root still carries **six** nested worktrees under `.claude/worktrees/`, two of
+  which hold a duplicate `benchmarks/NSharpLang.Benchmarks.csproj`, and the gate's own isolation copy
+  does NOT exclude `.claude/` — the recorded condition that breaks the BDN Systems step. **All eight
+  of the gate tree's files were verified md5-identical to the working tree's before the run (8 / 8),
+  and again after it (8 / 8).**
+
+  **NINE FINDINGS.**
+  **(89.1) A 0-DIFF ORACLE CAN BE 0-DIFF BECAUSE IT NEVER ASKED THE QUESTION.** `query call-graph
+  --name X` is not an error and not a warning: the flag is unparsed, `functionName` stays null, and
+  the command answers the WHOLE graph. Slice 13's oracle spelled it that way, so its call-graph rows
+  compared the unfiltered arm on both sides — and the function arm, the callers list and the
+  truncation arithmetic were never compared at all. Finding 88.6 said count what ANSWERED; this is
+  its sharper form: **check that what answered is what you ASKED.** The counter that catches it is
+  `"function": present`, not `ok: true`.
+  **(89.2) `ToString()` ON A USER-DECLARED N# CLASS DOES NOT EMIT — AND THE FIRST PROBE HID IT.**
+  The columnar backend declines the whole statement (node kind 23) at `emit.return.expression` or
+  `emit.statement.block-child`. The first probe of it returned `string?` into a `string` and tripped
+  `NL202` FIRST, so the decline never ran and the shape looked fine. **A type error can mask an emit
+  wall; re-probe with the types right before concluding a shape works.** The route is
+  `(value as object).ToString()` — the same virtual call, and the catalog resolves `object`.
+  **(89.3) THE WAY TO BEAT A CATALOG WALL IS TO MOVE THE BOUNDARY, NOT TO PROBE THE TYPE.** The
+  inherited brief priced the collector's `Dictionary<string, List<(string, string?, int, int)>>` as a
+  catalog question to be probed. Taking `GetCallGraph`'s body as well made the accumulator INTERNAL,
+  and the question disappeared. **When a wall sits on a parameter, ask whether the parameter has to
+  exist.**
+  **(89.4) A CLOSED TERRITORY ENTERED FROM NOTHING IS THE STRONGEST CUT AVAILABLE.** The five-member
+  call-graph set escapes to nothing AND is entered from nothing — every edge into it comes from
+  outside the file. That is the `Linter.cs` shape at file scale inside a file, and it is what let the
+  C# shrink to a twelve-line driver instead of a half-owner.
+  **(89.5) `file` IS A RESERVED WORD IN N#, AND THE C# USED IT AS A PARAMETER NAME.** `NL109` names it
+  clearly, but it appears in BOTH projectors' signatures and in every arm's body, so a mechanical port
+  hits it dozens of times at once. It joins `newtype` (which also cost this slice a parse decline in a
+  test) on the list.
+  **(89.6) NARROWING DOES NOT SURVIVE `out`.** `if (dict.TryGetValue(k, out v))` leaves `v` nullable
+  to the checker on the `true` arm; `&& v != null` is required. This is the same shape slice 13 met as
+  four `NL202`s on `out` locals, and it is a rule rather than an accident.
+  **(89.7) DICTIONARY ITERATION ORDER WAS A CONTRACT NOBODY HAD WRITTEN DOWN.** The unfiltered arm
+  returns the first `limit` edges in map order, which .NET gives as insertion order only because
+  nothing is ever removed. The port carries an explicit insertion-order list instead, so the answer's
+  order is now stated in the source — and the differential proves the stated order equals the
+  inherited one.
+  **(89.8) TWO PROJECTIONS OF THE SAME TREE CAN DISAGREE, AND THE DISAGREEMENT IS THE PRODUCT.**
+  Symbols filter children by visibility; the outline does not. A static field is a `Field` in one and
+  a `Property` in the other. An enum lists members in one and has no children in the other. Every one
+  of those was a one-line difference between two 100-line `switch` expressions, and none of them was
+  asserted anywhere.
+  **(89.9) THE EMIT PROBE IS CHEAPER THAN THE PRODUCTION BUILD BY TWO ORDERS OF MAGNITUDE.** The
+  isolated `q1` library rebuilds in **1.5 seconds**; `BootstrapServices` takes minutes. Reproducing
+  the production decline in `q1` and bisecting it there cost four builds — six seconds — where the
+  same four iterations in the real project would have cost twenty minutes.
+
+  **THE ARC'S SURFACE AFTER THIS SLICE, RE-MEASURED BY THE VALIDATED EXTRACTOR.** Five live files —
+  **4,294 lines / 3,846 non-blank / 177 extents summing 4,005**, down from **4,746 / 4,257 / 184 /
+  4,450** at slice 13's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257**, a
+  **−44.5 %** cut on lines over fourteen slices:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,302 | 2,127 | 49 | 2,248 |
+  | `CodeIntelligenceService` | 1,166 | 1,014 | 63 | 1,068 |
+  | `DocQuery` (WALLED, not closed) | 446 | 382 | 23 | 402 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+  | **`Linter` (DELETED)** | **0** | **0** | **0** | **0** |
+
+  **NEXT — `CodeIntelligenceService.cs`'s REMAINING FAMILIES, RE-MEASURED ON THE POST-CUT FILE.** The
+  service now holds **47 members / 51 extents / 1,027 lines** of its own (plus `ProjectSnapshot`'s
+  12 / 41). `nl88-edges.py` again reports `METHOD-GROUP-ONLY EDGES = []`.
+  **THE MEASURED CANDIDATES, IN THE ORDER THEIR CLOSURES ALLOW:**
+  (1) **THE IMPLEMENTORS TERRITORY — `GetImplementors` + `CollectImplementors`: 2 members, 50 lines,
+  ESCAPING TO NOTHING AND ENTERED FROM NOTHING.** It is this slice's call-graph shape at a quarter of
+  the size, and the same arm applies: `GetImplementors` reads only `snapshot.CompilationUnits`, so a
+  `List<CompilationUnit>` driver leaves ZERO policy in C#. `ImplementorResult` and `ImplementorsResult`
+  must be confirmed N# first (finding 87.1), and `InterfaceNameMatches` — the one helper it calls —
+  is ALREADY N# in `CodeIntelligenceDisplayText`. **This is the next slice.**
+  (2) **THE DIAGNOSTICS FAMILY — `ToDiagnosticResult` (58, and the only PUBLIC one),
+  `GetLintDiagnostics`, `DeduplicateDiagnostics`, `SuppressLintShadowingDiagnostics`,
+  `GetCompilerShadowingErrorFiles`: 5 members, 117 lines, ESCAPES TO NOTHING, entered from
+  `GetDiagnostics` alone.** Its blocker is measured rather than guessed: `ToDiagnosticResult` has two
+  public overloads and external callers, and `GetCompilerShadowingErrorFiles` reads
+  `snapshot.AllErrors` — a third `ProjectSnapshot` read beyond `CompilationUnits`/`ProjectRoot`, so
+  the driver shape has to be checked before scoping.
+  (3) **THE REFERENCE-RESULT BUILDERS — `BuildReferenceResultsFromDeclaration`,
+  `DeduplicateAndSortReferenceResults`, `ToDefinitionResult`: 3 members, 58 lines, entered from the
+  three public find-* answers — but they ESCAPE TO `GetSourceText`,** the one walled member slice 13
+  left behind. They move when it does, and not before.
+  (4) **THE TYPE-INFO RESOLVERS — 13 members, 285 lines, ESCAPING TO NOTHING, entered from 4**
+  (`GetTypeAtPosition`, `ResolveTypeInfoAtPosition`, `ResolveTypeUseAtPosition`,
+  `ResolveDeclaredNameTypeInDeclaration`) — the file's largest remaining cut and the one that holds
+  both small SCCs. Every one of them takes a `ProjectSnapshot`, so this family is gated on the SAME
+  wall slice 13 met and is LAST of the four.
+  **`ProjectSnapshot` itself remains the file's terminal blocker** — a C# type at (now) :1120, touched
+  by 82 references across 14 files including four LSP handlers.
+  **THE ONE WALLED MEMBER STILL HAS A NAMED EXIT, AND IT IS A TWO-STAGE TOOLSET SLICE.**
+  `GetSourceText` moves the moment `IReadOnlyDictionary<K, V>` joins `IReadOnlyList`,
+  `IReadOnlyCollection`, `IReadOnlySet` and `IEnumerable` in the columnar catalog
+  (`ColumnarTypeOfPlanner.nl` :713/:1151). **Stage one is the catalog entry itself** — a parameter of
+  that type must resolve at `emit.declaration.method-param`, proved in the isolated `q1`/`c1` probe
+  before any production edit. **Stage two is the two consumers it unblocks**: family (3) above, and
+  the `ProjectSnapshot`-shaped signatures of family (4). It is a TOOLSET slice, not a
+  tooling-ownership slice, and remains the single highest-leverage catalog addition this arc has found.
+  **`Formatter.cs` (2,302 / 2,127 / 49 / 2,248) IS STILL UNTOUCHED AND IS NOW THE ARC'S LARGEST FILE BY
+  A FACTOR OF 2.0.** Its shape was measured at slice 12 and stands: 43 members with **ONE 14-member
+  1,282-line SCC** and a second **6-member 282-line SCC**. **It is the `Linter.cs` shape at four times
+  the size**, and the slices 10 → 11 sequence applies — **a state-carrier slice on the `Formatter`
+  object must be measured BEFORE any arm is attempted**, because that 1,282-line SCC will not come
+  apart arm by arm. **The opening measurement it needs is the FIELD census** (`nl85-fields.py` on the
+  `Formatter` class, exactly as slice 10 ran it on `LintVisitor`): how many of the object's fields the
+  14-member SCC reads, and whether they carry position state, an output builder, or configuration.
+  Until that number exists the SCC cannot be priced.
+  **019's COMPLETION SHAPE IS UNCHANGED.** Two files are reviewed zero-policy hosts (`CompletionEngine`
+  109, `OutputFormatter` 271); `DocQuery.cs` is a **walled** host at 446 whose `UNEXPLAINED = 0` behind
+  two named catalog gaps; **`Linter.cs` is DELETED**; `Formatter` (2,302) and `CodeIntelligenceService`
+  (1,166) are the two still to reduce. **The honest close of 019 is now: those two reduced, and
+  `DocQuery` either finished by a `System.Xml.Linq` catalog repin or accepted at 402 walled lines** — a
+  toolset decision, not a slice decision.
+
+  **ARTEFACTS LEFT ON DISK FOR 019 SLICE 15.** **THE TWO WORKTREES THIS SLICE MADE ARE GONE** —
+  `/private/tmp/nl89base` (the pristine base) and `/private/tmp/nl89gate` (the isolated gate tree)
+  were both removed with `git worktree remove` at slice end, so `git worktree list` shows exactly the
+  repo and the pre-existing chip trees. **Slice 15 must recreate its own base**:
+  `git worktree add /private/tmp/nl90base <tip> --detach`, then build
+  `src/NSharpLang.Compiler/Compiler.csproj` and `src/NSharpLang.Cli/Cli.csproj` in Release (~7 min
+  cold), and repoint `nl89-oracle.sh`, `nl89-ilsweep.sh`, `nl89-lspquery.sh` and `nl89-lintoracle.sh`
+  at it. **The CLI dll is `Cli.dll`, NOT `NSharpLang.Cli.dll`.**
+  The two-sided differential harness is `/private/tmp/nl89grid` (ONE `Grid.cs`, two csproj, a
+  `WORKSIDE` define; the base side reaches the deleted members BY REFLECTION and the work side calls
+  N# directly; its corpus is `/private/tmp/nl89grid/corpus`, which `nlc check` reports clean).
+  **The N# emit probe is `/private/tmp/nl89iso`, and it is TWO projects** — `q1` the N# library and
+  `c1` the C# consumer; **`c1` must use a `ProjectReference`**, and a standalone N# project needs its
+  OWN `global.json` pinning `"NSharpLang.Sdk": "0.1.0"`. It rebuilds in **1.5 s** and is the right
+  place to bisect any emit decline (finding 89.9).
+  **The LSP-question corpus is `/private/tmp/nl89lsp`** with its computed `.nl89positions` (357) and
+  `.nl89batch.json` (1,088 requests); its oracle is `nl89-lspquery.sh`, and the CLI spellings it needs
+  are `query hover --file X --pos L:C`, `query implementors --name N`, **`query call-graph --function N
+  [--limit N]`** (NOT `--name`, which is silently ignored — finding 89.1) and **`query outline <file>`**
+  (the file operand is REQUIRED). IL trees and captures: `/private/tmp/nl89il{Ctrl,A,B}Tree` with
+  outputs under `/private/tmp/nl89out{Ctrl,A,B}`.
+  Harnesses in the scratchpad: `nl62_members.py` (the extractor, re-validated on five checkpoints),
+  `nl88-deadsweep.py`, `nl81/nl81-census.py`, `nl85-tarjan.py`, **`nl88-edges.py` — the hardened
+  closure tool; use this, NOT `nl86-edges.py`** — `nl89-oracle.sh`, `nl89-run-oracles.sh`,
+  `nl89-ilsweep.sh` (**its `git archive` commit must be repointed each slice**), `nl89-run-il.sh`,
+  `nl89-ilcompare.py` (**give it the OUT dir, not the `asm` dir**), `nl89-transnorm.py` (**three
+  arguments: raw, tree, out**), `nl89-determinism.sh`, `nl89-lspquery.sh`, `nl89-lintoracle.sh` +
+  `nl89-lintnorm.py` + `/private/tmp/nl89-lint-targets.txt` (172 targets), and `nl89-repin.py`.
+  **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `04bc0d021`):
   **019 SLICE 13 — `CodeIntelligenceService.cs`'s FIRST CLOSED FAMILY, AND THE CLOSURE NAMES IT: THE
   WORDS EVERY ANSWER CARRIES. 21 MEMBERS, 294 LINES, ESCAPING TO NOTHING, ENTERED FROM 22 CALLERS
   THAT ALL STAY BEHIND.**
