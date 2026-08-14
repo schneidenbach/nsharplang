@@ -128,85 +128,24 @@ public class CodeIntelligenceService
     /// Get all diagnostics for the project, optionally filtered by file.
     /// Returns Elm-level rich diagnostics with explanations, suggestions, source snippets, etc.
     /// </summary>
+    /// <remarks>
+    /// Mechanical driver: <see cref="ProjectSnapshot"/> is a C# type this assembly declares, so the
+    /// five reads it carries are materialised here and every diagnostic decision belongs to
+    /// <see cref="CodeIntelligenceDiagnostics"/>. Both dictionaries are rebuilt with the same
+    /// OrdinalIgnoreCase comparer the project snapshot itself is built with.
+    /// </remarks>
     public List<DiagnosticResult> GetDiagnostics(ProjectSnapshot snapshot, string? file = null)
-    {
-        var sourceTexts = snapshot.SourceTexts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+        => CodeIntelligenceDiagnostics.Build(
+            snapshot.ProjectRoot,
+            snapshot.AllErrors.ToList(),
+            snapshot.SourceFiles.ToList(),
+            snapshot.CompilationUnits.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase),
+            snapshot.SourceTexts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase),
+            file);
 
-        var results = new List<DiagnosticResult>();
-        var filesWithCompilerShadowingErrors = GetCompilerShadowingErrorFiles(snapshot);
-
-        foreach (var error in snapshot.AllErrors)
-        {
-            var errorFile = error.FileName ?? "unknown";
-            if (file != null && !CodeIntelligenceResultKernels.MatchesFilePath(errorFile, file))
-                continue;
-
-            var relativeFile = CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, errorFile);
-
-            // Try to extract source snippet if not already provided
-            var snippet = error.SourceSnippet;
-            if (string.IsNullOrWhiteSpace(snippet) && error.Line > 0)
-            {
-                snippet = CodeIntelligenceSourceDoor.SourceLine(GetSourceText(snapshot, errorFile), error.Line);
-            }
-
-            results.Add(new DiagnosticResult(
-                Code: error.DiagnosticId,
-                Severity: error.Severity switch
-                {
-                    ErrorSeverity.Error => "error",
-                    ErrorSeverity.Warning => "warning",
-                    _ => "info"
-                },
-                Message: error.Message,
-                File: relativeFile,
-                Line: error.Line,
-                Column: error.Column,
-                Length: error.Length,
-                SourceSnippet: snippet,
-                Explanation: error.HumanExplanation,
-                Suggestion: error.Suggestion ?? CodeIntelligenceDisplayText.FormatSuggestions(error.Suggestions),
-                Hint: error.ContextualHint,
-                ExpectedType: error.ExpectedType,
-                ActualType: error.ActualType,
-                DocsUrl: error.DocsUrl
-            ));
-        }
-
-        var lintDiagnostics = GetLintDiagnostics(snapshot.ProjectRoot, snapshot.SourceFiles, snapshot.CompilationUnits, sourceTexts, file);
-        if (filesWithCompilerShadowingErrors.Count > 0)
-        {
-            lintDiagnostics = SuppressLintShadowingDiagnostics(lintDiagnostics, filesWithCompilerShadowingErrors);
-        }
-
-        results.AddRange(lintDiagnostics);
-
-        return DeduplicateDiagnostics(results);
-    }
-
-    private static List<string> GetCompilerShadowingErrorFiles(ProjectSnapshot snapshot)
-    {
-        var files = new List<string>();
-        foreach (var error in snapshot.AllErrors)
-        {
-            if (error.Code == ErrorCode.ShadowedDeclaration && !string.IsNullOrWhiteSpace(error.FileName))
-            {
-                files.Add(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, error.FileName!));
-            }
-        }
-
-        return files;
-    }
-
-    private static List<DiagnosticResult> SuppressLintShadowingDiagnostics(
-        List<DiagnosticResult> lintDiagnostics,
-        IReadOnlyList<string> filesWithCompilerShadowingErrors)
-    {
-        return CodeIntelligenceResultKernels.SuppressLintShadowingDiagnosticResults(
-            lintDiagnostics,
-            filesWithCompilerShadowingErrors);
-    }
-
+    // WALLED: this overload's `IReadOnlyDictionary<string, string>` parameter is the ONE shape the
+    // columnar emitter's resolvable-type catalog did not carry when the family moved. It moves the
+    // moment the published catalog row reaches the toolset.
     public static DiagnosticResult ToDiagnosticResult(
         CompilerError error,
         string projectRoot,
@@ -241,70 +180,6 @@ public class CodeIntelligenceService
             ExpectedType: error.ExpectedType,
             ActualType: error.ActualType,
             DocsUrl: error.DocsUrl ?? DiagnosticCatalog.DocsUrlFor(error.DiagnosticId));
-    }
-
-    public static DiagnosticResult ToDiagnosticResult(Diagnostic diagnostic, string projectRoot, string sourceFile, string? source)
-    {
-        return new DiagnosticResult(
-            diagnostic.Code,
-            diagnostic.Severity switch
-            {
-                DiagnosticSeverity.Error => "error",
-                DiagnosticSeverity.Warning => "warning",
-                _ => "info"
-            },
-            diagnostic.Message,
-            CodeIntelligenceSourceDoor.RelativePath(projectRoot, sourceFile),
-            diagnostic.Location.Line,
-            diagnostic.Location.Column,
-            Math.Max(diagnostic.Length, 1),
-            CodeIntelligenceSourceDoor.SourceLine(source, diagnostic.Location.Line),
-            null,
-            diagnostic.Suggestion,
-            null,
-            null,
-            null,
-            DiagnosticCatalog.DocsUrlFor(diagnostic.Code));
-    }
-
-    private static List<DiagnosticResult> GetLintDiagnostics(
-        string projectRoot,
-        IReadOnlyList<string> sourceFiles,
-        IReadOnlyDictionary<string, CompilationUnit> compilationUnits,
-        IReadOnlyDictionary<string, string> sourceTexts,
-        string? file = null)
-    {
-        var results = new List<DiagnosticResult>();
-
-        foreach (var sourceFile in sourceFiles)
-        {
-            var fullPath = Path.GetFullPath(sourceFile);
-            if (file != null && !CodeIntelligenceResultKernels.MatchesFilePath(fullPath, file))
-                continue;
-
-            if (!sourceTexts.TryGetValue(fullPath, out var source))
-            {
-                    source = File.ReadAllText(fullPath);
-            }
-
-            var fileDir = Path.GetDirectoryName(fullPath) ?? projectRoot;
-            var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
-            if (!compilationUnits.TryGetValue(fullPath, out var compilationUnit))
-            {
-                continue;
-            }
-
-            var diagnostics = linter.Lint(compilationUnit, fullPath, source);
-
-            results.AddRange(diagnostics.Select(diagnostic => ToDiagnosticResult(diagnostic, projectRoot, fullPath, source)));
-        }
-
-        return results;
-    }
-
-    private static List<DiagnosticResult> DeduplicateDiagnostics(List<DiagnosticResult> diagnostics)
-    {
-        return CodeIntelligenceResultKernels.DeduplicateDiagnosticsPreservingOrderResults(diagnostics);
     }
 
     // ── Navigation Queries ──────────────────────────────────────────────
@@ -511,52 +386,21 @@ public class CodeIntelligenceService
     /// Find all concrete types (class, struct, record) that implement a given interface.
     /// Walks all compilation units in the project.
     /// </summary>
+    /// <remarks>
+    /// Mechanical driver: the walk and the answer belong to <see cref="CodeIntelligenceImplementors"/>.
+    /// </remarks>
     public ImplementorsResult GetImplementors(ProjectSnapshot snapshot, string interfaceName)
     {
-        var results = new List<ImplementorResult>();
+        var units = new List<CompilationUnit>();
+        var relativeFiles = new List<string>();
 
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
         {
-            var relFile = CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath);
-            CollectImplementors(cu, interfaceName, relFile, results);
+            units.Add(cu);
+            relativeFiles.Add(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath));
         }
 
-        return new ImplementorsResult(interfaceName, results);
-    }
-
-    private static void CollectImplementors(
-        CompilationUnit cu,
-        string interfaceName,
-        string relativeFile,
-        List<ImplementorResult> results)
-    {
-        foreach (var decl in cu.Declarations)
-        {
-            switch (decl)
-            {
-                case ClassDeclaration cls:
-                    // BaseClass holds the first colon-separated type (may be an interface when there is no actual base class)
-                    // Interfaces holds additional comma-separated types
-                    if ((cls.BaseClass != null && CodeIntelligenceDisplayText.InterfaceNameMatches(cls.BaseClass, interfaceName))
-                        || cls.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, interfaceName)))
-                    {
-                        results.Add(new ImplementorResult(cls.Name, "class", relativeFile, cls.Line, cls.Column));
-                    }
-                    break;
-                case StructDeclaration str:
-                    if (str.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, interfaceName)))
-                    {
-                        results.Add(new ImplementorResult(str.Name, "struct", relativeFile, str.Line, str.Column));
-                    }
-                    break;
-                case RecordDeclaration rec:
-                    if (rec.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, interfaceName)))
-                    {
-                        results.Add(new ImplementorResult(rec.Name, "record", relativeFile, rec.Line, rec.Column));
-                    }
-                    break;
-            }
-        }
+        return CodeIntelligenceImplementors.Build(units, relativeFiles, interfaceName);
     }
 
     private DefinitionResult ToDefinitionResult(ProjectSnapshot snapshot, SymbolDeclaration declaration)

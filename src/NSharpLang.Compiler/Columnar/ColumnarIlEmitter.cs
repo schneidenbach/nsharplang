@@ -753,11 +753,22 @@ internal sealed class ColumnarIlEmitter
             || def == typeof(IReadOnlyList<>)
             || def == typeof(IReadOnlyCollection<>)
             || def == typeof(IReadOnlySet<>)
+            || def == typeof(IReadOnlyDictionary<,>)
             || def == typeof(IEnumerable<>);
     }
 
     private static bool IsDictionaryLikeCollectionDefinition(Type definition) =>
         definition == typeof(Dictionary<,>) || definition == typeof(SortedDictionary<,>);
+
+    // IReadOnlyDictionary<K,V> mirrors Dictionary<K,V>'s READ surface and declares no mutator at all:
+    // ContainsKey/TryGetValue/get_Item plus the inherited Count and KeyValuePair enumeration are modelled,
+    // and Add/Remove/Clear/TryAdd/set_Item stay OUT because the interface does not declare them — a write
+    // through this head keeps declining exactly as it did before the head was published.
+    private static bool IsReadOnlyDictionaryCollectionDefinition(Type definition) =>
+        definition == typeof(IReadOnlyDictionary<,>);
+
+    private static bool IsAnyDictionaryCollectionDefinition(Type definition) =>
+        IsDictionaryLikeCollectionDefinition(definition) || IsReadOnlyDictionaryCollectionDefinition(definition);
 
     private static bool IsSupportedIndexableCollectionType(Type t)
     {
@@ -765,6 +776,16 @@ internal sealed class ColumnarIlEmitter
             return false;
         var def = t.GetGenericTypeDefinition();
         return def == typeof(List<>) || IsDictionaryLikeCollectionDefinition(def);
+    }
+
+    // The indexer READ set: everything writable plus the read-only dictionary head, whose get_Item exists
+    // while its set_Item does not. The write paths keep using IsSupportedIndexableCollectionType.
+    private static bool IsSupportedReadableIndexedCollectionType(Type t)
+    {
+        if (!IsSupportedCollectionType(t))
+            return false;
+        var def = t.GetGenericTypeDefinition();
+        return def == typeof(List<>) || IsAnyDictionaryCollectionDefinition(def);
     }
 
     private static bool TryResolveCollectionCountGetter(Type t, out MethodInfo getter)
@@ -778,6 +799,9 @@ internal sealed class ColumnarIlEmitter
         var countOwner = t;
         if (def == typeof(IReadOnlyList<>) || def == typeof(IReadOnlySet<>))
             countOwner = typeof(IReadOnlyCollection<>).MakeGenericType(t.GetGenericArguments()[0]);
+        else if (IsReadOnlyDictionaryCollectionDefinition(def))
+            countOwner = typeof(IReadOnlyCollection<>).MakeGenericType(
+                typeof(KeyValuePair<,>).MakeGenericType(t.GetGenericArguments()));
         var openGetter = countOwner.GetGenericTypeDefinition().GetProperty("Count")?.GetGetMethod();
         if (openGetter == null)
             return false;
@@ -2645,7 +2669,7 @@ internal sealed class ColumnarIlEmitter
         {
             Type returnDef;
                 returnDef = declaredReturn.GetGenericTypeDefinition();
-            if (returnDef != typeof(List<>) && !IsDictionaryLikeCollectionDefinition(returnDef) && returnDef != typeof(HashSet<>)
+            if (returnDef != typeof(List<>) && !IsAnyDictionaryCollectionDefinition(returnDef) && returnDef != typeof(HashSet<>)
                 && returnDef != typeof(IEnumerable<>))
                 return false; // an unmodelled builder-bound generic return — decline, never leak it open.
             var collectionArgs = declaredReturn.GetGenericArguments();
@@ -3803,6 +3827,25 @@ internal sealed class ColumnarIlEmitter
                     && IsAdmissibleCollectionElement(dictValue))
                 {
                     type = typeof(Dictionary<,>).MakeGenericType(dictKey, dictValue);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            // The READ-ONLY dictionary interface: the same key/value admissibility as Dictionary<K,V> (an enum
+            // key is allowed, any other builder-bound key is not), closing over IReadOnlyDictionary<,> instead.
+            // "IReadOnlyDictionary" and "IReadOnlyCollection" are both 19 characters, so the StartsWith is the
+            // discriminator and the collection arm above falls through to here.
+            if (closedGenericOpen == 19 && canonical.StartsWith("IReadOnlyDictionary<", StringComparison.Ordinal))
+            {
+                var roDictArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(20, canonical.Length - 21));
+                if (roDictArgCanons.Count == 2
+                    && TryResolveType(roDictArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var roDictKey)
+                    && TryResolveType(roDictArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var roDictValue)
+                    && !ContainsNonEnumBuilderBoundType(roDictKey)
+                    && IsAdmissibleCollectionElement(roDictValue))
+                {
+                    type = typeof(IReadOnlyDictionary<,>).MakeGenericType(roDictKey, roDictValue);
                     return true;
                 }
                 type = null!;
@@ -8003,7 +8046,7 @@ internal sealed class ColumnarIlEmitter
                 if (IsSupportedCollectionType(collectionType))
                 {
                     var collectionDef = collectionType.GetGenericTypeDefinition();
-                    var listElementType = IsDictionaryLikeCollectionDefinition(collectionDef)
+                    var listElementType = IsAnyDictionaryCollectionDefinition(collectionDef)
                         ? typeof(KeyValuePair<,>).MakeGenericType(collectionType.GetGenericArguments())
                         : collectionType.GetGenericArguments()[0];
                     if (!IsSupportedType(listElementType) && !IsSupportedKeyValuePairType(listElementType))
@@ -11200,7 +11243,7 @@ internal sealed class ColumnarIlEmitter
                 // pipeline's emit does — probe-pinned exception parity). The result type comes from the
                 // CLOSED arguments: a REBOUND get_Item reports the OPEN T/TValue as ReturnType
                 // (spike-proven) — propagating that would leak an open parameter into downstream typing.
-                if (IsSupportedIndexableCollectionType(indexedType))
+                if (IsSupportedReadableIndexedCollectionType(indexedType))
                 {
                     var indexedDef = indexedType.GetGenericTypeDefinition();
                     var idxParamType = indexedDef == typeof(List<>)
@@ -15523,6 +15566,14 @@ internal sealed class ColumnarIlEmitter
                     || (sourceDef == typeof(HashSet<>) && (targetDef == typeof(IReadOnlySet<>) || targetDef == typeof(IReadOnlyCollection<>) || targetDef == typeof(IEnumerable<>)))
                     || (sourceDef == typeof(Stack<>) && targetDef == typeof(IEnumerable<>))))
                 return true;
+            // Dictionary<K,V>/SortedDictionary<K,V> -> IReadOnlyDictionary<K,V>: the two-argument mirror of the
+            // List -> IReadOnlyList row above. Both arguments must match exactly; variance is not modelled here.
+            if (targetArgs.Length == 2 && sourceArgs.Length == 2
+                && TypesEquivalent(sourceArgs[0], targetArgs[0])
+                && TypesEquivalent(sourceArgs[1], targetArgs[1])
+                && IsReadOnlyDictionaryCollectionDefinition(targetDef)
+                && IsDictionaryLikeCollectionDefinition(sourceDef))
+                return true;
         }
 
         return false;
@@ -16949,7 +17000,7 @@ internal sealed class ColumnarIlEmitter
                     type = typeof(char);
                     return stringIndexType == typeof(int);
                 }
-                if (IsSupportedIndexableCollectionType(indexedType))
+                if (IsSupportedReadableIndexedCollectionType(indexedType))
                 {
                     var indexedDef = indexedType.GetGenericTypeDefinition();
                     var idxParamType = indexedDef == typeof(List<>)
@@ -18396,7 +18447,7 @@ internal sealed class ColumnarIlEmitter
                 type = collectionArgs[0].MakeArrayType();
                 return true;
             }
-            if (IsDictionaryLikeCollectionDefinition(collectionDef) && member == "ContainsKey" && argCount == 1)
+            if (IsAnyDictionaryCollectionDefinition(collectionDef) && member == "ContainsKey" && argCount == 1)
             {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]))
                     return false;
@@ -18404,7 +18455,7 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(bool);
                 return true;
             }
-            if (IsDictionaryLikeCollectionDefinition(collectionDef) && member == "TryGetValue" && argCount == 2)
+            if (IsAnyDictionaryCollectionDefinition(collectionDef) && member == "TryGetValue" && argCount == 2)
             {
                 var valueType = collectionArgs[1];
                 if (!IsSupportedByRefElementType(valueType)

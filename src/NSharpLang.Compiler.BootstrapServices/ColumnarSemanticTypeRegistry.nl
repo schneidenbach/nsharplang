@@ -574,6 +574,9 @@ class ColumnarExactTypeResolver {
         if RuntimeDefinitionMatches(definition, "System.Collections.Generic.SortedDictionary`2", collections) {
             return "SortedDictionary"
         }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.IReadOnlyDictionary`2", core) {
+            return "IReadOnlyDictionary"
+        }
         if RuntimeDefinitionMatches(definition, "System.Action`1", core) || RuntimeDefinitionMatches(definition, "System.Action`2", core) || RuntimeDefinitionMatches(definition, "System.Action`3", core) || RuntimeDefinitionMatches(definition, "System.Action`4", core) {
             return "Action"
         }
@@ -593,7 +596,7 @@ class ColumnarExactTypeResolver {
     }
 
     static func IsModeledRuntimeGenericHeadName(name: string): bool {
-        return name == "Nullable" || name == "Span" || name == "ReadOnlySpan" || name == "ValueTuple" || name == "Task" || name == "ValueTask" || name == "Result" || name == "List" || name == "HashSet" || name == "Stack" || name == "IReadOnlyList" || name == "IReadOnlyCollection" || name == "IReadOnlySet" || name == "IEnumerable" || name == "Dictionary" || name == "SortedDictionary" || name == "Action" || name == "Func"
+        return name == "Nullable" || name == "Span" || name == "ReadOnlySpan" || name == "ValueTuple" || name == "Task" || name == "ValueTask" || name == "Result" || name == "List" || name == "HashSet" || name == "Stack" || name == "IReadOnlyList" || name == "IReadOnlyCollection" || name == "IReadOnlySet" || name == "IEnumerable" || name == "Dictionary" || name == "SortedDictionary" || name == "IReadOnlyDictionary" || name == "Action" || name == "Func"
     }
 
     func TryResolveSourceDeclarationName(canonical: string, out exactName: string, out claimed: bool): bool {

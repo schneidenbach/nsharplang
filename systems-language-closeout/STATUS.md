@@ -1,6 +1,31 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-14 (**TASK 019 SLICE 11 LANDED (no commit — mandate) — `LintVisitor` NO LONGER
+Last updated: 2026-08-14 (**TASK 019 SLICE 15 STAGE 1 LANDED (no commit — mandate) — N# OWNS WHO
+IMPLEMENTS AN INTERFACE AND EVERY DIAGNOSTIC THE IDE PUBLISHES, AND THE `IReadOnlyDictionary` CATALOG
+ROW IS WRITTEN.** Eight C# members and 191 extent-lines left `CodeIntelligenceService.cs`
+(**1,166 → 1,010**) for `CodeIntelligenceImplementors.nl` (90) and `CodeIntelligenceDiagnostics.nl`
+(181); what survives is a ten-line and a SEVEN-line mechanical driver plus ONE annotated wall. The
+diagnostics cut is **six members, not the brief's five** — taking `GetDiagnostics` itself designed
+out its escape to the walled `GetSourceText` (finding 90.2: slice 14 designed out a parameter, this
+designed out a CALL). **The catalog row is FIVE rows, not one**: the sweep named `ColumnarIlEmitter.cs`
+plus FOUR `.nl` owners (finding 90.4), the mutators are deliberately excluded, and the `.nl` halves
+cannot spell `typeof(IReadOnlyDictionary<…>)` at all because the pinned toolset is the one that does
+not carry the row (finding 90.3) — which is the two-stage boundary made concrete. Proof: a 203-row
+two-sided differential with **192 behavioural rows byte-identical** (md5 `7927fde5…`, 0 faults both
+sides), a **28-row reflection harness over the emitter's private catalog predicates, all PASS with
+ten controls and four negatives**, five native contracts through the pinned pipeline, the standing
+40,386-line LSP oracle at 0 diffs — **whose counters exposed that a clean corpus can only ask
+`diagnostics` TWICE (finding 90.1), so an eleventh 726-line family oracle over a project with real
+`NL301`/`NL316` errors was built and is also 0 diffs** — corpus IL **63/63 byte-identical with the
+control sweep FIRST**, transcripts 0 diffs at slice 14's md5, unit suite **3,192**, contracts
+**4,768 → 4,788**, audit **18/18** with the pre-repin counter at **17/18**, five-run determinism pin
+byte-identical. Ratchet: `CodeIntelligenceService.cs` DOWN, `ColumnarIlEmitter.cs` **UP 51 lines and
+still 201 below its epoch ceiling** — the price of the row, exactly as slice 48 paid it for
+`char.IsLower`. **STAGE 2 IS BLOCKED ON THE COORDINATOR: commit, republish the toolset, then
+`ToDiagnosticResult`, `GetSourceText`, the reference-result builders and the type-info resolvers all
+unblock at once.** Its full record is in the Cursor block below)
+
+Last updated (prior): 2026-08-14 (**TASK 019 SLICE 11 LANDED (no commit — mandate) — `LintVisitor` NO LONGER
 WALKS A STATEMENT, AN EXPRESSION OR A FUNCTION; IT WALKS DECLARATIONS AND NOTHING ELSE.** The
 extractor was re-validated on **SIX** checkpoints before it was trusted (**30 / 623**, **27 / 476**,
 **21 / 414**, **43 / 292**, **58 / 910** and **21 / 545** — slice 10's own pre- and post-cut rows to
@@ -2749,9 +2774,22 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   `tasks/019-compiler-contained-tooling.md` names; six
   were live and one (`NullabilityMetadata.cs`) was already `state: removed` in the ratchet, so the
   arc opened at **7,739 lines / 6,892 non-blank / 341 member extents summing 7,257** by the validated
-  extractor. **After slice 14 it stands at 4,294 / 3,846 / 177 / 4,005 (−44.5 % on lines)** —
-  `Formatter` 2,302, `CodeIntelligenceService` 1,166, `DocQuery` 446 (WALLED),
+  extractor. **After slice 15 STAGE 1 it stands at 4,138 / 3,711 / 171 / 3,852 (−46.5 % on lines)** —
+  `Formatter` 2,302, `CodeIntelligenceService` 1,010, `DocQuery` 446 (WALLED),
   `OutputFormatter` 271 (CLOSED), `CompletionEngine` 109 (CLOSED), **`Linter` 0 (DELETED)**.
+  **SLICE 15 STAGE 1 TOOK THE IMPLEMENTORS TERRITORY AND THE DIAGNOSTICS FAMILY (`1,166 → 1,010`,
+  −156), AND PUBLISHED THE `IReadOnlyDictionary<K, V>` CATALOG ROW THAT SLICE 13's WALL NEEDS.**
+  Eight C# members left for two N# owners; the ONE that stayed is
+  `ToDiagnosticResult(CompilerError, string, IReadOnlyDictionary<string, string>?)`, held by exactly
+  the wall this stage publishes the row for. **THE STAGE IS PAUSED FOR THE COORDINATOR: the catalog
+  row is in the tree but NOT in the pinned toolset, so nothing consumes it yet.** The proof is a
+  203-row two-sided differential whose 192 behavioural rows are byte-identical (md5
+  `7927fde541b614d0bba6bf03b0a99bf3` on BOTH sides, 0 faults), a 28-row catalog harness driving the
+  emitter's private predicates by reflection (every row paired with a control and a negative), a
+  726-line family live oracle over a project with REAL `NL301`/`NL316` errors (0 diffs), the standing
+  40,386-line LSP oracle (0 diffs), and corpus IL **63 / 63 byte-identical with the control sweep
+  first**. **WALL STATUS: ONE, NAMED AND PAID FOR — the row is written, the repin is the
+  coordinator's.**
   **SLICE 14 TOOK `CodeIntelligenceService.cs`'s SECOND AND THIRD FAMILIES — THE DECLARATION
   PROJECTORS AND THE CALL-SITE COLLECTOR — AND TOOK `GetCallGraph`'s POLICY WITH THEM (`1,618 →
   1,166`, −452).** Seven names left C# for two N# owners with **NO WALL AND NO SURVIVOR**: the
@@ -2812,9 +2850,9 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: one terminal slice — `CodeIntelligenceService.cs`'s SECOND AND THIRD FAMILIES,
-  THE DECLARATION PROJECTORS AND THE CALL-SITE COLLECTOR: 7 names + `GetCallGraph`'s policy moved,
-  ZERO walls, gate GREEN with VS Code inside
+- Current iteration: one STAGE-1 slice — the implementors territory, the diagnostics family, and the
+  `IReadOnlyDictionary` catalog surface: 8 names moved, ONE walled member left for stage 2, the
+  catalog row written and contract-proved, gate GREEN with VS Code inside
 - Slice-43 RECONCILIATION onto the moved tip (coordinator, before commit): the slice was cut at
   `e929453e0`; four concurrent chip commits then moved the tip (`2d2ddb39d` harness timeouts,
   `0a66db6ec` + `1e426e07d` the BootstrapServices format sweep + kernel `owed->` fix + the format
@@ -2833,7 +2871,355 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `04bc0d021`):
+- Active sub-slice (019 arc, THIS TURN, STAGE 1 LANDED — TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `19c78c7d2`):
+  **019 SLICE 15 STAGE 1 — THE IMPLEMENTORS TERRITORY, THE DIAGNOSTICS FAMILY, AND THE
+  `IReadOnlyDictionary` CATALOG SURFACE. 8 MEMBERS / 191 EXTENT-LINES MOVED, ONE MEMBER WALLED BY
+  EXACTLY THE ROW THIS STAGE PUBLISHES.**
+
+  **TARGET (recorded before any production edit, at tip `19c78c7d2`).**
+  `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` at
+  **1,166 / 1,014 / 57 extents(63 rows) / 1,068** — the ratchet row exactly, reproduced by the
+  extractor; the service itself measures **47 members / 51 extents / 1,027 lines** and
+  `nl88-edges.py` reports `METHOD-GROUP-ONLY EDGES = []` again.
+
+  **THE TWO FAMILIES, MEASURED BEFORE THEY WERE NAMED.**
+  **(1) THE IMPLEMENTORS TERRITORY.** `GetImplementors` :510 (**16**) + `CollectImplementors` :527
+  (**34**) measure **2 members / 50 lines, ESCAPING TO NOTHING *AND* ENTERED FROM NOTHING** — the
+  inherited brief's numbers to the digit, and slice 14's call-graph shape at a quarter of the size.
+  **(2) THE DIAGNOSTICS FAMILY.** The inherited 5-member set (`ToDiagnosticResult` :210+:246
+  (**35 + 23**), `GetLintDiagnostics` :270 (**34**), `GetCompilerShadowingErrorFiles` :187 (**13**),
+  `SuppressLintShadowingDiagnostics` :201 (**8**), `DeduplicateDiagnostics` :305 (**4**)) measures
+  **117 lines, ESCAPES TO NOTHING, entered from `GetDiagnostics` alone** — again the brief exactly.
+  **ADDING `GetDiagnostics` :127 (59) GIVES 176 LINES THAT ESCAPE TO `GetSourceText`** — the ONE
+  walled member slice 13 left behind. **That escape was DESIGNED OUT, not crossed**: `GetDiagnostics`
+  already materialises `snapshot.SourceTexts` into a CONCRETE `Dictionary`, so the N# owner carries
+  its own full-path source-text door over that concrete type and the walled member is never called.
+  **The completer cut is therefore 6 members and NOT 5**, and the set escapes to nothing and is
+  entered from nothing.
+
+  **THE `AllErrors` READ RESOLVES HONESTLY, WHICH IS WHAT THE BRIEF ASKED TO MEASURE.**
+  `ProjectSnapshot.AllErrors` is an `IReadOnlyList<CompilerError>` — `IReadOnlyList` has been in the
+  catalog since before this arc — so it crosses as a `List<CompilerError>` with no question asked.
+  The family's other four snapshot reads (`ProjectRoot`, `SourceFiles`, `CompilationUnits`,
+  `SourceTexts`) decompose the same way; the two dictionaries are rebuilt by the driver with the
+  SAME `OrdinalIgnoreCase` comparer `MultiFileCompiler` builds them with (`:25` and `:32`), and both
+  of the estate's other `ProjectSnapshot` construction sites (`tests/CodeIntelligenceTests.cs` :1280,
+  `tests/CompletionEngineTests.cs` :46) spell that comparer too, so the materialisation is
+  behaviour-preserving by census rather than by hope.
+
+  **THE ONE MEMBER THAT DID NOT MOVE, AND WHY IT IS THE POINT OF THE STAGE.**
+  `ToDiagnosticResult(CompilerError, string, IReadOnlyDictionary<string, string>?)` — 35 lines, ONE
+  external caller (`src/NSharpLang.Cli/Commands/CheckCommand.cs` :141, which passes the 2-arg form) —
+  carries the walled type IN ITS SIGNATURE. Two routes were considered and both rejected as
+  dishonest: passing a `hasSourceTexts: bool` beside a looked-up `string?` (an invented flag stage 2
+  would immediately delete, and the ONLY way to preserve the `sourceTexts == null` arm exactly, since
+  `SourceLine(null, line)` returns `null` while a null dictionary leaves a BLANK snippet untouched),
+  and dropping the parameter (it is unreachable in the estate, but deleting a reachable-by-nobody arm
+  is not a reduction). **It stays, annotated, and moves in stage 2 with a real
+  `IReadOnlyDictionary<string, string>?` parameter and no driver at all.**
+
+  **THE CATALOG SURFACE — THE SLICE-48 SHAPE, AND THE SWEEP CAME BACK WITH FOUR OWNERS, NOT ONE.**
+  The reachability evidence was re-taken BY EXECUTION FIRST: an isolated two-project probe
+  (`/private/tmp/nl90iso`) against the PINNED toolset declines a static N# parameter of type
+  `IReadOnlyDictionary<string,string>` at **`emit.declaration.method-param`** — *"static method
+  parameter type 'IReadOnlyDictionary<string,string>' could not be resolved"* — and the ANALYSER
+  passes it cleanly, so the wall is emit-only. A repo-wide sweep for the published siblings
+  (`IReadOnlySet`, `IReadOnlyList`, `IReadOnlyCollection`) names **FOUR** owners, not slice 48's one:
+  `ColumnarIlEmitter.cs` (the C# catalog that answers the method-param question),
+  `ColumnarTypeOfPlanner.nl`, `ColumnarSemanticTypeRegistry.nl` and
+  `ColumnarRuntimeInstanceMemberResolver.nl`, plus `ColumnarReferenceConversionFacts.nl` for the
+  upcast. **All five carry the row, and the row MIRRORS `Dictionary` EXACTLY**: the same key
+  admissibility (`ContainsNonEnumBuilderBoundType`, so an enum key is allowed — only
+  `SortedDictionary` keeps the stricter rule its comparer needs) and the same value admissibility.
+  **THE MUTATORS ARE DELIBERATELY OUT.** `IsDictionaryLikeCollectionDefinition` stays mutable-only,
+  so `Add`/`Remove`/`Clear`/`TryAdd`/`set_Item` keep declining through the read-only head; a new
+  `IsAnyDictionaryCollectionDefinition` carries `ContainsKey`, `TryGetValue` and the `foreach`
+  element type, and a new `IsSupportedReadableIndexedCollectionType` carries the indexer READ while
+  the two WRITE sites keep the old predicate. `Count` needed its own row because the interface does
+  not declare it — the owner is `IReadOnlyCollection<KeyValuePair<K,V>>`.
+  **THE `.nl` MIRRORS CANNOT SPELL `typeof(IReadOnlyDictionary<…>)` AND THAT IS THE TWO-STAGE
+  BOUNDARY MADE CONCRETE**: those kernels are compiled by the PINNED toolset, the one that does not
+  yet carry the row, so the first attempt declined the whole file at `emit.if.condition`. The route
+  is name-based — `Type.GetType("System.Collections.Generic.IReadOnlyDictionary`2")` for the handle
+  and a `FullName` comparison for the predicates, both already-shipped idioms.
+
+  **THE CATALOG ROWS ARE PROVED BY EXECUTION, TWICE OVER.**
+  (a) **A 28-ROW REFLECTION HARNESS** (`/private/tmp/nl90cat`) drives `ColumnarIlEmitter`'s PRIVATE
+  static predicates over the locally built compiler: `IsSupportedCollectionType`, `IsSupportedType`,
+  `IsSupportedParameterType` (and its by-ref form), the three definition predicates, both indexable
+  predicates, the count getter and its OWNER, and the reference-conversion predicate. **ALL 28 PASS**,
+  and TEN of them are CONTROLS over `Dictionary`/`SortedDictionary`/`List`/`IReadOnlyList` whose
+  answers must not have moved, with FOUR negatives (`IReadOnlyDictionary → Dictionary`, a mismatched
+  key, a mismatched value, `List → IReadOnlyDictionary`) that must stay refused.
+  (b) **FIVE NATIVE CONTRACTS** (`ColumnarReadOnlyDictionaryCatalog.tests.nl`, 125 lines) ask the
+  four N# owners the same questions THROUGH THE PINNED PIPELINE — resolution, arity, element rules,
+  head naming, both catalogs' collection predicates and the upcast — each paired with a control and a
+  negative. **The C# arm's end-to-end emit proof is stage 2's, by construction: it cannot exist until
+  the toolset carries the row.**
+
+  ---
+
+  **LANDED (no commit — mandate). `CodeIntelligenceService.cs` IS `1,166 → 1,010` (−156 lines,
+  −6 extents, −153 extent-lines).** `git diff` on the service is **+25 / −181**; the emitter is
+  **+57 / −6** and the four `.nl` catalog owners **+33 / −6**. Five new files
+  (`CodeIntelligenceImplementors.nl` **90**, `CodeIntelligenceDiagnostics.nl` **181**, and three
+  contract files **183 + 234 + 125**) are the only additions — **271 production N# lines and 542
+  contract lines**. The arc stands at **4,138 / 3,711 / 171 / 3,852**, a **−46.5 %** cut over fifteen
+  slices.
+
+  **WHAT SURVIVES IN C# IS TWO MECHANICAL DRIVERS AND ONE ANNOTATED WALL.** `GetImplementors` is a
+  ten-line `ProjectSnapshot` → two-arrays driver, the exact shape slice 14 left for `GetCallGraph`;
+  `GetDiagnostics` is a SEVEN-LINE expression-bodied driver that materialises five snapshot reads and
+  calls `CodeIntelligenceDiagnostics.Build`. Its whole 59-line body — the error loop, the two-level
+  severity map, the snippet fallback, the suggestion fallback and the `DiagnosticResult` construction
+  — is N#. **`SuppressLintShadowingDiagnostics` and `DeduplicateDiagnostics` DISSOLVED**: both were
+  one-line pass-throughs to kernels that were ALREADY N#, and the N# owner calls those kernels
+  directly.
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL OF 203 ROWS PER SIDE, 0 FAULTS ON BOTH SIDES, AND THE
+  BEHAVIOURAL 192 ARE BYTE-IDENTICAL: md5 `7927fde541b614d0bba6bf03b0a99bf3` ON BOTH.** One `Grid.cs`
+  compiled twice (`base/Base.csproj` against a pristine `19c78c7d2` worktree, `work/Work.csproj`
+  against the repo's); the base side reaches `CollectImplementors`, `GetCompilerShadowingErrorFiles`,
+  `GetLintDiagnostics` and the deleted `ToDiagnosticResult(Diagnostic, …)` **THROUGH REFLECTION**, and
+  the work side calls the N# owners directly. **The 11-row structural section carries the whole
+  difference and is the terminality proof**: the six deleted C# extents read **PRESENT(1) → 0**, the
+  two drivers and the walled overload read **1 → 1**, and the two N# owners read **ABSENT → PRESENT
+  (3 and 8 public statics)**.
+  **The differential is three differentials in one.** Section A asks the implementor walk ARM BY ARM
+  over **14 synthesized units × 5 interface queries** covering every one of the three matching forms
+  and every non-matching one (interface, enum, free function, wrong case, generic arity, base-vs-list),
+  and the lint projection over **72 combinations** of three severities × four lengths (including a
+  NEGATIVE length) × three source shapes × two suggestion states. Section B drives both families END
+  TO END through the PUBLIC API against **two real projects** — one that `nlc check` reports
+  `ok=true, 0 diagnostics`, and one carrying a real `NL301`, a real `NL316` shadowed declaration and
+  four lint findings — across every file filter plus a filter that matches nothing.
+
+  **SEVENTEEN THINGS THAT WERE UNREACHABLE, PROSE OR VACUOUS ARE NOW CONTRACTS.** Contracts
+  **4,768 → 4,788 (+20)**, green on their first complete run and again on the byte-final tree.
+  (a) **A CLASS MATCHES ON ITS BASE TYPE** — the parser cannot tell an interface from a base class in
+  the first colon-separated slot, so `class C: IThing` IS an implementor while `class C: Base` is not;
+  (b) **a struct and a record are never asked about a base type at all**;
+  (c) **the kind is the DECLARATION FORM, not the runtime shape** — a record STRUCT reports `record`;
+  (d) **an interface that EXTENDS the named interface is NOT an implementor**, and neither is an enum
+  or a free function;
+  (e) **the walk is TOP-LEVEL ONLY** — a nested implementor is invisible;
+  (f) **the echoed `Interface` is the QUERY string**, even when nothing matched;
+  (g) **the interface match is ORDINAL** and a generic reference matches on its BARE name;
+  (h) **compiler errors come first and lint second**, and nothing re-sorts the list;
+  (i) **the `--file` filter is applied TWICE WITH DIFFERENT OPERANDS** — the error's own file string,
+  and the source file's FULL path;
+  (j) **an error with no file is reported against the literal `"unknown"` — which is then RELATIVISED
+  like any other path**, so the reported file is a computed route from the project root and never the
+  bare word;
+  (k) **the project-error arm keeps `DocsUrl` NULL** when the error carries none, while the lint arm
+  always has one and `nlc check`'s own entry falls back to the catalog — three arms, three answers;
+  (l) **a lint row's length is widened to 1** and its explanation, hint and type pair are ALWAYS null;
+  (m) **the two severity maps are not the same map** — only the lint one can say `info`;
+  (n) **the shadowing suppression list is built from EVERY compiler error, not the filtered ones**;
+  (o) **the snippet fallback needs BOTH a blank snippet and a positive line**;
+  (p) **the disk read is ordered BEFORE the compilation-unit lookup** — a listed-but-unparsed file
+  still has its text read and its `.editorconfig` resolved before the walk discovers there is no unit;
+  (q) **the linter's configuration is per FILE, not per project**.
+
+  **THE LOAD-BEARING LIVE-TREE `nlc check` REPORTS THE INHERITED BASELINE TO THE DIGIT.** The check
+  reports **`checkedFiles=383, count=272`** with
+  **`NL202:91 NL402:89 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL412:3 NL303:2 NL002:1`** — every
+  code exactly slice 14's closing number, over two more files — and **ZERO diagnostics naming any of
+  the five new files**. It took two rounds to get there and both are on the standing list: `file` is a
+  RESERVED WORD (finding 89.5, met again in both new signatures), and **narrowing does not survive
+  `out`** (finding 89.6) — the route taken here is `ContainsKey` + the indexer, which is one lookup
+  more and zero nullability arguments. The format gate moved bytes in one file, so the check, the
+  contracts and the catalog harness were ALL re-run on the byte-final tree and reproduce exactly; the
+  gate then reports "All files are properly formatted".
+
+  **ELEVEN LIVE ORACLES, ALL ZERO — AND THE TEN STANDING ONES REPRODUCE SLICE 14's md5s TO THE
+  DIGIT**: corpus **`86a4928f87495854f48cbd5df7d5c571`** (the TWENTY-THIRD slice running
+  byte-identical), self-host **`e659c04401d1a13682f9c8e91a6b8a6a`**, fx75 `6c12cc5a…`, fx74
+  `309f7902…`, fx73 `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA `b1045814…`, supplementary
+  `228dfc38…`, and the LIVE TREE **0 diffs, md5 `6e96929257f500a22fa2d94d1ddbf39a` on both sides**,
+  922 lines / 272 diagnostics / 10 codes. The inherited `NO-RESULTS` counts (**7** corpus, **6**
+  supplementary) reproduce exactly. The LSP-question oracle reports **40,386 lines per side, 0 DIFFS,
+  md5 `aac71ccae93301087254caa44b762612`** — slice 14's value — with the counters READ, not assumed:
+  **0 usage errors, 0 unsupported commands**, 1,289 hover `ok:true`, **6 `implementors` answers
+  carrying 35 `typeName` rows** (this slice's own family), 12 documentation, 1,277 kind, 29
+  signatures, 6 modifier chips, 28 symbols, 10 outline, 88 call-graph truncation rows.
+  **AND THE COUNTERS EXPOSED A REAL COVERAGE HOLE, WHICH IS THE ELEVENTH ORACLE (finding 90.1).**
+  The standing LSP corpus PARSES CLEAN, so it can answer only **TWO** `diagnostics` questions — the
+  family this slice moved was almost untested by the oracle that is supposed to test it. A
+  supplementary FAMILY oracle was therefore built over the two differential corpora, one of which
+  carries real errors: **726 lines per side, 0 DIFFS, md5 `f7380149e9e2122211573e2faa6bfae2`**, with
+  **6 `diagnostics` answers and 12 `implementors` answers, 0 usage errors**, carrying **NL301 × 12,
+  NL316 × 6, NL010 × 24, NL001 × 12** across the JSON and `--text` renderings of both projects.
+
+  **PARSE-ERROR CENSUS.** `PARSE_FAIL = 0` and `PARSE_ERRORS = 0` on **every one of the ten**
+  standing differentials; the clean differential corpus reports `ok=true` with **0 diagnostics** from
+  `nlc check`, and the error corpus's five findings are all SEMANTIC (`NL301`, `NL316`, `NL010` × 2,
+  `NL001`) with **zero parse errors** — which is the point of having run the census, since the clean
+  corpus cost two rounds (a nested type declines emission; a fieldless struct declines) before it was
+  clean.
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** and proved the harness stable
+  (`CONTROL vs A` **118 / 118 SAME**, both the base CLI over fresh `19c78c7d2` archives); `A vs B`
+  then gives **63 / 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files counted and
+  proved **55-of-55 copied `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps report
+  `TARGETS=73 BUILT=55 ASSEMBLIES=118`. **This is the load-bearing evidence that FIVE catalog files
+  changed and NOTHING existing moved**: every new row is guarded by a head that previously ALWAYS
+  declined. Unsorted build transcripts **0 diffs across all three sweeps** — **1,365 lines / md5
+  `7b545e84e8759d7469b7a88731e27402`**, slice 14's value. Unit suite **3,192 / 3,192**; contracts
+  **4,788 / 4,788**; ownership audit **18 / 18**. **The five-run ordering pin is byte-identical over
+  398 targets, 391 with results, 1,255 diagnostic rows over 48 codes**, `RUN1_VS_RUN{2,3,4,5} DIFFS=0`,
+  md5 **`db729409fb7e7100a2c5bdb6401e6a78`** — the recorded value, with **NL010: 220**, **NL012: 55**,
+  **NL001: 38**, **NL011: 17**, **NL004: 2** and **NL002: 1** in its census, every one slice 14's
+  number. `nlc lint` was run on both CLIs five times each: **4,025 rows, 0 diffs, md5
+  `682a2a802cf72a536a864340978d77dc` across all ten transcripts, 240,088 bytes**, 258 `rc=0` / 86
+  `rc=1`, both clocks normalised (**138** bracketed, **34** `Linted in …`) — every number slice 14's.
+
+  **THE TERMINALITY GREP IS CLEAN.** `CollectImplementors`, `GetCompilerShadowingErrorFiles`,
+  `SuppressLintShadowingDiagnostics`, `GetLintDiagnostics` and `DeduplicateDiagnostics` are gone from
+  **every** `.cs` file in `src` and `tests` — zero hits, production and test alike — and the estate
+  holds exactly **two** call sites into the new owners, both in `CodeIntelligenceService.cs`
+  (:138 `Build`, :403 `Build`).
+
+  **RATCHET — TWO ROWS, ONE DOWN AND ONE UP, AND THE UP IS THE PRICE OF THE CATALOG ROW.** Repinned AS
+  THE LAST EDIT to any production or ratcheted file, after every production edit and after the whole
+  differential / oracle / IL / determinism / lint set had been run:
+  `CodeIntelligenceService.cs` **1,166 / 1,014 → 1,010 / 879**, fingerprint
+  `e1cc9e57d914611a → ed08ea087c0611bd`; **`ColumnarIlEmitter.cs` 21,471 / 20,412 → 21,522 / 20,460**,
+  fingerprint `609051db487c7060 → 3ba511caa7d06eac` — **+51 lines, and its epoch ceiling is 21,723, so
+  the ratchet ceiling is NOT breached** (slice 48 paid the same price for `char.IsLower`: 21,470 →
+  21,471). Head `875e951dd0e1824c → 7dcf6615fc7c995a`, mirrored into `OwnershipAudit.nl` (a one-line
+  diff), and the stored head was REPRODUCED by the independent FNV-1a walk before the write.
+  **The repin is non-vacuous by execution, and the audit itself supplies the counter**: run against
+  the pre-repin manifest it reports **17 / 18 with 1 FAILED**
+  (`RepositoryNonNSharpOwnershipMatchesTheE0GrowthBaseline`) and **18 / 18** against the repinned one,
+  run in that order. Manifest **391** lines, no BOM; it still holds **0** `.nl` rows, which is what
+  makes a slice adding 813 N# lines a downward move on every ratcheted row but the emitter's.
+
+  **THE FULL VS CODE-ENABLED GATE WAS RUN ON THE BYTE-FINAL REPINNED TREE FROM AN ISOLATED
+  `/private/tmp/nl90gate` WORKTREE AND PASSED: `ALL TESTS PASSED` in 26m 34s, 108 GREEN STEPS AND
+  ZERO FAILURES, WITH THE VS CODE INTEGRATION TESTS INSIDE** (Step 3b, 3m 05s — extension,
+  diagnostics, hover and completion), including the unit suite **3,192 / 3,192**, the whole native
+  `.tests.nl` estate with contracts **4,788 / 4,788** and the ownership audit **18 / 18** inside it,
+  the format contract gate, every example and template, and the IL verification gate with no new
+  errors against baseline — fresh under `--commit` with
+  `NSHARP_TEST_STEP_CACHE_OFF=1`. **`VSCODE_TESTS=skip` was not an option and the reason is the
+  product, not form: THIS IS THE FILE THE LSP CONSUMES**, and this slice re-pointed every diagnostic
+  the editor publishes. **No LSP source changed**, so a VSIX reload was not required — a checked
+  conclusion (`git status` names exactly eight modified source files — plus this ledger — and five
+  new `.nl` files, none under
+  `src/NSharpLang.LanguageServer` or `editors/vscode`), not an assumption. Per standing precedent
+  computer-use visual verification was NOT requested and the gate's VS Code evidence stands in.
+  **The isolated worktree was a CHECKED decision**: the repo root still carries six nested worktrees
+  under `.claude/worktrees/`, two with a duplicate `benchmarks/NSharpLang.Benchmarks.csproj`, and the
+  gate's own isolation copy does not exclude `.claude/` — the recorded condition that breaks the BDN
+  Systems step. **All 13 of the gate tree's files were verified md5-identical to the working tree's
+  before the run (13 / 13).**
+  **AND THE STAGE BOUNDARY WAS VERIFIED TO STILL HOLD AFTER THE GATE, BY EXECUTION.** The gate's
+  Step 4 packs and installs an SDK, so the obvious worry is that it silently republished the toolset
+  and dissolved the boundary. It did not: `~/.nuget/local-feed` still carries the 2026-08-06 packages
+  (the gate packs into its own isolated run directory), and re-running `/private/tmp/nl90iso/q1`
+  against the pinned feed AFTER the gate reproduces the decline **verbatim** —
+  `emit.declaration.method-param: static method parameter type 'IReadOnlyDictionary<string,string>'
+  could not be resolved`. **The row is in the tree and NOT in the toolset; the republish is genuinely
+  the coordinator's and stage 2 genuinely cannot start without it.**
+
+  **FOUR FINDINGS.**
+  **(90.1) A 0-DIFF LIVE ORACLE CAN BE 0-DIFF BECAUSE ITS CORPUS CANNOT ASK THE QUESTION.** The
+  standing LSP corpus parses clean by design — that is what makes it a good hover/definition oracle —
+  and a clean project has almost no diagnostics, so the oracle answered `diagnostics` **TWICE** while
+  this slice moved the entire diagnostics family. Finding 89.1 said check that what answered is what
+  you ASKED; this is its corpus-shaped form: **check that the corpus can PRODUCE the answer.** The fix
+  is a second corpus that is deliberately WRONG, and it is now a standing artefact.
+  **(90.2) THE WAY PAST A CATALOG WALL IS STILL TO MOVE THE BOUNDARY — BUT THE BOUNDARY THAT MOVED
+  HERE WAS THE CALLER'S, NOT THE CALLEE'S.** `GetDiagnostics` escaped to the walled `GetSourceText`;
+  taking `GetDiagnostics` itself let the N# owner carry its own door over the CONCRETE dictionary the
+  caller had already materialised, and the walled member was simply never called. Slice 14 designed
+  out a parameter; this slice designed out a CALL.
+  **(90.3) A TOOLSET STAGE CANNOT SPELL THE TYPE IT IS PUBLISHING.** The `.nl` halves of the catalog
+  are compiled by the pinned toolset, so `typeof(IReadOnlyDictionary<int, int>)` declines the whole
+  file — the row cannot be written in the language it is being written for. `Type.GetType` by name is
+  the only spelling available, and it is why a catalog slice is TWO stages and not one careless one.
+  **(90.4) A CATALOG ROW IS FIVE ROWS UNTIL THE SWEEP SAYS OTHERWISE.** Slice 48's `char.IsLower`
+  sweep came back with ONE owner and recorded that as the finding. This one came back with FIVE — one
+  C# and four N# — and a row added to only the first would have left the analyser and the planner
+  disagreeing with the emitter about the same type. **Run the sweep; never assume the last one's
+  answer.**
+
+  **THE ARC'S SURFACE AFTER THIS STAGE, RE-MEASURED BY THE VALIDATED EXTRACTOR.** Five live files —
+  **4,138 lines / 3,711 non-blank / 171 extents summing 3,852**, down from **4,294 / 3,846 / 177 /
+  4,005** at slice 14's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257**, a
+  **−46.5 %** cut on lines over fifteen slices:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,302 | 2,127 | 49 | 2,248 |
+  | `CodeIntelligenceService` | 1,010 | 879 | 57 | 915 |
+  | `DocQuery` (WALLED, not closed) | 446 | 382 | 23 | 402 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+  | **`Linter` (DELETED)** | **0** | **0** | **0** | **0** |
+
+  **NEXT — SLICE 15 STAGE 2, AFTER THE COORDINATOR COMMITS AND REPUBLISHES THE TOOLSET.** The stage-2
+  set is three families and the walled member, all of them unblocked by the SAME row:
+  (1) **`ToDiagnosticResult(CompilerError, …)`** — 35 lines, one external caller, moves with a real
+  `IReadOnlyDictionary<string, string>?` parameter and NO driver.
+  (2) **`GetSourceText`** — the member slice 13 left behind. It moves the moment the row ships, and
+  with it the SEVEN remaining call sites inside the service collapse onto one N# door. **Note the
+  duplication this stage deliberately created**: `CodeIntelligenceDiagnostics.SourceTextIn` is the
+  same eight lines over the CONCRETE dictionary, and stage 2 must WIDEN it and delete the C# twin
+  rather than leave two doors.
+  (3) **THE REFERENCE-RESULT BUILDERS** — `BuildReferenceResultsFromDeclaration`,
+  `DeduplicateAndSortReferenceResults`, `ToDefinitionResult`: 3 members / 58 lines, entered from the
+  three public find-* answers, escaping ONLY to `GetSourceText`.
+  (4) **THE TYPE-INFO RESOLVERS** — 13 members / 285 lines, escaping to nothing, entered from 4
+  (`GetTypeAtPosition`, `ResolveTypeInfoAtPosition`, `ResolveTypeUseAtPosition`,
+  `ResolveDeclaredNameTypeInDeclaration`) — the file's largest remaining cut and the one holding both
+  small SCCs. Every one takes a `ProjectSnapshot`; the reads decompose exactly as this stage's did.
+  **STAGE 2 MUST RE-PROBE THE ROW BY EXECUTION FIRST**: `/private/tmp/nl90iso` declines today, and the
+  same probe against the REPUBLISHED toolset must ACCEPT before any production `.nl` is written —
+  and it must also prove `TryGetValue` on an `IReadOnlyDictionary` receiver, which is a MEMBER
+  question the parameter row does not by itself answer.
+  **`ProjectSnapshot` itself remains the file's terminal blocker** — a C# type at (now) :987, still
+  touched by 82 references across 14 files including four LSP handlers.
+  **`Formatter.cs` (2,302 / 2,127 / 49 / 2,248) IS STILL UNTOUCHED AND IS NOW THE ARC'S LARGEST FILE
+  BY A FACTOR OF 2.3.** Its shape was measured at slice 12 and stands: 43 members with **ONE 14-member
+  1,282-line SCC** and a second **6-member 282-line SCC**. **It is the `Linter.cs` shape at four times
+  the size**, and the slices 10 → 11 sequence applies — **a state-carrier slice on the `Formatter`
+  object must be measured BEFORE any arm is attempted**. **The opening measurement it needs is the
+  FIELD CENSUS** (`nl85-fields.py` on the `Formatter` class, exactly as slice 10 ran it on
+  `LintVisitor`): how many of the object's fields the 14-member SCC reads, and whether they carry
+  position state, an output builder, or configuration. Until that number exists the SCC cannot be
+  priced.
+  **019's COMPLETION SHAPE IS UNCHANGED.** Two files are reviewed zero-policy hosts (`CompletionEngine`
+  109, `OutputFormatter` 271); `DocQuery.cs` is a **walled** host at 446 whose `UNEXPLAINED = 0` behind
+  two named catalog gaps; **`Linter.cs` is DELETED**; `Formatter` (2,302) and `CodeIntelligenceService`
+  (1,010) are the two still to reduce. **The honest close of 019 is: those two reduced, and `DocQuery`
+  either finished by a `System.Xml.Linq` catalog repin or accepted at 402 walled lines** — a toolset
+  decision, not a slice decision, and this slice's two-stage shape is now the precedent for making it.
+
+  **ARTEFACTS LEFT ON DISK FOR 019 SLICE 15 STAGE 2.** **THE GATE WORKTREE IS GONE**
+  (`git worktree remove`), and **`/private/tmp/nl90base` IS DELIBERATELY KEPT** — stage 2 needs the
+  same pristine `19c78c7d2` base for its differential, and rebuilding it costs ~7 minutes cold. The
+  differential harness is `/private/tmp/nl90grid` (ONE `Grid.cs`, two csproj, a `WORKSIDE` define,
+  and **TWO corpora**: `corpus` which `nlc check` reports clean, and **`corpuserr` which carries a
+  real `NL301`, a real `NL316` and four lint findings — the corpus finding 90.1 says the LSP oracle
+  was missing**). **The N# emit probe is `/private/tmp/nl90iso`** — `q1` the N# library, `q2` its
+  concrete-`Dictionary` CONTROL (run the control: a standalone `nlc build` outside MSBuild declines
+  BOTH, so it is NOT a valid oracle — only the SDK path is). The catalog harness is
+  `/private/tmp/nl90cat`, a C# console with a `ProjectReference` to `Compiler.csproj` (a raw
+  `<Reference>` fails: the compiler needs `YamlDotNet` and `MetadataLoadContext` beside it, and
+  `asm.GetTypes()` throws — use `GetType(fullName)`). The family oracle is
+  `/private/tmp/nl90-familyoracle.sh`. IL trees and captures: `/private/tmp/nl90il{Ctrl,A,B}Tree`
+  with outputs under `/private/tmp/nl90out{Ctrl,A,B}`.
+  Harnesses in the scratchpad: `nl62_members.py` (the extractor), `nl88-deadsweep.py`,
+  `nl81/nl81-census.py`, `nl85-tarjan.py`, `nl85-fields.py` (**the one `Formatter` needs next**),
+  **`nl88-edges.py` — the hardened closure tool; use this, NOT `nl86-edges.py`** — and the repointed
+  `nl90-oracle.sh`, `nl90-run-oracles.sh`, `nl90-ilsweep.sh` (**its `git archive` commit must be
+  repointed each slice**), `nl90-run-il.sh`, `nl89-ilcompare.py` (**give it the OUT dir, not the
+  `asm` dir**), `nl89-transnorm.py` (**three arguments: raw, tree, out**), `nl90-determinism.sh`,
+  `nl90-lspquery.sh`, `nl90-lintoracle.sh` + `nl89-lintnorm.py` + `/private/tmp/nl89-lint-targets.txt`
+  (172 targets), and `nl89-repin.py`. **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `19c78c7d2`):
   **019 SLICE 14 — `CodeIntelligenceService.cs`'s SECOND AND THIRD CLOSED FAMILIES: THE DECLARATION
   PROJECTORS AND THE CALL-SITE COLLECTOR. 7 MEMBERS, 381 LINES, BOTH FAMILIES ESCAPING TO NOTHING,
   ENTERED FROM FOUR PUBLIC ANSWERS THAT ALL STAY BEHIND AS DRIVERS.**

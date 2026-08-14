@@ -746,7 +746,10 @@ class ColumnarTypeOfPlanner {
             return true
         }
 
-        if head == "Dictionary" || head == "SortedDictionary" {
+        // The three two-argument heads. `IReadOnlyDictionary` is the READ-ONLY mirror of `Dictionary` and
+        // takes `Dictionary`'s key admissibility exactly (an enum key is allowed; any other builder-bound
+        // key is not); only `SortedDictionary` keeps the stricter key rule its comparer needs.
+        if head == "Dictionary" || head == "SortedDictionary" || head == "IReadOnlyDictionary" {
             key := typeof(object)
             value := typeof(object)
             keyCanonical := ""
@@ -755,10 +758,15 @@ class ColumnarTypeOfPlanner {
                 keyCanonical = argumentCanonicals[0]
                 valueCanonical = argumentCanonicals[1]
             }
-            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "Dictionary" ? ContainsNonEnumBuilderBoundType(key) : ContainsBuilderBoundType(key)) || !IsAdmissibleCollectionElement(value, bindings) {
+            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? ContainsBuilderBoundType(key) : ContainsNonEnumBuilderBoundType(key)) || !IsAdmissibleCollectionElement(value, bindings) {
                 return false
             }
-            definition := (head == "Dictionary" ? typeof(Dictionary<int, int>) : typeof(SortedDictionary<int, int>)).GetGenericTypeDefinition()
+            definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
+            if head == "SortedDictionary" {
+                definition = typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
+            } else if head == "IReadOnlyDictionary" {
+                definition = RequiredReadOnlyDictionaryDefinition()
+            }
             arguments := new Type[](2)
             arguments[0] = key
             arguments[1] = value
@@ -1148,7 +1156,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IEnumerable`1"
+        return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IReadOnlyDictionary`2" || name == "System.Collections.Generic.IEnumerable`1"
     }
 
     static func IsAdmissibleCollectionElement(valueType: Type, bindings: ColumnarFragmentBindings): bool {
@@ -1440,6 +1448,16 @@ class ColumnarTypeOfPlanner {
         result := plan.ResultType
         if result == null {
             throw new InvalidOperationException("Planned typeof expression has no result type.")
+        }
+        return result
+    }
+
+    // The read-only dictionary definition is fetched BY NAME rather than by `typeof`: this kernel is
+    // compiled by the pinned toolset, which is the one that does not yet publish the head.
+    static func RequiredReadOnlyDictionaryDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.IReadOnlyDictionary`2")
+        if result == null {
+            throw new InvalidOperationException("System.Collections.Generic.IReadOnlyDictionary`2 runtime type was not found.")
         }
         return result
     }

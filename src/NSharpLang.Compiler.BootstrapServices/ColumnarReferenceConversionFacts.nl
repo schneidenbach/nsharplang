@@ -245,6 +245,12 @@ class ColumnarReferenceConversionFacts {
 
         sourceArguments := sourceType.GetGenericArguments()
         targetArguments := targetType.GetGenericArguments()
+        // The one two-argument upcast: Dictionary<K,V>/SortedDictionary<K,V> -> IReadOnlyDictionary<K,V>,
+        // the two-argument mirror of List<T> -> IReadOnlyList<T> below. Both arguments must match exactly.
+        if targetArguments.Length == 2 && sourceArguments.Length == 2 && (targetType.GetGenericTypeDefinition().FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" && ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) && ExactTypeShapeMatches(sourceArguments[1], targetArguments[1]) {
+            sourceDictionaryDefinition := sourceType.GetGenericTypeDefinition()
+            return sourceDictionaryDefinition == typeof(Dictionary<int, int>).GetGenericTypeDefinition() || sourceDictionaryDefinition == typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
+        }
         if sourceArguments.Length < 1 || targetArguments.Length != 1 || !ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) {
             return false
         }
