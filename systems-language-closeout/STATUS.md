@@ -2744,24 +2744,28 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. The arc is OPEN; TWO FILES ARE CLOSED,
-  ONE IS WALLED, AND THE REMAINING THREE ARE BEING REDUCED.** Its territory is the seven files
+- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. The arc is OPEN; ONE FILE IS DELETED,
+  TWO ARE CLOSED, ONE IS WALLED, AND TWO REMAIN TO REDUCE.** Its territory is the seven files
   `tasks/019-compiler-contained-tooling.md` names; six
   were live and one (`NullabilityMetadata.cs`) was already `state: removed` in the ratchet, so the
   arc opened at **7,739 lines / 6,892 non-blank / 341 member extents summing 7,257** by the validated
-  extractor. **After slice 10 it stands at 5,609 / 5,001 / 227 / 5,252 (−27.5 % on lines)** —
-  `Formatter` 2,302, `CodeIntelligenceService` 1,897, `Linter` **584**, `DocQuery` 446 (WALLED),
-  `OutputFormatter` 271 (CLOSED), `CompletionEngine` 109 (CLOSED). Slice 10 took **the whole lint
-  walk's STATE**: nineteen of `LintVisitor`'s twenty-two fields and nineteen members — the scope
-  stack, the parameter frames, the import and identifier ledgers and the entire reporting spine —
-  into one N# `LinterWalkState`. **`Linter.cs` 984 → 584, extents 58 → 21, and the visitor keeps
-  THREE fields where it had 21**, all three the expression-recursion guard that belongs to
-  `VisitExpression` alone. **No diagnostic is added in C# any more**: `AddDiagnostic` has no caller
-  outside the owner. The slice adds **NO C# at all** beyond the one `_state` field. The proof drives
-  the DELETED privates on the base side and the owner THROUGH `_state` on the work side: **44
-  differing rows, every one declared, ZERO behavioural**. The walkers are now ONE territory of **489
-  lines over 10 members** whose every state out-edge is a carrier call — so the next slice is the
-  **expression sub-territory port (111 lines)**, not another arm-by-arm cut.
+  extractor. **After slice 12 it stands at 5,025 / 4,491 / 206 / 4,707 (−35.1 % on lines)** —
+  `Formatter` 2,302, `CodeIntelligenceService` 1,897, `DocQuery` 446 (WALLED),
+  `OutputFormatter` 271 (CLOSED), `CompletionEngine` 109 (CLOSED), **`Linter` 0 (DELETED)**.
+  **SLICE 12 DELETED `Linter.cs` WHOLE.** The escape analysis says the remaining 165 lines are ONE
+  closed cut entered from nothing, and the deletion arm was available because every type in `Linter`'s
+  public signature — `CompilationUnit`, `Diagnostic`, `LinterConfig` — was ALREADY N# in the same
+  namespace. So the N# owner declares `NSharpLang.Compiler.Linter`, and **the six production consumers
+  and all seventeen C# test call sites bind to it with ZERO source change**: N# emits the optional
+  parameters as `opt=True hasdef=True def=null`, byte-identical metadata to the C# it replaced. The
+  proof drives the DELETED declaration walk on the base side and the N# `LinterDeclarationWalk` on the
+  work side, with the public `Linter.Lint` path spelled identically on both: **843 behavioural rows
+  byte-identical (md5 `869b7af2818880b06be0a9e6b769f1a5`), 16 differing rows, every one declared, ZERO
+  behavioural.** Over three slices `Linter.cs` went **984 → 584 → 197 → 0**.
+  (Prior: slice 11 took the whole 5-member walker SCC — 379 lines —
+  after `nl86-edges.py` overturned the inherited 111-line brief; `Linter.cs` 584 → 197.)
+  (Prior: slice 10 took **the whole lint walk's STATE**: nineteen of `LintVisitor`'s twenty-two fields
+  and nineteen members into one N# `LinterWalkState`; `Linter.cs` 984 → 584.)
   (Prior: slice 9 took the interpolation pair, the three small
   NL003/NL016/NL020 reporters and NL010's type-reference collector out of `Linter.cs`, and the
   identifier-text duplication out of the whole estate — **258 C# lines over 8 extents across THREE
@@ -2792,7 +2796,7 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: one terminal slice
+- Current iteration: one terminal slice — `Linter.cs` CLOSED BY DELETION
 - Slice-43 RECONCILIATION onto the moved tip (coordinator, before commit): the slice was cut at
   `e929453e0`; four concurrent chip commits then moved the tip (`2d2ddb39d` harness timeouts,
   `0a66db6ec` + `1e426e07d` the BootstrapServices format sweep + kernel `owed->` fix + the format
@@ -2811,7 +2815,345 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `3e2bec5a3`):
+- Active sub-slice (019 arc, THIS TURN, TARGET RECORDED BEFORE ANY PRODUCTION EDIT at `2d89e4b7e`):
+  **019 SLICE 12 — `Linter.cs` CLOSES. THE DECLARATION WALK, THE ENTRY AND THE PUBLIC `Linter` ITSELF —
+  THE FILE IS DELETED WHOLE, NOT REDUCED TO A HOST, AND THAT IS A MEASURED CHOICE.**
+
+  **TARGET (recorded before any production edit, at tip `2d89e4b7e`).**
+  `src/NSharpLang.Compiler/Linter.cs` at **197 / 177 / 14 extents / 165**.
+  **THE MEMBERS TAKEN — ALL FOURTEEN EXTENTS AND THE WHOLE FILE.** `Linter._config` :11 (**1**),
+  `Linter` ctor :13–16 (**4**), `Linter.Lint` :18–23 (**6**), `LintVisitor._state` :33 (**1**),
+  `LintVisitor._walk` :34 (**1**), `LintVisitor.Diagnostics` :36 (**1**), `LintVisitor` ctor :38–42
+  (**5**), `Visit` :44–64 (**21**), `VisitDeclaration` :66–138 (**73**), `VisitClass` :140–149 (**10**),
+  `VisitStruct` :151–160 (**10**), `VisitRecord` :162–171 (**10**), `VisitInterface` :173–179 (**7**),
+  `VisitWithTypeMemberScope` :181–195 (**15**).
+  **THE CLOSURE VERDICT IS DELETION, AND IT WAS MEASURED BEFORE IT WAS CHOSEN.** `nl86-edges.py`
+  answers four closure questions over the tip file: the declaration territory
+  {`VisitDeclaration`, `VisitClass`, `VisitStruct`, `VisitRecord`, `VisitInterface`,
+  `VisitWithTypeMemberScope`} = **125 lines, ESCAPES TO NOTHING**, entered from `Visit`; **+`Visit`** =
+  **146, ESCAPES TO NOTHING**, entered from `Lint`; **+`Lint` + `Diagnostics`** = **153**, escaping only
+  to the `LintVisitor` CONSTRUCTOR; **+ both constructors** = **162 over 11 named members, ESCAPES TO
+  NOTHING AND IS ENTERED FROM NOTHING.** With the three fields that is the file's whole 165.
+  **THE STRONGER ARM IS AVAILABLE BECAUSE EVERY TYPE IN `Linter`'s PUBLIC SIGNATURE IS ALREADY N#**:
+  `CompilationUnit` (`Declarations.nl`), `Diagnostic` (`LinterDiagnosticModels.nl`) and `LinterConfig`
+  (`LinterConfig.nl`) all live in `NSharpLang.Compiler.BootstrapServices` in namespace
+  `NSharpLang.Compiler`. So the N# owner can declare `Linter` under the SAME namespace and name, and
+  the six production consumers plus every C# test bind to it with NO source change at all.
+  **THE CONTRACT.** One N# file `Linter.nl` holding the public `Linter` (config + `Lint`) and the
+  declaration walk it drives. `VisitWithTypeMemberScope`'s `Action` DISSOLVES: each of the three
+  callers writes its own `try { for member in members { … } } finally` around its own loop, exactly as
+  finding 86.7 predicted.
+  **The C# deletion target is the FILE**, all 197 lines, and its ratchet row moves to `state: removed`
+  — the `Parser.cs` precedent.
+
+  **THE EXTRACTOR WAS RE-VALIDATED ON SEVEN CHECKPOINTS BEFORE IT WAS TRUSTED.** `nl62_members.py`
+  returns **30 / 623**, **27 / 476**, **21 / 414** over `CodeIntelligence/CompletionEngine.cs` at
+  `0d55966e8`, `228081146` and `294035b7c`, **43 / 292** over `CodeIntelligence/OutputFormatter.cs` at
+  `be95ec85e`, **58 / 910** over the `984 / 869` `Linter.cs` at `da2688e4d`, **21 / 545** over the
+  `584 / 510` file at `3e2bec5a3` — slice 11's row exactly — and **14 / 165** over the tip's
+  `197 / 177`, slice 11's ratchet row exactly.
+
+  **THE DEAD SWEEP RAN BEFORE ANY SCORING** (`nl78-deadsweep.py`, accessibility-aware, **1,058-file**
+  corpus): **DEAD COUNT = 0**, `DETACHED COUNT = 51`. Every target is LIVE; `Lint` alone has **17**
+  referrers.
+
+  **THE CENSUS IS CLEAN.** `nl81-census.py` over a **1,611-file** corpus, over all 14 member names:
+  `typeof(Linter)` / `Linter).Get…` reflection **= 0**; string-literal hits **= 1**, the same corpus
+  artefact slices 9, 10 and 11 met — `"_config"` inside VS Code's bundled `vs-seti-icon-theme.json`.
+  `"Linter"` and `"LintVisitor"` as literals occur **nowhere**. **No reflection door, so no C# test
+  migrates with the file** — and, because the N# owner keeps the namespace and the name, none needs to.
+
+  **BASELINES, TAKEN BEFORE ANY WRITE.** Ratchet row `Linter.cs` **197 / 177**, fingerprint
+  `text-v1:0b3caf8b26a9ccbb`, ceilings **1611 / 1454**; `reviewedHeadFingerprint
+  head-v1:82124ffb92bd11d3`, REPRODUCED by the independent FNV-1a walk before the write. Inherited:
+  unit suite **3,192**; contracts **4,649**; audit **18 / 18**; manifest **391** lines, no BOM.
+
+  ---
+
+  **LANDED (no commit — mandate) — `src/NSharpLang.Compiler/Linter.cs` IS DELETED. THE FILE IS GONE,
+  NOT REDUCED TO A HOST, AND NO CONSUMER CHANGED A CHARACTER.** `git diff` **−197 / +0** in C#;
+  the N# owner `Linter.nl` (**282**) and its contracts `Linter.tests.nl` (**467**) are the only new
+  files. Over the three slices the file is **984 → 0**.
+
+  **THE STRONGER ARM WAS TAKEN BECAUSE IT WAS MEASURED TO BE AVAILABLE, NOT PREFERRED.** The whole
+  public signature — `Linter(LinterConfig?)`, `Lint(CompilationUnit, string?, string?) → List<Diagnostic>`
+  — names three types that are ALREADY N# in this assembly and this namespace. So the N# owner declares
+  `NSharpLang.Compiler.Linter`, the C# file is deleted, and the **six production consumers**
+  (`Commands/LintCommand.cs`, `Services/DocumentManager.cs`, `PlaygroundCompiler.cs`,
+  `MultiFileCompiler.cs`, `CodeIntelligence/FixApplicator.cs`, `CodeIntelligence/CodeIntelligenceService.cs`)
+  **and all seventeen C# test call sites bind to it with ZERO source change.** That is proved by
+  building `tests/Tests.csproj`, which project-references the CLI, the compiler, the LANGUAGE SERVER and
+  the playground: **0 errors**. `NSharpLang.LanguageServer` references only `NSharpLang.Compiler`, so the
+  transitive reference that carries the N# assembly to `DocumentManager` was checked rather than assumed
+  — it is the same edge that already carries `LinterConfig` to `DocumentManager.cs` :285 today.
+
+  **THE `Action` DISSOLVED EXACTLY AS FINDING 86.7 PREDICTED, AND THE STRUCTURAL CROSS-CHECK IS WHAT
+  SAYS SO.** A script counts the AST arms and the state calls on both sides. **The fourteen declaration
+  arms match ONE-FOR-ONE AND IN ORDER**; every `_walk.X(` call matches exactly
+  (`VisitStatement` 6, `VisitExpression` 3, `VisitFunction` 1); and of the eight state calls, seven
+  match exactly. **The one that does not is the whole shape change**: `PushTypeMemberScope` and
+  `PopTypeMemberScope` read **1 → 3**, because the C# extracted one shared bracket and passed the loop
+  in as an `Action` while the N# writes the bracket out in each of its three callers. The
+  `decl-class-*`, `decl-struct-*` and `decl-record-*` differential rows are byte-identical, so the
+  de-duplication is proved as well as declared.
+
+  **THE MOVEABLE BOUNDARY WAS DRAWN BY EXECUTION FIRST, AGAINST THE PINNED TOOLSET (`Sdk 0.1.0` from
+  the local feed), IN AN ISOLATED TWO-PROJECT PROBE BEFORE ANY PRODUCTION EDIT** — an N# library and a
+  C# consumer of it, because the question this slice had to settle is not "does the owner compile" but
+  "can C# still call it the way six production sites do". **IT CAN, AND THE METADATA SAYS WHY**: N#
+  emits `constructor(cfg: ProbeConfig? = null)` and `func Run(node, filePath: string? = null,
+  sourceText: string? = null)` as **`opt=True hasdef=True def=null`**, so `new ProbeEntry()`,
+  `Run(node)`, `Run(node, "f.nl")` and `Run(node, "f.nl", "src")` all compile and run from C#. Also
+  proved: a public N# class is `IsPublic`, a `: base(...)` initializer, `try`/`finally` bracketing an
+  `as`-dispatch chain, and a fresh state object per entry call. **TWO SHAPES DECLINED AND BOTH HAD
+  ROUTES**: `super(...)` is not the base-initializer spelling (it is `NL412 Function 'super' not
+  found`; the spelling is `constructor(): base(…)`), and **assigning to a field THROUGH another
+  object's reference** (`state.Depth = state.Depth + 1`) declines at **`emit.statement.block-child`
+  (node kind 23)** — routed by a method on the owning object, which is what the real port does
+  everywhere. **WALL STATUS: ZERO — NO REPIN.**
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL OF 862 ROWS PER SIDE WITH 0 FAULTS ON BOTH SIDES AND 16
+  DIFFERING ROWS, ALL OF THEM DECLARED.** One `Grid.cs` compiled twice (`base/Base.csproj` against a
+  pristine `2d89e4b7e` worktree, `work/Work.csproj` against the repo's). **The base side drives the
+  DELETED declaration walk through `LintVisitor`'s OWN private methods; the work side drives the N#
+  `LinterDeclarationWalk` over a state built from the SAME three constructor arguments** — and the
+  entry section is spelled IDENTICALLY on both sides, `new Linter(...).Lint(...)`, resolving to the C#
+  type on one side and the N# type on the other. **The 843 behavioural rows are byte-identical — md5
+  `869b7af2818880b06be0a9e6b769f1a5` on BOTH sides, `diff` = 0.** The 20-row divergence section carries
+  the whole difference: `LintVisitor` and its eight members and two fields **PRESENT → ABSENT**,
+  `Linter` **in `Compiler` → in `NSharpLang.Compiler.BootstrapServices`**, `LinterDeclarationWalk`
+  **ABSENT → PRESENT**. **Behavioural differing rows: ZERO.**
+  **THE SEAM'S METADATA IS INSIDE THE BYTE-IDENTICAL SECTION, AND THAT IS THE ROW THAT SAYS THE
+  CONSUMERS DID NOT HAVE TO CHANGE**: `seam ctor LinterConfig config:opt=True:hasdef=True:def=null` and
+  `seam method Lint … filePath:opt=True:hasdef=True:def=null, sourceText:opt=True:hasdef=True:def=null`
+  are the same bytes on both sides.
+  Non-vacuity: **57 walk scenarios** cover all fourteen declaration arms, both `Visit` phase orders,
+  the class/struct/record/interface asymmetry, three exceptional-path scope pops and an unhandled
+  declaration shape; **15 entry rows** cover all three `Lint` arities, both constructor arities, the
+  disabled rule, the source-text suppression with its control and a three-call reuse sequence; and the
+  live section runs `ColumnarParserRecovery.ParseFileAst` + `Linter.Lint` over **770 sources**
+  (720 real `.nl` files snapshotted from the BASE tree so both sides read identical bytes, 48 probes and
+  this slice's own two new files) with **0 NO-PARSE, 67 sources reporting**, census
+  `NL001:12 NL002:4 NL004:1 NL006:3 NL010:31 NL011:18 NL012:37 NL020:1`.
+
+  **N# ADDS 749 LINES AND 33 CONTRACTS.** Contracts **4,649 → 4,682**, green on their first complete
+  run. **THREE THINGS THAT WERE PROSE, UNREACHABLE OR VACUOUS ARE NOW CONTRACTS.**
+  (a) **one `Linter` lints many files and each starts clean** — the per-file state is built inside
+  `Lint`, so a second lint is the first answer and not the first answer twice; the separateness of the
+  two returned lists is asked BY MUTATION rather than by reference identity, which is the stronger
+  question and also the only one that emits (`object.ReferenceEquals` declines at
+  `emit.call.static-member-unmodeled`).
+  (b) **an interface opens NO type-member scope where a class, a struct and a record all do** — asserted
+  on the SAME member list under four declaration kinds, so the difference is the kind and nothing else.
+  It is reproduced rather than tidied; whether it is right is a rule slice's question.
+  (c) **`Visit`'s own global unused-variable check is MEASURABLY VACUOUS, and that is recorded rather
+  than removed** — every arm that can bind a name reaches the state through a walk that opens its own
+  scope first, so nothing is ever left in the frame `Visit` opens. The pair of contracts around it says
+  what the bracket DOES do: a binding made before `Visit` is pushed away (silence) and restored
+  afterwards (still reportable), which is the `PushScope`/`PopScope` pair stated as behaviour.
+
+  **THE LOAD-BEARING LIVE-TREE `nlc check` CAUGHT SOMETHING, AND THAT IS THE POINT OF IT.**
+  `BootstrapServices` builds with `NSharpEmitValidateWithLegacyAnalysis=false`, so a green build and
+  green contracts are not evidence that a new `.nl` is clean (finding 85.7). The first run over the live
+  tree reported **`checkedFiles=377, count=286`** with `NL010:8` — **one row naming `Linter.nl:3`, an
+  unused `import System`**. It was removed, the CLI rebuilt and the check re-run on the byte-final tree:
+  **`checkedFiles=377, count=285`** with census
+  `NL202:91 NL402:90 NL012:32 NL905:26 NL011:17 NL301:16 NL010:7 NL412:3 NL303:2 NL002:1` — slice 11's
+  inherited counts **to the digit**, with the file count up by exactly one, the new owner — and **ZERO
+  diagnostics naming `Linter.nl` or `Linter.tests.nl`**. The differential and the grid were then re-run
+  on those same final bytes and reproduce the same md5 (`869b7af2818880b06be0a9e6b769f1a5`,
+  `DIFF_LINES=32`, 863 rows, 0 faults). The format gate reports "All files are properly formatted".
+
+  **`nlc lint` ITSELF WAS RUN ON BOTH CLIs, FIVE TIMES EACH: 4,025 ROWS, 0 DIFFS, md5
+  `682a2a802cf72a536a864340978d77dc` ACROSS ALL TEN TRANSCRIPTS, 240,088 BYTES** — 172 targets × the
+  JSON and `--text` renderings, **258 `rc=0` / 86 `rc=1`**, carrying **NL001 × 18, NL003 × 18,
+  NL020 × 8, NL010 × 6, NL012 × 6, NL016 × 6, NL006 × 4, NL004 × 2, NL011 × 2**. **BOTH CLOCKS ARE
+  PRESENT AND BOTH ARE NORMALISED** — **138** rows carry the bracketed form and **34** carry
+  `Linted in …` (finding 83.2). The transcript md5 is NOT comparable to slice 11's and the reason is
+  stated rather than glossed: the normaliser's path substitutions were repointed this slice
+  (`nl87base`, and a `nl8[0-9]lint` corpus pattern that now folds the shared corpus path), which is also
+  why the byte count moved 242,533 → 240,088. What is compared is base against work WITHIN this slice,
+  and that is 0 diffs on all five runs. As in slices 10 and 11 the transcript does NOT carry NL002, and
+  that is stated rather than glossed: NL002 is covered instead by the differential's live oracle, by
+  38 walk scenarios and by the contracts.
+
+  **TEN ORACLE DIFFERENTIALS, ALL ZERO — AND THE NINE STANDING ONES REPRODUCE SLICE 11's md5s TO THE
+  DIGIT**: corpus **`86a4928f87495854f48cbd5df7d5c571`** (the TWENTIETH slice running byte-identical),
+  self-host **`e659c04401d1a13682f9c8e91a6b8a6a`**, fx75 `6c12cc5a…`, fx74 `309f7902…`, fx73
+  `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA `b1045814…`, supplementary `228dfc38…`; the
+  inherited `NO-RESULTS` counts (**7** corpus, **6** supplementary) reproduce exactly. The **LIVE-TREE
+  tenth** reports **0 diffs, md5 `ec062b1d4c8cc00bfc4f2aee4da00d7d` on both sides**, 285 diagnostics
+  over 10 codes and the same census as the direct check; its md5 moves from slice 11's because the file
+  set it reads now contains this slice's two new files.
+
+  **PARSE-ERROR CENSUS.** `PARSE_FAIL = 0` and `PARSE_ERRORS = 0` on **every one of the ten**
+  differentials; the five-run pin's workload carries `NL101: 2` and `NL102: 2` — slice 11's counts
+  exactly; and the differential's 770-source corpus reports **0 NO-PARSE** with one deliberate malformed
+  probe in it.
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** and proved the harness stable
+  (`CONTROL vs A` **118 / 118 SAME**, both the base CLI over fresh `2d89e4b7e` archives); `A vs B` then
+  gives **63 / 63 N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files counted and proved
+  **55-of-55 copied `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps report
+  `TARGETS=73 BUILT=55 ASSEMBLIES=118`. Unsorted build transcripts **0 diffs across all three sweeps**
+  — **1,557 lines / md5 `1ff6a3797a58c74f8a52bc410519794b`**, slice 11's digits exactly. Unit suite
+  **3,192 / 3,192**; contracts **4,682 / 4,682**; `dev.sh --since` selected the **FULL unit suite by its
+  own fail-safe** and passed **3,192 / 3,192**. **The five-run ordering pin is byte-identical over 398
+  targets, 391 with results, 1,255 diagnostic rows over 48 codes**, `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, md5
+  **`db729409fb7e7100a2c5bdb6401e6a78`** — the recorded value, with **NL010: 220**, **NL012: 55**,
+  **NL001: 38**, **NL011: 17**, **NL004: 2** and **NL002: 1** in its census.
+
+  **THE TERMINALITY GREP IS CLEAN.** `LintVisitor` and `VisitWithTypeMemberScope` occur repo-wide only
+  inside COMMENTS in the N# owners that replaced them; `LinterDeclarationWalk` occurs only in
+  `Linter.nl` and its contracts. `Linter.cs` is gone from the tree and from the working set: `git status`
+  names exactly the one deletion, the two new `.nl` files and the two ratchet files.
+
+  **RATCHET.** One row repinned AS THE LAST EDIT to any production or ratcheted file, after every
+  production edit and after the whole differential / oracle / lint-oracle / IL / determinism set had
+  been run: `src/NSharpLang.Compiler/Linter.cs` **`state: existing-debt` → `state: removed`**,
+  **197 / 177 → 0 / 0**, fingerprint `0b3caf8b26a9ccbb → text-v1:removed` — the `Parser.cs` precedent,
+  and the first row this arc has moved to `removed`. Head `82124ffb92bd11d3 → 8da39c949b57161c`,
+  mirrored into `OwnershipAudit.nl` (a one-line diff, the fingerprint string), and the stored head was
+  REPRODUCED by the independent FNV-1a walk both before the write and after it. **The repin is
+  non-vacuous by execution, and the audit itself supplies the counter**: run against the pre-repin
+  manifest it reports **17 / 18 with 1 FAILED** — `OWN006 active debt entry disappeared; mark it removed
+  in the same deletion commit` — and **18 / 18** against the repinned one, run in that order. Manifest
+  **391** lines, no BOM; it still holds **0** `.nl` rows, which is what makes a slice adding 749 N# lines
+  a pure downward move.
+
+  **THE FULL VS CODE-ENABLED GATE WAS RUN ON THE BYTE-FINAL REPINNED TREE AND PASSED: `ALL TESTS
+  PASSED` in 27m 01s, 108 GREEN STEPS AND ZERO FAILURES, WITH THE VS CODE INTEGRATION TESTS INSIDE**
+  (Step 3b, 3m 09s, **36 passing** — extension, diagnostics, hover and completion) — fresh under
+  `--commit` with `NSHARP_TEST_STEP_CACHE_OFF=1`, including the unit suite **3,192 / 3,192**, the whole
+  native `.tests.nl` estate with contracts **4,682 / 4,682** and the ownership audit **18 / 18** inside
+  it, the format contract gate, and the IL verification gate with no new errors against baseline.
+  **`VSCODE_TESTS=skip` was not an option and the reason is the product, not form: the linter is what
+  paints squiggles in the editor**, and this slice deleted the very type `DocumentManager` constructs
+  and re-pointed the name at a different assembly. **No LSP source changed**, so a VSIX reload was not
+  required — a checked conclusion (`git status` names exactly one deletion, two new `.nl` files and the
+  two ratchet files), not an assumption. Per standing precedent computer-use visual verification was
+  NOT requested and the gate's VS Code evidence stands in.
+  **THE GATE WAS RUN FROM AN ISOLATED `/private/tmp/nl87gate` WORKTREE, AND THAT WAS A CHECKED
+  DECISION**: the repo root currently carries **six** nested worktrees under `.claude/worktrees/`, two
+  of which hold a duplicate `benchmarks/NSharpLang.Benchmarks.csproj`, and the gate's own isolation copy
+  does NOT exclude `.claude/` — which is the recorded condition that breaks the BDN Systems step. The
+  gate tree's five files were verified md5-identical to the working tree's before the run.
+
+  **EIGHT FINDINGS.**
+  **(87.1) THE CLOSURE QUESTION HAS A SECOND HALF, AND IT DECIDES DELETION VERSUS A HOST.** The escape
+  analysis says whether a SET of members can move. What says whether a FILE can be DELETED is a
+  different question, and it is just as mechanical: **is every type in its public signature already
+  owned?** Here `CompilationUnit`, `Diagnostic` and `LinterConfig` all were, so the seam is a NAMESPACE
+  rather than an adapter and the consumers never learn the type moved. Ask that question before writing
+  a reviewed zero-policy host — a host may be the weaker arm of a slice that could have closed.
+  **(87.2) N# EMITS OPTIONAL PARAMETERS THAT A C# CALLER CAN OMIT, AND THAT IS WHY TWENTY-THREE CALL
+  SITES DID NOT MOVE.** `constructor(config: LinterConfig? = null)` and
+  `func Lint(ast, filePath: string? = null, sourceText: string? = null)` arrive in metadata as
+  `opt=True hasdef=True def=null`, identical to the C# they replace — proved first in an isolated
+  two-project probe and again as byte-identical `seam` rows inside the differential. **A cross-language
+  seam is a METADATA question and it should be probed with a consumer project, not with a library
+  build**: a library that compiles proves nothing about whether the caller can still omit an argument.
+  **(87.3) A CALLBACK EXTRACTED BY C# COSTS EXACTLY THREE COPIES TO DISSOLVE, AND THE COUNT IS THE
+  PROOF.** The structural cross-check's ONLY disagreement is `PushTypeMemberScope`/`PopTypeMemberScope`
+  reading 1 → 3. That single row is finding 86.7 discharged: the `Action` was a shared bracket, and
+  writing it out three times is the whole cost of removing it.
+  **(87.4) THE LOAD-BEARING LIVE-TREE CHECK EARNED ITS PLACE AGAIN, ON A FILE THAT HAD ALREADY PASSED
+  EVERYTHING ELSE.** `Linter.nl` built green, emitted green, ran 4,682 green contracts and produced a
+  byte-identical differential — and still carried an unused `import System` that only `nlc check` names.
+  A green build is not a clean file while `NSharpEmitValidateWithLegacyAnalysis=false`.
+  **(87.5) A DECLINED SPELLING CAN LEAD TO A BETTER CONTRACT.** `object.ReferenceEquals` declines at
+  `emit.call.static-member-unmodeled`. The replacement asks the separateness of two returned lists BY
+  MUTATION — clear one, assert the other is intact — which is what a caller actually cares about and is
+  strictly stronger than reference identity.
+  **(87.6) `super(...)` IS NOT N#'s BASE-CONSTRUCTOR SPELLING** and the error does not say so: it is
+  `NL412 Function 'super' not found`, suggesting you define one. The spelling is
+  `constructor(...): base(...)`.
+  **(87.7) ASSIGNING TO A FIELD THROUGH ANOTHER OBJECT'S REFERENCE DECLINES**, at
+  `emit.statement.block-child` (node kind 23) — `state.Depth = state.Depth + 1` does not emit. The route
+  is a method on the owning object, which is what every N# owner in this estate already does; the
+  decline is only reachable if a port reaches across an object boundary to write a field.
+  **(87.8) A `dotnet test` THAT PRINTS NOTHING AND EXITS 0 IS NOT A PASS.** `-p:NSharpExcludeTests=false`
+  must be applied by a `--force-evaluate` RESTORE before `dotnet test --no-restore` can see it;
+  without that restore the project evaluates with tests excluded, the runner finds no test file, and
+  the step exits 0 with an empty transcript. Four minutes were spent trusting three such "passes".
+  **This is exactly why the gate greps for `Passed:[1-9]` rather than for an exit code**, and a local
+  run of a gate step must reproduce the gate's whole command, not the interesting half of it.
+
+  **THE ARC'S SURFACE AFTER THIS SLICE, RE-MEASURED BY THE VALIDATED EXTRACTOR.** FIVE live files —
+  `Linter.cs` has left the list — **5,025 lines / 4,491 non-blank / 206 extents summing 4,707**, down
+  from **5,222 / 4,668 / 220 / 4,872** at slice 11's close and from the arc's opening
+  **7,739 / 6,892 / 341 / 7,257**, a **−35.1 %** cut on lines over twelve slices:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,302 | 2,127 | 49 | 2,248 |
+  | `CodeIntelligenceService` | 1,897 | 1,659 | 92 | 1,770 |
+  | `DocQuery` (WALLED, not closed) | 446 | 382 | 23 | 402 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+  | **`Linter` (DELETED)** | **0** | **0** | **0** | **0** |
+
+  **NEXT — `CodeIntelligenceService.cs` (1,897 / 1,659 / 92 / 1,770), AND ITS OPENING INVENTORY IS
+  ALREADY TAKEN BY THE ESTABLISHED METHOD.** Tarjan reports **86 members and only TWO non-trivial
+  SCCs**, of **40 lines** ({`FindNamedTypeInfo` 27, `ResolveTypeReferenceToTypeInfo` 13}) and **43**
+  ({`ResolveMemberTypeInfo` 12, `ResolveTypeInfoFromExpression` 31`}). **This file is the OPPOSITE
+  shape to `Linter.cs`**: where the linter was one 379-line SCC that had to move whole, this is 82
+  independent members, so it is cut family by family and the first family is already measured.
+  **THE FIRST FAMILY, BY `nl86-edges.py`: 21 members, 294 lines, ESCAPES TO NOTHING** —
+  {`ExtractSourceLine`, `ExtractSourceLineForDiagnostics`, `ExtractWordAtPosition`,
+  `ExtractIdentifierSpanAtPosition`, `ExtractVariableDeclarationNameAtPosition`, `ExtractDocComment`,
+  `GetSourceContext`, `GetSourceText`, `GetRelativePath`, `FormatModifiers`, `FormatTypeReference`,
+  `FormatSuggestions`, `GetTypeReferenceName`, `GetTypeDisplayName`, `TypeInfoToKind`,
+  `ExtractCalleeName`, `InterfaceNameMatches`, `GetNearbyColumns`, `AddCandidateName`,
+  `GetCandidateQueryNames`, `GetExpressionQueryName`} — entered from 22 callers that all stay behind.
+  The 19-member subset escapes to exactly `GetExpressionQueryName` and `GetSourceText`; adding those two
+  closes it. **`ProjectSnapshot` is NOT in that family**, which is what makes it the honest first cut:
+  the type that `NSharpLang.Compiler.BootstrapServices` cannot reference is declared at
+  `CodeIntelligenceService.cs` :1851 and is touched by **82 references across 14 files** including four
+  LSP handlers, so it is the LAST thing to move, not the first.
+  **`Formatter.cs` (2,302 / 2,127 / 49 / 2,248) IS STILL UNTOUCHED, AND ITS SHAPE IS NOW MEASURED
+  TOO**: 43 members with **ONE 14-member 1,282-line SCC** ({`FormatStatement` 410, `FormatExpression`
+  392, `FormatPattern` 102, `FormatFunction` 91, `FormatObjectInitializer` 77, `FormatIfStatement` 47,
+  `FormatParameter` 44, `FormatBlock` 22, `FormatAttributeInline` 22, `FormatForeachBody` 21,
+  `FormatPropertyPattern` 15, `FormatAttributes` 14, `FormatExpressionToString` 14,
+  `FormatKeywordBlock` 11}) and a second **6-member 282-line SCC** (the declaration formatters). **It is
+  the `Linter.cs` shape at four times the size**: the 1,282-line SCC will not come apart arm by arm, and
+  a state-carrier slice on the `Formatter` object should be measured BEFORE any arm is attempted —
+  exactly the sequence slices 10 → 11 proved on the linter.
+  **019's COMPLETION SHAPE IS UNCHANGED, WITH ONE FILE MOVED FROM "TO REDUCE" TO "DELETED".** Two files
+  are reviewed zero-policy hosts (`CompletionEngine` 109, `OutputFormatter` 271); `DocQuery.cs` is a
+  **walled** host at 446 whose `UNEXPLAINED = 0` behind two named catalog gaps; **`Linter.cs` is
+  DELETED**; `Formatter` (2,302) and `CodeIntelligenceService` (1,897) are the two still to reduce.
+  **The honest close of 019 is now: those two reduced, and `DocQuery` either finished by a
+  `System.Xml.Linq` catalog repin or accepted at 402 walled lines** — a toolset decision, not a slice
+  decision.
+
+  **ARTEFACTS LEFT ON DISK FOR 019 SLICE 13.** The base worktree is `/private/tmp/nl87base` (pristine
+  `2d89e4b7e` + Release Compiler and CLI, and a Debug Compiler for the differential). **The compiler
+  project file is `src/NSharpLang.Compiler/Compiler.csproj`, NOT `NSharpLang.Compiler.csproj`**, the
+  CLI's is `src/NSharpLang.Cli/Cli.csproj`, and **the C# compiler ASSEMBLY is named `Compiler`** — a
+  reflection lookup for `"NSharpLang.Compiler"` finds nothing and throws (this slice's first grid run
+  died on it; reach the assembly through a type that stays put on both sides instead). **The two-sided
+  differential harness is `/private/tmp/nl87grid`** — ONE `Grid.cs` compiled twice, carrying the
+  57-scenario declaration-walk differential, the 15-row public-entry section, the SEAM metadata section,
+  the 770-source live oracle and the declared-divergence section. Its corpus is `/private/tmp/nl87corpus`
+  (720 real + 48 probes + this slice's two new files, regenerated by `/private/tmp/nl87probes-gen.py`).
+  **The N# emit probe is `/private/tmp/nl87iso`, and it is TWO projects** — `q1` the N# library and `c1`
+  the C# consumer — because the question was a metadata one. The `nlc lint` oracle is
+  `nl87-lintoracle.sh` with its two-clock normaliser `nl87-lintnorm.py` and its target list
+  `/private/tmp/nl87-lint-targets.txt` (172 targets). IL trees and captures:
+  `/private/tmp/nl87il{Ctrl,A,B}Tree` with outputs under `/private/tmp/nl87out{Ctrl,A,B}`. Harnesses in
+  the scratchpad: `nl62_members.py` (the extractor, re-validated on seven checkpoints),
+  `nl78-deadsweep.py`, `nl81/nl81-census.py`, `nl85-tarjan.py` (the SCC measurement), `nl86-edges.py`
+  (the per-member in/out edges plus the executable CLOSURE question — the tool that decides a
+  territory slice's extent), `nl87-oracle.sh`, `nl87-run-oracles.sh`, `nl87-ilsweep.sh` (**its
+  `git archive` commit must be repointed each slice**), `nl87-run-il.sh`, `nl82-ilcompare.py` (**give it
+  the OUT dir, not the `asm` dir**), `nl80-transnorm.py` (**three arguments: raw, tree, out**),
+  `nl87-determinism.sh`, the sequenced `nl87-chain2.sh`, and **`nl87-repin.py`, which now carries a
+  `remove` mode** for a file deleted whole (state → `removed`, current counts zeroed, fingerprint
+  `text-v1:removed`, and an assertion that the file really is gone). **`/private/tmp` IS REAPED** —
+  regenerate rather than assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `2d89e4b7e`):
   **019 SLICE 11 — THE LINT WALKER ARMS: THE EXPRESSION SUB-TERRITORY, THE STATEMENT WALK AND THE
   FUNCTION ARM — THE WHOLE WALKER SCC, BECAUSE 111 LINES DO NOT CLOSE AND THE CLOSURE WAS MEASURED.**
 
