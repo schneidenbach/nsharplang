@@ -9,12 +9,16 @@ namespace NSharpLang.Compiler;
 public class Formatter
 {
     // The indent depth, the comment stream and its cursor, the last emitted source line, and the two
-    // values derived from the configuration all belong to the N# owner. What is left here is the walk.
+    // values derived from the configuration all belong to the N# owner. What is left here is the
+    // file's declaration walk; every statement, expression and pattern belongs to `_walk`, and the
+    // two share one state object because they are one walk at different depths.
     private readonly FormatterWalkState _state;
+    private readonly FormatterWalk _walk;
 
     public Formatter(FormatterConfig? config = null)
     {
         _state = new FormatterWalkState(config);
+        _walk = new FormatterWalk(_state);
     }
 
     /// <summary>
@@ -161,7 +165,7 @@ public class Formatter
         switch (decl)
         {
             case FunctionDeclaration func:
-                FormatFunction(func, sb);
+                _walk.FormatFunction(func, sb);
                 break;
             case ClassDeclaration cls:
                 FormatClass(cls, sb);
@@ -222,101 +226,9 @@ public class Formatter
         }
     }
 
-    private void FormatFunction(FunctionDeclaration func, StringBuilder sb)
-    {
-        FormatAttributes(func.Attributes, sb);
-        _state.Indent(sb);
-
-        // Format modifiers
-        var mods = FormatterSyntaxText.FormatModifiers(func.Modifiers, func.Name, !func.IsOperatorOverload && !func.IsConversionOperator);
-        if (!string.IsNullOrEmpty(mods))
-        {
-            sb.Append(mods);
-            sb.Append(" ");
-        }
-
-        if (func.IsConversionOperator)
-        {
-            sb.Append(func.Name);
-            sb.Append(" ");
-            if (func.ReturnType != null)
-            {
-                sb.Append(FormatterSyntaxText.FormatTypeReference(func.ReturnType));
-            }
-        }
-        else
-        {
-            // Format function keyword
-            if (func.Modifiers.HasFlag(Modifiers.Generator))
-            {
-                sb.Append("func*");
-            }
-            else
-            {
-                sb.Append("func");
-            }
-
-            sb.Append(" ");
-            sb.Append(func.Name);
-
-            // Format type parameters
-            if (func.TypeParameters != null && func.TypeParameters.Count > 0)
-            {
-                sb.Append("<");
-                sb.Append(string.Join(", ", func.TypeParameters.Select(tp => tp.Name)));
-                sb.Append(">");
-            }
-        }
-
-        // Format parameters
-        sb.Append("(");
-        for (int i = 0; i < func.Parameters.Count; i++)
-        {
-            FormatParameter(func.Parameters[i], sb);
-            if (i < func.Parameters.Count - 1)
-            {
-                sb.Append(", ");
-            }
-        }
-        sb.Append(")");
-
-        // Format return type
-        if (!func.IsConversionOperator && func.ReturnType != null)
-        {
-            sb.Append(": ");
-            sb.Append(FormatterSyntaxText.FormatTypeReference(func.ReturnType));
-        }
-        if (!string.IsNullOrEmpty(func.ReturnLifetime))
-        {
-            sb.Append(" returns ");
-            sb.Append(func.ReturnLifetime);
-        }
-
-        // Format body
-        if (func.ExpressionBody != null)
-        {
-            sb.Append(" => ");
-            FormatExpression(func.ExpressionBody, sb);
-            sb.AppendLine();
-        }
-        else if (func.Body != null)
-        {
-            sb.AppendLine(" {");
-            _state.Push();
-            FormatBlock(func.Body, sb);
-            _state.Pop();
-            _state.Indent(sb);
-            sb.AppendLine("}");
-        }
-        else
-        {
-            sb.AppendLine();
-        }
-    }
-
     private void FormatClass(ClassDeclaration cls, StringBuilder sb)
     {
-        FormatAttributes(cls.Attributes, sb);
+        _walk.FormatAttributes(cls.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(cls.Modifiers, cls.Name, true);
@@ -341,7 +253,7 @@ public class Formatter
             sb.Append("(");
             for (int i = 0; i < cls.PrimaryConstructorParameters.Count; i++)
             {
-                FormatParameter(cls.PrimaryConstructorParameters[i], sb);
+                _walk.FormatParameter(cls.PrimaryConstructorParameters[i], sb);
                 if (i < cls.PrimaryConstructorParameters.Count - 1)
                 {
                     sb.Append(", ");
@@ -373,7 +285,7 @@ public class Formatter
 
     private void FormatStruct(StructDeclaration str, StringBuilder sb)
     {
-        FormatAttributes(str.Attributes, sb);
+        _walk.FormatAttributes(str.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(str.Modifiers, str.Name, true);
@@ -398,7 +310,7 @@ public class Formatter
             sb.Append("(");
             for (int i = 0; i < str.PrimaryConstructorParameters.Count; i++)
             {
-                FormatParameter(str.PrimaryConstructorParameters[i], sb);
+                _walk.FormatParameter(str.PrimaryConstructorParameters[i], sb);
                 if (i < str.PrimaryConstructorParameters.Count - 1)
                 {
                     sb.Append(", ");
@@ -423,7 +335,7 @@ public class Formatter
 
     private void FormatRecord(RecordDeclaration rec, StringBuilder sb)
     {
-        FormatAttributes(rec.Attributes, sb);
+        _walk.FormatAttributes(rec.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(rec.Modifiers, rec.Name, true);
@@ -452,7 +364,7 @@ public class Formatter
             sb.Append("(");
             for (int i = 0; i < rec.PrimaryConstructorParameters.Count; i++)
             {
-                FormatParameter(rec.PrimaryConstructorParameters[i], sb);
+                _walk.FormatParameter(rec.PrimaryConstructorParameters[i], sb);
                 if (i < rec.PrimaryConstructorParameters.Count - 1)
                 {
                     sb.Append(", ");
@@ -478,7 +390,7 @@ public class Formatter
 
     private void FormatSoaRecord(SoaRecordDeclaration soa, StringBuilder sb)
     {
-        FormatAttributes(soa.Attributes, sb);
+        _walk.FormatAttributes(soa.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(soa.Modifiers, soa.Name, true);
@@ -507,7 +419,7 @@ public class Formatter
 
     private void FormatInterface(InterfaceDeclaration iface, StringBuilder sb)
     {
-        FormatAttributes(iface.Attributes, sb);
+        _walk.FormatAttributes(iface.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(iface.Modifiers, iface.Name, true);
@@ -548,7 +460,7 @@ public class Formatter
 
     private void FormatUnion(UnionDeclaration union, StringBuilder sb)
     {
-        FormatAttributes(union.Attributes, sb);
+        _walk.FormatAttributes(union.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(union.Modifiers, union.Name, true);
@@ -604,7 +516,7 @@ public class Formatter
 
     private void FormatEnum(EnumDeclaration enumDecl, StringBuilder sb)
     {
-        FormatAttributes(enumDecl.Attributes, sb);
+        _walk.FormatAttributes(enumDecl.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(enumDecl.Modifiers, enumDecl.Name, true);
@@ -634,7 +546,7 @@ public class Formatter
             if (member.Value != null)
             {
                 sb.Append(" = ");
-                FormatExpression(member.Value, sb);
+                _walk.FormatExpression(member.Value, sb);
             }
 
             if (i < enumDecl.Members.Count - 1)
@@ -652,7 +564,7 @@ public class Formatter
 
     private void FormatField(FieldDeclaration field, StringBuilder sb)
     {
-        FormatAttributes(field.Attributes, sb);
+        _walk.FormatAttributes(field.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(field.Modifiers, field.Name, true);
@@ -680,7 +592,7 @@ public class Formatter
             {
                 sb.Append(" = ");
             }
-            FormatExpression(field.Initializer, sb);
+            _walk.FormatExpression(field.Initializer, sb);
         }
 
         sb.AppendLine();
@@ -688,7 +600,7 @@ public class Formatter
 
     private void FormatProperty(PropertyDeclaration prop, StringBuilder sb)
     {
-        FormatAttributes(prop.Attributes, sb);
+        _walk.FormatAttributes(prop.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(prop.Modifiers, prop.Name, true);
@@ -705,7 +617,7 @@ public class Formatter
         if (prop.ExpressionBody != null)
         {
             sb.Append(" => ");
-            FormatExpression(prop.ExpressionBody, sb);
+            _walk.FormatExpression(prop.ExpressionBody, sb);
             sb.AppendLine();
         }
         else if (prop.GetBody != null || prop.SetBody != null)
@@ -718,7 +630,7 @@ public class Formatter
                 _state.Indent(sb);
                 sb.AppendLine("get {");
                 _state.Push();
-                FormatBlock(prop.GetBody, sb);
+                _walk.FormatBlock(prop.GetBody, sb);
                 _state.Pop();
                 _state.Indent(sb);
                 sb.AppendLine("}");
@@ -729,7 +641,7 @@ public class Formatter
                 _state.Indent(sb);
                 sb.AppendLine("set {");
                 _state.Push();
-                FormatBlock(prop.SetBody, sb);
+                _walk.FormatBlock(prop.SetBody, sb);
                 _state.Pop();
                 _state.Indent(sb);
                 sb.AppendLine("}");
@@ -747,7 +659,7 @@ public class Formatter
 
     private void FormatConstructor(ConstructorDeclaration ctor, StringBuilder sb)
     {
-        FormatAttributes(ctor.Attributes, sb);
+        _walk.FormatAttributes(ctor.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(ctor.Modifiers, null, true);
@@ -760,7 +672,7 @@ public class Formatter
         sb.Append("constructor(");
         for (int i = 0; i < ctor.Parameters.Count; i++)
         {
-            FormatParameter(ctor.Parameters[i], sb);
+            _walk.FormatParameter(ctor.Parameters[i], sb);
             if (i < ctor.Parameters.Count - 1)
             {
                 sb.Append(", ");
@@ -771,12 +683,12 @@ public class Formatter
         if (ctor.Initializer != null)
         {
             sb.Append(": ");
-            FormatExpression(ctor.Initializer, sb);
+            _walk.FormatExpression(ctor.Initializer, sb);
         }
 
         sb.AppendLine(" {");
         _state.Push();
-        FormatBlock(ctor.Body, sb);
+        _walk.FormatBlock(ctor.Body, sb);
         _state.Pop();
         _state.Indent(sb);
         sb.AppendLine("}");
@@ -784,7 +696,7 @@ public class Formatter
 
     private void FormatIndexer(IndexerDeclaration indexer, StringBuilder sb)
     {
-        FormatAttributes(indexer.Attributes, sb);
+        _walk.FormatAttributes(indexer.Attributes, sb);
         _state.Indent(sb);
 
         var mods = FormatterSyntaxText.FormatModifiers(indexer.Modifiers, null, true);
@@ -797,7 +709,7 @@ public class Formatter
         sb.Append("this[");
         for (int i = 0; i < indexer.Parameters.Count; i++)
         {
-            FormatParameter(indexer.Parameters[i], sb);
+            _walk.FormatParameter(indexer.Parameters[i], sb);
             if (i < indexer.Parameters.Count - 1)
             {
                 sb.Append(", ");
@@ -813,7 +725,7 @@ public class Formatter
             _state.Indent(sb);
             sb.AppendLine("get {");
             _state.Push();
-            FormatBlock(indexer.GetBody, sb);
+            _walk.FormatBlock(indexer.GetBody, sb);
             _state.Pop();
             _state.Indent(sb);
             sb.AppendLine("}");
@@ -824,7 +736,7 @@ public class Formatter
             _state.Indent(sb);
             sb.AppendLine("set {");
             _state.Push();
-            FormatBlock(indexer.SetBody, sb);
+            _walk.FormatBlock(indexer.SetBody, sb);
             _state.Pop();
             _state.Indent(sb);
             sb.AppendLine("}");
@@ -857,7 +769,7 @@ public class Formatter
                 foreach (var expr in test.TableCases[i])
                 {
                     var exprSb = new StringBuilder();
-                    FormatExpression(expr, exprSb);
+                    _walk.FormatExpression(expr, exprSb);
                     exprs.Add(exprSb.ToString());
                 }
                 sb.Append(string.Join(", ", exprs));
@@ -879,7 +791,7 @@ public class Formatter
 
         sb.AppendLine(" {");
         _state.Push();
-        FormatBlock(test.Body, sb);
+        _walk.FormatBlock(test.Body, sb);
         _state.Pop();
         _state.Indent(sb);
         sb.AppendLine("}");
@@ -890,7 +802,7 @@ public class Formatter
         _state.Indent(sb);
         sb.AppendLine("setup {");
         _state.Push();
-        FormatBlock(setup.Body, sb);
+        _walk.FormatBlock(setup.Body, sb);
         _state.Pop();
         _state.Indent(sb);
         sb.AppendLine("}");
@@ -901,1234 +813,9 @@ public class Formatter
         _state.Indent(sb);
         sb.AppendLine("teardown {");
         _state.Push();
-        FormatBlock(teardown.Body, sb);
+        _walk.FormatBlock(teardown.Body, sb);
         _state.Pop();
         _state.Indent(sb);
         sb.AppendLine("}");
-    }
-
-    private void FormatBlock(BlockStatement block, StringBuilder sb)
-    {
-        // Baseline the gap tracker on this block's opening-brace line so top-of-block comments and
-        // statements measure from the `{`, not from a statement before the block's header lines.
-        if (block.Line > 0)
-        {
-            _state.LastEmittedSourceLine = block.Line;
-        }
-        for (int i = 0; i < block.Statements.Count; i++)
-        {
-            var stmt = block.Statements[i];
-            _state.EmitCommentsBefore(stmt.Line, sb);
-            // Preserve blank lines between statements; the tracker accounts for comments just emitted
-            if (i > 0 && _state.HasBlankLineBefore(stmt.Line))
-            {
-                sb.AppendLine();
-            }
-            FormatStatement(stmt, sb);
-            _state.LastEmittedSourceLine = stmt.EndLine;
-        }
-    }
-
-    private void FormatIfStatement(IfStatement ifStmt, StringBuilder sb)
-    {
-        sb.Append("if ");
-        FormatExpression(ifStmt.Condition, sb);
-        sb.AppendLine(" {");
-        _state.Push();
-        if (ifStmt.ThenStatement is BlockStatement thenBlock)
-        {
-            FormatBlock(thenBlock, sb);
-        }
-        else
-        {
-            FormatStatement(ifStmt.ThenStatement, sb);
-        }
-        _state.Pop();
-        _state.Indent(sb);
-        sb.Append("}");
-
-        if (ifStmt.ElseStatement != null)
-        {
-            sb.Append(" else ");
-            if (ifStmt.ElseStatement is IfStatement elseIfStmt)
-            {
-                FormatIfStatement(elseIfStmt, sb);
-            }
-            else
-            {
-                sb.AppendLine("{");
-                _state.Push();
-                if (ifStmt.ElseStatement is BlockStatement elseBlock)
-                {
-                    FormatBlock(elseBlock, sb);
-                }
-                else
-                {
-                    FormatStatement(ifStmt.ElseStatement, sb);
-                }
-                _state.Pop();
-                _state.Indent(sb);
-                sb.AppendLine("}");
-            }
-        }
-        else
-        {
-            sb.AppendLine();
-        }
-    }
-
-    private void FormatStatement(Statement stmt, StringBuilder sb)
-    {
-        switch (stmt)
-        {
-            case ExpressionStatement exprStmt:
-                _state.Indent(sb);
-                FormatExpression(exprStmt.Expression, sb);
-                sb.AppendLine();
-                break;
-
-            case VariableDeclarationStatement varDecl:
-                _state.Indent(sb);
-                if (varDecl.Kind == VariableKind.Const)
-                {
-                    sb.Append("const ");
-                }
-                else if (varDecl.Kind == VariableKind.Readonly)
-                {
-                    sb.Append("readonly ");
-                }
-                sb.Append(varDecl.Name);
-                if (varDecl.Type != null)
-                {
-                    sb.Append(": ");
-                    sb.Append(FormatterSyntaxText.FormatTypeReference(varDecl.Type));
-                }
-                if (varDecl.Initializer != null)
-                {
-                    if (varDecl.Type == null)
-                    {
-                        sb.Append(" := ");
-                    }
-                    else
-                    {
-                        sb.Append(" = ");
-                    }
-                    FormatExpression(varDecl.Initializer, sb);
-                }
-                sb.AppendLine();
-                break;
-
-            case TupleDeconstructionStatement tupleDecl:
-                _state.Indent(sb);
-                sb.Append(string.Join(", ", tupleDecl.Names));
-                sb.Append(" := ");
-                FormatExpression(tupleDecl.Initializer, sb);
-                sb.AppendLine();
-                break;
-
-            case BlockStatement block:
-                _state.Indent(sb);
-                sb.AppendLine("{");
-                _state.Push();
-                FormatBlock(block, sb);
-                _state.Pop();
-                _state.Indent(sb);
-                sb.AppendLine("}");
-                break;
-
-            case AllocBlockStatement allocBlock:
-                FormatKeywordBlock("alloc", allocBlock.Body, sb);
-                break;
-
-            case AllowStatement allow:
-                FormatKeywordBlock($"allow({FormatterSyntaxText.FormatAllowArguments(allow)})", allow.Body, sb);
-                break;
-
-            case UnsafeBlockStatement unsafeBlock:
-                FormatKeywordBlock("unsafe", unsafeBlock.Body, sb);
-                break;
-
-            case IfStatement ifStmt:
-                _state.Indent(sb);
-                FormatIfStatement(ifStmt, sb);
-                break;
-
-            case ForStatement forStmt:
-                // Detect for...in pattern: ForStatement(null, null, null, ForeachStatement)
-                if (forStmt.Initializer == null && forStmt.Condition == null
-                    && forStmt.Iterator == null && forStmt.Body is ForeachStatement forInStmt)
-                {
-                    _state.Indent(sb);
-                    FormatForeachBody(forInStmt, sb);
-                    break;
-                }
-                _state.Indent(sb);
-                sb.Append("for ");
-                if (forStmt.Initializer != null)
-                {
-                    if (forStmt.Initializer is VariableDeclarationStatement vd)
-                    {
-                        sb.Append(vd.Name);
-                        if (vd.Type != null)
-                        {
-                            sb.Append(": ");
-                            sb.Append(FormatterSyntaxText.FormatTypeReference(vd.Type));
-                        }
-                        if (vd.Initializer != null)
-                        {
-                            // Use := for shorthand declarations (no explicit type), = for typed declarations
-                            sb.Append(vd.Type == null ? " := " : " = ");
-                            FormatExpression(vd.Initializer, sb);
-                        }
-                    }
-                    else
-                    {
-                        FormatExpression(((ExpressionStatement)forStmt.Initializer).Expression, sb);
-                    }
-                }
-                sb.Append("; ");
-                if (forStmt.Condition != null)
-                {
-                    FormatExpression(forStmt.Condition, sb);
-                }
-                sb.Append("; ");
-                if (forStmt.Iterator != null)
-                {
-                    FormatExpression(forStmt.Iterator, sb);
-                }
-                sb.AppendLine(" {");
-                _state.Push();
-                if (forStmt.Body is BlockStatement forBlock)
-                {
-                    FormatBlock(forBlock, sb);
-                }
-                else
-                {
-                    FormatStatement(forStmt.Body, sb);
-                }
-                _state.Pop();
-                _state.Indent(sb);
-                sb.AppendLine("}");
-                break;
-
-            case ForeachStatement foreachStmt:
-                _state.Indent(sb);
-                FormatForeachBody(foreachStmt, sb);
-                break;
-
-            case AwaitForEachStatement awaitForeach:
-                _state.Indent(sb);
-                sb.Append("await foreach ");
-                sb.Append(awaitForeach.VariableName);
-                sb.Append(" in ");
-                FormatExpression(awaitForeach.Collection, sb);
-                sb.AppendLine(" {");
-                _state.Push();
-                if (awaitForeach.Body is BlockStatement awaitForBlock)
-                {
-                    FormatBlock(awaitForBlock, sb);
-                }
-                else
-                {
-                    FormatStatement(awaitForeach.Body, sb);
-                }
-                _state.Pop();
-                _state.Indent(sb);
-                sb.AppendLine("}");
-                break;
-
-            case WhileStatement whileStmt:
-                _state.Indent(sb);
-                sb.Append("while ");
-                FormatExpression(whileStmt.Condition, sb);
-                sb.AppendLine(" {");
-                _state.Push();
-                if (whileStmt.Body is BlockStatement whileBlock)
-                {
-                    FormatBlock(whileBlock, sb);
-                }
-                else
-                {
-                    FormatStatement(whileStmt.Body, sb);
-                }
-                _state.Pop();
-                _state.Indent(sb);
-                sb.AppendLine("}");
-                break;
-
-            case ReturnStatement retStmt:
-                _state.Indent(sb);
-                sb.Append("return");
-                if (retStmt.Value != null)
-                {
-                    sb.Append(" ");
-                    FormatExpression(retStmt.Value, sb);
-                }
-                sb.AppendLine();
-                break;
-
-            case YieldStatement yieldStmt:
-                _state.Indent(sb);
-                if (yieldStmt.Value != null)
-                {
-                    sb.Append("yield ");
-                    FormatExpression(yieldStmt.Value, sb);
-                }
-                else
-                {
-                    sb.Append("yield break");
-                }
-                sb.AppendLine();
-                break;
-
-            case BreakStatement:
-                _state.Indent(sb);
-                sb.AppendLine("break");
-                break;
-
-            case ContinueStatement:
-                _state.Indent(sb);
-                sb.AppendLine("continue");
-                break;
-
-            case ThrowStatement throwStmt:
-                _state.Indent(sb);
-                sb.Append("throw ");
-                FormatExpression(throwStmt.Expression, sb);
-                sb.AppendLine();
-                break;
-
-            case PrintStatement printStmt:
-                _state.Indent(sb);
-                sb.Append("print ");
-                FormatExpression(printStmt.Value, sb);
-                sb.AppendLine();
-                break;
-
-            case OffStatement offStmt:
-                _state.Indent(sb);
-                sb.Append("off ");
-                FormatExpression(offStmt.Handle, sb);
-                sb.AppendLine();
-                break;
-
-            case TryStatement tryStmt:
-                _state.Indent(sb);
-                sb.AppendLine("try {");
-                _state.Push();
-                FormatBlock(tryStmt.TryBlock, sb);
-                _state.Pop();
-                _state.Indent(sb);
-                sb.Append("}");
-
-                foreach (var catchClause in tryStmt.CatchClauses)
-                {
-                    sb.Append(" catch");
-                    if (catchClause.ExceptionType != null)
-                    {
-                        if (catchClause.VariableName != null)
-                        {
-                            sb.Append(" ");
-                            sb.Append(catchClause.VariableName);
-                            sb.Append(": ");
-                            sb.Append(FormatterSyntaxText.FormatTypeReference(catchClause.ExceptionType));
-                        }
-                        else
-                        {
-                            sb.Append(" (");
-                            sb.Append(FormatterSyntaxText.FormatTypeReference(catchClause.ExceptionType));
-                            sb.Append(")");
-                        }
-                    }
-                    sb.AppendLine(" {");
-                    _state.Push();
-                    FormatBlock(catchClause.Block, sb);
-                    _state.Pop();
-                    _state.Indent(sb);
-                    sb.Append("}");
-                }
-
-                if (tryStmt.FinallyBlock != null)
-                {
-                    sb.AppendLine(" finally {");
-                    _state.Push();
-                    FormatBlock(tryStmt.FinallyBlock, sb);
-                    _state.Pop();
-                    _state.Indent(sb);
-                    sb.Append("}");
-                }
-
-                sb.AppendLine();
-                break;
-
-            case UsingStatement usingStmt:
-                _state.Indent(sb);
-                sb.Append("using ");
-                if (usingStmt.Declaration != null)
-                {
-                    sb.Append(usingStmt.Declaration.Name);
-                    if (usingStmt.Declaration.Type != null)
-                    {
-                        sb.Append(": ");
-                        sb.Append(FormatterSyntaxText.FormatTypeReference(usingStmt.Declaration.Type));
-                    }
-                    if (usingStmt.Declaration.Initializer != null)
-                    {
-                        sb.Append(" = ");
-                        FormatExpression(usingStmt.Declaration.Initializer, sb);
-                    }
-                }
-                else if (usingStmt.Expression != null)
-                {
-                    FormatExpression(usingStmt.Expression, sb);
-                }
-
-                if (usingStmt.Body != null)
-                {
-                    sb.AppendLine(" {");
-                    _state.Push();
-                    if (usingStmt.Body is BlockStatement usingBlock)
-                    {
-                        FormatBlock(usingBlock, sb);
-                    }
-                    else
-                    {
-                        FormatStatement(usingStmt.Body, sb);
-                    }
-                    _state.Pop();
-                    _state.Indent(sb);
-                    sb.AppendLine("}");
-                }
-                else
-                {
-                    sb.AppendLine();
-                }
-                break;
-
-            case LockStatement lockStmt:
-                _state.Indent(sb);
-                sb.Append("lock ");
-                FormatExpression(lockStmt.LockObject, sb);
-                sb.AppendLine(" {");
-                _state.Push();
-                FormatBlock(lockStmt.Body, sb);
-                _state.Pop();
-                _state.Indent(sb);
-                sb.AppendLine("}");
-                break;
-
-            case SwitchStatement switchStmt:
-                _state.Indent(sb);
-                sb.Append("switch ");
-                FormatExpression(switchStmt.Value, sb);
-                sb.AppendLine(" {");
-                _state.Push();
-                foreach (var caseClause in switchStmt.Cases)
-                {
-                    _state.Indent(sb);
-                    if (caseClause.Pattern != null)
-                    {
-                        sb.Append("case ");
-                        FormatPattern(caseClause.Pattern, sb);
-                        sb.AppendLine(":");
-                    }
-                    else
-                    {
-                        sb.AppendLine("default:");
-                    }
-                    _state.Push();
-                    foreach (var caseStmt in caseClause.Statements)
-                    {
-                        FormatStatement(caseStmt, sb);
-                    }
-                    _state.Pop();
-                }
-                _state.Pop();
-                _state.Indent(sb);
-                sb.AppendLine("}");
-                break;
-
-            case LocalFunctionStatement localFunc:
-                FormatFunction(localFunc.Function, sb);
-                break;
-
-            case AssertStatement assertStmt:
-                _state.Indent(sb);
-                sb.Append("assert ");
-                FormatExpression(assertStmt.Condition, sb);
-                if (assertStmt.Message != null)
-                {
-                    sb.Append(", ");
-                    FormatExpression(assertStmt.Message, sb);
-                }
-                sb.AppendLine();
-                break;
-
-            case AssertThrowsStatement assertThrows:
-                _state.Indent(sb);
-                sb.Append("assert throws ");
-                sb.Append(FormatterSyntaxText.FormatTypeReference(assertThrows.ExceptionType));
-                sb.AppendLine(" {");
-                _state.Push();
-                FormatBlock(assertThrows.Body, sb);
-                _state.Pop();
-                _state.Indent(sb);
-                sb.AppendLine("}");
-                break;
-
-            case PreprocessorDirective preproc:
-                _state.Indent(sb);
-                sb.AppendLine(preproc.Directive);
-                break;
-
-            case EmptyStatement:
-                break;
-            default:
-                throw new InvalidOperationException($"Formatter does not handle statement type: {stmt.GetType().Name}");
-        }
-    }
-
-    private void FormatKeywordBlock(string header, BlockStatement body, StringBuilder sb)
-    {
-        _state.Indent(sb);
-        sb.Append(header);
-        sb.AppendLine(" {");
-        _state.Push();
-        FormatBlock(body, sb);
-        _state.Pop();
-        _state.Indent(sb);
-        sb.AppendLine("}");
-    }
-
-    private void FormatForeachBody(ForeachStatement foreachStmt, StringBuilder sb)
-    {
-        // Canonical N# style: for x in collection (not foreach)
-        sb.Append("for ");
-        sb.Append(foreachStmt.VariableName);
-        sb.Append(" in ");
-        FormatExpression(foreachStmt.Collection, sb);
-        sb.AppendLine(" {");
-        _state.Push();
-        if (foreachStmt.Body is BlockStatement foreachBlock)
-        {
-            FormatBlock(foreachBlock, sb);
-        }
-        else
-        {
-            FormatStatement(foreachStmt.Body, sb);
-        }
-        _state.Pop();
-        _state.Indent(sb);
-        sb.AppendLine("}");
-    }
-
-    private void FormatExpression(Expression expr, StringBuilder sb)
-    {
-        switch (expr)
-        {
-            case IntLiteralExpression intLit:
-                sb.Append(intLit.Value);
-                break;
-            case FloatLiteralExpression floatLit:
-                sb.Append(floatLit.Value);
-                break;
-            case CharLiteralExpression charLit:
-                sb.Append(charLit.Value);
-                break;
-            case StringLiteralExpression strLit:
-                sb.Append(strLit.Value);
-                break;
-            case InterpolatedStringExpression interpolated:
-                sb.Append(interpolated.IsRaw ? "$\"\"\"" : "$\"");
-                foreach (var part in interpolated.Parts)
-                {
-                    switch (part)
-                    {
-                        case InterpolatedStringText text:
-                            sb.Append(interpolated.IsRaw
-                                ? text.Text.Replace("{", "{{", StringComparison.Ordinal).Replace("}", "}}", StringComparison.Ordinal)
-                                : text.Text);
-                            break;
-                        case InterpolatedStringHole hole:
-                            sb.Append('{');
-                            FormatExpression(hole.Expression, sb);
-                            if (hole.FormatClause != null)
-                            {
-                                sb.Append(':');
-                                sb.Append(hole.FormatClause);
-                            }
-                            sb.Append('}');
-                            break;
-                    }
-                }
-                sb.Append(interpolated.IsRaw ? "\"\"\"" : "\"");
-                break;
-            case BoolLiteralExpression boolLit:
-                sb.Append(boolLit.Value ? "true" : "false");
-                break;
-            case NullLiteralExpression:
-                sb.Append("null");
-                break;
-            case IdentifierExpression ident:
-                sb.Append(ident.Name);
-                break;
-            case BinaryExpression bin:
-                FormatExpression(bin.Left, sb);
-                sb.Append(" ");
-                sb.Append(OperatorFacts.GetRequiredBinaryText(bin.Operator));
-                sb.Append(" ");
-                FormatExpression(bin.Right, sb);
-                break;
-            case UnaryExpression unary:
-                if (unary.Operator == UnaryOperator.PostIncrement || unary.Operator == UnaryOperator.PostDecrement)
-                {
-                    FormatExpression(unary.Operand, sb);
-                    sb.Append(OperatorFacts.GetRequiredUnaryText(unary.Operator));
-                }
-                else
-                {
-                    sb.Append(OperatorFacts.GetRequiredUnaryText(unary.Operator));
-                    FormatExpression(unary.Operand, sb);
-                }
-                break;
-            case MustExpression must:
-                sb.Append("must ");
-                FormatExpression(must.Expression, sb);
-                break;
-            case MemberAccessExpression member:
-                FormatExpression(member.Object, sb);
-                sb.Append(member.IsNullConditional ? "?." : ".");
-                sb.Append(member.MemberName);
-                break;
-            case IndexAccessExpression index:
-                FormatExpression(index.Object, sb);
-                sb.Append(index.IsNullConditional ? "?[" : "[");
-                FormatExpression(index.Index, sb);
-                sb.Append("]");
-                break;
-            case CallExpression call:
-                FormatExpression(call.Callee, sb);
-                if (call.TypeArguments != null && call.TypeArguments.Count > 0)
-                {
-                    sb.Append("<");
-                    sb.Append(string.Join(", ", call.TypeArguments.Select(FormatterSyntaxText.FormatTypeReference)));
-                    sb.Append(">");
-                }
-                sb.Append("(");
-                for (int i = 0; i < call.Arguments.Count; i++)
-                {
-                    var arg = call.Arguments[i];
-                    if (arg.Name != null)
-                    {
-                        sb.Append(arg.Name);
-                        sb.Append(": ");
-                    }
-                    if (arg.Modifier == ArgumentModifier.Ref)
-                    {
-                        sb.Append("ref ");
-                    }
-                    else if (arg.Modifier == ArgumentModifier.Out)
-                    {
-                        sb.Append("out ");
-                    }
-                    FormatExpression(arg.Value, sb);
-                    if (i < call.Arguments.Count - 1)
-                    {
-                        sb.Append(", ");
-                    }
-                }
-                sb.Append(")");
-                break;
-            case AssignmentExpression assign:
-                FormatExpression(assign.Target, sb);
-                sb.Append(" ");
-                sb.Append(OperatorFacts.GetRequiredAssignmentText(assign.Operator));
-                sb.Append(" ");
-                FormatExpression(assign.Value, sb);
-                break;
-            case OnSubscriptionExpression onSubscription:
-                sb.Append("on ");
-                FormatExpression(onSubscription.Target, sb);
-                sb.Append(" ");
-                FormatExpression(onSubscription.Handler, sb);
-                break;
-            case LambdaExpression lambda:
-                bool allParamsInferred = lambda.Parameters.All(p =>
-                    p.Type == null || (p.Type is SimpleTypeReference s && s.Name == "var"));
-                if (lambda.Parameters.Count == 1 && allParamsInferred)
-                {
-                    // Single inferred-type param: x => expr
-                    sb.Append(lambda.Parameters[0].Name);
-                }
-                else if (lambda.Parameters.Count > 1 && allParamsInferred)
-                {
-                    // Multi inferred-type params: (x, y) => expr
-                    sb.Append("(");
-                    sb.Append(string.Join(", ", lambda.Parameters.Select(p => p.Name)));
-                    sb.Append(")");
-                }
-                else
-                {
-                    sb.Append("(");
-                    for (int i = 0; i < lambda.Parameters.Count; i++)
-                    {
-                        FormatParameter(lambda.Parameters[i], sb);
-                        if (i < lambda.Parameters.Count - 1)
-                        {
-                            sb.Append(", ");
-                        }
-                    }
-                    sb.Append(")");
-                }
-                sb.Append(" => ");
-                if (lambda.ExpressionBody != null)
-                {
-                    FormatExpression(lambda.ExpressionBody, sb);
-                }
-                else if (lambda.BlockBody != null)
-                {
-                    sb.AppendLine("{");
-                    _state.Push();
-                    FormatBlock(lambda.BlockBody, sb);
-                    _state.Pop();
-                    _state.Indent(sb);
-                    sb.Append("}");
-                }
-                break;
-            case TernaryExpression ternary:
-                FormatExpression(ternary.Condition, sb);
-                sb.Append(" ? ");
-                FormatExpression(ternary.ThenExpression, sb);
-                sb.Append(" : ");
-                FormatExpression(ternary.ElseExpression, sb);
-                break;
-            case ArrayLiteralExpression array:
-                sb.Append(array.IsImmutable ? "#[" : "[");
-                for (int i = 0; i < array.Elements.Count; i++)
-                {
-                    FormatExpression(array.Elements[i], sb);
-                    if (i < array.Elements.Count - 1)
-                    {
-                        sb.Append(", ");
-                    }
-                }
-                sb.Append("]");
-                break;
-            case TupleExpression tuple:
-                sb.Append("(");
-                for (int i = 0; i < tuple.Elements.Count; i++)
-                {
-                    var elem = tuple.Elements[i];
-                    if (elem.Name != null)
-                    {
-                        sb.Append(elem.Name);
-                        sb.Append(": ");
-                    }
-                    FormatExpression(elem.Value, sb);
-                    if (i < tuple.Elements.Count - 1)
-                    {
-                        sb.Append(", ");
-                    }
-                }
-                sb.Append(")");
-                break;
-            case NewExpression newExpr:
-                sb.Append("new");
-                if (newExpr.Type != null)
-                {
-                    sb.Append(" ");
-                    if (newExpr.ArrayLengthExpression != null && newExpr.Type is ArrayTypeReference arrayType)
-                    {
-                        sb.Append(FormatterSyntaxText.FormatTypeReference(arrayType.ElementType));
-                    }
-                    else
-                    {
-                        sb.Append(FormatterSyntaxText.FormatTypeReference(newExpr.Type));
-                    }
-                }
-                if (newExpr.ArrayLengthExpression != null)
-                {
-                    sb.Append("[");
-                    FormatExpression(newExpr.ArrayLengthExpression, sb);
-                    sb.Append("]");
-                }
-                else if (newExpr.ConstructorArguments.Count > 0 || newExpr.Initializer == null)
-                {
-                    sb.Append("(");
-                    for (int i = 0; i < newExpr.ConstructorArguments.Count; i++)
-                    {
-                        var arg = newExpr.ConstructorArguments[i];
-                        if (arg.Name != null)
-                        {
-                            sb.Append(arg.Name);
-                            sb.Append(": ");
-                        }
-                        FormatExpression(arg.Value, sb);
-                        if (i < newExpr.ConstructorArguments.Count - 1)
-                        {
-                            sb.Append(", ");
-                        }
-                    }
-                    sb.Append(")");
-                }
-                if (newExpr.Initializer != null)
-                {
-                    FormatObjectInitializer(newExpr.Initializer, sb);
-                }
-                break;
-            case CastExpression cast:
-                if (cast.Kind == CastKind.Hard)
-                {
-                    sb.Append("(");
-                    sb.Append(FormatterSyntaxText.FormatTypeReference(cast.TargetType));
-                    sb.Append(")");
-                    FormatExpression(cast.Expression, sb);
-                }
-                else
-                {
-                    FormatExpression(cast.Expression, sb);
-                    sb.Append(" as ");
-                    sb.Append(FormatterSyntaxText.FormatTypeReference(cast.TargetType));
-                }
-                break;
-            case IsExpression isExpr:
-                FormatExpression(isExpr.Expression, sb);
-                sb.Append(" is ");
-                sb.Append(FormatterSyntaxText.FormatTypeReference(isExpr.Type));
-                if (isExpr.VariableName != null)
-                {
-                    sb.Append(" ");
-                    sb.Append(isExpr.VariableName);
-                }
-                break;
-            case MatchExpression match:
-                sb.Append("match ");
-                FormatExpression(match.Value, sb);
-                sb.AppendLine(" {");
-                _state.Push();
-                for (int i = 0; i < match.Cases.Count; i++)
-                {
-                    var caseExpr = match.Cases[i];
-                    _state.Indent(sb);
-                    FormatPattern(caseExpr.Pattern, sb);
-                    if (caseExpr.Guard != null)
-                    {
-                        sb.Append(" when ");
-                        FormatExpression(caseExpr.Guard, sb);
-                    }
-                    sb.Append(" => ");
-                    FormatExpression(caseExpr.Expression, sb);
-                    // Commas required between cases (not after last)
-                    if (i < match.Cases.Count - 1)
-                    {
-                        sb.Append(",");
-                    }
-                    sb.AppendLine();
-                }
-                _state.Pop();
-                _state.Indent(sb);
-                sb.Append("}");
-                break;
-            case WithExpression withExpr:
-                FormatExpression(withExpr.Target, sb);
-                sb.Append(" with { ");
-                for (int i = 0; i < withExpr.Properties.Count; i++)
-                {
-                    var prop = withExpr.Properties[i];
-                    if (prop.Name != null)
-                    {
-                        sb.Append(prop.Name);
-                        sb.Append(": ");
-                    }
-                    FormatExpression(prop.Value, sb);
-                    if (i < withExpr.Properties.Count - 1)
-                    {
-                        sb.Append(", ");
-                    }
-                }
-                sb.Append(" }");
-                break;
-            case AwaitExpression awaitExpr:
-                sb.Append("await ");
-                FormatExpression(awaitExpr.Expression, sb);
-                break;
-            case ThrowExpression throwExpr:
-                sb.Append("throw ");
-                FormatExpression(throwExpr.Expression, sb);
-                break;
-            case TypeOfExpression typeofExpr:
-                sb.Append("typeof(");
-                sb.Append(FormatterSyntaxText.FormatTypeReference(typeofExpr.Type));
-                sb.Append(")");
-                break;
-            case NameofExpression nameofExpr:
-                sb.Append("nameof(");
-                FormatExpression(nameofExpr.Target, sb);
-                sb.Append(")");
-                break;
-            case SizeOfExpression sizeofExpr:
-                sb.Append("sizeof(");
-                sb.Append(FormatterSyntaxText.FormatTypeReference(sizeofExpr.Type));
-                sb.Append(")");
-                break;
-            case ThisExpression:
-                sb.Append("this");
-                break;
-            case BaseExpression:
-                sb.Append("base");
-                break;
-            case RangeExpression range:
-                if (range.Start != null)
-                {
-                    FormatExpression(range.Start, sb);
-                }
-                sb.Append("..");
-                if (range.End != null)
-                {
-                    FormatExpression(range.End, sb);
-                }
-                break;
-            case SpreadExpression spread:
-                sb.Append("...");
-                FormatExpression(spread.Expression, sb);
-                break;
-            case CheckedExpression checkedExpr:
-                sb.Append("checked(");
-                FormatExpression(checkedExpr.Expression, sb);
-                sb.Append(")");
-                break;
-            case UncheckedExpression uncheckedExpr:
-                sb.Append("unchecked(");
-                FormatExpression(uncheckedExpr.Expression, sb);
-                sb.Append(")");
-                break;
-            case DefaultExpression:
-                sb.Append("default");
-                break;
-            case ParenthesizedExpression paren:
-                sb.Append("(");
-                FormatExpression(paren.Inner, sb);
-                sb.Append(")");
-                break;
-            default:
-                throw new InvalidOperationException($"Formatter does not handle expression type: {expr.GetType().Name}");
-        }
-    }
-
-    private void FormatPattern(Pattern pattern, StringBuilder sb)
-    {
-        switch (pattern)
-        {
-            case IdentifierPattern ident:
-                sb.Append(ident.Name);
-                break;
-            case LiteralPattern lit:
-                FormatExpression(lit.Literal, sb);
-                break;
-            case UnionCasePattern unionCase:
-                sb.Append(unionCase.CaseName);
-                if (unionCase.Properties != null && unionCase.Properties.Count > 0)
-                {
-                    sb.Append(" { ");
-                    for (int i = 0; i < unionCase.Properties.Count; i++)
-                    {
-                        var prop = unionCase.Properties[i];
-                        FormatPropertyPattern(prop, sb);
-                        if (i < unionCase.Properties.Count - 1)
-                        {
-                            sb.Append(", ");
-                        }
-                    }
-                    sb.Append(" }");
-                }
-                break;
-            case RelationalPattern rel:
-                sb.Append(rel.Operator);
-                sb.Append(" ");
-                FormatExpression(rel.Value, sb);
-                break;
-            case AndPattern and:
-                FormatPattern(and.Left, sb);
-                sb.Append(" and ");
-                FormatPattern(and.Right, sb);
-                break;
-            case OrPattern or:
-                FormatPattern(or.Left, sb);
-                sb.Append(" or ");
-                FormatPattern(or.Right, sb);
-                break;
-            case NotPattern not:
-                sb.Append("not ");
-                FormatPattern(not.Pattern, sb);
-                break;
-            case PositionalPattern pos:
-                sb.Append("(");
-                for (int i = 0; i < pos.Patterns.Count; i++)
-                {
-                    FormatPattern(pos.Patterns[i], sb);
-                    if (i < pos.Patterns.Count - 1)
-                    {
-                        sb.Append(", ");
-                    }
-                }
-                sb.Append(")");
-                break;
-            case ObjectPattern obj:
-                sb.Append("{ ");
-                for (int i = 0; i < obj.Properties.Count; i++)
-                {
-                    FormatPropertyPattern(obj.Properties[i], sb);
-                    if (i < obj.Properties.Count - 1)
-                    {
-                        sb.Append(", ");
-                    }
-                }
-                sb.Append(" }");
-                break;
-            case ListPattern list:
-                sb.Append("[");
-                for (int i = 0; i < list.Elements.Count; i++)
-                {
-                    FormatPattern(list.Elements[i], sb);
-                    if (i < list.Elements.Count - 1)
-                    {
-                        sb.Append(", ");
-                    }
-                }
-                sb.Append("]");
-                break;
-            case SlicePattern slice:
-                sb.Append("..");
-                if (slice.BindingName != null)
-                {
-                    sb.Append(" ");
-                    sb.Append(slice.BindingName);
-                }
-                break;
-            case TypePattern type:
-                sb.Append(FormatterSyntaxText.FormatTypeReference(type.Type));
-                if (type.BindingName != null)
-                {
-                    sb.Append(" ");
-                    sb.Append(type.BindingName);
-                }
-                break;
-            default:
-                throw new InvalidOperationException($"Formatter does not handle pattern type: {pattern.GetType().Name}");
-        }
-    }
-
-    private void FormatPropertyPattern(PropertyPattern prop, StringBuilder sb)
-    {
-        sb.Append(prop.Name);
-        if (prop.Pattern != null)
-        {
-            sb.Append(": ");
-            FormatPattern(prop.Pattern, sb);
-        }
-        else if (prop.BindingName != null)
-        {
-            sb.Append(": ");
-            sb.Append(prop.BindingName);
-        }
-        // When both Pattern and BindingName are null, it's a simple binding: { Name }
-    }
-
-    private void FormatParameter(Parameter param, StringBuilder sb)
-    {
-        if (param.Attributes is { Count: > 0 })
-        {
-            foreach (var attr in param.Attributes)
-            {
-                FormatAttributeInline(attr, sb);
-                sb.Append(" ");
-            }
-        }
-        if (param.IsThis)
-        {
-            sb.Append("this ");
-        }
-        if (param.Modifier == ParameterModifier.Ref)
-        {
-            sb.Append("ref ");
-        }
-        else if (param.Modifier == ParameterModifier.Out)
-        {
-            sb.Append("out ");
-        }
-        else if (param.Modifier == ParameterModifier.Params)
-        {
-            sb.Append("params ");
-        }
-        sb.Append(param.Name);
-        sb.Append(": ");
-        sb.Append(FormatterSyntaxText.FormatTypeReference(param.Type));
-        if (param.IsScoped)
-        {
-            sb.Append(" scoped");
-            if (!string.IsNullOrEmpty(param.Lifetime))
-            {
-                sb.Append(" ");
-                sb.Append(param.Lifetime);
-            }
-        }
-        if (param.DefaultValue != null)
-        {
-            sb.Append(" = ");
-            FormatExpression(param.DefaultValue, sb);
-        }
-    }
-
-    private void FormatAttributes(IReadOnlyList<AttributeNode>? attributes, StringBuilder sb)
-    {
-        if (attributes is not { Count: > 0 })
-        {
-            return;
-        }
-
-        foreach (var attr in attributes)
-        {
-            _state.Indent(sb);
-            FormatAttributeInline(attr, sb);
-            sb.AppendLine();
-        }
-    }
-
-    private void FormatAttributeInline(AttributeNode attr, StringBuilder sb)
-    {
-        sb.Append("[");
-        sb.Append(attr.Name);
-        if (attr.Arguments.Count > 0)
-        {
-            sb.Append("(");
-            for (int i = 0; i < attr.Arguments.Count; i++)
-            {
-                if (i > 0) sb.Append(", ");
-                var argument = attr.Arguments[i];
-                if (argument.Name != null)
-                {
-                    sb.Append(argument.Name);
-                    sb.Append(" = ");
-                }
-                FormatExpression(argument.Value, sb);
-            }
-            sb.Append(")");
-        }
-        sb.Append("]");
-    }
-
-    /// <summary>
-    /// Format an object initializer, choosing inline or multi-line based on line length.
-    /// Inline: { Prop1: val1, Prop2: val2 }
-    /// Multi-line:
-    ///   {
-    ///       Prop1: val1,
-    ///       Prop2: val2
-    ///   }
-    /// </summary>
-    private void FormatObjectInitializer(ObjectInitializerExpression initializer, StringBuilder sb)
-    {
-        // First, measure the inline form to decide if it fits
-        var inlineSb = new StringBuilder();
-        inlineSb.Append(" { ");
-        for (int i = 0; i < initializer.Properties.Count; i++)
-        {
-            var prop = initializer.Properties[i];
-            if (prop.Name != null)
-            {
-                inlineSb.Append(prop.Name);
-                inlineSb.Append(": ");
-            }
-            if (prop.IsIndexerInitializer)
-            {
-                inlineSb.Append("[");
-                inlineSb.Append(FormatExpressionToString(prop.IndexExpression!));
-                inlineSb.Append("] = ");
-            }
-            inlineSb.Append(FormatExpressionToString(prop.Value));
-            if (i < initializer.Properties.Count - 1)
-            {
-                inlineSb.Append(", ");
-            }
-        }
-        inlineSb.Append(" }");
-
-        int currentCol = GetCurrentColumn(sb);
-        bool fitsOnLine = currentCol + inlineSb.Length <= _state.MaxLineLength;
-
-        if (fitsOnLine || initializer.Properties.Count <= 1)
-        {
-            // Inline form
-            sb.Append(inlineSb);
-        }
-        else
-        {
-            // Multi-line form
-            sb.Append(" {");
-            _state.Push();
-            for (int i = 0; i < initializer.Properties.Count; i++)
-            {
-                sb.AppendLine();
-                _state.Indent(sb);
-                var prop = initializer.Properties[i];
-                if (prop.Name != null)
-                {
-                    sb.Append(prop.Name);
-                    sb.Append(": ");
-                }
-                if (prop.IsIndexerInitializer)
-                {
-                    sb.Append("[");
-                    FormatExpression(prop.IndexExpression!, sb);
-                    sb.Append("] = ");
-                }
-                FormatExpression(prop.Value, sb);
-                if (i < initializer.Properties.Count - 1)
-                {
-                    sb.Append(",");
-                }
-            }
-            _state.Pop();
-            sb.AppendLine();
-            _state.Indent(sb);
-            sb.Append("}");
-        }
-    }
-
-    /// <summary>
-    /// Returns the column position (characters since last newline) in the StringBuilder.
-    /// </summary>
-    /// <remarks>
-    /// This measurement stays in C# on purpose, and the reason is measured rather than preferred:
-    /// the pinned toolset does not carry <c>StringBuilder</c>'s character indexer, so an N# owner
-    /// would have to call <c>ToString()</c> and copy the entire output buffer on every object
-    /// initializer. It is stateless — it reads no field — so it is the object-initializer arm's own
-    /// helper and moves with that arm, not with the state.
-    /// </remarks>
-    private static int GetCurrentColumn(StringBuilder sb)
-    {
-        for (int i = sb.Length - 1; i >= 0; i--)
-        {
-            if (sb[i] == '\n')
-                return sb.Length - i - 1;
-        }
-        return sb.Length;
-    }
-
-    /// <summary>
-    /// Format an expression to a standalone string (for measuring inline length).
-    /// Saves and restores formatter state so the measurement pass has no side effects.
-    /// </summary>
-    /// <remarks>
-    /// The snapshot is held in this caller's own local, not on a stack inside the state, so a throw
-    /// inside the measured expression abandons the restore exactly as the two saved locals did.
-    /// </remarks>
-    private string FormatExpressionToString(Expression expr)
-    {
-        var saved = _state.Snapshot();
-        var tempSb = new StringBuilder();
-        FormatExpression(expr, tempSb);
-        _state.Restore(saved);
-        return tempSb.ToString();
     }
 }
