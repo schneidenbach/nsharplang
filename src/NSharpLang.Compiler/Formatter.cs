@@ -198,7 +198,7 @@ public class Formatter
                 break;
             case TypeAliasDeclaration alias:
                 _state.Indent(sb);
-                sb.AppendLine($"type {alias.Name} = {FormatTypeReference(alias.Type)}");
+                sb.AppendLine($"type {alias.Name} = {FormatterSyntaxText.FormatTypeReference(alias.Type)}");
                 break;
             case TestDeclaration test:
                 FormatTest(test, sb);
@@ -211,7 +211,7 @@ public class Formatter
                 break;
             case NewtypeDeclaration newtype:
                 _state.Indent(sb);
-                sb.AppendLine($"type {newtype.Name} = newtype {FormatTypeReference(newtype.UnderlyingType)}");
+                sb.AppendLine($"type {newtype.Name} = newtype {FormatterSyntaxText.FormatTypeReference(newtype.UnderlyingType)}");
                 break;
             case PreprocessorDeclaration preproc:
                 _state.Indent(sb);
@@ -228,7 +228,7 @@ public class Formatter
         _state.Indent(sb);
 
         // Format modifiers
-        var mods = FormatModifiers(func.Modifiers, func.Name, preserveCasingVisibility: !func.IsOperatorOverload && !func.IsConversionOperator);
+        var mods = FormatterSyntaxText.FormatModifiers(func.Modifiers, func.Name, !func.IsOperatorOverload && !func.IsConversionOperator);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -241,7 +241,7 @@ public class Formatter
             sb.Append(" ");
             if (func.ReturnType != null)
             {
-                sb.Append(FormatTypeReference(func.ReturnType));
+                sb.Append(FormatterSyntaxText.FormatTypeReference(func.ReturnType));
             }
         }
         else
@@ -284,7 +284,7 @@ public class Formatter
         if (!func.IsConversionOperator && func.ReturnType != null)
         {
             sb.Append(": ");
-            sb.Append(FormatTypeReference(func.ReturnType));
+            sb.Append(FormatterSyntaxText.FormatTypeReference(func.ReturnType));
         }
         if (!string.IsNullOrEmpty(func.ReturnLifetime))
         {
@@ -319,7 +319,7 @@ public class Formatter
         FormatAttributes(cls.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(cls.Modifiers, cls.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(cls.Modifiers, cls.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -353,9 +353,9 @@ public class Formatter
         var bases = new List<string>();
         if (cls.BaseClass != null)
         {
-            bases.Add(FormatTypeReference(cls.BaseClass));
+            bases.Add(FormatterSyntaxText.FormatTypeReference(cls.BaseClass));
         }
-        bases.AddRange(cls.Interfaces.Select(FormatTypeReference));
+        bases.AddRange(cls.Interfaces.Select(FormatterSyntaxText.FormatTypeReference));
 
         if (bases.Count > 0)
         {
@@ -376,7 +376,7 @@ public class Formatter
         FormatAttributes(str.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(str.Modifiers, str.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(str.Modifiers, str.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -410,7 +410,7 @@ public class Formatter
         if (str.Interfaces.Count > 0)
         {
             sb.Append(": ");
-            sb.Append(string.Join(", ", str.Interfaces.Select(FormatTypeReference)));
+            sb.Append(string.Join(", ", str.Interfaces.Select(FormatterSyntaxText.FormatTypeReference)));
         }
 
         sb.AppendLine(" {");
@@ -426,7 +426,7 @@ public class Formatter
         FormatAttributes(rec.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(rec.Modifiers, rec.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(rec.Modifiers, rec.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -464,7 +464,7 @@ public class Formatter
         if (rec.Interfaces.Count > 0)
         {
             sb.Append(": ");
-            sb.Append(string.Join(", ", rec.Interfaces.Select(FormatTypeReference)));
+            sb.Append(string.Join(", ", rec.Interfaces.Select(FormatterSyntaxText.FormatTypeReference)));
         }
 
         // The grammar requires a braced body on every record, so an empty member list still emits braces.
@@ -481,7 +481,7 @@ public class Formatter
         FormatAttributes(soa.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(soa.Modifiers, soa.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(soa.Modifiers, soa.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -497,7 +497,7 @@ public class Formatter
             _state.Indent(sb);
             sb.Append(column.Name);
             sb.Append(": ");
-            sb.Append(FormatTypeReference(column.Type));
+            sb.Append(FormatterSyntaxText.FormatTypeReference(column.Type));
             sb.AppendLine();
         }
         _state.Pop();
@@ -510,7 +510,7 @@ public class Formatter
         FormatAttributes(iface.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(iface.Modifiers, iface.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(iface.Modifiers, iface.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -535,7 +535,7 @@ public class Formatter
         if (iface.BaseInterfaces.Count > 0)
         {
             sb.Append(": ");
-            sb.Append(string.Join(", ", iface.BaseInterfaces.Select(FormatTypeReference)));
+            sb.Append(string.Join(", ", iface.BaseInterfaces.Select(FormatterSyntaxText.FormatTypeReference)));
         }
 
         sb.AppendLine(" {");
@@ -551,7 +551,7 @@ public class Formatter
         FormatAttributes(union.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(union.Modifiers, union.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(union.Modifiers, union.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -585,7 +585,7 @@ public class Formatter
                     var prop = c.Properties[j];
                     sb.Append(prop.Name);
                     sb.Append(": ");
-                    sb.Append(FormatTypeReference(prop.Type));
+                    sb.Append(FormatterSyntaxText.FormatTypeReference(prop.Type));
                     if (j < c.Properties.Count - 1)
                     {
                         sb.Append(", ");
@@ -607,7 +607,7 @@ public class Formatter
         FormatAttributes(enumDecl.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(enumDecl.Modifiers, enumDecl.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(enumDecl.Modifiers, enumDecl.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -655,7 +655,7 @@ public class Formatter
         FormatAttributes(field.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(field.Modifiers, field.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(field.Modifiers, field.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -667,7 +667,7 @@ public class Formatter
         if (field.Type != null)
         {
             sb.Append(": ");
-            sb.Append(FormatTypeReference(field.Type));
+            sb.Append(FormatterSyntaxText.FormatTypeReference(field.Type));
         }
 
         if (field.Initializer != null)
@@ -691,7 +691,7 @@ public class Formatter
         FormatAttributes(prop.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(prop.Modifiers, prop.Name);
+        var mods = FormatterSyntaxText.FormatModifiers(prop.Modifiers, prop.Name, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -700,7 +700,7 @@ public class Formatter
 
         sb.Append(prop.Name);
         sb.Append(": ");
-        sb.Append(FormatTypeReference(prop.Type));
+        sb.Append(FormatterSyntaxText.FormatTypeReference(prop.Type));
 
         if (prop.ExpressionBody != null)
         {
@@ -750,7 +750,7 @@ public class Formatter
         FormatAttributes(ctor.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(ctor.Modifiers);
+        var mods = FormatterSyntaxText.FormatModifiers(ctor.Modifiers, null, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -787,7 +787,7 @@ public class Formatter
         FormatAttributes(indexer.Attributes, sb);
         _state.Indent(sb);
 
-        var mods = FormatModifiers(indexer.Modifiers);
+        var mods = FormatterSyntaxText.FormatModifiers(indexer.Modifiers, null, true);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -804,7 +804,7 @@ public class Formatter
             }
         }
         sb.Append("]: ");
-        sb.Append(FormatTypeReference(indexer.Type));
+        sb.Append(FormatterSyntaxText.FormatTypeReference(indexer.Type));
         sb.AppendLine(" {");
 
         _state.Push();
@@ -846,7 +846,7 @@ public class Formatter
         {
             sb.Append(" with (");
             sb.Append(string.Join(", ", test.TableParameters.Select(p =>
-                $"{p.Name}: {FormatTypeReference(p.Type)}")));
+                $"{p.Name}: {FormatterSyntaxText.FormatTypeReference(p.Type)}")));
             sb.AppendLine(") [");
             _state.Push();
             for (int i = 0; i < test.TableCases.Count; i++)
@@ -1001,7 +1001,7 @@ public class Formatter
                 if (varDecl.Type != null)
                 {
                     sb.Append(": ");
-                    sb.Append(FormatTypeReference(varDecl.Type));
+                    sb.Append(FormatterSyntaxText.FormatTypeReference(varDecl.Type));
                 }
                 if (varDecl.Initializer != null)
                 {
@@ -1041,7 +1041,7 @@ public class Formatter
                 break;
 
             case AllowStatement allow:
-                FormatKeywordBlock($"allow({FormatAllowArguments(allow)})", allow.Body, sb);
+                FormatKeywordBlock($"allow({FormatterSyntaxText.FormatAllowArguments(allow)})", allow.Body, sb);
                 break;
 
             case UnsafeBlockStatement unsafeBlock:
@@ -1072,7 +1072,7 @@ public class Formatter
                         if (vd.Type != null)
                         {
                             sb.Append(": ");
-                            sb.Append(FormatTypeReference(vd.Type));
+                            sb.Append(FormatterSyntaxText.FormatTypeReference(vd.Type));
                         }
                         if (vd.Initializer != null)
                         {
@@ -1231,12 +1231,12 @@ public class Formatter
                             sb.Append(" ");
                             sb.Append(catchClause.VariableName);
                             sb.Append(": ");
-                            sb.Append(FormatTypeReference(catchClause.ExceptionType));
+                            sb.Append(FormatterSyntaxText.FormatTypeReference(catchClause.ExceptionType));
                         }
                         else
                         {
                             sb.Append(" (");
-                            sb.Append(FormatTypeReference(catchClause.ExceptionType));
+                            sb.Append(FormatterSyntaxText.FormatTypeReference(catchClause.ExceptionType));
                             sb.Append(")");
                         }
                     }
@@ -1270,7 +1270,7 @@ public class Formatter
                     if (usingStmt.Declaration.Type != null)
                     {
                         sb.Append(": ");
-                        sb.Append(FormatTypeReference(usingStmt.Declaration.Type));
+                        sb.Append(FormatterSyntaxText.FormatTypeReference(usingStmt.Declaration.Type));
                     }
                     if (usingStmt.Declaration.Initializer != null)
                     {
@@ -1367,7 +1367,7 @@ public class Formatter
             case AssertThrowsStatement assertThrows:
                 _state.Indent(sb);
                 sb.Append("assert throws ");
-                sb.Append(FormatTypeReference(assertThrows.ExceptionType));
+                sb.Append(FormatterSyntaxText.FormatTypeReference(assertThrows.ExceptionType));
                 sb.AppendLine(" {");
                 _state.Push();
                 FormatBlock(assertThrows.Body, sb);
@@ -1398,60 +1398,6 @@ public class Formatter
         _state.Pop();
         _state.Indent(sb);
         sb.AppendLine("}");
-    }
-
-    private static string FormatAllowArguments(AllowStatement allow)
-    {
-        var args = new List<string>(allow.Effects.Select(FormatAllowEffect));
-        if (!string.IsNullOrWhiteSpace(allow.Reason))
-        {
-            args.Add($"reason: {FormatQuotedString(allow.Reason)}");
-        }
-        if (!string.IsNullOrWhiteSpace(allow.Owner))
-        {
-            args.Add($"owner: {FormatQuotedString(allow.Owner)}");
-        }
-
-        return string.Join(", ", args);
-    }
-
-    private static string FormatAllowEffect(string effect)
-    {
-        var colonIndex = effect.IndexOf(':', StringComparison.Ordinal);
-        if (colonIndex <= 0 || colonIndex >= effect.Length - 1)
-            return effect;
-
-        return $"{effect[..colonIndex]}: {effect[(colonIndex + 1)..].Trim()}";
-    }
-
-    private static string FormatQuotedString(string value)
-    {
-        var sb = new StringBuilder(value.Length + 2);
-        sb.Append('"');
-        for (var i = 0; i < value.Length; i++)
-        {
-            var ch = value[i];
-            switch (ch)
-            {
-                case '"' when i == 0 || value[i - 1] != '\\':
-                    sb.Append("\\\"");
-                    break;
-                case '\n':
-                    sb.Append("\\n");
-                    break;
-                case '\r':
-                    sb.Append("\\r");
-                    break;
-                case '\t':
-                    sb.Append("\\t");
-                    break;
-                default:
-                    sb.Append(ch);
-                    break;
-            }
-        }
-        sb.Append('"');
-        return sb.ToString();
     }
 
     private void FormatForeachBody(ForeachStatement foreachStmt, StringBuilder sb)
@@ -1565,7 +1511,7 @@ public class Formatter
                 if (call.TypeArguments != null && call.TypeArguments.Count > 0)
                 {
                     sb.Append("<");
-                    sb.Append(string.Join(", ", call.TypeArguments.Select(FormatTypeReference)));
+                    sb.Append(string.Join(", ", call.TypeArguments.Select(FormatterSyntaxText.FormatTypeReference)));
                     sb.Append(">");
                 }
                 sb.Append("(");
@@ -1693,11 +1639,11 @@ public class Formatter
                     sb.Append(" ");
                     if (newExpr.ArrayLengthExpression != null && newExpr.Type is ArrayTypeReference arrayType)
                     {
-                        sb.Append(FormatTypeReference(arrayType.ElementType));
+                        sb.Append(FormatterSyntaxText.FormatTypeReference(arrayType.ElementType));
                     }
                     else
                     {
-                        sb.Append(FormatTypeReference(newExpr.Type));
+                        sb.Append(FormatterSyntaxText.FormatTypeReference(newExpr.Type));
                     }
                 }
                 if (newExpr.ArrayLengthExpression != null)
@@ -1734,7 +1680,7 @@ public class Formatter
                 if (cast.Kind == CastKind.Hard)
                 {
                     sb.Append("(");
-                    sb.Append(FormatTypeReference(cast.TargetType));
+                    sb.Append(FormatterSyntaxText.FormatTypeReference(cast.TargetType));
                     sb.Append(")");
                     FormatExpression(cast.Expression, sb);
                 }
@@ -1742,13 +1688,13 @@ public class Formatter
                 {
                     FormatExpression(cast.Expression, sb);
                     sb.Append(" as ");
-                    sb.Append(FormatTypeReference(cast.TargetType));
+                    sb.Append(FormatterSyntaxText.FormatTypeReference(cast.TargetType));
                 }
                 break;
             case IsExpression isExpr:
                 FormatExpression(isExpr.Expression, sb);
                 sb.Append(" is ");
-                sb.Append(FormatTypeReference(isExpr.Type));
+                sb.Append(FormatterSyntaxText.FormatTypeReference(isExpr.Type));
                 if (isExpr.VariableName != null)
                 {
                     sb.Append(" ");
@@ -1812,7 +1758,7 @@ public class Formatter
                 break;
             case TypeOfExpression typeofExpr:
                 sb.Append("typeof(");
-                sb.Append(FormatTypeReference(typeofExpr.Type));
+                sb.Append(FormatterSyntaxText.FormatTypeReference(typeofExpr.Type));
                 sb.Append(")");
                 break;
             case NameofExpression nameofExpr:
@@ -1822,7 +1768,7 @@ public class Formatter
                 break;
             case SizeOfExpression sizeofExpr:
                 sb.Append("sizeof(");
-                sb.Append(FormatTypeReference(sizeofExpr.Type));
+                sb.Append(FormatterSyntaxText.FormatTypeReference(sizeofExpr.Type));
                 sb.Append(")");
                 break;
             case ThisExpression:
@@ -1960,7 +1906,7 @@ public class Formatter
                 }
                 break;
             case TypePattern type:
-                sb.Append(FormatTypeReference(type.Type));
+                sb.Append(FormatterSyntaxText.FormatTypeReference(type.Type));
                 if (type.BindingName != null)
                 {
                     sb.Append(" ");
@@ -2016,7 +1962,7 @@ public class Formatter
         }
         sb.Append(param.Name);
         sb.Append(": ");
-        sb.Append(FormatTypeReference(param.Type));
+        sb.Append(FormatterSyntaxText.FormatTypeReference(param.Type));
         if (param.IsScoped)
         {
             sb.Append(" scoped");
@@ -2069,70 +2015,6 @@ public class Formatter
             sb.Append(")");
         }
         sb.Append("]");
-    }
-
-    private string FormatTypeReference(TypeReference type)
-    {
-        return type switch
-        {
-            SimpleTypeReference simple => simple.Name,
-            GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(FormatTypeReference))}>",
-            ArrayTypeReference array => $"{FormatTypeReference(array.ElementType)}[]",
-            NullableTypeReference nullable => $"{FormatTypeReference(nullable.InnerType)}?",
-            UnionTypeReference union => string.Join(" | ", union.Arms.Select(FormatTypeReference)),
-            TupleTypeReference tuple => $"({string.Join(", ", tuple.Elements.Select(e => e.Name != null ? $"{e.Name}: {FormatTypeReference(e.Type)}" : FormatTypeReference(e.Type)))})",
-            FunctionTypeReference func => $"Func<{string.Join(", ", func.ParameterTypes.Concat(new[] { func.ReturnType }).Select(FormatTypeReference))}>",
-            ByRefTypeReference byRef => $"&{FormatTypeReference(byRef.InnerType)}",
-            _ => throw new InvalidOperationException($"Formatter does not handle type reference: {type.GetType().Name}")
-        };
-    }
-
-    private string FormatModifiers(Modifiers modifiers, string? identifierName = null, bool preserveCasingVisibility = true)
-    {
-        var parts = new List<string>();
-
-        // Public/private are omitted when casing already carries the same meaning,
-        // but preserved when they are semantic interop escape hatches. Dropping
-        // `public legacyCamel` or `private SecretPascal` would change export rules.
-        if (preserveCasingVisibility && ShouldPreserveExplicitCasingVisibility(modifiers, identifierName))
-        {
-            if (modifiers.HasFlag(Modifiers.Public)) parts.Add("public");
-            if (modifiers.HasFlag(Modifiers.Private)) parts.Add("private");
-        }
-
-        if (modifiers.HasFlag(Modifiers.Internal)) parts.Add("internal");
-        if (modifiers.HasFlag(Modifiers.Protected)) parts.Add("protected");
-        if (modifiers.HasFlag(Modifiers.Static)) parts.Add("static");
-        if (modifiers.HasFlag(Modifiers.Virtual)) parts.Add("virtual");
-        if (modifiers.HasFlag(Modifiers.Abstract)) parts.Add("abstract");
-        if (modifiers.HasFlag(Modifiers.Sealed)) parts.Add("sealed");
-        if (modifiers.HasFlag(Modifiers.Partial)) parts.Add("partial");
-        if (modifiers.HasFlag(Modifiers.Readonly)) parts.Add("readonly");
-        if (modifiers.HasFlag(Modifiers.Const)) parts.Add("const");
-        if (modifiers.HasFlag(Modifiers.Override)) parts.Add("override");
-        if (modifiers.HasFlag(Modifiers.Async)) parts.Add("async");
-        if (modifiers.HasFlag(Modifiers.File)) parts.Add("file");
-
-        return string.Join(" ", parts);
-    }
-
-    private static bool ShouldPreserveExplicitCasingVisibility(Modifiers modifiers, string? identifierName)
-    {
-        var hasPublic = modifiers.HasFlag(Modifiers.Public);
-        var hasPrivate = modifiers.HasFlag(Modifiers.Private);
-        if (!hasPublic && !hasPrivate)
-        {
-            return false;
-        }
-
-        if (string.IsNullOrEmpty(identifierName))
-        {
-            return true;
-        }
-
-        var withoutPublicPrivate = modifiers & ~Modifiers.Public & ~Modifiers.Private;
-        return VisibilityConventions.IsExportedIdentifier(identifierName, modifiers)
-            != VisibilityConventions.IsExportedIdentifier(identifierName, withoutPublicPrivate);
     }
 
     /// <summary>

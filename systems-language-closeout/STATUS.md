@@ -1,6 +1,37 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-14 (**TASK 019 SLICE 17 LANDED (no commit — mandate) — `Formatter.cs` KEEPS ONE
+Last updated: 2026-08-15 (**TASK 019 SLICE 18 LANDED (no commit — mandate) — THE FORMATTER'S THREE
+LEAF ARM FAMILIES ARE N#, AND SLICE 17's ONE WALL HAS BEEN MEASURED OPEN.** `FormatTypeReference`
+(15), `FormatModifiers` + `ShouldPreserveExplicitCasingVisibility` (46) and the `allow` family (51)
+— **112 lines, 14 type-dispatch arms, escaping to nothing** — left `Formatter.cs` for
+`FormatterSyntaxText.nl`, and **`Formatter.cs` goes 2,252 → 2,134 with the extent-sum dropping
+EXACTLY 112**. **EVERY ONE OF THE 44 ADDED C# LINES IS A CALL ON THE OWNER — 31
+`FormatTypeReference`, 12 `FormatModifiers`, 1 `FormatAllowArguments`, and NOTHING ELSE: no policy,
+no callback, not even a comment.** Proof: a **3,737-row two-sided differential whose 3,722
+behavioural rows are byte-identical** (md5 `6cfe4fd9…` on BOTH, same 5 faults each side), including
+**the whole public formatter over 650 real `.nl` sources at three configurations (1,950 formats)**
+and a 576-row modifier matrix over masks with no source syntax; **a non-vacuity control that is the
+finding itself** — routing the type reference into the ALREADY-EXISTING N# printer
+`TypeReferenceFacts.GetDisplayName`, the "consolidation" any reviewer would ask for, reports **13
+differing rows**; **THE FORMAT ORACLE at zero on all three questions** with the DEFORMED leg
+rewriting **470 of 652** files and its one non-zero number (173 partially-normalised files)
+**controlled at 173 on BOTH sides**; and **the editor seam driven over the ACTUAL LSP protocol**
+(8 requests, 8 with edits, 0 diffs) — **whose FIRST run was VACUOUS and said so**. Eleven live
+oracles at 0 diffs with nine reproducing their standing md5s (corpus `86a4928f…`, the **27th**
+consecutive slice; the LSP-question oracle reproducing `5f0791a6…` exactly); corpus IL **63/63
+byte-identical with the control sweep FIRST**; unit **3,192**; contracts **4,848 → 4,878** — and the
+suite **caught this slice's author being wrong**, not the owner; determinism pin and lint oracle at
+their recorded md5s (`db729409…`, `682a2a80…` to the byte); audit **18/18** after correctly failing
+**17/18**. **SEVEN FINDINGS, headed by `allow` and `union` being KEYWORDS** — an identifier named
+after one declines the WHOLE declaration naming only the class or `test` line, and it bit twice.
+**WALL STATUS: SLICE 17's ONE WALL IS NOT A WALL. NO REPIN.** `StringBuilder.ToString(start, length)`
+is in the catalog, and a bounded tail scan reproduces `GetCurrentColumn` exactly — probed by
+execution against the pinned toolset. **That matters because SCC-1 now escapes to `GetCurrentColumn`
+ALONE**: the next closed cut is **15 members / 1,302 lines** where slice 17 priced 21 / 1,414, and
+**102 type-dispatch arms remain** where there were 116. Task 019 stays UNCHECKED. Its full record is
+in the Cursor block below)
+
+Last updated (prior): 2026-08-14 (**TASK 019 SLICE 17 LANDED (no commit — mandate) — `Formatter.cs` KEEPS ONE
 INSTANCE FIELD WHERE IT HAD SIX, AND N# OWNS EVERY CURSOR THE FORMATTER MOVES.** The inherited brief
 was **OVERTURNED BEFORE A LINE WAS WRITTEN**: `nl91-fields.py` calls a write an `=`, an indexer store
 or a mutating call, so **a `++` matches none of them** — and it reported `_indent`, written **76
@@ -2841,9 +2872,17 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   `tasks/019-compiler-contained-tooling.md` names; six
   were live and one (`NullabilityMetadata.cs`) was already `state: removed` in the ratchet, so the
   arc opened at **7,739 lines / 6,892 non-blank / 341 member extents summing 7,257** by the validated
-  extractor. **After slice 17 it stands at 3,656 / 3,275 / 144 / 3,392 (−52.8 % on lines)** —
-  `Formatter` 2,252, `CodeIntelligenceService` 578, `DocQuery` 446 (WALLED),
+  extractor. **After slice 18 it stands at 3,538 / 3,170 / 138 / 3,280 (−54.3 % on lines)** —
+  `Formatter` 2,134, `CodeIntelligenceService` 578, `DocQuery` 446 (WALLED),
   `OutputFormatter` 271 (CLOSED), `CompletionEngine` 109 (CLOSED), **`Linter` 0 (DELETED)**.
+  **SLICE 18 TOOK THE FORMATTER'S THREE LEAF ARM FAMILIES — THE 112 LINES THAT ESCAPE TO NOTHING
+  (`2,252 → 2,134`).** `FormatTypeReference`, the modifier/casing pair and the `allow` family left
+  for `FormatterSyntaxText.nl`; the 44 lines that replaced them are 44 calls on it and nothing else.
+  **AND THE SLICE RE-PRICED WHAT IS LEFT: SCC-1 now escapes to `GetCurrentColumn` ALONE** — the one
+  member slice 17 walled — **and that wall was measured OPEN by execution**
+  (`StringBuilder.ToString(start, length)` gives an indexer-free `GetCurrentColumn` at the same
+  cost), so the next closed cut is **15 members / 1,302 lines** against slice 17's 21 / 1,414, and
+  **102 arms remain of the 116**.
   **SLICE 17 TOOK THE `Formatter` STATE CARRIER — ALL SIX FIELDS AND THE THREE MEMBERS THAT ARE
   NOTHING BUT STATE (`2,302 → 2,252`).** `Formatter.cs` keeps ONE instance field, `_state`, where it
   had six; 29 of its 40 members reach their state through the N# `FormatterWalkState`, so **both
@@ -2943,10 +2982,11 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 019 slice 17 — the `Formatter` state carrier. ALL SIX fields and the three
-  members that are nothing but state into one N# `FormatterWalkState`; the inherited brief's
-  `_indent` verdict was overturned by a hardened field tool BEFORE any edit, and the correction is
-  what made the carrier able to unblock the arms at all
+- Current iteration: 019 slice 18 — the formatter's first arm families. `FormatTypeReference`,
+  `FormatModifiers`/`ShouldPreserveExplicitCasingVisibility` and the `allow` family — 112 lines and
+  14 type-dispatch arms — into one N# `FormatterSyntaxText`; the estate ALREADY held both names in
+  N# and neither is the same function, which the non-vacuity control proves by execution rather than
+  argues
 - Slice-43 RECONCILIATION onto the moved tip (coordinator, before commit): the slice was cut at
   `e929453e0`; four concurrent chip commits then moved the tip (`2d2ddb39d` harness timeouts,
   `0a66db6ec` + `1e426e07d` the BootstrapServices format sweep + kernel `owed->` fix + the format
@@ -2966,8 +3006,351 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
 - Active sub-slice (019 arc, THIS TURN — TARGET RECORDED BEFORE ANY PRODUCTION EDIT at tip
-  `007ce12bc`): **019 SLICE 17 — THE `Formatter` STATE CARRIER. ALL SIX FIELDS AND THE THREE
-  MEMBERS THAT ARE NOTHING BUT STATE.**
+  `2642cd173`): **019 SLICE 18 — THE FORMATTER'S FIRST ARM FAMILIES. `FormatTypeReference` (15) +
+  `FormatModifiers`/`ShouldPreserveExplicitCasingVisibility` (46) + THE `allow` FAMILY (51) = 112
+  LINES, 14 TYPE-DISPATCH ARMS, ESCAPING TO NOTHING.**
+
+  **TARGET (recorded before any production edit).**
+  `src/NSharpLang.Compiler/Formatter.cs` at **2,252 lines / 2,080 non-blank / 41 extents summing
+  2,199** — the ratchet row exactly, reproduced by the validated extractor against slice 17's
+  recorded checkpoint. The dead sweep over the five live arc files ran FIRST: **1,078 files,
+  DEAD COUNT = 0** (DETACHED 49, all public tool surface).
+
+  **THE THREE CLOSURES, RE-VERIFIED ON THE POST-CARRIER TREE BY THE HARDENED `nl93-scc.py`.**
+  - `FormatTypeReference` — `SET n=1 lines=15`, **ESCAPES TO (0)**, ENTERED FROM **16**.
+  - `FormatModifiers` + `ShouldPreserveExplicitCasingVisibility` — `SET n=2 lines=46`, **ESCAPES TO
+    (0)**, ENTERED FROM **12**.
+  - `FormatAllowArguments` + `FormatAllowEffect` + `FormatQuotedString` — `SET n=3 lines=51`,
+    **ESCAPES TO (0)**, ENTERED FROM **ONE** (`FormatStatement@980`).
+  - **All six together: `SET n=6 lines=112`, ESCAPES TO (0), ENTERED FROM 18.** The whole SCC
+    picture is unchanged from slice 17's record (14 members / 1,283 and 6 members / 282, one
+    self-recursive singleton, four method-group-only edges), so the file's shape is the one the
+    arms-sequencing brief measured.
+
+  **THE ARM CENSUS.** `nl92-arms.py` over the six: **2 switches, 5 statement arms (4 `case` +
+  1 `default`), 9 switch-expression arms = 14 TYPE-DISPATCH ARMS**, 0 `is`-pattern tests — exactly
+  the `116 = 83 + 19 + 14` decomposition slice 17 recorded, so this slice takes the 14 and leaves
+  the 102.
+
+  **THE REFLECTION-DOOR CENSUS IS CLEAN.** Over **1,678** files: `typeof(Formatter)` = **0** in
+  product and test source (the single hit is STATUS.md itself), no `GetMethod` door on `Formatter`
+  (the three files carrying both words reflect on `Program.Execute`), and the 14 string-literal hits
+  on the six names are **13 interpolation-hole artefacts inside `Formatter.cs` itself** plus ONE N#
+  test title naming the DIFFERENT `CodeIntelligenceDisplayText.FormatTypeReference`. **No door means
+  no C# test migrates and the unit suite does not move.**
+
+  **ALL SIX MEMBERS ARE PRIVATE AND EVERY CALLER IS IN-FILE**, so the routing is 30 call sites and
+  no signature outside `Formatter.cs` moves. Five of them are METHOD GROUPS
+  (`Select(FormatTypeReference)`), which become instance method groups on the owner.
+
+  **EVERY TYPE THE THREE FAMILIES TOUCH IS ALREADY N# IN `BootstrapServices`** — the whole
+  `TypeReference` hierarchy (`TypeReferences.nl`), `Modifiers` (`DeclarationEnums.nl`),
+  `AllowStatement` (`Statements.nl`) and `VisibilityConventions` — so there is **no cross-assembly
+  blocker and no catalog question**. Predicted wall status: ZERO.
+
+  ---
+
+  **LANDED (no commit — mandate). THE THREE LEAF FAMILIES ARE GONE FROM `Formatter.cs` WHOLE, AND
+  THE 44 LINES THAT REPLACED THEM ARE 44 CALLS ON THE N# OWNER.** `2,252 → 2,134` lines (non-blank
+  **2,080 → 1,975**, extents **41 → 35** summing **2,199 → 2,087**), `git diff` **+44 / −162 = net
+  −118**. **THE EXTENT-SUM DROP IS 112 — THE MEASURED CLOSURE TO THE LINE.** Every one of the 44
+  added lines is a call on `FormatterSyntaxText`, counted and classified: **31
+  `FormatterSyntaxText.FormatTypeReference` (26 direct calls + 5 method groups), 12
+  `FormatterSyntaxText.FormatModifiers`, 1 `FormatterSyntaxText.FormatAllowArguments`** — **ZERO
+  other lines: no new policy, no callback, no fallback, and not even a comment.** Two new files
+  (`FormatterSyntaxText.nl` **348** and its contracts **250**) are the only additions. The arc stands
+  at **3,538 / 3,170 / 138 / 3,280**, a **−54.3 %** cut on lines over eighteen slices.
+
+  **THE OWNER IS EIGHT PUBLIC STATIC MEMBERS ON ONE N# TYPE.** `FormatTypeReference` and its
+  `AppendTypeList` helper; `FormatModifiers`, `ShouldPreserveExplicitCasingVisibility` and the
+  `HasModifier` bit test; `FormatAllowArguments`, `FormatAllowEffect`, `FormatQuotedString`.
+  **NO OPTIONAL PARAMETERS** (gotcha 85.5): the C# defaulted `identifierName` to null and
+  `preserveCasingVisibility` to true, and those defaults are now written out at the twelve callers
+  instead of hidden in the signature, which is what makes the ten sites that meant "yes, preserve"
+  say so.
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL OF 3,737 ROWS PER SIDE WHOSE 3,722 BEHAVIOURAL ROWS ARE
+  BYTE-IDENTICAL: md5 `6cfe4fd913a59aa3b59011addd831d3d` ON BOTH, `diff` = 0, 5 FAULTS ON EACH SIDE
+  AND THE SAME FIVE.** The base side references a pristine `2642cd173` worktree and reaches the six
+  DELETED private members THROUGH REFLECTION; the work side calls the N# owner directly, so the
+  routing is proven and not assumed. **The 15-row structural section carries the whole difference and
+  is the terminality proof**: the six members read **1 → 0**, `FormatterSyntaxText` goes **ABSENT →
+  PRESENT (8 public static members)**, the instance-field count stays **1**, and the five surviving
+  named members (`FormatKeywordBlock`, `GetCurrentColumn`, `FormatObjectInitializer`, `Format`,
+  `FormatSafe`) read **1 → 1**.
+  **The differential asks eight things.** A: the type reference over **33 shapes** — all eight arms,
+  empty and nested forms, the unhandled-type arm and a null. B: the modifier list over **36 masks ×
+  8 identifier names × 2 preserve settings = 576 rows**, the masks including combinations that have
+  no source syntax at all (`Public|Private`, an unknown bit, `-1`). C: the casing predicate over the
+  same 288 pairs. D: **24 effect strings**. E: **30 quoting shapes**. F: **18 `allow` headers**.
+  H: the divergence section. G: **THE WHOLE PUBLIC FORMATTER OVER 650 REAL `.nl` SOURCES** — the
+  pristine worktree's own `BootstrapServices`, `examples`, `templates` and the issue-tracker fixture
+  — formatted at **three configurations (1,950 formats)** and put through `FormatSafe`
+  (**649 successes, 1 warning, PARSEFAIL = 0**), every result compared by content digest and length.
+  **THE ONE FILE THAT FAILS `FormatSafe`'s OWN SAFETY GATE FAILS IDENTICALLY ON BOTH SIDES** —
+  `ColumnarIteratorPlanner.tests.nl`, `ok=0 warn=1`, same digest, same length — so the reject path is
+  asserted rather than avoided, and it is pre-existing.
+
+  **THE NON-VACUITY CONTROL IS THE MISTAKE THIS SLICE COULD HAVE MADE, AND IT IS THE FINDING ITSELF.**
+  A THIRD build of the same harness routes the type reference into `TypeReferenceFacts.GetDisplayName`
+  — **the N# type-reference printer that was ALREADY IN THE ESTATE** — which is exactly the
+  "consolidation" a reviewer would ask for. It reports **13 differing behavioural rows** where the
+  correct run reports 0. **The 0-diff result is therefore a measurement, not an artefact of a harness
+  that cannot see.**
+
+  **AND THE DIVERGENCE IS ASSERTED SIDE BY SIDE, ON BOTH SIDES, RATHER THAN ARGUED.** Section H asks
+  both printers the same 33 questions and reports **6 DIVERGING**: the five function-type shapes
+  (`Func<int, bool>` here, `(int) -> bool` there) and the unhandled-type arm (a throw here, the
+  runtime type's name there). **The same collision exists for the modifier printer**:
+  `CodeIntelligenceDisplayText.FormatModifiers` emits `"pub"`/`"priv"`, returns `string[]?`, omits
+  `partial`/`const`/`file`, orders `async` before `override`, and carries no casing-redundancy policy
+  at all. **Two names, four functions, two questions** — which is why this is a second owner and not
+  a call into the first.
+
+  **THE FORMAT ORACLE — THE SLICE'S OWN — IS ZERO ON ALL THREE QUESTIONS, AND IT WAS NOT ALLOWED TO
+  BE VACUOUS.** (1) `nlc format --check` over the four gate directories on BOTH CLIs: **0 diffs**,
+  md5 `eb793561afd5ebecc2f5c18d76487bfd` both sides — **slice 17's recorded value**. (2) **FORMATTING
+  the whole 652-file estate with each CLI into its own copy and comparing the RESULT TREES: `diff -r`
+  reports NOTHING**, tree md5 `50d296eef1199a6d9bb8ac32da16ec1f` on both. (3) The same over a
+  **DEFORMED** copy — every line's leading whitespace stripped and every blank run collapsed — where
+  **642 of the 652 files really did differ before formatting** and **470 files were rewritten by the
+  format pass**: the two result trees are again byte-identical, md5
+  `a0f38b9c2ce5644a6429da1f37f98e7c` on both. **AND THE ONE NUMBER THAT IS NOT ZERO WAS CONTROLLED:**
+  173 of the deformed files do not return exactly to their canonical text, because deformation
+  destroys the blank-line POSITIONS the formatter preserves from source line numbers — and the count
+  is **173 on the base CLI and 173 on the work CLI**, so it is a property of the formatter, not of
+  this slice.
+
+  **AND THE EDITOR SEAM IS DRIVEN OVER THE ACTUAL PROTOCOL, BECAUSE THE VS CODE SUITE STILL DOES NOT
+  COVER IT.** `nl94-lspformat.py` opens a REAL LSP session against each side's built
+  `LanguageServer.dll` (`initialize` → `initialized` → `didOpen` → `textDocument/formatting`) over a
+  DEFORMED two-file project: **8 format requests answered, all 8 returning edits, 26 rows per side,
+  0 DIFFS, md5 `8ad04fdab61efb74b2c0ecf868feeed5` on both.** All four formatting-option combinations
+  are exercised and their answers really do differ (Alpha **1894 / 1814 / 2054 / 1774** bytes, Beta
+  **2518 / 2290 / 2974 / 2176**), so the tab arm is proved live rather than argued.
+
+  **THE LIVE-TREE CHECK REPORTS THE INHERITED BASELINE TO THE DIGIT, ON BOTH CLIs.** `nlc check` over
+  the live `BootstrapServices` tree reports **`checkedFiles=387, count=272`** with
+  **`NL202:91 NL402:89 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL412:3 NL303:2 NL002:1`** —
+  **every code exactly the inherited number, over one more file** — and **ZERO rows naming the new
+  owner**. The tenth oracle asks the same question with the BASE CLI beside it and reports **0 diffs**.
+
+  **THE SELF-APPLICATION SEAM PASSED ON THE FIRST WRITE.** `nlc format --check` over
+  `src/NSharpLang.Compiler.BootstrapServices` — the directory this slice adds its owner to, and the
+  one the gate's format contract checks — reports **"All files are properly formatted"** on its first
+  run. Slice 17's finding 93.7 fired there; here the lesson was applied before the file was written.
+
+  **ELEVEN LIVE ORACLES, ALL ZERO — AND THE NINE STANDING ONES REPRODUCE THEIR md5s TO THE DIGIT**:
+  corpus **`86a4928f87495854f48cbd5df7d5c571`** (the **TWENTY-SEVENTH** consecutive slice
+  byte-identical), self-host **`e659c04401d1a13682f9c8e91a6b8a6a`**, fx75 `6c12cc5a…`, fx74
+  `309f7902…`, fx73 `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA `b1045814…`, supplementary
+  `228dfc38…`, with the inherited `NO-RESULTS` counts (**7** corpus, **6** supplementary) exact. The
+  tenth is the LIVE-TREE oracle (**`6cdb800c…`**, a new md5 because the file set now contains this
+  slice's two new files). The **ELEVENTH** is the LSP-question oracle: **40,386 lines per side,
+  0 DIFFS, md5 `5f0791a666b31d99b2d3305c19f4cbc9`** — **slice 16's and slice 17's recorded value
+  reproduced exactly**, which is the sharpest available statement that a slice inside the formatter
+  did not move a single navigation answer.
+
+  **PARSE-ERROR CENSUS.** `PARSE_FAIL = 0` and `PARSE_ERRORS = 0` on **every one of the ten** standing
+  differentials, and `G.PARSEFAIL = 0` over the differential's own 650-source corpus.
+
+  **SEVEN FINDINGS.**
+  **(94.1) `allow` IS A KEYWORD, AND A PARAMETER NAMED AFTER ONE DECLINES THE WHOLE CLASS WITH NO
+  MEMBER NAMED.** `static func FormatAllowArguments(allow: AllowStatement)` — the C# parameter name,
+  carried over unthinkingly — declines at `parse.struct` pointing at the CLASS declaration line, 200
+  lines away from the cause. `Lexer.nl` :1233 maps `allow` to `TokenType.Allow`; the file's other 85
+  keywords are in the same table. The proof is single-variable: a three-class probe compiled `Y1`
+  (the quoting loop) and `Y2` (the effect splitter) and declined `Y3`, and renaming ONE parameter to
+  `allowStatement` compiled it. **AND IT BIT A SECOND TIME, IN THE CONTRACTS**: `union :=` inside a
+  `test` declined at `parse.test`, again naming only the `test` line. **The rule that follows is
+  mechanical: extract the 85-keyword list from `Lexer.nl` and intersect it with every identifier a
+  new `.nl` file introduces, BEFORE building.** Run on both files afterwards it reports CLEAN.
+  **(94.2) AN N#-EMITTED ASSEMBLY CANNOT BE CONSUMED FROM C# THROUGH A BARE `<Reference>`.** Every
+  N# signature that mentions a corelib type resolves it in `System.Private.CoreLib`, which a C#
+  compilation against the ref assemblies cannot see: `CS0012` on `List<>`, on `Object`, on every
+  constructor the differential needs. Adding `System.Private.CoreLib` as a reference makes it worse
+  (`CS0518` on `System.String`, `CS0433` on `Func<>`). **A `ProjectReference` to `Compiler.csproj`
+  works and is the only route** — which is why the harness references the pristine worktree's
+  PROJECT rather than its DLL.
+  **(94.3) AND A C# CLASS CANNOT SUBCLASS AN N#-EMITTED TYPE AT ALL**, for the same reason. The
+  unhandled-type arm was still reached, because the base `TypeReference` is a CONCRETE N# class and
+  matches none of the eight subclass tests — `Activator.CreateInstance(typeof(TypeReference))` is the
+  whole trick.
+  **(94.4) THE ESTATE ALREADY CONTAINED BOTH NAMES IN N#, AND NEITHER IS THE SAME FUNCTION.** A
+  reviewer told to "reuse `TypeReferenceFacts.GetDisplayName` instead of writing a second printer"
+  would have changed what `nlc format` emits for every function type, and turned a loud failure into
+  a silently unparseable one. Executed rather than argued: **6 of 33 shapes diverge.** The modifier
+  pair is worse — different keywords (`pub`/`priv`), a different return type, a different order, and
+  no casing policy. **Same name, same argument, different question.**
+  **(94.5) MAKING THE CALLEE STATIC DE-CAPTURED A LAMBDA IN A MEMBER THIS SLICE NEVER TOUCHED.**
+  `Formatter`'s declared method count falls by EIGHT for six deleted members: the seventh is
+  `<FormatTypeReference>b__35_0`, the tuple arm's own lambda, and the eighth is
+  `<FormatTest>b__18_0`, which **still exists in the assembly** but has moved off `Formatter` into
+  the compiler's `<>c` cache, because `p => $"{p.Name}: {FormatTypeReference(p.Type)}"` stopped
+  capturing `this` when the callee became static. Read by `PEReader`, not inferred.
+  **(94.6) AN LSP DIFFERENTIAL CAN REPORT 0 DIFFS BECAUSE BOTH SIDES ANSWERED NOTHING.** The first
+  run of the formatting seam reported `DIFFS=0` over eight requests that all returned `<null>`: the
+  probe project's `project.yml` was copied from the issue-tracker fixture and names `entry:
+  Program.nl`, a file that does not exist, so `DocumentManager` never produced a `CompilationUnit`
+  and the handler's `doc.CompilationUnit == null` guard fired every time. **The counter caught it —
+  `FORMAT REQUESTS ANSWERED = 0` — and a differential without one would have banked eight pairs of
+  nulls as proof.**
+  **(94.7) THE `nlc lint` TRANSCRIPT EMBEDS THE INVOKING PROCESS'S `projectRoot`, SO THE STANDING
+  LINT md5 IS CWD-DEPENDENT.** Run from the scratchpad, five paired runs are 0-diff with one md5
+  across all ten transcripts — a sound answer — but the value is not slice 17's, because
+  `nl89-lintnorm.py` normalises the REPO path and not an arbitrary CWD. Re-run from the repo root the
+  oracle reproduces **`682a2a802cf72a536a864340978d77dc`, 240,088 bytes, to the byte.** The
+  normaliser's path list is also stale (it knows `nl86base` and `nl87base` and not `nl94base`).
+
+  **THE ARC'S SURFACE AFTER EIGHTEEN SLICES, RE-MEASURED BY THE VALIDATED EXTRACTOR.** Five live
+  files — **3,538 lines / 3,170 non-blank / 138 extents summing 3,280**, down from **3,656 / 3,275 /
+  144 / 3,392** at slice 17's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257**, a
+  **−54.3 %** cut on lines:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,134 | 1,975 | 35 | 2,087 |
+  | `CodeIntelligenceService` | 578 | 490 | 38 | 504 |
+  | `DocQuery` (WALLED, not closed) | 446 | 382 | 23 | 402 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+  | **`Linter` (DELETED)** | **0** | **0** | **0** | **0** |
+
+  **THE NEXT BRIEF, MEASURED ON THE POST-CUT TREE — AND IT IS CHEAPER AND SIMPLER THAN SLICE 17
+  PRICED IT.** `nl93-scc.py` reports the two SCCs UNCHANGED in membership and size (14 / 1,283 and
+  6 / 282) and **ZERO self-recursive singletons and ZERO method-group-only edges left** — this slice
+  took the file's only self-recursive singleton and all four of its method-group edges. The closures:
+  - **SCC-1 now ESCAPES TO EXACTLY ONE MEMBER, `GetCurrentColumn`** — not the four slice 17 measured,
+    because three of the four were this slice. **SCC-1 + `GetCurrentColumn` = 15 members / 1,302
+    lines, ESCAPES TO NOTHING**, entered from the 15 leaf declaration formatters, **83 type-dispatch
+    arms (5 switches) plus 12 `is`-pattern tests**. Slice 17 priced this closed cut at **21 members /
+    1,414 lines**; it is now **15 / 1,302** — six members and 112 lines cheaper, exactly this slice.
+  - **SCC-2 — 6 members / 282 lines, entered from `Format` ALONE — escapes to 13**, every one a leaf
+    declaration formatter. **19 arms.** It closes only with the leaf set, so it is LAST.
+  - **THE REMAINING FORMATTING SURFACE IS 102 TYPE-DISPATCH ARMS** (83 + 19), down from 116.
+  **AND SLICE 17'S ONE WALL IS NOT A WALL — MEASURED BY EXECUTION, NOT ARGUED.** `GetCurrentColumn`
+  was left in C# because `StringBuilder`'s char indexer declines and an N# owner "would have to
+  `ToString()` the entire buffer". **It would not.** `StringBuilder.ToString(start, length)` IS in
+  the catalog, and a backward scan in bounded tail chunks is exactly equivalent at O(distance to the
+  last newline) — the same cost as the C# loop. An isolated probe against the PINNED toolset compiles
+  it and answers **3 / 2 / 0 / 2 / 0** on `"abc"`, `"line1\nab"`, `""`, a 1,000-character line
+  followed by `"\nxy"`, and `"\n"` — the C# semantics on every one. **So the next slice can take
+  `GetCurrentColumn` and SCC-1 together, closing to nothing, with NO toolset repin.** That matters
+  because the wall is no longer routed around: it is now the ONLY escape from the largest remaining
+  cut, and an N# `FormatObjectInitializer` could not call a C# helper without the callback the
+  mandate forbids.
+  **THE ORDER IS THEREFORE**: `GetCurrentColumn` (19, unblocks everything) → SCC-1 (1,302 with it,
+  83 arms — splittable only by taking the leaves first) → the eleven declaration leaves → SCC-2
+  (282, 19 arms), after which `Formatter` is a driver.
+
+  **WHAT REMAINS OF `CodeIntelligenceService.cs` AT 578, UNCHANGED BY THIS SLICE.** The FOUR ENTRY
+  POINTS (`ResolveTypeUseAtPosition` 23, `ResolveDeclaredNameTypeAtPosition` 21,
+  `ResolveTypeInfoAtPosition` 20, `GetNullabilityForExpression` 11 — **75 lines**) are the last real
+  policy; `ProjectSnapshot` at **:532** is the ONE structural blocker, a C# type declared in this file
+  that `BootstrapServices` cannot reference, and it is what keeps `GetCompletions`'s seven call sites
+  and every driver's signature in C#. `ResolveTypeUseAtPosition` still carries an UNUSED `currentUnit`
+  parameter nobody has claimed. **Finding 94.2 sharpens the `ProjectSnapshot` question**: the blocker
+  is not merely "BootstrapServices cannot reference it" — a C# type in the *other* direction is also
+  unusable, so the resolution is to MOVE the type into N#, not to bridge it.
+
+  **019's COMPLETION SHAPE.** Two files are reviewed zero-policy hosts (`CompletionEngine` 109,
+  `OutputFormatter` 271); `DocQuery.cs` is a **walled** host at 446 whose `UNEXPLAINED = 0` behind two
+  named catalog gaps; **`Linter.cs` is DELETED**; `CodeIntelligenceService` is at **578 with one
+  structural blocker and 75 lines of policy named**; `Formatter` is at **2,134 with its state owned,
+  its leaf text owned, and its remaining 102 arms sequenced behind a wall that has just been
+  measured open.** **The honest close of 019 is: `GetCurrentColumn` (19), then SCC-1's 1,302, then
+  the declaration leaves and SCC-2 — after which `Formatter` is a driver — the four CIS entry points
+  taken (service → ~500, all driver), and `DocQuery` either finished by a `System.Xml.Linq` catalog
+  repin or accepted at 402 walled lines.** The `ProjectSnapshot` blocker is the only thing in the arc
+  that a slice cannot decide on its own.
+
+  **THIRTY MORE CONTRACTS. Contracts 4,848 → 4,878 (+30)** — **and the suite caught this slice's
+  author being wrong before the gate did.** Twenty-nine were green on their first complete run; the
+  thirtieth asserted that `public internal Draw` formats to `internal`, on the reasoning that
+  `internal` already decides the export. It does not: `VisibilityConventions.IsExportedIdentifier`
+  tests the PUBLIC bit FIRST and returns, so the two answers disagree and the keyword is KEPT. **The
+  N# owner was right and the test's prose was wrong**, which the differential's own ground truth
+  (`B Public|Internal|Draw|keep → "public internal"`, taken from the DELETED C#) confirms. The
+  contract now states the true rule and asserts the predicate beside it. Six of the thirty state
+  things that could not be stated at all while these were privates of a class whose only public
+  surface is "give me a whole formatted file": (a) **the two N# type-reference printers are NOT the
+  same function**, asserted on the same input; (b) **a function type is `Func<Ret>` and never
+  `Func<>`**; (c) **an unrecognised type throws** rather than emitting something that will not parse;
+  (d) **a declaration with no name keeps its keyword**, which is the constructor and indexer path;
+  (e) **the modifier order is fixed and `override` precedes `async`** though its flag is thirty-two
+  times larger; (f) **an already-escaped quote is not doubled**, without which `FormatSafe`'s
+  idempotence gate would reject any file with an escaped quote in an `allow` reason.
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** (`CONTROL vs A` **118 / 118
+  SAME**, both the base CLI over fresh `2642cd173` archives); `A vs B` then gives **63 / 63
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files proved **55-of-55 copied
+  `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps report `TARGETS=73 BUILT=55
+  ASSEMBLIES=118`. Unsorted build transcripts **0 diffs across all three sweeps** — **1,365 lines /
+  md5 `7b545e84e8759d7469b7a88731e27402`**, the standing value. Unit suite **3,192 / 3,192** — **the
+  reflection-door census's PREDICTION, not a coincidence**; contracts **4,878 / 4,878**. **The
+  five-run ordering pin is byte-identical over 398 targets, 391 with results, 1,255 diagnostic rows
+  over 48 codes**, `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, md5 **`db729409fb7e7100a2c5bdb6401e6a78`** — the
+  recorded value, with `NL101: 2 / NL102: 2`. `nlc lint` on both CLIs: **4,025 rows, 0 diffs, md5
+  `682a2a802cf72a536a864340978d77dc`, 240,088 bytes** — **the recorded value to the byte** — both
+  clocks normalised (**138** bracketed, **34** `Linted in …`); the five-run repetition is separately
+  0-diff across all ten transcripts (finding 94.7). The format contract gate reports **"All files are
+  properly formatted"** over all four directories.
+
+  **RATCHET — ONE ROW.** Repinned AS THE LAST EDIT to any production or ratcheted file, after every
+  production edit and after the whole differential / oracle / IL / determinism / lint / format-oracle
+  set had been run: `Formatter.cs` **2,252 / 2,080 → 2,134 / 1,975**, fingerprint
+  `07970a8957f324a6 → 057b19e57ae1f620`. **It is the ONLY ratcheted file this slice touched** — the
+  two new files are `.nl`, which the manifest does not carry. Head
+  `9e41cf47ea52971d → cb335d18cbec668f`, mirrored into `OwnershipAudit.nl`, and the stored head was
+  REPRODUCED by the independent FNV-1a walk before the write.
+  **The repin is non-vacuous by execution, and the audit itself supplied the counter**: run against
+  the pre-repin manifest it reports **17 / 18 with 1 FAILED** and **18 / 18** against the repinned
+  one, run in that order. Manifest **391** lines, no BOM, still **0** `.nl` rows — **the one row this
+  slice touched moved DOWN; nothing grew.**
+
+  **THE FULL VS CODE-ENABLED GATE WAS RUN ON THE BYTE-FINAL REPINNED TREE FROM AN ISOLATED
+  `/private/tmp/nl94gate` WORKTREE AND PASSED: `ALL TESTS PASSED` in 27m 39s, 108 GREEN STEPS AND
+  ZERO FAILURES, WITH THE VS CODE INTEGRATION TESTS INSIDE** (Step 3b, 3m 12s, **36 passing** —
+  extension, diagnostics, hover and completion), including the unit suite **3,192 / 3,192**, the whole
+  native `.tests.nl` estate with contracts **4,878 / 4,878** and the ownership audit **18 / 18**
+  inside it, the format contract gate ("All files are properly formatted"), every example and
+  template, and the IL verification gate (**all 67 N# assemblies pass, no new errors vs baseline**).
+  Fresh under `--commit` with `NSHARP_TEST_STEP_CACHE_OFF=1`.
+  **`VSCODE_TESTS=skip` WAS NOT AN OPTION AND THE REASON IS THE PRODUCT: THIS SLICE OWNS THE TEXT
+  BEHIND EVERY `textDocument/formatting` REQUEST — every type name, every modifier keyword and every
+  `allow` header the editor writes back.** No LSP source changed, so a VSIX reload was not required —
+  a checked conclusion (`git status` names six files, none under `src/NSharpLang.LanguageServer` or
+  `editors/vscode`), not an assumption. Per standing precedent computer-use visual verification was
+  NOT requested; **and because the VS Code suite still contains no formatting test — checked again,
+  not assumed — the seam was proved instead by driving `textDocument/formatting` over the real
+  protocol against both sides' language servers (0 diffs, 8 answers with edits), which is stronger
+  evidence for this particular slice than a screenshot would have been.**
+  **All 5 of the gate tree's code files were verified md5-identical to the working tree's before the
+  run (5 / 5), and its `git status` reproduced the working tree's exactly.**
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE. NOTHING IS KEPT** — `/private/tmp/nl94base` (the
+  pristine `2642cd173` worktree), `/private/tmp/nl94grid`, `/private/tmp/nl94iso`,
+  `/private/tmp/nl94fmt`, `/private/tmp/nl94lspproj`, `/private/tmp/nl94meta`, the three IL trees and
+  the gate worktree are all removed at the end of this turn, and `/private/tmp/nl93*` (kept by slice
+  17) was already gone. **Regenerate rather than assume; `/private/tmp` IS REAPED.** The harnesses in
+  the scratchpad are the durable part: `nl62_members.py`, `nl88-deadsweep.py`, `nl93-fields.py`,
+  **`nl93-scc.py` (with `--closure`, re-validated against slice 17's checkpoint before use)**,
+  `nl92-arms.py`, **`nl94-formatoracle.sh` (the format oracle's three legs)**,
+  **`nl94-lspformat.py` (the LSP formatting seam — READ ITS `FORMAT REQUESTS ANSWERED` COUNTER,
+  finding 94.6)**, `nl93-clocknorm.py`, plus the repointed `nl94-oracle.sh`, `nl94-run-oracles.sh`,
+  `nl94-run-il.sh`, `nl94-ilsweep.sh` (**its `git archive` commit must be repointed each slice**),
+  `nl89-ilcompare.py`, `nl89-transnorm.py`, `nl94-determinism.sh`, `nl94-lspquery.sh`,
+  **`nl94-lintoracle.sh` (RUN IT FROM THE REPO ROOT — finding 94.7)** + `nl89-lintnorm.py`, and
+  `nl94-repin.py`. The differential harness is `/private/tmp/nl94grid` — **ONE `Grid.cs`, THREE
+  csproj (`base`, `work`, and `nonvac`, the non-vacuity control that routes the type reference into
+  `TypeReferenceFacts`), all THREE using a `ProjectReference` and not a `<Reference>` (finding
+  94.2)**; the emit probes are `/private/tmp/nl94iso/q1` (bitwise `~`) and `q2` (the indexer-free
+  `GetCurrentColumn`), and `/private/tmp/nl94meta` is the `PEReader` method lister that produced the
+  de-captured-lambda accounting (finding 94.5).
+
+  ---
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `2642cd173`): **019 SLICE 17 — THE `Formatter`
+  STATE CARRIER. ALL SIX FIELDS AND THE THREE MEMBERS THAT ARE NOTHING BUT STATE.**
 
   **TARGET (recorded before any production edit).**
   `src/NSharpLang.Compiler/Formatter.cs` at **2,302 lines / 2,127 non-blank / 49 extents summing
