@@ -2801,9 +2801,18 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   `tasks/019-compiler-contained-tooling.md` names; six
   were live and one (`NullabilityMetadata.cs`) was already `state: removed` in the ratchet, so the
   arc opened at **7,739 lines / 6,892 non-blank / 341 member extents summing 7,257** by the validated
-  extractor. **After slice 15 (both stages) it stands at 4,017 / 3,601 / 166 / 3,738 (−48.1 % on lines)** —
-  `Formatter` 2,302, `CodeIntelligenceService` 889, `DocQuery` 446 (WALLED),
+  extractor. **After slice 16 it stands at 3,706 / 3,322 / 152 / 3,441 (−52.1 % on lines — PAST
+  HALFWAY)** — `Formatter` 2,302, `CodeIntelligenceService` 578, `DocQuery` 446 (WALLED),
   `OutputFormatter` 271 (CLOSED), `CompletionEngine` 109 (CLOSED), **`Linter` 0 (DELETED)**.
+  **SLICE 16 TOOK THE TYPE-INFO RESOLVERS — THE FAMILY SLICE 15 MEASURED, PRICED AND HONESTLY LEFT
+  (`889 → 578`, −311).** Thirteen C# members / 305 lines left for ONE N# owner with **NO WALL, NO
+  SURVIVOR AND NO TOOLSET REPIN**; the proof is a 713-row two-sided differential whose 692
+  behavioural rows are byte-identical (md5 `ec1697b8e854b53f50028532053a7943` on BOTH), an
+  11th oracle counting **240 type / 155 definition / 155 reference answers at 357 computed
+  positions**, and a live-tree check reporting the inherited baseline code-for-code. **The
+  measurement corrected the brief twice**: the "five-member SCC" is TWO 2-member SCCs plus four
+  self-recursive singletons, and "roughly twenty switch arms" is **76**. `Formatter.cs` is now the
+  arc's largest file by a factor of **4.0**, and its state-carrier measurement is banked.
   **SLICE 15 RAN IN TWO STAGES ACROSS ONE TURN AND THE WALL SLICE 13 MEASURED IS GONE.** Stage 2, on
   the republished toolset, took the two walled members and the reference family (`1,010 → 889`),
   COLLAPSED the duplication stage 1 deliberately created, and deleted four per-call materialisations
@@ -2886,10 +2895,9 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: one two-stage slice — stage 1 (the implementors territory, the diagnostics
-  family, the `IReadOnlyDictionary` catalog surface) committed at `27a5df665`; stage 2 (the two
-  walled members, the reference family, the analyser half of the row) on the republished toolset:
-  13 names moved in all, ZERO walls left on this file's text layer, gate GREEN with VS Code inside
+- Current iteration: 019 slice 16 — the type-info resolvers. 13 C# members / 305 lines / 76
+  type-dispatch arms into one N# owner (15 public statics, one of them a duplication the C# was
+  hiding); ZERO walls, ZERO toolset repins, ONE ratchet row repinned DOWN
 - Slice-43 RECONCILIATION onto the moved tip (coordinator, before commit): the slice was cut at
   `e929453e0`; four concurrent chip commits then moved the tip (`2d2ddb39d` harness timeouts,
   `0a66db6ec` + `1e426e07d` the BootstrapServices format sweep + kernel `owed->` fix + the format
@@ -2908,7 +2916,346 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN, STAGE 2 LANDED on the republished toolset at `27a5df665`):
+- Active sub-slice (019 arc, THIS TURN — TARGET RECORDED BEFORE ANY PRODUCTION EDIT at tip
+  `477b64337`): **019 SLICE 16 — THE TYPE-INFO RESOLVERS. 13 MEMBERS / 305 LINES, ESCAPING TO
+  NOTHING, ENTERED FROM FOUR.**
+
+  **TARGET (recorded before any production edit).**
+  `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` at
+  **889 lines / 769 non-blank / 52 extents summing 801** — the ratchet row exactly, reproduced by the
+  validated extractor (slice 15's checkpoint `CIS 889/769` MATCHED). The dead sweep over the five
+  live arc files reports **DEAD COUNT = 0**.
+
+  **THE CLOSURE, RE-VERIFIED BY THE HARDENED ESCAPE TOOL.** `nl88-edges.py` reports the 13-member set
+  at **`SET n=13 lines=305`, `ESCAPES TO []`, `ENTERED FROM (4)`** —
+  `GetNullabilityForExpression`, `ResolveDeclaredNameTypeAtPosition`, `ResolveTypeInfoAtPosition`,
+  `ResolveTypeUseAtPosition`, all four called from `GetTypeAtPosition` and nothing else.
+  `METHOD-GROUP-ONLY EDGES = []`. Members and extents:
+  `ResolveDeclaredNameTypeInDeclaration` :363 (31), `TryGetDeclaredNameTypeInfo` :395 (44),
+  `ResolveTypeInfoFromExpression` :535 (31), `ResolveMemberTypeInfo` :567 (12),
+  `FindMemberTypeInfo` :580 (24) **+** :605 (20), `ResolveTypeInfoByName` :626 (9),
+  `FindTypeInfoByName` :636 (24), `FindTypeInfoInDeclaration` :661 (21),
+  `TryGetTypeInfoFromDeclaration` :683 (21), `ResolveTypeReferenceToTypeInfo` :705 (13),
+  `FlattenUnionTypeReference` :719 (15), `FindNamedTypeInfo` :735 (27), `GetDefaultNullState` :775 (13).
+
+  **THE SCC STRUCTURE CORRECTS THE INHERITED BRIEF, AND THE CORRECTION IS THE PLAN.** The brief
+  priced "a five-member mutual-recursion SCC over `ResolveTypeInfoByName` /
+  `ResolveTypeInfoFromExpression` / `ResolveMemberTypeInfo`". An OVERLOAD-AWARE Tarjan
+  (`nl92-scc.py`, which makes every EXTENT a node so the two `FindMemberTypeInfo` overloads are
+  distinct, and which strips each member's own signature so a name in its own header is not a false
+  self-edge) reports **TWO two-member SCCs, not one five-member one**:
+  **{`ResolveTypeInfoFromExpression`, `ResolveMemberTypeInfo`} = 43 lines** and
+  **{`ResolveTypeReferenceToTypeInfo`, `FindNamedTypeInfo`} = 40 lines**, joined ONE WAY (the first
+  reaches the second; nothing returns). **`ResolveTypeInfoByName` IS IN NO CYCLE AT ALL** — it has
+  one out-edge (`FindTypeInfoByName`) and no back edge. Four members are self-recursive singletons:
+  `FindMemberTypeInfo`@580 (24), `FindTypeInfoInDeclaration` (21), `FlattenUnionTypeReference` (15),
+  `ResolveDeclaredNameTypeInDeclaration` (31). **The two overloads are a ONE-WAY edge** (@580 → @605,
+  never back), which the name-keyed Tarjan could not see.
+
+  **THE ARM CENSUS CORRECTS THE PRICE BY A FACTOR OF FOUR.** The brief said "roughly twenty `switch`
+  arms". `nl92-arms.py` counts **8 switches, 12 statement arms (11 `case` + 1 `default`) and 64
+  switch-expression arms = 76 TYPE-DISPATCH ARMS**, plus **5 `is`-pattern tests**. The three heaviest
+  are `ResolveTypeInfoFromExpression` (16), `TryGetTypeInfoFromDeclaration` (13) and
+  `TryGetDeclaredNameTypeInfo` (12). The port is mechanical but it is 76 arms, not 20.
+
+  **EVERY BLOCKER RE-VERIFIED CLEARED.** The family's `ProjectSnapshot` reads are **exactly three
+  over two properties** — `CompilationUnits` ×2 (`FindTypeInfoByName` :641, `FindNamedTypeInfo` :737)
+  and `ProjectRoot` ×1 (`ResolveDeclaredNameTypeInDeclaration` :376); the other reads the brief
+  counted belong to the four ENTRY points, not to the family. **BOTH cross today**:
+  `IReadOnlyDictionary<string, CompilationUnit>` is already a production N# parameter
+  (`CodeIntelligenceDiagnostics.Build`). Every type in every signature is already N#: the AST
+  (`Declarations.nl`, `Expressions.nl`, `TypeReferences.nl`), `TypeInfo` and its arms
+  (`TypeInfoModels.nl`), the factories (`TypeInfoFactories.nl`), `NullState`/`NullStateFacts`
+  (`NullState.nl`), `DeclarationFacts`, `SemanticModel`, and the result models
+  (`CodeIntelligenceModels.nl`).
+
+  **THE EMIT PROBE RAN FIRST, WITH ITS CONTROL (finding 90.5 honoured).** `/private/tmp/nl92iso`
+  (`q1` the shapes, `q2` the CONTROL, both `outputType: library`): the control emits a bare `int`,
+  `IEnumerable<string>` for-in and `Dictionary<string, Unit>` for-in, and **q1 emits ALL THREE
+  candidate carriers** — `IEnumerable<Unit>` + for-in, **`IReadOnlyDictionary<string, Unit>` +
+  for-in over `KeyValuePair` reading `.Value`**, and `List<Unit>` + `.Count`. Verified by reflecting
+  over the emitted assemblies, not by the build's exit code. **The chosen carrier is
+  `IReadOnlyDictionary<string, CompilationUnit>` passed THROUGH UNCHANGED**, because the C# iterates
+  `foreach (var (_, cu) in snapshot.CompilationUnits)` and the N# `for entry in compilationUnits`
+  is the same enumeration in the same order with NO materialisation — the slice-15 dividend kept.
+
+  **THE TWO COLLIDING OVERLOADS.** `FindMemberTypeInfo(ProjectSnapshot, TypeInfo, string)` and
+  `FindMemberTypeInfo(ProjectSnapshot, IReadOnlyList<DeclaredMemberInfo>, string)` become two NAMED
+  N# functions — `MemberTypeInfoOfType` and `MemberTypeInfoInMembers` — the `ExtractSourceLine`
+  precedent from slice 13. The member-list one takes `DeclaredMemberInfo[]`, which is what
+  `DeclaredMembers` actually is in N#.
+
+  ---
+
+  **LANDED (no commit — mandate). `CodeIntelligenceService.cs` IS `889 → 578` (−311 lines, −279
+  non-blank, −14 extents, −297 extent-lines), AND ALL THIRTEEN NAMES ARE GONE FROM EVERY `.cs` IN
+  `src` AND `tests`.** `git diff` on the service is **+14 / −325**, and every one of the 14 added
+  lines is a call to the N# owner or the one `<remarks>` that records the boundary — **ZERO new C#
+  policy, no callback and no fallback**. Two new files (`CodeIntelligenceTypeResolution.nl` **805**
+  and its contracts **560**) are the only additions. The service is now **24 members / 26 extents /
+  463 lines** — the brief's prediction to the member. The arc stands at **3,706 / 3,322 / 152 /
+  3,441**, a **−52.1 %** cut on lines over sixteen slices — **past halfway**.
+
+  **THE N# OWNER IS 15 PUBLIC STATICS FOR 13 C# MEMBERS, AND BOTH EXTRA NAMES ARE MEASURED RATHER
+  THAN PREFERRED.** The first is the overload split the brief predicted. **The second is a
+  duplication the C# was hiding**: `TryGetTypeInfoFromDeclaration` and `FindNamedTypeInfo` spelled
+  **THE SAME NINE TYPE ARMS TWICE**, in two switches kept in step by hand, and the only difference
+  between the two walks is the THREE VALUE ARMS (function, field, property) that one has and the
+  other must not. The N# owner writes the nine once as `NamedTypeInfoFromDeclaration` — and **the
+  differential reproduced its md5 TO THE DIGIT across the collapse**, the same 692 rows before and
+  after, which is what makes the de-duplication a proof rather than a hope.
+
+  **THE COMPILATION UNITS CROSS AS THE SNAPSHOT'S OWN `IReadOnlyDictionary` AND ARE NEVER
+  MATERIALISED.** The C# `foreach (var (_, cu) in snapshot.CompilationUnits)` DISCARDS THE KEY in
+  both walks, so the honest carrier was a question the probe had to answer; `for entry in
+  compilationUnits` over the interface is the same enumeration in the same order, and the four
+  driver call sites pass `snapshot.CompilationUnits` through unchanged. **The slice-15 dividend is
+  extended, not spent.**
+
+  **THE PROOF IS A TWO-SIDED DIFFERENTIAL OF 713 ROWS PER SIDE WHOSE 692 BEHAVIOURAL ROWS ARE
+  BYTE-IDENTICAL: md5 `ec1697b8e854b53f50028532053a7943` ON BOTH, `diff` = 0.** The base side
+  references a pristine `477b64337` worktree and reaches the THIRTEEN DELETED members THROUGH
+  REFLECTION; the work side calls the N# owners directly. **The 21-row structural section carries the
+  whole difference and is the terminality proof**: the thirteen names read **PRESENT(1) → 0** — and
+  `FindMemberTypeInfo` reads **2 → 0**, which is the overload pair counted — the **six surviving
+  entry points and drivers read 1 → 1**, and `CodeIntelligenceTypeResolution` goes **ABSENT →
+  PRESENT (15 public statics)**.
+  **THE FAULT PATH IS ASSERTED, NOT AVOIDED, AND ITS NORMALISATION IS PROVED NON-VACUOUS BY
+  EXECUTION.** Three rows FAULT on both sides and report `NullReferenceException` on both. A THIRD
+  BUILD of the same source with the `TargetInvocationException` unwrap COMPILED OUT reports
+  **36 diff lines instead of 30** — the base side naming `TargetInvocationException` where the work
+  side names `NullReferenceException`. **Finding 90.6's normalisation is therefore measured to remove
+  exactly three phantom rows, not asserted to.**
+  **The differential asks three things.** Section A drives all fifteen owners ARM BY ARM over a
+  synthesized corpus — 17 null-state shapes, 7 union-flattening shapes, 15 type references × 2
+  projects (found and empty), 17 named-type queries, 16 declaration forms × 3 questions, 11
+  in-declaration queries, 9 namespace-visibility shapes, **16 receiver types × 10 member names =
+  160 member-walk rows**, 26 expression forms, 5 member-access forms and a 6-name × 6-line
+  declared-name matrix. Section B drives the WHOLE navigation surface END TO END through the public
+  API over two real projects at **308 computed identifier positions**, counting the answers:
+  **165 type answers, 165 hovers, 118 definitions, 118 non-empty reference lists and 118 strict
+  lists**, per side.
+
+  **TWENTY-THREE MORE CONTRACTS. Contracts 4,796 → 4,819 (+23)**, green on their first complete run
+  and again on the byte-final tree. Nine of them state things that were unreachable while the family
+  was thirteen private C# members: (a) **the semantic model wins but `unknown` is NOT an answer** —
+  a recorded `UnknownTypeInfo` does not stop the syntactic walk; (b) **a call is typed by its CALLEE
+  and an await by its OPERAND** — the task is NOT unwrapped, which is the shipped answer;
+  (c) **a float literal is `double` and a null literal is `object`**; (d) **two walks over the same
+  declarations answer different questions** — a FIELD called `Foo` satisfies "the type of `Foo`" but
+  never a `Foo` TYPE REFERENCE; (e) **`FindNamedTypeInfo` is top-level-only and namespace-blind while
+  `FindTypeInfoByName` descends into members and is namespace-bound**; (f) **namespace visibility
+  includes the BOTH-ABSENT case and is NOT transitive** through another unit's imports;
+  (g) **the first name match in a member list ends the search even with no type**, so a constructor
+  shadows a later field and answers null; (h) **a union reference is flattened BEFORE its arms are
+  resolved**, so `(A|B)|C` and `A|(B|C)` are the same three-armed answer; (i) **a class climbs to its
+  base while a nullable, an oblivious and an alias are transparent, and an enum and a union answer
+  with THEMSELVES** whatever member was asked for — which is what makes `Colour.Red` hover as
+  `Colour`.
+
+  **THE LIVE-TREE CHECK REPORTS THE INHERITED BASELINE TO THE DIGIT, AND IT IS TWO-SIDED.** The
+  tenth standing oracle runs `nlc check` over the live `BootstrapServices` tree on BOTH CLIs:
+  **`checkedFiles=385, count=272`** with **`NL202:91 NL402:89 NL905:26 NL012:20 NL011:17 NL301:16
+  NL010:7 NL412:3 NL303:2 NL002:1`** — **every code exactly the inherited number, over one more
+  file** (the production `.nl`; the `.tests.nl` is not in the default check) — **0 diffs**, and
+  **ZERO diagnostic rows name the new owner**. Its md5 moves to **`bfaa6f34cdb300ce78e26b4b7015eb76`**
+  from stage 2's because the file set it reads now contains this slice's two new files.
+
+  **ELEVEN LIVE ORACLES, ALL ZERO — AND THE NINE STANDING ONES REPRODUCE THEIR md5s TO THE DIGIT**:
+  corpus **`86a4928f87495854f48cbd5df7d5c571`** (the TWENTY-FIFTH slice running byte-identical),
+  self-host **`e659c04401d1a13682f9c8e91a6b8a6a`**, fx75 `6c12cc5a…`, fx74 `309f7902…`, fx73
+  `fd3ec751…`, fx72 `738d9f5b…`, fx71 `a3a4377d…`, SoA `b1045814…`, supplementary `228dfc38…`, with
+  the inherited `NO-RESULTS` counts (**7** corpus, **6** supplementary) exact. The **ELEVENTH** is the
+  **LSP-QUESTION ORACLE**, and its counters are READ rather than assumed: **40,387 lines per side,
+  0 DIFFS, md5 `5f0791a666b31d99b2d3305c19f4cbc9`** over **1,088 batch questions at 357 computed
+  positions** — **567 answered and 521 honest `noSymbol`** — of which **240 TYPE answers (every one
+  non-empty), 155 DEFINITIONS and 155 REFERENCE LISTS carrying 388 reference rows**, plus **29
+  hovers answered (22 `noSymbol`), 29 inspects, 6 implementors, 29 signatures, 12 documentation
+  strings and 35 `typeName` rows**, with **0 usage errors and 0 unsupported commands**. **The TYPE
+  KIND CENSUS is identical on both sides** — `primitive:124 class:34 interface:25 function:18
+  method:12 union:11 enum:9 record:4 generic:2 unknown:1` — which is the sharpest statement available
+  that this family's answers did not move: **these are the navigation answers the slice owns**.
+
+  **PARSE-ERROR CENSUS.** `PARSE_FAIL = 0` and `PARSE_ERRORS = 0` on **every one of the ten**
+  standing differentials.
+
+  **THE REST OF THE BAR.** Corpus IL: the **CONTROL SWEEP RAN FIRST** (`CONTROL vs A` **118 / 118
+  SAME**, both the base CLI over fresh `477b64337` archives); `A vs B` then gives **63 / 63
+  N#-EMITTED ASSEMBLIES BYTE-IDENTICAL**, the 55 differing files proved **55-of-55 copied
+  `NSharpLang.Runtime.dll`, NON_RUNTIME_DIFFS = 0**. All three sweeps report `TARGETS=73 BUILT=55
+  ASSEMBLIES=118`. Unsorted build transcripts **0 diffs across all three sweeps** — **1,365 lines /
+  md5 `7b545e84e8759d7469b7a88731e27402`**, the standing value. Unit suite **3,192 / 3,192**;
+  contracts **4,819 / 4,819**; ownership audit **18 / 18**. **The five-run ordering pin is
+  byte-identical over 398 targets, 391 with results, 1,255 diagnostic rows over 48 codes**,
+  `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, md5 **`db729409fb7e7100a2c5bdb6401e6a78`** — the recorded value,
+  its census matching stage 2's row for row. `nlc lint` on both CLIs five times each: **4,025 rows,
+  0 diffs, md5 `682a2a802cf72a536a864340978d77dc` across all ten transcripts, 240,088 bytes**, both
+  clocks normalised (**138** bracketed, **34** `Linted in …`). The format contract gate reports
+  **"All files are properly formatted"** over `src/NSharpLang.Compiler.BootstrapServices`.
+
+  **RATCHET — ONE ROW, AND THE PLAN WAS DERIVED FROM `git status` (finding 90.7).** Repinned AS THE
+  LAST EDIT to any production or ratcheted file, after every production edit and after the whole
+  differential / oracle / IL / determinism / lint set had been run:
+  `CodeIntelligenceService.cs` **889 / 769 → 578 / 490**, fingerprint
+  `161fae7d3b6a33f6 → 0b2b14798a071fa0`. **It is the ONLY ratcheted file this slice touched** — the
+  two new files are `.nl` and the third change is `STATUS.md`, neither of which the manifest carries.
+  Head `4415a5a43284021b → 673a199a8de156d1`, mirrored into `OwnershipAudit.nl`, and the stored head
+  was REPRODUCED by the independent FNV-1a walk before the write.
+  **The repin is non-vacuous by execution, and the audit itself supplied the counter**: run against
+  the pre-repin manifest it reports **17 / 18 with 1 FAILED**
+  (`RepositoryNonNSharpOwnershipMatchesTheE0GrowthBaseline`) and **18 / 18** against the repinned
+  one, run in that order. Manifest **391** lines, no BOM, still **0** `.nl` rows — **the one row this
+  slice touched moved DOWN; nothing grew.**
+
+  **THE FULL VS CODE-ENABLED GATE WAS RUN ON THE BYTE-FINAL REPINNED TREE FROM AN ISOLATED
+  `/private/tmp/nl92gate` WORKTREE AND PASSED: `ALL TESTS PASSED` in 27m 13s, 108 GREEN STEPS AND
+  ZERO FAILURES, WITH THE VS CODE INTEGRATION TESTS INSIDE** (Step 3b, 3m 07s — extension,
+  diagnostics, hover and completion), including the unit suite **3,192 / 3,192**, the whole native
+  `.tests.nl` estate with contracts **4,819 / 4,819** and the ownership audit **18 / 18** inside it,
+  the format contract gate, every example and template, and the IL verification gate.
+  Fresh under `--commit` with `NSHARP_TEST_STEP_CACHE_OFF=1`.
+  **`VSCODE_TESTS=skip` WAS NOT AN OPTION AND THE REASON IS THE PRODUCT: THIS SLICE OWNS THE TYPE
+  BEHIND EVERY HOVER, EVERY GO-TO-DEFINITION AND EVERY `query type` ANSWER.** No LSP source changed,
+  so a VSIX reload was not required — a checked conclusion (`git status` names six files, none under
+  `src/NSharpLang.LanguageServer` or `editors/vscode`), not an assumption. Per standing precedent
+  computer-use visual verification was NOT requested and the gate's VS Code evidence stands in.
+  **All 6 of the gate tree's files were verified md5-identical to the working tree's before the run
+  (6 / 6), and its `git status` reproduced the working tree's exactly.**
+  `./scripts/dev.sh --since` independently selected the **full unit suite** (its fail-safe arm, since
+  the change reaches a central compiler file) and reports **3,192 / 3,192**.
+
+  **THE ARC'S SURFACE AFTER SIXTEEN SLICES, RE-MEASURED BY THE VALIDATED EXTRACTOR.** Five live
+  files — **3,706 lines / 3,322 non-blank / 152 extents summing 3,441**, down from **4,017 / 3,601 /
+  166 / 3,738** at slice 15's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257**, a
+  **−52.1 %** cut on lines:
+  | file | lines | non-blank | extents | extent sum |
+  |---|---|---|---|---|
+  | `Formatter` | 2,302 | 2,127 | 49 | 2,248 |
+  | `CodeIntelligenceService` | 578 | 490 | 38 | 504 |
+  | `DocQuery` (WALLED, not closed) | 446 | 382 | 23 | 402 |
+  | **`OutputFormatter` (CLOSED)** | **271** | **226** | **38** | **206** |
+  | **`CompletionEngine` (CLOSED)** | **109** | **97** | **4** | **81** |
+  | **`Linter` (DELETED)** | **0** | **0** | **0** | **0** |
+
+  **WHAT THIS SLICE DID NOT TAKE, AND IT IS NAMED RATHER THAN LEFT SILENT.** The FOUR ENTRY POINTS
+  (`ResolveTypeUseAtPosition` 23, `ResolveDeclaredNameTypeAtPosition` 21, `ResolveTypeInfoAtPosition`
+  20, `GetNullabilityForExpression` 11 — **75 lines**) stay in C#, and they are the last real POLICY
+  in the file: the three-route ORDER, the candidate-name loop, the `ExpressionNullStates` lookup.
+  All four are called from `GetTypeAtPosition` and nothing else, and three of the four are already
+  N#-able as written — only `ResolveTypeUseAtPosition` needs its `TryResolveDefinitionViaBindings`
+  call hoisted into the driver (a pure call at that exact point in the flow, shared with two other
+  members). **They were left because the mandate named the 13-member family and because 76 arms is
+  already a slice**, not because anything blocks them. `ResolveTypeUseAtPosition` also carries an
+  **UNUSED `currentUnit` PARAMETER** that predates this arc; removing it is a one-line shrink nobody
+  has claimed.
+
+  **WALL STATUS: ZERO. NO REPIN OF THE TOOLSET.** Every shape this slice needed was proved live
+  against the PINNED toolset before a line was written, and the two pre-existing gaps slice 15
+  measured (`.Count` on a read-only interface receiver; a TYPED LOCAL of one) were ROUTED AROUND
+  exactly as recorded — the owner iterates with `for-in` and never asks a read-only interface for its
+  `Count`.
+
+  **SEVEN FINDINGS.**
+  **(92.1) A NAME-KEYED SCC WALK CANNOT SEE AN OVERLOAD PAIR, AND ITS SELF-EDGES ARE A LIE.** The
+  inherited "five-member SCC" was **two 2-member SCCs plus four self-recursive singletons**, and
+  `ResolveTypeInfoByName` — one of the three names the brief put IN the cycle — is in no cycle at
+  all. TWO tool defects stood between the file and that fact: keying the graph by NAME **merges the
+  two `FindMemberTypeInfo` overloads into one node** and invents a cycle out of a one-way edge, and
+  matching a member's own name anywhere in its extent **counts its own SIGNATURE as a self-edge, for
+  every member in the file**. Both had to be fixed before the answer was trustworthy. **An SCC
+  report is only as good as its node identity.**
+  **(92.2) A SWITCH-ARM ESTIMATE WAS OFF BY FOUR TIMES, AND THE COUNTER WAS WRONG TWICE BEFORE IT
+  WAS RIGHT.** "Roughly twenty arms" measured **76** (12 statement arms + 64 expression arms) plus 5
+  `is`-patterns. Counting `=>` LINES over-counts, because a lambda on an arm's continuation line
+  (`g.TypeArguments.Select(t => …)`) reads as an arm; and an arm regex that forbids `=` cannot cross
+  a `when c.Name == name` guard, which silently drops nine of ten arms in the guarded switches.
+  **The rule is that an arm begins with a TYPE PATTERN or the discard, and nothing else does.**
+  **(92.3) THE C# WAS HIDING A NINE-ARM DUPLICATION IN PLAIN SIGHT.** Two switches, 21 and 27 lines
+  apart in the same file, carried the same nine type arms; only three VALUE arms distinguished them.
+  Porting arm-by-arm would have copied the duplication into N# and doubled it in size. **A
+  mechanical port is the moment to ask whether the two things being ported are one thing.**
+  **(92.4) A LITERAL AST NODE'S `Value` IS A `string`.** `new IntLiteralExpression(1, 1, 1)` declines
+  at **`emit.statement.block-child: block child 2 (node kind 61)`** — a NODE-KIND NUMBER and no
+  member name, which points at the statement and not at the argument. The ctor takes
+  `Value: string`; `"1"`, `"1.5"` and `"c"` emit.
+  **(92.5) AN ARRAY LITERAL OF MIXED DECLARATION SUBTYPES DECLINES.**
+  `[classDecl, fieldDecl, funcDecl]` bound to a `Declaration[]` parameter declines at
+  **`emit.local.initializer`**; a homogeneous literal is fine. The route is ARITY-NAMED helpers
+  taking `Declaration` parameters (`CitrMembers1/2/3`) — free functions do not overload, so the
+  arities must be spelled into the names.
+  **(92.6) AN UNBALANCED PAREN IN A MULTILINE ARGUMENT LIST REPORTS AT LINE 1 AS A DECLARATION-SCAN
+  FAILURE.** A missing `)` deep inside a nested call declines the WHOLE FILE at
+  **`parse.declaration-scan: top-level declaration scan failed at struct-like scan
+  (file.nl:1:1)`** — the same useless-position shape the reserved-word gotchas have. **Balance-check
+  the file before bisecting for a reserved word**; a one-line Python bracket walk finds it in
+  seconds.
+  **(92.7) THE LSP ORACLE'S OWN NORMALISER DOES NOTHING ON macOS, AND IT COST FOUR PHANTOM DIFF
+  LINES.** `nl9x-lspquery.sh` normalises clocks with `sed -E 's/…(ms|s)\b/<t>/g'` — **BSD `sed` has
+  no `\b`** — so `Linted 2 files — no issues. [0.1s]` vs `[0.2s]` survived normalisation and the
+  oracle reported `DIFFS=4`. The transcript comparison already learned this and uses a Python
+  lookahead (`nl89-transnorm.py`); the LSP oracle had not. Re-normalised correctly the oracle is
+  **0 diffs with both sides at the same md5**. **A `\b` in a BSD `sed` script is a silent no-op, and
+  every oracle that normalises a clock must use the Python normaliser.**
+
+  **THE NEXT SLICE IS THE `Formatter` STATE CARRIER, AND ITS MEASUREMENT IS ALREADY BANKED.**
+  `Formatter.cs` is now the arc's largest file by a factor of **4.0** (2,302 vs 578), and slice 15's
+  field census (`nl91-fields.py`, six fields over 43 members) says exactly what the carrier is:
+  **`_comments` + `_commentIndex` + `_lastEmittedSourceLine` — the MUTABLE TRIO, four writers between
+  them — plus the two CONFIGURATION values `_indentString` and `_maxLineLength`, written once each in
+  the constructor, move into one `FormatterWalkState`; `_indent` STAYS A PARAMETER** because it is
+  read by 21 members and written by NONE, and **there is NO output-builder field at all** — the
+  formatter RETURNS strings rather than accumulating, which is why its 1,282-line SCC is a walk over
+  POSITIONS and not over a buffer. That is the `LinterWalkState` shape (slice 10) at a fraction of
+  its size, and **it must land BEFORE any formatting arm is attempted**. The `nl92-scc.py` and
+  `nl92-arms.py` tools are now repointable at `Formatter.cs` and both defects finding 92.1 and 92.2
+  record are fixed in them, so the SCC and arm census can be taken correctly on the first run.
+
+  **WHAT REMAINS OF `CodeIntelligenceService.cs` AT 578, AND THE ONE STRUCTURAL BLOCKER.** 24 members
+  / 463 lines, and the honest split is: **the four ENTRY POINTS above (75 lines) are the last real
+  policy**; everything else is a driver (`LoadProject` ×3, `GetSymbols`, `GetOutline`,
+  `GetOutlineSingleFile`, `GetDiagnostics`, `FindDefinition`, `FindReferences`,
+  `FindStrictReferences`, `GetHoverInfo`, `GetCallGraph`, `GetImplementors`), a binding-lookup
+  adapter (`ResolveDefinitionSymbolAtPosition`, `TryResolveDefinitionViaBindings`,
+  `GetBindingCandidateColumns`, `ResolveStrictReferenceDeclaration`), a path helper
+  (`FindCompilationUnit`, `FindExpressionAtPositionRobust`), the definition-location walk
+  (`FindDefinitionLocation` + `FindDefinitionLocationInDeclaration`, 45 lines — the next
+  self-contained family), or `ProjectSnapshot` itself. **`ProjectSnapshot` IS THE ONLY STRUCTURAL
+  BLOCKER LEFT**: it is a C# type declared in this file at :532 that
+  `NSharpLang.Compiler.BootstrapServices` cannot reference, and it is what keeps `GetCompletions`'s
+  seven call sites and every driver's signature in C#. Nothing else in the file is walled.
+
+  **019's COMPLETION SHAPE.** Two files are reviewed zero-policy hosts (`CompletionEngine` 109,
+  `OutputFormatter` 271); `DocQuery.cs` is a **walled** host at 446 whose `UNEXPLAINED = 0` behind two
+  named catalog gaps; **`Linter.cs` is DELETED**; `CodeIntelligenceService` is at **578 with one
+  structural blocker and 75 lines of policy named**; `Formatter` (2,302) is the one file still
+  substantially untouched. **The honest close of 019 is: the `Formatter` state carrier, then its
+  formatting arms behind it, the four CIS entry points taken (service → ~500, all driver), and
+  `DocQuery` either finished by a `System.Xml.Linq` catalog repin or accepted at 402 walled lines.**
+
+  **ARTEFACTS LEFT ON DISK FOR THE NEXT SLICE.** **`/private/tmp/nl92base` (a pristine `477b64337`
+  worktree, BUILT) IS DELIBERATELY KEPT** for the next differential; `/private/tmp/nl91base` was
+  removed. The differential harness is `/private/tmp/nl92grid` (ONE `Grid.cs`, THREE csproj —
+  `base`, `work` and **`nonorm`, the non-vacuity control that compiles the same source with the
+  `TargetInvocationException` unwrap DISABLED**; its corpora are `corpus` and `corpuserr`, the
+  slice-15 pair plus a `Types.nl` that exercises aliases, newtypes, generics, base classes and
+  member chains). The emit probe is `/private/tmp/nl92iso` — **`q1/project.yml` MUST say
+  `outputType:`, not `type:` (finding 90.5), and `q2` is its CONTROL** — and
+  `/private/tmp/nl92inspect` is the reflection reader that proves an emitted assembly actually
+  carries its members (**load through a collectible `AssemblyLoadContext` with a `Resolving` hook, or
+  `GetTypes()` throws on `YamlDotNet`**). IL trees: `/private/tmp/nl92il{Ctrl,A,B}Tree` with outputs
+  under `/private/tmp/nl92out{Ctrl,A,B}`. Harnesses in the scratchpad: `nl62_members.py`,
+  `nl88-deadsweep.py`, `nl88-edges.py`, **`nl92-scc.py` (overload-aware, signature-stripping)**,
+  **`nl92-arms.py` (type-pattern-anchored)**, `nl91-fields.py` (**already repointed at
+  `Formatter.cs`**), **`nl92-lspanswers.py` (counts the batch oracle's answers per command — use
+  `json.JSONDecoder().raw_decode`, a brace counter derails on braces inside strings)**, plus the
+  repointed `nl92-oracle.sh`, `nl92-run-oracles.sh`, `nl92-run-il.sh`, `nl92-ilsweep.sh` (**its `git
+  archive` commit must be repointed each slice**), `nl89-ilcompare.py` (**give it the OUT dir, not
+  the `asm` dir**), `nl89-transnorm.py` (**three arguments: raw, tree, out**), `nl92-determinism.sh`,
+  `nl92-lspquery.sh` (**its `sed` clock normaliser is a no-op on macOS — normalise in Python, finding
+  92.7**), `nl92-lintoracle.sh` + `nl89-lintnorm.py`, and `nl92-repin.py`.
+  **`/private/tmp` IS REAPED** — regenerate rather than assume.
+
+- Active sub-slice (019 arc, PRIOR TURN, STAGE 2 LANDED on the republished toolset at `27a5df665`):
   **019 SLICE 15 STAGE 2 — THE TWO WALLED MEMBERS AND THE REFERENCE FAMILY. 5 MEMBERS / 121 LINES,
   AND THE WALL SLICE 13 MEASURED IS GONE.**
 

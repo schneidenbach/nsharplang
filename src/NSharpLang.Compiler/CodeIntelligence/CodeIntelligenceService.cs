@@ -150,6 +150,11 @@ public class CodeIntelligenceService
     /// Get type information for the expression/symbol at a position.
     /// Uses AstNodeFinder + SemanticModel for semantic resolution.
     /// </summary>
+    /// <remarks>
+    /// The three routes below are tried in order and every type-info decision inside them belongs to
+    /// <see cref="CodeIntelligenceTypeResolution"/>. What survives here is the ORDER, the position
+    /// plumbing, and the <see cref="ProjectSnapshot"/> reads that assembly declares.
+    /// </remarks>
     public TypeResult? GetTypeAtPosition(ProjectSnapshot snapshot, string file, int line, int col)
     {
         var (filePath, cu) = FindCompilationUnit(snapshot, file);
@@ -335,7 +340,7 @@ public class CodeIntelligenceService
                 CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
                 declaration.Line,
                 declaration.Column),
-            typeInfo != null ? NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo)) : null);
+            typeInfo != null ? NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(typeInfo)) : null);
     }
 
     private TypeResult? ResolveDeclaredNameTypeAtPosition(ProjectSnapshot snapshot, string filePath, CompilationUnit currentUnit,
@@ -347,8 +352,9 @@ public class CodeIntelligenceService
 
         foreach (var declaration in currentUnit.Declarations)
         {
-            var result = ResolveDeclaredNameTypeInDeclaration(
-                snapshot,
+            var result = CodeIntelligenceTypeResolution.DeclaredNameTypeInDeclaration(
+                snapshot.ProjectRoot,
+                snapshot.CompilationUnits,
                 filePath,
                 declaration,
                 selectedName!,
@@ -358,83 +364,6 @@ public class CodeIntelligenceService
         }
 
         return null;
-    }
-
-    private TypeResult? ResolveDeclaredNameTypeInDeclaration(ProjectSnapshot snapshot, string filePath, Declaration declaration,
-        string selectedName, int line)
-    {
-        var declarationName = DeclarationFacts.GetDeclarationName(declaration);
-        if (declaration.Line == line
-            && string.Equals(declarationName, selectedName, StringComparison.Ordinal)
-            && TryGetDeclaredNameTypeInfo(declaration, snapshot, out var typeInfo))
-        {
-            var resolvedType = NullabilityMetadataReflection.FormatTypeInfo(typeInfo);
-            return new TypeResult(
-                selectedName,
-                resolvedType,
-                CodeIntelligenceDisplayText.TypeInfoToKind(typeInfo),
-                new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath), declaration.Line, declaration.Column),
-                NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo)));
-        }
-
-        foreach (var member in DeclarationFacts.GetDeclarationMembers(declaration)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
-        {
-            var memberResult = ResolveDeclaredNameTypeInDeclaration(
-                snapshot,
-                filePath,
-                member,
-                selectedName,
-                line);
-            if (memberResult != null)
-                return memberResult;
-        }
-
-        return null;
-    }
-
-    private bool TryGetDeclaredNameTypeInfo(Declaration declaration, ProjectSnapshot snapshot, out TypeInfo typeInfo)
-    {
-        switch (declaration)
-        {
-            case FunctionDeclaration function:
-                typeInfo = function.ReturnType != null
-                    ? ResolveTypeReferenceToTypeInfo(function.ReturnType, snapshot)
-                    : new SimpleTypeInfo("void");
-                return true;
-            case FieldDeclaration { Type: { } fieldType }:
-                typeInfo = ResolveTypeReferenceToTypeInfo(fieldType, snapshot);
-                return true;
-            case PropertyDeclaration property:
-                typeInfo = ResolveTypeReferenceToTypeInfo(property.Type, snapshot);
-                return true;
-            case ClassDeclaration cls:
-                typeInfo = NominalTypeInfoFactory.FromClassDeclaration(cls);
-                return true;
-            case StructDeclaration str:
-                typeInfo = NominalTypeInfoFactory.FromStructDeclaration(str);
-                return true;
-            case RecordDeclaration record:
-                typeInfo = NominalTypeInfoFactory.FromRecordDeclaration(record);
-                return true;
-            case InterfaceDeclaration iface:
-                typeInfo = NominalTypeInfoFactory.FromInterfaceDeclaration(iface);
-                return true;
-            case EnumDeclaration enumDecl:
-                typeInfo = EnumTypeInfoFactory.FromDeclaration(enumDecl);
-                return true;
-            case UnionDeclaration union:
-                typeInfo = UnionTypeInfoFactory.FromDeclaration(union);
-                return true;
-            case TypeAliasDeclaration alias:
-                typeInfo = ResolveTypeReferenceToTypeInfo(alias.Type, snapshot);
-                return true;
-            case NewtypeDeclaration newtype:
-                typeInfo = new NewtypeInfo(newtype.Name, newtype.UnderlyingType);
-                return true;
-            default:
-                typeInfo = BuiltInTypes.Unknown;
-                return false;
-        }
     }
 
     private SymbolDeclaration? ResolveDefinitionSymbolAtPosition(ProjectSnapshot snapshot, string file, int line, int col)
@@ -515,245 +444,19 @@ public class CodeIntelligenceService
         SemanticModel? semanticModel, ProjectSnapshot snapshot, CompilationUnit currentUnit, out string? resolvedName)
     {
         resolvedName = CodeIntelligenceDisplayText.GetExpressionQueryName(expr);
-        var fromExpression = ResolveTypeInfoFromExpression(expr, semanticModel, snapshot, currentUnit);
+        var fromExpression = CodeIntelligenceTypeResolution.TypeInfoFromExpression(
+            expr, semanticModel, snapshot.CompilationUnits, currentUnit);
         if (fromExpression != null)
             return fromExpression;
 
         foreach (var candidateName in candidateNames)
         {
-            var typeInfo = ResolveTypeInfoByName(candidateName, semanticModel, snapshot, currentUnit);
+            var typeInfo = CodeIntelligenceTypeResolution.TypeInfoByName(
+                candidateName, semanticModel, snapshot.CompilationUnits, currentUnit);
             if (typeInfo != null)
             {
                 resolvedName = candidateName;
                 return typeInfo;
-            }
-        }
-
-        return null;
-    }
-
-    private TypeInfo? ResolveTypeInfoFromExpression(Expression? expr, SemanticModel? semanticModel,
-        ProjectSnapshot snapshot, CompilationUnit currentUnit)
-    {
-        if (expr != null && semanticModel != null)
-        {
-            var resolved = semanticModel.LookupTypeAtPosition(expr.Line, expr.Column);
-            if (resolved != null && !BuiltInTypes.IsUnknown(resolved))
-                return resolved;
-        }
-
-        return expr switch
-        {
-            IdentifierExpression id => ResolveTypeInfoByName(id.Name, semanticModel, snapshot, currentUnit),
-            MemberAccessExpression ma => ResolveMemberTypeInfo(ma, semanticModel, snapshot, currentUnit)
-                ?? ResolveTypeInfoByName(ma.MemberName, semanticModel, snapshot, currentUnit),
-            CallExpression call => ResolveTypeInfoFromExpression(call.Callee, semanticModel, snapshot, currentUnit),
-            NewExpression newExpr when newExpr.Type != null => ResolveTypeReferenceToTypeInfo(newExpr.Type, snapshot),
-            WithExpression withExpr => ResolveTypeInfoFromExpression(withExpr.Target, semanticModel, snapshot, currentUnit),
-            AwaitExpression awaitExpr => ResolveTypeInfoFromExpression(awaitExpr.Expression, semanticModel, snapshot, currentUnit),
-            CastExpression castExpr => ResolveTypeReferenceToTypeInfo(castExpr.TargetType, snapshot),
-            ParenthesizedExpression paren => ResolveTypeInfoFromExpression(paren.Inner, semanticModel, snapshot, currentUnit),
-            IntLiteralExpression => new SimpleTypeInfo("int"),
-            FloatLiteralExpression => new SimpleTypeInfo("double"),
-            CharLiteralExpression => new SimpleTypeInfo("char"),
-            StringLiteralExpression => new SimpleTypeInfo("string"),
-            InterpolatedStringExpression => new SimpleTypeInfo("string"),
-            BoolLiteralExpression => new SimpleTypeInfo("bool"),
-            NullLiteralExpression => new SimpleTypeInfo("object"),
-            _ => null
-        };
-    }
-
-    private TypeInfo? ResolveMemberTypeInfo(MemberAccessExpression memberAccess, SemanticModel? semanticModel,
-        ProjectSnapshot snapshot, CompilationUnit currentUnit)
-    {
-        var receiverType = ResolveTypeInfoFromExpression(memberAccess.Object, semanticModel, snapshot, currentUnit);
-        if (receiverType == null && memberAccess.Object is IdentifierExpression receiverId)
-            receiverType = ResolveTypeInfoByName(receiverId.Name, semanticModel, snapshot, currentUnit);
-
-        if (receiverType == null)
-            return null;
-
-        return FindMemberTypeInfo(snapshot, receiverType, memberAccess.MemberName);
-    }
-
-    private TypeInfo? FindMemberTypeInfo(ProjectSnapshot snapshot, TypeInfo receiverType, string memberName)
-    {
-        if (receiverType is ClassTypeInfo classType)
-        {
-            return FindMemberTypeInfo(snapshot, classType.DeclaredMembers, memberName)
-                ?? (classType.BaseClass != null
-                    ? FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(classType.BaseClass, snapshot), memberName)
-                    : null);
-        }
-
-        return receiverType switch
-        {
-            StructTypeInfo structType => FindMemberTypeInfo(snapshot, structType.DeclaredMembers, memberName),
-            RecordTypeInfo recordType => FindMemberTypeInfo(snapshot, recordType.DeclaredMembers, memberName),
-            InterfaceTypeInfo interfaceType => FindMemberTypeInfo(snapshot, interfaceType.DeclaredMembers, memberName),
-            EnumTypeInfo => receiverType,
-            AnonymousUnionTypeInfo => receiverType,
-            UnionTypeInfo => receiverType,
-            AliasTypeInfo aliasType => FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(aliasType.AliasedType, snapshot), memberName),
-            NullableTypeInfo nullableType => FindMemberTypeInfo(snapshot, nullableType.InnerType, memberName),
-            ObliviousTypeInfo obliviousType => FindMemberTypeInfo(snapshot, obliviousType.InnerType, memberName),
-            _ => null
-        };
-    }
-
-    private TypeInfo? FindMemberTypeInfo(ProjectSnapshot snapshot, IReadOnlyList<DeclaredMemberInfo> members, string memberName)
-    {
-        foreach (var member in members)
-        {
-            if (member.Name != memberName)
-                continue;
-
-            return member.Kind switch
-            {
-                DeclaredMemberKind.Field when member.Type != null => ResolveTypeReferenceToTypeInfo(member.Type, snapshot),
-                DeclaredMemberKind.Property when member.Type != null => ResolveTypeReferenceToTypeInfo(member.Type, snapshot),
-                DeclaredMemberKind.Function => member.ReturnType != null
-                    ? ResolveTypeReferenceToTypeInfo(member.ReturnType, snapshot)
-                    : new SimpleTypeInfo("void"),
-                _ => null
-            };
-        }
-
-        return null;
-    }
-
-    private TypeInfo? ResolveTypeInfoByName(string name, SemanticModel? semanticModel,
-        ProjectSnapshot snapshot, CompilationUnit currentUnit)
-    {
-        var typeInfo = semanticModel?.LookupIdentifier(name);
-        if (typeInfo != null)
-            return typeInfo;
-
-        return FindTypeInfoByName(snapshot, currentUnit, name);
-    }
-
-    private TypeInfo? FindTypeInfoByName(ProjectSnapshot snapshot, CompilationUnit currentUnit, string name)
-    {
-        var currentNamespace = currentUnit.Namespace?.Name;
-        var importedNamespaces = currentUnit.Imports.Select(i => i.Namespace).ToHashSet(StringComparer.Ordinal);
-
-        foreach (var (_, cu) in snapshot.CompilationUnits)
-        {
-            var namespaceName = cu.Namespace?.Name;
-            if (!string.Equals(namespaceName, currentNamespace, StringComparison.Ordinal) &&
-                (namespaceName == null || !importedNamespaces.Contains(namespaceName)))
-            {
-                continue;
-            }
-
-            foreach (var decl in cu.Declarations)
-            {
-                var typeInfo = FindTypeInfoInDeclaration(decl, name, snapshot);
-                if (typeInfo != null)
-                    return typeInfo;
-            }
-        }
-
-        return null;
-    }
-
-    private TypeInfo? FindTypeInfoInDeclaration(Declaration decl, string name, ProjectSnapshot snapshot)
-    {
-        var directMatch = TryGetTypeInfoFromDeclaration(decl, name, snapshot);
-        if (directMatch != null)
-            return directMatch;
-
-        foreach (var member in DeclarationFacts.GetDeclarationMembers(decl)?.Cast<Declaration>() ?? Enumerable.Empty<Declaration>())
-        {
-            var memberMatch = FindTypeInfoInDeclaration(member, name, snapshot);
-            if (memberMatch != null)
-                return memberMatch;
-        }
-
-        if (decl is EnumDeclaration enumDecl && enumDecl.Members.Any(m => m.Name == name))
-            return EnumTypeInfoFactory.FromDeclaration(enumDecl);
-
-        if (decl is UnionDeclaration unionDecl && unionDecl.Cases.Any(c => c.Name == name))
-            return UnionTypeInfoFactory.FromDeclaration(unionDecl);
-
-        return null;
-    }
-
-    private TypeInfo? TryGetTypeInfoFromDeclaration(Declaration decl, string name, ProjectSnapshot snapshot)
-    {
-        return decl switch
-        {
-            FunctionDeclaration f when f.Name == name => f.ReturnType != null
-                ? ResolveTypeReferenceToTypeInfo(f.ReturnType, snapshot)
-                : new SimpleTypeInfo("void"),
-            ClassDeclaration c when c.Name == name => NominalTypeInfoFactory.FromClassDeclaration(c),
-            StructDeclaration s when s.Name == name => NominalTypeInfoFactory.FromStructDeclaration(s),
-            RecordDeclaration r when r.Name == name => NominalTypeInfoFactory.FromRecordDeclaration(r),
-            SoaRecordDeclaration soa when soa.Name == name => SoaTypeInfoFactory.FromDeclaration(soa),
-            InterfaceDeclaration i when i.Name == name => NominalTypeInfoFactory.FromInterfaceDeclaration(i),
-            EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
-            UnionDeclaration u when u.Name == name => UnionTypeInfoFactory.FromDeclaration(u),
-            FieldDeclaration fd when fd.Name == name && fd.Type != null => ResolveTypeReferenceToTypeInfo(fd.Type, snapshot),
-            PropertyDeclaration pd when pd.Name == name => ResolveTypeReferenceToTypeInfo(pd.Type, snapshot),
-            TypeAliasDeclaration ta when ta.Name == name => ResolveTypeReferenceToTypeInfo(ta.Type, snapshot),
-            NewtypeDeclaration nt when nt.Name == name => new NewtypeInfo(nt.Name, nt.UnderlyingType),
-            _ => null
-        };
-    }
-
-    private TypeInfo ResolveTypeReferenceToTypeInfo(TypeReference typeRef, ProjectSnapshot snapshot)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference s => FindNamedTypeInfo(snapshot, s.Name) ?? new SimpleTypeInfo(s.Name),
-            GenericTypeReference g => new GenericTypeInfo(g.Name,
-                g.TypeArguments.Select(t => ResolveTypeReferenceToTypeInfo(t, snapshot)).ToList()),
-            ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReferenceToTypeInfo(a.ElementType, snapshot)),
-            NullableTypeReference n => new NullableTypeInfo(ResolveTypeReferenceToTypeInfo(n.InnerType, snapshot)),
-            UnionTypeReference u => new AnonymousUnionTypeInfo(FlattenUnionTypeReference(u).Select(t => ResolveTypeReferenceToTypeInfo(t, snapshot)).ToList()),
-            _ => new SimpleTypeInfo(typeRef.ToString() ?? "unknown")
-        };
-    }
-
-    private static IEnumerable<TypeReference> FlattenUnionTypeReference(TypeReference typeRef)
-    {
-        if (typeRef is UnionTypeReference union)
-        {
-            foreach (var arm in union.Arms)
-            {
-                foreach (var nested in FlattenUnionTypeReference(arm))
-                    yield return nested;
-            }
-        }
-        else
-        {
-            yield return typeRef;
-        }
-    }
-
-    private TypeInfo? FindNamedTypeInfo(ProjectSnapshot snapshot, string name)
-    {
-        foreach (var (_, cu) in snapshot.CompilationUnits)
-        {
-            foreach (var decl in cu.Declarations)
-            {
-                var typeInfo = decl switch
-                {
-                    ClassDeclaration c when c.Name == name => NominalTypeInfoFactory.FromClassDeclaration(c),
-                    StructDeclaration s when s.Name == name => NominalTypeInfoFactory.FromStructDeclaration(s),
-                    RecordDeclaration r when r.Name == name => NominalTypeInfoFactory.FromRecordDeclaration(r),
-                    SoaRecordDeclaration soa when soa.Name == name => SoaTypeInfoFactory.FromDeclaration(soa),
-                    InterfaceDeclaration i when i.Name == name => NominalTypeInfoFactory.FromInterfaceDeclaration(i),
-                    EnumDeclaration e when e.Name == name => EnumTypeInfoFactory.FromDeclaration(e),
-                    UnionDeclaration u when u.Name == name => UnionTypeInfoFactory.FromDeclaration(u),
-                    TypeAliasDeclaration ta when ta.Name == name => ResolveTypeReferenceToTypeInfo(ta.Type, snapshot),
-                    NewtypeDeclaration nt when nt.Name == name => new NewtypeInfo(nt.Name, nt.UnderlyingType),
-                    _ => null
-                };
-
-                if (typeInfo != null)
-                    return typeInfo;
             }
         }
 
@@ -769,21 +472,7 @@ public class CodeIntelligenceService
             return NullStateFacts.GetSchemaText(state);
         }
 
-        return NullStateFacts.GetSchemaText(GetDefaultNullState(typeInfo));
-    }
-
-    private static NullState GetDefaultNullState(TypeInfo typeInfo)
-    {
-        return typeInfo switch
-        {
-            NullableTypeInfo => NullState.MaybeNull,
-            UnknownTypeInfo => NullState.Unknown,
-            ReflectionTypeInfo reflectionType => reflectionType.Type.IsValueType && Nullable.GetUnderlyingType(reflectionType.Type) == null
-                ? NullState.NotNull
-                : NullState.Oblivious,
-            SimpleTypeInfo { Name: "null" } => NullState.Null,
-            _ => NullState.NotNull
-        };
+        return NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(typeInfo));
     }
 
     private LocationResult? FindDefinitionLocation(ProjectSnapshot snapshot, string name)
