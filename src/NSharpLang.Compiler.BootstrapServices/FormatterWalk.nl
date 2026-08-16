@@ -771,12 +771,18 @@ class FormatterWalk {
                 caseClause := switchStatement.Cases[caseIndex]
                 state.Indent(builder)
                 casePattern := caseClause.Pattern
+                // THE LABEL IS AN ARROW, NOT A C# COLON. The grammar demands `=>` after every
+                // `case` pattern and after `default` (ColumnarParserRecovery's switch arm), so a
+                // colon here is output that cannot re-parse. The body is ALWAYS braced: an
+                // unbraced arrow body carries exactly one statement, while the parser flattens a
+                // braced block into the case's statement list — so braces round-trip any
+                // statement count without adding or dropping a BlockStatement.
                 if casePattern != null {
                     builder.Append("case ")
                     FormatPattern(casePattern, builder)
-                    builder.AppendLine(":")
+                    builder.AppendLine(" => {")
                 } else {
-                    builder.AppendLine("default:")
+                    builder.AppendLine("default => {")
                 }
 
                 state.Push()
@@ -787,6 +793,8 @@ class FormatterWalk {
                 }
 
                 state.Pop()
+                state.Indent(builder)
+                builder.AppendLine("}")
                 caseIndex = caseIndex + 1
             }
 

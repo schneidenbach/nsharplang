@@ -846,3 +846,40 @@ test "a keyword block writes its header then a braced body at one more level" {
     assert FwkShow(builder) == "alloc {|    inner|}|"
     assert state.IndentDepth == 0
 }
+
+// ---- the switch arm's labels are the grammar's --------------------------------------------------
+//
+// THE LABEL IS `case <pattern> =>` AND `default =>`, NEVER THE C# COLON. The parser demands an
+// arrow after both labels, so a colon is output that cannot re-parse — with it, `FormatSafe`
+// rejected EVERY file containing a switch and the formatter was unusable on them. The body is
+// always braced because braces are the only shape that carries more than one statement, and the
+// parser flattens a braced body into the case's statement list, so the round trip neither adds
+// nor drops a BlockStatement.
+
+func FwkSwitchOneCase(pattern: Pattern?): SwitchStatement {
+    statements := new List<Statement>()
+    statements.Add(new ExpressionStatement(FwkIdentifier("inner"), 0, 0))
+    cases := new List<SwitchCase>()
+    cases.Add(new SwitchCase(pattern, statements, 0, 0))
+    return new SwitchStatement(FwkIdentifier("value"), cases, 0, 0)
+}
+
+test "a switch case writes an arrow and a braced body, never a C# colon label" {
+    statement := FwkSwitchOneCase(new LiteralPattern(FwkInt("0"), 0, 0))
+    assert FwkStatementText(statement) == "switch value {|    case 0 => {|        inner|    }|}|"
+}
+
+test "a default case writes default => with the same braced body" {
+    statement := FwkSwitchOneCase(null)
+    assert FwkStatementText(statement) == "switch value {|    default => {|        inner|    }|}|"
+}
+
+test "a case with two statements keeps both inside its braces, which no unbraced arm could" {
+    statements := new List<Statement>()
+    statements.Add(new ExpressionStatement(FwkIdentifier("first"), 0, 0))
+    statements.Add(new ExpressionStatement(FwkIdentifier("second"), 0, 0))
+    cases := new List<SwitchCase>()
+    cases.Add(new SwitchCase(null, statements, 0, 0))
+    statement := new SwitchStatement(FwkIdentifier("value"), cases, 0, 0)
+    assert FwkStatementText(statement) == "switch value {|    default => {|        first|        second|    }|}|"
+}
