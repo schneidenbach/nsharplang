@@ -40,10 +40,9 @@ public class Analyzer : IDisposable
     private AnalyzerAssignabilityFacts _assignabilityFacts;
     private readonly List<Assembly> _mlcAssemblies = new();
 
-    // Reference assemblies that failed to load or be inspected, keyed by identity (file path
-    // or assembly name) → first failure detail. Surfaced as NL923 warnings whenever analysis
-    // also produced unresolved-type errors, so a broken reference can't silently masquerade
-    // as a plain "type not found".
+    // Reference assemblies that failed to load or be inspected, keyed by identity (file path,
+    // assembly name, or NuGet package name) → first failure detail. Surfaced as NL923 whenever
+    // analysis also produced unresolved-type errors, so a broken reference can't masquerade as "type not found".
     private readonly Dictionary<string, string> _referenceLoadFailures = new(StringComparer.Ordinal);
 
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
@@ -2272,11 +2271,28 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Load a .NET assembly by file path for type resolution (metadata-only via MLC)
+    /// Records a failed reference load into <see cref="_referenceLoadFailures"/>, first failure per
+    /// identity; the N#-owned AnalyzerReferenceLoadReport surfaces the table as NL923.
+    /// </summary>
+    private void RecordReferenceLoadFailure(string identity, Exception exception)
+        => RecordReferenceLoadFailure(
+            identity,
+            AnalyzerReferenceLoadReport.ExceptionDetail(exception.GetType().Name, exception.Message));
+
+    private void RecordReferenceLoadFailure(string identity, string detail)
+    {
+        if (!_referenceLoadFailures.ContainsKey(identity))
+            _referenceLoadFailures[identity] = detail;
+    }
+
+    /// <summary>
+    /// Load a .NET assembly by file path for type resolution (metadata-only via MLC). Best-effort:
+    /// a failed load is recorded for NL923 pairing instead of aborting the analysis.
     /// </summary>
     public void LoadReferencedAssembly(string assemblyPath)
     {
         if (_mlc == null) return;
+        try
         {
             var fullPath = Path.GetFullPath(assemblyPath);
             _metadataResolver?.AddSearchDirectory(Path.GetDirectoryName(fullPath)!);
@@ -2286,11 +2302,7 @@ public class Analyzer : IDisposable
                 return;
             }
 
-            AssemblyName assemblyName;
-            {
-                assemblyName = AssemblyName.GetAssemblyName(fullPath);
-            }
-
+            var assemblyName = AssemblyName.GetAssemblyName(fullPath);
             if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
             {
                 return;
@@ -2307,62 +2319,54 @@ public class Analyzer : IDisposable
             var assembly = _mlc.LoadFromAssemblyPath(fullPath);
             RegisterMetadataAssembly(assembly);
         }
+        catch (Exception ex)
+        {
+            RecordReferenceLoadFailure(assemblyPath, ex);
+        }
     }
 
     /// <summary>
-    /// Load a .NET assembly by name (e.g., "System.Runtime") for type resolution (metadata-only via MLC)
+    /// Load a .NET assembly by name (e.g., "System.Runtime") for type resolution (metadata-only via
+    /// MLC). Best-effort: a failed load is recorded for NL923 pairing instead of aborting.
     /// </summary>
     public void LoadReferencedAssemblyByName(string assemblyName)
     {
         if (_mlc == null) return;
-            if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
-            {
-                return;
-            }
-
-            var assembly = _mlc.LoadFromAssemblyName(assemblyName);
-            RegisterMetadataAssembly(assembly);
-    }
-
-    private void RegisterMetadataAssembly(Assembly assembly)
-    {
-        if (_mlcAssemblies.Any(loadedAssembly =>
-        {
-                return AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assembly.GetName());
-        }))
+        if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
         {
             return;
         }
 
-        _mlcAssemblies.Add(assembly);
+        try
+        {
+            var assembly = _mlc.LoadFromAssemblyName(assemblyName);
+            RegisterMetadataAssembly(assembly);
+        }
+        catch (Exception ex)
+        {
+            RecordReferenceLoadFailure(assemblyName, ex);
+        }
+    }
+
+    private void RegisterMetadataAssembly(Assembly assembly)
+    {
+        if (!IsMetadataAssemblyAlreadyLoaded(assembly.GetName()))
+            _mlcAssemblies.Add(assembly);
     }
 
     private bool IsMetadataAssemblyAlreadyLoaded(AssemblyName assemblyName)
-    {
-        return _mlcAssemblies.Any(loadedAssembly =>
-        {
-                return AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName);
-        });
-    }
+        => _mlcAssemblies.Any(loadedAssembly =>
+            AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName));
 
     private bool IsMetadataAssemblyAlreadyLoaded(string assemblyName)
-    {
-        return _mlcAssemblies.Any(loadedAssembly =>
-        {
-                return string.Equals(loadedAssembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase);
-        });
-    }
+        => _mlcAssemblies.Any(loadedAssembly =>
+            string.Equals(loadedAssembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
 
     private bool IsMetadataAssemblyPathAlreadyLoaded(string assemblyPath)
     {
         var normalizedPath = Path.GetFullPath(assemblyPath);
         return _mlcAssemblies.Any(loadedAssembly =>
-        {
-                return string.Equals(
-                    Path.GetFullPath(loadedAssembly.Location),
-                    normalizedPath,
-                    StringComparison.OrdinalIgnoreCase);
-        });
+            string.Equals(Path.GetFullPath(loadedAssembly.Location), normalizedPath, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -2550,13 +2554,7 @@ public class Analyzer : IDisposable
 
                 if (dependency.Nuget != null)
                 {
-                    try
-                    {
-                        LoadReferencedAssemblyByName(dependency.Nuget);
-                    }
-                    catch (FileNotFoundException)
-                    {
-                    }
+                    LoadReferencedAssemblyByName(dependency.Nuget);
                 }
             }
         }
@@ -2583,32 +2581,43 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Load a single project reference based on its type
+    /// Load a single project reference based on its type. The catch is the last-resort net for
+    /// failures the per-site recording cannot reach (a referenced project.yml that fails to parse,
+    /// IO faults while scanning the NuGet cache); the remaining references still load.
     /// </summary>
     private void LoadProjectReference(Reference reference, string projectDirectory, string targetFramework)
     {
-        switch (reference.Type)
+        try
         {
-            case ReferenceType.NuGet:
-                LoadNuGetPackage(reference.Nuget!, reference.Version, targetFramework, projectDirectory);
-                break;
+            switch (reference.Type)
+            {
+                case ReferenceType.NuGet:
+                    LoadNuGetPackage(reference.Nuget!, reference.Version, targetFramework, projectDirectory);
+                    break;
 
-            case ReferenceType.Dll:
-                var dllPath = Path.IsPathRooted(reference.Dll!)
-                    ? reference.Dll!
-                    : Path.Combine(projectDirectory, reference.Dll!);
-                LoadReferencedAssembly(dllPath);
-                break;
+                case ReferenceType.Dll:
+                    var dllPath = Path.IsPathRooted(reference.Dll!)
+                        ? reference.Dll!
+                        : Path.Combine(projectDirectory, reference.Dll!);
+                    LoadReferencedAssembly(dllPath);
+                    break;
 
-            case ReferenceType.Project:
-                var projectPath = Path.IsPathRooted(reference.Project!)
-                    ? reference.Project!
-                    : Path.Combine(projectDirectory, reference.Project!);
-                LoadProjectReferenceFile(projectPath, targetFramework);
-                break;
+                case ReferenceType.Project:
+                    var projectPath = Path.IsPathRooted(reference.Project!)
+                        ? reference.Project!
+                        : Path.Combine(projectDirectory, reference.Project!);
+                    LoadProjectReferenceFile(projectPath, targetFramework);
+                    break;
 
-            case ReferenceType.Framework:
-                break;
+                case ReferenceType.Framework:
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            RecordReferenceLoadFailure(
+                reference.Nuget ?? reference.Project ?? reference.Dll ?? "<unknown reference>",
+                ex);
         }
     }
 
@@ -2617,7 +2626,6 @@ public class Analyzer : IDisposable
     /// </summary>
     private void LoadNuGetPackage(string packageName, string? version, string targetFramework, string projectDirectory)
     {
-
         var binPath = Path.Combine(projectDirectory, "bin", "Debug", targetFramework, $"{packageName}.dll");
         if (File.Exists(binPath))
         {
@@ -2629,35 +2637,35 @@ public class Analyzer : IDisposable
 
         var nugetCache = Path.Combine(GetNuGetPackagesRoot(), packageName.ToLowerInvariant());
 
-        if (Directory.Exists(nugetCache))
+        if (!Directory.Exists(nugetCache))
         {
-            var versionDir = version != null
-                ? Path.Combine(nugetCache, version)
-                : NuGetVersionOrder.PickHighestVersionDirectory(Directory.GetDirectories(nugetCache));
+            RecordReferenceLoadFailure(packageName, AnalyzerReferenceLoadReport.PackageMissingDetail(nugetCache));
+            return;
+        }
 
-            if (versionDir != null && Directory.Exists(versionDir))
+        var versionDir = version != null
+            ? Path.Combine(nugetCache, version)
+            : NuGetVersionOrder.PickHighestVersionDirectory(Directory.GetDirectories(nugetCache));
+
+        if (versionDir == null || !Directory.Exists(versionDir))
+        {
+            RecordReferenceLoadFailure(packageName, AnalyzerReferenceLoadReport.PackageVersionDeadEndDetail(version, nugetCache));
+            return;
+        }
+
+        foreach (var tfm in new[] { targetFramework, "net10.0", "net9.0", "net8.0", "netstandard2.1", "netstandard2.0" })
+        {
+            var path = Path.Combine(versionDir, "lib", tfm, $"{packageName}.dll");
+            if (File.Exists(path))
             {
-                var possiblePaths = new[]
-                {
-                    Path.Combine(versionDir, "lib", targetFramework, $"{packageName}.dll"),
-                    Path.Combine(versionDir, "lib", "net10.0", $"{packageName}.dll"),
-                    Path.Combine(versionDir, "lib", "net9.0", $"{packageName}.dll"),
-                    Path.Combine(versionDir, "lib", "net8.0", $"{packageName}.dll"),
-                    Path.Combine(versionDir, "lib", "netstandard2.1", $"{packageName}.dll"),
-                    Path.Combine(versionDir, "lib", "netstandard2.0", $"{packageName}.dll")
-                };
-
-                foreach (var path in possiblePaths)
-                {
-                    if (File.Exists(path))
-                    {
-                        LoadReferencedAssembly(path);
-                        return;
-                    }
-                }
+                LoadReferencedAssembly(path);
+                return;
             }
         }
 
+        RecordReferenceLoadFailure(
+            packageName,
+            AnalyzerReferenceLoadReport.PackageLibAssetMissingDetail(packageName, Path.Combine(versionDir, "lib")));
     }
 
     private string? TryGetRestoredPackageVersion(string projectDirectory, string packageName)
@@ -2715,23 +2723,13 @@ public class Analyzer : IDisposable
     {
         var projectDir = Path.GetDirectoryName(projectPath)!;
 
-        if (projectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+        if (projectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+            projectPath.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
         {
-            var projectName = Path.GetFileNameWithoutExtension(projectPath);
-            var outputPath = Path.Combine(projectDir, "bin", "Debug", targetFramework, $"{projectName}.dll");
-
-            {
-                LoadReferencedAssembly(outputPath);
-            }
-        }
-        else if (projectPath.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
-        {
-            var nsharpProject = ProjectFileParser.Parse(projectPath);
-            var outputPath = Path.Combine(projectDir, "bin", "Debug", targetFramework, $"{nsharpProject.EffectiveName}.dll");
-
-            {
-                LoadReferencedAssembly(outputPath);
-            }
+            var assemblyName = projectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileNameWithoutExtension(projectPath)
+                : ProjectFileParser.Parse(projectPath).EffectiveName;
+            LoadReferencedAssembly(Path.Combine(projectDir, "bin", "Debug", targetFramework, $"{assemblyName}.dll"));
         }
         else
         {

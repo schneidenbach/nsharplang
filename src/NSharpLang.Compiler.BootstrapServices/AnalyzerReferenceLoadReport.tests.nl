@@ -221,6 +221,28 @@ test "ordinal order is by CODE UNIT, so every uppercase letter sorts before ever
     assert warnings[1].Message.Contains("'alpha'")
 }
 
+// ---- (5) the detail phrasing the load surface records --------------------------------------------
+
+test "an exception detail is the type name, a colon, and the message" {
+    assert AnalyzerReferenceLoadReport.ExceptionDetail("FileNotFoundException", "no such file") == "FileNotFoundException: no such file"
+}
+
+test "a package missing from the cache names the cache path" {
+    assert AnalyzerReferenceLoadReport.PackageMissingDetail("/tmp/cache/pkg") == "NuGet package not found in the cache at /tmp/cache/pkg"
+}
+
+test "a pinned version that is not extracted names the version and the cache path" {
+    assert AnalyzerReferenceLoadReport.PackageVersionDeadEndDetail("1.2.3", "/tmp/cache/pkg") == "version 1.2.3 is not extracted in the NuGet cache at /tmp/cache/pkg"
+}
+
+test "an unpinned version dead end says no extracted versions" {
+    assert AnalyzerReferenceLoadReport.PackageVersionDeadEndDetail(null, "/tmp/cache/pkg") == "no extracted versions in the NuGet cache at /tmp/cache/pkg"
+}
+
+test "a missing lib asset names the package dll and the lib root" {
+    assert AnalyzerReferenceLoadReport.PackageLibAssetMissingDetail("Foo.Bar", "/tmp/cache/foo.bar/1.0.0/lib") == "no Foo.Bar.dll under /tmp/cache/foo.bar/1.0.0/lib for any supported target framework"
+}
+
 test "the ordinal comparison answers the three outcomes" {
     assert AnalyzerReferenceLoadReport.CompareOrdinal("a", "b") < 0
     assert AnalyzerReferenceLoadReport.CompareOrdinal("b", "a") > 0
