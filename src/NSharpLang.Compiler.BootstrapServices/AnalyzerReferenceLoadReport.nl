@@ -81,45 +81,27 @@ class AnalyzerReferenceLoadReport {
             collected.Add(entry.Key)
         }
 
-        identities := SortedOrdinal(collected)
+        // ORDINAL ASCENDING, so the report order is a rule the reader can predict rather than one
+        // inherited from dictionary iteration. The identities are dictionary keys and therefore
+        // unique, so no stability question arises. This once carried a hand-written insertion sort:
+        // FOUR routes to an ordinal string order had been measured against the then-pinned toolset
+        // and three declined. The ranged `Array.Sort(T[], int, int, IComparer<T>)` now resolves on
+        // `nlc check` too (the analyzer's cross-representation assignability bridge), so the
+        // framework route stands. The ranged spelling rather than `Array.Sort(T[], IComparer<T>)`
+        // is deliberate: this file is compiled by the PINNED bootstrap SDK, whose emitter models
+        // only the ranged comparer overload — the two-argument form (with `string.CompareOrdinal`
+        // and `StringComparer.Ordinal.Compare`) joined the columnar emit surface in the same change
+        // as the bridge and becomes spellable here after the next SDK repack.
+        identities := collected.ToArray()
+        Array.Sort(identities, 0, identities.Length, StringComparer.Ordinal)
 
         position := 0
-        while position < identities.Count {
+        while position < identities.Length {
             identity := identities[position]
             detail := merged[identity]
             diagnostics.Warn(ErrorCode.ReferenceLoadFailure, "Reference assembly '" + identity + "' could not be loaded or fully inspected (" + detail + "); types from it may be reported as not found.", 1, 1, null, 0)
             position = position + 1
         }
-    }
-
-    // ORDINAL ASCENDING, WRITTEN OUT RATHER THAN DELEGATED.
-    //
-    // An insertion sort, which is the right shape for this list: it is empty on every healthy
-    // compilation and holds a handful of entries on a broken one, and it is STABLE, so two identities
-    // that compare equal keep the order the merge gave them.
-    //
-    // It is written here rather than handed to a comparer for a reason worth recording: FOUR routes
-    // to an ordinal string order were measured against the pinned toolset and three of them decline.
-    // `Array.Sort(T[], int, int, IComparer<T>)` emits but trips NL402 on `nlc check` (the analyzer's
-    // overload table does not carry it — the same finding stands today on `BatchQueryKernels.nl`);
-    // `Array.Sort(T[], IComparer<T>)`, `string.CompareOrdinal` and `StringComparer.Ordinal.Compare`
-    // are not on the columnar emit surface at all. Writing the order out satisfies both gates, and
-    // turns a user-visible report order into a rule the reader can see rather than one inherited.
-    func SortedOrdinal(names: List<string>): List<string> {
-        sorted := new List<string>()
-        outer := 0
-        while outer < names.Count {
-            candidate := names[outer]
-            position := sorted.Count
-            while position > 0 && CompareOrdinal(sorted[position - 1], candidate) > 0 {
-                position = position - 1
-            }
-
-            sorted.Insert(position, candidate)
-            outer = outer + 1
-        }
-
-        return sorted
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -154,39 +136,5 @@ class AnalyzerReferenceLoadReport {
     // packages land here, and so do packages targeting only frameworks the probe list does not carry.
     static func PackageLibAssetMissingDetail(packageName: string, libRoot: string): string {
         return "no " + packageName + ".dll under " + libRoot + " for any supported target framework"
-    }
-
-    // ORDINAL COMPARISON, BY UTF-16 CODE UNIT — which is precisely what `StringComparer.Ordinal`
-    // does. Shorter sorts before longer when one is a prefix of the other.
-    static func CompareOrdinal(left: string, right: string): int {
-        limit := left.Length
-        if right.Length < limit {
-            limit = right.Length
-        }
-
-        index := 0
-        while index < limit {
-            leftUnit := left[index]
-            rightUnit := right[index]
-            if leftUnit != rightUnit {
-                if leftUnit < rightUnit {
-                    return -1
-                }
-
-                return 1
-            }
-
-            index = index + 1
-        }
-
-        if left.Length < right.Length {
-            return -1
-        }
-
-        if left.Length > right.Length {
-            return 1
-        }
-
-        return 0
     }
 }

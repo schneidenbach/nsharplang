@@ -252,6 +252,21 @@ class AnalyzerAssignability {
             }
         }
 
+        // Mixed, the remaining shapes: ONE side is reflected and the other is a source spelling
+        // with an exact CLR form — a source `IComparer<string>` target against a reflected
+        // `StringComparer`, a reflected `Array` target against a source `string[]`. The CLR's own
+        // subtyping answers, through the identity-aware walk so load-context duplicates still
+        // match. Only an ACCEPTANCE is taken: a CLR refusal falls through, so every later arm
+        // (numeric widening, span views, collection expressions, user-defined conversions) keeps
+        // its say.
+        if sourceReflection != null || targetReflection != null {
+            bridgeTargetType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget)
+            bridgeSourceType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedSource)
+            if bridgeTargetType != null && bridgeSourceType != null && AnalyzerConversionFacts.IsReflectionAssignableFrom(bridgeTargetType, bridgeSourceType) {
+                return true
+            }
+        }
+
         // Function-type structural comparison MUST precede the identity fallback below, because
         // every FunctionTypeInfo renders identically.
         targetFunction := resolvedTarget as FunctionTypeInfo

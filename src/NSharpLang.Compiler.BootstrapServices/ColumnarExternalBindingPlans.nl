@@ -365,6 +365,10 @@ class ColumnarExternalBindingPlans {
             return StaticCall("System.Type", memberName, One("System.String"), "System.Type")
         }
 
+        if MatchesOwner(typeName, "OperatingSystem", "System.OperatingSystem") && memberName == "IsWindows" && count == 0 {
+            return StaticCall("System.OperatingSystem", memberName, Empty(), "System.Boolean")
+        }
+
         if typeName == "TypeBuilder" || typeName == "System.Reflection.Emit.TypeBuilder" {
             if memberName == "GetField" && count == 2 && argumentTypeNames[0] == "System.Type" && argumentTypeNames[1] == "System.Reflection.FieldInfo" {
                 return StaticCall("System.Reflection.Emit.TypeBuilder", memberName, Two("System.Type", "System.Reflection.FieldInfo"), "System.Reflection.FieldInfo")
@@ -739,6 +743,21 @@ class ColumnarExternalBindingPlans {
             if memberName == "get_Name" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.String")
             }
+        }
+
+        // The comparer's own string overload — declared on StringComparer itself, so the ordinal
+        // comparers answer the same sign as `string.CompareOrdinal` without boxing through the
+        // legacy `Compare(object, object)` pair.
+        if receiver == "System.StringComparer" && memberName == "Compare" && count == 2 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.String" {
+            return VirtualCall(receiver, memberName, Two("System.String", "System.String"), "System.Int32")
+        }
+
+        if receiver == "System.AppDomain" && memberName == "GetAssemblies" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.Reflection.Assembly[]")
+        }
+
+        if receiver == "System.Text.Json.JsonDocument" && memberName == "Dispose" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.Void")
         }
 
         if receiver == "System.Diagnostics.Process" {
