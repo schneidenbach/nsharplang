@@ -474,8 +474,16 @@ class QueryCommandKernels {
         return "Usage: nlc query doc <type-or-member>\n" + "\n" + "Examples:\n" + "  nlc query doc Console\n" + "  nlc query doc Console.WriteLine\n" + "  nlc query doc List\n" + "  nlc query doc System.IO.File"
     }
 
-    static func GetNoDocumentationMessage(query: string): string {
-        return "No documentation found for '" + query + "'."
+    // A MISS MAY CARRY AN EXPLANATION. The doc-query owners decide whether the reference packs
+    // document the name in an assembly this runtime cannot load; when they have something to say
+    // it rides under the familiar first line, and when they do not the message is unchanged.
+    static func GetNoDocumentationMessage(query: string, unloadableNote: string?): string {
+        message := "No documentation found for '" + query + "'."
+        if unloadableNote == null {
+            return message
+        }
+
+        return message + "\n" + (unloadableNote ?? "")
     }
 
     static func GetProjectDirectoryNotFoundMessage(projectDir: string): string {

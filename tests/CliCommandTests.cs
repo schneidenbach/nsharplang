@@ -1447,7 +1447,7 @@ func Main() {
             Assert.Equal("doc", result.GetProperty("request").GetProperty("command").GetString());
             Assert.False(result.GetProperty("ok").GetBoolean());
             Assert.Equal(
-                QueryCommandKernels.GetNoDocumentationMessage("__DefinitelyMissingBatchDocType__"),
+                QueryCommandKernels.GetNoDocumentationMessage("__DefinitelyMissingBatchDocType__", null),
                 result.GetProperty("response").GetProperty("error").GetProperty("message").GetString());
         }
         finally
@@ -2080,7 +2080,7 @@ func Main() {
             "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
             QueryCommandKernels.GetSemanticReferencesUnavailableMessage());
         Assert.Contains("nlc query doc Console.WriteLine", QueryCommandKernels.GetDocUsageMessage());
-        Assert.Equal("No documentation found for 'Missing.Type'.", QueryCommandKernels.GetNoDocumentationMessage("Missing.Type"));
+        Assert.Equal("No documentation found for 'Missing.Type'.", QueryCommandKernels.GetNoDocumentationMessage("Missing.Type", null));
         Assert.Equal("Project directory not found: /tmp/missing", QueryCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing"));
         Assert.Equal("Failed to analyze project: bad parse", QueryCommandKernels.GetFailedAnalyzeProjectMessage("bad parse"));
 

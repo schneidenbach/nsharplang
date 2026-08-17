@@ -39,6 +39,7 @@ class DocQueryTypeIndex {
     typesByQualifiedName: Dictionary<string, List<Type>>
     loadedAssemblyNames: HashSet<string>
     referencePackDirectories: string[]?
+    unloadableAssemblyNames: List<string>
 
     // EVERY INDEX IS CASE-INSENSITIVE AND THAT IS DELIBERATE: `nlc query doc console` answers
     // `System.Console`. The comparer is the ONLY thing that makes it so, and it belongs on the
@@ -50,6 +51,7 @@ class DocQueryTypeIndex {
         typesByQualifiedName = new Dictionary<string, List<Type>>(StringComparer.OrdinalIgnoreCase)
         loadedAssemblyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         referencePackDirectories = null
+        unloadableAssemblyNames = new List<string>()
     }
 
     // INDEX ONE ASSEMBLY UNDER ALL THREE OF THE NAMES A TYPE ANSWERS TO: its simple name, its
@@ -235,6 +237,24 @@ class DocQueryTypeIndex {
     // order — the same file appears under several packs and the first pack found wins.
     func DiscoverReferencePackAssemblyNames(): string[] {
         return DocQueryKernels.DiscoverReferencePackAssemblyNames(GetReferencePackDirectories())
+    }
+
+    // A PACK NAME THE RUNTIME CANNOT LOAD IS NOTED, NEVER FATAL. The reference packs offer more
+    // assemblies than the CLI's own runtime carries — on a default install the whole ASP.NET Core
+    // surface — so an unloadable name is an expected condition, not an error: the loader skips it,
+    // records it here, and `DescribeDocLookupMiss` decides what a failed lookup says about it.
+    func NoteUnloadableAssembly(assemblyName: string) {
+        if string.IsNullOrWhiteSpace(assemblyName) {
+            return
+        }
+
+        unloadableAssemblyNames.Add(assemblyName)
+    }
+
+    // THE NOTED NAMES, deduped ordinal-ignore-case in first-seen order — the same policy the
+    // discovery scan applies to the names it offers, so note-time can stay a plain append.
+    func GetUnloadableAssemblyNames(): string[] {
+        return DocQueryKernels.DeduplicateStableStringsOrdinalIgnoreCase(unloadableAssemblyNames)
     }
 
     // WHERE ONE ASSEMBLY'S XML FILE IS: beside the assembly if it shipped there, otherwise in a

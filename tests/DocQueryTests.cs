@@ -1,4 +1,7 @@
 using System;
+using System.IO;
+using System.Text.Json;
+using NSharpLang.Cli;
 using NSharpLang.Compiler.CodeIntelligence;
 using Xunit;
 
@@ -81,5 +84,39 @@ public class DocQueryTests
 
         Assert.NotNull(result);
         Assert.Contains(result!.Members!, m => m.Kind == "nested type" && m.Name == "SpecialFolder");
+    }
+
+    // The product CLI runs on Microsoft.NETCore.App only, so the reference packs offer assembly
+    // names its runtime cannot load — the environment that used to crash `nlc query doc` outright.
+    // Running the built Cli.dll under its own runtimeconfig reproduces that environment exactly,
+    // which the ASP.NET-enabled test host cannot.
+    [Fact]
+    public void QueryDoc_InTheCliRuntime_SkipsUnloadablePackAssemblies_AndExplainsTheMiss()
+    {
+        var cli = FindCliDll();
+
+        var hit = DotnetRunner.Run($"\"{cli}\" query doc Console", workingDirectory: Path.GetTempPath());
+        Assert.Equal(0, hit.ExitCode);
+        Assert.Contains("\"ok\": true", hit.Stdout);
+
+        var miss = DotnetRunner.Run($"\"{cli}\" query doc HttpLoggingOptions", workingDirectory: Path.GetTempPath());
+        Assert.Equal(1, miss.ExitCode);
+        using var envelope = JsonDocument.Parse(miss.Stdout);
+        var message = envelope.RootElement.GetProperty("error").GetProperty("message").GetString();
+        Assert.Contains("No documentation found for 'HttpLoggingOptions'.", message);
+        Assert.Contains("(assembly 'Microsoft.AspNetCore.HttpLogging'), but that assembly is not part of this runtime", message);
+    }
+
+    private static string FindCliDll()
+    {
+        var testBin = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
+        var configuration = testBin.Parent!.Name;
+        for (var current = testBin; current != null; current = current.Parent)
+        {
+            var candidate = Path.Combine(current.FullName, "src", "NSharpLang.Cli", "bin", configuration, "net10.0", "Cli.dll");
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        throw new InvalidOperationException("Could not locate the built N# CLI above this test tree.");
     }
 }
