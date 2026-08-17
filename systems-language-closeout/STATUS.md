@@ -1,6 +1,47 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-17 (**TASK 019 SLICE 22 STAGE 1 LANDED (no commit — mandate) — THE
+Last updated: 2026-08-17 (**TASK 019 IS COMPLETE — `tasks/README.md`'s 019 BOX IS CHECKED. SLICE 22
+STAGE 2 DELETED `DocQuery.cs`: 443 DELETIONS, ZERO INSERTIONS, AND THE ARC'S LAST FILE WITH POLICY
+IS GONE.** **THE CLOSURE WAS MEASURED BEFORE THE FIRST EDIT AND IT SAID DELETE**: the file closes on
+itself (`SET n=19 lines=390`, ESCAPES TO (0), ENTERED FROM (0), zero multi-member SCCs), every type
+in its public signature was already N# in the SAME namespace, and no C# type from the dependent
+assembly appears anywhere in it — so unlike `CodeIntelligenceService.cs` there was no cycle to route
+around. `DocQuery.nl` is 633 lines of N# keeping the NAME, the NAMESPACE and every public SIGNATURE,
+so **`BatchQueryRunner.cs`, `QueryCommand.cs` and `tests/DocQueryTests.cs` are BYTE-UNCHANGED** and
+`git diff HEAD --numstat -- '*.cs'` reads **`added=0 deleted=443`** — the `Linter.cs`/`Formatter.cs`
+precedent for the third time. **THE TWO SPELLING CHANGES STAGE 1 NAMED WERE BOTH NEEDED**
+(`Element(XName.Get("x"))` at 9 sites; the one `element.Name.LocalName` chain split), **AND FOUR MORE
+WALLS WERE MET AND ROUTED WITHOUT A SINGLE NEW CATALOG ROW**: `typeof(Console)` is not an admitted
+operand — the nine seed assemblies now resolve through `Type.GetType`, **proved reference-identical
+9/9 by `ReferenceEquals` on both the `Type` and the `Assembly`**; the toolset takes ONE `catch` per
+`try`, so the three typed catches became the single filtered catch **the C# `when (ex is A or B or
+C)` always was**; `.Value` on a nullable-annotated receiver is read by the ANALYSER as the nullable
+UNWRAP and shadows `XAttribute.Value` — every read now goes through one non-nullable-parameter
+helper, and **the LIVE-TREE CHECK caught it when the build was already green**; and
+`Dictionary.Keys` is not a walked sequence. Proof: **the doc-query CLI oracle, the one product
+consumer of the deleted file, at 0 DIFFS over 161 names × 2 modes × 2 CLIs — 37,464 lines/side, md5
+`896f5395…` on BOTH, and non-vacuous by measurement (1,614,251 bytes of answers, 163 of 322 over
+2 KB, `XElement` alone 15,041)**; **`tests/DocQueryTests.cs` byte-unchanged at 7/7**; the
+**LSP-question oracle at 40,386 lines/side reproducing `76857bb0…`**; **nine standing oracle legs
+all reproducing their stage-1 md5s** (corpus `86a4928f…`, the **32nd** consecutive byte-identical
+run); the format oracle at zero on all three legs over 664 files with 476 rewritten; the lint oracle
+5×2 at one md5; the determinism pin 275×5 at one md5; **corpus IL 63/63 emitted assemblies
+byte-identical with the control sweep FIRST at 118/118**; a two-sided structural proof reading
+assembly **`Compiler` → `BootstrapServices`** and `DocQuery.cs` **True → False**; live tree
+**393 / 246 — the inherited baseline with ZERO rows on the new file**; unit **3,193 / 3,193**;
+contracts **5,075 / 5,075**; **audit 18/18 after correctly failing 17/18**, ratchet row
+`state: removed` and the two-key head repinned from a walk **validated against the pristine
+manifest first**; and **the full VS Code-enabled gate `ALL TESTS PASSED` in 21m 34s, 109 green
+steps, zero failures, 36 VS Code tests inside**. **SEVEN FINDINGS**, the last of which cost a gate:
+**`dotnet test` WEDGES rather than fails under concurrent load** — 0.11 s of CPU in 60 s — and the
+recovery order matters (kill the `nsharp-test-all.<key>` TREE, never the driver alone). **019's
+CLOSURE: seven files listed, FOUR DELETED (`Linter`, `Formatter`, `DocQuery`,
+`NullabilityMetadata`), THREE reviewed non-growing hosts with executable verdicts (CIS POLICY = 0
+against a control of 23/430; `CompletionEngine` and `OutputFormatter` POLICY-MARKS = 0 against a
+control of 43). The arc opened at 7,739 lines and closes at 520 — −93.3 % over 22 slices.** The 020
+opening brief is in the Cursor block below. NOT COMMITTED — the mandate reserves that)
+
+Last updated (prior): 2026-08-17 (**TASK 019 SLICE 22 STAGE 1 LANDED (no commit — mandate) — THE
 `System.Xml.Linq` WALL IS DOWN, AND NOT ONE LINE OF C# WAS WRITTEN TO TAKE IT DOWN.** The five
 changed files are **`.nl` and only `.nl`** — 146 inserted lines across four owners plus a 393-line
 contracts file — and `git status` reports **ZERO non-`.nl` paths**, so the ratchet needs no repin at
@@ -2991,14 +3032,15 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. SLICE 22 STAGE 1 HAS TAKEN THE ARC'S
-  LAST WALL DOWN: `System.Xml.Linq` IS IN THE CATALOG — 7 TYPES, 2 STATIC CALLS, 4 INSTANCE CALLS
-  AND 6 PROPERTY READS — AND THE SURFACE COST ZERO LINES OF C#.** The probe project that spells
-  every walled shape `DocQuery.cs` uses now EMITS AND RUNS. **STAGE 1 IS PAUSED FOR THE
-  COORDINATOR'S COMMIT AND TOOLSET REPUBLISH**; nothing consumes the rows until the SDK is repacked,
-  exactly as slice 15 stage 1 paused for `IReadOnlyDictionary`. **STAGE 2, ON THE REPUBLISHED
-  TOOLSET, TAKES THE FILE**: the 21 walled extents / 360 lines, `DocQuery.cs`'s closure verdict, and
-  — if it closes — 019's completion and its checkbox. **SLICE 21 DELETED THE DEAD CARRIER
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. 019 IS COMPLETE AND ITS BOX IS CHECKED.**
+  Slice 22 stage 2 deleted `DocQuery.cs` (443 deletions, zero insertions), which was the last file
+  in the 019 territory with policy in it. **019's final tally: seven files listed, FOUR DELETED and
+  THREE reviewed non-growing mechanical hosts, each with an executable verdict and a non-vacuity
+  control; 7,739 lines → 520, −93.3 %, over twenty-two slices.** The 020 opening brief — its slice
+  order, the five inherited facts that bear on it, the two named C# clusters to migrate, and the
+  `IReadOnlyDictionary` widening row that is 020's first real blocker — is in the slice-22 record
+  below. (Prior: **SLICE 22 STAGE 1 TOOK THE ARC'S LAST WALL DOWN**: `System.Xml.Linq` in the
+  catalog — 7 types, 2 static calls, 4 instance calls and 6 property reads — for ZERO lines of C#.) **SLICE 21 DELETED THE DEAD CARRIER
   (`ProjectSnapshot.SharedAnalyzer` — declared once, assigned once, READ NOWHERE, proved by a
   RECEIVER-TYPED IL CENSUS after the name-based sweep was defeated by `MultiFileCompiler`'s
   same-named member), MOVED `ProjectSnapshot` WHOLE INTO N#, AND TOOK THE ENTIRE QUERY AND
@@ -3136,7 +3178,11 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 019 slice 22 stage 1 — the `System.Xml.Linq` catalog surface, enumerated from
+- Current iteration: 019 slice 22 stage 2 — `DocQuery.cs` DELETED. The whole file, 19 members and
+  390 extent lines, into one 633-line N# owner that keeps the name, the namespace and every public
+  signature, so its three consumers never learned it moved; four language walls met in the move and
+  all four routed without a catalog row
+- Current iteration (prior): 019 slice 22 stage 1 — the `System.Xml.Linq` catalog surface, enumerated from
   `DocQuery`'s COMPILED bodies by an IL census rather than from the namespace: 14 members and 9 type
   shapes, published across THREE halves (the analyser's namespace table, the emitter's plan/type
   catalog, and the emitter's own assembly scan), in `.nl` only, with 13 executable contracts and a
@@ -3165,8 +3211,292 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
 - Active sub-slice (019 arc, THIS TURN — TARGET RECORDED BEFORE ANY PRODUCTION EDIT at tip
-  `8f657932a`): **019 SLICE 22 STAGE 1 — THE `System.Xml.Linq` CATALOG SURFACE, MEASURED MINIMALLY
-  AND PUBLISHED IN N# ONLY.**
+  `9b0dd2388`): **019 SLICE 22 STAGE 2 — `DocQuery.cs` IS DELETED. 443 DELETIONS, ZERO INSERTIONS.**
+
+  **THE CLOSURE WAS MEASURED BEFORE THE FIRST EDIT, AND IT SAID DELETE.** Slice 20's lesson is that
+  the deletion arm is decided up front or not at all, so three questions were asked of the untouched
+  file:
+  - **THE FILE CLOSES ON ITSELF.** `nl93-scc.py` reports `NODES=19 SUM=390`, **ZERO multi-member
+    SCCs**, ONE self-recursive singleton (`FormatDocNode`, 16 — the doc-text recursion) and two
+    method-group-only edges, both of it. The whole-file closure is
+    **`SET n=19 lines=390`, ESCAPES TO (0), ENTERED FROM (0)** — one cut, entered from nothing.
+  - **EVERY TYPE IN THE PUBLIC SIGNATURE WAS ALREADY N# IN THE SAME NAMESPACE.** The surface is
+    `new DocQuery()`, `LoadSystemAssemblies()`, `Lookup(string) : DocResult?` and
+    `DescribeLookupMiss(string) : string?`; `DocResult` is an N# record in
+    `CodeIntelligenceDocModels.nl`, in namespace `NSharpLang.Compiler.CodeIntelligence`. **And there
+    is no C# type from the DEPENDENT assembly anywhere in the file** — the collaborators are
+    `DocQueryTypeIndex`, `DocQueryKernels`, `DocQueryReflectionFacts` and `ExternalAssemblyScan`, all
+    already N# in BootstrapServices. That is what made `CodeIntelligenceService.cs` a host and makes
+    this a deletion: there is no cycle to route around.
+  - **THE THREE CONSUMERS NAME NOTHING ELSE**: `BatchQueryRunner.cs`, `QueryCommand.cs` and
+    `tests/DocQueryTests.cs` construct one and call those three members.
+  The dead sweep ran first: **1,091 files, DEAD COUNT = 0**, DETACHED 52 (51 after the cut).
+
+  **THE RESULT: `DocQuery.cs` 443 → 0, AND `git diff HEAD --numstat -- '*.cs'` READS
+  `added=0 deleted=443`.** `DocQuery.nl` is 633 lines of N# in BootstrapServices; the N# type keeps
+  the NAME, the NAMESPACE and every public SIGNATURE, so **all three consumers are byte-unchanged** —
+  the `Linter.cs` and `Formatter.cs` precedent, for the third time. **FOUR OF THE ARC'S SEVEN FILES
+  ARE NOW GONE** — `Linter.cs`, `Formatter.cs`, `DocQuery.cs` and `NullabilityMetadata.cs`.
+
+  **THE TWO SPELLING CHANGES STAGE 1 NAMED WERE BOTH NEEDED AND BOTH ARE PROVEN.**
+  `element.Element("summary")` became `element.Element(XName.Get("summary"))` — **9 sites: 4
+  `Attribute`, 3 `Element`, 2 `Elements`** — and the one chained `element.Name.LocalName` became two
+  statements. Neither is a workaround: the first is the
+  conversion the language must spell, and the second is finding 98.5's split.
+
+  **FOUR MORE WALLS WERE MET IN THE MOVE. NONE NEEDED A CATALOG ROW; ALL FOUR ARE RECORDED.**
+  **(99.1) `typeof(Console)` IS NOT AN ADMITTED `typeof` OPERAND, SO THE SEED ARRAY COULD NOT BE
+  TRANSLITERATED.** `LoadSystemAssemblies` seeds the type index from nine `typeof(X).Assembly`
+  expressions, and `ColumnarTypeOfPlanner` admits an operand only if it is an admitted TYPE —
+  `System.Console` is modelled as static members, not as a type, so the operand declines. **THE
+  REPLACEMENT IS PROVEN IDENTICAL RATHER THAN ARGUED**: `Type.GetType(assemblyQualifiedName)`
+  resolves the SAME `Type` OBJECT and hence the SAME `Assembly` OBJECT for all nine — `MATCHED=9/9`
+  by `ReferenceEquals`, measured by execution. The nine collapse to **six distinct assemblies**,
+  exactly as the C# did. The one real difference is named in the source: `typeof` cannot fail and
+  `Type.GetType` can, so a missing seed throws instead of silently shortening the index.
+  **(99.2) THE TOOLSET TAKES ONE `catch` CLAUSE PER `try`; A SECOND TYPED CATCH DECLINES THE WHOLE
+  STATEMENT.** Bisected by execution against the packaged SDK: one catch green, TWO catches
+  `emit.statement.block-child (node kind 49)`, three catches the same. **And the fix is a closer
+  transliteration than the code it replaced**, because the C# was a SINGLE
+  `catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or
+  BadImageFormatException)` — one catch with one predicate, which is exactly what the N# now is. A
+  bare `throw` is not a language form (`NL102`), so the non-matching arm rethrows `ex`; that resets
+  the stack trace where a `when` filter would not, and it is declared rather than glossed.
+  **(99.3) `.Value` ON A NULLABLE-ANNOTATED RECEIVER IS READ BY THE ANALYSER AS THE LANGUAGE'S
+  NULLABLE UNWRAP, AND IT SHADOWS `XAttribute.Value`.** Isolated to three members in one probe:
+  reading `.Value` through a narrowed local (`a := e.Attribute(n); if a != null { return a.Value }`)
+  reports **`NL202: should return string? but returns XAttribute`** — the analyser unwrapped the
+  annotation instead of binding the property, and `!= null` narrowing does NOT clear it because the
+  local's DECLARED annotation is what the rule reads. The same read through a NON-NULLABLE PARAMETER
+  is clean. **The EMITTER binds the property either way** — the probe printed the right text — so
+  this is an analyser-only collision, and it cost five false rows on the new file until every
+  attribute read was routed through one `AttributeValue(attribute: XAttribute)` helper. **THE
+  LIVE-TREE CHECK IS WHAT CAUGHT IT**; the build was already green.
+  **(99.4) `Dictionary<K, V>.Keys` IS NOT AN ENUMERABLE THE EMITTER WALKS** (`emit.statement.
+  block-child`, node kind 29). Iterating the dictionary itself and reading `.Key`/`.Value` off the
+  pair is — and it is also one pass where the C#'s `Keys.ToArray()` + `Select(id => map[id])` was
+  two, in the same order.
+  **(99.5) `Path.GetFileNameWithoutExtension` IS MODELLED `string?`**, so its result cannot key a
+  `Dictionary<string, string>` without a coalesce. The C#'s `string` return meant the same thing.
+  **(99.6) THE LINTER DOES NOT COUNT A `catch` CLAUSE'S EXCEPTION TYPE AS AN IMPORT USE**, so a file
+  whose only `System.IO` reference is `catch ex: FileNotFoundException` is told to remove the import.
+  Observed in the probe, not in the product file; recorded because it is a false NL010.
+
+  **THE REPIN WAS PROVEN INDEPENDENTLY BEFORE ANYTHING WAS WRITTEN.** The coordinator's proof was
+  not taken on trust: a throwaway project outside the repo, built through the PACKAGED 0.1.0 SDK
+  from `~/.nuget/local-feed`, spelling `import System.Xml.Linq`, `XDocument.Load`, `.Root`,
+  `.Element(XName.Get("summary"))`, `.Value` and the split `.Name` / `.LocalName`, **builds, runs,
+  prints `summary=packaged` and `root=doc`, and exits 43** — the bare-int control value.
+
+  **THE SURVIVING SURFACE IS WIDER THAN THE C#'s, AND THAT IS THE ARC'S ESTABLISHED SHAPE RATHER
+  THAN A CHOICE.** The C# had 3 public members and 17 private; the N# type has 21 public and 0
+  private, because N# spells member visibility by CASE and every owner in this estate uses
+  PascalCase — `Formatter.nl` (28 members), `Linter.nl` (7) and `DocQueryTypeIndex.nl` (13) all have
+  **zero** camelCase members. The three members the consumers bind are unchanged in name and
+  signature; the assembly is an internal compiler library, not a published API. Stated rather than
+  hidden.
+
+  **THE STRUCTURAL PROOF IS TWO-SIDED AND IT IS THE TERMINALITY CLAIM.** One reflection program run
+  against each side's build directory reports: `DocQuery`'s declaring assembly
+  **`Compiler` → `NSharpLang.Compiler.BootstrapServices`**; its namespace `NSharpLang.Compiler.
+  CodeIntelligence` on BOTH; its public methods **3 → 21** and its NON-PUBLIC methods **17 → 0**;
+  its public constructors **1 zero-param on both**; its instance fields **6 on both**; and the file
+  probes read `DocQuery.cs` **True → False** with `DocQuery.nl` **False → True**. The three bound
+  signatures — `DocResult Lookup(String)`, `String DescribeLookupMiss(String)`,
+  `Void LoadSystemAssemblies()` — are present on both sides unchanged.
+
+  **019's TERMINAL STATE, EVERY FILE RE-VERIFIED AT THIS TIP.**
+  | file | state | evidence |
+  |---|---|---|
+  | `Linter.cs` | **DELETED** (slice 12) | absent from the tree; ratchet `state: removed` |
+  | `Formatter.cs` | **DELETED** (slice 20) | absent from the tree; ratchet `state: removed` |
+  | `DocQuery.cs` | **DELETED (this slice)** | absent; 443 deletions / 0 insertions |
+  | `NullabilityMetadata.cs` | removed before the arc | ratchet `state: removed` |
+  | `CodeIntelligenceService.cs` | 153, reviewed host | **POLICY = 0** by `nl99-partition.py` (LOADER 3/36, DRIVER 11/69, UNCLASSIFIED 0); control on the pre-cut file **POLICY = 23 / 430** |
+  | `CompletionEngine.cs` | 96, reviewed host | **POLICY-MARKS = 0** |
+  | `OutputFormatter.cs` | 271, reviewed host | **POLICY-MARKS = 0** |
+
+  **THE TWO BLOCK-BODIED HOSTS ARE JUDGED BY A SECOND INSTRUMENT, AND THE REASON IS STATED RATHER
+  THAN GLOSSED.** `nl99-partition.py` is `nl97-partition.py` with the owner list and loader markers
+  made parameters — and it reproduces the CIS numbers to the digit, which is the check that the
+  generalisation weakened nothing. But its DRIVER rule was written for EXPRESSION-BODIED forwards
+  (`=> Owner.Call(...)`), so on `OutputFormatter.cs` and `CompletionEngine.cs` — which are
+  block-bodied — it calls every member POLICY on the strength of its `return` alone. **That is a
+  rule artefact, and saying so is only worth anything if something else can falsify it.** So
+  `nl99-policycensus.py` counts the marks that are policy under ANY reading and that plumbing cannot
+  produce — LOOP, PROJECTION, SWITCH, string BUILD — over blanked text. **All three survivors report
+  `LOOP=0 PROJECTION=0 SWITCH=0 BUILD=0`, POLICY-MARKS = 0.** The non-vacuity control, the same
+  census over the PRE-CUT `CodeIntelligenceService.cs` and the now-deleted `DocQuery.cs`, reports
+  **43 marks** (LOOP 26, PROJECTION 16, SWITCH 1).
+
+  **THE DOC-QUERY CLI ORACLE IS THE PROOF THIS SLICE OWES, AND IT IS AT ZERO.** `nlc query doc` is
+  the ONE product consumer of the file that was deleted, so the corpus was widened from stage 1's 59
+  names to **161** — every member kind the moved families answer (type, nested type, constructor,
+  overloaded method, property, field, event, generic, the `<param>` and `<returns>` paths), the
+  Linq-to-XML types themselves, and four names that must find nothing. **322 invocations per side
+  (161 names × JSON and text) on BOTH CLIs: 37,464 lines each, 0 DIFFS, md5
+  `896f5395ac8b30db21469b4dc1fd9a33` on BOTH.** **NON-VACUOUS BY MEASUREMENT, not by assertion**:
+  the answers total **1,614,251 bytes**, 163 of the 322 are over 2 KB, and the corpus includes
+  `XElement` (15,041 bytes of JSON), `XDocument` (8,643), `Environment.SpecialFolder` (11,156, a
+  nested type) and `Console.WriteLine` (6,651, every overload), with 25 deliberate misses. **A file
+  that was 443 lines of C# is 633 lines of N#, and the command it exists for cannot tell.**
+
+  **THE NINE STANDING ORACLE LEGS ALL REPRODUCE THEIR STAGE-1 md5s AFTER A FILE DELETION**, against
+  a base built from a pristine worktree at `9b0dd2388` (`git status` = 0 dirty files):
+  corpus **0 diffs, `86a4928f87495854f48cbd5df7d5c571` — the THIRTY-SECOND consecutive
+  byte-identical run** with `NO-RESULTS = 7`, `PARSE_FAIL = 0`, `PARSE_ERRORS = 0` and the same
+  33-diagnostic census; supplementary **`228dfc38…`**; **self-host `dac366f8…`** over the compiler's
+  own frozen tree; and the six fixture sets `6c12cc5a…`, `309f7902…`, `fd3ec751…`, `738d9f5b…`,
+  `a3a4377d…`, `45428898…`. **Every one of the nine is the value stage 1 recorded, to the digit.**
+
+  **THE LSP-QUESTION ORACLE REPRODUCES ITS STANDING VALUE THROUGH A FILE DELETION**: **40,386 lines
+  per side, 0 diffs, md5 `76857bb0c5872260c375d94338ca89fc` on BOTH** — the value slices 16–21 and
+  stage 1 recorded, to the digit, at 357 computed positions across six batch questions plus hover,
+  inspect, implementors and call-graph.
+
+  **THE FORMAT ORACLE IS AT ZERO ON ALL THREE LEGS**, over **664** files (stage 1's 663 plus the new
+  owner): `--check` transcripts identical (`eb793561…`, stage 1's md5), the canonical tree 0 diffs,
+  and the **DEFORMED** tree 0 diffs with **476 files really rewritten** (`TREE_MD5` and `CANON_MD5`
+  identical on both sides). **THE LINT ORACLE**: 5 runs × 2 sides, every one
+  `696690e702a171c1472d261cdb84fd25`, 0 diffs — stage 1's md5 byte for byte.
+
+  **THE DETERMINISM PIN**: 275 targets × 5 runs, every run **1,707 lines, md5
+  `4f8e775794b9f33d4498319a918c7dfd`**, `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, 930 diagnostic rows over 32
+  codes — stage 1's md5 and census, byte for byte.
+
+  **CORPUS IL: 63 / 63 EMITTED ASSEMBLIES BYTE-IDENTICAL, WITH THE CONTROL SWEEP FIRST AT 118 / 118.**
+  Three sweeps over three fresh archives of `9b0dd2388` — two with the BASE CLI and one with the
+  WORK CLI — normalised by `nl98_ilnorm.py`. Control-vs-A reports **118 SAME / 0 DIFFERENT**, which
+  is what says the sweep and the normaliser are sound before A-vs-B is read at all; A-vs-B then
+  reports **63 SAME / 55 DIFFERENT, and all 55 are `NSharpLang.Runtime.dll`** — the support assembly
+  each CLI COPIES out of its own bin, never emitted from corpus source. **Emitted assemblies
+  differing: ZERO.** The unsorted build transcripts are 0 diffs both ways (1,367 lines, md5
+  `5847c3c6ea81c71b9040aaa4f59cd315` — stage 1's value).
+
+  **`tests/DocQueryTests.cs` IS BYTE-UNCHANGED AND PASSES 7 / 7.** The C# test file constructs the
+  N# type by its unchanged name, calls its three unchanged members and asserts on real reference-pack
+  documentation; nothing in it moved, because nothing in the surface did.
+
+  **THE LIVE-TREE CHECK IS THE INSTRUMENT THAT CAUGHT FINDING 99.3, AND IT ENDS AT THE INHERITED
+  BASELINE.** `nlc check` over `src/NSharpLang.Compiler.BootstrapServices` reports
+  **`checkedFiles=393, count=246`** — one MORE file than stage 1's 392 (the new owner) and the SAME
+  246 rows with the identical census (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16
+  NL010:7 NL303:3 NL412:3 NL002:1`), and **ZERO rows naming `DocQuery.nl`**. It reported FIVE while
+  the build was already green, which is what finding 99.3 is.
+
+  **THE SELF-APPLICATION SEAM PASSED FIRST TIME**: `nlc format --check` over the directory with the
+  new 633-line owner in it reports **"All files are properly formatted."** The keyword checker is
+  **CLEAN over 100 introduced identifiers** and was run BEFORE the first build, per the standing rule.
+
+  **(99.7) `dotnet test` WEDGES — NOT FAILS — WHEN IT SHARES A MACHINE WITH A HEAVY ORACLE RUN, AND
+  IT COST A GATE.** Twice this slice a test host sat at **0.0 % CPU with its accumulated time frozen**
+  (0.11 s over a 60-second window), producing no output and never exiting: once for a bare
+  `dotnet test` run beside the doc oracle, and once for the GATE's Step 3 run beside the IL sweep.
+  This is the recorded `dotnet test` concurrency hazard in its hang form rather than its
+  silent-success form. **The recovery is the recorded one and the order matters**: never kill the
+  `test-all.sh` driver on its own — its EXIT trap deletes the `/tmp` run tree out from under a still
+  running core — so the whole `nsharp-test-all.<key>` process tree goes first, then the driver, then
+  the stale run trees and the worktree's `tests/bin`+`tests/obj`. **RULE, RE-LEARNED: run the gate
+  with the machine otherwise IDLE. Parallelising it against an oracle batch saves no wall time if it
+  wedges, and a wedge is indistinguishable from slow progress until you sample the CPU clock twice.**
+
+  **THE FULL VS CODE-ENABLED GATE IS GREEN, RUN FRESH AND ISOLATED INSIDE THIS TURN.**
+  `NSHARP_TEST_STEP_CACHE_OFF=1 ./scripts/test-all.sh --commit` from a `/tmp` worktree carrying
+  exactly this slice's five paths reports **`ALL TESTS PASSED` in 21 m 34 s, 109 green steps, ZERO
+  failures**: Compiler built, **Format Contract Gate**, **Unit tests 3,193 / 3,193** (6 m 54 s),
+  **Native N# tests 5,075 / 5,075 plus every `tests/native/*` project — including the REPINNED
+  `ownership-audit`**, **VS Code Integration Tests 36 passing**, SDK pack and install, templates,
+  template-generated project, example projects, single-file examples, `nlc check` over examples, and
+  the **IL Verification Gate**.
+
+  **RATCHET — ONE ROW, AND IT GOES TO `removed`.** `src/NSharpLang.Compiler/CodeIntelligence/
+  DocQuery.cs` **443 / 379 → 0 / 0**, `state: "existing-debt" → "removed"`,
+  `currentFingerprint: "text-v1:removed"`, epoch ceilings (740 / 623) preserved — the `Formatter.cs`
+  and `Linter.cs` row shape exactly. The two-key reviewed head is repinned in BOTH places,
+  `head-v1:acd2ae5d6b4778ba → head-v1:b8c85af7d7afa6d0`: the manifest header (regexed, not
+  string-matched, and read utf-8-sig) and the `OwnershipPolicy.ReviewedHeadFingerprint` constant in
+  `OwnershipAudit.nl`. **The new head was not guessed — the FNV-1a walk was reimplemented and
+  VALIDATED against the pristine manifest first, where it reproduces the ACCEPTED
+  `acd2ae5d6b4778ba` exactly.** The audit **correctly FAILED 17 / 18 before the repin and passes
+  18 / 18 after**; manifest **391 lines, no BOM**. **No other row moved, because no other non-N#
+  file did: `git diff HEAD --numstat -- '*.cs'` is `added=0 deleted=443`.**
+
+  ## 019 CLOSURE STATEMENT
+
+  **TASK 019 IS COMPLETE, AND THE CRITERION IS THE TASK FILE'S OWN**: "all listed files are deleted
+  or reduced to reviewed, non-growing mechanical hosts." Seven files were listed. **FOUR ARE
+  DELETED** — `Linter.cs` (slice 12), `Formatter.cs` (slice 20), `DocQuery.cs` (this slice), and
+  `NullabilityMetadata.cs` (removed before the arc opened). **THREE ARE REVIEWED, NON-GROWING
+  MECHANICAL HOSTS**, each with an executable verdict rather than a reading:
+  `CodeIntelligenceService.cs` at 153 with **POLICY = 0** by partition against a control that
+  reports 23 extents / 430 lines on the pre-cut file; `CompletionEngine.cs` at 96 and
+  `OutputFormatter.cs` at 271, both at **POLICY-MARKS = 0** against a control that reports 43.
+  All three are at the exact line/extent counts their own slices recorded, so none has grown.
+
+  **THE ARC, END TO END.** It opened at **7,739 lines / 6,892 non-blank / 341 member extents summing
+  7,257** across seven files. It closes at **520 / 442 / 55 / 382** across three — **a −93.3 % cut
+  on lines over twenty-two slices**, with every deleted line's behaviour re-owned in N# and proved
+  by two-sided differential rather than by inspection.
+
+  | file | opened | closes | verdict |
+  |---|---|---|---|
+  | `Linter.cs` | 1,611 | **0** | DELETED (slice 12) |
+  | `Formatter.cs` | 2,303 | **0** | DELETED (slice 20) |
+  | `DocQuery.cs` | 740 | **0** | **DELETED (slice 22)** |
+  | `NullabilityMetadata.cs` | — | **0** | removed before the arc |
+  | `CodeIntelligenceService.cs` | 1,897 | 153 | reviewed host, POLICY = 0 |
+  | `OutputFormatter.cs` | 379 | 271 | reviewed host, POLICY-MARKS = 0 |
+  | `CompletionEngine.cs` | 805 | 96 | reviewed host, POLICY-MARKS = 0 |
+
+  **`tasks/README.md`'s 019 BOX IS CHECKED.** It is the first slice in this arc to earn it, and it
+  is earned on measurement: the file that held the arc open is gone, and the three that remain
+  decide nothing.
+
+  ## THE 020 OPENING BRIEF
+
+  **020 IS `tasks/020-native-test-runner-capabilities.md`**, and its contract is one vertical
+  capability per turn, each one immediately consuming a REAL C# test cluster: *table-driven cases,
+  skip, setup/teardown, async `Task`, async `ValueTask`, structured failure JSON, whole-run timeout*
+  — first missing one first, with the migrated cluster named before editing. Unused runner
+  infrastructure is explicitly not completion.
+
+  **WHAT STATUS.md ALREADY KNOWS THAT BEARS ON IT — SEVEN THINGS, SIX INHERITED AND ONE NEW.**
+  1. **The native estate is the gate's own Step 3a and stands at 5,075 / 5,075**, up from 1,554 at
+     the start of 017. It runs the BootstrapServices contracts plus every `tests/native/*` project.
+  2. **The estate needs `-p:NSharpExcludeTests=false --force-evaluate` on restore after ANY other
+     build, and a silent instant `dotnet test` success is a BROKEN RESTORE rather than a pass.**
+     Prove a new block runs by a COUNT DIFF — which is how stage 1's +13 was proved, exactly.
+  3. **Slice 20 already exercised table-driven tests, skip and setup/teardown as FORMATTER shapes**,
+     so the formatter's contracts are a ready-made corpus for the runner slices that own them.
+  4. **The first real C# cluster to migrate is still `tests/CodeIntelligenceTests.cs` (1,354 lines,
+     162 assertion markers) and `tests/CompletionEngineTests.cs` (322 / 62)** — the only canonical
+     assertion layer for the code-intelligence surface, because finding 97.6 keeps `ProjectSnapshot`
+     out of reach of an N# contract.
+  5. **A SECOND CANDIDATE IS NOW NAMED AND IT IS SMALL AND SELF-CONTAINED: `tests/DocQueryTests.cs`
+     (122 lines, 37 markers, 7 tests).** It is the last canonical C# assertion layer for a surface
+     that is otherwise entirely N#, it constructs one object and calls three members, and its
+     assertions are plain equality over strings — the cheapest real cluster in the estate to move,
+     and a natural first consumer of whichever capability 020 opens with.
+  6. **A `.tests.nl` cannot spell a catalog surface the pinned toolset lacks** — stage 1's contracts
+     had to fetch every type by name — so any 020 capability needing a new emit surface inherits the
+     same two-stage shape this slice used.
+  7. **THE SECOND CATALOG ROW SLICE 21 NAMED IS STILL OWED AND IS UNTOUCHED**: the
+     `Dictionary<K, V>` → `IReadOnlyDictionary<K, V>` WIDENING conversion (finding 97.6). It is what
+     keeps `ProjectSnapshot` out of reach of an N# contract, and therefore what stands between
+     item 4's cluster and any migration of it. **It is 020's first real blocker, not 019's.**
+
+  **AND FOUR LANGUAGE GAPS THIS SLICE MEASURED ARE NOW REPIN CANDIDATES FOR WHOEVER WANTS THEM**,
+  each with an executable probe recorded above: `typeof` over a static-class operand (99.1), a
+  second typed `catch` clause (99.2), `.Value` shadowing on a nullable-annotated receiver (99.3),
+  and `Dictionary.Keys` as a walked sequence (99.4). **None blocked this slice** — each had a
+  behaviour-preserving spelling — so none was taken, per the standing rule that the mandated surface
+  is the only surface.
+
+  ---
+
+- Active sub-slice (019 arc, THIS TURN, STAGE 1 — LANDED and COMMITTED at `9b0dd2388`):
+  **019 SLICE 22 STAGE 1 — THE `System.Xml.Linq` CATALOG SURFACE, MEASURED MINIMALLY AND PUBLISHED
+  IN N# ONLY.**
 
   **THE TREE HAD MOVED, AND THE FIRST THING THIS SLICE DID WAS RE-MEASURE IT.** Slice 21 recorded
   `DocQuery.cs` at 446 / 382 / 23 extents summing 402. At this tip — after the doc-query
@@ -3442,6 +3772,8 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   443 lines with 360 of its 396 extent lines still real policy.** This stage moved the TOOLSET, not
   the file. **019 is NOT complete, `tasks/README.md` is NOT edited, and the checkbox stays
   unchecked** — stage 2, on the republished toolset, is what can earn it.
+  *(SUPERSEDED BY STAGE 2, recorded above: `DocQuery.cs` is deleted and the checkbox IS earned. This
+  paragraph is kept as the stage-1 record, not as the current verdict.)*
 
   **THE NEXT BRIEF: STAGE 2, THEN 020.** Stage 2 needs the coordinator's commit and a toolset
   republish first, because `.nl` production source cannot spell a surface the PINNED toolset does
