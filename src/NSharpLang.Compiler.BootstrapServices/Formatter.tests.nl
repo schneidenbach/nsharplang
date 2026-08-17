@@ -630,6 +630,50 @@ test "the rejected result carries the ORIGINAL source, not the formatted text" {
     assert rejected.Warnings.Count == 1
 }
 
+// ---- a switch passes both gates ------------------------------------------------------------------
+//
+// THE REGRESSION THESE PIN: the walk once wrote C# labels (`case 0:`, `default:`) where the
+// grammar demands an arrow, so the formatter's own output failed the reparse gate and EVERY file
+// containing a switch was rejected — the CLI errored and the LSP handler silently returned null.
+
+test "FormatSafe formats a file containing a switch instead of rejecting its own output" {
+    source := "func classify(value: int): string {\n    switch value {\n        case 0 => {\n            return \"zero\"\n        }\n        default => {\n            return \"other\"\n        }\n    }\n}\n"
+    parsed := ColumnarParserRecovery.ParseFileAst(source, "t.nl")
+    unit := parsed.CompilationUnit
+    assert unit != null
+    formatter := FmtFormatter()
+    result := formatter.FormatSafe(source, unit ?? FmtUnit(FmtNoMembers()), null, "t.nl")
+    assert result.Success
+    assert result.Warnings.Count == 0
+    assert result.Text == source
+}
+
+test "an unbraced arrow case is canonicalized to braces without gaining a BlockStatement" {
+    source := "func f(value: int): int {\n    switch value {\n        case 0 => return 1\n        default => return 2\n    }\n}\n"
+    parsed := ColumnarParserRecovery.ParseFileAst(source, "t.nl")
+    unit := parsed.CompilationUnit
+    assert unit != null
+    formatter := FmtFormatter()
+    result := formatter.FormatSafe(source, unit ?? FmtUnit(FmtNoMembers()), null, "t.nl")
+    assert result.Success
+    assert result.Text == "func f(value: int): int {\n    switch value {\n        case 0 => {\n            return 1\n        }\n        default => {\n            return 2\n        }\n    }\n}\n"
+}
+
+test "a formatted switch re-parses and formats again to the same bytes" {
+    source := "func classify(value: int): string {\nswitch value {\ncase 0 => {\nreturn \"zero\"\n}\ndefault => {\nreturn \"other\"\n}\n}\n}\n"
+    parsed := ColumnarParserRecovery.ParseFileAst(source, "t.nl")
+    unit := parsed.CompilationUnit
+    assert unit != null
+    formatter := FmtFormatter()
+    formatted := formatter.Format(unit ?? FmtUnit(FmtNoMembers()), null)
+    reparsed := ColumnarParserRecovery.ParseFileAst(formatted, "t.nl")
+    reparsedUnit := reparsed.CompilationUnit
+    assert reparsedUnit != null
+    reformatter := FmtFormatter()
+    reformatted := reformatter.Format(reparsedUnit ?? FmtUnit(FmtNoMembers()), null)
+    assert reformatted == formatted
+}
+
 // ---- the configuration reaches the declaration walk ---------------------------------------------
 
 test "the indent size configured on the formatter is the one the declaration body uses" {
