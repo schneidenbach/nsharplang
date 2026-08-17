@@ -302,6 +302,17 @@ test "the two-assembly rows keep their load ORDER" {
     assert ef != null
     assert ef[0] == "Microsoft.EntityFrameworkCore"
     assert ef[1] == "Microsoft.EntityFrameworkCore.Abstractions"
+
+    // LINQ-TO-XML IS A TWO-ASSEMBLY ROW FOR A MEASURED REASON, NOT FOR SYMMETRY. `System.Xml.Linq`
+    // is a pure facade of type forwarders, and a MetadataLoadContext does not follow those: asked
+    // for its exported types it answers ZERO, so a facade-only row would load an assembly and admit
+    // no namespace. The 23 types are exported by `System.Private.Xml.Linq`, the second name. The
+    // facade stays first because it is the assembly a project references.
+    xmlLinq := harness.Owner.MappedAssemblies("System.Xml.Linq")
+    assert xmlLinq != null
+    assert xmlLinq.Length == 2
+    assert xmlLinq[0] == "System.Xml.Linq"
+    assert xmlLinq[1] == "System.Private.Xml.Linq"
 }
 
 test "a namespace the table does not name implies no assemblies at all" {

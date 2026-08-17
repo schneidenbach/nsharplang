@@ -126,6 +126,20 @@ class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.CustomAttributeData"
         } else if canonical == "CustomAttributeTypedArgument" || canonical == "System.Reflection.CustomAttributeTypedArgument" {
             runtimeTypeName = "System.Reflection.CustomAttributeTypedArgument"
+        } else if canonical == "XDocument" || canonical == "System.Xml.Linq.XDocument" {
+            runtimeTypeName = "System.Xml.Linq.XDocument"
+        } else if canonical == "XElement" || canonical == "System.Xml.Linq.XElement" {
+            runtimeTypeName = "System.Xml.Linq.XElement"
+        } else if canonical == "XContainer" || canonical == "System.Xml.Linq.XContainer" {
+            runtimeTypeName = "System.Xml.Linq.XContainer"
+        } else if canonical == "XNode" || canonical == "System.Xml.Linq.XNode" {
+            runtimeTypeName = "System.Xml.Linq.XNode"
+        } else if canonical == "XText" || canonical == "System.Xml.Linq.XText" {
+            runtimeTypeName = "System.Xml.Linq.XText"
+        } else if canonical == "XAttribute" || canonical == "System.Xml.Linq.XAttribute" {
+            runtimeTypeName = "System.Xml.Linq.XAttribute"
+        } else if canonical == "XName" || canonical == "System.Xml.Linq.XName" {
+            runtimeTypeName = "System.Xml.Linq.XName"
         } else {
             return false
         }
@@ -136,7 +150,30 @@ class ColumnarExternalBindingPlans {
 
     static func IsSupportedRuntimeTypeName(runtimeTypeName: string?): bool {
         name := runtimeTypeName ?? ""
-        return name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name)
+        return name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
+    }
+
+    // THE LINQ-TO-XML SURFACE, AS SEVEN NAMES. `XContainer` is on the list although no source line
+    // spells it: `Element`, `Elements` and `Nodes` are DECLARED there and inherited by `XElement`, so
+    // it is the declaring identity every one of those three calls binds. Kept as its own predicate
+    // rather than seven more clauses on the chain above, mirroring the attribute-sequence row.
+    static func IsXmlLinqTypeName(name: string): bool {
+        return name == "System.Xml.Linq.XDocument" || name == "System.Xml.Linq.XElement" || name == "System.Xml.Linq.XContainer" || name == "System.Xml.Linq.XNode" || name == "System.Xml.Linq.XText" || name == "System.Xml.Linq.XAttribute" || name == "System.Xml.Linq.XName"
+    }
+
+    // The `IEnumerable<T>` identity an Xml.Linq sequence answers with, spelled so that
+    // `ExactTypeIdentity`'s closed-generic arm can resolve it: the ELEMENT must be assembly-qualified
+    // inside the brackets, because the closure is resolved from CoreLib's context and CoreLib cannot
+    // find a type that lives in the Linq-to-XML assembly.
+    static func XmlLinqSequenceName(elementFullName: string): string {
+        return "System.Collections.Generic.IEnumerable`1[[" + elementFullName + ", " + XmlLinqAssemblyName() + "]]"
+    }
+
+    // WHICH ASSEMBLY THE TYPES ARE IN, AND WHY IT IS NOT THE ONE A PROJECT REFERENCES.
+    // `System.Xml.Linq` is a pure facade of type forwarders; the 23 types themselves are exported by
+    // `System.Private.Xml.Linq`, which is what an exact runtime identity must name.
+    static func XmlLinqAssemblyName(): string {
+        return "System.Private.Xml.Linq"
     }
     // A .NET EVENT is a distinct member kind, not a field: `+=` against one must be
     // rejected with its own diagnostic and `on`/`off` must subscribe through the add_/
@@ -432,6 +469,19 @@ class ColumnarExternalBindingPlans {
             if memberName == "GetBits" && count == 1 && argumentTypeNames[0] == "System.Decimal" {
                 return StaticCall("System.Decimal", memberName, One("System.Decimal"), "System.Int32[]")
             }
+        }
+
+        if MatchesOwner(typeName, "XDocument", "System.Xml.Linq.XDocument") && memberName == "Load" && count == 1 && argumentTypeNames[0] == "System.String" {
+            return StaticCall("System.Xml.Linq.XDocument", memberName, One("System.String"), "System.Xml.Linq.XDocument")
+        }
+
+        // `XName.Get(name)` IS the conversion, not a convenience beside it. C# writes
+        // `element.Element("summary")` and the compiler inserts `XName::op_Implicit(String)`, whose
+        // whole body is `return Get(expandedName)`; N# has no implicit user conversion, so the name is
+        // spelled. The two answer the SAME interned instance — proved by reference identity — so a
+        // caller that spells `Get` is not approximating the C# it replaces.
+        if MatchesOwner(typeName, "XName", "System.Xml.Linq.XName") && memberName == "Get" && count == 1 && argumentTypeNames[0] == "System.String" {
+            return StaticCall("System.Xml.Linq.XName", memberName, One("System.String"), "System.Xml.Linq.XName")
         }
 
         return NoCall()
@@ -825,6 +875,27 @@ class ColumnarExternalBindingPlans {
             }
         }
 
+        // THE XML DOC READ SURFACE. The receiver is `XElement` in every case — that is what the doc
+        // walk holds — and the declaring identity a plan carries is the LOOKUP type, not the type that
+        // happens to declare the member: `Element`, `Elements` and `Nodes` are declared on the
+        // `XContainer` base, and the resolver admits an inherited declaring type at the CANDIDATE
+        // check while demanding that the plan's identity be the receiver's own. `Attribute` is
+        // declared on `XElement` itself. Both spellings are therefore the same one.
+        if receiver == "System.Xml.Linq.XElement" {
+            if memberName == "Element" && count == 1 && argumentTypeNames[0] == "System.Xml.Linq.XName" {
+                return VirtualCall(receiver, memberName, One("System.Xml.Linq.XName"), "System.Xml.Linq.XElement")
+            }
+            if memberName == "Elements" && count == 1 && argumentTypeNames[0] == "System.Xml.Linq.XName" {
+                return VirtualCall(receiver, memberName, One("System.Xml.Linq.XName"), XmlLinqSequenceName("System.Xml.Linq.XElement"))
+            }
+            if memberName == "Nodes" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), XmlLinqSequenceName("System.Xml.Linq.XNode"))
+            }
+            if memberName == "Attribute" && count == 1 && argumentTypeNames[0] == "System.Xml.Linq.XName" {
+                return VirtualCall(receiver, memberName, One("System.Xml.Linq.XName"), "System.Xml.Linq.XAttribute")
+            }
+        }
+
         return NoCall()
     }
 
@@ -982,6 +1053,9 @@ class ColumnarExternalBindingPlans {
         }
         if fullName.StartsWith("System.Diagnostics.Process", StringComparison.Ordinal) {
             return fullName + ", System.Diagnostics.Process"
+        }
+        if fullName.StartsWith("System.Xml.Linq.", StringComparison.Ordinal) {
+            return fullName + ", " + XmlLinqAssemblyName()
         }
 
         return fullName + ", System.Private.CoreLib"

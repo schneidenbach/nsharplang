@@ -1,6 +1,59 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-15 (**TASK 019 SLICE 20 LANDED (no commit — mandate) — `Formatter.cs` IS
+Last updated: 2026-08-17 (**TASK 019 SLICE 22 STAGE 1 LANDED (no commit — mandate) — THE
+`System.Xml.Linq` WALL IS DOWN, AND NOT ONE LINE OF C# WAS WRITTEN TO TAKE IT DOWN.** The five
+changed files are **`.nl` and only `.nl`** — 146 inserted lines across four owners plus a 393-line
+contracts file — and `git status` reports **ZERO non-`.nl` paths**, so the ratchet needs no repin at
+all. **THE WALL WAS RE-MEASURED AT THIS TIP BEFORE ANYTHING WAS TOUCHED, AND THE TREE HAD MOVED**:
+the doc-query skip-and-note fix put `DocQuery.cs` at **443 / 379 / 25 extents summing 396** (slice 21
+recorded 446 / 382 / 23 / 402), and the walled classifier now reports **DIRECT 8 / 102, TRANSITIVE
+13 / 258, FREE 4 / 36 — WALLED = 21 extents / 360 lines, 90.9 %** against slice 21's 20 / 370 /
+92.0 %, with the non-vacuity control at **FREE = 25 / 396, WALLED = 0**. The wall itself was
+re-proven BY EXECUTION at this tip (`import System.Xml.Linq` → **NL704**, `XDocument` → **NL301**,
+`Dictionary<string, XElement>` → **NL201 ×2**; the `System.Text.Json` control clean of all three and
+declining only at `emit.call.instance-member-unmodeled`; a plain control `ok: true`).
+**THE MEMBER ENUMERATION IS AN IL CENSUS OVER `DocQuery`'s OWN COMPILED BODIES, NOT A READING OF THE
+NAMESPACE — AND IT CORRECTED THE BRIEF THREE TIMES.** `nl98xmlcensus` decodes every method body,
+resolves every token to a declaring type and reports **14 MEMBERS and 9 TYPE SHAPES**. (1) There is a
+SEVENTH type, `XContainer`, **spelled in no source line anywhere**: `Element`, `Elements` and `Nodes`
+are declared there and inherited by `XElement`. (2) **The conversion the C# uses is
+`XName.op_Implicit(String)`, not `XName.Get`** — six of DocQuery's methods reach it, it is what
+`element.Element("summary")` compiles to, and its whole body is `return Get(...)`; N# has no implicit
+user conversion, so the row publishes `Get`, and reference identity proves the two answer the SAME
+interned instance. (3) `XElement` crosses signatures as a PARAMETER **and** a RETURN and `XNode` as a
+PARAMETER — the slice-6 total-wall shape, admitted. **THE 90.8 LESSON HAS A THIRD HALF, AND IT COST
+AN EMIT CYCLE TO FIND**: publishing the emitter's type and plan rows published neither the analyser's
+namespace table NOR **the emitter's own assembly SCAN** — with the type rows in and the scan row
+missing, `XDocument` resolved to nothing at emit time and **the decline was SILENT** (no site
+recorded, reported only as the enclosing local initializer). **AND THE ANALYSER ROW HAD TO NAME TWO
+ASSEMBLIES, MEASURED NOT GUESSED: `System.Xml.Linq` IS A PURE FACADE WHOSE `GetExportedTypes()`
+ANSWERS ZERO IN A MetadataLoadContext**, so a facade-only row loads an assembly and admits nothing;
+the 23 types are exported by `System.Private.Xml.Linq` (and `System.Xml.ReaderWriter`, already in
+both inherited tables, is the same kind of facade and admits nothing either — recorded, not changed).
+Proof: **the probe project EMITS AND RUNS**, exercising all 14 members and 9 shapes parameter-shaped
+and printing ten correct answers beside a **bare-int control at 43**; a **two-sided member
+differential reporting 14 members on EACH side, 13 identical**, one declared substitution
+(`op_Implicit` → `Get`) and three declared `call` → `callvirt` widenings; **fifteen live oracle legs
+at 0 diffs** — corpus `86a4928f…` (the **31st** consecutive byte-identical run), supplementary
+`228dfc38…`, self-host, six fixture sets, the **LSP-question oracle at 40,386 lines/side reproducing
+slice 21's `76857bb0…` to the digit**, the **doc-query CLI oracle over 59 names × 2 modes on both
+CLIs**, the format oracle on all three legs (663 files, 475 really rewritten) and the lint oracle
+5 runs × 2 sides at one md5; the determinism pin (ONE-sided, 275 targets × 5 runs) at one md5;
+**corpus IL 63/63 emitted assemblies byte-identical with the control sweep FIRST at 118/118** under
+a REBUILT normaliser (`/private/tmp` had taken the old one); live tree
+**392 / 246 identical on all three legs**; unit **3,193 / 3,193**; contracts **5,062 → 5,075 (+13,
+exactly the 13 new blocks)**; audit **18/18 with NO repin**; the self-application format seam clean
+first time; and **the full VS Code-enabled gate `ALL TESTS PASSED` in 35m 23s with 109 green steps,
+ZERO failures, 36 VS Code integration tests, the format contract gate and the IL verification gate
+inside**. **SIX FINDINGS.** **STAGE 1 IS PAUSED FOR THE COORDINATOR'S COMMIT AND TOOLSET
+REPUBLISH — nothing consumes these rows yet, exactly as slice 15 stage 1 paused for
+`IReadOnlyDictionary`.** Task 019 stays UNCHECKED and `tasks/README.md` is NOT edited. Its full
+record is in the Cursor block below)
+
+Last updated (prior): 2026-08-15 (**NOTE: slice 21's header entry was never written — the entry
+below this one is slice 20 — but its full record IS in the Cursor block, and slice 21 is COMMITTED
+at `e6aaf57cd`. The same omission is recorded for slice 16 further down.**
+**TASK 019 SLICE 20 LANDED (no commit — mandate) — `Formatter.cs` IS
 DELETED, AND NOT ONE LINE OF C# REPLACED IT.** The ten declaration leaves, SCC-2 and then the whole
 file — **18 members, 821 lines, the last 19 type-dispatch arms** — left for `Formatter.nl`, and
 `git diff` over `src/` reads **1 file changed, 821 deletions(-)** with **ZERO insertions**: the
@@ -2938,10 +2991,14 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. After SLICE 21 the arc is
-  ONE SLICE FROM DONE: TWO FILES ARE DELETED, THREE ARE REVIEWED ZERO-POLICY HOSTS, AND THE ONLY
-  FILE LEFT WITH POLICY IS `DocQuery.cs`, WHOSE 370 WALLED LINES ARE HELD BY A MEASURED TOOLSET
-  WALL AND NEED A NAMED TWO-STAGE REPIN.** **SLICE 21 DELETED THE DEAD CARRIER
+- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. SLICE 22 STAGE 1 HAS TAKEN THE ARC'S
+  LAST WALL DOWN: `System.Xml.Linq` IS IN THE CATALOG — 7 TYPES, 2 STATIC CALLS, 4 INSTANCE CALLS
+  AND 6 PROPERTY READS — AND THE SURFACE COST ZERO LINES OF C#.** The probe project that spells
+  every walled shape `DocQuery.cs` uses now EMITS AND RUNS. **STAGE 1 IS PAUSED FOR THE
+  COORDINATOR'S COMMIT AND TOOLSET REPUBLISH**; nothing consumes the rows until the SDK is repacked,
+  exactly as slice 15 stage 1 paused for `IReadOnlyDictionary`. **STAGE 2, ON THE REPUBLISHED
+  TOOLSET, TAKES THE FILE**: the 21 walled extents / 360 lines, `DocQuery.cs`'s closure verdict, and
+  — if it closes — 019's completion and its checkbox. **SLICE 21 DELETED THE DEAD CARRIER
   (`ProjectSnapshot.SharedAnalyzer` — declared once, assigned once, READ NOWHERE, proved by a
   RECEIVER-TYPED IL CENSUS after the name-based sweep was defeated by `MultiFileCompiler`'s
   same-named member), MOVED `ProjectSnapshot` WHOLE INTO N#, AND TOOK THE ENTIRE QUERY AND
@@ -3079,7 +3136,12 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 019 slice 21 — the dead carrier, `ProjectSnapshot`, and the whole query and
+- Current iteration: 019 slice 22 stage 1 — the `System.Xml.Linq` catalog surface, enumerated from
+  `DocQuery`'s COMPILED bodies by an IL census rather than from the namespace: 14 members and 9 type
+  shapes, published across THREE halves (the analyser's namespace table, the emitter's plan/type
+  catalog, and the emitter's own assembly scan), in `.nl` only, with 13 executable contracts and a
+  probe that emits and runs
+- Current iteration (prior): 019 slice 21 — the dead carrier, `ProjectSnapshot`, and the whole query and
   navigation surface. Twenty-five C# members and 432 lines into three N# owners, behind a property
   that nothing read and that a name-based census could not see, because `MultiFileCompiler` declares
   a `SharedAnalyzer` too and the two members share one name — it took a receiver-typed IL census,
@@ -3103,8 +3165,311 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
 - Active sub-slice (019 arc, THIS TURN — TARGET RECORDED BEFORE ANY PRODUCTION EDIT at tip
-  `e7c7864e4`): **019 SLICE 21 — THE DEAD CARRIER, `ProjectSnapshot`, AND CIS'S ENTRY POINTS; PLUS
-  THE `DocQuery` DECISION, MEASURED.**
+  `8f657932a`): **019 SLICE 22 STAGE 1 — THE `System.Xml.Linq` CATALOG SURFACE, MEASURED MINIMALLY
+  AND PUBLISHED IN N# ONLY.**
+
+  **THE TREE HAD MOVED, AND THE FIRST THING THIS SLICE DID WAS RE-MEASURE IT.** Slice 21 recorded
+  `DocQuery.cs` at 446 / 382 / 23 extents summing 402. At this tip — after the doc-query
+  skip-and-note fix merged (`300bf1030`) and restructured the file — the validated extractor reports
+  **443 lines / 379 non-blank / 25 extents summing 396**: two MORE extents (`DescribeLookupMiss` and
+  the `_globalDocOwners` field) and six FEWER extent lines. The extractor was re-validated against
+  the four recorded pristine tables before any of this was believed (`--validate` = PASS).
+  The whole arc now stands at **963 / 821 / 80 / 778**.
+
+  **THE WALLED CLASSIFIER, RE-RUN AT THIS TIP.** `nl97-wallclass.py` over all 25 extents against
+  `\b(XDocument|XElement|XNode|XText|XAttribute|XName)\b`:
+  **DIRECT 8 extents / 102 lines, TRANSITIVE 13 / 258, FREE 4 / 36 — WALLED = 21 extents / 360
+  lines, 90.9 % of the extent sum** (slice 21: 8 / 112, 12 / 258, 3 / 32 → 20 / 370, 92.0 %). The
+  eight DIRECT are the three `XDocument`/`XElement` fields and `GetDocElement`, `LoadXmlDoc`,
+  `EnsureGlobalDocIndex`, `FormatDocText`, `FormatDocNode`; the thirteenth TRANSITIVE is the new
+  `DescribeLookupMiss`. The residual FREE 36 lines are `_typeIndex`, `_globalDocOwners`,
+  `_globalDocIndexLoaded` and `LoadSystemAssemblies`. **NON-VACUITY: the same classifier against a
+  wall the file does not touch reports FREE = 25 / 396, WALLED = 0.**
+
+  **THE WALL WAS RE-PROVEN BY EXECUTION AT THIS TIP, BEFORE ANY EDIT.** Five probe projects against
+  a freshly built tip CLI: `import System.Xml.Linq` + `XDocument.Load`/`.Root`/`.Value` → **NL704**
+  ("I can't find namespace 'System.Xml.Linq'") plus **NL301**; the fully-qualified spelling →
+  **NL301 on `System`**; a `Dictionary<string, XElement>` member plus its construction → **NL704 +
+  NL201 ×2**. The **`System.Text.Json` control** — whose rows are published — passes the analyzer
+  with **ZERO** NL201/NL301/NL704 and declines only later at
+  `emit.call.instance-member-unmodeled`; a plain control project reports **`ok: true`**.
+
+  **THE MEMBER ENUMERATION IS AN IL CENSUS OVER `DocQuery`'s OWN COMPILED BODIES, AND THAT CHOICE
+  IS THE POINT.** A source grep sees `element.Value` without knowing which type declares `Value`,
+  and it cannot see the compiler's own overload choice. `nl98xmlcensus` (NEW, kept) decodes every
+  method body of a named type in a built assembly, resolves every metadata token to (declaring type,
+  member, signature) with an opcode table built BY REFLECTION over `System.Reflection.Emit.OpCodes`,
+  and decodes field, parameter, return and local signatures as well — because a
+  `Dictionary<string, XElement>` field is a type admission no call census would ever see. Over
+  `DocQuery` in `Compiler.dll` it reports **MEMBERS = 14, SHAPES = 9**:
+
+  | member | declaring type | reached from |
+  |---|---|---|
+  | `Load(String) : XDocument` | `XDocument` | `LoadXmlDoc`, `EnsureGlobalDocIndex` |
+  | `get_Root() : XElement` | `XDocument` | `LoadXmlDoc`, `EnsureGlobalDocIndex` |
+  | `Element(XName) : XElement` | **`XContainer`** | 4 members |
+  | `Elements(XName) : IEnumerable<XElement>` | **`XContainer`** | 3 members |
+  | `Nodes() : IEnumerable<XNode>` | **`XContainer`** | `FormatDocText`, `FormatDocNode` |
+  | `Attribute(XName) : XAttribute` | `XElement` | 3 members |
+  | `get_Value() : String` | `XElement` | `FormatDocNode` |
+  | `get_Name() : XName` | `XElement` | `FormatDocNode` |
+  | `get_LocalName() : String` | `XName` | `FormatDocNode` |
+  | `get_Value() : String` | `XAttribute` | 3 members |
+  | `get_Value() : String` | `XText` | `FormatDocNode` |
+  | `op_Implicit(String) : XName` | `XName` | **6 members** |
+  | `isinst XElement` | — | `FormatDocNode` |
+  | `isinst XText` | — | `FormatDocNode` |
+
+  **IT CORRECTED THE BRIEF THREE TIMES, AND EACH CORRECTION CHANGED THE SURFACE.**
+  **(1) THERE IS A SEVENTH TYPE, AND NO SOURCE LINE SPELLS IT.** `Element`, `Elements` and `Nodes`
+  are declared on **`XContainer`**, not `XElement`. A catalog built from the six names a reader can
+  see would have admitted three members that bind to a type it never admitted.
+  **(2) THE CONVERSION IS `XName.op_Implicit(String)`, NOT `XName.Get`.** The brief named `Get`; the
+  compiled C# reaches `op_Implicit` from SIX members, because `element.Element("summary")` is a
+  string in the source and an `XName` in the signature. Its whole body is `return Get(expandedName)`,
+  and `ReferenceEquals(XName.Get("summary"), (XName)"summary")` is **True** — the same interned
+  instance. **N# has no implicit user conversion, so the row publishes `Get` and NOT the operator**:
+  admitting `op_Implicit` would publish a spelling the language cannot reach, and the contracts
+  assert BOTH that the operator exists on the type and that the plan refuses it.
+  **(3) THE SIGNATURE CROSSINGS ARE REAL — the slice-6 total-wall shape.** `XElement` is a PARAMETER
+  (`FormatDocText`) and a RETURN (`GetDocElement`); `XNode` is a PARAMETER (`FormatDocNode`). Both
+  are admitted, and the probe proves both by execution.
+
+  **THE SURFACE PUBLISHED — FIVE `.nl` FILES, ZERO C#.** `git status` reports **0 non-`.nl` paths**;
+  `git diff --stat` is **146 insertions, 2 deletions** over four owners, plus a new 393-line
+  contracts file.
+  - **`ColumnarExternalBindingPlans.nl`** — 7 rows in `TryGetRuntimeTypeName` (short AND fully
+    qualified spellings), `IsXmlLinqTypeName` OR'd into `IsSupportedRuntimeTypeName` (its own
+    predicate, mirroring the attribute-sequence row rather than 7 more clauses on a 30-clause
+    chain), an `ExactTypeIdentity` arm naming `System.Private.Xml.Linq`, `XmlLinqSequenceName`, two
+    static-call rows (`XDocument.Load(String)`, `XName.Get(String)`) and four instance-call rows
+    (`Element`, `Elements`, `Nodes`, `Attribute`, receiver `XElement`).
+  - **`ColumnarRuntimeInstanceMemberResolver.nl`** — `IsSupportedXmlLinqReceiver` (5 receivers) in
+    `CanOwnReceiver`, and the six property rows in `TrySelect`, each naming its exact result type
+    resolved out of the RECEIVER's OWN assembly rather than from a load context.
+  - **`AnalyzerImports.nl`** — the namespace→assembly row.
+  - **`ExternalAssemblyScan.nl`** — `CommonAssemblyNames` 26 → 27.
+  - **`ColumnarXmlLinqCatalog.tests.nl` (NEW, 393 lines, 13 contracts)** — written under the same
+    constraint as slice 15 stage 1's `ColumnarReadOnlyDictionaryCatalog.tests.nl`: **every type is
+    fetched BY NAME and not by `typeof`**, because this file is compiled by the PINNED toolset, the
+    one that does not yet know the rows it is publishing.
+
+  **(98.1) THE 90.8 LESSON HAS A THIRD HALF, AND FINDING IT COST AN EMIT CYCLE.** Publishing the
+  emitter's type and plan rows published NEITHER the analyser's namespace table NOR **the emitter's
+  own external assembly SCAN** (`ExternalAssemblyScan.CommonAssemblyNames`, the emit-time mirror of
+  `Analyzer.cs`'s `commonAssemblies`). With every type row in place and the scan row missing,
+  `XDocument.Load` resolved to nothing at emit time — and **the decline was SILENT**: the planner's
+  `TryResolveExternalStaticOwner` rolls back and returns false without recording a site, so
+  `NSHARP_COLUMNAR_DECLINE_LOG` reported only the enclosing `emit.local.initializer`. The contracts
+  now assert the scan row, its absence-of-the-facade, and the established neighbours.
+  **(98.2) `System.Xml.Linq` IS A PURE FACADE, AND A FACADE-ONLY ROW ADMITS NOTHING.** The first
+  analyser row named the assembly a project references — and NL704 did not move. Diagnosed by
+  execution: in a `MetadataLoadContext`, `GetExportedTypes()` on `System.Xml.Linq.dll` answers
+  **ZERO types** (the load context does not follow its type forwarders), while
+  `System.Private.Xml.Linq` answers **25, of which 23 are in the namespace**. The row names BOTH,
+  facade first because it is what a project references. **`System.Xml.ReaderWriter` — already in
+  BOTH inherited tables — is the same kind of facade and admits nothing either. Recorded, not
+  changed: nothing depends on it.**
+  **(98.3) A PLAN'S `DeclaringTypeName` IS THE LOOKUP TYPE, NOT THE DECLARER.** The first instance
+  rows named `XContainer`, which is where `Element`/`Elements`/`Nodes` really are declared — and
+  every call was refused before it reached the member, because `ValidatePlanForm` checks the plan's
+  declaring identity against the RECEIVER. Naming `XElement` binds, and `DeclaringTypeCanOwnLookup`
+  admits the inherited declarer at the CANDIDATE check. So the honest spelling is the receiver's
+  identity, and the `XContainer` admission is still required — as the type the resolved member is
+  declared on.
+  **(98.4) A CLOSED BCL GENERIC OVER A NON-CoreLib ELEMENT MUST CARRY THE ELEMENT'S ASSEMBLY.**
+  `Elements` and `Nodes` return `IEnumerable<XElement>` / `IEnumerable<XNode>`. The identity is
+  resolved from CoreLib's context, so
+  `System.Collections.Generic.IEnumerable`1[System.Xml.Linq.XElement], System.Private.CoreLib`
+  resolves to **NULL** and the row would decline every walk. The element must be assembly-qualified
+  inside `[[...]]`. The contract asserts the working spelling AND that the short one is null.
+  **(98.5) A TWO-HOP INSTANCE PROPERTY CHAIN ON AN ADMITTED EXTERNAL TYPE DECLINES; THE SPLIT
+  SPELLING BINDS.** `element.Name.LocalName` declines at `emit.return.expression`; `name :=
+  element.Name` then `name.LocalName` compiles. **ISOLATED, AND ATTRIBUTED**: it is NOT caused by
+  these rows. `ColumnarInstanceMemberPlanner.TryGetComposedReceiverType` routes a member-access
+  receiver through `ColumnarExternalStaticMemberPlanner` — a STATIC member access — so the N# planner
+  never plans an instance property access as a composed receiver. The `JsonDocument.RootElement
+  .ValueKind` chain works only because a hand-written C# arm in `ColumnarIlEmitter` owns both hops;
+  a probe of it is green on BOTH CLIs, which is what proves the limit pre-exists this slice.
+  **`DocQuery.cs` has exactly ONE such site (`FormatDocNode` :433), and stage 2 spells it with a
+  local — proved by the probe.** This is a named language limit with a zero-cost workaround, not a
+  wall that blocks stage 2, and it is reported as such rather than as a blocker.
+  **(98.6) `.Value` AFTER A NULL CHECK TRIPS NL907 INSIDE AN INDEX EXPRESSION BUT NOT IN A RETURN.**
+  `if a != null { index[a.Value] = m }` reports **NL907** ("this '.Value' access can throw"); the
+  identical read as `return a.Value` under the same guard does not, and hoisting to a local clears
+  it. The narrowing reaches a return expression and not an index target.
+
+  **THE PROOF IS THAT THE EMITTED CODE RUNS.** The probe project spells all 14 members and all 9
+  shapes **parameter-shaped** — every entry point takes the path, the element or the name as a
+  parameter, so nothing can be constant-folded — and it BUILDS AND EXECUTES against a real XML doc:
+  `control=43` (the bare-int control, `6*7+1`), `root=doc`, `members-count=2`,
+  `first-name=T:Probe.Widget`, `missing-attr=<none>`, `summary-value=A widget that spins.`,
+  **`summary-nodes=A [c:widget] that spins.`** (the `Nodes()` walk with the `isinst` arms and the
+  `XNode` parameter — `FormatDocNode`'s exact shape), `index-count=2`, `index-has-type=True`.
+  **THE CENSUS RUN AGAINST THE N#-EMITTED ASSEMBLY REPORTS MEMBERS = 14** — the same count as the C#
+  — and a two-sided differential over the two censuses reports **13 of 14 identical**:
+
+  - **ONE declared substitution**: C# `XName.op_Implicit(String)` ↔ N# `XName.Get(String)`, the same
+    function by construction and by reference identity.
+  - **THREE declared opcode widenings**: `XAttribute.get_Value`, `XContainer.Element` and
+    `XContainer.Elements` are `call` in the C# and `callvirt` in the N#. Both are legal IL for a
+    non-virtual instance member; `callvirt` adds a receiver null check. Every instance row in the
+    catalog is a `VirtualCall`, so this is the catalog's uniform shape and not a per-row choice.
+
+  **FIFTEEN LIVE ORACLE LEGS, ALL 0 DIFFS, TWO-SIDED AGAINST A BASE BUILT AT THIS TIP.** The base is
+  a pristine worktree at `8f657932a` (`git status` = 0 dirty files) built Release and preserved —
+  **which matters, because slice 21's preserved base is `e7c7864e4` and six chip merges have landed
+  since; a differential against it would attribute their fixes to this slice.**
+  - **CORPUS** (71 targets, both CLIs): 0 diffs, md5 **`86a4928f87495854f48cbd5df7d5c571`** on BOTH
+    — the recorded value, the **THIRTY-FIRST** consecutive byte-identical run — with the inherited
+    `NO-RESULTS = 7`, `PARSE_FAIL = 0`, `PARSE_ERRORS = 0` and the same 33-diagnostic census
+    (`NSYS050:14 NSYS001:9 NL303:5 NSYS070:3 NL402:2`).
+  - **SUPPLEMENTARY** (9): 0 diffs, md5 **`228dfc3809752a90f77da3c61121f2fa`** — the recorded value.
+  - **SELF-HOST** (the frozen compiler snapshot): 0 diffs, md5 `dac366f8…`, 258 diagnostics.
+  - **SIX FIXTURE SETS** (fx70 30, fx71 18, fx72 28, fx73 33, fx74 46, fx75 48): 0 diffs each.
+  - **THE LSP-QUESTION ORACLE**: **40,386 lines per side, 0 diffs, md5
+    `76857bb0c5872260c375d94338ca89fc` on BOTH — slice 21's recorded value AND line count to the
+    digit.** 357 computed positions, six batch questions, hover/inspect/implementors/call-graph.
+  - **THE DOC-QUERY CLI ORACLE (NEW, and the one this slice owes)**: `nlc query doc` is
+    `DocQuery`'s ONE product consumer, so it is driven over **59 names × 2 output modes on BOTH
+    CLIs** — including `XDocument`, `XElement`, `XName`, `XComment` and the fully-qualified spelling
+    — **18,889 lines/side, 0 diffs, md5 `0704f59b1851e4a5b0cfe7de70ff0953` on both.** It answers the
+    question no other leg asks: the scan row calls `Assembly.Load`, and the doc index walks loaded
+    assemblies, so a doc answer COULD have moved. It did not.
+  - **THE FORMAT ORACLE**, all three legs: `--check` transcripts identical (`eb793561…`), the
+    canonical tree 663 files 0 diffs, and the **DEFORMED** tree 663 files 0 diffs with **475 files
+    really rewritten** (`TREE_MD5` identical on both sides).
+  - **THE LINT ORACLE**: 5 runs × 2 sides, every one md5 `696690e702a171c1472d261cdb84fd25`, 0 diffs.
+  **AND THE DETERMINISM PIN, WHICH IS ONE-SIDED AND SO IS NOT ONE OF THE FIFTEEN**: a 275-target
+  workload, 5 runs, all md5 `4f8e7757…`, 1,707 lines, `RUN1_VS_RUN{2,3,4,5} DIFFS=0`, 930 diagnostic
+  rows over 32 codes.
+  **The lint and determinism md5s are NEW PINS AT NEW TARGET SETS, NOT reproductions of the recorded
+  `682a2a80…`/`db729409…`, and the reason is named: `/private/tmp` was reaped and the fixture sets
+  had to be relocated under `~/nl97keep/fixtures`, so the target lists differ. The claims those legs
+  make — base ≡ work, and run-to-run stability — both hold.**
+
+  **CORPUS IL: 63/63 EMITTED ASSEMBLIES BYTE-IDENTICAL, WITH THE CONTROL SWEEP FIRST — AND THE
+  NORMALISER HAD TO BE REBUILT TO SAY SO.** `/private/tmp` took `nl82_ilnorm.py` with it, so
+  `nl98_ilnorm.py` was written fresh (COFF timestamp, optional-header checksum, the whole debug
+  directory including its CodeView payload, and the metadata `#GUID` heap). **It is validated by the
+  sweep's own control: two runs of the SAME CLI over two fresh archives normalise to
+  118/118 IDENTICAL** — where the RAW bytes differ on 55 of 118, which is exactly why the control
+  runs first. A-vs-B then reports **63 SAME / 55 DIFFERENT, and every one of the 55 is
+  `NSharpLang.Runtime.dll`** — a support assembly COPIED from each CLI's own bin directory, never
+  emitted from corpus source. **Emitted assemblies differing: ZERO.** The unsorted build transcripts
+  are 0 diffs both ways (`CTRL_vs_A = 0`, `A_vs_B = 0`, 1,367 lines, md5 `5847c3c6…`).
+
+  **THE LIVE-TREE CHECK IS THREE-LEGGED, AND IT CORRECTS THE INHERITED BASELINE.** `nlc check` over
+  `src/NSharpLang.Compiler.BootstrapServices` reports **`checkedFiles=392, count=246`** with
+  `NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1` — and
+  **all three legs are identical**: the BASE CLI over the pristine tree, the WORK CLI over the
+  pristine tree, and the WORK CLI over this slice's tree. **Slice 21's recorded 273 is NOT this
+  tip's baseline: the six chip merges fixed 27 diagnostics, and the base CLI over the pristine tree
+  proves 246 is theirs and not this slice's.** The final leg reports **ZERO rows naming the new
+  contracts file** and no new row on any of the four touched owners.
+
+  **THE DEAD SWEEP RAN OVER THE ARC: 1,091 corpus files, DEAD COUNT = 0**, DETACHED 52.
+
+  **THE UNIT SUITE IS 3,193 / 3,193, 0 FAILED, in 4 m 44 s**, taken by `dev.sh --since`'s fail-safe
+  (all six changed `.nl` paths unmapped). **3,193 is the tip baseline, not a number this slice
+  moved**: the diff touches no C# and no file under `tests/`, and slice 21's recorded 3,192 predates
+  the six chip merges.
+
+  **THE NATIVE CONTRACT ESTATE IS 5,075 / 5,075, 0 FAILED — 5,062 → 5,075, and +13 is EXACTLY the
+  13 new `test` blocks**, which is what proves they run rather than being silently excluded (the
+  `AnalyzerImports` row extends an existing test instead of adding one, so it moves no count). Every
+  row is asked three ways — the admission, a CONTROL whose established answer must not have moved,
+  and a NEGATIVE that must stay refused — and the negatives are the load-bearing half here, because
+  the temptation with a namespace-sized wall is to admit the namespace: **`XComment`, `XCData`,
+  `XDeclaration`, `XNamespace` and `XProcessingInstruction` are real exported types in
+  `System.Xml.Linq` that every predicate must still refuse**, and each negative first asserts the
+  type RESOLVES so a refusal cannot pass by a typo.
+
+  **RATCHET: NO REPIN, AND THAT IS THE MEASUREMENT.** `git status --porcelain` reports **ZERO
+  non-`.nl` paths**; the manifest carries no `.nl` production path; the ownership audit passes
+  **18/18** unchanged; manifest **391 lines, no BOM**, head `head-v1:acd2ae5d6b4778ba` untouched.
+  **A slice that adds 539 lines of N# and zero lines of anything else cannot move the growth
+  ratchet, and the audit agreeing is the check on that claim, not the claim itself.**
+
+  **THE SELF-APPLICATION SEAM PASSED FIRST TIME**: `nlc format --check` over
+  `src/NSharpLang.Compiler.BootstrapServices` (with the new contracts file in it) reports **"All
+  files are properly formatted."** — the check slice 21 failed on its first run.
+
+  **THE FULL VS CODE-ENABLED GATE IS GREEN, RUN FRESH AND ISOLATED INSIDE THIS TURN.**
+  `NSHARP_TEST_STEP_CACHE_OFF=1 ./scripts/test-all.sh --commit` from a `/tmp` worktree carrying
+  exactly this slice's six files (never from the repo root — the `.claude/worktrees/*` chip
+  worktrees nested under it are what break the benchmark gate) reports **`ALL TESTS PASSED` in
+  35 m 23 s, 109 green steps, ZERO failures**: Compiler built (2m 18s), **Format Contract Gate**,
+  **Unit tests 3,193 / 3,193** (6m 48s), **Native N# tests 5,075 / 5,075 plus every
+  `tests/native/*` project** (4m 19s), **VS Code Integration Tests 36 passing** (17m 16s), SDK pack
+  and install, templates, template-generated project, example projects, single-file examples,
+  `nlc check` over examples, and the **IL Verification Gate**. It was the FIRST attempt — no step
+  failed and none was retried, unlike slice 21's three runs.
+
+  **ARTEFACTS, ALL OUTSIDE THE REAPER, UNDER `~/nl98keep/`.** `basecli/` (the pristine `8f657932a`
+  Release CLI — **build a base at the CURRENT tip, not the one the last slice preserved**),
+  `probes/` (the five wall probes, the executable member probe with its XML fixture, and the two
+  chain probes), `harness/` (the relocated oracle set — every target list rewritten off
+  `/private/tmp` onto `~/nl97keep/fixtures`), `il/` and `out/`. **Three instruments are worth
+  keeping**: **`nl98xmlcensus/`** (the IL member census — it enumerates a wall's real surface from
+  compiled bodies and it is what found `XContainer` and `op_Implicit`), **`nl98_ilnorm.py`** (the
+  rebuilt PE normaliser, validated by the sweep's own control), and **`nl98-docoracle.sh`** (the
+  doc-query CLI oracle, which is the only leg that asks `DocQuery`'s own product question).
+  **THE SoA FIXTURE SET DID NOT SURVIVE THE REAP** (`nl62soafx` is absent from `~/nl97keep/fixtures`),
+  so its oracle leg has no fixtures and was not run — recorded rather than quietly dropped.
+
+  **WHAT STAGE 2 INHERITS, MEASURED.** The 21 walled extents / 360 lines are now spellable: every
+  member the census found is admitted and proven by execution, `XElement`/`XNode` cross signatures,
+  and the four collection shapes (`Dictionary<string, XElement>`,
+  `Dictionary<string, XDocument>`, the nested `Dictionary<string, Dictionary<string, XElement>>` and
+  `IEnumerable<XElement>`) all emit. The two spelling changes stage 2 must make are named and
+  proven: `element.Element("x")` becomes `element.Element(XName.Get("x"))`, and the one chained
+  `element.Name.LocalName` (:433) becomes two statements. **The 32 lines slice 21 called residual
+  are 36 at this tip and are still `_typeIndex`, `_globalDocOwners`, `_globalDocIndexLoaded` and
+  `LoadSystemAssemblies`.** `DocQuery.cs`'s closure verdict is stage 2's to MEASURE before its first
+  edit, not to assume: its consumer is the CLI's `doc` command and its public signature carries
+  `DocResult`, which is already N#.
+
+  **A SECOND Xml.Linq CONSUMER EXISTS AND IS OUT OF 019's SCOPE — RECORDED SO IT IS NOT DISCOVERED
+  LATER.** `src/NSharpLang.Cli/CompilationReferenceResolver.cs` (:9, :370, :386, :396, :412) uses
+  `XDocument`/`XElement` for its nuspec flatten and is explicitly marked `MECHANICAL-GLUE`. It is
+  not one of the seven files `tasks/019-…md` names, so it does not bear on 019's checkbox — but the
+  rows this stage publishes are what would unblock it whenever its own task arrives.
+
+  **WHAT THE CHECKBOX NEEDS, AND WHY THIS STAGE DOES NOT EARN IT.** `tasks/019-…md` says: mark
+  complete only when all listed files are "deleted or reduced to reviewed, non-growing mechanical
+  hosts." Two are DELETED, three are reviewed zero-policy hosts, and **`DocQuery.cs` is unchanged at
+  443 lines with 360 of its 396 extent lines still real policy.** This stage moved the TOOLSET, not
+  the file. **019 is NOT complete, `tasks/README.md` is NOT edited, and the checkbox stays
+  unchecked** — stage 2, on the republished toolset, is what can earn it.
+
+  **THE NEXT BRIEF: STAGE 2, THEN 020.** Stage 2 needs the coordinator's commit and a toolset
+  republish first, because `.nl` production source cannot spell a surface the PINNED toolset does
+  not carry — the same pause slice 15 stage 1 took for `IReadOnlyDictionary`. **The second catalog
+  row slice 21 named is still owed and is untouched here**: the `Dictionary<K, V>` →
+  `IReadOnlyDictionary<K, V>` WIDENING conversion (finding 97.6), which is what keeps
+  `ProjectSnapshot` out of reach of an N# contract. **020 IS
+  `tasks/020-native-test-runner-capabilities.md`**, whose slice list is explicit — *table-driven
+  cases, skip, setup/teardown, async `Task`, async `ValueTask`, structured failure JSON, whole-run
+  timeout*, first missing one first, each immediately consuming a REAL C# test cluster. STATUS.md
+  already knows five things that bear on it. (1) The native estate is the gate's own step (3a) and
+  stands at **5,075 / 5,075** at this stage's close, up from 1,554 at the start of 017. (2) **The
+  estate needs `-p:NSharpExcludeTests=false --force-evaluate` on restore after ANY other build, and
+  a silent instant `dotnet test` success is a BROKEN RESTORE rather than a pass** — prove a new
+  block runs by a count diff, which is exactly how this stage's +13 was proved. (3) Slice 20 already
+  exercised *table-driven tests, skip and setup/teardown* as FORMATTER shapes, so the formatter's
+  contracts are a ready-made corpus. (4) **The first real C# cluster to migrate is still
+  `tests/CodeIntelligenceTests.cs` (1,354 / 162 markers) and `tests/CompletionEngineTests.cs`
+  (322 / 62)** — the only canonical assertion layer for the code-intelligence surface, because
+  finding 97.6 keeps `ProjectSnapshot` out of reach of an N# contract. (5) **A `.tests.nl` cannot
+  spell a catalog surface the pinned toolset lacks** — this stage's contracts had to fetch every
+  type by name — so any 020 capability that needs a new emit surface inherits the same two-stage
+  shape.
+
+  ---
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED and COMMITTED at `e6aaf57cd`): **019 SLICE 21 — THE
+  DEAD CARRIER, `ProjectSnapshot`, AND CIS'S ENTRY POINTS; PLUS THE `DocQuery` DECISION, MEASURED.**
 
   **TARGET (recorded before any production edit).**
   `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` at **578 lines / 490

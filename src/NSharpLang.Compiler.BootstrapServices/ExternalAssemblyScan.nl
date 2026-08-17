@@ -596,7 +596,7 @@ class ExternalAssemblyScan {
     }
 
     static func CommonAssemblyNames(): string[] {
-        names := new string[](26)
+        names := new string[](27)
         names[0] = "System.Runtime"
         names[1] = "System.Console"
         names[2] = "System.Collections"
@@ -623,6 +623,12 @@ class ExternalAssemblyScan {
         names[23] = "System.Text.Encoding.Extensions"
         names[24] = "System.Xml.ReaderWriter"
         names[25] = "System.Private.CoreLib"
+        // LINQ-to-XML, named by its IMPLEMENTATION assembly. The `System.Xml.Linq` a project
+        // references is a facade of type forwarders that exports nothing a metadata scan can see, so
+        // a facade entry would put a path in the resolver and still resolve no type name. The 23
+        // types live here. (`System.Xml.ReaderWriter` above is the same kind of facade and admits
+        // nothing either — recorded rather than changed, because nothing depends on it.)
+        names[26] = "System.Private.Xml.Linq"
         return names
     }
 }

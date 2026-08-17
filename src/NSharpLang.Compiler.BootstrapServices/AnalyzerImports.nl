@@ -878,6 +878,12 @@ class AnalyzerImports {
         mappings["System.Text"] = OneAssembly("System.Runtime")
         mappings["System.Net.Http"] = OneAssembly("System.Net.Http")
         mappings["System.Text.Json"] = OneAssembly("System.Text.Json")
+        // LINQ-to-XML, and it needs BOTH names for a measured reason. `System.Xml.Linq` is a pure
+        // FACADE: a MetadataLoadContext does not follow its type forwarders, so
+        // `GetExportedTypes()` on it answers ZERO types and a facade-only row admits nothing. The 23
+        // types in this namespace are exported by `System.Private.Xml.Linq`, which is the second
+        // name. The facade stays FIRST because it is the assembly a project references.
+        mappings["System.Xml.Linq"] = TwoAssemblies("System.Xml.Linq", "System.Private.Xml.Linq")
         mappings["System.ComponentModel.DataAnnotations"] = OneAssembly("System.ComponentModel.Annotations")
         mappings["Microsoft.AspNetCore.Builder"] = TwoAssemblies("Microsoft.AspNetCore", "Microsoft.AspNetCore.Http.Abstractions")
         mappings["Microsoft.AspNetCore.Mvc"] = TwoAssemblies("Microsoft.AspNetCore.Mvc.Core", "Microsoft.AspNetCore.Mvc.Abstractions")

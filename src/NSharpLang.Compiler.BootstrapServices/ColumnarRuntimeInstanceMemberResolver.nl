@@ -95,11 +95,33 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
+        if IsSupportedXmlLinqReceiver(receiverType) {
+            return true
+        }
+
         if typeof(Exception).IsAssignableFrom(receiverType) || IsSupportedAspNetReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) || IsSupportedUnitTaskReceiver(receiverType) || IsSupportedNullableReceiver(receiverType) || IsSupportedResultReceiver(receiverType) || IsSupportedMemoryOwnerReceiver(receiverType) || IsSupportedMemoryReceiver(receiverType) || IsSupportedCountReceiver(receiverType) || IsSupportedKeyValuePairReceiver(receiverType) || IsSupportedSpanLikeReceiver(receiverType) || IsSupportedValueTupleReceiver(receiverType) {
             return true
         }
 
         return false
+    }
+
+    // THE LINQ-TO-XML RECEIVERS THE DOC WALK HOLDS. Matched by exact metadata name, for the same
+    // reason the WebApplication arm below is: this assembly cannot reference the Linq-to-XML types by
+    // spelling, because the toolset that compiles it has no rows for them yet. A source-declared
+    // namesake cannot reach this test — `CanOwnReceiver` rejects every builder shape first — and
+    // `TrySelect` still resolves each getter by reflection ON THE RECEIVER and demands an exact
+    // result-type shape, so a namesake without those properties selects nothing.
+    static func IsSupportedXmlLinqReceiver(receiverType: Type): bool {
+        name := receiverType.FullName ?? ""
+        return name == "System.Xml.Linq.XDocument" || name == "System.Xml.Linq.XElement" || name == "System.Xml.Linq.XName" || name == "System.Xml.Linq.XAttribute" || name == "System.Xml.Linq.XText"
+    }
+
+    // A type from the SAME assembly the receiver came from. Resolving the expected result type out of
+    // the receiver's own assembly is stronger than a load-context lookup: it cannot answer with a
+    // same-named type from somewhere else.
+    static func RequiredXmlLinqType(receiverType: Type, fullName: string): Type {
+        return RequiredAssemblyType(receiverType.get_Assembly(), fullName)
     }
 
     static func TrySelect(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
@@ -215,6 +237,31 @@ class ColumnarRuntimeInstanceMemberResolver {
 
         if receiverType == typeof(JsonDocument) && member == "RootElement" {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(JsonElement), out selection)
+        }
+
+        // THE SIX XML DOC PROPERTY READS. Each names its exact result: the document's root element,
+        // an element's text and its name, that name's local part, and the text an attribute or a text
+        // node carries. `XElement.Value` and `XText.Value` are DIFFERENT properties on different
+        // types that happen to share a name and a result, so both are spelled.
+        if IsSupportedXmlLinqReceiver(receiverType) {
+            receiverName := receiverType.FullName ?? ""
+            if receiverName == "System.Xml.Linq.XDocument" && member == "Root" {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, RequiredXmlLinqType(receiverType, "System.Xml.Linq.XElement"), out selection)
+            }
+
+            if receiverName == "System.Xml.Linq.XElement" && member == "Name" {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, RequiredXmlLinqType(receiverType, "System.Xml.Linq.XName"), out selection)
+            }
+
+            if member == "Value" && (receiverName == "System.Xml.Linq.XElement" || receiverName == "System.Xml.Linq.XAttribute" || receiverName == "System.Xml.Linq.XText") {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(string), out selection)
+            }
+
+            if receiverName == "System.Xml.Linq.XName" && member == "LocalName" {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(string), out selection)
+            }
+
+            return false
         }
 
         // The old WebApplication arm repeated the general ASP.NET rule but omitted its result
