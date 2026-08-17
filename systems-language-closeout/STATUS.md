@@ -3076,7 +3076,33 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 1 IS DONE: TABLE-DRIVEN CASES ARE
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 2 MEASURED `skip` AND DECLINED TO
+  BUILD IT: THE C# ESTATE HAS NO CONSUMER FOR IT.** The mandated sweep over **2,818 attributed test
+  methods in 279 classes** found **ZERO** `[Fact(Skip=…)]`, `SkipException`, `[ConditionalFact]` or
+  trait/`.runsettings` filters; the ONE true `Skip=` in the repo is `DockerFactAttribute`, in the
+  Testcontainers `IntegrationTests` project the gate never runs and no `tests/native/*` project can
+  host; and the six `if (!Directory.Exists(…)) return;` guards in `ExampleLintTests.cs` are RUNTIME
+  conditions that N#'s STATIC `skip "reason"` modifier cannot express. Unused runner infrastructure
+  is not completion, so **nothing was built**, and the slice took the mandate's pivot: it migrated
+  the cheapest real cluster the existing capability set expresses. **`tests/ParserLiteralFactsTests.cs`
+  IS DELETED** and `tests/native/parser-literal-facts/` replaces it — **22 reported cases from 3
+  table-driven declarations, 22 `[InlineData]` rows in and 22 out, proved IDENTICAL by a mechanical
+  comparator with its own non-vacuity control**, plus a 4-mutation proof where each mutation fails
+  exactly its own named row. **`git diff --numstat -- '*.cs'` is `added=0 deleted=47`; no other C#
+  file was opened.** **AND THE NEXT ROW WAS PROBED RATHER THAN ASSUMED, WHICH OVERTURNED IT: `async
+  Task` — the 134-test demand row — IS ALREADY SERVED.** A plain `test` body may `await`, and
+  failures SURVIVE the await (a probe reports 1 passed / 2 failed: an assert failing after an await,
+  and an exception thrown inside awaited work, are both reported and named). Only the `async test
+  "…"` DECLARATION form is missing (`NL101`), and no C# test needs it. Structured failure JSON is
+  already in the envelope and `--timeout <duration>` already exists, so **most of the remaining
+  order is already served or has zero demand, and 020's real remaining work is MIGRATION rather than
+  capability** — starting with the async-shaped C# clusters, which need nothing new. **Task 020
+  stays UNCHECKED**, `skip` remains an emit-only gap nobody wants, and `setup`/`teardown` is now
+  priced honestly as an ANALYSER change (`NL001` — the setup binding is invisible to the test body),
+  not an emit one.
+  **`IReadOnlyDictionary` widening (finding 97.6) is still owed** and still blocks
+  `tests/CodeIntelligenceTests.cs`.
+  (Prior: **020 SLICE 1 — TABLE-DRIVEN CASES ARE
   LIVE AND `tests/DocQueryTests.cs` IS DELETED.** Every row of a `with (…) […]` table is now its own
   independent test — lowered in N# into its own test declaration with the row's values bound as
   typed locals — so it emits its own `[Fact]`, carries its own `NSharpDescription`, and reports its
@@ -3238,7 +3264,10 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 019 slice 22 stage 2 — `DocQuery.cs` DELETED. The whole file, 19 members and
+- Current iteration: 020 slice 2 — the SKIP CAPABILITY WAS MEASURED AND DECLINED. The C# estate has
+  no consumer for it, so nothing was built; the slice migrated `tests/ParserLiteralFactsTests.cs`
+  instead, and the census names `async Task` (134 real tests) as the next capability by demand
+- Current iteration (prior): 019 slice 22 stage 2 — `DocQuery.cs` DELETED. The whole file, 19 members and
   390 extent lines, into one 633-line N# owner that keeps the name, the namespace and every public
   signature, so its three consumers never learned it moved; four language walls met in the move and
   all four routed without a catalog row
@@ -3270,7 +3299,211 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (020 arc, THIS TURN — CAPABILITY AND CLUSTER RECORDED BEFORE ANY PRODUCTION EDIT
+- Active sub-slice (020 arc, THIS TURN — MEASUREMENT, PIVOT AND CLUSTER RECORDED BEFORE ANY
+  PRODUCTION EDIT at tip `3ed71b4a0`): **020 SLICE 2 — THE SKIP CAPABILITY WAS MEASURED AND IT HAS
+  NO CONSUMER, SO IT WAS NOT BUILT. THE SLICE MIGRATES `tests/ParserLiteralFactsTests.cs` INSTEAD.**
+
+  **THE MANDATED SWEEP RAN FIRST AND IT CAME BACK EMPTY.** The task file's order puts `skip` second,
+  and slice 1 proved it MISSING by execution — re-proved at this tip, unchanged: a two-test probe
+  whose second declaration is `test "is skipped" skip "the probe says so" { }` still declines the
+  WHOLE FILE, `decline site=parse.declaration-scan … span=0:9`, `"ok": false`,
+  `"error": "Test build failed."`, **total 0**. But *missing* is not *wanted*, and the standing rule
+  is that unused runner infrastructure is not completion. So the question asked before any edit was
+  not "is skip missing" but **"does one real C# test cluster actually use skip semantics"**:
+
+  | probe over the C# test estate | result |
+  |---|---|
+  | `[Fact(Skip = …)]` / `[Theory(Skip = …)]` in `tests/*.cs` | **0** |
+  | any `Skip =` assignment in any `.cs` in the repo | **2 hits, ONE real** — `DockerFactAttribute.cs:24`; the other is `ShouldSkipDiscoveredDirectoryName`, an unrelated identifier |
+  | `SkipException` / `Assert.Skip` / `Skip.If` / `[ConditionalFact]` / `[ConditionalTheory]` | **0** |
+  | commented-out `[Fact]` / `[Theory]` | **0** |
+  | `#if`-disabled test methods | **0** — every `#if` in the estate is inside a test's *source string* |
+  | trait or category filters in `tests/xunit.runner.json` or any `.runsettings` | **0** — the file sets only parallelism |
+  | bare `return;` statements in the WHOLE C# test estate | **11**, every one guarded by an `if` |
+  | …of those, precondition guards that emulate a skip | **6, ALL in `tests/ExampleLintTests.cs`** (one literally commented `// Skip if directory doesn't exist`); the other five are `Dispose`'s `_disposed`, `UpdateGoldensIfRequested`'s env-var, `DockerFactAttribute`'s own ctor, and two assert-then-return exits in `SystemsNSharpTests.cs` |
+
+  **SO EXACTLY ONE CLUSTER IN THE REPO CARRIES TRUE `Skip=` SEMANTICS, AND IT IS NOT MIGRATABLE**:
+  `tests/NSharpLang.IntegrationTests` — 11 `[DockerFact]` methods whose attribute probes for a live
+  Docker daemon and sets `Skip` when it is absent. It drives Testcontainers and `Docker.DotNet`, it
+  is a separate csproj, and **the product gate never runs it** (Step 3 runs `tests/Tests.csproj`
+  alone). It is not a compiler/tooling assertion layer and no `tests/native/*` project can host it.
+
+  **AND THE SIX GUARDS THAT DO EMULATE SKIP CANNOT CONSUME THE SKIP THE LANGUAGE HAS.** Every one of
+  them is `if (!Directory.Exists(projectPath)) return;` — a RUNTIME condition. N#'s `skip` is a
+  STATIC declaration modifier (`ColumnarParserRecovery.nl:9123` parses `skip` + a string literal into
+  `TestDeclaration.SkipReason`), and a static modifier cannot express "skip when this directory is
+  missing". Dynamic skip is not a cheap alternative either: the native runner's default path is
+  xUnit **v2** through `XunitFrontController`, and v2 has no dynamic-skip message — reporting one
+  would mean GROWING `Program.Testing.cs`, which the ratchet and the task contract both forbid.
+
+  **THEREFORE THE MANDATE'S PIVOT IS TAKEN, ON MEASUREMENT: skip is NOT built this turn.** Every
+  other piece of it is already in the tree and stays there unused — `SkipReason` in the AST, the
+  recovery parser's clause, the formatter's rendering, the LSP's symbol, `ITestSkipped` →
+  `"skipped"` + reason in `Program.Testing.cs:245`, `GetVerboseSkippedMessage` in the human output,
+  a `skipped` counter in the envelope, and (checked, per the mandate) **the gate's Step 3a validator
+  already accepts and cross-checks skips at `schemaVersion` 1**: it requires every result's
+  `outcome` to be one of `passed`/`failed`/`skipped`, `passed + failed + skipped == total`, and
+  `outcome_counts["skipped"] == summary.skipped`. **The only missing piece is emit, and emit has
+  nobody to serve.**
+
+  **THE CAPABILITY-DEMAND CENSUS, so the NEXT capability is measured rather than ordered.** Over the
+  whole C# test estate — **2,818 attributed test methods across 279 classes**:
+
+  | capability | measured demand in real C# tests |
+  |---|---|
+  | table-driven cases | **shipped in slice 1** and consumed |
+  | **skip** | **0** (see above) |
+  | setup/teardown | **3** classes with a true ctor+`IDisposable` pair (`LanguageServerFixture`, `LanguageServerWorkspaceDiagnosticsTests`, `QueryIntegrationTests`) + 1 `IAsyncLifetime`, all in the Docker or LSP-fixture territory |
+  | **async `Task`** | **134 tests** — `public async Task …()`, the single largest unserved shape in the estate |
+  | async `ValueTask` | **0** |
+
+  **THE MIGRATED CLUSTER IS `tests/ParserLiteralFactsTests.cs` — 47 lines, 43 non-blank, 6 assertion
+  markers, 3 `[Theory]` declarations, 22 `[InlineData]` rows** — and it is the cheapest real cluster
+  in the estate by WALL COUNT, not merely by line count. Its subject, `ParserLiteralFacts`, is
+  ALREADY N# (`src/NSharpLang.Compiler.BootstrapServices/ParserLiteralFacts.nl`), so this file is the
+  last canonical C# assertion layer over a surface that is otherwise entirely N# — the
+  `DocQueryTests.cs` shape exactly. Every one of its three functions takes a `string` and answers a
+  `bool` or an `int`, so the contract needs **no reflection at all**: a probe project with the
+  BootstrapServices dll as a `dll:` dependency calls `ParserLiteralFacts.IsCompleteStringLiteral`
+  DIRECTLY and reports **2/2 green**, where `DocQueryTests`'s successor needed a reflection harness
+  and met six walls. `tests/ColumnarRuntimeTypeFactsTests.cs` is shorter (20 lines) but strictly more
+  expensive: its rows are `System.Type` constants, which `NL310` refuses in a table and which would
+  need finding 99.1's `Type.GetType` seeding.
+
+  **AND THE MIGRATION NEEDS NOTHING NEW, WHICH IS THE POINT.** All 22 rows are string/bool/int
+  compile-time constants — the exact shape slice 1's table-driven lowering was built for — so the
+  slice ships the existing capability's second real consumer and no unused infrastructure.
+  **The C# budget is ZERO new lines: one C# test file is deleted and nothing else is touched.**
+
+  ### WHAT LANDED
+
+  **ONE STAGE, NO NEW SYNTAX, NO TOOLSET REPIN, AND NO NEW CAPABILITY — BY MEASUREMENT.** The slice
+  is a migration plus a census, and the census is the deliverable that decides the next turn.
+
+  **THE C# MOVED IN ONE DIRECTION ONLY, AND ONLY ONE FILE MOVED AT ALL.**
+  `git diff HEAD --numstat -- '*.cs'` is **`added=0 deleted=47`** over ONE file, with **zero new C#
+  files**. `Program.Testing.cs` stays at **618** and `ColumnarProgramInputBuilder.cs` at **1062** —
+  not repinned, not edited, not opened. `tests/ParserLiteralFactsTests.cs` **47 → 0, DELETED**, and
+  `tests/native/parser-literal-facts/` replaces it: an 8-line `project.yml` and a 76-line
+  `ParserLiteralFacts.tests.nl` reporting **22 cases from 3 declarations**.
+
+  **THE PRODUCTION OWNER IS CALLED DIRECTLY, WHICH IS WHY THIS CLUSTER WAS THE CHEAPEST.** A probe
+  proved it before the file was written: a `tests/native/*` project with the BootstrapServices dll as
+  a `dll:` dependency, `import NSharpLang.Compiler`, and a bare
+  `ParserLiteralFacts.IsCompleteStringLiteral(value)` in a table body emits and runs **2/2**. So
+  where `DocQueryTests.cs`'s successor needed a reflection harness, `NewLoadedDocQuery`,
+  `DocProperty`'s property-then-field fallback and six routed walls, **this successor needed none of
+  it — zero reflection, zero helpers, zero walls.** It is 76 lines against doc-query's 366, and 55 of
+  the 76 are the comment header and the three tables.
+
+  **THE EQUIVALENCE IS PROVED MECHANICALLY, NOT BY EYE.** A comparator decodes the DELETED C# file
+  out of `HEAD` and the new `.nl` side by side, unescapes every literal to its runtime value, groups
+  each row set by the entry point its body calls, and diffs:
+
+  | deleted C# `[Theory]` | N# successor | rows | verdict |
+  |---|---|---|---|
+  | `ParserLiteralFacts_ClassifiesCompleteStringLiterals` | `parser literal facts classify complete string literals` | 7 vs 7 | **IDENTICAL** |
+  | `ParserLiteralFacts_ClassifiesCompleteCharLiterals` | `parser literal facts classify complete char literals` | 6 vs 6 | **IDENTICAL** |
+  | `ParserLiteralFacts_FindsOnlyTopLevelFormatSpecifierColon` | `parser literal facts find only the top-level format-specifier colon` | 9 vs 9 | **IDENTICAL** |
+
+  **22 `[InlineData]` rows in, 22 table rows out, 0 differing groups; 3 `Assert.` sites in, 3
+  `assert` sites out.** Every row's input string decodes byte-identically through BOTH escape
+  vocabularies — including the two that carry the whole point of `IsCompleteStringLiteral`,
+  `"Ada\"` (open) and `"Ada\\"` (closed), and the one that carries the whole point of
+  `FindFormatSpecifierColon`, `"{not:format}":N2`. **The comparator's NON-VACUITY CONTROL**: perturb
+  one N# row `10 → 11` in memory and it reports DIFFERS.
+
+  **WHAT THE MIGRATION GAINED, AND IT IS THE CAPABILITY'S OWN ARGUMENT.** The C# `[Theory]` reported
+  all seven string rows under ONE method name, so one bad row named the METHOD. Each N# row is its
+  own `[Fact]` with its own trait, method name and JSON result — `parser literal facts classify
+  complete string literals ("\"Ada\\\"", false)` — and the emitter's collision suffixing does the
+  rest, so `("'a", false)` and `("a'", false)` land as `…CharLiteralsaFalse` and
+  `…CharLiteralsaFalse_2` rather than colliding.
+
+  **NON-VACUITY IS EXECUTED, NOT ASSERTED.** Four mutations, one per behavioural family, each
+  producing **exactly 1 failure out of 22 — the mutated case and no other — and each naming the
+  mutated row in its display name**: the escaped-quote string row `false → true`, the `'\n'` char row
+  `true → false`, the ternary row `-1 → 9`, and the bracketed-colon row `10 → 7`. Restored, **22/22**.
+
+  **PROOFS AND COUNTS.**
+  - **`tests/native/parser-literal-facts` 22 / 22**, and **every native project run the way the gate
+    runs them — its own discovery rule reproduced — is `ok: true`: 30 projects, 303 cases**,
+    including `doc-query` 11/11 and `ownership-audit` 18/18.
+  - **Native BootstrapServices estate 5,083 / 5,083 — COUNT DIFF = 0**, under the restore-flag
+    discipline (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`), which is the
+    RIGHT answer rather than a null one: this slice adds no `.tests.nl` to BootstrapServices, because
+    the pinned toolset cannot compile a `with (…) […]` table (fact 6's two-stage wall) and the new
+    coverage therefore belongs in the estate the LIVE CLI compiles.
+  - **Unit suite 3,164 / 3,164** = 3,186 − the 22 migrated `[InlineData]` rows, exactly.
+  - **Live tree `nlc check` over `src/NSharpLang.Compiler.BootstrapServices`: 393 files, 246 rows —
+    the inherited baseline to the digit**, same census (`NL202:85 NL402:68 NL905:26 NL012:20
+    NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), and ZERO rows naming `ParserLiteralFacts`.
+  - **Format**: `nlc format --check` on the new owner failed FIRST and was fixed by the formatter
+    itself (it wants one blank line after the import block); it now reports "All files are properly
+    formatted."
+  - **DEAD SWEEP, SCOPED AND HONEST.** Nothing anywhere references `ParserLiteralFactsTests` (the one
+    grep hit is the successor's own comment naming what it replaces), and the three migrated entry
+    points keep their PRODUCTION referrer, `ColumnarParserRecovery.nl` — so the move orphaned nothing
+    and no production file changed at all. **A whole-estate token census was ALSO run and is REPORTED
+    AS UNUSABLE rather than quoted**: over 687 `.nl` files and 8,813 declared funcs it calls 493
+    names dead, and its control falsifies it — `CheckToJson`, `CompletionsToJson`, `CallGraphToJson`
+    and `ApplyEdits` all have live C# referrers (3, 5, 3 and 1) that a `.nl`-only census cannot see.
+
+  **RATCHET — ONE ROW, AND IT GOES TO `removed`, WITH THE WALK VALIDATED BEFORE ANYTHING WAS EDITED.**
+  The FNV-1a walks were reimplemented and reproduced **all three** accepted values off the PRISTINE
+  manifest first (utf-8-sig read, regexed header): head `1728e111c86d606c`, pathset
+  `8a26e1529863444b`, epochfacts `1b3090747e517fc1`.
+  - `tests/ParserLiteralFactsTests.cs` **47/43/6 → 0/0/0**, `state: "existing-debt" → "removed"`,
+    `currentFingerprint: "text-v1:d2590e7e558c689a" → "text-v1:removed"`, epoch ceilings 47/43/6
+    preserved — the `Formatter.cs` / `Linter.cs` / `DocQuery.cs` / `DocQueryTests.cs` row shape for
+    the fifth time.
+  - Head repinned **LAST** and in BOTH keys — the manifest header AND `OwnershipPolicy`'s constant in
+    `OwnershipAudit.nl` — `head-v1:1728e111c86d606c → head-v1:a27fa10f3fb354b4`. Manifest **391
+    lines, no BOM**; `epochFileCount` 381 and both epoch fingerprints untouched, because no epoch
+    fact moved.
+  - **The audit is non-vacuous by execution**: against the PRISTINE manifest with the file already
+    deleted it **correctly FAILS 17/18 with exactly one violation** — `OWN006
+    [tests/ParserLiteralFactsTests.cs]: active debt entry disappeared; mark it removed in the same
+    deletion commit` — and **passes 18/18 after the repin**.
+  - `tests/native/parser-literal-facts/project.yml` needs no row: `project.yml` is an exact
+    data/asset exception in `Classify` (`IsExactDataOrAssetException`, by file NAME), and `.nl` is
+    ignored — so the new project adds **zero** manifest rows, exactly as `doc-query` did.
+
+  **THE NEXT CAPABILITY WAS THEN PROBED RATHER THAN ASSUMED, AND THE PROBE OVERTURNED THE OBVIOUS
+  ANSWER.** The demand census says `async Task` (134 tests), so the runner was asked whether it
+  actually lacks it — and it does not:
+
+  | order row | C# demand | probed runner state at this tip |
+  |---|---|---|
+  | `skip` | **0** | declines the whole file at `parse.declaration-scan` (`span=0:9`); an **emit-only** gap |
+  | setup/teardown | 3 | fails EARLIER than skip and in the **ANALYSER**: `setup { seed := 7 }` is not visible to the test body, so `NL001 Variable 'seed' is declared but never read` |
+  | **async `Task`** | **134** | **ALREADY SERVED** — see below |
+  | async `ValueTask` | 0 | same path |
+  | structured failure JSON | — | already in the envelope; `errorMessage` carries the text |
+  | whole-run timeout | — | already a flag: `nlc test --timeout <duration>` |
+
+  **A PLAIN `test` BODY MAY ALREADY `await`, AND FAILURES SURVIVE THE AWAIT** — which is the part
+  that had to be measured rather than hoped, because an `async void` lowering would swallow them. A
+  three-declaration probe reports **1 passed / 2 failed**: an assert that fails AFTER an await
+  reports `failed` with `Assertion failed`, an exception thrown inside awaited work reports `failed`
+  carrying `the awaited work failed`, and the control passes. The ONLY missing async shape is the
+  `async test "…"` DECLARATION form, which is `NL101` at the parser — **and not one of the 134 C#
+  `async Task` tests needs it**, because their bodies are what await.
+
+  **SO THE REMAINING ORDER IS LARGELY ALREADY SERVED OR UNWANTED, AND 020's REAL REMAINING WORK IS
+  MIGRATION RATHER THAN CAPABILITY.** The named next step is therefore **migrate the async-shaped C#
+  clusters with the capability set that already exists**, and build `skip` or `setup`/`teardown` only
+  if and when a real cluster asks — with `setup`/`teardown` now priced honestly as an ANALYSER change
+  rather than an emit one.
+
+  **DOCUMENTATION.** `website/docs/language-tour.md`'s `skip` section is UNCHANGED and was checked
+  rather than assumed: its "Not yet runnable" caution is still true to the digit, and this slice does
+  not make it less true. `memory/testing.md` gains the thing the next slice actually needs — the
+  **capability-demand-and-state table above**, the note that Step 3a's validator already accepts
+  skips at `schemaVersion` 1, and the rule that made this slice pivot: *which runner capability comes
+  next is decided by MEASURED demand, not by the task file's order.*
+
+- Active sub-slice (020 arc, PRIOR TURN — CAPABILITY AND CLUSTER RECORDED BEFORE ANY PRODUCTION EDIT
   at tip `dc2c4ae20`): **020 SLICE 1 — TABLE-DRIVEN TEST CASES, CONSUMED BY MIGRATING
   `tests/DocQueryTests.cs`.**
 

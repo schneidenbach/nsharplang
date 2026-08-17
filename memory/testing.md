@@ -341,8 +341,29 @@ name, `adds (1, 2, 3)`. Row values must be literals (`NL310` otherwise), and a r
 must match the parameter count (`NL202` otherwise).
 
 `skip`, `setup` and `teardown` parse and are understood by the editor tooling, but `nlc test` still
-DECLINES a file containing one (`parse.declaration-scan`). They are the next capabilities in the
-runner close-out; do not rely on them yet.
+refuses a file containing one — `skip` at emit (`parse.declaration-scan`), `setup` earlier still, in
+the analyser (see the table below). Do not rely on them yet.
+
+**Which runner capability comes next is decided by MEASURED demand, not by the task file's order.**
+The close-out contract forbids shipping runner infrastructure with no consumer, so before building
+one, sweep the C# test estate for tests that actually need it. The sweep taken at
+`tests/native/parser-literal-facts`'s slice, over **2,818 attributed test methods in 279 classes**:
+
+| capability | C# tests that need it | measured runner state (probed against a freshly built tip CLI) |
+|---|---|---|
+| table-driven cases | shipped, consumed twice | live |
+| **skip** | **0** — no `[Fact(Skip=…)]`, no `SkipException`, no `[ConditionalFact]`, no trait filters anywhere. The only `Skip=` in the repo is `DockerFactAttribute`, in the Testcontainers `IntegrationTests` project the gate never runs; the 6 `if (!Directory.Exists(…)) return;` guards in `ExampleLintTests.cs` are RUNTIME conditions a static `skip "reason"` cannot express | declines the WHOLE FILE at `parse.declaration-scan`; an **emit-only** gap — parser, analyser, formatter, LSP, runner and JSON envelope all already carry it |
+| setup/teardown | 3 classes with a real ctor+`IDisposable` pair, all LSP or Docker fixtures | fails EARLIER than skip, in the **analyser**: a `setup { seed := 7 }` binding is not visible to the test body, so `NL001 Variable 'seed' is declared but never read` |
+| **async `Task`** | **134** | **ALREADY SERVED.** A plain `test` body may `await`; an assertion that fails after an await FAILS, and an exception thrown inside awaited work is REPORTED with its message (probe: 3 declarations → 1 passed / 2 failed, each named). Only the `async test "…"` DECLARATION form is missing (`NL101`), and no C# test needs it |
+| async `ValueTask` | 0 | same path |
+| structured failure JSON | — | already in the envelope: `errorMessage` carries the failure text |
+| whole-run timeout | — | already a flag: `nlc test --timeout <duration>` ("Test timeout per assembly") |
+
+**So most of the remaining order is already served or unwanted, and the real remaining work in the
+native-runner close-out is MIGRATION, not capability.** Note also that the gate's Step 3a validator
+ALREADY accepts skips at `schemaVersion` 1 — it cross-checks `passed + failed + skipped == total` and
+`outcome_counts["skipped"] == summary.skipped` — and the runner already maps xUnit's `ITestSkipped`
+to a `skipped` outcome with its reason.
 
 ## Validation cadence
 
