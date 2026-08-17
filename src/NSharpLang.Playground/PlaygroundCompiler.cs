@@ -360,7 +360,6 @@ public sealed class PlaygroundCompiler
             compiler.CompilationUnits,
             compiler.SemanticModels,
             compiler.AllErrors,
-            compiler.SharedAnalyzer,
             compiler.SourceFiles,
             compiler.ProjectIndex,
             compiler.SourceTexts);

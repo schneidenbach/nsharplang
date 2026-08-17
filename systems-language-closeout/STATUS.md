@@ -2938,8 +2938,17 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. The arc is OPEN; TWO FILES ARE DELETED,
-  TWO ARE CLOSED, ONE IS WALLED, AND ONE REMAINS WITH REAL POLICY.** Its territory is the seven files
+- Current task: **019 — COMPILER-CONTAINED TOOLING OWNERSHIP. After SLICE 21 the arc is
+  ONE SLICE FROM DONE: TWO FILES ARE DELETED, THREE ARE REVIEWED ZERO-POLICY HOSTS, AND THE ONLY
+  FILE LEFT WITH POLICY IS `DocQuery.cs`, WHOSE 370 WALLED LINES ARE HELD BY A MEASURED TOOLSET
+  WALL AND NEED A NAMED TWO-STAGE REPIN.** **SLICE 21 DELETED THE DEAD CARRIER
+  (`ProjectSnapshot.SharedAnalyzer` — declared once, assigned once, READ NOWHERE, proved by a
+  RECEIVER-TYPED IL CENSUS after the name-based sweep was defeated by `MultiFileCompiler`'s
+  same-named member), MOVED `ProjectSnapshot` WHOLE INTO N#, AND TOOK THE ENTIRE QUERY AND
+  NAVIGATION SURFACE WITH IT: `CodeIntelligenceService.cs` 578 → 153 (POLICY = 0 by an executable
+  partition whose control reports 23 extents / 430 lines on the pre-cut file), `CompletionEngine.cs`
+  109 → 96.** The arc stands at **966 / 824 / 78 / 784, −87.5 % on lines**. Its territory is the
+  seven files
   `tasks/019-compiler-contained-tooling.md` names; six
   were live and one (`NullabilityMetadata.cs`) was already `state: removed` in the ratchet, so the
   arc opened at **7,739 lines / 6,892 non-blank / 341 member extents summing 7,257** by the validated
@@ -3070,10 +3079,11 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 019 slice 19 — the formatter's whole body walk. `GetCurrentColumn` plus SCC-1,
-  15 members and 1,302 lines with 83 type-dispatch arms and 12 `is`-pattern tests, into one N#
-  `FormatterWalk` that BORROWS the formatter's state rather than constructing its own — which is
-  exactly the mistake the non-vacuity control makes, and it reports 384 differing rows
+- Current iteration: 019 slice 21 — the dead carrier, `ProjectSnapshot`, and the whole query and
+  navigation surface. Twenty-five C# members and 432 lines into three N# owners, behind a property
+  that nothing read and that a name-based census could not see, because `MultiFileCompiler` declares
+  a `SharedAnalyzer` too and the two members share one name — it took a receiver-typed IL census,
+  over 170,633 method bodies in 62 freshly-built assemblies, to tell them apart
 - Slice-43 RECONCILIATION onto the moved tip (coordinator, before commit): the slice was cut at
   `e929453e0`; four concurrent chip commits then moved the tip (`2d2ddb39d` harness timeouts,
   `0a66db6ec` + `1e426e07d` the BootstrapServices format sweep + kernel `owed->` fix + the format
@@ -3093,8 +3103,355 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
 - Active sub-slice (019 arc, THIS TURN — TARGET RECORDED BEFORE ANY PRODUCTION EDIT at tip
-  `b35754e6d`): **019 SLICE 20 — THE TEN DECLARATION LEAVES + SCC-2, AND THEN THE WHOLE FILE.
-  `Formatter.cs` IS DELETED.**
+  `e7c7864e4`): **019 SLICE 21 — THE DEAD CARRIER, `ProjectSnapshot`, AND CIS'S ENTRY POINTS; PLUS
+  THE `DocQuery` DECISION, MEASURED.**
+
+  **TARGET (recorded before any production edit).**
+  `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` at **578 lines / 490
+  non-blank / 38 extents summing 504** — slice 20's recorded checkpoint to the digit, reproduced by
+  the validated extractor before anything was touched, and the whole arc reproduces slice 20's table
+  exactly (**1,404 / 1,195 / 103 / 1,193**). The dead sweep over the four live arc files ran FIRST:
+  **DEAD COUNT = 0**, DETACHED **48**.
+
+  **THE CLOSURE, RE-VERIFIED BY `nl93-scc.py` ON THE POST-SLICE-20 TREE.** `NODES=38 SUM=504`, ONE
+  2-member SCC at **16** lines (the `LoadProject` overload pair), ONE self-recursive singleton
+  (`FindDefinitionLocationInDeclaration@492`, 32) and **53 method-group-only edges, almost all of
+  them property reads off `ProjectSnapshot`** — slice 20's next-brief picture unchanged.
+  - THE FOUR ENTRY POINTS: `SET n=4 lines=78` — `ResolveTypeUseAtPosition@322` **23**,
+    `ResolveDeclaredNameTypeAtPosition@346` **22**, `ResolveTypeInfoAtPosition@443` **22**,
+    `GetNullabilityForExpression@466` **11**. **ESCAPES TO (4)**: three `ProjectSnapshot` properties
+    plus `TryResolveDefinitionViaBindings@381`. **ENTERED FROM (1): `GetTypeAtPosition` ALONE.**
+  - WITH THE BINDING PAIR: `SET n=6 lines=104`, ESCAPES TO (4) — **`ProjectSnapshot` properties and
+    NOTHING ELSE** — ENTERED FROM (3).
+  - **AND THE WHOLE NAVIGATION FAMILY: `SET n=11 lines=218`, ESCAPES TO (5) — five `ProjectSnapshot`
+    properties and nothing else — ENTERED FROM (6).** So once `ProjectSnapshot` is N#, every escape
+    in the family is an N# read and the whole 218 lines is one closed cut.
+
+  **THE DEAD-CARRIER PROOF IS ACCESSIBILITY-AWARE, BY BINDING, AND IT OVERTURNED ITS OWN FIRST
+  ANSWER.** The five-row source census reproduces (`SharedAnalyzer` declared once at :538, assigned
+  once at :571, and the only two `compiler.SharedAnalyzer` reads are `MultiFileCompiler`'s at
+  `MultiFileCompiler.cs` :45 being passed IN). Because a same-named pair defeats a name census, the
+  proof is a NEW **receiver-typed IL census** (`nl97ilcensus`): it decodes every method body in every
+  assembly the repo builds and reports each call site by DECLARING TYPE, so
+  `MultiFileCompiler::get_SharedAnalyzer` and `ProjectSnapshot::get_SharedAnalyzer` can never be
+  confused. **Its FIRST run reported a reader** —
+  `ProjectSnapshot::get_SharedAnalyzer <- CompletionEngine::GetNSharpTypeMembers`, 6 sites — **and
+  the reader is FIFTY-THREE DAYS STALE**: both hits live in `benchmarks/bin/{Debug,Release}` DLLs
+  dated Jun 23, and `CompletionEngine.GetNSharpTypeMembers` exists in NO source file in the repo
+  (slice 4 closed `CompletionEngine`; the only `GetNSharpTypeMembers` alive today is the LSP's, in
+  another type in another assembly). **A staleness gate was added to the census as a result.**
+
+  **PLAN.** (1) delete the dead carrier — property, constructor parameter, assignment, and the
+  argument at all FOUR construction sites (`CodeIntelligenceService` :48, `PlaygroundCompiler` :358,
+  `tests/CodeIntelligenceTests.cs` :1280, `tests/CompletionEngineTests.cs` :46); (2) move
+  `ProjectSnapshot` WHOLE into N# keeping the NAME, the NAMESPACE and every SIGNATURE, so the ~60
+  member reads across `DocumentManager` (31 mentions), `BatchQueryRunner`, `QueryCommand`,
+  `DaemonServer`, three LSP handlers, `CompletionEngine`, the playground and the tests bind
+  unchanged; (3) take the navigation family; (4) measure CIS's closure verdict.
+
+  **THE `DocQuery` WALL WAS RE-PROBED BY EXECUTION AT THIS TIP AND IT STANDS.** Five probe projects
+  against the tip CLI: `import System.Xml.Linq` → **NL704** ("I can't find namespace
+  'System.Xml.Linq'") plus **NL301** on `XDocument`; the fully-qualified form → **NL301** on
+  `System`; `Dictionary<string, XElement>` as a declared member type → **NL201 ×3**. The
+  non-vacuity control is `System.Text.Json`, whose catalog row IS published: `JsonElement` and
+  `JsonDocument` pass the analyzer with **ZERO** NL201/NL301/NL704 and decline only later at
+  `emit.call.instance-member-unmodeled`; and a plain control project builds GREEN. **So the two
+  named gaps are now measured rather than recorded**: (1) the analyzer's `commonAssemblies` table
+  (`Analyzer.cs` :2405–2427) carries `System.Xml.ReaderWriter` and NOT the Linq-to-XML assembly;
+  (2) `ColumnarIlEmitter.TryResolveKnownExternalType` has no `X*` rows and
+  `IsSupportedExternalType` (:505) admits only YamlDotNet's assembly and the
+  `Microsoft.AspNetCore.`/`Microsoft.Extensions.Hosting` namespaces, so even a fully-qualified
+  `System.Xml.Linq.XDocument` reaching `TryResolveLoadedExternalType` is refused. **THE DECISION IS
+  ACCEPTANCE, AND THE REPIN IS NAMED FOR A LATER TURN, NOT TAKEN HERE.**
+
+  ---
+
+  **LANDED (no commit — mandate). THE DEAD CARRIER IS DELETED, `ProjectSnapshot` IS N#, AND
+  `CodeIntelligenceService.cs` IS A DRIVER HOST AT 146 LINES.**
+  `CodeIntelligenceService.cs` **578 → 146** (−432, −74.7 %); `CompletionEngine.cs` **109 → 96**
+  (−13, its duplicate `FindCompilationUnit` consolidated into the shared N# one — the slice-9
+  precedent). Three new N# owners: `ProjectSnapshot.nl`, `CodeIntelligenceNavigation.nl`,
+  `CodeIntelligenceQueries.nl`.
+  **THE C# THAT SURVIVES IS ONE THING AND IT IS A DIRECTION OF DEPENDENCY, NOT A SHAPE**: the three
+  `LoadProject` overloads construct a `MultiFileCompiler`, which lives in the assembly that DEPENDS
+  on `BootstrapServices`, so a reference the other way is a cycle. **Every ANSWER is N#**; the
+  twelve query members are one-line `=>` forwards.
+  **THE DELETION ARM WAS MEASURED AND REFUSED FOR THIS FILE**, unlike `Linter.cs` and
+  `Formatter.cs`: `MultiFileCompiler`, `ProjectFileParser` and `ProjectConfig` are C# in the
+  DEPENDENT assembly, so a `Format`-style whole-file move is impossible and the honest terminal
+  state is a reviewed non-growing host.
+
+  **TWO LANGUAGE FINDINGS, BOTH BISECTED TO A THREE-LINE PROBE.**
+  **(97.1) A PROPERTY WHOSE NAME EQUALS ITS TYPE'S NAME SHADOWS THAT TYPE INSIDE ITS OWN CLASS.**
+  `SystemsReport.Empty(null)` written inside a `ProjectSnapshot` that also declares
+  `SystemsReport: SystemsReport => …` resolves to the PROPERTY and declines at
+  `emit.statement.block-child`. The C# `public SystemsReport SystemsReport { get; }` is unambiguous
+  and the property name is part of the signature this type must keep, so the static call moved out
+  to a `ProjectSnapshotDefaults` sibling rather than the property being renamed. **Non-vacuous by
+  execution**: the isolated probe declines with the colliding name and compiles byte-for-byte
+  otherwise after renaming only the property.
+  **(97.2) `match` AND `file` ARE KEYWORDS, AND A PARAMETER CALLED `file` FAILS THE COLUMNAR PARSE
+  OF THE WHOLE ENCLOSING CLASS.** The decline is reported at the CLASS (`parse.struct`,
+  `CodeIntelligenceNavigation.nl:42:1`), not at the statement, so the site it names is seven lines
+  above the first cause and 260 above the last. **`nl95-keywordcheck.py` — slice 20's mechanised
+  finding 94.1 — FINDS BOTH IN ONE RUN AND WAS NOT CONSULTED BEFORE THE FIRST BUILD; that cost two
+  emit cycles.** It reports `COLLISION file at [(49,'param'), (119,'param'), (305,'param')]` for
+  the navigation owner and six more in the query owner. Renamed `match` → `unitMatch` (15 sites)
+  and `file` → `queryFile` (22 lines); the checker then reports **CLEAN over all four new files,
+  183 introduced identifiers, keyword list size 91**. **RULE, RESTATED: run the keyword checker
+  BEFORE the first build of any new `.nl` file, not after the decline.**
+  **(97.3) `HasValue` NARROWS, SO `.Value` AFTER IT IS AN ERROR — THE OPPOSITE OF C#.**
+  `if span.HasValue { … span.Value.Item1 }` reports `NL303: Member 'Value' not found on type
+  'ValueTuple<int, int>'`, because the guard already narrowed `span` to the underlying type. The
+  narrowed value is read directly (`span.Item1`, `kind` rather than `kind.Value`). Two sites.
+  **(97.6) `Dictionary<K, V>` DOES NOT WIDEN TO `IReadOnlyDictionary<K, V>` IN ANY POSITION, WHILE
+  `List<T>` WIDENS TO `IReadOnlyList<T>` IN ALL OF THEM — AND THAT ASYMMETRY SHAPED THIS SLICE.**
+  Proved by an isolated probe run three ways: a func returning `IReadOnlyList<T>` from a `List<T>`
+  local, a param of `IReadOnlyList<T>` taking a `new List<T>()` argument, and a field of that type
+  all BUILD GREEN; the same three spellings over `Dictionary`/`IReadOnlyDictionary` report **NL202**
+  in the return, in the argument and in the field assignment, and an `as` upcast type-checks but
+  declines at `emit.return.expression`. **CONSEQUENCE: a read-only dictionary can be RECEIVED by N#
+  and never CREATED by it.** Two things follow, both recorded rather than worked around.
+  **(i) `ProjectSnapshot`'s `sourceTexts` PARAMETER IS NOW REQUIRED WHERE THE C# DEFAULTED IT.** The
+  C# wrote `sourceTexts ?? new Dictionary<string, string>()`, which N# cannot spell. Exactly ONE
+  call site relied on the default — `tests/CompletionEngineTests.cs` — and it now says
+  `new Dictionary<string, string>()`. `index` loses its default with it, because a required
+  parameter cannot follow an optional one in C#; every existing caller already supplied it. The
+  other four parameters, the property set and the type's name and namespace are unchanged, so the
+  ~60 member reads across `DocumentManager`, `BatchQueryRunner`, `QueryCommand`, `DaemonServer`,
+  three LSP handlers, `CompletionEngine`, the playground and the tests are byte-unchanged.
+  **(ii) THE N# CONTRACTS ARE BOUNDED BY IT AND THE BOUND IS STATED.** A `.tests.nl` cannot build a
+  snapshot, so the snapshot-driven assertions stay in the C# suite (which constructs them freely)
+  and the six N# contracts cover what needs no snapshot: `IndexBindings` through a null and a
+  non-null index, the substituted report, `CompilationUnitMatch`'s two halves, the null-state
+  fallback arm, the expression finder's no-throw answer, and the outline's import order.
+  **THE CATALOG ROW THAT LIFTS THIS IS NAMED FOR A LATER TURN** — the `IReadOnlyDictionary<K, V>`
+  WIDENING conversion, the sibling of the RESOLVABLE-TYPE row slice 15 stage 1 published.
+  **(97.5) A NULLABLE USER ENUM CANNOT BE A STATIC PARAMETER TYPE.** `SymbolKind?` declines at
+  `emit.declaration.method-param`. The service's public `GetSymbols(snapshot, file, SymbolKind?)`
+  signature is unchanged and now chooses between TWO N# arities (`Symbols` / `SymbolsOfKind`) — a
+  nullable-lowering adapter, with both arms and the filter itself in N#.
+  **(97.4) `IReadOnlyDictionary<string, V>.Keys` READS AS `IEnumerable<string?>`.** Passing it to a
+  door whose parameter is `IEnumerable<string>` is `NL202`. The paths are materialised into a
+  `List<string>` in dictionary order — the same set the door walked, in the same order, which is
+  what "the first absolute path whose tail matches" depends on. **And a `Dictionary<K, V>` returned
+  from a func declared to return `IReadOnlyDictionary<K, V>` is `NL202` too**: the variance holds
+  for a local's declared type but not for a return expression, so the empty map is built into a
+  local of the interface type and returned from there.
+
+  **THE BEHAVIOURAL PROOF IS THE LSP-QUESTION ORACLE, AND IT IS THE SHARPEST ONE THIS ARC HAS:
+  40,386 LINES PER SIDE, 0 DIFFS, md5 `76857bb0c5872260c375d94338ca89fc` ON BOTH.** It drives
+  `type`, `definition`, `references`, `symbols`, `outline` and `diagnostics` through `query batch`
+  at **357 COMPUTED POSITIONS** — every identifier occurrence plus one column either side, so the
+  beside-the-cursor snapping is exercised where it lives — plus `hover` (JSON and text), `inspect`,
+  `implementors` over six names and `call-graph` over ten functions × seven limits, on BOTH CLIs.
+  **THIS SLICE MOVED EVERY ONE OF THOSE ANSWERS INTO N# AND THE ORACLE CANNOT TELL.** The LINE
+  COUNT is slices 16–20's recorded **40,386** to the digit; the md5 differs from their recorded
+  `5f0791a6…` for a reason that is checked rather than assumed — `/private/tmp` was reaped
+  mid-slice and the fixture had to be relocated, so **584 rows carry the new absolute path** — and
+  the two sides are byte-identical to each other, which is the claim that matters.
+
+  **THE STRUCTURAL SECTION IS THE TERMINALITY PROOF, AND IT IS TWO-SIDED.** One reflection program
+  is run against each side's build directory; the base side is the PRESERVED pristine build, whose
+  own `--version` reports **`0.1.0+e7c7864e4959e54a23fb0f7e90bdfdd0327e0e89`** — the tip, so the
+  base is provably the base. It reports: `ProjectSnapshot`'s assembly
+  **`Compiler` → `NSharpLang.Compiler.BootstrapServices`**; its declared properties **11 → 10** and
+  every mention of `SharedAnalyzer` in the whole dump **3 → 0**; `CodeIntelligenceService`'s declared
+  methods **26 → 14** with its NON-PUBLIC methods **12 → 0** — every private helper left C#;
+  `CodeIntelligenceNavigation`, `CodeIntelligenceQueries`, `CompilationUnitMatch` and
+  `ProjectSnapshotDefaults` **ABSENT → PRESENT in `BootstrapServices`**; and the file probes read
+  `CodeIntelligenceService.cs` **True → True** (it is a HOST, not a deletion) with the three new
+  `.nl` files **False → True**. The constructor row shows the signature change exactly:
+  `index` and `sourceTexts` **`opt=True hasdef=True` → `opt=False hasdef=False`**, with
+  `performanceFacts` and `systemsReport` still optional.
+
+  **THE CLOSURE VERDICT IS AN EXECUTABLE PARTITION, NOT A READING.** `nl97-partition.py` puts every
+  extent of `CodeIntelligenceService.cs` in exactly one of four classes — LOADER (the
+  `MultiFileCompiler`/`ProjectSnapshot` residue that cannot move), DRIVER (an expression-bodied
+  forward to an N# owner, or the nullable-lowering arity choice), POLICY, UNCLASSIFIED — and reports
+  **EXTENTS=14 SUM=105: LOADER 3 / 36, DRIVER 11 / 69, POLICY = 0, UNCLASSIFIED = 0.**
+  **THE NON-VACUITY CONTROL IS THE SAME PROGRAM ON THE PRE-CUT FILE AND IT REPORTS
+  POLICY = 23 EXTENTS / 430 LINES** (EXTENTS=38 SUM=504). The `nl93-scc.py` picture agrees from the
+  other side: `NODES=14 SUM=105`, ONE 2-member SCC (the `LoadProject` overload pair, 16 lines), ZERO
+  self-recursive singletons and **ZERO method-group-only edges** where the pre-cut file had 53 —
+  every one of which was a `ProjectSnapshot` property read.
+
+  **THE DEAD SWEEP RAN FIRST AND AGAIN AFTER THE CUT: DEAD COUNT = 0 both times** (DETACHED 48 → 51,
+  which is what a driver host looks like — its members are entered from outside the file).
+
+  **THE STANDING CHECK ORACLES REPRODUCE THEIR RECORDED md5s TO THE DIGIT.** Corpus (71 targets,
+  both CLIs): **0 DIFFS, md5 `86a4928f87495854f48cbd5df7d5c571` on BOTH — the value slice 20 called
+  the twenty-ninth consecutive byte-identical run, now the THIRTIETH** — with the inherited
+  `NO-RESULTS = 7`, `PARSE_FAIL = 0`, `PARSE_ERRORS = 0` and the same 33-diagnostic census
+  (`NSYS050:14 NSYS001:9 NL303:5 NSYS070:3 NL402:2`). Supplementary: md5
+  **`228dfc3809752a90f77da3c61121f2fa`** — the recorded `228dfc38…`.
+
+  **THE LIVE-TREE CHECK REPORTS THE INHERITED BASELINE OVER THREE MORE FILES.** `nlc check` over
+  `src/NSharpLang.Compiler.BootstrapServices` reports **`checkedFiles=392, count=273`** with
+  `NL202:92 NL402:89 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL412:3 NL303:2 NL002:1` — slice
+  20's census (`checkedFiles=389, count=272`, `NL202:91`) **code for code**, over one more file and
+  with exactly ONE more row, which was the last error in the new owners and is now fixed. The final
+  live-tree run reports **ZERO rows naming any of the three new files.**
+
+  **THE `DocQuery` DECISION: ACCEPTANCE, AND EVERY EXTENT IS CLASSIFIED.**
+  The wall was re-probed BY EXECUTION at this tip and it STANDS (the five probes and the two named
+  gaps are recorded above). `nl97-wallclass.py` then partitions all **23 extents / 402 lines** of
+  `DocQuery.cs` against the `System.Xml.Linq` wall by DIRECT (the extent's own text names a walled
+  type), TRANSITIVE (it calls, transitively, one that does) and FREE:
+  **DIRECT 8 extents / 112 lines, TRANSITIVE 12 / 258, FREE 3 / 32 — WALLED = 20 extents / 370
+  lines, 92.0 % of the extent sum.** The eight DIRECT are the three `XDocument`/`XElement` fields
+  and `GetDocElement`, `LoadXmlDoc`, `EnsureGlobalDocIndex`, `FormatDocText`, `FormatDocNode`; the
+  twelve TRANSITIVE are every public answer and every summary accessor, because the file's entire
+  behaviour funnels through the XML doc lookup. **THE RESIDUAL 32 LINES ARE `_typeIndex`,
+  `_globalDocIndexLoaded` AND `LoadSystemAssemblies`** — two fields that are the class's own state
+  and the one member that only mutates them. **NON-VACUITY: the same classifier run against a wall
+  the file does not touch reports FREE = 23 extents / 402 lines and WALLED = 0.**
+  **THE REPIN IS A NAMED TWO-STAGE PLAN FOR A LATER TURN AND WAS NOT TAKEN HERE**, per mandate:
+  STAGE 1 publishes the two rows — `System.Xml.Linq` into `Analyzer.cs`'s `commonAssemblies` table
+  (:2405–2427) and `XDocument`/`XElement`/`XNode`/`XText` into
+  `ColumnarIlEmitter.TryResolveKnownExternalType` with `IsSupportedExternalType` widened to admit
+  the namespace — and pauses for the coordinator's toolset republish, exactly as slice 15 stage 1
+  did for `IReadOnlyDictionary<K, V>`; STAGE 2, on the republished toolset, takes the file. Until
+  then `DocQuery.cs` is a WALLED host at 446 lines and that is its recorded terminal state.
+
+  **WHAT THIS SLICE PROVED TWO-SIDED, AND WHAT IT DELIBERATELY LEFT TO THE GATE — STATED RATHER
+  THAN BLURRED.** Two-sided against the preserved pristine `e7c7864e4` build: the **LSP-question
+  oracle** (40,386 rows/side, 0 diffs — the whole moved surface), the **corpus** and
+  **supplementary** check oracles (0 diffs, recorded md5s), the **live-tree** check, and the
+  **structural** reflection dump. **THE SELF-HOST ORACLE WAS STARTED AND STOPPED, AND THAT IS
+  RECORDED RATHER THAN QUIETLY DROPPED**: it re-checks the compiler's own 392-file tree on both
+  sides, it was still running after the corpus and supplementary legs had both reported 0 diffs,
+  and it was blocking the full gate — which is the mandated evidence — so it was killed in favour
+  of the gate. Its question (does `nlc check` answer the same on the compiler's own source) is the
+  one the live-tree leg asks directly and answers `checkedFiles=392, count=273` against slice 20's
+  `389 / 272`. Left to the full gate, and the reason
+  is that this slice touches NO emitter, NO formatter and NO lexer path: the **IL verification
+  gate**, the **format contract gate**, the **benchmark gate**, the **examples and templates**, and
+  the **native `.tests.nl` estate**. The determinism pin and the lint transcript were NOT re-run as
+  standalone five-run differentials — they guard emitter and linter output, neither of which this
+  slice's diff can reach (the C# side is 432 deleted lines of navigation policy and eleven `=>`
+  forwards) — and the gate exercises both surfaces end to end. **This is a narrower two-sided set
+  than slice 20's twelve oracles, and the narrowing is deliberate and named rather than an
+  omission.**
+
+  **THE UNIT SUITE IS 3,192 / 3,192, 0 FAILED, in 6 m 53 s** — the recorded value to the digit, and
+  the number the reflection-door census predicted: no C# test moved, because the type kept its name
+  and namespace and the only signature change is a required parameter that one test now supplies.
+  `dev.sh --since` took the FULL suite by its fail-safe, naming all four new `.nl` paths as unmapped.
+
+  **(97.7) `new string[](3) { … }` IS NOT A SHAPE THE COLUMNAR PARSER TAKES, AND IT FAILS THE WHOLE
+  `test` DECLARATION.** The decline is `parse.test` at the test's FIRST line — the same
+  report-at-the-declaration behaviour as findings 97.1 and 97.2, three findings in one slice whose
+  reported site is nowhere near the cause. The estate's idiom is the collection expression
+  `["a", "b"]`, which builds green in an isolated probe where the sized-initialiser form declines;
+  `new string[](0)` (no initialiser) is fine and appears four times in the same file. **THE GATE IS
+  WHAT CAUGHT IT** — `.tests.nl` is excluded from `nlc check`, so no earlier instrument could have.
+  A scan of the contracts also found `CinSimple` written and never called, and a dead helper is dead
+  code: deleted rather than left.
+
+  **THE SELF-APPLICATION SEAM FAILED FIRST AND THE GATE IS WHAT CAUGHT IT.** `nlc format --check`
+  over `src/NSharpLang.Compiler.BootstrapServices` — the compiler formatting its own new source —
+  reported **2 files** (`ProjectSnapshot.nl`, `CodeIntelligenceNavigation.nl`), each for ONE trailing
+  blank line. Formatted and re-checked: **"All files are properly formatted."** The diff is two
+  deleted empty lines and nothing else, which is why the fix needed no re-repin: both files are
+  `.nl` and the manifest does not carry them.
+
+  **THE GATE IS PARTIAL AND THE REASON IS NAMED: A CONCURRENT GATE FROM ANOTHER SESSION IS PACKING
+  THE SHARED SDK FEED.** Three full VS Code-enabled runs were made from the isolated `~/nl97gate`
+  worktree under `NSHARP_TEST_STEP_CACHE_OFF=1 --commit`, and what they establish is exact:
+  - **RUN 1** got as far as **Step 2b and FAILED the Formatting gate** on two of this slice's own
+    `.nl` files (one trailing blank line each). Fixed; the seam now reports **"All files are
+    properly formatted"** on all four gate directories.
+  - **RUN 2** reported **Step 2 Compiler built ✓, Step 2b Formatting gate ✓ (4/4 directories),
+    Step 3 Unit tests ✓ 3,192 / 3,192 in 4 m 45 s**, and failed at **Step 3a** on this slice's own
+    contracts file — `parse.test`, finding 97.7. Fixed.
+  - **RUN 3** failed differently and NOT on this slice's diff: 16 `CompilationBackendTests` and the
+    native estate both reported **`Unable to find package NSharpLang.Sdk. No packages exist with
+    this id in source(s): nuget.org`** — the SHARED local feed was mid-rewrite. `ps` then showed a
+    `test-all-core.sh` running out of
+    `.claude/worktrees/musing-lederberg-50f19f`, **another session's gate**, packing the SDK into
+    `~/.nuget/local-feed` throughout. **The same 3,192-test suite passed 3,192 / 3,192 twice in this
+    slice** (run 2 and `dev.sh --since`), which is what says the 16 failures are the feed and not
+    the diff.
+  **SO THE ONE OUTSTANDING PIECE OF EVIDENCE IS A CLEAN FULL GATE, AND IT NEEDS THE OTHER SESSION'S
+  GATE TO BE FINISHED FIRST.** Everything it would cover that this slice can reach was run
+  directly: unit **3,192 / 3,192**, formatting **4/4**, ownership audit repinned and reproducing,
+  and the two-sided oracle set above. **RULE, RE-LEARNED THE HARD WAY: check `ps` for another
+  session's `test-all-core.sh` BEFORE starting a gate, and never start a second one while the first
+  is alive — the local feed is shared mutable state.**
+
+  **RATCHET — FIVE ROWS, ALL DOWN OR FLAT, NOTHING GREW.** Repinned AS THE LAST EDIT to any
+  production or ratcheted file, and the walk REPRODUCED the stored head
+  (`head-v1:a3f43aa52657c511`) from the unmodified manifest before writing anything:
+  `CodeIntelligenceService.cs` **578 / 490 → 153 / 131**, `CompletionEngine.cs` **109 / 97 → 96 /
+  85**, `PlaygroundCompiler.cs` **614 / 556 → 613 / 555**, `tests/CodeIntelligenceTests.cs`
+  **1,355 / 1,202 → 1,354 / 1,201** (markers 162 → 162), `tests/CompletionEngineTests.cs`
+  **322 / 267 → 322 / 267** (one line removed, one added; markers 62 → 62). Head
+  **`a3f43aa52657c511` → `9b6c7a74a341f263`**, mirrored into `OwnershipAudit.nl`. **The four new
+  `.nl` files are not carried by the manifest**, which is why a slice that adds ~900 lines of N#
+  moves the ratchet only DOWNWARD.
+
+  **ARTEFACTS AND A HAZARD WORTH RECORDING. `/private/tmp` WAS REAPED MID-SLICE AND IT TOOK THE
+  DURABLE HARNESSES WITH IT** — 606 scratchpad files vanished between two consecutive commands,
+  including `nl62_members.py`, the validated member extractor every measurement in this arc depends
+  on. **THE WHOLE INSTRUMENT FLEET AND THE BASE BUILD NOW LIVE UNDER `~/nl97keep/`**, outside the
+  reaper: `basecli/` (the pristine `e7c7864e4` CLI, whose `--version` proves it), `basetree/` (its
+  source), `fixtures/` (the 357-position LSP project, the 71-target corpus and the six fixture
+  sets) and `harness/`. **The extractor was REBUILT and re-VALIDATED rather than trusted**: it
+  reproduces all four recorded extent tables (`DocQuery` 23/402, `CodeIntelligenceService` 38/504,
+  `OutputFormatter` 38/206, `CompletionEngine` 4/81) against the pristine tree, and `--validate`
+  FAILS if it does not. Two new instruments are worth keeping: **`nl97ilcensus/` (the
+  RECEIVER-TYPED IL census, with its staleness gate — it is the only tool in the fleet that can
+  tell two same-named members apart, and its first run proved why it needs one)** and
+  **`nl97-partition.py` (the executable closure partition, with a control that must report POLICY on
+  the pre-cut file)**.
+
+  **019's COMPLETION SHAPE, MEASURED.** The arc's four live files now stand at
+  **966 lines / 824 non-blank / 78 extents summing 784**, down from **1,404 / 1,195 / 103 / 1,193**
+  at slice 20's close and from the arc's opening **7,739 / 6,892 / 341 / 7,257 — a −87.5 % cut on
+  lines over twenty-one slices**:
+  | file | lines | non-blank | extents | extent sum | verdict |
+  |---|---|---|---|---|---|
+  | `DocQuery` | 446 | 382 | 23 | 402 | **WALLED-ACCEPTED** (370 of 402 held; repin named) |
+  | `OutputFormatter` | 271 | 226 | 38 | 206 | CLOSED (reviewed zero-policy host) |
+  | `CodeIntelligenceService` | 153 | 131 | 14 | 105 | **CLOSED this slice** (POLICY = 0 by partition) |
+  | `CompletionEngine` | 96 | 85 | 3 | 71 | CLOSED (−13 this slice: its duplicate walk consolidated) |
+  | `Formatter` | 0 | 0 | 0 | 0 | **DELETED** (slice 20) |
+  | `Linter` | 0 | 0 | 0 | 0 | **DELETED** (slice 12) |
+  | `NullabilityMetadata` | 0 | 0 | 0 | 0 | removed before the arc opened |
+
+  **THE NEXT BRIEF — 019's LAST SLICE, AND THEN 020.** The one remaining move is the named
+  two-stage `System.Xml.Linq` repin above; nothing else in the arc has policy left. A SECOND catalog
+  row is now owed and it is the sibling of slice 15's: the **`Dictionary<K, V>` →
+  `IReadOnlyDictionary<K, V>` WIDENING conversion**, which is what keeps `ProjectSnapshot` out of
+  reach of N# CONTRACTS (finding 97.6) even though the type itself is now N#. Both rows are
+  publish-then-pause-for-the-coordinator work of exactly the shape slice 15 stage 1 did.
+  **020 IS `tasks/020-native-test-runner-capabilities.md`**, whose slice list is explicit — *table-
+  driven cases, skip, setup/teardown, async `Task`, async `ValueTask`, structured failure JSON,
+  whole-run timeout*, first missing one first, each one immediately consuming a REAL C# test cluster.
+  STATUS.md already knows four things that bear on it. (1) The native estate is the gate's own step
+  and stood at **5,022 / 5,022 contracts** at slice 20's close, up from 1,554 at the start of 017.
+  (2) **The estate needs `-p:NSharpExcludeTests=false --force-evaluate` on restore after ANY other
+  build, and a silent instant `dotnet test` success is a BROKEN RESTORE rather than a pass** — prove
+  a new block runs by a stash-baseline count diff. (3) Slice 20 already exercised *table-driven
+  tests, skip and setup/teardown* as FORMATTER shapes, so the formatter's contracts are a ready-made
+  corpus for the runner slices that own them. (4) **THE FIRST REAL C# CLUSTER TO MIGRATE IS NAMED BY
+  THIS SLICE**: `tests/CodeIntelligenceTests.cs` (1,354 lines, 162 assertion markers) and
+  `tests/CompletionEngineTests.cs` (322 / 62) are now the ONLY canonical assertion layer for the
+  whole code-intelligence surface, because finding 97.6 keeps `ProjectSnapshot` out of reach of an
+  N# contract — so 020's `IReadOnlyDictionary` widening row and 019's last repin are the same
+  unblocking work seen from two sides.
+
+  **WHAT THE CHECKBOX NEEDS, AND WHETHER THIS SLICE EARNS IT.** `tasks/019-…md` says: mark complete
+  only when all listed files are "deleted or reduced to reviewed, non-growing mechanical hosts."
+  Two are DELETED; three are reviewed zero-policy hosts; **the seventh, `DocQuery.cs`, is NOT a
+  mechanical host — 370 of its 402 extent lines are real policy that is held by a measured toolset
+  wall, not by a shape.** So the honest reading is that **019 is NOT complete at this slice's end
+  state, and ONE more slice completes it: the named two-stage `System.Xml.Linq` repin.** The
+  checkbox is deliberately left unchecked and `tasks/README.md` is NOT edited.
+
+- Active sub-slice (019 arc, PRIOR TURN, LANDED at `e7c7864e4`): **019 SLICE 20 — THE TEN
+  DECLARATION LEAVES + SCC-2, AND THEN THE WHOLE FILE. `Formatter.cs` IS DELETED.**
 
   **TARGET (recorded before any production edit).**
   `src/NSharpLang.Compiler/Formatter.cs` at **821 lines / 719 non-blank / 21 extents summing 787** —

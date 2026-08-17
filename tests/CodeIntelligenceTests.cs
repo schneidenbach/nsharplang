@@ -1285,7 +1285,6 @@ public class CodeIntelligenceOutputTests
             },
             new Dictionary<string, SemanticModel>(StringComparer.OrdinalIgnoreCase),
             new[] { compilerError },
-            new Analyzer(),
             new[] { fullPath },
             index: null,
             sourceTexts: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

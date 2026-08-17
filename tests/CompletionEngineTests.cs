@@ -48,9 +48,9 @@ public class CompletionEngineTests
             compilationUnits,
             semanticModels,
             new List<CompilerError>(),
-            analyzer,
             new List<string> { filePath },
-            projectIndex);
+            projectIndex,
+            new Dictionary<string, string>());
 
         return (new CompletionEngine(), snapshot, filePath);
     }

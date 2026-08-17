@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -10,15 +9,14 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 /// Snapshot plumbing for completions, shared by the CLI, the daemon and the playground.
 /// </summary>
 /// <remarks>
-/// This type holds no completion policy. It exists because a <see cref="ProjectSnapshot"/> is a
-/// C# type in this assembly and the owners are in <c>NSharpLang.Compiler.BootstrapServices</c>,
-/// which cannot reference it: everything here is reading a file's compilation unit, semantic model
-/// and source text out of a snapshot and handing them to N#.
+/// This type holds no completion policy: everything here is reading a file's compilation unit,
+/// semantic model and source text out of a snapshot and handing them to N#.
 ///
 /// Every decision belongs elsewhere. <c>CompletionEngineKernels</c> decides whether a position is
 /// after a dot and answers an identifier position; <c>CompletionReceiverFacts</c> answers a
-/// member-access position; <c>CodeIntelligenceSourceTextKernels</c> extracts the prefix and
-/// <c>CodeIntelligenceResultKernels</c> matches the file path.
+/// member-access position; <c>CodeIntelligenceSourceTextKernels</c> extracts the prefix; and since
+/// slice 21 the file lookup is <c>CodeIntelligenceNavigation.FindCompilationUnit</c> — the same
+/// walk the service uses, where this type used to keep a second copy of it.
 /// </remarks>
 public class CompletionEngine
 {
@@ -29,7 +27,9 @@ public class CompletionEngine
     /// </summary>
     public CompletionResult GetCompletions(ProjectSnapshot snapshot, string file, int line, int col, bool includeKeywords = false)
     {
-        var (filePath, cu) = FindCompilationUnit(snapshot, file);
+        var match = CodeIntelligenceNavigation.FindCompilationUnit(snapshot, file);
+        var filePath = match.FilePath;
+        var cu = match.Unit;
         if (cu == null)
         {
             return EmptyResult(CompletionContext.Unknown);
@@ -87,19 +87,6 @@ public class CompletionEngine
 
         beforeCursor = dogfoodPrefix;
         return beforeCursor != null;
-    }
-
-    private (string filePath, CompilationUnit? cu) FindCompilationUnit(ProjectSnapshot snapshot, string file)
-    {
-        foreach (var (filePath, cu) in snapshot.CompilationUnits)
-        {
-            if (CodeIntelligenceResultKernels.MatchesFilePath(filePath, file))
-                return (filePath, cu);
-        }
-        var fullPath = Path.GetFullPath(Path.Combine(snapshot.ProjectRoot, file));
-        if (snapshot.CompilationUnits.TryGetValue(fullPath, out var found))
-            return (fullPath, found);
-        return (file, null);
     }
 
     private static CompletionResult EmptyResult(CompletionContext context)
