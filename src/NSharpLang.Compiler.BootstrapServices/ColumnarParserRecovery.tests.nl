@@ -5839,6 +5839,98 @@ test "016 bridge: a package declaration materializes PackageDeclaration anchored
     assert ast.Imports.Count == 0
 }
 
+test "016 bridge: a valid package name carries per-segment spans" {
+    ast := RunPreambleAst("package Acme.Widgets")
+    assert ast.Package != null
+    segments := ast.Package.Segments
+    assert segments != null
+    assert segments.Count == 2
+    assert segments[0].Text == "Acme"
+    assert segments[0].Line == 1
+    assert segments[0].Column == 9
+    assert segments[0].Length == 4
+    assert segments[1].Text == "Widgets"
+    assert segments[1].Column == 14
+    assert segments[1].Length == 7
+}
+
+// ---- recovery preserves what the developer wrote (the `package good.9bad` family) ----
+// A malformed segment written ATTACHED to the name is consumed as one word-like run and carried
+// with its span, producing NO parser diagnostic — the whole-pipeline report for it is the
+// analyzer's NL103, which names and underlines the written text (the analyzer half is pinned in
+// AnalyzerDeclarationPolicy.tests.nl "with parser segments..."). Before this, `package good.9bad`
+// reported "Expected identifier after '.'" here, left `9`/`bad` for the top-level loop's
+// unexpected-token + `<error>`-class cascade, and the analyzer named the placeholder at 1:1.
+
+test "016 bridge: a malformed attached segment is carried as written, with its span, and no parser diagnostic" {
+    ast := RunPreambleAst("package good.9bad\n\nfunc Foo(): int {\n    return 1\n}\n")
+    assert ast.Errors.Count == 0
+    assert ast.Package != null
+    assert ast.Package.Name == "good.9bad"
+    segments := ast.Package.Segments
+    assert segments != null
+    assert segments.Count == 2
+    assert segments[0].Text == "good"
+    assert segments[0].Line == 1
+    assert segments[0].Column == 9
+    assert segments[0].Length == 4
+    assert segments[1].Text == "9bad"
+    assert segments[1].Line == 1
+    assert segments[1].Column == 14
+    assert segments[1].Length == 4
+}
+
+test "016 bridge: a malformed segment run stops at a dot, so the segments around it stay intact" {
+    ast := RunPreambleAst("package good.9bad.more")
+    assert ast.Errors.Count == 0
+    assert ast.Package != null
+    assert ast.Package.Name == "good.9bad.more"
+    segments := ast.Package.Segments
+    assert segments != null
+    assert segments.Count == 3
+    assert segments[1].Text == "9bad"
+    assert segments[2].Text == "more"
+}
+
+test "016 bridge: a malformed segment run consumes only ADJACENT text — a detached token stays genuinely unexpected" {
+    ast := RunPreambleAst("package good.9 bad\n")
+    assert ast.Package != null
+    assert ast.Package.Name == "good.9"
+    segments := ast.Package.Segments
+    assert segments != null
+    assert segments.Count == 2
+    assert segments[1].Text == "9"
+    assert segments[1].Column == 14
+    assert segments[1].Length == 1
+    assert ast.Errors.Count == 1
+    assert ast.Errors[0].Code == ErrorCode.UnexpectedToken
+    assert ast.Errors[0].Message == "Unexpected token 'bad'"
+}
+
+test "016 bridge: a package trailing dot at end of file keeps the parser's one report and records the placeholder segment" {
+    // With nothing written after the dot there is no text to carry: the parser's end-of-file
+    // diagnostic is THE report, and the `<error>` placeholder segment tells the analyzer to stay
+    // silent instead of naming the placeholder (pinned in AnalyzerDeclarationPolicy.tests.nl).
+    ast := RunPreambleAst("package good.")
+    assert ast.Errors.Count == 1
+    assert ast.Errors[0].Code == ErrorCode.UnexpectedEndOfFile
+    assert ast.Package != null
+    assert ast.Package.Name == "good.<error>"
+    segments := ast.Package.Segments
+    assert segments != null
+    assert segments.Count == 2
+    assert segments[0].Text == "good"
+    assert segments[1].Text == "<error>"
+}
+
+test "016 bridge: a reserved keyword as a package segment keeps its keyword-specific diagnostic and the placeholder" {
+    ast := RunPreambleAst("package good.class\n")
+    assert ast.Errors.Count == 1
+    assert ast.Errors[0].Code == ErrorCode.ReservedKeywordAsName
+    assert ast.Package != null
+    assert ast.Package.Name == "good.<error>"
+}
+
 test "016 bridge: a bare namespace import materializes one ImportDirective with a null alias" {
     ast := RunPreambleAst("import System")
     assert ast.Errors.Count == 0

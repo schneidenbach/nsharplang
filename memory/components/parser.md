@@ -153,6 +153,8 @@ Current behavior:
 
 Partial ASTs use placeholder nodes such as `<error>` only to keep downstream tooling alive; analyzer and tooling paths treat these as unknown values instead of reporting secondary undefined-symbol cascades.
 
+Package names recover **with the written text preserved**: a malformed segment written attached to the name (`package good.9bad`, `package good.9.5x`) is consumed as one word-like run and carried in `PackageDeclaration.Segments` with its span, producing no parser diagnostic — the analyzer's NL103 invalid-package-name report then names and underlines exactly what the developer wrote (`AnalyzerDeclarationPolicy.ValidatePackageName`). Only a segment with no written text behind it (end of file, reserved keyword, offender on another line) records the `<error>` placeholder; those paths keep their precise parser diagnostic, and the analyzer skips placeholder segments so the mistake is reported once, never as `'<error>'`.
+
 ## Testing
 
 Two layers:
