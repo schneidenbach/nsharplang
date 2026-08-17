@@ -161,7 +161,7 @@ test "a unit is parsed at most once per path, and a package name outranks a name
     assert AnalyzerProjectSourceProvider.UnitNamespace(null) == null
 }
 
-test "the file-namespace question is answered from DISK and caches its negative answer" {
+test "the file-namespace question caches its negative answer and parses at most once per snapshot" {
     provider := new AnalyzerProjectSourceProvider()
     directory := Path.Combine(Path.GetTempPath(), "nsharp-project-ns-" + Guid.NewGuid().ToString())
     Directory.CreateDirectory(directory)
@@ -181,10 +181,18 @@ test "the file-namespace question is answered from DISK and caches its negative 
     provider.BeginAnalysis(directory)
     assert provider.GetNamespaceForFile(absent) == "Late"
 
-    // The snapshot is NOT consulted here — this question is about the file on disk.
+    // The question goes through the unit cache (rule 3): snapshot text added AFTER the file was
+    // parsed does not re-enter it, because only a NEW snapshot re-parses...
     provider.AddSourceText(present, ProjectSourceOf("Snapshot", "public class Here {\n}\n"))
     provider.BeginAnalysis(directory)
     assert provider.GetNamespaceForFile(present) == "Declared"
+
+    // ...and under a new snapshot the SNAPSHOT'S text is the file's text, not the disk's — the same
+    // snapshot-first answer every other project question gives.
+    provider.ResetSourceTexts()
+    provider.AddSourceText(present, ProjectSourceOf("Snapshot", "public class Here {\n}\n"))
+    provider.BeginAnalysis(directory)
+    assert provider.GetNamespaceForFile(present) == "Snapshot"
 
     Directory.Delete(directory, true)
 }
@@ -213,6 +221,35 @@ test "the project-namespace set comes from the root on disk and is empty without
     // A file with no namespace contributes nothing, and the match is case-SENSITIVE.
     assert !provider.ProjectNamespaceExists("alpha")
     assert !provider.ProjectNamespaceExists("Gamma")
+
+    Directory.Delete(directory, true)
+}
+
+test "a namespace rebuild walks cached units instead of re-parsing the project" {
+    provider := new AnalyzerProjectSourceProvider()
+    directory := Path.Combine(Path.GetTempPath(), "nsharp-project-rebuild-" + Guid.NewGuid().ToString())
+    Directory.CreateDirectory(directory)
+    drifting := Path.Combine(directory, "drifting.nl")
+    File.WriteAllText(drifting, ProjectSourceOf("Alpha", "public class A {\n}\n"))
+    provider.BeginAnalysis(directory)
+    assert provider.ProjectNamespaceExists("Alpha")
+
+    // The disk drifting mid-snapshot changes NOTHING: the next analysis rebuilds the namespace set
+    // from the cached unit rather than re-reading the file. This is the load-bearing half of
+    // rule 3 — a shared analyzer begins one analysis per project file, so a rebuild that re-parsed
+    // the project would parse it once per file, O(files²): the 2026-08 `nlc query completions`
+    // hang (693 files, ~480k recovery parses, tens of minutes at 100% CPU).
+    File.WriteAllText(drifting, ProjectSourceOf("Beta", "public class A {\n}\n"))
+    provider.BeginAnalysis(directory)
+    assert provider.ProjectNamespaceExists("Alpha")
+    assert !provider.ProjectNamespaceExists("Beta")
+    assert provider.GetNamespaceForFile(drifting) == "Alpha"
+
+    // A NEW snapshot is the one thing that re-parses (rule 3), and then the disk's new text answers.
+    provider.ResetSourceTexts()
+    provider.BeginAnalysis(directory)
+    assert provider.ProjectNamespaceExists("Beta")
+    assert !provider.ProjectNamespaceExists("Alpha")
 
     Directory.Delete(directory, true)
 }
