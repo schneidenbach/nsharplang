@@ -980,3 +980,230 @@ test "columnar interface input carries modifiers while old construction defaults
     assert ordinaryInput.MethodParamModifierKinds[0][1] == 0
     assert ordinaryInput.MethodParamModifierKinds[0][2] == 0
 }
+
+// ---------------------------------------------------------------------------------------------
+// TABLE-DRIVEN TEST CASES — the columnar scan, the per-row lowering, and the case label.
+// ---------------------------------------------------------------------------------------------
+
+// The COOKED token stream, exactly as ColumnarProgramInputBuilder hands it to these kernels — the
+// production caller passes `tokens.Kinds`/`tokens.Count`, not the raw stream.
+class ColumnarTestCaseProbe {
+    Source: string
+    RawKinds: int[]
+    RawStarts: int[]
+    RawValueLengths: int[]
+    RawCount: int
+    CaseIndices: int[]
+    CaseCount: int
+
+    constructor(source: string) {
+        Source = source
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        RawKinds = new int[](capacity)
+        RawStarts = new int[](capacity)
+        RawValueLengths = new int[](capacity)
+        tokenCounts := new int[](2)
+        RawCount = TokenizeColumnarSourceInto(source, rawKinds, rawStarts, rawValueLengths, RawKinds, RawStarts, RawValueLengths, tokenCounts)
+        CaseIndices = new int[](RawCount + 1)
+        scan := new int[](1)
+        CaseCount = TopLevelColumnarTestDeclarationIndicesInto(source, RawKinds, RawStarts, RawValueLengths, RawCount, CaseIndices, scan)
+    }
+
+    func Tokens(): ParserDeclarationTokenTable {
+        return new ParserDeclarationTokenTable(RawKinds, RawStarts, RawValueLengths)
+    }
+
+    func UnmodeledShapeExists(): int {
+        return TopLevelUnmodeledTestShapeExistsCore(Source, Tokens(), RawCount)
+    }
+
+    func HeaderEndsAt(testIndex: int): int {
+        return TopLevelTestHeaderEndsAt(Tokens(), RawCount, testIndex)
+    }
+
+    func TextAt(tokenIndex: int): string {
+        return Source.Substring(RawStarts[tokenIndex], RawValueLengths[tokenIndex])
+    }
+}
+
+class ColumnarTestCaseBodyProbe {
+    NodeKinds: int[]
+    NodeValueStarts: int[]
+    NodeValueLengths: int[]
+    NodeChildStarts: int[]
+    NodeChildCounts: int[]
+    NodeChildren: int[]
+    NodeSpanStarts: int[]
+    NodeSpanLengths: int[]
+    Result: int[]
+    NodeCount: int
+    Source: string
+
+    constructor(probe: ColumnarTestCaseProbe, caseSlot: int) {
+        Source = probe.Source
+        capacity := probe.RawCount + 1
+        NodeKinds = new int[](capacity)
+        NodeValueStarts = new int[](capacity)
+        NodeValueLengths = new int[](capacity)
+        NodeChildStarts = new int[](capacity)
+        NodeChildCounts = new int[](capacity)
+        NodeChildren = new int[](capacity)
+        NodeSpanStarts = new int[](capacity)
+        NodeSpanLengths = new int[](capacity)
+        Result = new int[](6)
+        NodeCount = ParseColumnarTestInfoInto(probe.Source, probe.RawKinds, probe.RawStarts, probe.RawValueLengths, probe.RawCount, probe.CaseIndices[caseSlot], NodeKinds, NodeValueStarts, NodeValueLengths, NodeChildStarts, NodeChildCounts, NodeChildren, NodeSpanStarts, NodeSpanLengths, Result)
+    }
+
+    func BodyRoot(): int {
+        return Result[2]
+    }
+
+    func Label(): string {
+        return ColumnarTestCaseLabel(Source, Result)
+    }
+
+    func ChildAt(node: int, index: int): int {
+        return NodeChildren[NodeChildStarts[node] + index]
+    }
+
+    func TextOf(node: int): string {
+        return Source.Substring(NodeValueStarts[node], NodeValueLengths[node])
+    }
+}
+
+test "the columnar test scan records one entry per plain test at its keyword" {
+    probe := new ColumnarTestCaseProbe("test \"first\" {\n    assert 1 == 1\n}\n\ntest \"second\" {\n    assert 2 == 2\n}\n")
+
+    assert probe.CaseCount == 2
+    // `test` is a CONTEXTUAL keyword: the lexer hands it back as an Identifier, and the scan
+    // recognises it by text plus the string literal that must follow.
+    assert probe.TextAt(probe.CaseIndices[0]) == "test"
+    assert probe.TextAt(probe.CaseIndices[1]) == "test"
+    assert probe.HeaderEndsAt(probe.CaseIndices[0]) > probe.CaseIndices[0]
+    assert probe.UnmodeledShapeExists() == 0
+}
+
+test "the columnar test scan records one entry per table ROW at that row's open paren" {
+    probe := new ColumnarTestCaseProbe("test \"sums\" with (a: int, b: int) [\n    (1, 2),\n    (3, 4),\n    (5, 6)\n] {\n    assert a < b\n}\n")
+
+    assert probe.CaseCount == 3
+    assert probe.RawKinds[probe.CaseIndices[0]] == 127
+    assert probe.RawKinds[probe.CaseIndices[1]] == 127
+    assert probe.RawKinds[probe.CaseIndices[2]] == 127
+    assert probe.CaseIndices[0] < probe.CaseIndices[1]
+    assert probe.CaseIndices[1] < probe.CaseIndices[2]
+    assert probe.UnmodeledShapeExists() == 0
+}
+
+test "a table header ends at the body brace and a skip header is still unmodeled" {
+    table := new ColumnarTestCaseProbe("test \"sums\" with (a: int) [\n    (1)\n] {\n    assert a == 1\n}\n")
+    assert table.HeaderEndsAt(0) >= 0
+    assert table.RawKinds[table.HeaderEndsAt(0)] == 129
+
+    skipped := new ColumnarTestCaseProbe("test \"sums\" skip \"later\" {\n    assert 1 == 1\n}\n")
+    assert skipped.HeaderEndsAt(0) == -1
+    assert skipped.CaseCount == 0
+    assert skipped.UnmodeledShapeExists() == 1
+}
+
+test "a table with no rows is refused rather than silently emitting nothing" {
+    probe := new ColumnarTestCaseProbe("test \"sums\" with (a: int) [\n] {\n    assert a == 1\n}\n")
+
+    assert probe.HeaderEndsAt(0) == -1
+    assert probe.CaseCount == 0
+    assert probe.UnmodeledShapeExists() == 1
+}
+
+test "a table parameter must be spelled name colon type" {
+    good := new ColumnarTestCaseProbe("test \"sums\" with (a: int, values: List<int>) [\n    (1, null)\n] {\n    assert a == 1\n}\n")
+    nameStarts := new int[](good.RawCount + 1)
+    nameLengths := new int[](good.RawCount + 1)
+    typeStarts := new int[](good.RawCount + 1)
+    typeLengths := new int[](good.RawCount + 1)
+    withIndex := TestTableWithIndexAt(good.Tokens(), good.RawCount, 0)
+    assert withIndex > 0
+    assert TestTableParameterSpansInto(good.Tokens(), good.RawCount, withIndex, nameStarts, nameLengths, typeStarts, typeLengths) == 2
+    assert good.Source.Substring(nameStarts[0], nameLengths[0]) == "a"
+    assert good.Source.Substring(typeStarts[0], typeLengths[0]) == "int"
+    assert good.Source.Substring(nameStarts[1], nameLengths[1]) == "values"
+    assert good.Source.Substring(typeStarts[1], typeLengths[1]) == "List<int>"
+
+    // An UNTYPED parameter is refused by the walk. The header itself still ends at the brace,
+    // because the front end reports the far better NL102 ("Parameter 'a' needs a ':' before its
+    // type.") long before emit — the kernel's job is only to never lower a shape it cannot bind.
+    untyped := new ColumnarTestCaseProbe("test \"sums\" with (a) [\n    (1)\n] {\n    assert a == 1\n}\n")
+    untypedWith := TestTableWithIndexAt(untyped.Tokens(), untyped.RawCount, 0)
+    assert TestTableParameterSpansInto(untyped.Tokens(), untyped.RawCount, untypedWith, nameStarts, nameLengths, typeStarts, typeLengths) == -1
+    untypedCase := new ColumnarTestCaseBodyProbe(untyped, 0)
+    assert untypedCase.NodeCount == -1
+}
+
+test "a table row lowers into typed locals prepended to the shared body" {
+    probe := new ColumnarTestCaseProbe("test \"sums\" with (a: int, b: string) [\n    (7, \"x\"),\n    (9, \"y\")\n] {\n    assert a > 0\n    assert b.Length == 1\n}\n")
+    assert probe.CaseCount == 2
+
+    first := new ColumnarTestCaseBodyProbe(probe, 0)
+    assert first.NodeCount > 0
+    root := first.BodyRoot()
+    assert first.NodeKinds[root] == 25
+    // The shared body has two statements; the lowered body has those two plus one typed local per
+    // table parameter, and the locals come FIRST.
+    assert first.NodeChildCounts[root] == 4
+
+    firstLocal := first.ChildAt(root, 0)
+    assert first.NodeKinds[firstLocal] == 40
+    assert first.NodeChildCounts[firstLocal] == 2
+    assert first.TextOf(firstLocal) == "int"
+    firstName := first.ChildAt(firstLocal, 0)
+    assert first.NodeKinds[firstName] == 6
+    assert first.TextOf(firstName) == "a"
+    firstValue := first.ChildAt(firstLocal, 1)
+    assert first.Source.Substring(first.NodeSpanStarts[firstValue], first.NodeSpanLengths[firstValue]) == "7"
+
+    secondLocal := first.ChildAt(root, 1)
+    assert first.NodeKinds[secondLocal] == 40
+    assert first.TextOf(secondLocal) == "string"
+    secondName := first.ChildAt(secondLocal, 0)
+    assert first.TextOf(secondName) == "b"
+    secondValue := first.ChildAt(secondLocal, 1)
+    assert first.Source.Substring(first.NodeSpanStarts[secondValue], first.NodeSpanLengths[secondValue]) == "\"x\""
+
+    // The SECOND row is an independent body that binds the second row's values.
+    second := new ColumnarTestCaseBodyProbe(probe, 1)
+    secondRoot := second.BodyRoot()
+    assert second.NodeChildCounts[secondRoot] == 4
+    secondRowLocal := second.ChildAt(secondRoot, 0)
+    secondRowValue := second.ChildAt(secondRowLocal, 1)
+    assert second.Source.Substring(second.NodeSpanStarts[secondRowValue], second.NodeSpanLengths[secondRowValue]) == "9"
+}
+
+test "a row whose value count does not match the parameter count is declined" {
+    probe := new ColumnarTestCaseProbe("test \"sums\" with (a: int, b: int) [\n    (1, 2),\n    (3)\n] {\n    assert a < b\n}\n")
+    assert probe.CaseCount == 2
+
+    ok := new ColumnarTestCaseBodyProbe(probe, 0)
+    assert ok.NodeCount > 0
+
+    short := new ColumnarTestCaseBodyProbe(probe, 1)
+    assert short.NodeCount == -1
+}
+
+test "the case label names the plain description or the description plus its row" {
+    plain := new ColumnarTestCaseProbe("test \"adds two values\" {\n    assert 1 == 1\n}\n")
+    plainCase := new ColumnarTestCaseBodyProbe(plain, 0)
+    assert plainCase.Label() == "adds two values"
+    assert plainCase.Result[4] == -1
+
+    table := new ColumnarTestCaseProbe("test \"adds\" with (a: int, b: int, sum: int) [\n    (1, 2, 3),\n    (\n        20,\n        30,\n        50\n    )\n] {\n    assert a + b == sum\n}\n")
+    firstCase := new ColumnarTestCaseBodyProbe(table, 0)
+    assert firstCase.Label() == "adds (1, 2, 3)"
+
+    // A row spread over several lines still labels its case on ONE line, with no space hugging the
+    // row's own punctuation.
+    secondCase := new ColumnarTestCaseBodyProbe(table, 1)
+    assert secondCase.Label() == "adds (20, 30, 50)"
+}
+

@@ -775,7 +775,8 @@ test "should throw on divide by zero" {
 
 ### Table-Driven Tests
 
-Run the same test body with multiple sets of inputs (Go-style):
+Run the same test body with multiple sets of inputs (Go-style). Each parameter is declared
+`name: Type` after `with`, and each row supplies one literal value per parameter:
 
 ```n#
 test "should add correctly" with (a: int, b: int, expected: int) [
@@ -788,6 +789,25 @@ test "should add correctly" with (a: int, b: int, expected: int) [
 }
 ```
 
+**Every row is its own test.** A row is not a loop iteration — it compiles to an independent test
+that binds the row's values as locals of the declared types, so it runs, reports and fails on its
+own. The four rows above are reported as four tests:
+
+```text
+should add correctly (1, 2, 3)
+should add correctly (0, 0, 0)
+should add correctly (-1, 1, 0)
+should add correctly (100, -100, 0)
+```
+
+That name is the case's identity everywhere: `nlc test --verbose` prints it, `nlc test --json`
+carries it as each result's `displayName`, and `--filter` matches against it. One bad row names
+itself instead of hiding the other three behind a single failure.
+
+Row values must be literals — `int`, `float`, `char`, `string`, `bool` or `null`. A computed
+expression is reported as `NL310`, and a row whose value count does not match the parameter count is
+reported as `NL202`.
+
 ### Skip Tests
 
 Mark a test as skipped with a reason:
@@ -798,6 +818,11 @@ test "needs network" skip "CI has no network" {
     assert response.StatusCode == 200
 }
 ```
+
+:::caution Not yet runnable
+`skip` parses and is understood by the editor tooling, but `nlc test` does not yet compile a file
+that contains one. Leave the test out, or comment its body, until skip support lands.
+:::
 
 ### Setup Blocks
 
@@ -819,6 +844,11 @@ test "should list tasks" {
     assert service.GetTasks().Count == 1
 }
 ```
+
+:::caution Not yet runnable
+`setup` and `teardown` parse and are understood by the editor tooling, but `nlc test` does not yet
+compile a file that contains one. Call the shared setup from inside each test until they land.
+:::
 
 ### Smart Assert Patterns
 

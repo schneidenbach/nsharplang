@@ -1,6 +1,50 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-17 (**TASK 019 IS COMPLETE — `tasks/README.md`'s 019 BOX IS CHECKED. SLICE 22
+Last updated: 2026-08-17 (**020 SLICE 1 — TABLE-DRIVEN TEST CASES ARE LIVE, AND
+`tests/DocQueryTests.cs` IS DELETED.** **"FIRST MISSING" WAS PROVED BY EXECUTION, NOT BY READING**:
+five probe projects through a freshly built tip CLI showed plain tests green at 1/1 while a table
+declaration, a `skip` clause and a `setup` block each took the WHOLE test file down at
+`parse.declaration-scan` — so the mandated order opens on **table-driven cases**. **THE FEATURE WAS
+ALREADY IN THE LANGUAGE EVERYWHERE EXCEPT EMIT**: `TestDeclaration` carries `TableParameters` /
+`TableCases`, `ColumnarParserRecovery.nl` parses the clause, `AdvanceTest` phases 3-9 declare the
+parameters and walk every row, the formatter renders it, and **`nlc check --json` on the failing
+probe answered `ok: true`** — the gap was ONE scan function, `TopLevelPlainTestHeaderEndsAt`, which
+accepted only `test STRING {`. **THE DESIGN IS LOWERING, NOT A SECOND EMIT SHAPE**: N# expands one
+R-row declaration into R INDEPENDENT test inputs, each binding the row's values as kind-40 TYPED
+locals (the declared parameter type's own source span) prepended to the shared body, and each
+labelled `"<description> (<row source>)"`. **`[Theory]` + `[InlineData]` WAS REJECTED ON TWO
+INDEPENDENT GROUNDS** — it needs new `ColumnarIlEmitter.cs` code the growth ratchet forbids, and a
+`[Trait]` is per-METHOD, so all R rows would have reported under ONE name and N failures would have
+hidden behind one line. Lowering makes **per-case identity FREE**: each row is its own `[Fact]` with
+its own trait, so the runner, the JSON envelope and `schemaVersion 1` are UNCHANGED and Step 3a's
+validator needed nothing. Proof it is not vacuous: a three-row table with a bad middle row reports
+**`total 3, passed 2, failed 1`** as `sums (1, 2, 3)` / `sums (2, 3, 99)` / `sums (4, 5, 9)`. **THE
+C# MOVED ONLY DOWN — `+2 / −45` over two files, ZERO new C# files**: `ColumnarProgramInputBuilder.cs`
+stays at 1062 with exactly two SAME-LINE edits that hand decisions to N#, and `Program.Testing.cs`
+653 → 618 because `GetInlineDataRows` and the row-expansion loop were the matching C# runner policy
+and were **provably unreachable** (the N# emitter emits `[Fact]` + `[Trait]` and nothing else, so an
+`InlineData` attribute cannot exist in an assembly `nlc test` runs). **THE MIGRATION IS TERMINAL**:
+`tests/DocQueryTests.cs` (122 lines, 30 `Assert.` calls, 7 tests) is deleted and
+`tests/native/doc-query/DocQuery.tests.nl` reports **11 cases from 5 declarations**, three of them
+table-driven, with a row-by-row equivalence table and two rows STRICTLY STRONGER than the C# they
+replace; **four mutations produce exactly four failures, each the mutated case and no other**.
+**ONE STAGE, BY MEASUREMENT**: fact 6's two-stage wall binds the BootstrapServices estate that the
+PINNED toolset compiles, but the gate's `tests/native/*` estate is compiled and run by the LIVE CLI
+(`nlc test` builds in-process through `MultiFileCompiler`), so the capability and its first consumer
+land together and **no toolset republish is owed**. Evidence: **native estate 5,075 → 5,083 by COUNT
+DIFF** (+8, the exact blocks added) 5,083/5,083; **unit 3,186 / 3,186** = 3,193 − the 7 migrated
+tests; **29 native projects all `ok: true`**; **live tree 393 / 246 — the inherited baseline with
+ZERO new rows**; format gate clean; **audit 18/18 after correctly failing 17/18 on four violations**,
+three ratchet rows moved (`DocQueryTests.cs` → `removed`, `Program.Testing.cs` 653/571 → 618/540,
+`ColumnarProgramInputBuilder.cs` fingerprint only) and the two-key head repinned LAST from a walk
+**validated against the pristine manifest first**, `b8c85af7d7afa6d0 → 1728e111c86d606c`, manifest
+391 lines no BOM. **SEVEN `.nl` WALLS met and routed**, the seventh a real finding: **an N# record's
+positional members are reached by `GetField`, NOT `GetProperty`**. Docs corrected in the same turn —
+the language tour SHOWED table/skip/setup for a runner that refused all three; table-driven now
+documents the per-row rule and `skip`/`setup` carry an honest "not yet runnable" caution. **NEXT
+CAPABILITY: `skip`. Task 020 stays UNCHECKED.** NOT COMMITTED — the mandate reserves that)
+
+Last updated (prior): 2026-08-17 (**TASK 019 IS COMPLETE — `tasks/README.md`'s 019 BOX IS CHECKED. SLICE 22
 STAGE 2 DELETED `DocQuery.cs`: 443 DELETIONS, ZERO INSERTIONS, AND THE ARC'S LAST FILE WITH POLICY
 IS GONE.** **THE CLOSURE WAS MEASURED BEFORE THE FIRST EDIT AND IT SAID DELETE**: the file closes on
 itself (`SET n=19 lines=390`, ESCAPES TO (0), ENTERED FROM (0), zero multi-member SCCs), every type
@@ -3032,7 +3076,23 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. 019 IS COMPLETE AND ITS BOX IS CHECKED.**
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 1 IS DONE: TABLE-DRIVEN CASES ARE
+  LIVE AND `tests/DocQueryTests.cs` IS DELETED.** Every row of a `with (…) […]` table is now its own
+  independent test — lowered in N# into its own test declaration with the row's values bound as
+  typed locals — so it emits its own `[Fact]`, carries its own `NSharpDescription`, and reports its
+  own JSON result under `"<description> (<row>)"`. The C# runner's competing row-expansion policy
+  (`GetInlineDataRows` and the `displayName + suffix` composition) is deleted as provably
+  unreachable; `Program.Testing.cs` 653 → 618, `ColumnarProgramInputBuilder.cs` unchanged at 1062
+  with two same-line edits, zero new C#. The migrated cluster is `tests/native/doc-query` at 11/11
+  with a 30-assertion equivalence table and a 4-mutation non-vacuity proof.
+  **THE NEXT CAPABILITY IS `skip`** (second in the task file's order; measured to decline the whole
+  file at `parse.declaration-scan`, with `SkipReason` already in the AST and a `skipped` outcome
+  already in the runner and the JSON envelope), then setup/teardown, async `Task`, async
+  `ValueTask`, structured failure JSON, whole-run timeout. **Task 020 stays UNCHECKED.**
+  **`IReadOnlyDictionary` widening (finding 97.6) is still owed** and still blocks
+  `tests/CodeIntelligenceTests.cs` — it was deliberately NOT taken here, because the capability order
+  outranks the cluster preference and `DocQueryTests.cs` needed no widening at all.
+  (Prior: **019 IS COMPLETE AND ITS BOX IS CHECKED.**
   Slice 22 stage 2 deleted `DocQuery.cs` (443 deletions, zero insertions), which was the last file
   in the 019 territory with policy in it. **019's final tally: seven files listed, FOUR DELETED and
   THREE reviewed non-growing mechanical hosts, each with an executable verdict and a non-vacuity
@@ -3210,7 +3270,237 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (019 arc, THIS TURN — TARGET RECORDED BEFORE ANY PRODUCTION EDIT at tip
+- Active sub-slice (020 arc, THIS TURN — CAPABILITY AND CLUSTER RECORDED BEFORE ANY PRODUCTION EDIT
+  at tip `dc2c4ae20`): **020 SLICE 1 — TABLE-DRIVEN TEST CASES, CONSUMED BY MIGRATING
+  `tests/DocQueryTests.cs`.**
+
+  **THE CAPABILITY IS THE TASK FILE'S FIRST, AND "FIRST MISSING" IS PROVED BY EXECUTION, NOT BY
+  READING.** Four probe projects were run through a FRESHLY BUILT tip CLI
+  (`src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll test --project … --no-cache --json`, with
+  `NSHARP_COLUMNAR_DECLINE_LOG=1`), because the installed `~/.nsharp/bin/nlc` is routinely stale:
+
+  | probe | shape | verdict |
+  |---|---|---|
+  | `probe-plain` | `test "d" { }` | **`ok: true`, 1/1 passed**, `name: NSharpTests.PlainBaseline` |
+  | `probe-table` | `test "d" with (a: int, …) [ (1,2,3), … ] { }` | **DECLINES THE WHOLE FILE** — `decline site=parse.declaration-scan … "the source may contain an unmodeled declaration shape" span=0:4`, `"ok": false`, `"error": "Test build failed."`, **total 0** |
+  | `probe-skip` | `test "d" skip "reason" { }` | same decline, `span=0:4` |
+  | `probe-setup` | `setup { }` + a plain test | same decline, `span=0:5` |
+  | `probe-failjson` | a failing plain test | `ok: false`, 1 passed / 1 failed, `errorMessage: "Assertion failed"` |
+
+  So the mandated order — *table-driven cases, skip, setup/teardown, async `Task`, async
+  `ValueTask`, structured failure JSON, whole-run timeout* — opens on **TABLE-DRIVEN CASES**, and it
+  is not a soft gap: a single table declaration takes the ENTIRE test file's emit down with it.
+
+  **THE MEASURED RUNNER INVENTORY — THE FEATURE IS ALREADY IN THE LANGUAGE, AND ONLY THE EMIT PATH
+  DECLINES IT.** The front end models table-driven tests in full: `Declarations.nl`'s
+  `TestDeclaration` carries `TableParameters`, `TableCases` and `SkipReason`;
+  `ColumnarParserRecovery.nl:9034` parses `with ( params ) [ (row), … ]` and `skip "reason"`;
+  `AnalyzerDeclarationWalkers.nl`'s `AdvanceTest` has phases 3-9 that VALIDATE the parameter list,
+  DECLARE each table parameter, and WALK every row value; `Formatter.nl` renders it; the LSP's
+  `DocumentSymbolHandler` surfaces it. **`nlc check --json` on `probe-table` reports `ok: true` with
+  zero diagnostics** — the analyser already accepts the shape. The single owner that refuses it is
+  the columnar emit scan: `ColumnarParserKernels.nl`'s `TopLevelPlainTestHeaderEndsAt` (:7835)
+  accepts ONLY `test STRING {`, so `TopLevelColumnarTestDeclarationIndicesInto` never records the
+  declaration, the top-level function scan then meets an unmodeled head, and the file declines.
+  **`grep` over the whole `.nl` estate finds ZERO uses of `with`, `skip`, `setup` or `teardown` in a
+  test** — nothing regresses, because nothing yet spells it.
+
+  **THE MIGRATED CLUSTER IS `tests/DocQueryTests.cs` — 122 lines, 37 assertion markers, 7 tests** —
+  the fact-5 candidate, and it is taken rather than fact 4's `CodeIntelligenceTests.cs` because that
+  one is still blocked on the `IReadOnlyDictionary` widening row (fact 7 / finding 97.6), which is a
+  LATER slice's stage 1. `DocQueryTests.cs` is the last canonical C# assertion layer over a surface
+  that is otherwise entirely N# (`DocQuery.nl`, 633 lines, deleted its C# owner at `dc2c4ae20`), and
+  six of its seven tests are literally "look one name up, assert the kind, the full name and a
+  non-empty summary" — the exact shape a table expresses.
+
+  **THE MIGRATION IS ONE STAGE, AND THAT IS A MEASUREMENT, NOT A PREFERENCE.** Fact 6's two-stage
+  wall applies to `.tests.nl` files compiled by the PINNED toolset — the BootstrapServices estate,
+  which the gate runs through `dotnet test`. The gate's OTHER native estate,
+  `tests/native/*` + `examples/*`, is compiled and executed by the **LIVE** CLI
+  (`test-all-core.sh` Step 3a runs `dotnet "$CLI_DLL" test --project "$native_dir"`, and
+  `nlc test` builds in-process through `MultiFileCompiler`, never shelling out to the packed SDK).
+  A new `tests/native/doc-query/` project therefore consumes the new capability in the SAME turn
+  that adds it, with no toolset republish — the pattern `tests/native/query-completions` already
+  uses to reach production compiler types by `dll:` dependency.
+
+  **THE DESIGN — LOWERING, NOT A SECOND EMIT SHAPE.** N# expands ONE table declaration with R rows
+  into R INDEPENDENT plain test inputs, each with the row's values bound as typed locals (kind 40
+  `TypedLocalDeclaration`, the DECLARED parameter type's own source span in the value slot, the
+  row's own parsed expression as the initializer) prepended to a shared body, and each with its own
+  description `"<description> (<row source>)"`. The alternative — an xUnit `[Theory]` with one
+  `[InlineData]` per row — was REJECTED on two independent grounds: it needs new emit code in
+  `ColumnarIlEmitter.cs`, which the growth ratchet forbids, and a `[Trait]` is per-METHOD, so all R
+  rows would report under ONE `nsharpDescription` and ONE fully-qualified name and N failures would
+  hide behind one line. Lowering makes **per-case identity first-class for free**: each row becomes
+  its own `[Fact]` with its own trait, its own method name and its own JSON result row — in
+  `nlc test` AND in `dotnet test` — with **zero runner changes and zero JSON schema change**
+  (`schemaVersion` stays 1, so `test-all-core.sh`'s Step 3a validator, the one consumer of that
+  envelope, is untouched).
+
+  **THE C# BUDGET IS ZERO NEW LINES.** `ColumnarProgramInputBuilder.cs` is at 1062/1062 against its
+  epoch and `ColumnarIlEmitter.cs` at 21519, so neither may grow by even one line. The emitter is
+  NOT touched at all. The builder takes exactly TWO SAME-LINE edits, both of which move a decision
+  OUT of C# and INTO N#: `new int[4]` → `new int[6]` for the kernel result, and the C#-side
+  `StringLiteralDecoder.Decode(source.Substring(...))` → a call to an N# kernel that composes the
+  whole case label. Line and non-blank counts are unchanged; only the fingerprint moves.
+
+  ### WHAT LANDED
+
+  **ONE STAGE, AND THE TWO-STAGE WALL WAS AVOIDED BY MEASUREMENT RATHER THAN BY LUCK.** The
+  capability and its first consumer are in the SAME turn because the consumer lives in the estate the
+  LIVE CLI compiles. No toolset republish is owed.
+
+  **THE SURFACE — SIX NEW KERNELS AND ONE REWRITTEN CONTRACT, ALL IN `ColumnarParserKernels.nl`.**
+  - `TopLevelTestHeaderEndsAt` REPLACES `TopLevelPlainTestHeaderEndsAt` (deleted, zero referrers
+    left) at all three call sites. It accepts the optional `with ( name: Type, … ) [ (row), … ]` and
+    still refuses `skip` — deliberately, because a header that PARSED `skip` without lowering it
+    would silently drop the modifier and RUN a skipped test.
+  - `TopLevelColumnarTestDeclarationIndicesInto` now records one entry per **CASE**, not per
+    declaration: the `test` keyword index for a plain test, the ROW's opening `(` for each table
+    row. Both are real token indices, so the C# caller's existing `DeclineAtToken` now points at the
+    exact row that failed.
+  - `ParseColumnarTestInfoInto` resolves an entry to (head, rowOrdinal) through
+    `ResolveColumnarTestCaseEntry` and, for a row, LOWERS it in `ParseColumnarTableTestCaseInto`:
+    the row's values parse into the SAME node table as the body, then one kind-40
+    `TypedLocalDeclaration` per parameter is synthesized — the DECLARED type's own source span in
+    the value slot, `[name Identifier, the row's parsed expression]` as children — and the body
+    block's child run is rewritten to put the locals FIRST. Both tables are bounds-checked before a
+    single node is written, so an overflow declines rather than corrupts.
+  - `ColumnarTestCaseLabel` composes the case's description from the two spans, and
+    `CollapseTestCaseWhitespace` collapses a multi-line row onto one line with no space hugging its
+    own punctuation.
+  - Supporting: `SkipTestHeaderNewlines`, `TestDescriptionIndexAt`, `MatchingTestDelimiterAfter`,
+    `TestTableClauseEndsAt`, `TestTableRowListStartAt`, `TestTableWithIndexAt`, `TestTableRowOpenAt`,
+    `TestTableRowCount`, `TestTableParameterSpansInto`. Every one is referenced; the dead sweep is
+    clean in both directions.
+
+  **THE C# MOVED IN ONE DIRECTION ONLY: DOWN.** `git diff --numstat -- '*.cs'` is **+2 / −45** over
+  two files with **ZERO new C# files**.
+  - `ColumnarProgramInputBuilder.cs` **1062 → 1062**: exactly the two predicted same-line edits.
+  - `Program.Testing.cs` **653 → 618 (−35)**: `GetInlineDataRows` DELETED WHOLE, the row-expansion
+    loop and its `displayName + suffix` composition replaced by one `yield return`, and the now
+    permanently-empty argument vector removed from both the call and `NativeTestCase`. That was the
+    matching C# runner policy, and it was **provably unreachable**: `nlc test` only ever runs an
+    assembly the N# emitter produced, and that emitter emits `[Fact]` + `[Trait]` and nothing else —
+    an `InlineData`/`TestCase` attribute cannot exist in it. `TestCommandKernels.nl`'s
+    `IsInlineDataAttributeName` went with it.
+
+  **PER-CASE IDENTITY IS FREE, AND THAT IS WHY LOWERING BEAT `[Theory]`.** Because each row becomes
+  its own `[Fact]` method with its own trait, the runner, the JSON envelope and the schema are
+  **UNCHANGED** — `schemaVersion` is still 1, so `test-all-core.sh` Step 3a's validator, the one
+  consumer of that envelope, needed nothing. Measured on a three-row table where the middle row is
+  wrong: **`total 3, passed 2, failed 1`**, results `NSharpTests.Sums123` / `Sums2399` / `Sums459`
+  with `displayName`s `sums (1, 2, 3)` / `sums (2, 3, 99)` / `sums (4, 5, 9)` — one failure, named,
+  with the other two green beside it.
+
+  **THE PROBE MATRIX, RE-RUN AFTER THE CHANGE.** `probe-table` 3/3 green where it previously took
+  the whole file down; `probe-typedrows` binds `string`/`int`/`double`/`bool` 2/2; `probe-multiline`
+  labels a row spread over four lines as `wide rows ("one", "two")`; `probe-plain` unchanged 1/1;
+  **`probe-skip` and `probe-setup` still decline at `parse.declaration-scan` — the next two
+  capabilities, untouched on purpose.** The negative arms report through the FRONT DOOR, not as
+  declines: a short row is **NL202** ("This test case has 1 values but the table header declares 2
+  parameters"), a computed row value is **NL310** ("Table-driven test case values must be
+  compile-time constants"), and an untyped table parameter is **NL102** ("Parameter 'a' needs a ':'
+  before its type.") — all three already existed in the analyser, which is why this slice needed no
+  new diagnostic.
+
+  **AN INHERITED FACT WAS CORRECTED BY MEASUREMENT: the table-driven surface was ALREADY in the
+  language everywhere except emit.** `Declarations.nl`'s `TestDeclaration` carries `TableParameters`
+  / `TableCases` / `SkipReason`; `ColumnarParserRecovery.nl` parses the clause; `AdvanceTest` phases
+  3-9 validate the parameter list, DECLARE each parameter and walk every row; the formatter renders
+  it; the LSP lists it. `nlc check --json` on the failing probe reported **`ok: true`** before any
+  edit. The gap was one scan function, and the whole slice is the width of that gap.
+
+  **THE MIGRATION IS TERMINAL. `tests/DocQueryTests.cs` IS DELETED** and
+  `tests/native/doc-query/DocQuery.tests.nl` replaces it — **11 reported cases from 5 declarations**
+  (3 + 4 + 1 + 2 rows, three of the five table-driven), reaching the production `DocQuery` BY
+  REFLECTION exactly as `tests/native/query-completions` reaches its type.
+
+  | # | deleted C# assertion | N# successor |
+  |---|---|---|
+  | A1-A3 | `Lookup_Console…`: NotNull, `FullName == "System.Console"`, summary non-blank | `doc lookup resolves a documented type ("Console", "System.Console", "static class")` — **plus** the kind |
+  | A12-A15 | `Lookup_EnvironmentSpecialFolder…`: NotNull, `Kind == "enum"`, FullName, summary | same table, row 2 |
+  | A16-A18 | `Lookup_Regex…`: NotNull, FullName, summary | same table, row 3 — **plus** the kind |
+  | A19-A20 | `list` NotNull; ∃ member `Kind == "constructor"` | `doc lookup lists a member ("List", "constructor", "List()")` — STRICTLY STRONGER (the C# accepted any constructor) |
+  | A21 | ∃ member `Kind=="method" && Name=="Add"` | same table, row 2 |
+  | A22-A23 | `process` NotNull; ∃ `event Exited` | same table, row 3 |
+  | A24-A25 | `Environment` NotNull; ∃ `nested type SpecialFolder` | same table, row 4 |
+  | A4-A11 | `Lookup_ListAdd…`: NotNull, `Kind` starts with `method`, summary non-blank, exactly one parameter named `item`, `Type == "T"`, its summary non-blank, and the two whitespace-hygiene `DoesNotContain`s | `doc lookup describes a generic method's parameters` — all eight, one plain test (the only parameter-shaped assertion in the cluster) |
+  | A26-A27 | `query doc Console` exits 0, stdout has `"ok": true` | `the CLI runtime answers a doc query it can document` |
+  | A28-A30 | `query doc HttpLoggingOptions` exits 1; `error.message` contains the two sentences | `the CLI runtime explains a doc query it cannot document (…)` — 2 rows, one per sentence, each also asserting exit 1 and `"ok": false` |
+
+  **30 `Assert.` calls in, 30 successors out, zero dropped.** The two miss rows parse the envelope
+  with `JsonDocument` rather than matching raw stdout, because the CLI escapes apostrophes as
+  `'` on the wire and only the DECODED message carries the sentence a human reads — the C#
+  parsed it too, and asserting the wire form would have been a weaker test wearing a stronger face.
+
+  **NON-VACUITY IS EXECUTED, NOT ASSERTED.** Four mutations — `Regex`'s kind → `struct`, `Exited` →
+  `ExitedNot`, `item.Type` → `TT`, and one miss sentence's assembly name → `NotHttpLogging` —
+  produce **exactly 4 failures out of 11, each the mutated case and no other**, and each failure
+  names the mutated row in its display name. Restored, 11/11.
+
+  **SIX `.nl` WALLS WERE MET WRITING THE CONTRACTS AND ALL SIX WERE ROUTED, NONE WIDENED THE
+  MANDATE.** `MethodInfo.Invoke` declines as an expression STATEMENT and with an INLINE
+  `new object?[](0)` (bind both the result and the argument array to locals); `object? ?? "<string>"`
+  declines (nest under `!= null` instead); `as Array` is an unsupported local type and `as object[]`
+  declines, but **`as IList` is the estate's established idiom** and emits; `Assembly.Location` is
+  not admitted (`AppContext.BaseDirectory` is, and is a better anchor — under `nlc test` it IS the
+  CLI's own directory); `PropertyInfo.Name` is not admitted; and finding 98.5's two-hop chain bit
+  twice. **A SEVENTH is a real finding: an N# `record`'s positional members are reached by
+  `GetField`, NOT `GetProperty`** — the helper now tries the property and falls back to the field,
+  which is what a contract asserting VALUES should have done anyway.
+
+  **PROOFS AND COUNTS.**
+  - **Runner's own tests: 8 new contracts in `ColumnarParserKernels.tests.nl`**, covering the plain
+    scan, the per-row scan, the header's acceptance and its refusal of `skip`, the empty row list,
+    the parameter-spelling walk, the LOWERED node shape (root kind 25, `2 + 2` children, the first
+    two kind-40 with value spans `int`/`string` and the row's own `7`/`"x"`, and row 1 binding `9`),
+    the value-count mismatch, and the label. **Native estate 5,075 → 5,083 by COUNT DIFF = +8**,
+    exactly the blocks added, 5,083/5,083 green under the restore-flag discipline
+    (`-p:NSharpExcludeTests=false --force-evaluate`).
+  - **The contracts were WRONG in a way that mattered and the tree corrected them**: they first fed
+    the kernels the RAW token stream, and 4 of 8 failed. Production feeds the **COOKED** stream
+    (`tokens.Kinds` / `tokens.Count`). The probe now mirrors the production call exactly — a
+    contract that had passed on raw tokens would have been asserting about a stream the compiler
+    never uses.
+  - **Unit suite 3,186 / 3,186** = 3,193 − the 7 migrated `DocQueryTests`. `dev.sh --since` was
+    fail-safe (shared compiler file) and re-ran the full unit suite green in 9 m 06 s.
+  - **Every native project run the way the gate runs them: 29 projects, all `ok: true`**, including
+    the new `tests/native/doc-query` at **11/11**.
+  - **Live tree `nlc check`: 393 files / 246 errors — the inherited baseline to the digit**, ZERO
+    new rows. Format contract gate over `src/NSharpLang.Compiler.BootstrapServices`: clean.
+
+  **RATCHET — THREE ROWS AND THE TWO-KEY HEAD, WITH THE WALK VALIDATED FIRST.** The FNV-1a head walk
+  was reimplemented and **reproduced the ACCEPTED `head-v1:b8c85af7d7afa6d0` from the pristine
+  manifest before anything was edited** (utf-8-sig read, regexed header). The audit **correctly
+  failed 17/18 with FOUR violations** (OWN004 + OWN005 on `Program.Testing.cs`, OWN005 on
+  `ColumnarProgramInputBuilder.cs`, OWN006 on the deleted test file) and **passes 18/18 after**.
+  - `tests/DocQueryTests.cs` **122/101/37 → 0/0/0**, `state: "existing-debt" → "removed"`,
+    `currentFingerprint: "text-v1:removed"`, epoch ceilings 142/118/37 preserved — the
+    `Formatter.cs` / `Linter.cs` / `DocQuery.cs` row shape for the fourth time.
+  - `Program.Testing.cs` **653/571 → 618/540**, fingerprint `00d2d63cab8b3507 → 70e163bd806923f6`.
+  - `ColumnarProgramInputBuilder.cs` **1062/991 unchanged**, fingerprint
+    `9a507078f65ea6fc → af12c2b0678e433f`.
+  - Head repinned LAST in BOTH keys — the manifest header AND `OwnershipPolicy`'s constant —
+    `head-v1:b8c85af7d7afa6d0 → head-v1:1728e111c86d606c`. Manifest **391 lines, no BOM**.
+  - `tests/native/doc-query/project.yml` needs no row: `project.yml` is an exact data/asset
+    exception in `Classify`, and `.nl` is ignored — so the new project adds **zero** manifest rows.
+
+  **DOCUMENTATION.** `website/docs/language-tour.md` already SHOWED table-driven tests, skip and
+  setup — for a runner that refused all three. Its table-driven section now states the rule that
+  makes the feature worth having (**every row is its own test**, with the reported names, where the
+  name shows up in `--verbose` / `--json` / `--filter`, and the `NL310` / `NL202` limits), and
+  `skip` / `setup` carry an honest "not yet runnable" caution instead of an implicit promise.
+  `memory/testing.md` records the same, plus the lowering model.
+
+  **NEXT CAPABILITY, per the task file's closing rule: `skip`.** It is second in the mandated order,
+  it is measured (`parse.declaration-scan`, `span=0:4`), the AST and recovery parser already carry
+  `SkipReason`, the runner already classifies a `skipped` outcome and the JSON envelope already
+  counts it — so the gap is again the columnar scan plus a way to carry the reason to the emitted
+  method. **Task 020 stays UNCHECKED**: the runner still declines `skip`, `setup`/`teardown`, and
+  the async and timeout rows are unmeasured beyond this slice's probes.
+
+- Active sub-slice (019 arc, PRIOR TURN — TARGET RECORDED BEFORE ANY PRODUCTION EDIT at tip
   `9b0dd2388`): **019 SLICE 22 STAGE 2 — `DocQuery.cs` IS DELETED. 443 DELETIONS, ZERO INSERTIONS.**
 
   **THE CLOSURE WAS MEASURED BEFORE THE FIRST EDIT, AND IT SAID DELETE.** Slice 20's lesson is that

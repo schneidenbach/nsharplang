@@ -12,14 +12,12 @@ class NativeTestCase {
     DisplayName: string
     FullyQualifiedName: string
     Method: MethodInfo
-    Arguments: object?[]
     SkipReason: string?
 
-    constructor(displayName: string, fullyQualifiedName: string, method: MethodInfo, arguments: object?[], skipReason: string?) {
+    constructor(displayName: string, fullyQualifiedName: string, method: MethodInfo, skipReason: string?) {
         DisplayName = displayName
         FullyQualifiedName = fullyQualifiedName
         Method = method
-        Arguments = arguments
         SkipReason = skipReason
     }
 }
@@ -189,10 +187,6 @@ class TestCommandKernels {
 
     static func IsSkipNamedArgument(memberName: string): bool {
         return memberName == "Skip"
-    }
-
-    static func IsInlineDataAttributeName(attributeFullName: string?): bool {
-        return attributeFullName == "Xunit.InlineDataAttribute" || attributeFullName == "NUnit.Framework.TestCaseAttribute"
     }
 
     static func GetExitCode(ok: bool): int {

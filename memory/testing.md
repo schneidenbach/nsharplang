@@ -324,8 +324,25 @@ Run with:
 nlc test --project <project-directory>
 ```
 
-Plain tests and assertions are live. Check current product tests and limitations before relying
-on richer lifecycle/table/skip forms; those forms are still being closed out.
+Table-driven tests are live too, and each ROW is an independent test:
+
+```
+test "adds" with (a: int, b: int, sum: int) [
+    (1, 2, 3),
+    (2, 3, 5)
+] {
+    assert a + b == sum
+}
+```
+
+N# lowers every row into its own test declaration before emit — the row's values are bound as typed
+locals of the declared parameter types — so each row emits its own method and reports under its own
+name, `adds (1, 2, 3)`. Row values must be literals (`NL310` otherwise), and a row's value count
+must match the parameter count (`NL202` otherwise).
+
+`skip`, `setup` and `teardown` parse and are understood by the editor tooling, but `nlc test` still
+DECLINES a file containing one (`parse.declaration-scan`). They are the next capabilities in the
+runner close-out; do not rely on them yet.
 
 ## Validation cadence
 

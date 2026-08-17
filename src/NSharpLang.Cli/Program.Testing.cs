@@ -399,24 +399,14 @@ partial class Program
                     continue;
                 }
 
-                var displayName = GetNSharpDescription(attributes) ?? method.Name;
-                var skipReason = GetSkipReason(attributes);
-                var dataRows = GetInlineDataRows(attributes).ToArray();
-                if (dataRows.Length == 0)
-                {
-                    dataRows = new[] { Array.Empty<object?>() };
-                }
-
-                foreach (var row in dataRows)
-                {
-                    var suffix = row.Length == 0 ? string.Empty : $"({string.Join(", ", row.Select(value => value ?? "null"))})";
-                    yield return new NativeTestCase(
-                        displayName + suffix,
-                        $"{type.FullName}.{method.Name}",
-                        method,
-                        row,
-                        skipReason);
-                }
+                // ONE CASE PER METHOD. N# owns table-driven cases by LOWERING each row into its own
+                // test declaration before emit, so every row arrives here already named and already
+                // alone — there is no row expansion left for the runner to decide.
+                yield return new NativeTestCase(
+                    GetNSharpDescription(attributes) ?? method.Name,
+                    $"{type.FullName}.{method.Name}",
+                    method,
+                    GetSkipReason(attributes));
             }
         }
     }
@@ -447,7 +437,7 @@ partial class Program
             {
                 InvokeLifecycle(instance, "InitializeAsync", timeoutMs);
                 InvokeLifecycle(instance, "Setup", timeoutMs);
-                InvokeTestMethod(instance, testCase.Method, testCase.Arguments, timeoutMs);
+                InvokeTestMethod(instance, testCase.Method, timeoutMs);
             }
             finally
             {
@@ -491,15 +481,16 @@ partial class Program
         }
     }
 
-    private static void InvokeTestMethod(object? instance, MethodInfo method, object?[] arguments, int? timeoutMs)
+    private static void InvokeTestMethod(object? instance, MethodInfo method, int? timeoutMs)
     {
-        if (method.GetParameters().Length != arguments.Length)
+        // A test method takes no parameters: N# lowers a table row's values into locals in the body.
+        if (method.GetParameters().Length != 0)
         {
             throw new InvalidOperationException(
-                $"Test '{method.DeclaringType?.FullName}.{method.Name}' expects {method.GetParameters().Length} argument(s), but {arguments.Length} were supplied.");
+                $"Test '{method.DeclaringType?.FullName}.{method.Name}' expects {method.GetParameters().Length} argument(s), but a native test method takes none.");
         }
 
-        WaitForPossibleAsyncResult(method.Invoke(instance, arguments), timeoutMs);
+        WaitForPossibleAsyncResult(method.Invoke(instance, Array.Empty<object?>()), timeoutMs);
     }
 
     private static void InvokeLifecycle(object? instance, string methodName, int? timeoutMs)
@@ -589,32 +580,6 @@ partial class Program
         }
 
         return null;
-    }
-
-    private static IEnumerable<object?[]> GetInlineDataRows(IEnumerable<CustomAttributeData> attributes)
-    {
-        foreach (var attribute in attributes)
-        {
-            if (!TestCommandKernels.IsInlineDataAttributeName(attribute.AttributeType.FullName))
-            {
-                continue;
-            }
-
-            if (attribute.ConstructorArguments.Count != 1)
-            {
-                continue;
-            }
-
-            var argument = attribute.ConstructorArguments[0];
-            if (argument.Value is IReadOnlyCollection<CustomAttributeTypedArgument> values)
-            {
-                yield return values.Select(value => value.Value).ToArray();
-            }
-            else
-            {
-                yield return new[] { argument.Value };
-            }
-        }
     }
 
     private static Exception UnwrapInvocationException(Exception ex)

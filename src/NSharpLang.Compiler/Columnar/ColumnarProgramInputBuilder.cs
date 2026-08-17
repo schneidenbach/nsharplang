@@ -262,7 +262,7 @@ internal static class ColumnarProgramInputBuilder
         var bci = new int[cap];
         var bss = new int[cap];
         var bsl = new int[cap];
-        var result = new int[4];
+        var result = new int[6];
         var bodyNodeCount = global::Program.ParseColumnarTestInfoInto(
             source, ck, cs, cv, n, testIndex, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, result);
         if (bodyNodeCount <= 0)
@@ -272,7 +272,7 @@ internal static class ColumnarProgramInputBuilder
         if (bodyRoot < 0 || bodyRoot >= bodyNodeCount || result[0] < 0 || result[1] <= 0 || result[0] + result[1] > source.Length)
             return false;
 
-        var description = NSharpLang.Compiler.StringLiteralDecoder.Decode(source.Substring(result[0], result[1]));
+        var description = global::Program.ColumnarTestCaseLabel(source, result);
         var bodyNodes = BuildTrimmedNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bodyNodeCount);
         var body = new ColumnarFunctionInput(
             "test " + description, "void", Array.Empty<string>(), Array.Empty<string>(),
