@@ -1,6 +1,57 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-18 (**020 SLICE 6 — FOUR MORE C# ASSERTION LAYERS ARE DELETED, THE
+Last updated: 2026-08-18 (**020 SLICE 7 — `tests/LexerTests.cs` IS DELETED. THE ARC'S LARGEST
+SINGLE CLUSTER, MIGRATED WHOLE, AND THE FIRST PROBE IN THE ARC THAT CAME BACK WITH ZERO WALLS IN ONE
+ROUND.** **894 C# lines / 77 `[Fact]`s / 0 `[Theory]`s** leave for
+`src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl` — **1,675 lines, 55 declarations, 433
+assertion lines**. **THE PROBE WAS THE WHOLE RISK MODEL AND IT PAID OFF IMMEDIATELY**: one file, 15
+declarations, carrying every risky shape the deleted file used — the `List<Token>` INDEXER, every
+`Token` member, string DATA holding escaped quotes / raw backslashes / a `$`-interpolation with
+NESTED quotes and braces / triple quotes / char literals, `\r\n` pairs,
+`StartsWith`/`EndsWith`/`IndexOf` under `StringComparison.Ordinal`, the last element (which the C#
+spelled `tokens[^1]`), the `Comments` trivia property, and an indexed sweep over a `TokenType`
+table — reported **`Total: 5334` = 5,319 + exactly 15, with ZERO declines**. **NO WALL IS ITSELF THE
+FINDING, AND IT IS STRUCTURAL RATHER THAN LUCKY**: `Lexer`'s whole surface is `string` in and
+`List<Token>` out, and every member of that answer is a primitive — so a cluster's SIZE is not its
+risk, and the two remaining rows (`Linter`, `Formatter`) take and answer AST types and should be
+priced HIGHER than their line counts suggest. **THE SUCCESSOR IS STRICTLY STRONGER BY CONSTRUCTION,
+ON THE SLICE-3 PRECEDENT: THE DELETED FILE SAMPLED THE KEYWORD TABLE WITH SIXTEEN `[Fact]`s AND THIS
+ONE CROSSES IT.** All **85** keywords are lexed individually and must answer their own `TokenType`,
+their own text and nothing else — so those sixteen are ABSORBED as matched rows and 69 are new; all
+85 are crossed through `KeywordTypeForText` and back through `KeywordTextForType`; the other **63**
+`TokenType` members are proved reserved by NEITHER; ten keyword LOOKALIKES are proved to be ordinary
+identifiers; and a **partition guard** proves the two tables disjoint and, together, the whole
+**148**-member enum, so a keyword added to the lexer and forgotten in a table now FAILS a contract
+instead of passing unnoticed. **THE COMPARATOR IS THE MIGRATION'S SPINE AND CARRIES TWELVE
+DECODINGS, SIX OF THEM NEW**, the load-bearing one being C# **RAW string literals** (`"""…"""`)
+decoded with closing-delimiter indent stripping and NO escape processing — without it not one
+multi-line setup would have matched, because a `\n` inside a raw literal is two literal characters.
+It reports **279 C# assertions in, 279 MATCHED, 0 missing, 0 differing, 902 EXTRA**, and it is
+**non-vacuous SEVEN times over**: seven perturbations flip the verdict to `DIFFERS` and name exactly
+their own rows — six a single row each, and the sweep perturbation exactly the THREE rows of the
+deleted `TestWhenKeyword` and no other, which is the cleanest possible demonstration that the cross
+subsumes the sample. **BOTH DECODERS CARRY THEIR OWN COMPLETENESS ARITHMETIC**: the C#'s **276**
+top-level `Assert` statements produce **279** rows (the +3 is the one `Assert.All(tokens.Take(4),
+…)`), and the N#'s **433** `assert` statements produce **1,181** rows (`420 + 85x4 + 10x4 + 85x3 +
+63x2 = 1,181`), to the digit — so neither side dropped an assertion nor double-counted one. **SIX
+SUBJECT MUTATIONS IN SIX DIFFERENT KERNELS PRODUCE EXACTLY 6 FAILURES OUT OF 5,374 — 5,368 PASSED —
+EACH NAMING ITS OWN DECLARATION WITH ZERO COLLATERAL**, and the subject is restored BYTE-IDENTICALLY
+(`git diff HEAD` over production `.nl` is empty). Evidence: **native estate 5,319 → 5,374 by COUNT
+DIFF (+55, the exact declarations added)**; **unit 2,944 → 2,867 / 2,867** = exactly the 77 migrated
+cases; **live tree 393 / 246 — the inherited baseline to the digit** with the same ten-code census,
+ZERO rows in any `.tests.nl` and, for the FIRST time in this arc, **ZERO rows naming the migrated
+subject**; format clean on the FIRST run; **audit 18/18 after correctly failing 17/18 on exactly ONE
+`OWN006`**, head `c0729fd6577a00d8 → 152dc91ec070ddaf` repinned LAST in both keys from walks
+validated against the pristine manifest first, manifest 391 lines no BOM. **`git diff HEAD --numstat
+-- '*.cs'` is `added=0 deleted=894` over ONE file; zero new C#; `Program.Testing.cs` stays 618, not
+opened.** **THE DEAD SWEEP FOUND LIVE DOCUMENTATION FOR THE FIRST TIME** — `memory/components/lexer.md`
+and two rows of `memory/testing.md` still pointed at the deleted file, one of them a `dev.sh`
+invocation that would now select nothing; all three now describe the N# estate contracts. **7
+canonical C# assertion layers remain (2 estate / 0 native / 5 blocked), and the estate-routable set
+is now exactly `Linter` 1,366L and `Formatter` 2,132L. Task 020 stays UNCHECKED.** NOT COMMITTED —
+the mandate reserves that)
+
+Last updated (prior): 2026-08-18 (**020 SLICE 6 — FOUR MORE C# ASSERTION LAYERS ARE DELETED, THE
 `tests/native` ROW TURNED OUT TO BE ESTATE-ROUTABLE ALL ALONG, AND THE ESTATE-ROUTABLE SET IS NOW
 DOWN TO THE THREE BIG FILES.** **THE BATCH IS THE THREE CHEAPEST ESTATE ROWS PLUS THE ONE
 `tests/native` ROW** — `Preprocessor` 303L, `BindingMap` 332L, `DiagnosticSpanResolver` 358L,
@@ -3246,7 +3297,26 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 6 IS THE THIRD BATCH MIGRATION,
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 7 IS THE ARC'S LARGEST SINGLE
+  MIGRATION AND THE FIRST WITH NO WALL AT ALL.** `tests/LexerTests.cs` — **894 lines / 77 xUnit
+  cases** — is deleted and replaced by `Lexer.tests.nl`, **1,675 lines carrying 55 declarations and
+  433 assertion lines**. The probe came back **green in ONE round** (`Total: 5334` = 5,319 + exactly
+  15), which no earlier batch managed, and the reason is structural: `Lexer` takes a `string` and
+  answers a `List<Token>` whose every member is a primitive. The successor **crosses** the keyword
+  table the deleted file **sampled** — all 85 keywords lexed, the 85-row bijection through
+  `KeywordTypeForText`/`KeywordTextForType`, the other 63 `TokenType` members proved reserved by
+  neither, ten lookalikes proved to be identifiers, and a partition guard over the whole 148-member
+  enum. The comparator, whose twelve decodings now include **C# RAW string literals with
+  closing-delimiter indent stripping and no escape processing** (without which no multi-line setup
+  matches at all), reports **279 in, 279 MATCHED, 0 missing, 0 differing, 902 EXTRA**, is
+  non-vacuous **seven** times over, and both its decoders carry their own completeness arithmetic
+  (C# 276 asserts → 279 rows; N# 433 asserts → 1,181 rows, exactly). **Six subject mutations produce
+  exactly six failures out of 5,374, each naming its own declaration with zero collateral.** The
+  dead sweep found **live documentation** for the first time — three `memory/*.md` rows, now
+  corrected. **7 canonical C# assertion layers remain (2 estate / 0 native / 5 blocked) and the
+  estate-routable set is now exactly `Linter` 1,366L and `Formatter` 2,132L. Task 020 stays
+  UNCHECKED.**
+  (Prior: **SLICE 6 IS THE THIRD BATCH MIGRATION,
   AND IT TOOK THE LAST NON-ESTATE ROW WITH IT.** The three cheapest remaining estate clusters —
   `Preprocessor` 303L, `BindingMap` 332L, `DiagnosticSpanResolver` 358L — plus `DotnetRunnerTests`
   65L, the row slice 5 had classified as `tests/native`-only, are deleted: **1,058 C# lines / 110
@@ -3478,7 +3548,12 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 020 slice 6 — the THIRD BATCH MIGRATION: the three cheapest remaining estate
+- Current iteration: 020 slice 7 — the arc's LARGEST single migration: `tests/LexerTests.cs`, 894 C#
+  lines and 77 xUnit cases, taken whole by one probe that met NO wall, one comparator with twelve
+  decodings and its own completeness arithmetic on both sides, seven perturbations and six subject
+  mutations. The keyword table the deleted file sampled is now CROSSED, and the dead sweep corrected
+  three live documentation rows
+- Current iteration (prior): 020 slice 6 — the THIRD BATCH MIGRATION: the three cheapest remaining estate
   clusters plus the one `tests/native` row, which the probe re-classified as estate-routable (1,058
   C# lines, 110 xUnit cases, four `[Theory]`s), migrated with four per-cluster proof sets and closed
   with a four-mutation non-vacuity pass that has zero collateral. Two walls measured and routed
@@ -3530,7 +3605,257 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (020 arc, THIS TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE ONE
+- Active sub-slice (020 arc, THIS TURN — THE PROBE VERDICTS RECORDED BEFORE ANY PRODUCTION EDIT at
+  tip `0a91a21e5`): **020 SLICE 7 — `tests/LexerTests.cs`, THE ARC'S LARGEST SINGLE CLUSTER, AND THE
+  FIRST PROBE IN THE ARC THAT CAME BACK CLEAN.**
+
+  **THE CLUSTER, PROBED BEFORE IT WAS WRITTEN.** Slice 6's inventory leaves three estate-routable
+  rows; this slice takes the cheapest, `tests/LexerTests.cs` — **894 lines, 77 `[Fact]`s and ZERO
+  `[Theory]`s, so 77 xUnit cases**, the biggest single file the arc has migrated. One probe
+  `.tests.nl` carried every risky shape in it, because the estate reports only the FIRST decline.
+
+  | probe | shape under test | verdict |
+  |---|---|---|
+  | A | `new Lexer(src, "test.nl").Tokenize()`, the `List<Token>` INDEXER, `.Count`, and every `Token` member (`Type` / `Value` / `Line` / `Column` / `IsTerminated`) | **ZERO WALLS** |
+  | B | string DATA holding escaped quotes, raw backslashes, a `$`-interpolation with NESTED quotes and braces, triple quotes, and char literals terminated and not | **ZERO WALLS** |
+  | C | `\n` and `\r\n` inside source data, and a multi-line source built from escapes | **ZERO WALLS** |
+  | D | `StartsWith` / `EndsWith` / `IndexOf` under `StringComparison.Ordinal`, and a `char` read out of a token's text | **ZERO WALLS** |
+  | E | `tokens[tokens.Count - 1]` — the estate's spelling of the deleted file's `tokens[^1]` | **ZERO WALLS** |
+  | F | the `Comments` property and `CommentTrivia`'s four members | **ZERO WALLS** |
+  | G | the three statics (`IsReservedKeyword`, `KeywordTypeForText`, `KeywordTextForType`) and an indexed sweep over a parallel `string[]` / `TokenType[]` pair | **ZERO WALLS** |
+
+  **NO WALL, AND THAT IS ITSELF THE FINDING.** Every earlier batch met at least one decline — slice
+  4 an array-literal spelling, slice 5 THREE (a local named `scoped`, a named tuple element off a
+  walked dictionary entry, a tuple literal with a `null` element), slice 6 TWO (omitted default
+  arguments on statics, `TimeSpan` member reads). This one met NONE, and the reason is structural
+  rather than lucky: `Lexer`'s entire surface is `string` in and `List<Token>` out, and both the
+  indexer and the `Token` members were already inside the envelope the earlier probes established.
+  **The probe reports `Passed! Failed: 0, Total: 5334` — the 5,319 baseline plus exactly its 15
+  declarations** — and both it and the scratch oracle are DELETED before the migration lands. Every
+  call in the successor is nonetheless spelled at FULL ARITY, because slice 6's defaulted-parameter
+  wall still stands.
+
+  ### WHAT LANDED
+
+  **ONE STAGE, ONE CLUSTER, NO NEW CAPABILITY AND NO TOOLSET REPUBLISH.** The capability question
+  was asked first and answered by the probe: this cluster needs no gap closed at all.
+
+  **THE C# MOVED IN ONE DIRECTION ONLY.** `git diff HEAD --numstat -- '*.cs'` is **`added=0
+  deleted=894` over ONE file**, with **zero new C# files**. `Program.Testing.cs` stays at **618**,
+  not edited and not opened. `git diff HEAD` over production `.nl` is **EMPTY** — the slice adds
+  `.tests.nl` only, plus the ratchet manifest and its two-key head, plus two documentation files.
+
+  | deleted C# | lines / xUnit cases | successor `.tests.nl` (new) | lines / declarations / asserts |
+  |---|---|---|---|
+  | `tests/LexerTests.cs` | 894 / 77 (77 `[Fact]`, 0 `[Theory]`) | `Lexer.tests.nl` | 1,675 / 55 / 433 |
+
+  **THE SUCCESSOR IS STRICTLY STRONGER BY CONSTRUCTION, ON THE SLICE-3 PRECEDENT: THE DELETED FILE
+  SAMPLED THE KEYWORD TABLE AND THIS ONE CROSSES IT.** Sixteen of the deleted file's 77 `[Fact]`s
+  were one-keyword tests (`when`, `print`, `nameof`, `must`, `import`, `required`, `init`, `ref`,
+  `out`, `lock`, `file`, `params`, `checked`, `unchecked`, `implicit`, `explicit`), each asserting
+  the same three things. The successor lexes **all 85** keywords the same way and asserts a fourth
+  (the stream ends), so those sixteen are ABSORBED as matched rows and the other 69 are new. On top
+  of that: all 85 are crossed through `KeywordTypeForText` and back through `KeywordTextForType`;
+  the other **63** `TokenType` members are proved reserved by NEITHER table; ten keyword LOOKALIKES
+  (`var` — the deleted file's own — plus prefixes, suffixes, capitalisations and an underscore lead)
+  are proved to be ordinary identifiers; and a **partition guard** proves the two tables disjoint
+  and, together, the whole **148**-member enum. A keyword added to the lexer and forgotten in a
+  table now fails a contract instead of passing unnoticed.
+
+  **THE COMPARATOR IS THE MIGRATION'S SPINE, AND FOR A FILE THIS SIZE THAT IS WHERE THE INVESTMENT
+  WENT.** One engine — one tokenizer, one expression parser, and two statement interpreters — decodes
+  the deleted C# out of `HEAD` and the N# out of the work tree into one row language,
+  `<setup> => <claim>`, where the setup is the exact source string handed to the lexer and the claim
+  is a normalised selector (`t[i]`, `t[last]`, `kind(X)[j]`, `byvalue("v")`, `count(all)`,
+  `count(kind(X))`, `count(notkinds(A,B))`) with a field and a value. **Twelve decodings, six of them
+  new this slice:**
+  - **C# RAW string literals** (`"""…"""`) with closing-delimiter indent stripping and NO escape
+    processing. This is the load-bearing one: the deleted file's multi-line sources are raw
+    literals, so a `\n` inside one is two literal characters, not a line break — without this
+    decoding not a single multi-line setup would have matched.
+  - **C# VERBATIM strings** (`@"…"`, `""` for a quote) — how the interpolated-raw-string source is
+    spelled.
+  - **LINQ `Where(…).ToList()`** decoded to a kind selector, so the C#'s `strings[0]` and the N#'s
+    `LexerContractNthValue(tokens, kind, 0)` are the SAME selector; and a **compound `Where`
+    predicate** (`t.Type != Newline && t.Type != Eof`) decoded to an ordered `notkinds(…)` selector.
+  - **`Assert.All(tokens.Take(n), t => …)`** expanded row by row; **`Assert.Single(x)`** decoded BOTH
+    as a count claim and as a binding for the token it returns; **`Assert.NotNull(FirstOrDefault(…))`**
+    decoded to `count(kind) >= 1`, which is exactly what `LexerContractHasKind` claims.
+  - **`tokens[^1]`** and the N#'s `tokens[tokens.Count - 1]` decoded to the same `t[last]` selector;
+    **`First(t => t.Value == "x")`** to the same `byvalue("x")` selector as `LexerContractLineOfValue`.
+  - **An indexed `while` sweep over a table-returning free func** expanded against the table's own
+    literal contents — this is how 85 keywords become 340 rows and absorb the sixteen single-keyword
+    facts — and **a table-partition predicate** (`disjoint` / `covers`) folded against the tables
+    themselves plus the 148 members read out of `Token.nl`, the PRODUCT source rather than either
+    test side.
+
+  | cluster | C# decoded | N# decoded | MATCHED | MISSING | DIFFERING | N# EXTRA |
+  |---|---|---|---|---|---|---|
+  | `Lexer` | **279** | **1,181** | **279** | **0** | **0** | **902** |
+
+  **BOTH DECODERS CARRY THEIR OWN COMPLETENESS ARITHMETIC, WHICH IS WHAT MAKES THE 279 A PROOF
+  RATHER THAN A COINCIDENCE.** The C# file has **276 top-level `Assert` statements** and the decoder
+  emits **279 rows**; the difference is exactly the one `Assert.All(tokens.Take(4), …)`, the only
+  statement in the file that asserts over a sequence. The N# file has **433 `assert` statements** —
+  420 at test level and 13 inside four table sweeps — and the decoder emits **1,181 rows**:
+  `420 + (85x4 + 10x4 + 85x3 + 63x2) = 420 + 761 = 1,181`, to the digit. Neither side dropped an
+  assertion and neither double-counted one.
+
+  **THE COMPARATOR IS NON-VACUOUS SEVEN TIMES OVER.** Seven perturbations, applied to the N# text in
+  memory, each flip the verdict from `EQUIVALENT` to `DIFFERS` and name exactly their own rows:
+
+  | perturbation | rows flipped | the row |
+  |---|---|---|
+  | `t[0].Value` `"myVar"` → `"myVarX"` | 1 differing | `t[0].value` [`TestIdentifiers`] |
+  | the keyword line's `Count` `11` → `12` | 1 differing | `count(all)` [`TestKeywords`] |
+  | the second string literal shortened | 1 differing | `kind(StringLiteral)[1].value` [`TestStrings`] |
+  | `QuestionBracket` → `Question` | 1 differing | `t[1].type` [`TestNullConditionalIndexing`] |
+  | **the keyword TEXT table's `"when"` row** | **3 missing** | **ALL THREE of `TestWhenKeyword`'s rows and NO other** |
+  | `t[last].Type` `Eof` → `Unknown` | 1 differing | `t[last].type` [`TestUnterminatedMultiLineComment`] |
+  | the raw-string prefix `$"""` → `$""` | 1 differing | `t[0].startswith` [`TestInterpolatedRawString`] |
+
+  The sweep perturbation is the interesting one: a keyword's text is BOTH the setup and the claim,
+  so moving it moves that keyword's whole row set — and the three rows it moves are precisely the
+  three the deleted `TestWhenKeyword` asserted, which is the cleanest possible demonstration that
+  the cross really does subsume the sample.
+
+  **WHERE THE SUCCESSOR IS STRICTLY STRONGER (+902, and EVERY ONE of the 55 declarations
+  contributes at least one).** By family: **500** token-stream rows, **381** keyword-statics rows,
+  **15** comment-trivia rows, **6** partition-guard rows.
+  - **The keyword table (+673 across four declarations)**: all 85 keywords lexed rather than 16;
+    the 85-row bijection in both directions; the 63 non-keywords proved reserved by neither; ten
+    lookalikes proved to be identifiers — including `test`, which is the one word-shaped member of
+    the non-keyword table, because `TokenType.Test` exists but no keyword text reaches it.
+  - **Trivia (+15), which the deleted file NEVER READ.** `Comments` is asserted for the first time:
+    a single-line comment, a multi-line comment and an XML doc comment, each with its text, line,
+    column and multi-line flag — and the UNTERMINATED multi-line comment's trivia text is proved to
+    be `"/* unterminated*/"`, i.e. the lexer CLOSES it for the formatter, which is the property that
+    keeps a round-trip from losing characters.
+  - **The token stream (+500)**: every operator's SPELLING as well as its kind, which is what pins
+    the longest-match order (`??=` before `??` before `?`, `...` before `..` before `.`, `:=` before
+    `:`); columns as well as lines; the `Eof` token proved to be a real positioned token; `\r\n`
+    proved to NORMALISE to a single line feed; `#region` proved to take the same route as `#if`; the
+    line breaks inside a raw string proved NOT to become `Newline` tokens; `?[` proved to leave no
+    `LeftBracket` behind while `[1, 2, 3]` does; the malformed radix literals proved to answer the
+    PREFIX only and to leave the trailing `_` as an identifier of its own; `1.2.3` proved to be ONE
+    `Unknown` covering the whole text rather than a float and a member access; and the three
+    lifetimes of the systems header proved by position, with `scoped` a keyword and `returns` not.
+
+  **NON-VACUITY IS EXECUTED, NOT ASSERTED — SIX SUBJECT MUTATIONS IN SIX DIFFERENT KERNELS, IN ONE
+  PASS, WITH ZERO COLLATERAL.** `ConsumeIntegerSuffix` stops consuming the second letter of a
+  two-letter suffix (`100UL` → `100U` + `L`); `KeywordTextForType`'s `Lock` arm answers `"locks"`,
+  so the type-to-text table stops being the inverse of the text-to-type one (`IsReservedKeyword` is
+  unaffected, and nothing else in the tree calls it); the `?[` token keeps its KIND but loses half
+  its text; `ReadCharLiteral`'s `terminated` starts out `true`; `IsLifetimeContext` drops
+  `|| word == "returns"`; and the exponent stops consuming its sign. The estate reports **exactly 6
+  failures out of 5,374 — 5,368 passed** — and each names its OWN declaration and no other:
+  `LexerReadsEveryIntegerSuffix`, `LexerMapsEveryKeywordTextToItsTokenTypeAndBack`,
+  `LexerReadsNullConditionalIndexingAsOneToken`,
+  `LexerReadsAnUnterminatedCharLiteralAsACharLiteral`,
+  `LexerReadsLifetimesRatherThanCharLiteralsInASystemsHeader`, `LexerReadsExponentNotation`. The
+  same run re-confirms the total on the FINAL bytes: **5,374**. The subject is restored
+  BYTE-IDENTICALLY (`git diff HEAD` over production `.nl` is empty).
+
+  **PROOFS AND COUNTS.**
+  - **Native BootstrapServices estate 5,319 → 5,374 by COUNT DIFF (+55, the exact number of
+    declarations added)**, under the restore-flag discipline (`-p:NSharpExcludeTests=false
+    --force-evaluate`, then `--no-restore`), `Failed: 0`.
+  - **Unit suite 2,944 → 2,867 / 2,867** = exactly the 77 migrated xUnit cases, `Failed: 0`.
+  - **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json`: 393 files,
+    246 rows — the inherited baseline to the digit**, same ten-code census (`NL202:85 NL402:68
+    NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), ZERO rows in any
+    `.tests.nl`, and — for the FIRST time in this arc — **ZERO rows naming the migrated subject**:
+    `Lexer.nl` is clean, where every earlier batch inherited at least one row on one of its subjects.
+  - **Format**: `nlc format --project src/NSharpLang.Compiler.BootstrapServices --check` reports
+    "All files are properly formatted" — clean on the FIRST run.
+  - **DEAD SWEEP, AND FOR THE FIRST TIME IT FOUND LIVE DOCUMENTATION.** Every `LexerTests` hit is
+    either the ratchet row this slice moves to `removed` or the successor's own header — EXCEPT
+    three real documentation rows: `memory/components/lexer.md:110` ("See `tests/LexerTests.cs`."),
+    and `memory/testing.md` at :18 (the test-file tree) and :224 (`./scripts/dev.sh LexerTests`).
+    All three are updated: the lexer component doc now describes the N# estate contracts and how to
+    run them, the tree listing drops the file and gains a pointer to the estate, and the `dev.sh`
+    example names a class that still exists. And nothing is orphaned: a per-entry-point census over
+    658 non-test `.nl`/`.cs` files finds **30 external call sites over 8 owners** —
+    `ColumnarParserRecovery.nl` 9, `PlaygroundCompiler.cs` 4, `Cli/Program.cs` 4, the LSP
+    `DocumentManager.cs` 3, `Formatter.nl` 3, `FormatterTests.cs` 3, `SemanticTokensHandler.cs` 2,
+    `LinterExportedSymbolExtractor.nl` 2.
+  - **`tests/native` projects: 30 / 303 cases, unchanged and all green** — this slice adds none.
+  - **THE FULL NON-VS-CODE PRODUCT GATE IS GREEN, FRESH AND ISOLATED.**
+    `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` worktree cut at `0a91a21e5` and
+    carrying exactly this slice's SIX code paths (the deleted `tests/LexerTests.cs`, the new
+    `Lexer.tests.nl`, the ratchet manifest and `OwnershipAudit.nl`, and the two `memory/*.md` rows,
+    plus `STATUS.md`): **`ALL TESTS PASSED` in 18m 39s, 110 green steps, ZERO failures**, with the
+    unit suite at **2,867** and the native estate at **5,374** *inside the gate* (both matching the
+    out-of-gate measurements to the digit), **30 native projects summing 303 cases**, the **format
+    contract gate PASSING with the new `.tests.nl` inside it**, and the IL verification gate
+    reporting **all 67 N# assemblies pass with no new errors vs baseline**. `pgrep` confirmed no
+    other gate — and no other session's `dotnet pack` — was running before launch, and the full log
+    was written to a file rather than tailed. **THE GATE WAS THEN RE-RUN, FRESH AND ISOLATED AGAIN,
+    ON THE EXACT FINAL TREE**, because this paragraph itself changed `STATUS.md` after the first
+    copy and a gate that does not cover the bytes being handed over is not evidence for them: the
+    second run reports **`ALL TESTS PASSED` in 18m 35s, 110 green steps, ZERO failures**, unit
+    **2,867**, estate **5,374**, **30 native projects / 303 cases**, format gate green and **67/67
+    assemblies** IL-verified — every number reproducing the first run to the digit. The only byte
+    that changed after the second run is this sentence, which no gate step reads. Both worktrees
+    were removed afterwards.
+
+  **RATCHET — ONE ROW TO `removed`, WITH THE WALKS VALIDATED BEFORE ANYTHING WAS EDITED.** The
+  FNV-1a walks were reimplemented and reproduced **all three** accepted values off the PRISTINE
+  manifest first (utf-8-sig read, regexed header): head `c0729fd6577a00d8`, pathset
+  `8a26e1529863444b`, epochfacts `1b3090747e517fc1`.
+  - `tests/LexerTests.cs` **894/782/354 → 0/0/0**, `state: "existing-debt" → "removed"`,
+    `currentFingerprint → "text-v1:removed"`, epoch ceilings preserved (the pathset and epochfacts
+    walks recompute UNCHANGED after the edit, which is the check that no epoch fact moved).
+  - Head repinned **LAST** and in BOTH keys — the manifest header AND `OwnershipPolicy`'s constant
+    in `OwnershipAudit.nl` — `head-v1:c0729fd6577a00d8 → head-v1:152dc91ec070ddaf`. Manifest **391
+    lines, no BOM** (`7b 0a 20`); `epochFileCount` 381 over 381 entries, both epoch fingerprints
+    untouched.
+  - **The audit is non-vacuous by execution**: against the PRISTINE manifest with the file already
+    deleted it **correctly FAILS 17/18**, on exactly ONE violation — the `OWN006` for
+    `tests/LexerTests.cs`, an active-debt entry whose file has disappeared — and **passes 18/18
+    after the repin**. The walks were re-validated against the FINAL manifest afterwards, and all
+    three reproduce.
+  - Neither the successor nor the two documentation edits need manifest rows: `Classify` ignores
+    `.nl` and `.md` alike.
+
+  **THREE FINDINGS.**
+  - **(1) A CLUSTER'S SIZE IS NOT ITS RISK.** 894 lines and 77 cases produced ZERO declines, where
+    123-line clusters in slice 5 produced three. What predicts a wall is the SHAPE of the subject's
+    surface, not the size of its test file: `Lexer` takes a `string` and answers a `List<Token>`,
+    and every member of that answer is a primitive. The remaining two rows (`Linter` 1,366L,
+    `Formatter` 2,132L) both take and answer AST types, so their probes should be priced higher than
+    their line counts suggest, not lower.
+  - **(2) THE SAMPLE-TO-CROSS CONVERSION IS WORTH MORE THAN THE MIGRATION.** Sixteen `[Fact]`s
+    became one 85-row sweep that subsumes them, and the partition guard turns the sweep from "long"
+    into "exhaustive" — a `TokenType` added to `Token.nl` and to neither table now fails a contract.
+    That is coverage the C# could not cheaply have had, and the comparator proves the sixteen old
+    rows survive inside it rather than being traded away.
+  - **(3) THE DEAD SWEEP MUST READ DOCUMENTATION, NOT ONLY CODE.** Three `memory/*.md` rows pointed
+    at the deleted file, including a `dev.sh` invocation that would now select nothing. Earlier
+    batches' sweeps found only ledger rows and successor headers, so the habit had not been
+    exercised; on a file this old it was.
+
+  **WHAT 020 STILL OWES.** **7 canonical C# assertion layers remain** (8 before this slice), and the
+  estate-routable set is now exactly the two big files:
+
+  | route | count | files |
+  |---|---|---|
+  | **BootstrapServices estate** | **2** | `Linter` 1,366L (**the next slice's cheapest**), `Formatter` 2,132L |
+  | `tests/native` (primitive arguments) | **0** | — |
+  | **BLOCKED** on `Type`-constant rows (NL310 / finding 99.1), reflection over an emitted assembly, or a C# receiver (`ColumnarCompiler`) | 5 | `ColumnarRuntimeTypeFacts` 20L, `ColumnarPatternFacts` 66L, `NumericLiteralFacts` 80L, `ColumnarNumericFacts` 101L, `ColumnarTypeCanonicalizer` 102L |
+
+  **AND THE TWO REMAINING ESTATE ROWS MUST BE PRICED BY SHAPE, NOT BY SIZE** (finding 1): both
+  `Linter` and `Formatter` take and answer AST types (`CompilationUnit`, `Diagnostic`,
+  `LinterConfig`) rather than strings and primitives, so their probes are the expensive part of the
+  next two slices even though this 894-line file needed only one round. Outside that set the three
+  owed items are UNCHANGED: **the async clusters** (`LanguageServerTests.cs` 142 async / 4,201 lines
+  / 25 C# receivers, `LanguageServerAutoImportTests.cs` 3, `CliParityAuditTests.cs` 1 — all
+  LSP-fixture or CLI-harness territory); **the `IReadOnlyDictionary`-widening pair**
+  (`tests/CodeIntelligenceTests.cs` 1,354L and `tests/CompletionEngineTests.cs` 322L, still blocked
+  on finding 97.6); and **setup/teardown**, whose demand is 3 ctor+`IDisposable` classes plus 1
+  `IAsyncLifetime` and whose gap is an ANALYSER one (`NL001`), not an emit one.
+
+- Active sub-slice (020 arc, PRIOR TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE ONE
   PROBE-VISIBLE WALL RECORDED BEFORE ANY PRODUCTION EDIT at tip `e05276aeb`; the SECOND wall, which
   only the real build could show, is recorded in WHAT LANDED): **020 SLICE 6 — THE NEXT
   FOUR CLUSTERS, AND THE `tests/native` ROW TURNS OUT TO BE ESTATE-ROUTABLE AFTER ALL.**

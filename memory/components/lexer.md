@@ -99,12 +99,18 @@ var tokens = lexer.Tokenize(); // Returns List<Token>
 
 ## Testing
 
-Lexer tests cover:
-- All keywords
-- All operators
-- String interpolation
-- Numeric literals
-- Comments
-- Error cases
+The lexer's canonical contracts are **N#, not C#**: `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`,
+which replaced `tests/LexerTests.cs` in 020 slice 7. They cover:
+- **Every keyword** — all 85 are lexed individually and crossed through `KeywordTypeForText` and
+  back through `KeywordTextForType`; the remaining 63 `TokenType` members are proved reserved by
+  neither, and the two tables are proved to partition the whole 148-member enum
+- All operators and delimiters, by kind *and* by spelling (which is what pins the longest-match order)
+- String, triple-quote, interpolated and interpolated-raw literals, terminated and unterminated
+- Numeric literals: hex, binary, exponent, every float and integer suffix, underscore stripping,
+  and every malformed form that must answer `Unknown`
+- Comments — filtered out of the token stream and preserved on `Comments` as positioned trivia
+- Preprocessor directives, newline normalisation, and line/column tracking
+- Apostrophe disambiguation: `Lifetime` in a systems header, `CharLiteral` everywhere else
 
-See `tests/LexerTests.cs`.
+Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
+(restore with `-p:NSharpExcludeTests=false --force-evaluate` first).

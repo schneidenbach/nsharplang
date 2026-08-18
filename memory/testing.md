@@ -15,7 +15,6 @@
 ### Test Files
 ```
 tests/
-├── LexerTests.cs                - Tokenization tests
 ├── ParserTests.cs               - Parsing tests
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
@@ -27,6 +26,10 @@ tests/
 ├── CodeIntelligenceTests.cs     - OutputFormatter unit tests
 └── QueryIntegrationTests.cs     - CLI toolchain integration tests (uses real example projects)
 ```
+
+Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
+`src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
+estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
 
 ## Testing Strategy
 
@@ -221,7 +224,7 @@ dotnet test tests/Tests.csproj
 
 ### Specific Test Class
 ```bash
-./scripts/dev.sh LexerTests
+./scripts/dev.sh ParserTests
 ```
 
 ### Specific Test Method
