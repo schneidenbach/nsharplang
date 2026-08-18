@@ -20,7 +20,6 @@ tests/
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
-├── LinterTests.cs               - Linter diagnostic tests
 ├── ErrorReportingTests.cs       - Error formatting tests
 ├── CodeFixTests.cs              - Code fix provider tests
 ├── CodeIntelligenceTests.cs     - OutputFormatter unit tests
@@ -30,6 +29,14 @@ tests/
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
+
+Linting has no C# assertion layer either. The linter's canonical contracts are N# and live beside
+their subjects in the same estate: `Linter.tests.nl` (the declaration walk, and the end-to-end rule
+contracts for NL001/NL002/NL003/NL004/NL006/NL010/NL011/NL012/NL016/NL020, suppression and resolved
+spans), `DiagnosticCatalog.tests.nl` (all 99 descriptors), `LinterConfig.tests.nl` (severities,
+overrides and `.editorconfig`) and `LinterBindingUsageCore.tests.nl` (the unused-binding policy).
+Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
+(restore with `-p:NSharpExcludeTests=false --force-evaluate` first).
 
 ## Testing Strategy
 

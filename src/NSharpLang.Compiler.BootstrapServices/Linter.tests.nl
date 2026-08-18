@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler.Ast
 
 
@@ -464,4 +465,596 @@ test "(c) non-vacuity: without the throw the same name is silenced inside the ty
     members.Add(LdwFunction("read", LdwReadBlock("StringBuilder", 5, 9)))
     walk.VisitClass(LdwClass("Widget", members))
     assert state.Diagnostics.Count == 0
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// THE END-TO-END RULE CONTRACTS (020 slice 8).
+//
+// These came out of `tests/LinterTests.cs`, which is deleted. Everything above asks the declaration
+// WALK a question by handing it an AST; everything below asks the whole LINTER a question the way a
+// user does — by writing N# source, parsing it, and reading what falls out. Both layers are real:
+// the walk contracts can stage shapes a parser will not produce, and these prove the parser, the
+// walk, the rule kernels, the suppression parser and the span resolver agree end to end.
+//
+// The deleted file's three private helpers are reproduced exactly: `Lint` parses with NO file name
+// and lints with no source text, `LintWithSource` supplies both (which is the only way spans
+// resolve), and `LintFile` reads the file off disk first. A parse that answers no compilation unit
+// THROWS here rather than answering an empty list — the C# spelled that `!` and would have turned
+// every "no diagnostic" contract into a contract about nothing.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+func LntLint(sourceText: string): List<Diagnostic> {
+    parsed := ColumnarParserRecovery.ParseFileAst(sourceText, null)
+    unit := parsed.CompilationUnit
+    if unit != null {
+        linter := new Linter()
+        return linter.Lint(unit, "test.nl", null)
+    }
+
+    throw new InvalidOperationException("the parser answered no compilation unit")
+}
+
+func LntLintWithSource(sourceText: string): List<Diagnostic> {
+    parsed := ColumnarParserRecovery.ParseFileAst(sourceText, "test.nl")
+    unit := parsed.CompilationUnit
+    if unit != null {
+        linter := new Linter()
+        return linter.Lint(unit, "test.nl", sourceText)
+    }
+
+    throw new InvalidOperationException("the parser answered no compilation unit")
+}
+
+func LntLintFile(filePath: string): List<Diagnostic> {
+    sourceText := File.ReadAllText(filePath)
+    parsed := ColumnarParserRecovery.ParseFileAst(sourceText, filePath)
+    unit := parsed.CompilationUnit
+    if unit != null {
+        linter := new Linter()
+        return linter.Lint(unit, filePath, sourceText)
+    }
+
+    throw new InvalidOperationException("the parser answered no compilation unit")
+}
+
+func LntCountOf(diagnostics: List<Diagnostic>, code: string): int {
+    total := 0
+    for diagnostic in diagnostics {
+        if diagnostic.Code == code {
+            total = total + 1
+        }
+    }
+
+    return total
+}
+
+func LntHasCode(diagnostics: List<Diagnostic>, code: string): bool {
+    return LntCountOf(diagnostics, code) > 0
+}
+
+func LntHas(diagnostics: List<Diagnostic>, code: string, messageFragment: string): bool {
+    for diagnostic in diagnostics {
+        if diagnostic.Code == code && diagnostic.Message.Contains(messageFragment) {
+            return true
+        }
+    }
+
+    return false
+}
+
+func LntHasMessage(diagnostics: List<Diagnostic>, messageFragment: string): bool {
+    for diagnostic in diagnostics {
+        if diagnostic.Message.Contains(messageFragment) {
+            return true
+        }
+    }
+
+    return false
+}
+
+func LntHasSuggestion(diagnostics: List<Diagnostic>, code: string, suggestionFragment: string): bool {
+    for diagnostic in diagnostics {
+        if diagnostic.Code == code {
+            suggestion := diagnostic.Suggestion
+            if suggestion != null && suggestion.Contains(suggestionFragment) {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
+func LntHasBoth(diagnostics: List<Diagnostic>, code: string, messageFragment: string, suggestionFragment: string): bool {
+    for diagnostic in diagnostics {
+        if diagnostic.Code == code && diagnostic.Message.Contains(messageFragment) {
+            suggestion := diagnostic.Suggestion
+            if suggestion != null && suggestion.Contains(suggestionFragment) {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
+func LntFirstOf(diagnostics: List<Diagnostic>, code: string): Diagnostic {
+    for diagnostic in diagnostics {
+        if diagnostic.Code == code {
+            return diagnostic
+        }
+    }
+
+    throw new InvalidOperationException("no diagnostic with code " + code)
+}
+
+func LntSingleOf(diagnostics: List<Diagnostic>, code: string): Diagnostic {
+    matched := new List<Diagnostic>()
+    for diagnostic in diagnostics {
+        if diagnostic.Code == code {
+            matched.Add(diagnostic)
+        }
+    }
+
+    if matched.Count != 1 {
+        throw new InvalidOperationException("expected exactly one " + code + ", found " + matched.Count.ToString())
+    }
+
+    return matched[0]
+}
+
+func LntTempDirectory(tag: string): string {
+    directory := Path.Combine(Path.GetTempPath(), "nsharp-linter-" + tag + "-" + Guid.NewGuid().ToString())
+    Directory.CreateDirectory(directory)
+    return directory
+}
+
+// ── NL001: unused variable ────────────────────────────────────────────────────────────────────
+
+test "NL001 reports a variable that is declared and never read" {
+    diagnostics := LntLint("func main() { x := 5 }")
+    assert diagnostics.Count == 1
+    assert diagnostics[0].Code == "NL001"
+    assert diagnostics[0].Message.Contains("'x'")
+    assert diagnostics[0].Message.Contains("never read")
+    assert diagnostics[0].Severity == DiagnosticSeverity.Error
+}
+
+test "NL001 allows an underscore-prefixed intentionally unused variable" {
+    assert !LntHasCode(LntLint("\nfunc main() {\n    _x := 5\n}"), "NL001")
+}
+
+test "NL001 says nothing about a variable that IS read" {
+    assert !LntHas(LntLint("\nfunc main() {\n    x := 5\n    y := x + 1\n}"), "NL001", "'x'")
+}
+
+test "NL001 reports every unused variable, not just the first" {
+    diagnostics := LntLint("\nfunc main() {\n    x := 5\n    y := 10\n    z := 15\n}")
+    assert LntCountOf(diagnostics, "NL001") == 3
+    assert LntHas(diagnostics, "NL001", "'x'")
+    assert LntHas(diagnostics, "NL001", "'y'")
+    assert LntHas(diagnostics, "NL001", "'z'")
+}
+
+test "NL001 counts a read inside an expression as a use" {
+    diagnostics := LntLint("\nfunc main() {\n    x := 5\n    y := x + 10\n    z := y + 1\n}")
+    assert !LntHas(diagnostics, "NL001", "'x'")
+    assert !LntHas(diagnostics, "NL001", "'y'")
+    // …and the one nothing reads is still reported, which is what makes the two above non-vacuous.
+    assert LntHas(diagnostics, "NL001", "'z'")
+}
+
+test "NL001 is not the rule for parameters" {
+    assert !LntHasCode(LntLint("\nfunc add(a: int, b: int): int {\n    return a + b\n}"), "NL001")
+}
+
+test "NL001 counts a loop variable and an indexed collection as used" {
+    diagnostics := LntLint("\nfunc main() {\n    numbers := [1, 2, 3]\n    for i := 0; i < 3; i = i + 1 {\n        print(numbers[i])\n    }\n}")
+    assert !LntHas(diagnostics, "NL001", "'i'")
+    assert !LntHasMessage(diagnostics, "'numbers'")
+}
+
+test "NL001 reaches into a nested scope" {
+    diagnostics := LntLint("\nfunc main() {\n    x := 5\n    if true {\n        y := 10\n    }\n}")
+    assert LntHas(diagnostics, "NL001", "'x'")
+    assert LntHas(diagnostics, "NL001", "'y'")
+}
+
+test "NL001 does not count an ASSIGNMENT as the read that saves a variable" {
+    // `x = 10` writes; `y := x + 1` reads. The read is what clears x, and y is left unread.
+    diagnostics := LntLint("\nfunc main() {\n    x := 5\n    x = 10\n    y := x + 1\n}")
+    assert !LntHas(diagnostics, "NL001", "'x'")
+    assert LntHas(diagnostics, "NL001", "'y'")
+}
+
+// ── inline and comment suppression ────────────────────────────────────────────────────────────
+
+test "an inline nlc:ignore disables the named diagnostic on the SAME line" {
+    diagnostics := LntLintWithSource("func main() {\n    unused := 5 // nlc:ignore NL001\n}")
+    assert !LntHas(diagnostics, "NL001", "'unused'")
+}
+
+test "a comment nlc:ignore disables the named diagnostic on the NEXT CODE LINE ONLY" {
+    diagnostics := LntLintWithSource("func main() {\n    // nlc:ignore NL001\n    suppressed := 5\n    reported := 6\n}")
+    assert !LntHas(diagnostics, "NL001", "'suppressed'")
+    assert LntHas(diagnostics, "NL001", "'reported'")
+}
+
+test "a suppression naming a DIFFERENT code suppresses nothing" {
+    // The deleted file only ever suppressed the code that was actually firing, so a suppression
+    // parser that ignored the code and silenced the line would have passed it.
+    diagnostics := LntLintWithSource("func main() {\n    unused := 5 // nlc:ignore NL010\n}")
+    assert LntHas(diagnostics, "NL001", "'unused'")
+}
+
+// ── the resolved spans ────────────────────────────────────────────────────────────────────────
+
+test "NL012's span covers the PARAMETER name" {
+    diagnostic := LntSingleOf(LntLintWithSource("func greet(unusedName: string) { print \"hi\" }"), "NL012")
+    assert diagnostic.Location.Line == 1
+    assert diagnostic.Location.Column == 12
+    assert diagnostic.Length == "unusedName".Length
+}
+
+test "NL004's span covers the FUNCTION name, not the async keyword" {
+    diagnostic := LntSingleOf(LntLintWithSource("async func LoadData(): void { print \"hi\" }"), "NL004")
+    assert diagnostic.Location.Line == 1
+    assert diagnostic.Location.Column == 12
+    assert diagnostic.Length == "LoadData".Length
+}
+
+// ── NL002: missing import ─────────────────────────────────────────────────────────────────────
+
+test "NL002 reports List with the System.Collections.Generic suggestion" {
+    diagnostics := LntLint("\nfunc main() {\n    list := new List<int>()\n}")
+    assert LntHas(diagnostics, "NL002", "List")
+    assert LntHasSuggestion(diagnostics, "NL002", "System.Collections.Generic")
+}
+
+test "NL002 says nothing when the import is already present" {
+    diagnostics := LntLint("\nimport System.Collections.Generic\n\nfunc main() {\n    list := new List<int>()\n}")
+    assert !LntHas(diagnostics, "NL002", "List")
+}
+
+test "NL002 reports Dictionary" {
+    assert LntHas(LntLint("\nfunc main() {\n    dict := new Dictionary<string, int>()\n}"), "NL002", "Dictionary")
+}
+
+test "NL002 reports StringBuilder with the System.Text suggestion" {
+    diagnostics := LntLint("\nfunc main() {\n    sb := new StringBuilder()\n}")
+    assert LntHas(diagnostics, "NL002", "StringBuilder")
+    assert LntHasSuggestion(diagnostics, "NL002", "System.Text")
+}
+
+test "NL002 reports HttpClient with the System.Net.Http suggestion" {
+    diagnostics := LntLint("\nfunc main() {\n    client := new HttpClient()\n}")
+    assert LntHas(diagnostics, "NL002", "HttpClient")
+    assert LntHasSuggestion(diagnostics, "NL002", "System.Net.Http")
+}
+
+test "NL002 reports Task with the System.Threading.Tasks suggestion" {
+    diagnostics := LntLint("\nfunc main() {\n    task := new Task(() => {})\n}")
+    assert LntHas(diagnostics, "NL002", "Task")
+    assert LntHasSuggestion(diagnostics, "NL002", "System.Threading.Tasks")
+}
+
+test "NL002 fires on a bare identifier reference, not only on `new`" {
+    assert LntHas(LntLint("\nfunc main() {\n    list := List<int>()\n}"), "NL002", "List")
+}
+
+test "NL002 does not suggest a namespace for a type a FILE import brought in" {
+    diagnostics := LntLint("\nimport \"../Models/Task\"\n\nclass TaskService {\n    tasks: List<Task>\n}")
+    assert !LntHasBoth(diagnostics, "NL002", "Task", "System.Threading.Tasks")
+}
+
+test "NL002 does not mistake an instance member for a known type of the same name" {
+    diagnostics := LntLint("\nclass HttpUrl {\n    Path: string = \"/api/items\"\n\n    func ToDisplayString(): string {\n        pathLength := Path.Length\n        return $\"{Path}:{pathLength}\"\n    }\n}")
+    assert !LntHasBoth(diagnostics, "NL002", "Path", "System.IO")
+}
+
+// ── NL003: unnecessary null check on a value literal ──────────────────────────────────────────
+
+test "NL003 names the literal's type: int" {
+    assert LntHas(LntLint("\nfunc main() {\n    if 5 != null {\n        print(\"hello\")\n    }\n}"), "NL003", "int")
+}
+
+test "NL003 names the literal's type: float" {
+    assert LntHas(LntLint("\nfunc main() {\n    if 3.14 == null {\n        print(\"hello\")\n    }\n}"), "NL003", "float")
+}
+
+test "NL003 names the literal's type: bool" {
+    assert LntHas(LntLint("\nfunc main() {\n    if true != null {\n        print(\"hello\")\n    }\n}"), "NL003", "bool")
+}
+
+test "NL003 leaves a STRING null check alone, because a string is a reference type" {
+    diagnostics := LntLint("\nfunc main() {\n    str := \"hello\"\n    if str != null {\n        y := str + \" world\"\n    }\n}")
+    assert LntCountOf(diagnostics, "NL003") == 0
+}
+
+test "NL003 reads a while condition as well as an if condition" {
+    assert LntCountOf(LntLint("\nfunc main() {\n    x := 0\n    while 5 == null {\n        x = x + 1\n    }\n}"), "NL003") > 0
+}
+
+// ── NL004: async without await ────────────────────────────────────────────────────────────────
+
+test "NL004 names the async function that never awaits" {
+    assert LntHas(LntLint("\nasync func process(): Task {\n    x := 5\n    return Task.CompletedTask\n}"), "NL004", "process")
+}
+
+test "NL004 says nothing when the function does await" {
+    assert LntCountOf(LntLint("\nasync func process(): Task {\n    await Task.Delay(100)\n}"), "NL004") == 0
+}
+
+test "NL004 says nothing about a function that is not async" {
+    assert LntCountOf(LntLint("\nfunc process() {\n    x := 5\n}"), "NL004") == 0
+}
+
+test "NL004 reaches a method inside a class" {
+    assert LntCountOf(LntLint("\nclass MyClass {\n    async func process(): Task {\n        x := 5\n        return Task.CompletedTask\n    }\n}"), "NL004") > 0
+}
+
+// ── NL006: unreachable code ───────────────────────────────────────────────────────────────────
+
+test "NL006 errors on a statement after a return" {
+    diagnostics := LntLint("\nfunc main() {\n    return\n    x := 5\n}")
+    assert LntHasCode(diagnostics, "NL006")
+    assert LntFirstOf(diagnostics, "NL006").Severity == DiagnosticSeverity.Error
+}
+
+test "NL006 says nothing when the return is last" {
+    assert !LntHasCode(LntLint("\nfunc main() {\n    x := 5\n    return\n}"), "NL006")
+}
+
+// ── NL011: empty catch ────────────────────────────────────────────────────────────────────────
+
+test "NL011 errors on an empty catch block" {
+    diagnostics := LntLint("\nfunc main() {\n    try {\n        x := 5\n    } catch {\n    }\n}")
+    assert LntHasCode(diagnostics, "NL011")
+    assert LntFirstOf(diagnostics, "NL011").Severity == DiagnosticSeverity.Error
+}
+
+test "NL011's span covers the catch KEYWORD" {
+    diagnostic := LntSingleOf(LntLintWithSource("func main() {\n    try {\n        print \"x\"\n    } catch {\n    }\n}"), "NL011")
+    assert diagnostic.Location.Line == 4
+    assert diagnostic.Location.Column == 7
+    assert diagnostic.Length == "catch".Length
+}
+
+test "NL011 says nothing when the catch has statements in it" {
+    assert !LntHasCode(LntLint("\nimport System\nfunc main() {\n    try {\n        x := 5\n    } catch (e: Exception) {\n        Console.WriteLine(e.Message)\n    }\n}"), "NL011")
+}
+
+// ── NL012: unused parameter ───────────────────────────────────────────────────────────────────
+
+test "NL012 errors on a parameter that is never read" {
+    diagnostics := LntLint("\nfunc add(a: int, b: int): int {\n    return a\n}")
+    assert LntHas(diagnostics, "NL012", "'b'")
+    assert LntFirstOf(diagnostics, "NL012").Severity == DiagnosticSeverity.Error
+}
+
+test "NL012 says nothing when every parameter is read" {
+    assert !LntHasCode(LntLint("\nfunc add(a: int, b: int): int {\n    return a + b\n}"), "NL012")
+}
+
+test "NL012 respects the underscore convention on parameters" {
+    // The convention is an explicit 'intentionally unused' signal, so the build-blocking error must
+    // not fire for it.
+    assert !LntHas(LntLint("\nfunc handler(event: int, _context: int) {\n    x := event + 1\n}"), "NL012", "_context")
+}
+
+test "NL012 counts a read inside a NESTED LOCAL FUNCTION as a use" {
+    assert !LntHasCode(LntLint("\nfunc outer(value: int): int {\n    func inner(): int {\n        return value\n    }\n    return inner()\n}"), "NL012")
+}
+
+test "NL012 counts a read inside a LAMBDA as a use" {
+    assert !LntHasCode(LntLint("\nfunc outer(value: int): int {\n    var f = () => value\n    return f()\n}"), "NL012")
+}
+
+test "NL012 still flags a genuinely unused parameter alongside a nested function" {
+    diagnostics := LntLint("\nfunc outer(used: int, unused: int): int {\n    func inner(): int {\n        return used\n    }\n    return inner()\n}")
+    assert LntHas(diagnostics, "NL012", "'unused'")
+    assert !LntHas(diagnostics, "NL012", "'used'")
+}
+
+test "NL012 still flags a parameter SHADOWED by a local in the nested function" {
+    // Over-suppression guard: `inner` reads its OWN `value`, not the enclosing parameter.
+    assert LntHas(LntLint("\nfunc outer(value: int): int {\n    func inner(): int {\n        value := 1\n        return value\n    }\n    return inner()\n}"), "NL012", "'value'")
+}
+
+// ── NL020: shadowed variable ──────────────────────────────────────────────────────────────────
+
+test "NL020 errors when an inner binding shadows an outer one" {
+    diagnostics := LntLint("\nfunc main() {\n    x := 5\n    if true {\n        x := 10\n        y := x + 1\n    }\n}")
+    assert LntHas(diagnostics, "NL020", "'x'")
+    assert LntFirstOf(diagnostics, "NL020").Severity == DiagnosticSeverity.Error
+}
+
+test "NL020 says nothing for distinct names" {
+    assert !LntHasCode(LntLint("\nfunc main() {\n    x := 5\n    if true {\n        y := 10\n        z := x + y\n    }\n}"), "NL020")
+}
+
+test "NL020 respects the underscore convention" {
+    assert !LntHasCode(LntLint("\nfunc main() {\n    _x := 5\n    if true {\n        _x := 10\n        y := _x + 1\n    }\n}"), "NL020")
+}
+
+// ── NL010: unused import ──────────────────────────────────────────────────────────────────────
+
+test "NL010 errors on an import nothing uses" {
+    diagnostics := LntLint("\nimport System.Collections.Generic\n\nfunc Main() {\n    x := 5\n    y := x + 1\n}")
+    assert LntFirstOf(diagnostics, "NL010").Severity == DiagnosticSeverity.Error
+}
+
+test "NL010 counts a BASE TYPE LIST as usage — class" {
+    assert LntCountOf(LntLint("import System\n\nclass DataStore: Exception {}"), "NL010") == 0
+}
+
+test "NL010 counts a BASE TYPE LIST as usage — struct" {
+    assert LntCountOf(LntLint("import System\n\nstruct Buffer: IDisposable {}"), "NL010") == 0
+}
+
+test "NL010 counts a BASE TYPE LIST as usage — and still flags the import next to it" {
+    assert LntCountOf(LntLint("import System\nimport System.Linq\n\nclass D: Exception {}"), "NL010") == 1
+}
+
+test "NL010 counts a TYPEOF OPERAND as usage" {
+    assert LntCountOf(LntLint("import System.IO\n\nclass R {\n    func Run() {\n        t := typeof(MemoryStream)\n    }\n}"), "NL010") == 0
+}
+
+test "NL010 counts a TYPEOF OPERAND as usage — and still flags the import next to it" {
+    assert LntCountOf(LntLint("import System.IO\nimport System.Linq\n\nclass R {\n    func Run() {\n        t := typeof(MemoryStream)\n    }\n}"), "NL010") == 1
+}
+
+test "NL010 counts a typeof operand that names an ENUM as usage" {
+    assert LntCountOf(LntLint("import System.Text.Json\n\nclass R {\n    func Run() {\n        t := typeof(JsonValueKind)\n    }\n}"), "NL010") == 0
+}
+
+test "NL010 counts a POSITIONAL parameter's declared type as usage" {
+    assert LntCountOf(LntLint("import System.Collections.Generic\n\nrecord Foo(items: List<int>)"), "NL010") == 0
+}
+
+test "NL010 resolves StringComparison to the System namespace" {
+    assert LntCountOf(LntLint("import System\n\nfunc Main() {\n    c := StringComparison.Ordinal\n}"), "NL010") == 0
+}
+
+test "NL010's SQUIGGLE COVERS THE NAMESPACE PATH, NOT THE import KEYWORD" {
+    // Regression for the strictness/squiggle audit (PR #160). The directive records only the
+    // statement column, so the linter steps past the keyword to land on the path.
+    sourceText := "\nimport System.Linq\n\nfunc Main() {\n    x := 5\n    y := x + 1\n}"
+    diagnostic := LntSingleOf(LntLintWithSource(sourceText), "NL010")
+    lines := sourceText.Replace("\r\n", "\n").Split('\n')
+    importLine := lines[diagnostic.Location.Line - 1]
+    covered := importLine.Substring(diagnostic.Location.Column - 1, diagnostic.Length)
+    assert covered == "System.Linq"
+    assert diagnostic.Length == "System.Linq".Length
+}
+
+test "NL010 says nothing when the imported type IS used" {
+    assert !LntHasCode(LntLint("\nimport System.Collections.Generic\n\nfunc Main() {\n    list := new List<int>()\n    x := list\n}"), "NL010")
+}
+
+test "NL010 counts Console as usage of System" {
+    assert !LntHasCode(LntLint("\nimport System\n\nfunc Main() {\n    Console.WriteLine(\"hi\")\n}"), "NL010")
+}
+
+test "NL010 counts Char as usage of System" {
+    assert !LntHasCode(LntLint("\nimport System\n\nfunc Main(): bool {\n    return Char.IsWhiteSpace(' ')\n}"), "NL010")
+}
+
+test "NL010 stays silent on a namespace it does not track" {
+    assert !LntHasCode(LntLint("\nimport MyCompany.MyLibrary\n\nfunc Main() {\n    x := 5\n    y := x + 1\n}"), "NL010")
+}
+
+test "NL010 counts a LINQ extension method call as usage of System.Linq" {
+    assert !LntHasCode(LntLint("\nimport System.Collections.Generic\nimport System.Linq\n\nfunc Main() {\n    items := new List<int>()\n    filtered := items.Where(x => x > 1)\n    result := filtered.Select(x => x * 2)\n    _ := result\n}"), "NL010")
+}
+
+test "NL010 counts ToList as usage of System.Linq" {
+    assert !LntHasCode(LntLint("\nimport System.Collections.Generic\nimport System.Linq\n\nfunc Main() {\n    items := new List<int>()\n    result := items.ToList()\n    _ := result\n}"), "NL010")
+}
+
+test "NL010 counts a GENERIC INTERFACE return type as usage" {
+    assert !LntHasCode(LntLint("\nimport System.Collections.Generic\n\nfunc GetItems(): IEnumerable<int> {\n    return new List<int>()\n}"), "NL010")
+}
+
+test "NL010 counts IAsyncEnumerable as usage" {
+    assert !LntHasCode(LntLint("\nimport System.Collections.Generic\n\nfunc GetItems(): IAsyncEnumerable<string> {\n    return nil\n}"), "NL010")
+}
+
+test "NL010 still errors when System.Linq is imported and no LINQ is called" {
+    assert LntHasCode(LntLint("\nimport System.Linq\n\nfunc Main() {\n    x := 5\n    y := x + 1\n}"), "NL010")
+}
+
+test "NL010 counts usage inside a TEST BLOCK" {
+    assert !LntHasCode(LntLint("\nimport System.Collections.Generic\n\ntest \"uses list from import\" {\n    items := new List<int>()\n    assert items.Count == 0\n}"), "NL010")
+}
+
+test "NL010 still errors when a test block does NOT use the import" {
+    assert LntHasCode(LntLint("\nimport System.Collections.Generic\n\ntest \"does not use the import\" {\n    x := 5\n    assert x == 5\n}"), "NL010")
+}
+
+test "NL010 counts a FILE IMPORT whose TOP-LEVEL type is used" {
+    directory := LntTempDirectory("fileimport-used")
+    File.WriteAllText(Path.Combine(directory, "Models.nl"), "\nclass User {\n    Name: string\n}\n")
+    mainPath := Path.Combine(directory, "Program.nl")
+    File.WriteAllText(mainPath, "\nimport \"Models\"\n\nfunc Main() {\n    user := new User { Name: \"Ada\" }\n    _ := user\n}\n")
+
+    assert !LntHasCode(LntLintFile(mainPath), "NL010")
+
+    Directory.Delete(directory, true)
+}
+
+test "NL010 flags a FILE IMPORT when only a NESTED type of it is named" {
+    directory := LntTempDirectory("fileimport-nested")
+    File.WriteAllText(Path.Combine(directory, "Models.nl"), "\nclass Outer {\n    class Nested {\n    }\n}\n")
+    mainPath := Path.Combine(directory, "Program.nl")
+    File.WriteAllText(mainPath, "\nimport \"Models\"\n\nfunc Main() {\n    value := new Nested { }\n    _ := value\n}\n")
+
+    assert LntHasCode(LntLintFile(mainPath), "NL010")
+
+    Directory.Delete(directory, true)
+}
+
+// ── NL016: redundant null check on an always-non-null expression ──────────────────────────────
+
+test "NL016 errors on a `new` expression compared to null" {
+    diagnostics := LntLint("\nimport System.Collections.Generic\n\nfunc Main() {\n    if new List<int>() != null {\n        x := 5\n    }\n}")
+    assert LntHasCode(diagnostics, "NL016")
+    assert LntFirstOf(diagnostics, "NL016").Severity == DiagnosticSeverity.Error
+}
+
+test "NL016 errors on an ARRAY LITERAL compared to null" {
+    assert LntHasCode(LntLint("\nfunc Main() {\n    if [1, 2, 3] != null {\n        x := 5\n    }\n}"), "NL016")
+}
+
+test "NL016 leaves a VARIABLE null check alone" {
+    assert !LntHasCode(LntLint("\nfunc Main() {\n    s := GetString()\n    if s != null {\n        y := s\n    }\n}\n\nfunc GetString(): string {\n    return \"hello\"\n}"), "NL016")
+}
+
+// ── the whole linter at once ──────────────────────────────────────────────────────────────────
+
+test "one lint run reports several DIFFERENT rules over the same file" {
+    diagnostics := LntLint("\nfunc main() {\n    x := 5\n    list := new List<int>()\n    if 10 != null {\n        y := x + 1\n    }\n}")
+    assert LntHasCode(diagnostics, "NL001")
+    assert LntHasCode(diagnostics, "NL002")
+    assert LntHasCode(diagnostics, "NL003")
+}
+
+test "an EMPTY file has nothing to say" {
+    assert LntLint("").Count == 0
+}
+
+test "simple valid code has nothing to say" {
+    assert LntLint("\nimport System\n\nfunc main() {\n    message := \"Hello, World!\"\n    Console.WriteLine(message)\n}").Count == 0
+}
+
+test "class members are linted" {
+    diagnostics := LntLint("\nclass MyClass {\n    func process() {\n        x := 5\n        y := 10\n        return x + 15\n    }\n}")
+    assert LntHas(diagnostics, "NL001", "'y'")
+    assert !LntHas(diagnostics, "NL001", "'x'")
+}
+
+test "a foreach collection is a use, not an unused variable" {
+    assert !LntHas(LntLint("\nfunc test() {\n    items := [1, 2, 3]\n    foreach x in items {\n        print(x)\n    }\n}"), "NL001", "'items'")
+}
+
+test "a foreach over a LINQ result is a use too" {
+    assert !LntHas(LntLint("\nimport System\nimport System.Linq\n\nclass Program {\n    static func Main() {\n        let numbers: int[] = [1, 2, 3, 4, 5]\n        doubled := numbers.Select(x => x * 2).ToList()\n\n        foreach num in doubled {\n            Console.WriteLine(num)\n        }\n    }\n}"), "NL001", "'doubled'")
+}
+
+// ── the severity of every rule, crossed ───────────────────────────────────────────────────────
+
+test "EVERY ONE OF THE TEN RULES REPORTS AT ERROR SEVERITY BY DEFAULT" {
+    // The deleted file asserted this for seven of the ten, one rule at a time. All ten are
+    // build-blocking by catalog default, so a rule that quietly reported at Warning would let a
+    // broken build through — and for NL002, NL003 and NL004 nothing asserted it at all.
+    assert LntFirstOf(LntLint("func main() { x := 5 }"), "NL001").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nfunc main() {\n    sb := new StringBuilder()\n}"), "NL002").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nfunc main() {\n    if 5 != null {\n        print(\"hello\")\n    }\n}"), "NL003").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nasync func process(): Task {\n    x := 5\n    return Task.CompletedTask\n}"), "NL004").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nfunc main() {\n    return\n    x := 5\n}"), "NL006").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nimport System.Linq\n\nfunc Main() {\n    x := 5\n    y := x + 1\n}"), "NL010").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nfunc main() {\n    try {\n        x := 5\n    } catch {\n    }\n}"), "NL011").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nfunc add(a: int, b: int): int {\n    return a\n}"), "NL012").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nfunc Main() {\n    if [1, 2, 3] != null {\n        x := 5\n    }\n}"), "NL016").Severity == DiagnosticSeverity.Error
+    assert LntFirstOf(LntLint("\nfunc main() {\n    x := 5\n    if true {\n        x := 10\n        y := x + 1\n    }\n}"), "NL020").Severity == DiagnosticSeverity.Error
 }

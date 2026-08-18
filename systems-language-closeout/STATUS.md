@@ -1,6 +1,57 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-18 (**020 SLICE 7 — `tests/LexerTests.cs` IS DELETED. THE ARC'S LARGEST
+Last updated: 2026-08-18 (**020 SLICE 8 — `tests/LinterTests.cs` IS DELETED, AND THE PROBE OVERTURNED
+SLICE 7's OWN PRICING WARNING BEFORE A LINE OF CONTRACT WAS WRITTEN.** **1,366 C# lines / 79
+`[Fact]`s / 4 `[Theory]`s carrying 8 `[InlineData]` rows — 87 xUnit cases** leave for **FOUR** estate
+files carrying **109 declarations, 282 assertion lines and 1,363 lines**:
+`Linter.tests.nl` **467 → 1,060** (the end-to-end rule contracts, beside the declaration-walk
+contracts that were already there), and three NEW files — `DiagnosticCatalog.tests.nl` 408,
+`LinterConfig.tests.nl` 262, `LinterBindingUsageCore.tests.nl` 100. **THE FINDING IS THAT SLICE 7's
+WARNING WAS WRONG, AND THE REASON IS STRUCTURAL.** Slice 7 recorded that `Linter` and `Formatter`
+"take and answer AST types … and should be priced HIGHER than their line counts suggest"; measurement
+overturns it, because **`LinterTests.cs` never constructs an AST at all** — all three of its private
+helpers build their input from a SOURCE STRING through `ColumnarParserRecovery.ParseFileAst`, and
+every answer is a `List<Diagnostic>` of primitives plus one struct. It is string-in / primitive-out,
+the SAME shape as `Lexer`. **THE PROBE CAME BACK GREEN IN TWO ROUNDS WITH ZERO WALLS** (16
+declarations, `Total: 5387` = 5,374 + exactly 13, then `5390` = + exactly 3), and every probe
+assertion not only compiled but ANSWERED what the C# answered. **THE OUTCOME IS WHOLE-FILE DELETION
+WITH EVERY SEGMENT ROUTED** — no split, no shrunk survivor. **THE LARGEST STRICTLY-STRONGER MARGIN IS
+THAT TWO SUBJECTS HAD NO ESTATE COVERAGE AT ALL**: the deleted file was the ONLY assertion layer
+anywhere for `DiagnosticCatalog` and `LinterBindingUsageCore`, and both are now CROSSED where it
+SAMPLED — all **99** descriptors walked as a four-builder PARTITION (80 compiler + 5 performance + 4
+AOT + 10 linter, every code distinct, every code `NL`+digits, none `NLM`), all ten lint rules proved
+build-blocking errors, **`DocsUrlFor`'s stored-URL arm reached for the first time** (only the four AOT
+rows carry one, and the C# asserted the fallback on a code that is not in the catalog at all), and
+both binding-usage truth tables crossed in full. **THE COMPARATOR REPORTS 190 C# CLAIM ROWS IN, 190
+MATCHED, 0 MISSING, 0 DIFFERING, 281 EXTRA**, is **non-vacuous EIGHT times over** (six perturbations
+name exactly ONE row each, and the SWEEP control — one code dropped from the performance table —
+names exactly the 14 rows that table owns), and **both decoders carry their own completeness
+arithmetic**: the C#'s **158** assert statements produce **190** rows (`158 + 28 + 4`, the two
+expansions being the performance `foreach` and the four `[InlineData]` theories) and the N#'s **282**
+assert lines produce **482** rows (478 sweep-expanded executions + the four `LntSingleOf` bindings),
+to the digit, with **ZERO undecoded on either side**. **SIX SUBJECT MUTATIONS IN SIX DIFFERENT KERNELS
+PRODUCE 11 FAILURES ACROSS SIX RUNS OF 5,483 (1 / 1 / 1 / 2 / 5 / 1) — AND EVERY ONE OF
+THE SIX NAMES ITS OWN MIGRATED DECLARATION**; the five extra are PRE-EXISTING sibling kernel
+contracts over the same behaviour (`LinterMissingImport` +1, `LinterShadowedVariable` +4), which is
+layered coverage on the slice-6 precedent, and **the suppression mutation fails a contract the C# NEVER HAD** (a suppression naming a
+DIFFERENT code must suppress nothing). The subject is restored BYTE-IDENTICALLY. Evidence: **native
+estate 5,374 → 5,483 by COUNT DIFF (+109, the exact declarations added)**; **unit 2,867 → 2,780 /
+2,780** = exactly the 87 migrated cases; **live tree 393 / 246 — the inherited baseline to the
+digit** with the same ten-code census (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16
+NL010:7 NL303:3 NL412:3 NL002:1`), ZERO rows in any `.tests.nl` and ZERO rows naming any migrated
+subject or linter kernel; format clean on the FIRST run; **audit 18/18 after correctly failing 17/18
+on exactly ONE `OWN006`**, head `152dc91ec070ddaf → 556cca7218a078fd` repinned LAST in both keys from
+a walk validated against the pristine manifest first, manifest 391 lines no BOM. **`git diff HEAD
+--numstat -- '*.cs'` is `added=0 deleted=1366` over ONE file; zero new C#; `Program.Testing.cs` stays
+618, not opened.** The dead sweep found **one live documentation row** (`memory/testing.md` still
+listed the deleted file); it now carries a linting paragraph beside the lexer one. **6 canonical C#
+assertion layers remain (1 estate / 0 native / 5 blocked), and the estate-routable set is now exactly
+`Formatter` 2,132L. Task 020 stays UNCHECKED.** **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM
+A `/tmp` WORKTREE, IS `ALL TESTS PASSED` IN 18m 49s WITH 110 GREEN STEPS AND ZERO FAILURES** — unit
+2,780, the estate 5,483, all 30 native projects, the format contract gate and the IL verification
+gate inside. NOT COMMITTED — the mandate reserves that)
+
+Last updated (prior): 2026-08-18 (**020 SLICE 7 — `tests/LexerTests.cs` IS DELETED. THE ARC'S LARGEST
 SINGLE CLUSTER, MIGRATED WHOLE, AND THE FIRST PROBE IN THE ARC THAT CAME BACK WITH ZERO WALLS IN ONE
 ROUND.** **894 C# lines / 77 `[Fact]`s / 0 `[Theory]`s** leave for
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl` — **1,675 lines, 55 declarations, 433
@@ -3297,7 +3348,32 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 7 IS THE ARC'S LARGEST SINGLE
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 8 DELETED `tests/LinterTests.cs`
+  WHOLE AND OVERTURNED SLICE 7'S OWN PRICING WARNING.** **1,366 lines / 87 xUnit cases (79 `[Fact]`s
+  + 4 `[Theory]`s carrying 8 rows)** leave for FOUR estate files — `Linter.tests.nl` **467 → 1,060**
+  plus three NEW ones (`DiagnosticCatalog.tests.nl` 408, `LinterConfig.tests.nl` 262,
+  `LinterBindingUsageCore.tests.nl` 100) — **109 declarations, 282 assertion lines, 1,363 lines**.
+  **THE PROBE CAME BACK GREEN IN TWO ROUNDS WITH ZERO WALLS** (`Total: 5387` = 5,374 + exactly 13,
+  then `5390` = + exactly 3), and the reason is structural rather than lucky: **the deleted file
+  never constructs an AST**, it builds every input from a SOURCE STRING through
+  `ColumnarParserRecovery.ParseFileAst` and reads back a `List<Diagnostic>` of primitives — so
+  slice 7's "price `Linter` and `Formatter` higher, they take AST types" is measurably wrong for
+  `Linter`, and **the rule is that a cluster's risk lives in HOW IT BUILDS ITS INPUT, not in what
+  its subject is about.** **THE OUTCOME IS WHOLE-FILE DELETION WITH EVERY SEGMENT ROUTED.** The
+  biggest strictly-stronger margin is that **`DiagnosticCatalog` and `LinterBindingUsageCore` had no
+  estate coverage at all** — the deleted C# was their only assertion layer anywhere — so the
+  catalog's **99** descriptors are now crossed as a four-builder PARTITION (80 + 5 + 4 + 10) and
+  **`DocsUrlFor`'s stored-URL arm is executed for the first time**, on the four AOT rows that are the
+  only ones carrying one. The comparator reports **190 C# claim rows in, 190 MATCHED, 0 missing, 0
+  differing, 281 EXTRA**, is non-vacuous **eight** times over (six naming exactly one row; the SWEEP
+  control naming exactly the 14 rows the performance table owns), and both decoders carry their own
+  completeness arithmetic with ZERO undecoded (C# 158 assert statements → 190 rows; N# 282 assert
+  lines → 482 rows). **Six subject mutations in six kernels produce 11 failures across six runs of
+  5,483, every one naming its own migrated declaration**, the five extra being pre-existing sibling
+  kernel contracts (layered coverage, slice-6 precedent) — and the suppression mutation fails a contract the
+  C# NEVER HAD. **6 canonical C# assertion layers remain (1 estate / 0 native / 5 blocked) and the
+  estate-routable set is now exactly `Formatter` 2,132L. Task 020 stays UNCHECKED.**
+  (Prior: **SLICE 7 IS THE ARC'S LARGEST SINGLE
   MIGRATION AND THE FIRST WITH NO WALL AT ALL.** `tests/LexerTests.cs` — **894 lines / 77 xUnit
   cases** — is deleted and replaced by `Lexer.tests.nl`, **1,675 lines carrying 55 declarations and
   433 assertion lines**. The probe came back **green in ONE round** (`Total: 5334` = 5,319 + exactly
@@ -3548,7 +3624,13 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 020 slice 7 — the arc's LARGEST single migration: `tests/LexerTests.cs`, 894 C#
+- Current iteration: 020 slice 8 — `tests/LinterTests.cs` deleted whole: 1,366 C# lines and 87 xUnit
+  cases into 109 declarations across four estate files, by a probe that met NO wall in two rounds and
+  OVERTURNED slice 7's own pricing warning (the cluster never constructs an AST; it builds every
+  input from a source string through a parse). Two subjects that had no estate coverage at all —
+  `DiagnosticCatalog` and `LinterBindingUsageCore` — are now crossed rather than sampled, and
+  `DocsUrlFor`'s stored-URL arm is executed for the first time
+- Current iteration (prior): 020 slice 7 — the arc's LARGEST single migration: `tests/LexerTests.cs`, 894 C#
   lines and 77 xUnit cases, taken whole by one probe that met NO wall, one comparator with twelve
   decodings and its own completeness arithmetic on both sides, seven perturbations and six subject
   mutations. The keyword table the deleted file sampled is now CROSSED, and the dead sweep corrected
@@ -3606,6 +3688,208 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
 - Active sub-slice (020 arc, THIS TURN — THE PROBE VERDICTS RECORDED BEFORE ANY PRODUCTION EDIT at
+  tip `3d10916cb`): **020 SLICE 8 — `tests/LinterTests.cs`, AND THE PROBE OVERTURNS SLICE 7'S OWN
+  PRICING WARNING.**
+
+  **THE CLUSTER, PROBED BEFORE IT WAS WRITTEN.** Slice 7's inventory leaves two estate-routable rows;
+  this slice takes the cheaper, `tests/LinterTests.cs` — **1,366 lines, 79 `[Fact]`s and 4
+  `[Theory]`s carrying 8 `[InlineData]` rows, so 87 xUnit cases**, with **151 lines opening with
+  `Assert.`** and **157 `Assert.` occurrences in all** (the comparator later resolved these to 158
+  assert STATEMENTS — see WHAT LANDED). One probe `.tests.nl`, 16 declarations, carried
+  every risky shape in the file, because the estate reports only the FIRST decline.
+
+  | probe | shape under test | verdict |
+  |---|---|---|
+  | A | the entry: `ColumnarParserRecovery.ParseFileAst(src, null)` with a NULL file name, the nullable `CompilationUnit` narrowed by `!= null`, `Linter.Lint(unit, path, source)` at FULL arity, the `List<Diagnostic>` INDEXER, `.Code` / `.Message` / `.Severity` | **ZERO WALLS** |
+  | B | spans: `.Location.Line` / `.Location.Column` / `.Length` off a scanned diagnostic, and the nullable `.Suggestion` read after a `!= null` guard | **ZERO WALLS** |
+  | C | the catalog: `TryGetDescriptor(code, out descriptor)` seeded by `EmptyDescriptor()`, `DiagnosticSource` / `DiagnosticCategory` / `DiagnosticSeverity` member comparisons, `DocsUrlFor` | **ZERO WALLS** |
+  | D | the whole `IReadOnlyCollection<DiagnosticDescriptor>` walked with an `as` cast, a nested-loop duplicate census, `StartsWith("NLM", StringComparison.Ordinal)`, `String.IsNullOrWhiteSpace` over a `string?` | **ZERO WALLS** |
+  | E | the config: `LinterConfig.Default()`, `GetSeverity`, the `RuleSeverities[code] = SeverityObject(…)` DICTIONARY INDEXER ASSIGNMENT, `new Linter(config)` | **ZERO WALLS** |
+  | F | disk: `Path.GetTempPath()` + `Guid`, `Directory.CreateDirectory`, `File.WriteAllText` / `ReadAllText`, an `.editorconfig` through `FromEditorConfig`, a file import resolving a SIBLING `.nl`, `Directory.Delete(dir, true)` | **ZERO WALLS** |
+  | G | the squiggle surgery: `Replace("\r\n", "\n")`, `Split('\n')`, the resulting ARRAY INDEX, `Substring(column - 1, length)` | **ZERO WALLS** |
+  | H | source DATA: a `$"{Path}:{pathLength}"` interpolation, escaped quotes, a `// nlc:ignore` comment, a `' '` char literal, a nested `test "…" { assert … }` block, `record Foo(items: List<int>)`, `typeof(MemoryStream)` | **ZERO WALLS** |
+  | I | round 2 — the EMPTY file: `ParseFileAst("", null).CompilationUnit != null`, which is exactly the null the C# hid behind `!` and which a helper returning an empty list would have silently faked | **ZERO WALLS** |
+  | J | round 2 — `LinterBindingUsageCore`'s statics; NL003's type-named messages; the empty-catch, lambda-capture and relative-file-import sources | **ZERO WALLS** |
+
+  **TWO ROUNDS, ZERO WALLS, AND THE COUNT ARITHMETIC PROVED ON THE PROBE FIRST**: round 1 reported
+  `Total: 5387` = the 5,374 baseline + exactly its 13 declarations, round 2 `Total: 5390` = + exactly
+  3 more, both `Failed: 0` — so every probe assertion COMPILED **and** answered what the C# answers.
+
+  **THE FINDING IS THAT SLICE 7'S WARNING IS WRONG, AND THE REASON IS STRUCTURAL.** Slice 7 recorded
+  that `Linter` and `Formatter` "take and answer AST types … and should be priced HIGHER than their
+  line counts suggest". Measurement overturns it for `Linter`: **`LinterTests.cs` never constructs an
+  AST at all.** All three of its private helpers (`Lint`, `LintWithSource`, `LintFile`) build their
+  input from a SOURCE STRING through `ColumnarParserRecovery.ParseFileAst`, and every answer it reads
+  is a `List<Diagnostic>` whose members are primitives plus one struct (`Location`). It is
+  string-in / primitive-out — structurally the SAME shape as `Lexer`. And the AST question was
+  already settled independently: the estate's existing `Linter.tests.nl` (task 019 slice 12) builds
+  `ClassDeclaration` / `FieldDeclaration` / `TestDeclaration` nodes directly and has done since it
+  landed. **The rule is that a cluster's risk lives in HOW IT BUILDS ITS INPUT, not in what its
+  subject is about.**
+
+  **THE OUTCOME IS (1) — WHOLE-FILE DELETION, EVERY SEGMENT ROUTED.** No wall, so no split and no
+  shrunk C# survivor. The 83 methods route to four estate files by SUBJECT:
+
+  | target | kind | C# methods it takes |
+  |---|---|---|
+  | `Linter.tests.nl` | GROW (467L) | the 70 end-to-end rule facts + the 4 `[Theory]`s' 8 rows — NL001, NL002, NL003, NL004, NL006, NL010, NL011, NL012, NL016, NL020, the two suppression facts and the six integration facts |
+  | `DiagnosticCatalog.tests.nl` | NEW | the 4 catalog facts (NL109 registration, the docs-URL fallback, the strict lint defaults + no-`NLM` + dedupe census, the 5 performance descriptors) |
+  | `LinterConfig.tests.nl` | NEW | the 4 config facts (default severities, severity override, `Linter` honouring the config, `.editorconfig` `none`) |
+  | `LinterBindingUsageCore.tests.nl` | NEW | the 1 binding-usage-policy fact |
+
+  **`DiagnosticCatalog` AND `LinterBindingUsageCore` HAVE NO ESTATE COVERAGE AT ALL TODAY** — the
+  deleted C# is their ONLY canonical assertion layer — so those two files are the slice's largest
+  strictly-stronger margin: the catalog's 99 descriptors (80 compiler + 5 performance + 4 AOT + 10
+  linter) get crossed where the C# sampled nine, including `DocsUrlFor`'s NON-fallback arm, which
+  only the AOT rows carry and which the C# never reached.
+
+  ---
+
+  **WHAT LANDED.**
+
+  **THE SUCCESSOR.** 109 declarations, 282 assertion lines, 1,363 lines, over four files:
+  `Linter.tests.nl` **467 → 1,060** (80 new declarations / 122 assertion lines, under a banner that
+  separates them from the 33 declaration-walk contracts task 019 slice 12 left there),
+  `DiagnosticCatalog.tests.nl` **408** (12 / 74), `LinterConfig.tests.nl` **262** (11 / 59),
+  `LinterBindingUsageCore.tests.nl` **100** (6 / 27). Every helper is prefixed per file (`Lnt`,
+  `Dct`, `Lcf`, `Lbu`) because free funcs do not overload across files, and every lint helper
+  **THROWS** rather than answering an empty list when the parser answers no compilation unit — the
+  C# spelled that `!`, and an empty-list helper would have turned every "no diagnostic" contract
+  into a contract about nothing.
+
+  **THE COMPARATOR — 190 IN, 190 MATCHED, 0 MISSING, 0 DIFFERING, 281 EXTRA.** One engine decodes
+  the deleted file out of `HEAD` and the four successors out of the tree into one normalized claim
+  vocabulary keyed by SETUP (the decoded source text, hashed) and CLAIM. Its decoding inventory:
+  C# verbatim `@"…"`, C# **RAW** `"""…"""` with closing-delimiter indent stripping and no escape
+  processing, C# regular escapes, N# escapes; `[InlineData]` row expansion; the performance
+  `foreach` over a tuple table expanded to 35 rows; `.Where(pred).ToList()` filters inlined into the
+  assertions that read them; **lambda-parameter normalization** (the file spells it `d`, `code` and
+  `diagnostic`); `Assert.Empty`/`NotEmpty` over a filtered list and `count == 0` / `count > 0`
+  canonicalized to the same `not-any` / `any` claim on BOTH sides; `Assert.Single(xs, pred)` bound
+  so its span reads key to the code it selected; temp-directory `File.WriteAllText` setups keyed as
+  a `lint-file:` setup over the sibling file contents; `.editorconfig` content parsed into a
+  config-state key on both sides; **C# statement splitting on braces outside literals** (without
+  which a `try { … } finally { … }` swallows its own body and three methods decode to nothing); N#
+  **sweep expansion** for `for x in Helper()` and for the indexed `while i < list.Count` over
+  parallel tables; and N# local string bindings resolved before a setup key is hashed.
+  **COMPLETENESS ARITHMETIC ON BOTH SIDES, ZERO UNDECODED:** the C#'s **158** assert statements
+  (156 `Assert.` occurrences inside attributed methods + the one `AssertNoDiagnostics(…)` call +
+  the one `diagnostics.Single(…)` binding) produce **190** rows — `158 + 28 + 4`, the 28 being the
+  performance `foreach`'s 7 statements expanded over 5 codes and the 4 being the theories' 8 rows
+  minus their 4 statements; the N#'s **282** assert lines produce **482** rows — 478 sweep-expanded
+  executions plus the four `LntSingleOf` bindings, each of which is a claim in its own right.
+
+  **NON-VACUITY — EIGHT PERTURBATIONS, EIGHT FLIPS.** The unperturbed control reports 0 missing.
+  Then: the reported code of the opening NL001 contract, the NL012 span COLUMN, a missing-import
+  SUGGESTION namespace, the SOURCE TEXT of the Dictionary contract (a setup-key change), the NL109
+  descriptor SEVERITY, and one code dropped from the config rule sweep each flip the verdict to
+  DIFFERS naming **exactly one row**; one name dropped from the binding-usage cross names exactly
+  its own row; and the **SWEEP control** — one code dropped from the performance table — names
+  exactly the **14** rows that table owns and no other, which is the demonstration that the cross
+  subsumes the sample rather than trading it away.
+
+  **SIX SUBJECT MUTATIONS IN SIX DIFFERENT KERNELS → 11 FAILURES ACROSS SIX RUNS OF 5,483, AND
+  EVERY ONE NAMES ITS OWN MIGRATED DECLARATION.** Per run: 1 / 1 / 1 / 2 / 5 / 1.
+
+  | mutation | kernel | failures |
+  |---|---|---|
+  | the `DocsUrlFor` fallback domain | `DiagnosticCatalog.nl` | **1** — `DocsUrlForSYNTHESIZESAPublicDocsURLForACodeWithNoStoredOne`, zero collateral |
+  | NL011's title in `AddLinterRuleDescriptors` | `DiagnosticCatalog.nl` | **1** — `EachLintRulesTITLEAndCATEGORYAreTheOnesTheCatalogPublishes`, zero collateral |
+  | `IsDisabledSeverity` drops `"silent"` | `LinterConfig.nl` | **1** — `TheSeverityKeywordTableOnEveryKeywordItAcceptsAndOneItDoesNot`, zero collateral |
+  | `System.Net.Http` → `System.Net` | `LinterMissingImport.nl` | **2** — the migrated `NL002ReportsHttpClientWithTheSystemNetHttpSuggestion` PLUS the pre-existing kernel contract `EachNameMapsToTheNamespaceTheDeletedDictionaryGaveIt` |
+  | the underscore silencer | `LinterShadowedVariable.nl` | **5** — the migrated `NL020RespectsTheUnderscoreConvention` PLUS four pre-existing `LinterShadowedVariable.tests.nl` contracts |
+  | the suppression code match always true | `LinterSuppressionParser.nl` | **1** — `ASuppressionNamingADIFFERENTCodeSuppressesNothing`, **a contract the deleted C# never had** |
+
+  The five extra failures are **layered coverage, not collateral**, on the slice-6 precedent: each is
+  a pre-existing sibling contract over the same kernel, and each mutation still names its own
+  migrated declaration. The subject is restored BYTE-IDENTICALLY — `git diff HEAD` over production
+  `.nl` shows only the intended `Linter.tests.nl` growth.
+
+  **EVIDENCE.**
+  - **Native estate `5,374 → 5,483` by COUNT DIFF (+109, the exact declarations added)**, under the
+    restore-flag discipline (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`),
+    `Failed: 0`, and **green on the FIRST build of the real contracts** — the probe had already
+    paid for every wall.
+  - **Unit `2,867 → 2,780 / 2,780`** = exactly the 87 migrated xUnit cases.
+  - **Live tree `nlc check` over `src/NSharpLang.Compiler.BootstrapServices`: `checkedFiles=393,
+    count=246` — the inherited baseline to the digit**, identical ten-code census (`NL202:85
+    NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), **ZERO rows in
+    any `.tests.nl`** and **ZERO rows naming `Linter.nl`, `DiagnosticCatalog.nl`, `LinterConfig.nl`,
+    `LinterBindingUsageCore.nl` or any linter kernel**.
+  - **Format contract gate over the directory: "All files are properly formatted." on the FIRST run.**
+  - **`git diff HEAD --numstat -- '*.cs'` is `added=0 deleted=1366` over ONE file**; zero new C#;
+    `Program.Testing.cs` stays 618 and was not opened.
+  - **Dead sweep, including live documentation:** `memory/testing.md` still listed
+    `tests/LinterTests.cs` in its test-file map; the row is gone and the file now carries a linting
+    paragraph beside slice 7's lexer one, naming the four estate files and the run command. Nothing
+    else in the repo referenced the file — `scripts/dev.sh` has no `Linter` mapping, and
+    `memory/components/` has no linter document (its one linter line, in `error-reporting.md`, is
+    about diagnostic spans and stays true).
+  - **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` WORKTREE, IS `ALL TESTS PASSED` IN
+    18m 49s WITH 110 GREEN STEPS AND ZERO FAILURES** — `VSCODE_TESTS=skip ./scripts/test-all.sh
+    --commit`, run after `pgrep` showed no concurrent gate or stray `dotnet pack`. Inside it: unit
+    **2,780 / 2,780**, the estate **5,483 / 5,483**, all **30** native projects, the format contract
+    gate, `nlc check` on examples, and the IL verification gate. Its testhost sat at 0.0 % CPU for
+    minutes while a spawned `dotnet build` child ran at 100 % — the documented pattern, not a hang.
+    The gate reads no file under `systems-language-closeout/`, so recording this verdict here does
+    not change any input it consumed.
+
+  **RATCHET — ONE ROW AND THE TWO-KEY HEAD, WITH THE WALK VALIDATED FIRST.** The FNV-1a head and
+  epoch-fact walks were reimplemented and **reproduced the accepted `head-v1:152dc91ec070ddaf` AND
+  `epochfacts-v1:1b3090747e517fc1` from the PRISTINE manifest before anything was edited**. The
+  audit then **correctly failed 17/18 on exactly ONE violation** — `OWN006 [tests/LinterTests.cs]:
+  active debt entry disappeared; mark it removed in the same deletion commit` — and **passes 18/18
+  after**. `tests/LinterTests.cs` **1366/1167/244 → 0/0/0**, `state: "existing-debt" → "removed"`,
+  `currentFingerprint: "text-v1:removed"`, **epoch ceilings 1380/1185/254 preserved**; head
+  `152dc91ec070ddaf → 556cca7218a078fd` repinned **LAST** in both keys (the JSON header and the
+  `OwnershipPolicy.ReviewedHeadFingerprint` constant); manifest **391 lines, no BOM**,
+  `epochFileCount` unchanged at 381.
+
+  **THREE FINDINGS.**
+  - **(1) A CLUSTER'S RISK IS IN HOW IT BUILDS ITS INPUT, NOT IN WHAT ITS SUBJECT IS ABOUT — AND
+    THIS OVERTURNS SLICE 7's OWN WARNING.** Slice 7 priced `Linter` and `Formatter` above their line
+    counts because their subjects "take and answer AST types". The subject's signature is the wrong
+    thing to read: `LinterTests.cs` reaches that subject through `ParseFileAst`, so every input it
+    constructs is a `string` and every answer it reads is a primitive. 1,366 lines cost ONE clean
+    probe. The correct question for the next cluster is which SETUP HELPERS it uses.
+  - **(2) TWO SUBJECTS HAD NO ESTATE COVERAGE AT ALL, AND THE MIGRATION IS WHERE THAT SURFACED.**
+    `DiagnosticCatalog` (99 descriptors, four builders, the whole compiler diagnostic surface) and
+    `LinterBindingUsageCore` (the two gates that decide whether NL001 and NL012 fail a build) were
+    asserted ONLY by the deleted C# file. Neither had a `.tests.nl`. A migration sweep that only
+    looks for "which N# subject does this C# file test" would have folded both into
+    `Linter.tests.nl` and lost the distinction; splitting by SUBJECT is what made the gap visible.
+  - **(3) THE COMPARATOR'S STATEMENT SPLITTER MUST TREAT BRACES AS BLOCK STRUCTURE, NOT AS DEPTH.**
+    Splitting C# statements on `;` at paren-depth zero silently swallows a whole `try { … } finally
+    { … }` into one statement — three methods (both temp-directory `NL010_FileImport_*` tests and
+    the `.editorconfig` test) decoded to ZERO rows and the diff reported them as matched-by-absence.
+    They only appeared once braces outside literals became statement boundaries. **A comparator that
+    reports 0 missing is worthless until its own decoder is proved to have SEEN every method**,
+    which is exactly what the per-side completeness arithmetic is for.
+
+  **WHAT 020 STILL OWES.** **6 canonical C# assertion layers remain** (7 before this slice), and the
+  estate-routable set is now a single file:
+
+  | route | count | files |
+  |---|---|---|
+  | **BootstrapServices estate** | **1** | `Formatter` 2,132L (**the last estate-routable row**) |
+  | `tests/native` (primitive arguments) | **0** | — |
+  | **BLOCKED** on `Type`-constant rows (NL310 / finding 99.1), reflection over an emitted assembly, or a C# receiver (`ColumnarCompiler`) | 5 | `ColumnarRuntimeTypeFacts` 20L, `ColumnarPatternFacts` 66L, `NumericLiteralFacts` 80L, `ColumnarNumericFacts` 101L, `ColumnarTypeCanonicalizer` 102L |
+
+  **AND `Formatter` MUST BE PRICED BY ITS INPUT, NOT BY ITS SUBJECT** (this slice's finding):
+  `tests/FormatterTests.cs` is the last estate row, and the question that decides its cost is
+  whether it builds its input from SOURCE TEXT through a parse — as `LinterTests.cs` did, which made
+  1,366 lines cost one clean probe — or hands the formatter constructed AST nodes. The estate's own
+  `Formatter.tests.nl` already calls `ColumnarParserRecovery.ParseFileAst`, which is the cheap
+  shape, so the probe should open by enumerating that file's setup helpers before anything else.
+  Outside that set the three owed items are UNCHANGED: **the async clusters**
+  (`LanguageServerTests.cs` 142 async / 4,201 lines / 25 C# receivers,
+  `LanguageServerAutoImportTests.cs` 3, `CliParityAuditTests.cs` 1 — all LSP-fixture or CLI-harness
+  territory); **the `IReadOnlyDictionary`-widening pair** (`tests/CodeIntelligenceTests.cs` 1,354L
+  and `tests/CompletionEngineTests.cs` 322L, still blocked on finding 97.6); and **setup/teardown**,
+  whose demand is 3 ctor+`IDisposable` classes plus 1 `IAsyncLifetime` and whose gap is an ANALYSER
+  one (`NL001`), not an emit one.
+
+- Active sub-slice (020 arc, PRIOR TURN — THE PROBE VERDICTS RECORDED BEFORE ANY PRODUCTION EDIT at
   tip `0a91a21e5`): **020 SLICE 7 — `tests/LexerTests.cs`, THE ARC'S LARGEST SINGLE CLUSTER, AND THE
   FIRST PROBE IN THE ARC THAT CAME BACK CLEAN.**
 
