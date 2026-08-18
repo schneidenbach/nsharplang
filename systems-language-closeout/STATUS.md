@@ -1,6 +1,49 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-17 (**020 SLICE 5 — FIVE MORE C# ASSERTION LAYERS ARE DELETED, THE BATCH WAS
+Last updated: 2026-08-18 (**020 SLICE 6 — FOUR MORE C# ASSERTION LAYERS ARE DELETED, THE
+`tests/native` ROW TURNED OUT TO BE ESTATE-ROUTABLE ALL ALONG, AND THE ESTATE-ROUTABLE SET IS NOW
+DOWN TO THE THREE BIG FILES.** **THE BATCH IS THE THREE CHEAPEST ESTATE ROWS PLUS THE ONE
+`tests/native` ROW** — `Preprocessor` 303L, `BindingMap` 332L, `DiagnosticSpanResolver` 358L,
+`DotnetRunnerTests` 65L — **1,058 C# lines and 110 xUnit cases, and the batch's FIRST `[Theory]`s:
+four of them carrying 51 of the 110 rows**. **THE PROBE PAID FOR ITSELF IN TWO ROUNDS AND FOUND THE
+WALL BEFORE A LINE OF CONTRACT WAS WRITTEN**: omitting a DEFAULTED PARAMETER declines at
+`emit.local.initializer` **on static methods, not only on free funcs** — the inherited free-func
+gotcha is wider than it was written — so `CompilerError.WithSnippet(…)` and `DotnetRunner.Run(…)`
+are spelled at FULL ARITY. A SECOND probe file isolated the regex question and answered it: **the
+emitter's catalog HAS `System.Text.RegularExpressions`**, so the deleted file's one
+`Assert.Matches` row survives verbatim. **THE `tests/native` CLASSIFICATION WAS OVERTURNED BY
+MEASUREMENT**: `DotnetRunner.nl` lives in the BootstrapServices project itself (namespace
+`NSharpLang.Cli`, reached by an `import`), five real `dotnet` processes run green inside the estate
+host, and no new C# is needed anywhere. **FOUR FILES ARE DELETED** and replaced by four new
+`.tests.nl` files: **95 declarations, 441 assertion lines, 1,908 lines**. **A SECOND WALL APPEARED
+ONLY ON THE REAL BUILD, AS IT DID IN SLICES 4 AND 5**: a `TimeSpan` may be CONSTRUCTED and PASSED
+but not INTERROGATED — `TotalMinutes`, `Minutes` and `Hours` each decline at
+`emit.statement.block-child`, in both `double` and `int` comparisons. **EVERY CLUSTER CARRIES ITS
+OWN FULL PROOF SET.** One comparator engine with four alias tables decodes each deleted file out of
+`HEAD` — now also filling C# DEFAULT ARGUMENTS so `Run("--version")` and `Run("--version", null,
+true, null)` are the same setup, normalising C# NAMED arguments, expanding a `foreach`/`for` sweep
+over an array literal row by row, decoding a lambda predicate (`r => r.Line == 3 && r.Column == 5`)
+into the same row as an N# helper call, decoding a join string (`"Foo|Bar|"`) into per-element rows
+plus an order row, and treating a binding map's ordered OPERATION HISTORY as part of the setup key —
+and reports **353 C# assertions in, 353 MATCHED, 0 missing, 0 differing, 532 EXTRA**, with a
+per-cluster perturbation flipping all four verdicts to DIFFERS and naming exactly one row each.
+**FOUR SUBJECT MUTATIONS IN FOUR DIFFERENT KERNELS PRODUCE EXACTLY 4 FAILURES OUT OF 5,319 — 5,315
+PASSED — EACH NAMING ITS OWN DECLARATION WITH ZERO COLLATERAL** (and the mutation that was SWAPPED
+OUT is evidence too: dropping `value` from `IsInternalDeclaration` failed TWO declarations, the
+predicate contract and the behavioural one, which is layered coverage rather than collateral).
+Evidence: **native estate 5,224 → 5,319 by COUNT DIFF (+95, the exact declarations added)**; **unit
+3,054 → 2,944 / 2,944** = exactly the 110 migrated cases; **live tree 393 / 246 — the inherited
+baseline to the digit** with the same ten-code census and ZERO rows in any `.tests.nl`, the three
+rows naming a migrated subject all INHERITED; format clean on the FIRST run; **audit 18/18 after
+correctly failing 17/18 on exactly FOUR `OWN006`s**, head `126e0109b77ba0d1 → c0729fd6577a00d8`
+repinned LAST in both keys from a walk validated against the pristine manifest first, manifest 391
+lines no BOM. **`git diff HEAD --numstat -- '*.cs'` is `added=0 deleted=1058` over FOUR files; zero
+new C#; `Program.Testing.cs` stays 618, not opened.** **8 canonical C# assertion layers remain (3
+estate / 0 native / 5 blocked), and the estate-routable set is now exactly the three big files:
+`Lexer` 894L, `Linter` 1,366L, `Formatter` 2,132L. Task 020 stays UNCHECKED.** NOT COMMITTED — the
+mandate reserves that)
+
+Last updated (prior): 2026-08-17 (**020 SLICE 5 — FIVE MORE C# ASSERTION LAYERS ARE DELETED, THE BATCH WAS
 PRICED BY A NINE-ROUND PROBE, AND THE MUTATION PROOF LANDS CLEAN WITH ZERO COLLATERAL.** **THE BATCH
 IS THE NEXT FIVE CHEAPEST ESTATE-ROUTABLE CLUSTERS** — `AnalyzerBindingFacts` 123L,
 `TypeReferenceFacts` 137L, `PerformanceFactStore` 155L, `ParserTokenFacts` 207L, `SemanticModel` 252L
@@ -3203,7 +3246,25 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 5 IS THE SECOND BATCH MIGRATION,
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 6 IS THE THIRD BATCH MIGRATION,
+  AND IT TOOK THE LAST NON-ESTATE ROW WITH IT.** The three cheapest remaining estate clusters —
+  `Preprocessor` 303L, `BindingMap` 332L, `DiagnosticSpanResolver` 358L — plus `DotnetRunnerTests`
+  65L, the row slice 5 had classified as `tests/native`-only, are deleted: **1,058 C# lines / 110
+  xUnit cases**, replaced by four `.tests.nl` files carrying **95 declarations and 441 assertions**.
+  The two-round batch probe found the wall before any contract was written — **omitting a defaulted
+  parameter declines at `emit.local.initializer` on STATIC METHODS, not only free funcs** — and a
+  second, isolated probe file proved **`System.Text.RegularExpressions` IS in the emitter's
+  catalog**, so the one `Assert.Matches` row survives verbatim. The `tests/native` classification
+  was **overturned by measurement**: `DotnetRunner.nl` is a file of THIS project, so the estate
+  reaches it directly and five real `dotnet` processes run green inside the estate host. The real
+  build found the second wall: **a `TimeSpan` may be constructed and passed but not interrogated**
+  (`TotalMinutes`/`Minutes`/`Hours` all decline at `emit.statement.block-child`). The comparator
+  reports **353 C# assertions in, 353 matched, 0 missing, 0 differing, 532 extra**, and four subject
+  mutations produce **exactly four failures, each naming its own declaration, with ZERO collateral**.
+  **8 canonical C# assertion layers remain (3 estate / 0 native / 5 blocked) and the estate-routable
+  set is now exactly `Lexer` 894L, `Linter` 1,366L and `Formatter` 2,132L. Task 020 stays
+  UNCHECKED.**
+  (Prior: **SLICE 5 IS THE SECOND BATCH MIGRATION,
   AND THE PROBE PAID FOR ITSELF TWICE OVER.** The five cheapest remaining estate-routable clusters —
   `AnalyzerBindingFacts` 123L, `TypeReferenceFacts` 137L, `PerformanceFactStore` 155L,
   `ParserTokenFacts` 207L, `SemanticModel` 252L, **874 C# lines / 39 xUnit cases** — are deleted and
@@ -3417,7 +3478,12 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 020 slice 5 — the SECOND BATCH MIGRATION: the five cheapest remaining
+- Current iteration: 020 slice 6 — the THIRD BATCH MIGRATION: the three cheapest remaining estate
+  clusters plus the one `tests/native` row, which the probe re-classified as estate-routable (1,058
+  C# lines, 110 xUnit cases, four `[Theory]`s), migrated with four per-cluster proof sets and closed
+  with a four-mutation non-vacuity pass that has zero collateral. Two walls measured and routed
+  around: omitted default arguments on static methods, and `TimeSpan` member reads
+- Current iteration (prior): 020 slice 5 — the SECOND BATCH MIGRATION: the five cheapest remaining
   estate-routable clusters (874 C# lines, 39 xUnit cases) priced by one nine-round probe, migrated
   with five per-cluster proof sets, and closed with a five-mutation non-vacuity pass that has zero
   collateral. Three walls measured and routed around, one of them a reserved word (`scoped`)
@@ -3464,7 +3530,261 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (020 arc, THIS TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE TWO
+- Active sub-slice (020 arc, THIS TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE ONE
+  PROBE-VISIBLE WALL RECORDED BEFORE ANY PRODUCTION EDIT at tip `e05276aeb`; the SECOND wall, which
+  only the real build could show, is recorded in WHAT LANDED): **020 SLICE 6 — THE NEXT
+  FOUR CLUSTERS, AND THE `tests/native` ROW TURNS OUT TO BE ESTATE-ROUTABLE AFTER ALL.**
+
+  **THE BATCH, PROBED BEFORE IT WAS CHOSEN.** Slice 5's inventory leaves twelve canonical C#
+  assertion layers; this slice takes the three cheapest estate rows — `Preprocessor` 303L,
+  `BindingMap` 332L, `DiagnosticSpanResolver` 358L — plus the ONE `tests/native` row,
+  `DotnetRunnerTests` 65L, whose process and regex caveats the probe was mandated to price. **1,058
+  C# lines and 110 xUnit cases (25 + 18 + 62 + 5), the batch's first with `[Theory]`s in it: four
+  theories carrying 51 of the 110 rows.** One probe `.tests.nl` carried every risky shape from all
+  four, plus a SECOND single-declaration probe file isolating the regex question so a catalog
+  decline would name that file and leave the batch's own verdicts readable.
+
+  | probe | cluster | shape under test | verdict |
+  |---|---|---|---|
+  | A | `Preprocessor` | `new Lexer(src, "test.nl").Tokenize()` into `Preprocessor.Process`, a `HashSet<string>` WIDENED to the `IReadOnlySet<string>` parameter, `for t in tokens` over `List<Token>`, `TokenType`/`ErrorCode` members, `ProcessSource` length preservation, `Contains`/`IndexOf(…, Ordinal)` | **ZERO WALLS** |
+  | B | `BindingMap` | `new BindingMap()`, `new SymbolDeclaration(…)`, `SymbolDeclaration?` answers through `!= null` narrowing, `==` AND `.Equals` on a user N# class, `List<SymbolUsage>` walks, `FindAllReferences` result members, `Merge`, `AllDeclarations` | **ZERO WALLS** |
+  | C | `DiagnosticSpanResolver` | `CompilerError.WithSnippet` (a static on a RECORD), record member reads, string-array literals swept by `while`, nested sweeps with `assert` inside, escaped quotes / `$`-interpolation / char literals as DATA, `DiagnosticSpanResolver.Resolve` direct | **ONE WALL, MEASURED AND ROUTED AROUND** (below) |
+  | D | `DotnetRunner` | FIVE real `dotnet` processes from inside the estate host, `DotnetRunResult` members, `string.IsNullOrWhiteSpace`, `Path.GetTempPath()`, a `TimeSpan?` argument spelled `null` | **THE SAME ONE WALL** |
+  | E | regex (isolated file) | `System.Text.RegularExpressions.Regex.IsMatch` | **ZERO WALLS — the catalog HAS it** |
+
+  **THE WALL — OMITTING A DEFAULTED PARAMETER DECLINES AT `emit.local.initializer`, ON STATIC
+  METHODS AND NOT ONLY ON FREE FUNCS.** Round 1 declined on
+  `CompilerError.WithSnippet(code, message, file, 1, column, snippet)`, which omits `length`,
+  `suggestion` and `severity`. The route around is FULL ARITY — `…, 0, null, ErrorSeverity.Error` —
+  and the same fix applies to `DotnetRunner.Run("--version")`, which omits three, including a
+  `TimeSpan?` that spells fine as a bare `null`. This EXTENDS the inherited free-func gotcha to
+  static methods on classes and on records; it is the whole reason round 1 failed, and it is the
+  only wall the PROBE could see — the real build found a SECOND one, recorded below.
+
+  **THE PROBE ENDS GREEN IN TWO ROUNDS AND THE COUNT ARITHMETIC IS PROVED ON IT FIRST**: 18 probe
+  declarations (17 + 1) report `Passed! Failed: 0, Total: 5242` — the 5,224 baseline plus exactly
+  18. Both probe files are DELETED before the migration lands.
+
+  **THE PROBED SELECTION: ALL FOUR CLUSTERS MIGRATE.** `DotnetRunnerTests` is genuinely routable
+  with zero new C#: its subject `DotnetRunner.nl` already lives in THIS project (namespace
+  `NSharpLang.Cli`, reached by `import`), five real processes run green inside the estate host, and
+  the one regex assertion has TWO green spellings — `Regex.IsMatch` and a hand-rolled scan. So the
+  "1 `tests/native`" row of slice 5's inventory is re-classified: it was never bounded by the
+  primitive-argument rule, because the estate can reach it directly.
+
+  ### WHAT LANDED
+
+  **ONE STAGE, FOUR CLUSTERS, NO NEW CAPABILITY AND NO TOOLSET REPUBLISH.** The capability question
+  was asked first and answered by the probe: this batch needs no gap closed at all.
+
+  **THE C# MOVED IN ONE DIRECTION ONLY.** `git diff HEAD --numstat -- '*.cs'` is **`added=0
+  deleted=1058` over FOUR files**, with **zero new C# files**. `Program.Testing.cs` stays at **618**,
+  not edited and not opened. `git diff HEAD` over production `.nl` is **EMPTY** — the slice adds
+  `.tests.nl` only (plus the ratchet manifest and its two-key head), which is why the live-tree
+  check set is provably byte-identical to the baseline's.
+
+  | deleted C# | lines / xUnit cases | successor `.tests.nl` (all new) | lines / declarations / asserts |
+  |---|---|---|---|
+  | `tests/PreprocessorTests.cs` | 303 / 25 (15 `[Fact]` + 10 rows) | `Preprocessor.tests.nl` | 614 / 29 / 152 |
+  | `tests/BindingMapTests.cs` | 332 / 18 | `BindingMap.tests.nl` | 657 / 29 / 139 |
+  | `tests/DiagnosticSpanResolverTests.cs` | 358 / 62 (21 `[Fact]` + 41 rows) | `DiagnosticSpanResolver.tests.nl` | 448 / 28 / 118 |
+  | `tests/DotnetRunnerTests.cs` | 65 / 5 | `DotnetRunner.tests.nl` | 189 / 9 / 32 |
+  | **total** | **1,058 / 110** | | **1,908 / 95 / 441** |
+
+  **THE SECOND WALL, WHICH ONLY THE REAL BUILD COULD SHOW — AND IT TOOK THREE SPELLINGS TO PIN.**
+  `DotnetRunner.DefaultTimeout.TotalMinutes == 5.0` declines at `emit.statement.block-child`;
+  binding the `TimeSpan` to a local first does not help; `Minutes == 5` (an INTEGER comparison, so
+  not the `double`) declines identically. **A `TimeSpan` may be CONSTRUCTED (`TimeSpan.FromMinutes(1)`)
+  and PASSED (into the `TimeSpan?` parameter, which also accepts a bare `null`) but it may not be
+  INTERROGATED.** The row was re-aimed at what IS expressible — an explicit timeout is honoured —
+  and the file says so where the assertion would have been.
+
+  **EVERY CLUSTER'S EQUIVALENCE IS PROVED MECHANICALLY AND SEPARATELY.** One comparator engine —
+  one tokenizer, one expression parser and two statement interpreters, with four per-cluster alias
+  tables — decodes the deleted C# out of `HEAD` and the N# out of the work tree into one row
+  language, `<setup> => <claim>`. Six decodings are new this slice, and none is cluster-specific:
+  C# **default arguments are filled in**, so `Run("--version")` and the N#'s full-arity
+  `Run("--version", null, true, null)` are the SAME setup; C# **named arguments** are normalised
+  against N# positional ones; a C# `foreach`/`for` **sweep over an array literal** is expanded row
+  by row (the never-zero sweep decodes to **107 rows** — 12 samples by their own columns — on both
+  sides, and the N# adds a column row and an inside row for each); a C# **lambda predicate** (`r => r.Line == 3 && r.Column == 5`) decodes to the same row as the N#
+  helper call; a **join string** built by a walk (`"Foo|Bar|"`) decodes into per-element rows PLUS
+  an order row; and a binding map's **ordered operation history is part of the setup key**, so two
+  maps that differ only in what was recorded into them cannot collide.
+
+  | cluster | C# decoded | N# decoded | MATCHED | MISSING | DIFFERING | N# EXTRA |
+  |---|---|---|---|---|---|---|
+  | `Preprocessor` | 65 | 176 | **65** | 0 | 0 | **111** |
+  | `BindingMap` | 49 | 140 | **49** | 0 | 0 | **91** |
+  | `DiagnosticSpanResolver` | 229 | 539 | **229** | 0 | 0 | **310** |
+  | `DotnetRunner` | 10 | 29 | **10** | 0 | 0 | **20** |
+  | **total** | **353** | **884** | **353** | **0** | **0** | **532** |
+
+  **THE COMPARATOR IS NON-VACUOUS FOUR TIMES OVER.** One perturbation per cluster, applied to the N#
+  text in memory, flips that cluster's verdict from `EQUIVALENT` to `DIFFERS` and names the exact
+  row, with **exactly one missing row each and no collateral in the other three**: the if-branch
+  identifier swapped for the else-branch one; the answered declaration's line `1` → `2`;
+  `"counter"`'s length `7` → `8`; and the failing command's `ExitCode != 0` softened to `== 0`.
+
+  **THE COMPARATOR ALSO CORRECTED THE SUCCESSORS TWICE, BEFORE THE GATE COULD.** It found that the
+  ten `[Theory]` rows each assert TWO things — no diagnostic AND the branch verdict — which a
+  two-valued N# helper had silently dropped on the five "excluded" rows; the helper is now a
+  THREE-way verdict (`included` / `excluded` / `error`) and the third value is a strictly stronger
+  row of its own. And it found the deleted file reading BOTH halves of the explicit-length answer
+  off ONE call, which the N# had split across two; the direct resolver row was added.
+
+  **WHERE THE SUCCESSORS ARE STRICTLY STRONGER, PER CLUSTER.**
+  - **`Preprocessor` (+111)**: `BranchTaken` proved STICKY against a later matching `#elif` and the
+    `#else`; an `#elif` chain that matches nothing; an UNRECOGNISED directive proved to take the
+    `#region` route in both branch states; the `Eof` token proved to survive every branch state;
+    the other three quadrants of the nesting matrix; `&&` proved to bind tighter than `||`; double
+    negation, nested parentheses, underscore-led and digit-bearing symbol names, and a symbol that
+    merely PREFIXES a defined one; `true`/`false` proved to be literals and their capitalised
+    spellings proved to be ordinary symbols; every unpaired-directive arm (`#elif`/`#else` with no
+    `#if`, a second `#else`); each condition-evaluator refusal by MESSAGE (missing condition,
+    missing `)`, unexpected character, trailing junk); the malformed directive's severity, position,
+    file and underline length; and `ProcessSource` proved to blank lines IN PLACE — byte for byte,
+    including `\r\n` pairs and indented directives — which is the property that keeps a diagnostic's
+    line and column meaningful after preprocessing.
+  - **`BindingMap` (+91)**: the FILE-LESS key fallback and its one-directionality; the loose file
+    match arm by arm (identical, `null` either side, backslash spelling, suffix — and a NON-match
+    that a naive `EndsWith` would accept); `FindDeclarationNear` inside the name, past it, and on
+    another line; the internal-name guard's other three quadrants (`value`; a non-type declaration
+    IS overwritten by `this`; an ordinary name still overwrites a type); all seven type-declaration
+    kinds and their negatives; `Version` proved to move on every real change and NOT on an empty
+    merge; `GetReferences(null)` and an unknown declaration; references found through an EQUAL but
+    distinct declaration object; the key encoding proved collision-free across the two shapes that
+    would collide without its length prefix; the overwrite proved SURGICAL (the old declaration
+    keeps its other usages); and both entry projections proved to be SNAPSHOTS.
+  - **`DiagnosticSpanResolver` (+310)**: every covered TEXT asserted, not just its column and
+    length; the operator table proved ORDERED (`??=` before `??`, `...` before `..`, `<<` before
+    `<`, `:=` before `:`); unterminated literals for both quote characters; a `$` that opens no
+    string; a trailing dot ending a member chain; `a?` at end of line and `a?[b]` versus `a?.b`; the
+    backward snap proved to land on an identifier's FIRST character and to stay put when the
+    preceding character is not one; a blank line and a tab-only line; a column of `0` and a negative
+    one; an explicit length surviving an out-of-range column and a NEGATIVE length falling through
+    to inference; the `sourceLine == null` arm, which `WithSnippet` cannot even express; and the
+    sweep now also proves the answered COLUMN positive and the span INSIDE its line.
+  - **`DotnetRunner` (+20)**: the regex row decoded a second, independent way; the captured version
+    proved to be a SINGLE line beginning with a digit; stderr proved separate in BOTH directions; a
+    failing command proved to answer both streams rather than null; the two entry points proved to
+    agree; an explicit working directory accepted by both; arguments proved to REACH the process
+    (two argument strings, two different captures); the non-capturing arm proved to answer EMPTY
+    STRINGS and still report the exit code; and the result type proved to carry its three members
+    unswapped — the one row that starts no process at all.
+
+  **NON-VACUITY IS EXECUTED, NOT ASSERTED — FOUR SUBJECT MUTATIONS IN FOUR DIFFERENT KERNELS, IN ONE
+  PASS, WITH ZERO COLLATERAL.** `SplitDirective`'s comment marker `"//"` misspelled `"/*"`;
+  `FilesMatch`'s suffix arm loosened from `EndsWith("/" + right)` to `EndsWith(right)`;
+  `ScanQuotedDiagnosticTokenLength`'s escape step `index + 2` narrowed to `index + 1`; and the
+  non-capturing `DotnetRunResult`'s empty stdout changed to `"?"`. The estate reports **exactly 4
+  failures out of 5,319 — 5,315 passed** — and each names its OWN declaration and no other:
+  `PreprocessorIgnoresATrailingLineCommentOnACondition`, `BindingMapMatchesFilePathsLoosely`,
+  `DiagnosticSpanCoversAStringLiteralWithAnEscapedQuote`,
+  `DotnetRunnerAnswersEmptyOutputWhenItIsNotCapturing`. All four subjects restored BYTE-IDENTICALLY
+  (`git diff HEAD` over production `.nl` is empty). **THE MUTATION THAT WAS SWAPPED OUT IS EVIDENCE
+  TOO**: dropping `|| name == "value"` from `IsInternalDeclaration` failed TWO declarations — the
+  PREDICATE contract and the BEHAVIOURAL one — which is layered coverage rather than collateral, so
+  it was replaced by a mutation only one declaration can see.
+
+  **PROOFS AND COUNTS.**
+  - **Native BootstrapServices estate 5,224 → 5,319 by COUNT DIFF (+95, the exact number of
+    declarations added: 29 + 29 + 28 + 9)**, under the restore-flag discipline
+    (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`), `Failed: 0`.
+  - **Unit suite 3,054 → 2,944 / 2,944** = exactly the 110 migrated xUnit cases (25 + 18 + 62 + 5),
+    `Failed: 0`.
+  - **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json`: 393 files,
+    246 rows — the inherited baseline to the digit**, same ten-code census (`NL202:85 NL402:68
+    NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), and ZERO rows in any
+    `.tests.nl`. **THREE rows name a migrated subject and all THREE are INHERITED**: `NL012` at
+    `DotnetRunner.nl:26`, `NL011` at `DotnetRunner.nl:72` and `NL002` at `Preprocessor.nl:8`.
+  - **Format**: `nlc format --project src/NSharpLang.Compiler.BootstrapServices --check` reports
+    "All files are properly formatted" — clean on the FIRST run, over all four new files.
+  - **DEAD SWEEP, SCOPED AND HONEST.** Nothing references the four deleted test classes: every grep
+    hit is a ratchet row this slice moves to `removed`, a successor's own header, or — for
+    `BindingMapTests` — the SURVIVING and unrelated `AnalyzerBindingMapTests.cs`, which drives the
+    same structure THROUGH the analyser and merely contains the name as a substring (the deleted
+    file's own header said so). And nothing is orphaned: a per-entry-point census over the
+    non-test `.nl`/`.cs` tree finds **125 external call sites over 27 owners** — `DotnetRunner`
+    reached 92 times (63 of them from `CompilationBackendTests.cs`), `BindingMap` 28 times across
+    eleven owners including four LSP handlers, `DiagnosticSpanResolver` through `CompilerError.nl`
+    and `LinterWalkState.nl`, and `Preprocessor` from `MultiFileCompiler.cs`.
+
+  - **`tests/native` projects: 30 / 303 cases, unchanged and all green** — this slice adds none; the
+    gate's own Step 3a sweep reports 30 project runs summing 303 cases.
+  - **THE FULL NON-VS-CODE PRODUCT GATE IS GREEN, FRESH AND ISOLATED.**
+    `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` worktree carrying exactly this
+    slice's eleven code paths: **`ALL TESTS PASSED` in 18m 34s, 110 green steps, ZERO failures**,
+    with the unit suite at **2,944** and the native estate at **5,319** *inside the gate* (both
+    matching the out-of-gate measurements to the digit), all 30 native projects green, the **format
+    contract gate PASSING with the four new `.tests.nl` inside it**, and the IL verification gate
+    reporting **all 67 N# assemblies pass with no new errors vs baseline**. `pgrep` confirmed no
+    other gate was running before launch and the full log was written to a file rather than tailed.
+    **THE GATE WAS THEN RE-RUN, FRESH AND ISOLATED AGAIN, ON THE EXACT FINAL TREE** — because three
+    header comments were corrected after the first copy (the batch has TWO walls, not one), and a
+    gate that does not cover the bytes being handed over is not evidence for them. The second run
+    reports **`ALL TESTS PASSED` in 18m 32s, 110 green steps, ZERO failures**, unit **2,944**,
+    estate **5,319**, **30 native projects / 303 cases**, format gate green and **67/67 assemblies**
+    IL-verified. Both worktrees were removed afterwards.
+
+  **RATCHET — FOUR ROWS, ALL TO `removed`, WITH THE WALK VALIDATED BEFORE ANYTHING WAS EDITED.** The
+  FNV-1a walks were reimplemented and reproduced **all three** accepted values off the PRISTINE
+  manifest first (utf-8-sig read, regexed header): head `126e0109b77ba0d1`, pathset
+  `8a26e1529863444b`, epochfacts `1b3090747e517fc1`.
+  - `PreprocessorTests.cs` **303/256/63 → 0/0/0**, `BindingMapTests.cs` **332/248/67 → 0/0/0**,
+    `DiagnosticSpanResolverTests.cs` **358/293/71 → 0/0/0**, `DotnetRunnerTests.cs` **65/53/15 →
+    0/0/0** — each `state: "existing-debt" → "removed"`, `currentFingerprint → "text-v1:removed"`,
+    epoch ceilings preserved (the pathset and epochfacts walks recompute UNCHANGED after the edit,
+    which is the check that no epoch fact moved).
+  - Head repinned **LAST** and in BOTH keys — the manifest header AND `OwnershipPolicy`'s constant
+    in `OwnershipAudit.nl` — `head-v1:126e0109b77ba0d1 → head-v1:c0729fd6577a00d8`. Manifest **391
+    lines, no BOM** (`7b 0a 20`); `epochFileCount` 381 and both epoch fingerprints untouched.
+  - **The audit is non-vacuous by execution**: against the PRISTINE manifest with the four files
+    already deleted it **correctly FAILS 17/18 with exactly FOUR violations**, one `OWN006` per
+    deleted path — and **passes 18/18 after the repin**.
+  - The four new `.tests.nl` files need no manifest rows: `.nl` is ignored by `Classify`.
+
+  **FOUR FINDINGS.**
+  - **(1) OMITTING A DEFAULTED PARAMETER DECLINES ON STATIC METHODS, NOT ONLY ON FREE FUNCS.** The
+    inherited gotcha said "free funcs"; the decline is `emit.local.initializer` and it fires just as
+    hard for a static method on a class (`DotnetRunner.Run`) and on a RECORD
+    (`CompilerError.WithSnippet`). Full arity is the route around, and it is mechanical: write the
+    defaults out.
+  - **(2) A `TimeSpan` MAY BE CONSTRUCTED AND PASSED BUT NOT INTERROGATED.** `TimeSpan.FromMinutes(1)`
+    emits, binding it to a local emits, passing it into a `TimeSpan?` parameter emits — and reading
+    ANY member off it (`TotalMinutes`, `Minutes`, `Hours`) declines at
+    `emit.statement.block-child`, in both `double` and `int` comparisons. This is the
+    dependency-assembly STRUCT bound, met from a new direction.
+  - **(3) A TYPE ERROR IN AN ARGUMENT SURFACES AS AN EMIT DECLINE, NOT AS A DIAGNOSTIC.** Passing a
+    `string[]` where an `IReadOnlySet<string>` is required was refused at `emit.local.initializer`
+    with "local initializer expression emission declined", naming the local — not by the analyser
+    with an `NL202`. The decline is correct but the diagnostic is the wrong SHAPE for the mistake,
+    and in a `.tests.nl` (which the check set excludes) the emitter is the only thing that can say
+    it. Left UNFIXED: it is an analyser change and its own slice.
+  - **(4) THE COMPARATOR IS A DESIGN TOOL, NOT ONLY A PROOF.** It corrected the successors TWICE
+    before any gate ran — the `[Theory]` rows' silently-dropped "no diagnostic" half, and an
+    explicit-length answer whose two halves the deleted file read off ONE call. Both corrections
+    made the N# file better, not merely equal; the three-way condition verdict it forced is a
+    stronger contract than the boolean it replaced.
+
+  **WHAT 020 STILL OWES.** **8 canonical C# assertion layers remain** (12 before this slice), and
+  **the estate-routable set is now exactly the three big files**:
+
+  | route | count | files |
+  |---|---|---|
+  | **BootstrapServices estate** | **3** | `Lexer` 894L (**the next batch's cheapest**), `Linter` 1,366L, `Formatter` 2,132L |
+  | `tests/native` (primitive arguments) | **0** | — `DotnetRunnerTests` was the only row and it is DELETED |
+  | **BLOCKED** on `Type`-constant rows (NL310 / finding 99.1), reflection over an emitted assembly, or a C# receiver (`ColumnarCompiler`) | 5 | `ColumnarRuntimeTypeFacts` 20L, `ColumnarPatternFacts` 66L, `NumericLiteralFacts` 80L, `ColumnarNumericFacts` 101L, `ColumnarTypeCanonicalizer` 102L |
+
+  Outside that set the three owed items are UNCHANGED: **the async clusters**
+  (`LanguageServerTests.cs` 142 async / 4,201 lines / 25 C# receivers,
+  `LanguageServerAutoImportTests.cs` 3, `CliParityAuditTests.cs` 1 — all LSP-fixture or CLI-harness
+  territory); **the `IReadOnlyDictionary`-widening pair** (`tests/CodeIntelligenceTests.cs` 1,354L
+  and `tests/CompletionEngineTests.cs` 322L, still blocked on finding 97.6); and **setup/teardown**,
+  whose demand is 3 ctor+`IDisposable` classes plus 1 `IAsyncLifetime`, all in LSP or Docker fixture
+  territory, and whose gap is an ANALYSER one (`NL001`), not an emit one.
+
+- Active sub-slice (020 arc, PRIOR TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE TWO
   MEASURED WALLS RECORDED BEFORE ANY PRODUCTION EDIT at tip `05d65da38`): **020 SLICE 5 — THE NEXT
   FIVE CHEAPEST ESTATE-ROUTABLE CLUSTERS, PRICED BY A NINE-ROUND BATCH PROBE.**
 
