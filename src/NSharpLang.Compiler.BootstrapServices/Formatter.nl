@@ -20,9 +20,8 @@ import NSharpLang.Compiler.Ast
 //   * this owner takes what those three left: the file's own head (namespace, imports, package),
 //     the declaration walk with its nineteen arms, and `FormatSafe`'s two safety gates. With it
 //     `Formatter.cs` is DELETED, and the type keeps its name, its namespace and its signatures, so
-//     every consumer — `Program.cs`, `DocumentFormattingHandler.cs`, `PlaygroundCompiler.cs` and
-//     `FormatterTests.cs` — reads code-for-code against this type instead. That is the `Linter.cs`
-//     precedent exactly.
+//     every consumer — `Program.cs`, `DocumentFormattingHandler.cs` and `PlaygroundCompiler.cs` —
+//     reads code-for-code against this type instead. That is the `Linter.cs` precedent exactly.
 //
 // THE STATE IS OWNED HERE AND BORROWED BY THE WALK. A declaration formatter and a statement arm are
 // one walk at two depths: they must agree about the indent depth and the comment cursor to the
@@ -32,7 +31,9 @@ import NSharpLang.Compiler.Ast
 //
 // EVERY MEMBER BELOW WAS PRIVATE IN C# AND IS PUBLIC HERE, WHICH IS THE POINT. `Formatter`'s C#
 // surface was "give me a whole formatted file", so not one of the declaration arms could be stated
-// as a contract; `Formatter.tests.nl` now states them one at a time.
+// as a contract; `Formatter.tests.nl` now states them one at a time. The other half — the whole-file
+// contract a user actually experiences — is `FormatterSourceText.tests.nl`, which replaced
+// `tests/FormatterTests.cs`; neither half subsumes the other.
 class Formatter {
     state: FormatterWalkState
     walk: FormatterWalk

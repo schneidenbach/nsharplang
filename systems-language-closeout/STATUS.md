@@ -1,6 +1,52 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-18 (**020 SLICE 8 — `tests/LinterTests.cs` IS DELETED, AND THE PROBE OVERTURNED
+Last updated: 2026-08-18 (**020 SLICE 9 — `tests/FormatterTests.cs` IS DELETED, AND THE ESTATE ROUTE
+IS NOW EMPTY.** The arc's largest cluster — **2,132 lines, 121 `[Fact]`s, 0 `[Theory]`s, 148
+`Assert.` statements** — leaves for **TWO** estate files carrying **86 declarations, 210 assertion
+lines and 800 lines**: `FormatterSourceText.tests.nl` **577** (the formatter's front door — source
+text in, canonical source text out) and `FormatterConfig.tests.nl` **223** (`FormatterConfig`,
+`.editorconfig` reading and the `FormatterConfigKernels` int parser, **neither of which had a line of
+estate coverage anywhere** — the slice-8 `DiagnosticCatalog` margin repeating). **THE PROBE CAME BACK
+GREEN IN ONE ROUND WITH ZERO WALLS** (`Total: 5492` = 5,483 + exactly 9) — the second one-round probe
+in the arc — and it confirms slice 8's rule a second time: **the deleted file never constructs an AST
+by hand**, every input is a source string through `ColumnarParserRecovery.ParseFileAst` and every
+output is text, an `int`, a `bool` or a list count. Two shapes were routed by SPELLING off the
+standing catalog rather than by discovery: `new Formatter()` and the one-argument `Format(ast)` both
+omit a defaulted parameter, so both are written at full arity. **THE OUTCOME IS WHOLE-FILE DELETION —
+`git diff HEAD --numstat -- '*.cs'` is `added=0 deleted=2132` over ONE file, and no other C# file was
+opened.** The comparator reports **166 C# claim rows in, 163 DISTINCT (the deleted file stated three
+claims TWICE under two method names each), 163 of 163 matched, 0 missing, 37 EXTRA**, with
+completeness arithmetic on both sides and ZERO undecoded (C# 121 methods / 148 assert statements →
+166 rows; N# 210 assert lines → 201 shared-vocabulary rows + 9 outside it). It is non-vacuous **ten**
+times over, three of them SWEEPS whose expected counts were derived from the C# row set rather than
+guessed. **THE MUTATION PROOF FOUND A REAL HOLE AND THE SLICE FILLED IT**: deleting the space after
+the comma in the attribute-argument walk left **all 5,568 contracts green**, because every attribute
+in the deleted file carries exactly ONE argument and the separator branch was therefore never
+executed by any contract in the estate. A new contract states it for a declaration attribute and a
+parameter attribute, and the same mutation now fails **naming that contract and nothing else**.
+**EIGHT SUBJECT MUTATIONS IN FIVE KERNELS PRODUCE 32 FAILURES ACROSS EIGHT RUNS OF 5,569**
+(6 / 4 / 3 / 1 / 1 / 1 / 10 / 6); six name their own migrated or new declaration, the extra rows are
+pre-existing sibling contracts over the same behaviour (layered coverage, the slice-6/8 precedent),
+and **one — the declaration-gap rule — is detected ONLY by a sibling**, which is the honest finding
+that a whole-file contract cannot reach it and `Formatter.tests.nl` owns it. Evidence: **native
+estate 5,483 → 5,569 by COUNT DIFF (+86, the exact declarations added)**; **unit 2,780 → 2,659** =
+exactly the 121 migrated cases; **live tree 393 / 246 — the inherited baseline to the digit** with
+the same ten-code census (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3
+NL412:3 NL002:1`), ZERO rows in any `.tests.nl` and ZERO naming either new file; the project-scoped
+format check clean; **audit 18/18 after correctly failing 17/18 pre-repin**, the ratchet row
+`tests/FormatterTests.cs` moved to `state: removed` (2,132 / 1,860 / 275 → 0 / 0 / 0,
+`text-v1:removed`) and the two-key head repinned LAST, `556cca7218a078fd → 9880a58a099a48bb`, from a
+walk **validated against the pristine manifest FIRST**, manifest 391 lines no BOM. The dead sweep
+corrected one live documentation row (`memory/testing.md` now carries a formatting paragraph beside
+the lexer and linter ones) and one stale comment in `Formatter.nl` that still named the deleted file
+as a consumer. **5 canonical C# assertion layers remain — 0 estate / 0 native / 5 BLOCKED — so THE
+ESTATE-ROUTABLE SET IS EMPTY**, leaving only the blocked mini-clusters, the async clusters, the
+97.6-blocked pair and setup/teardown. **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp`
+WORKTREE, IS `ALL TESTS PASSED` IN 19m WITH 110 GREEN STEPS AND ZERO FAILURES** — unit 2,659, the
+estate 5,569, all 30 native projects, the format contract gate and the IL verification gate inside.
+**Task 020 stays UNCHECKED.** NOT COMMITTED — the mandate reserves that)
+
+Last updated (prior): 2026-08-18 (**020 SLICE 8 — `tests/LinterTests.cs` IS DELETED, AND THE PROBE OVERTURNED
 SLICE 7's OWN PRICING WARNING BEFORE A LINE OF CONTRACT WAS WRITTEN.** **1,366 C# lines / 79
 `[Fact]`s / 4 `[Theory]`s carrying 8 `[InlineData]` rows — 87 xUnit cases** leave for **FOUR** estate
 files carrying **109 declarations, 282 assertion lines and 1,363 lines**:
@@ -3348,7 +3394,136 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 8 DELETED `tests/LinterTests.cs`
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 9 DELETED `tests/FormatterTests.cs`
+  WHOLE — THE ARC'S LARGEST CLUSTER — AND CLOSED THE ESTATE ROUTE.** **2,132 lines / 121 `[Fact]`s /
+  0 `[Theory]`s / 148 `Assert.` statements** leave for TWO estate files —
+  `FormatterSourceText.tests.nl` **577** (71 declarations, 145 assertion lines) and
+  `FormatterConfig.tests.nl` **223** (15 declarations, 65 assertion lines) — **86 declarations, 210
+  assertion lines, 800 lines**.
+  **THE PROBE CAME BACK GREEN IN ONE ROUND WITH ZERO WALLS**, the second such probe in the arc:
+  `Total: 5492` = 5,483 + exactly 9, one file carrying every risky shape the deleted file used —
+  the source-string format pipeline, the lexer's comment trivia handed to the two-argument `Format`,
+  `FormatterConfigKernels.ParseInt` read as a nullable int, `FormatterConfig` property sets and
+  `GetIndentString()`, `FromEditorConfig` over a REAL temp directory, the reparse gate as a `for`
+  walk over `ParseResult.Errors` filtering on `ErrorSeverity.Error`, `FormatSafe`'s whole result
+  surface (`.Success`, `.Text.StartsWith(…, StringComparison.Ordinal)`, `.Text.Contains(…)`,
+  `.Warnings.Count`), an interpolated RAW string surviving its own re-format, and a configured
+  `Formatter` reached through the whole-file entry point. **THE REASON IS STRUCTURAL, NOT LUCK, AND
+  IT CONFIRMS SLICE 8's RULE A SECOND TIME**: the deleted file never constructs an AST by hand — it
+  builds every input from a SOURCE STRING through `ColumnarParserRecovery.ParseFileAst` and reads
+  back text, an `int`, a `bool` or a list count. **TWO SHAPES WERE ROUTED BY SPELLING OFF THE
+  STANDING CATALOG RATHER THAN BY DISCOVERY**: `new Formatter()` and the one-argument `Format(ast)`
+  both omit a defaulted parameter, so both are written at full arity (`new Formatter(null)`,
+  `Format(unit, null)`).
+  **THE SPLIT IS BY SUBJECT AND THE SECOND FILE IS THE STRICTLY-STRONGER MARGIN**: `FormatterConfig`
+  and `FormatterConfigKernels` had **NO estate coverage at all** — the deleted C# was their only
+  assertion layer anywhere — so `FormatterConfig.tests.nl` states for the first time that a property
+  remembers whether it was assigned, that a tab indent is ONE tab per level whatever `IndentSize`
+  says, that a missing or foreign-section `.editorconfig` leaves every default standing, that
+  `indent_size` and `max_line_length` do NOT share a failure rule (one THROWS, one is silently
+  skipped), and that the int parser is exact on the far side of both 32-bit boundaries.
+  **THE COMPARATOR: 166 C# CLAIM ROWS IN, 163 DISTINCT, 163 OF 163 MATCHED, 0 MISSING, 37 EXTRA.**
+  Both decoders carry their own completeness arithmetic with ZERO undecoded: the C# side reports
+  **121 methods / 148 assert statements → 166 rows** (the 20-row expansion is the `ParseInt` case
+  table unrolled), the N# side **210 assert lines → 201 shared-vocabulary rows + 9 outside it**. The
+  **three duplicate claims are the deleted file's own** — `Format_ForeachLoop` /
+  `Format_ForeachNormalizesToForIn`, `Format_MatchExpression` / `Format_MatchExpression_Indented`,
+  `Format_LambdaSingleParam_NoType` / `Format_Lambda_SingleParam_InferredType` each state the same
+  claim twice under two names, so the successor states each once and the comparator reports the
+  collapse rather than hiding it. **TEN NON-VACUITY CONTROLS, ALL EXACT** (one assert deleted → 1;
+  one space removed from one expected text → 1; one character changed in one INPUT → 1; one whole
+  block dropped → 4; one commented pipeline re-spelled as the uncommented one → 1; one config number
+  changed → 1; and four SWEEPS — every `ParseInt` assert → 20, every configured-format assert → 2,
+  every `FormatSafe` assert → **22**, every idempotence assert → 9 — whose expected counts were
+  DERIVED from the C# row set, which is how the `FormatSafe` sweep corrected this author's guess of
+  17).
+  **THE DECODER CORRECTED ITSELF THREE TIMES BEFORE IT WAS TRUSTED**, and each correction was a
+  silent wrong answer rather than a crash: a C# verbatim literal that ENDS the expression ran off the
+  end of the buffer; an identity format — one whose expected text happens to equal its input — was
+  being classified as an IDEMPOTENCE claim, which is strictly weaker than the equality the C#
+  wrote; and a line-regex comment strip was eating the `// Calculate result` lines that live INSIDE
+  the verbatim source strings, so three comment-preservation contracts were being compared against
+  sources with their comments removed. Comment stripping now happens inside the literal-aware
+  splitter, where the boundaries are known.
+  **THE MUTATION PROOF FOUND A REAL COVERAGE HOLE AND THE SLICE FILLED IT.** Deleting the space after
+  the comma in `FormatterWalk.FormatAttributeInline` left **all 5,568 contracts green** — every
+  attribute in the deleted file carries exactly ONE argument (`[Column("Last Name")]`,
+  `[StringLength(19)]`, `[FromRoute("id")]`), so the `index > 0` separator branch was never executed
+  by any contract in the estate. One new contract states it for a declaration attribute AND a
+  parameter attribute (different arms), and the same mutation now fails **naming that contract and
+  nothing else**. **EIGHT SUBJECT MUTATIONS IN FIVE KERNELS PRODUCE 32 FAILURES ACROSS EIGHT RUNS OF
+  5,569**: a tab indent written as a space **6** (3 own, 3 pre-existing siblings); `ParseInt` no
+  longer consuming the leading sign **4** (all own); the `[*.nl]` section never entered **3** (all
+  own); the imports written unsorted **1** (own, ZERO collateral); the attribute-argument comma **1**
+  (own — the new contract); the visibility predicate inverted **10** (2 own migrated + 8 siblings);
+  the object-initializer wrap threshold raised out of reach **6** (1 own migrated + 5 siblings); and
+  the blank-line gap measured from the START line **1 — a SIBLING ONLY**, which is the honest
+  finding that a whole-file contract cannot reach the declaration-gap rule and `Formatter.tests.nl`
+  owns it. Every subject was restored byte-identically. **A NINTH MUTATION WAS DISCARDED AS INVALID
+  RATHER THAN REPORTED**: inserting an early `return` above a local declaration does not compile in
+  N#, so a mutation must be a single-expression swap.
+  Evidence: **native estate 5,483 → 5,569 by COUNT DIFF (+86, the exact declarations added)**;
+  **unit 2,780 → 2,659** = exactly the 121 migrated cases; **live tree 393 / 246 — the inherited
+  baseline to the digit** with the same ten-code census, ZERO rows in any `.tests.nl` and ZERO naming
+  either new file; the project-scoped `nlc format --check` clean (`.tests.nl` is outside that set —
+  `Formatter.tests.nl`, `LinterConfig.tests.nl` and `Lexer.tests.nl` behave identically, which is
+  the estate's prevailing convention and not a new defect); **audit 18/18 after correctly failing
+  17/18 pre-repin**, the ratchet row moved to `state: removed` (2,132 / 1,860 / 275 → 0 / 0 / 0,
+  `text-v1:removed`) and the two-key head repinned LAST, `556cca7218a078fd → 9880a58a099a48bb`, from
+  a walk **validated against the pristine manifest FIRST**, manifest 391 lines no BOM. The dead sweep
+  found **two live rows**: `memory/testing.md` now carries a formatting paragraph beside the lexer
+  and linter ones, and `Formatter.nl`'s header comment no longer names the deleted file as a
+  consumer.
+  **THE REMAINING INVENTORY: 5 canonical C# assertion layers — 0 ESTATE / 0 NATIVE / 5 BLOCKED.**
+  The estate route is EMPTY. What is left is the blocked mini-cluster set (`ColumnarRuntimeTypeFacts`
+  20L, `ColumnarPatternFacts` 66L, `NumericLiteralFacts` 80L, `ColumnarNumericFacts` 101L,
+  `ColumnarTypeCanonicalizer` 102L — all blocked on `Type`-constant rows / NL310 / finding 99.1,
+  reflection over an emitted assembly, or a C# receiver), the async clusters
+  (`LanguageServerTests.cs` 142 async / 4,201L / 25 C# receivers, `LanguageServerAutoImportTests.cs`
+  3, `CliParityAuditTests.cs` 1), the `IReadOnlyDictionary`-widening pair
+  (`tests/CodeIntelligenceTests.cs` 1,354L and `tests/CompletionEngineTests.cs` 322L, still blocked
+  on finding 97.6), and setup/teardown, whose gap is an ANALYSER one (`NL001`) and not an emit one.
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` WORKTREE** (the repo root carries
+  nested `.claude/worktrees/*` checkouts that break the benchmark gate in place), **IS `ALL TESTS
+  PASSED` IN 19m WITH 110 GREEN STEPS AND ZERO FAILURES** — its banner reads `Fresh isolated test
+  run required: pre-commit verification / Existing cache entries will not satisfy this invocation`,
+  and inside it are unit **2,659**, the estate **5,569**, all **30** native projects, the format
+  contract gate and the IL verification gate. The gate ran against a byte-copy of the code tree; the
+  only file edited afterwards is this one, which is prose and is not an input to any compile step.
+  **Task 020 stays UNCHECKED.**
+  (Prior — **SLICE 9's PLAN AND PROBE VERDICTS, RECORDED BEFORE THE FIRST CONTRACT LINE WAS
+  WRITTEN.** The cluster is `tests/FormatterTests.cs` (**2,132 lines, 121 `[Fact]`s, 0 `[Theory]`s,
+  148 `Assert.` statements**), the LAST estate-routable canonical C# assertion layer.
+  **NINE INPUT/OUTPUT SHAPES WERE ENUMERATED AND ALL NINE WERE PROBED IN ONE FILE**
+  (`FormatterProbe020.tests.nl`, temporary): (1) source string → `ParseFileAst` → `Formatter.Format`
+  → `.Trim()`; (2) `Lexer.Tokenize()` for its effect and `Lexer.Comments` handed to the two-argument
+  `Format`; (3) `FormatterConfigKernels.ParseInt` answering a **nullable int** read through
+  `.HasValue`/`.Value`; (4) `FormatterConfig` defaults, property sets and `GetIndentString()`;
+  (5) `FormatterConfig.FromEditorConfig` over a REAL temp directory with a written `.editorconfig`;
+  (6) the reparse gate as a `for` walk over `ParseResult.Errors` filtering on
+  `ErrorSeverity.Error`; (7) `FormatSafe`'s result surface — `.Success`, `.Text.StartsWith(…,
+  StringComparison.Ordinal)`, `.Text.Contains(…)`, `.Warnings.Count`; (8) an **interpolated RAW
+  string** (`$"""`) surviving the format and its own re-format; (9) a configured `Formatter`
+  (2-space, tab) reached through the whole-file entry point.
+  **THE PROBE CAME BACK GREEN IN ONE ROUND WITH ZERO WALLS: `Total: 5492` = 5,483 + exactly 9.**
+  That is the second one-round probe in the arc (slice 7 was the first) and it confirms slice 8's
+  input-shape rule a second time: **the deleted file never constructs an AST by hand** — every input
+  is a SOURCE STRING through `ColumnarParserRecovery.ParseFileAst` and every output is text,
+  an `int`, a `bool` or a `List<string>` count. Two shapes were routed by SPELLING before the probe,
+  on the standing catalog rather than by discovery: `new Formatter()` and the one-argument
+  `Format(ast)` both omit a defaulted parameter, so both are written at full arity
+  (`new Formatter(null)`, `Format(unit, null)`) — the wall the estate has had since slice 6.
+  **PLAN: WHOLE-FILE DELETION, TWO SUCCESSOR FILES.** `FormatterSourceText.tests.nl` takes the
+  whole-file format contracts (the canonical text, idempotence, the reparse gate, `FormatSafe`,
+  comment preservation); `FormatterConfig.tests.nl` takes `FormatterConfig` and
+  `FormatterConfigKernels`, **which have NO estate coverage at all today** — the deleted C# is their
+  only assertion layer anywhere, the slice-8 `DiagnosticCatalog` margin repeating. The C# decoder
+  reports **121 methods, 148 assert statements → 166 claim rows, 0 undecoded**, and it corrected
+  itself three times before it was trusted (a verbatim literal ending the expression ran off the
+  end; an identity format was being misread as an idempotence claim; and a line-regex comment strip
+  was eating the `// Calculate result` lines that live INSIDE the verbatim source strings).)
+
+  (Prior: **SLICE 8 DELETED `tests/LinterTests.cs`
   WHOLE AND OVERTURNED SLICE 7'S OWN PRICING WARNING.** **1,366 lines / 87 xUnit cases (79 `[Fact]`s
   + 4 `[Theory]`s carrying 8 rows)** leave for FOUR estate files — `Linter.tests.nl` **467 → 1,060**
   plus three NEW ones (`DiagnosticCatalog.tests.nl` 408, `LinterConfig.tests.nl` 262,

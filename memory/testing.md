@@ -35,6 +35,14 @@ their subjects in the same estate: `Linter.tests.nl` (the declaration walk, and 
 contracts for NL001/NL002/NL003/NL004/NL006/NL010/NL011/NL012/NL016/NL020, suppression and resolved
 spans), `DiagnosticCatalog.tests.nl` (all 99 descriptors), `LinterConfig.tests.nl` (severities,
 overrides and `.editorconfig`) and `LinterBindingUsageCore.tests.nl` (the unused-binding policy).
+Formatting has no C# assertion layer either. The formatter's canonical contracts are N# and live
+beside their subjects in the same estate: `Formatter.tests.nl` (the nineteen declaration arms, one
+at a time, against hand-built AST nodes, plus the two `FormatSafe` gates), `FormatterWalk.tests.nl`,
+`FormatterWalkState.tests.nl` and `FormatterSyntaxText.tests.nl` (the body walk, the state carrier
+and the leaf text), `FormatterSourceText.tests.nl` (the front door — source text in, canonical
+source text out, with idempotence and the reparse round trip) and `FormatterConfig.tests.nl`
+(`FormatterConfig`, `.editorconfig` reading and the `FormatterConfigKernels` int parser).
+
 Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
 (restore with `-p:NSharpExcludeTests=false --force-evaluate` first).
 
