@@ -3467,7 +3467,72 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 10 STAGE 1 PUBLISHES THE
+- Active sub-slice (020 arc, THIS TURN — **SLICE 10 STAGE 2's PROBE VERDICTS, MEASURED ON THE
+  REPUBLISHED TOOLSET AT `a0bf7e89a` BEFORE ANY MIGRATION EDIT. NO PRODUCTION OR CONTRACT FILE WAS
+  CHANGED THIS TURN; the tree is clean and stage 1's commit stands untouched.**)
+
+  **THE WIDENING TOOK, AND THE SNAPSHOT HOSTAGES ARE FREE.** One estate probe file carried every
+  risky shape both clusters use, because the estate reports only the FIRST decline. Three rounds:
+  **probe J — a `ProjectSnapshot` CONSTRUCTED INSIDE A `.tests.nl` from
+  `new Dictionary<string, CompilationUnit>(StringComparer.OrdinalIgnoreCase)`,
+  `Dictionary<string, SemanticModel>`, a `List<CompilerError>` seeded by `CompilerError.WithSnippet`
+  at full arity, a `List<string>` and a `Dictionary<string, string>`, then asked
+  `CodeIntelligenceQueries.Diagnostics(snapshot, null)` and read `NL301` and `NL012` back out —
+  EMITS.** Finding 97.6 is closed end-to-end: the two `GetDiagnostics` hostages are estate-routable
+  now. So is the whole `OutputFormatter` model surface: probes E/F/G/H/I emit — the 14-argument
+  `DiagnosticResult`, `SymbolResult` at 9 arguments with three nulls, ARRAYS of constructed elements
+  in BOTH spellings (`new T[](n)` and the `[...]` literal), record positional `CallSiteResult` /
+  `CallGraphResult`, a `Dictionary<string, List<CompletionItem>>`, `String.Join(Environment.NewLine,
+  …)` against a literal expected-line array, and `ErrorToJson`'s `details` object **spelled as a
+  `Dictionary<string, object>`, which serialises byte-identically to the C#'s anonymous type** — so
+  the anonymous-object fixture is NOT a wall, it is a re-spelling.
+
+  **FOUR WALLS ARE MEASURED, AND THREE OF THEM RESIZE THE CLUSTER.**
+  **(1) `JsonElement` ENUMERATION IS UNREACHABLE, THREE WAYS.** `for x in root.EnumerateObject()`
+  and `for x in element.EnumerateArray()` both report **`NL202: foreach collection must be
+  enumerable, but this collection is 'ObjectEnumerator' / 'ArrayEnumerator'`**; casting the
+  enumerator to `IEnumerable<JsonProperty>` declines at `emit.local.initializer`; and
+  `JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json)` declines at
+  `emit.call.generic-unresolved`. The `JsonElement` INDEXER (`element[0]`) declines too.
+  **(2) EVERYTHING ELSE IN THE JSON READ SURFACE WORKS**, including the shape finding 98.5 warned
+  about: `JsonDocument.Parse` → a hoisted `RootElement` → `GetProperty(name)` →
+  `GetString()`/`GetInt32()`/`GetBoolean()`, `GetArrayLength()`, `TryGetProperty(name, out element)`,
+  **and the two-hop chain `root.GetProperty("summary").GetProperty("warnings").GetInt32()` in ONE
+  expression** — 98.5's limit is about instance PROPERTY chains, not method chains.
+  **(3) `CultureInfo` IS UNREACHABLE IN BOTH DIRECTIONS.** Reading `CultureInfo.CurrentCulture`
+  declines at `emit.local.initializer`, and so does `new CultureInfo("tr-TR")` — so neither the
+  ambient swap the C# performs nor the culture-as-an-argument alternative
+  (`value.ToUpper(turkish)`) can be spelled. **`DiagnosticsToText_UnknownSeverityUsesInvariantFallback`
+  therefore CANNOT be migrated without weakening it**: its negative half is only non-vacuous under a
+  Turkish culture, and a contract that asserts `DiagnosticUpperInvariant("idi") == "IDI"` alone
+  states strictly less. This is the cluster's SPLIT POINT — 44 facts move, 1 stays.
+  **(4) `Directory.GetParent(dir)` / `DirectoryInfo.FullName` DECLINES**, so the C#'s ten-step upward
+  walk to `tests/fixtures/json-contract-root-keys.golden.json` is not spellable either.
+
+  **THE ROOT-KEY DECODER THAT REPLACES THE ENUMERATION IS MEASURED AND READY.** Because
+  `System.Text.Json` indents every ROOT member by exactly two spaces and escapes newlines inside
+  strings, a line beginning with two spaces then a quote is a root key and nothing else can be. A
+  15-line scanner over the rendered envelope therefore recovers the ORDERED, EXACT root-key list —
+  the same claim `SequenceEqual` made — and it self-validates (every scanned key must also answer
+  `TryGetProperty`, and a NESTED key such as `summary.errors` must not appear in the list). It is
+  proven on a literal envelope; what is NOT yet proven is reading the golden fixture with it, which
+  wall (4) blocks — so the two golden-key facts need either a fixture path that needs no upward walk
+  or the expectations inlined beside the claim. **`tests/CliCommandTests.cs` also reads that fixture,
+  so it stays alive either way and nothing is orphaned.**
+
+  **THE PLAN THE VERDICTS IMPLY, UNCHANGED IN SHAPE FROM STAGE 1's ENUMERATION.**
+  `tests/CodeIntelligenceTests.cs` splits **44 / 1**: three estate successors — the JSON envelopes,
+  the text builders, and the diagnostics-query pair — against `OutputFormatterJsonKernels`,
+  `OutputFormatterTextBuilders`, `OutputFormatterDiagnosticKernels`, `CodeIntelligenceResultKernels`
+  and `CodeIntelligenceQueries`, **NONE of which has a single line of estate coverage today** (the
+  deleted C# is their ONLY assertion layer anywhere — the slice-8 `DiagnosticCatalog` margin
+  repeating, at four owners instead of two). The culture fact stays in a shrunken C# survivor with
+  its wall named. `tests/CompletionEngineTests.cs` remains the native reflection-harness route on the
+  `tests/native/query-completions` precedent, unblocked by neither this row nor any catalog row.
+  **Task 020 stays UNCHECKED.**
+
+- Current task (STAGE 1, COMMITTED at `a0bf7e89a`): **020 — NATIVE N# TEST-RUNNER CAPABILITIES.
+  SLICE 10 STAGE 1 PUBLISHES THE
   `IReadOnlyDictionary<K, V>` WIDENING — THE NAMED ROW THAT UNBLOCKS THE CODE-INTELLIGENCE PAIR — AND
   THE HALF THAT WAS MISSING TURNS OUT TO BE A GATE ABOVE A ROW THAT WAS ALREADY THERE.**
 
