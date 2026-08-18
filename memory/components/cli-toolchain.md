@@ -842,7 +842,11 @@ nlc query <cmd>
 | File | What it tests |
 |------|--------------|
 | `tests/QueryIntegrationTests.cs` | Real example projects: symbols, outline, diagnostics, definition, references, completions, binding map, unhappy paths |
-| `tests/CodeIntelligenceTests.cs` | OutputFormatter JSON/text formatting |
+| `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterJsonKernels.tests.nl` | Every versioned JSON envelope and its exact ordered root keys |
+| `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterTextBuilders.tests.nl` | Every Elm-style `--text` answer, stated as whole texts |
+| `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterDiagnosticKernels.tests.nl` | Severity arithmetic, reference deduplication, end-to-end diagnostics |
+| `tests/native/completion-engine` | `CompletionEngine` over real projects, reached by reflection |
+| `tests/CodeIntelligenceTests.cs` | One residual case: the culture-invariant severity fallback |
 | `tests/CodeFixTests.cs` | CodeFixProviders (auto-import, unused variable removal) |
 
 ---

@@ -3467,7 +3467,214 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 10 STAGE 2's PROBE VERDICTS, MEASURED ON THE
+- Active sub-slice (020 arc, THIS TURN — **SLICE 10 STAGE 2 SPENDS THE WIDENING: THE
+  CODE-INTELLIGENCE PAIR MIGRATES 44 + 12, `tests/CompletionEngineTests.cs` IS DELETED WHOLE, AND
+  `tests/CodeIntelligenceTests.cs` SHRINKS TO THE ONE CASE A CULTURE WALL HOLDS.**)
+
+  **THE SPLIT LANDED EXACTLY AS THE STAGE-1 PROBE MEASURED IT, AND BOTH ROUTES CAME BACK GREEN ON
+  THEIR FIRST RUN.** `tests/CodeIntelligenceTests.cs` (**1,354 lines / 45 `[Fact]`s / 127 `Assert.`
+  statements**) splits **44 / 1**. The 44 become **59 estate declarations in three new contract
+  files** — `OutputFormatterJsonKernels.tests.nl` **654** (29 declarations, 73 assert lines),
+  `OutputFormatterTextBuilders.tests.nl` **605** (24, 40) and
+  `OutputFormatterDiagnosticKernels.tests.nl` **242** (6, 21) — **1,501 lines, 59 declarations, 134
+  assert lines**, and the estate accepted all three in ONE round with zero walls beyond the ones
+  stage 1 had already mapped — the only build error was a SPELLING one and it is worth recording:
+  **`file` IS A RESERVED KEYWORD IN N#**, so a parameter named `file` reports `NL103` at
+  `parse.function`, and the estate reports only the FIRST decline so it named one of the eight sites.
+  The keyword table also reserves `type`, `out`, `params`, `with`, `init`, `ref`, `scoped` and
+  `assert`; a migration that carries C# parameter names across should sweep for them before its
+  first build. All three files then compiled and every declaration passed on the FIRST test run. `tests/CompletionEngineTests.cs` (**322 / 12 / 49**) becomes
+  `tests/native/completion-engine` (**523 lines, 12 declarations, 53 assert lines**), the **32nd**
+  native project, **12 / 12** on its second run — the one wall it hit is recorded below.
+
+  **THE STRICTLY-STRONGER MARGIN IS FOUR OWNERS WIDE.** `OutputFormatterJsonKernels`,
+  `OutputFormatterTextBuilders`, `OutputFormatterDiagnosticKernels` and `CodeIntelligenceResultKernels`
+  had **NO estate coverage at all** — the deleted C# was their only assertion layer anywhere, because
+  `OutputFormatter` and `CodeIntelligenceService` are PURE FORWARDERS and every C# case reached the
+  N# owners through them. Eight things that were implicit are now stated: the Elm header ruler is
+  DERIVED from the 60-column budget rather than written as the magic number 29; a source snippet is
+  right-trimmed and a zero-length caret is still exactly one `^`; both truncation rules are off-by-one
+  proofs (51 completions, 31 doc members) that state the overflow wording; an absent section is
+  OMITTED rather than blanked, stated as the exact reduced text; `ErrorToJson`'s `details` is a plain
+  object graph rather than a compiler-generated anonymous type; the `isDefinition` flags of a
+  reference array are stated IN ORDER, all of them, where the C# read element `[0]`; the compact
+  inspect summary is stated by what it carries AND what it does not (`summary` present, `result`
+  absent); and cluster file ordering is case-INSENSITIVE but case-PRESERVING with `SRC/A.NL`
+  collapsing into `src/a.nl` rather than sorting apart from it.
+
+  **THE ROOT-KEY DECODER REPLACED FOURTEEN GOLDEN COMPARISONS WITH FIFTEEN NAMED ONES.** The C#
+  stated every envelope's root keys inside ONE case, against a fixture found by a ten-step upward
+  directory walk (`Directory.GetParent` declines from N#). The estate states them one contract per
+  envelope — symbols, outline, diagnostics, diagnosticsClusters, check, checkSystemsReport, trusted,
+  type, definition, references, completions, doc, perf, inspect, inspectSummary — using the
+  two-space line scanner stage 1 proved, and the scanner SELF-VALIDATES: every key it reports must
+  also answer `TryGetProperty`, and a dedicated negative states that a NESTED key (`summary.errors`)
+  never appears in a root-key list while it does answer as a nested property.
+  **`tests/CliCommandTests.cs` still reads the golden fixture, so nothing is orphaned.**
+
+  **THE FIFTEEN INLINED KEY LISTS WERE CROSS-CHECKED AGAINST THE GOLDEN FIXTURE MECHANICALLY, AND
+  ALL FIFTEEN MATCH IT EXACTLY** — the same 14 envelopes the deleted case asserted, plus
+  `inspectSummary`. The 9 golden envelopes nobody inlined (`batch`, `buildPerfReport`, `callGraph`,
+  `definitionSearch`, `fix`, `implementors`, `lint`, `pack`, `tree`) were never covered by the
+  deleted C# either; they are `tests/CliCommandTests.cs`'s, which still reads the fixture.
+
+  **THE NATIVE ROUTE IS STRICTLY STRONGER THAN THE C# IT REPLACES, AND FOR A STRUCTURAL REASON.**
+  The deleted C# built its `ProjectSnapshot` BY HAND — it called `Analyzer.Analyze` itself, assembled
+  two dictionaries, and passed an EMPTY source-text map with a `ProjectIndex` only when bindings
+  happened to exist. The native project writes a real single-file project to disk and loads it
+  through `CodeIntelligenceService.LoadProject`, the call `QueryCommand.LoadProjectOrFail` makes, so
+  the snapshot under test is the one the product actually builds. One wall was hit and routed:
+  `Dictionary<K, V>.KeyCollection` is not a `foreach` collection N# can consume (`NL202` on the
+  non-generic `IEnumerable`), so the group keys are copied out through the collection's own
+  `CopyTo(string[], int)` — reflection all the way down, like the rest of the harness.
+
+  **THE MIGRATION IS EXACT ON BOTH COUNTERS.** The estate grew by **59 declarations and nothing
+  else** (5,570 → 5,629 by count diff), the unit suite lost **exactly the 56 migrated cases**
+  (2,659 → 2,603 = 44 + 12), and the native project set grew by the one harness (31 → 32).
+
+  **THE COMPARATOR: 125 MIGRATING C# CLAIMS IN, 125 MATCHED, 0 MISSING — AND 49 OF 49 FOR THE
+  COMPLETION CLUSTER.** Both sides are decoded out of HEAD by one mechanical decoder into a shared
+  claim vocabulary `(kind, accessor-route, expected)`; the route is the ordered accessor keys
+  (`GetProperty("summary").GetProperty("errors")` → `summary/errors`), and routes are matched by
+  SUFFIX so `result/name` meets `name` while `summary/warnings` does NOT meet `summary/warning`.
+  Completeness arithmetic is exact and ZERO is undecoded on either side: **C# 45 `[Fact]`s / 127
+  `Assert.` statements → 127 rows** (2 of them the retained culture case, 125 migrating);
+  **N# 59 declarations / 134 assert statements → 134 rows**; matched **107 on the primary key + 18
+  on an alias**, **0 missing**, 9 extra. The completion cluster: **12 `[Fact]`s / 49 `Assert.`
+  statements → 49 rows** against **12 declarations / 53 assert statements → 53 rows**, matched
+  **15 + 34**, **0 missing**, 4 extra.
+  **THE DECODER CORRECTED ITSELF FOUR TIMES BEFORE IT WAS TRUSTED, AND EVERY CORRECTION WAS A SILENT
+  WRONG ANSWER RATHER THAN A CRASH**: (1) the literal placeholder preserved the original text WIDTH,
+  which truncated the tag of a two-character literal — so every `""` in an expected-line list
+  vanished and eighteen whole-text contracts were being compared against texts with their blank
+  lines removed; (2) `string.Empty` was not counted as a literal at all, the same hole from the C#
+  side; (3) `Assert.Contains` has TWO shapes under one name and the collection form was being read
+  as the substring form, which turned four lint-code claims into claims about the word
+  `"variables"`; and (4) the prefix/suffix aliases were uncapped, so a nineteen-line expected text
+  matched on its FIRST LINE alone and the control that drops a blank line out of the middle passed
+  unnoticed. **THIRTEEN PERTURBATION CONTROLS NOW MOVE THE VERDICT BY AN EXACT AMOUNT AND ALL
+  THIRTEEN PASS** — one assert deleted, one character changed, one whole declaration deleted, one
+  blank line dropped from an expected list, one root-key list altered, one accessor key renamed
+  (`summary/warnings` → `summary/warning`), and the same six shapes applied to the HEAD C# side
+  including deleting a whole `[Fact]` from each cluster.
+
+  **THE MUTATION PROOF FOUND TWO REAL COVERAGE HOLES AND THE SLICE FILLED BOTH.** Ten
+  single-expression swaps in six production owners were run against a freshly cleaned estate, each
+  restored byte-identically and verified before the next ran (by hash for the five N# owners, by
+  `diff` for the C# receiver).
+  **FIVE LANDED FIRST TIME, EACH NAMING EXACTLY ONE DECLARATION AND ITS OWN, WITH ZERO COLLATERAL
+  ACROSS 5,629**: the summary separator (`", "` → `" "`) fails
+  `TheSummaryCountsErrorsAndWarningsSeparatelyAndPluralisesEach`; the completion truncation moved
+  from 50 to 51 fails `ACompletionGroupOf51Prints50ItemsAndOneOverflowLine`; the compact summary
+  reporting the definition count as the reference count, AND — separately — the reference-file
+  backslash normalisation removed, both fail
+  `TheCompactInspectSummaryCountsReferencesNormalisesTheirFilesAndNamesEachGroup`; and the reference
+  ordering with its line comparison reversed fails
+  `ReferenceDeduplicationCollapsesByPositionKeepsTheFirstContextAndSortsTheRest`.
+  **TWO CAME BACK GREEN, AND BOTH WERE HOLES RATHER THAN AGREEMENT.**
+  **(1) THE HEADER'S LEADING RULE WIDTH WAS UNREACHABLE BY `Contains`.** Rendering the Elm header
+  with THREE leading `─` instead of two left all 5,629 green, because `"───X"` contains `"──X"`: a
+  substring assertion cannot pin what a line STARTS with, and the deleted C# stated the header only
+  as a substring. The successor now asks for the header as a WHOLE LINE
+  (`OftbHasLine(text, OftbHeader(...))`), which pins the leading run, the computed ruler and the
+  trailing run at once.
+  **(2) SUPPRESSION WAS NEVER STATED TO BE CODE-SCOPED.** Broadening the shadowing suppression from
+  `Code == "NL020"` to every lint in a shadowed file left all 5,629 green — the migrated C# asserted
+  only that `NL316` survives and `NL020` does not, and neither claim notices a report that has lost
+  every OTHER lint on that file. The fixture now carries a second, plainly unused parameter and the
+  contract states that its `NL012` survives the compiler error that removed the shadowing row.
+  Neither hole was inherited: the deleted C# stated neither claim.
+  **BOTH STRENGTHENED CONTRACTS THEN FAILED THEIR OWN MUTATION, EACH NAMING ITSELF AND NOTHING
+  ELSE**: the header swap fails `AFullyPopulatedDiagnosticPrintsEveryElmSection` and the widened
+  suppression fails `ACompilerShadowingErrorSilencesTheLintersShadowingRowAndNothingElse`, 1 of
+  5,629 apiece.
+  **A TENTH MUTATION WAS ADDED TO PROVE THE ROOT-KEY CONTRACTS ARE ABOUT ORDER AND NOT MERELY
+  MEMBERSHIP**: swapping the two lines that insert `results` and `summary` into `DiagnosticsToJson`'s
+  envelope changes NOTHING about the payload and only the ORDER of two root keys. It fails
+  `TheDiagnosticsEnvelopeRootKeysAreExactlySchemaVersionCommandOkProjectRootResultsSummary`, 1 of
+  5,629 — the ordered claim is real.
+  **TWO MORE MUTATIONS PROVE THE NATIVE HARNESS, AND THE SECOND RETURNED A FINDING.** In the C#
+  `CompletionEngine` — the receiver the harness drives — forcing `includeKeywords` to `false` fails
+  `AskingForKeywordsAddsTheKeywordPrimitiveTypeAndModifierGroups` **1 of 12**, with the symmetric
+  without-keywords contract correctly still passing; and answering `Identifier` instead of `Unknown`
+  on the missing-compilation-unit branch fails **only**
+  `AFileTheSnapshotDoesNotHoldAnswersAnUnknownContextAndNoGroups`, **1 of 12** — NOT the
+  line-past-the-end or line-zero refusals, which reach `Unknown` through the prefix extractor
+  instead. **The three refusals are three code paths, not one**, which is a fact the deleted C#
+  never distinguished and which the harness now pins separately. `CompletionEngine.cs` was restored
+  byte-identically and rebuilt.
+  **THE NINE STRICTLY-STRONGER DELTAS THE COMPARATOR REPORTS AS `EXTRA` ARE EACH ONE OF THESE
+  CLAIMS**: the decoder's own nested-key negative (two rows), the check envelope's summary count,
+  the compact summary's `summary`-is-present half, the two header-line rows, and the three rows that
+  make suppression code-scoped.
+
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY** (the repo root carries
+  eight nested `.claude/worktrees/*` checkouts belonging to other sessions, and a duplicate
+  benchmark project under the repo root breaks the BDN Systems gate in place, so the copy excludes
+  them), **IS `ALL TESTS PASSED! ✓` IN 19m 10s WITH 112 GREEN STEPS AND ZERO FAILURES** (`GATE EXIT
+  0`). Its banner reads `Fresh isolated test run required: pre-commit verification / Existing cache
+  entries will not satisfy this invocation`, so no cached whole-gate or per-step result was
+  accepted. Inside it: unit **2,603** (`Failed: 0`, 4m 56s), the estate **5,629** (`Failed: 0`),
+  **all 32 native projects green including the new
+  `✓ PASSED: Native N# tests: tests/native/completion-engine`**, the Step 2b format contract gate,
+  and the Step 10b ECMA-335 IL verification gate. Step timings: compiler build 2m 23s, unit tests
+  7m 03s, native tests 4m 47s, SDK pack and install 4m 27s. The gate ran against a byte-copy of the
+  code tree; the only file edited afterwards is this one, which is prose and is not an input to any
+  compile step.
+
+  **EVIDENCE.** Native estate **5,570 → 5,629 by COUNT DIFF (+59, the exact declarations added)**,
+  `Failed: 0`, under the restore-flag discipline (`-p:NSharpExcludeTests=false --force-evaluate`,
+  then `--no-restore`); **unit 2,659 → 2,603 = exactly the 56 migrated cases (44 + 12)**,
+  `Failed: 0`; the new native project **12 / 12** and the gate-equivalent native project count
+  **31 → 32**; **live tree
+  `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files, 246
+  diagnostics — the inherited baseline to the digit** (`.tests.nl` is outside that set, so the three
+  new contract files do not move the file count), with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), ZERO
+  rows in any `.tests.nl` and ZERO naming any file this slice added; the project-scoped
+  format check clean on the FIRST run (the EXPLICIT single-file form reports every `.tests.nl` as
+  unformatted, including `Formatter.tests.nl`, `LinterConfig.tests.nl`, `Lexer.tests.nl`,
+  `CodeIntelligenceDiagnostics.tests.nl` and `QueryCompletions.tests.nl`, none of which this slice
+  touched — the estate's prevailing convention, measured as a control, not a defect introduced
+  here); **audit 18 / 18 after correctly failing 17 / 18 pre-repin with THREE
+  OWN violations naming ONLY the two touched rows** — `OWN004` and `OWN005` on
+  `tests/CodeIntelligenceTests.cs` (`observed metrics lines=62, nonblank=57, assertions=3` against
+  the allowed `1354 / 1201 / 162`, and `fingerprint drift; observed text-v1:23c8bfa02d080117`) and
+  `OWN006` on `tests/CompletionEngineTests.cs` (`active debt entry disappeared; mark it removed in
+  the same deletion commit`). **Every one of those observed values had been computed by the replica
+  BEFORE the audit ran**, so the audit CHECKED the arithmetic rather than supplying it. The ratchet row for `tests/CodeIntelligenceTests.cs` SHRINKS
+  exact-match — **1,354 / 1,201 / 162 → 62 / 57 / 3**, fingerprint
+  `text-v1:f52725047cabe51c → text-v1:23c8bfa02d080117`, state still `existing-debt`, and the
+  immutable epoch ceilings **1,357 / 1,204 / 163 stay untouched**; the row for
+  `tests/CompletionEngineTests.cs` becomes **`state: removed`, 322 / 267 / 62 → 0 / 0 / 0,
+  `text-v1:removed`**; the two-key head repinned LAST,
+  `9880a58a099a48bb → 5ac3eb43e0331c25`, from a walk **VALIDATED AGAINST THE PRISTINE MANIFEST
+  FIRST** (the replica reproduced all three stored fingerprints — pathset, epoch facts and head —
+  before a single row was edited); manifest **391 lines**, no BOM; `epochPathFingerprint` and
+  `epochFactFingerprint` unchanged, as a shrink-and-remove must leave them.
+  `Program.Testing.cs` stays **618**, not opened. The dead sweep corrected **three live rows**:
+  `memory/testing.md`'s file map and its code-intelligence section (which still described this file
+  as "OutputFormatter unit tests"), `memory/components/cli-toolchain.md`'s testing table (which
+  named the C# file as the JSON/text formatting layer), and
+  `tests/native/readonly-dictionary-widening/ReadOnlyDictionaryWidening.tests.nl`, whose header
+  named `tests/CompletionEngineTests.cs` as a live consumer of the snapshot shape.
+
+  **THE REMAINING INVENTORY, MEASURED: THE CODE-INTELLIGENCE PAIR IS OFF THE LIST ENTIRELY AND
+  NOTHING REPLACED IT.** What is left, by file and by line count on this tree:
+  the **blocked mini-cluster set** — `tests/ColumnarRuntimeTypeFactsTests.cs` **20**,
+  `tests/ColumnarPatternFactsTests.cs` **66**, `tests/NumericLiteralFactsTests.cs` **80**,
+  `tests/ColumnarNumericFactsTests.cs` **101**, `tests/ColumnarTypeCanonicalizerTests.cs` **102**,
+  all blocked on `Type`-constant rows / NL310 / finding 99.1, reflection over an emitted assembly,
+  or a C# receiver; the **async clusters** — `tests/LanguageServerTests.cs` **4,201** (142 async, 25
+  C# receivers), `tests/CliParityAuditTests.cs` **1,822** (1 async) and
+  `tests/LanguageServerAutoImportTests.cs` **181** (3 async); **setup/teardown**, whose gap is an
+  ANALYSER one (`NL001`) and not an emit one; and the **ONE residual case** in the shrunk
+  `tests/CodeIntelligenceTests.cs` **62**, whose wall — `CultureInfo` unreachable in BOTH directions
+  at `emit.local.initializer` — is recorded at its exact decline site in that file's own header.
+  **Nothing on this list is estate-blocked-only any more; every entry names its own blocker.**
+  **Task 020 stays UNCHECKED.** **NOT COMMITTED — the mandate reserves that.**
+
+- Active sub-slice (020 arc, PRIOR TURN — **SLICE 10 STAGE 2's PROBE VERDICTS, MEASURED ON THE
   REPUBLISHED TOOLSET AT `a0bf7e89a` BEFORE ANY MIGRATION EDIT. NO PRODUCTION OR CONTRACT FILE WAS
   CHANGED THIS TURN; the tree is clean and stage 1's commit stands untouched.**)
 

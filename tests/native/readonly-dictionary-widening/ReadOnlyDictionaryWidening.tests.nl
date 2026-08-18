@@ -129,11 +129,13 @@ class WideningFieldHolder {
     }
 }
 
-// THE PAIR'S OWN CONSTRUCTOR SHAPE, STATED POSITIONALLY. `ProjectSnapshot` takes three read-only
-// dictionaries and two read-only lists interleaved with a string and three nullable references, and
-// `tests/CompletionEngineTests.cs` and `tests/CodeIntelligenceTests.cs` both hand it concrete
-// `Dictionary`/`List` values at exactly these positions. The real type cannot be CONSTRUCTED from a
-// native project — building any type that lives in a referenced assembly declines at
+// THE SNAPSHOT'S OWN CONSTRUCTOR SHAPE, STATED POSITIONALLY. `ProjectSnapshot` takes three
+// read-only dictionaries and two read-only lists interleaved with a string and three nullable
+// references, and callers hand it concrete `Dictionary`/`List` values at exactly these positions —
+// which is what this row unblocked. 020 slice 10 then spent it: the estate's
+// `OutputFormatterDiagnosticKernels.tests.nl` now BUILDS a real `ProjectSnapshot` in this shape and
+// asks `CodeIntelligenceQueries.Diagnostics` of it. The real type still cannot be CONSTRUCTED from
+// a native project — building any type that lives in a referenced assembly declines at
 // `emit.local.initializer`, which is why every native project reaches production types by
 // reflection — so the shape is stated here with the same parameter list and read back member by
 // member.

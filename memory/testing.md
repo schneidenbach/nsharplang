@@ -22,7 +22,7 @@ tests/
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
 ├── ErrorReportingTests.cs       - Error formatting tests
 ├── CodeFixTests.cs              - Code fix provider tests
-├── CodeIntelligenceTests.cs     - OutputFormatter unit tests
+├── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
 └── QueryIntegrationTests.cs     - CLI toolchain integration tests (uses real example projects)
 ```
 
@@ -222,7 +222,18 @@ selected native regression assemblies themselves before verification.
   - `examples/12-multi-file-projects/MultiFileProject` — cross-file imports, namespaces
   - `examples/05-unions` — unions, error handling
 - Tests: symbols, outline, diagnostics, definition (by name + line assertions), references (cross-file), completions (member access + identifier), BindingMap, JSON schema, unhappy paths
-- **CodeIntelligenceTests** — OutputFormatter unit tests (JSON envelope, Elm-style text)
+- **CodeIntelligenceTests** — one case only: the unknown-severity invariant fallback, which is
+  non-vacuous only under a Turkish ambient culture and therefore cannot move (N# reaches
+  `CultureInfo` in neither direction). The other 44 cases are N# contracts in the BootstrapServices
+  estate — `OutputFormatterJsonKernels.tests.nl` (the versioned JSON envelopes and their exact root
+  keys), `OutputFormatterTextBuilders.tests.nl` (every `--text` answer, stated as whole texts) and
+  `OutputFormatterDiagnosticKernels.tests.nl` (severity arithmetic, reference deduplication, and the
+  two end-to-end `CodeIntelligenceQueries.Diagnostics` contracts)
+- **Completion engine** has no C# assertion layer: `CompletionEngine`'s contracts are N# in
+  `tests/native/completion-engine`, a native project that drives the production `CompletionEngine`
+  and `CodeIntelligenceService.LoadProject` BY REFLECTION — the route `tests/native/query-completions`
+  established, and the only one available, because the engine's inputs need the C# `Analyzer` that
+  lives in the assembly which DEPENDS on BootstrapServices
 - **CodeFixTests** — CodeFixProviders (auto-import, unused variable removal)
 
 ### Known Testing Limitation
