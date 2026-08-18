@@ -3467,9 +3467,297 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 10 STAGE 2 SPENDS THE WIDENING: THE
+- Active sub-slice (020 arc, THIS TURN — **SLICE 11 RE-PROBES THE FIVE BLOCKED MINI-CLUSTERS AT THE
+  CURRENT TOOLSET. ALL FIVE BLOCKS DISSOLVE, NONE OF THEM BECAUSE A TOOLSET ROW MOVED — THE BLOCK
+  VERDICTS WERE ROUTE-SHAPED, AND BOTH ROUTES THEY NAMED WERE THE WRONG ONES. THE WHOLE 369-LINE SET
+  MIGRATES AND NO STAGE-1 SURFACE IS BUILT.**)
+
+  ### THE RE-PROBE, RUN BEFORE ANY MIGRATION EDIT
+
+  **THE SLICE-3/4 VERDICTS WERE ALL RECORDED AGAINST THE `tests/native` TABLE ROUTE, AND FOUR OF THE
+  FIVE CLUSTERS NEVER BELONGED THERE.** The three recorded blockers were (a) `Type`-constant rows
+  refused by `NL310` ("table-driven test case values must be compile-time constants"), (b) reflection
+  over an emitted assembly, and (c) `ColumnarCompiler` being a C# receiver. Every one of them is a
+  statement about a `with (…) […]` TABLE in a `tests/native` project. **All five subjects live in
+  `src/NSharpLang.Compiler.BootstrapServices`**, where the estate writes plain `test` declarations —
+  the shape that has no table and therefore no `NL310` — and where the subject, its arguments and
+  the assertions are the SAME assembly's own. `NL310` was never a `typeof` verdict: **116 estate
+  `.tests.nl` files already spell `typeof`**, and `ColumnarRuntimeTypeFacts.nl` ITSELF is written
+  with `typeof(Process)`, `typeof(ProcessStartInfo)` and `typeof(StreamReader)` in its own body, so
+  the columnar `typeof` surface provably carries those three types. Finding 99.1's `Type.GetType`
+  seeding is not needed by any of them.
+
+  **FIVE ESTATE PROBES, ONE PER CLUSTER, EACH CARRYING THAT CLUSTER'S EXACT BLOCKING SHAPE. FOUR
+  EMITTED ON THE FIRST BUILD AND ALL FIVE PASS.**
+
+  | probe | cluster | shape carried | verdict |
+  |---|---|---|---|
+  | A | `ColumnarRuntimeTypeFactsTests.cs` | `IsSupportedProcessInteropType(typeof(Process) / typeof(ProcessStartInfo) / typeof(StreamReader) / typeof(string))` | **EMITS, PASSES** |
+  | B | `ColumnarPatternFactsTests.cs` | `IsLiteralPatternKind(int)` + `IsOrderedMatchType(typeof(…))` over all eight rows | **EMITS, PASSES** |
+  | C | `NumericLiteralFactsTests.cs` | `typeof` rows, `out` parameters, `ulong` bounds, `TypeInfo.ToString()`, `BuiltInTypes.Is` | **ONE WALL, ROUTED — see below** |
+  | D | `ColumnarNumericFactsTests.cs` | `IsIntPromotable` / `IsCastableScalar` over `typeof(…)` incl. `decimal` | **EMITS, PASSES** |
+  | E | `ColumnarTypeCanonicalizerTests.cs` | string tables + `ColumnarTupleElementNameStripResult.Canonical` and its NULLABLE `string[] Names` read element by element | **EMITS, PASSES** |
+
+  **PROBE C FOUND A REAL AND PREVIOUSLY UNRECORDED WALL, AND THE BISECT NARROWED IT TWICE — THE
+  SECOND TIME BY READING THE PRODUCTION OWNER RATHER THAN THE TEST.** Round 1 declined at
+  `emit.statement.block-child` on `assert negativeMax == 9223372036854775808`. The first bisect put
+  it at the exact boundary and the exact site: `v: ulong = 2147483647` emits, **`v: ulong =
+  2147483648` declines at `emit.typed-local.initializer`**, and so does **`v: long = 2147483648`** —
+  so it is not a `ulong` wall. The second bisect came from `NumericLiteralFacts.nl` ITSELF, which
+  spells `9223372036854775808UL` and `18446744073709551615UL` in its own body: **a SUFFIXED literal
+  above `int.MaxValue` emits and runs perfectly** (`2147483648UL`, `9223372036854775808UL`,
+  `18446744073709551615UL`, `3000000000L` — all four asserted against their own `ToString()` digits,
+  2/2 green). **The standing defect is therefore precisely this: an UNSUFFIXED integer literal always
+  types as `int` and never widens by magnitude**, so `let x: long = 3000000000` is unspellable while
+  `let x: long = 3000000000L` is fine. The analyser states the same gap from the other side —
+  `v == 9223372036854775808` reports `NL202: The '==' operator doesn't work with 'ulong' and 'int'`
+  at EVERY magnitude, so an unsuffixed `v == 255` against a `ulong` fails too while `v == 255UL`
+  passes. **It is recorded as a standing product defect below and it does NOT block this cluster**:
+  the C# `[InlineData]` rows are ALREADY `UL`-suffixed (`128UL`, `2147483648UL`,
+  `9223372036854775808UL`, `ulong.MaxValue`), so the successor carries the same magnitudes
+  character-for-character. Probe C v2 emits and passes.
+
+  **THE THREE `ColumnarCompiler.TryEmitProgram` HALVES WERE PROBED ON THE `tests/native` REFLECTION
+  ROUTE TOO, AND THAT ROUTE HITS A CATALOG WALL — BUT IT IS THE WRONG ROUTE AND IS NOT TAKEN.**
+  A native probe reaches the INTERNAL type (`Type.GetType("NSharpLang.Compiler.Columnar.ColumnarCompiler, Compiler")`
+  answers non-null, 1/1), but `compilerType.GetMethod("TryEmitProgram", BindingFlags.NonPublic | BindingFlags.Static)`
+  declines at **`emit.call.instance-member-unmodeled`: "instance call 'Type.GetMethod' with 2
+  argument(s) is not modeled"** — only the `GetMethod(string, Type[])` overload the
+  `tests/native/completion-engine` harness uses is in the catalog, and that overload is PUBLIC-only,
+  so it cannot see an `internal static` method. **That is the one bounded catalog row a stage-1 wall
+  would have added, and the slice does NOT add it, because a strictly better route exists that needs
+  no reflection, no catalog row and no C# receiver at all: put the source shape IN the native test
+  project and run it.** `nlc test` compiles a `tests/native` project through
+  `ColumnarProgramInputBuilder` + `ColumnarIlEmitter` — the same two components the 25-line
+  `TryEmitProgram` wrapper calls — so a match-lowering function written directly in the test file
+  proves the same emit AND executes it, through the whole product build including the analyser the
+  emit-only wrapper skips. A probe carrying all five shapes (match lowering, `byte`+`short`
+  int-promotable arithmetic, `(int)`/`(long)` explicit casts, a named tuple local, a namespaced
+  struct referenced by short name) is **5/5 green**. One spelling note: a tuple-typed local needs the
+  `let` keyword — `pair: (x: int, y: int) = (1, 2)` parses as an assignment to an undeclared `pair`
+  and reports `NL301` + `NL103`, while `let pair: (x: int, y: int) = (1, 2)` emits.
+
+  **VERDICT PER CLUSTER: ALL FIVE DISSOLVED, ZERO STANDING.** No shared catalog surface is required,
+  so no two-stage wall is built and no unused infrastructure is added.
+
+  **SIX MORE SPELLING WALLS WERE MET WHILE WRITING THE SUCCESSORS, AND EACH IS RECORDED AT ITS
+  DECLINE SITE RATHER THAN ROUTED AROUND SILENTLY.**
+  **(1) `partial` IS A RESERVED KEYWORD.** A local named `partial` reports `NL101` ("I was parsing
+  an expression and found 'partial'"). It joins the swept set — `type`, `out`, `params`, `with`,
+  `init`, `ref`, `scoped`, `assert`, `file`, `let`, `match`, `record`, `union`, `newtype`, `base`,
+  `allow`, `required`, `nameof`, `on`, `alloc`, `throw`.
+  **(2) `typeof(FileStream)` DECLINES — FINDING 99.1'S SEEDING IS LOAD-BEARING, NOT DECORATION.**
+  `typeof(Stream)` emits; `typeof(FileStream)` does not, which is exactly why
+  `ColumnarRuntimeTypeFacts.nl` reaches `FileStream` and `DirectoryInfo` through
+  `Type.GetType("System.IO.FileStream")` in its own body. The successor therefore carries a
+  `NamedRuntimeType` helper that seeds by name and turns the subject's guarded null into a loud
+  failure — which is the only shape that can state the POSITIVE half of that gate at all.
+  **(3) A STATIC CALL INTO A DEPENDENCY ASSEMBLY WITH A `Type` ARGUMENT DECLINES** at
+  `emit.call.static-member-unmodeled` ("static call
+  'ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType' with 1 argument(s) is not modeled").
+  This is slice 3's W1 wall confirmed at the current toolset, and it is the independent reason the
+  four table clusters belong in the ESTATE rather than in a `tests/native` project: there the
+  subject, the `typeof` arguments and the assertions are the same assembly's own.
+  **(4) `typeof(A) != typeof(B)` DECLINES** at `emit.statement.block-child`; comparing two `Type`
+  values is routed through a helper that reads `.Name`.
+  **(5) A NESTED NAMED TUPLE IS NOT EMITTABLE.**
+  `let nested: (a: int, b: (c: int, d: int)) = (1, (2, 3))` declines at `emit.return.expression`
+  whether the inner element is read as a chain (`nested.b.d`) or through an intermediate local, so
+  the native successor states the positional spelling of the same shape instead and names the wall.
+  **(6) AN IMPLICIT `uint` → `ulong` WIDENING DECLINES** at `emit.typed-local.type-mismatch`
+  ("typed local initializer type 'System.UInt32' does not match declared type 'System.UInt64'")
+  even though the ANALYSER admits it — the explicit `(ulong)` cast is required.
+
+  ### WHAT LANDED
+
+  **ONE STAGE, NO NEW CAPABILITY, NO TOOLSET REPUBLISH — AND THE RE-PROBE IS THE REASON.** The
+  capability question was asked first and answered by measurement: the one bounded catalog row a
+  stage-1 wall would have carried (`Type.GetMethod(string, BindingFlags)`) buys a STRICTLY WEAKER
+  route than the one that needs no row at all, so it is not added and no unused infrastructure ships.
+
+  **THE C# MOVED IN ONE DIRECTION ONLY, AND ALL FIVE CLUSTERS MOVED AT ONCE.**
+  `git diff HEAD --numstat -- '*.cs'` is **`added=0 deleted=369` over exactly FIVE files**, with
+  **zero new C# files**. `Program.Testing.cs` stays at **618** and `ColumnarProgramInputBuilder.cs`
+  at **1062** — not repinned, not edited, not opened. Every cluster is TERMINALLY DELETED:
+  `ColumnarRuntimeTypeFactsTests.cs` **20 → 0**, `ColumnarPatternFactsTests.cs` **66 → 0**,
+  `NumericLiteralFactsTests.cs` **80 → 0**, `ColumnarNumericFactsTests.cs` **101 → 0**,
+  `ColumnarTypeCanonicalizerTests.cs` **102 → 0**.
+
+  **THE SUCCESSORS: FIVE NEW ESTATE CONTRACT FILES AND THE 33rd NATIVE PROJECT — 1,090 LINES,
+  57 DECLARATIONS, 367 ASSERT LINES.**
+
+  | successor | lines | declarations | assert lines |
+  |---|---|---|---|
+  | `ColumnarRuntimeTypeFacts.tests.nl` | 116 | 6 | 25 |
+  | `ColumnarPatternFacts.tests.nl` | 97 | 5 | 39 |
+  | `NumericLiteralFacts.tests.nl` | 311 | 13 | 148 |
+  | `ColumnarNumericFacts.tests.nl` | 158 | 9 | 58 |
+  | `ColumnarTypeCanonicalizer.tests.nl` | 191 | 13 | 66 |
+  | `tests/native/columnar-emit-facts` | 212 + 5 | 11 | 31 |
+  | **total** | **1,090** | **57** | **367** |
+
+  **THE FIVE EMIT CASES TOOK THE ROUTE THAT NEEDS NO REFLECTION AT ALL.** The deleted
+  `ColumnarCompiler_*` facts each built a source STRING, handed it to the internal `TryEmitProgram`,
+  loaded the bytes into a collectible context and invoked a reflected method. The native successor
+  writes the same source shape DIRECTLY and calls it, because `nlc test` compiles a `tests/native`
+  project through `ColumnarProgramInputBuilder` + `ColumnarIlEmitter` — the same two components the
+  25-line wrapper calls. That is strictly stronger three ways: the ANALYSER runs too (the wrapper is
+  emit-only), a decline becomes a build failure WITH ITS DECLINE SITE rather than one false
+  `Assert.True`, and every arm is exercised where the C# invoked one input per direction.
+
+  **THE COMPARATOR: 118 MIGRATING C# CLAIMS IN, 118 MATCHED, 0 MISSING — WITH ZERO UNDECODED ON
+  EITHER SIDE.** Both sides are decoded out of HEAD and the working tree by one mechanical decoder
+  into a shared vocabulary `(route, args, expected)`, where `route` is the entry point plus any
+  accessor path taken off the value it produced (`TryGetIntegerLiteralTypeInfo.out.Name`,
+  `StripTupleElementNames.Names[1]`). Completeness arithmetic is exact: **C# 50 `Assert.` statements
+  → 118 claim rows + 18 reflection-plumbing rows, 0 undecoded**; **N# 367 `assert` statements → 385
+  claim rows, 0 undecoded**; matched **118**, missing **0**, extra **208**. The 18 plumbing rows are
+  classified `absorbed` and counted rather than dropped: `Assert.True(TryEmitProgram(...))`,
+  `Assert.NotNull(type)`, `Assert.NotNull(method)` and `Assert.Single(methodNames)` are discharged by
+  the native project COMPILING, because it has no reflection to check.
+  **THE DECODER CORRECTED ITSELF SEVEN TIMES BEFORE IT WAS TRUSTED, AND EVERY CORRECTION WAS A
+  SILENT WRONG ANSWER RATHER THAN A CRASH**: (1) the `Assert.` statement scanner was not raw-string
+  aware, so everything after a `"""` fixture was invisible and only **30 of the 50** statements were
+  seen at all; (2) locals bound by `var r = Subject.F(x)` were not threaded, so `r.Canonical` decoded
+  as a claim about an anonymous local instead of carrying `F`'s arguments; (3) an N# helper written
+  only to route a language gotcha (`(value as object).ToString()`) read as a different entry point,
+  which made six float-suffix rows look MISSING; (4) `BuiltInTypes.Int` was not normalised to the
+  `SimpleTypeInfo` name, so the false-arm out-value claim could not meet its successor;
+  (5) `Assert.Equal(new[] {…}, r.Names)` was not decomposed into length-plus-element claims, the
+  shape the N# side states; (6) `Assert.Null` had no handler at all; and (7) the emitted-program
+  routes were matched by the C#'s reflected LOCAL name, so the namespaced-struct case decoded its
+  route as the literal text `Assert.Single(methodNames)`.
+  **FOURTEEN PERTURBATION CONTROLS NOW MOVE THE VERDICT BY AN EXACT AMOUNT AND ALL FOURTEEN PASS** —
+  one assert deleted, one character changed, one argument swapped, one accessor key renamed, one
+  whole declaration deleted, one out-bound route retargeted, one emitted-program expectation changed,
+  one whole native declaration deleted, and six more applied to the HEAD C# side including deleting a
+  whole `[InlineData]` row, a whole `[Theory]` and a whole `[Fact]`.
+  **THREE OF MY PREDICTIONS WERE WRONG AND THE COMPARATOR WAS RIGHT IN ALL THREE, WHICH IS THE
+  POINT OF PREDICTING FIRST.** Renaming every `.Canonical` accessor unmatched **2**, not 8, because
+  the C# states that accessor exactly twice and the other seven N# `.Canonical` claims are extras;
+  deleting one of the two unsigned-bound declarations unmatched **1**, not 9, because eight of the
+  nine bounds are stated TWICE in the successor (once as the C#'s literal, once as the CLR
+  `MaxValue`) and only `ulong` differs in spelling — a fourteenth control deleting BOTH declarations
+  then unmatched the family's full **18**; and retargeting one out-bound call unmatched **2**, not 1,
+  because it breaks the boolean claim about the call as well as the routed claim about its value.
+
+  **THE MUTATION PROOF RAN AGAINST A GREEN BASELINE AND EVERY OWNER WAS RESTORED BYTE-IDENTICALLY.**
+  Six single-expression swaps in five production owners, each verified restored by sha256 before the
+  next ran. **A BASELINE CONTROL RUNS FIRST AND IT EARNED ITS PLACE**: an earlier attempt reported
+  `BUILD FAILED` for a mutation that was never actually caught — the estate's `.tests.nl` need the
+  test-inclusive restore after ANY other build in the checkout, and without it the emit host cannot
+  resolve the xunit attribute types and fails for an infrastructure reason that looks EXACTLY like a
+  caught mutation. With the restore in place the unmutated tree reports **5,675 / `Failed: 0`**, so
+  every verdict below is attributable.
+
+  | mutation | failures | whose |
+  |---|---|---|
+  | the process gate loses `StreamReader` | **1 / 5,675** | `ColumnarRuntimeTypeFactsAdmitTheThreeProcessInteropTypes` |
+  | the literal-pattern interval grows to `<= 5` | **1 / 5,675** | `ColumnarPatternFactsClassifyTheLiteralPatternNodeKinds` |
+  | `long` becomes int-promotable | **22 / 5,675** | 3 the successor's, 19 pre-existing planner/executor contracts over the same kernel |
+  | the `int` negative magnitude loses its `+1` | **2 / 5,675** | BOTH the successor's — the inherited row AND the strictly-stronger `MaxValue + 1` identity; zero collateral |
+  | the bitwise gate drops the `long` underlying arm | **3 / 5,675** | 1 the successor's, 2 pre-existing planner contracts |
+  | whitespace removal narrows to the SPACE character | **1 / 5,675** | **ONLY the successor's new row** |
+
+  **THE LAST ROW IS THE STRICTLY-STRONGER PROOF, AND IT IS EXACT.** Narrowing
+  `char.IsWhiteSpace(c)` to `c != ' '` fails ONLY
+  `RemovingWhitespaceRemovesTabsNewlinesAndReturnsAsWellAsSpaces` — **1 of 5,675** — while the
+  INHERITED case (`RemovingWhitespaceCollapsesADeclaredTypeSpan`, whose fixture contains spaces and
+  nothing else) still passes. The deleted C# could not have noticed at all.
+
+  **THE MUTATIONS ALSO FALSIFIED THREE OF THE SUCCESSORS' OWN NOVELTY CLAIMS, AND ALL THREE WERE
+  CORRECTED IN THE CONTRACT HEADERS RATHER THAN LEFT TO READ WELL.** The collateral in rows 3 and 5
+  sent the census back to the estate, and it disagreed with what the headers said:
+  `IsBitwiseEnum` IS already asserted, at `ColumnarPrimitiveBinaryPlanner.tests.nl:1687-1701`;
+  `IsSupportedDirectCallInteropType` IS already reached, at `ColumnarDirectCallAdversarial.tests.nl:459`
+  and `:538`, as a precondition of the direct-call cases; and the two
+  `ParseUnsignedIntegerMagnitude` functions ARE covered from the consumer side by
+  `ColumnarParserKernels.tests.nl` and `ColumnarUnaryLiteralPlanner.tests.nl`. A sweep of every
+  claimed-novel entry point then confirmed the ones that DO stand: `IsOrderedMatchType`,
+  `IsLiteralPatternKind`, `IsCastableScalar`, `SplitTopLevelCommas`, `IsBareIdentifier`,
+  `RemoveWhitespace`, `StripTupleElementNames` and `GetIntegerSuffix` have **no other estate
+  coverage anywhere**.
+
+  **THE STRICTLY-STRONGER DELTAS, BY WHAT THEY STATE.** The `StripTupleElementNames` case named
+  "removes only top level names" was **VACUOUS IN THE C#** — its fixture's inner tuple carried no
+  names at all, so nothing tested the claim in its own title; the successor passes an inner tuple
+  that DOES carry names and states they survive verbatim. The `Names` array is stated to be SPARSE
+  (a partly named tuple yields a full-length array with `null` in the unnamed slot) — a fact no
+  assertion anywhere held. `UnqualifiedTypeName` is pinned as TEXTUAL rather than generic-aware
+  (`List<Models.Point>` answers `Point>`, bracket included), which is the helper's honest boundary.
+  The two interop gates are stated as CLOSED SETS and crossed for DISJOINTNESS. The two numeric
+  kernels' containment is crossed in both directions (every promotable type is castable; six
+  castable types are not). And the relational-pattern set is shown to differ from the cast set by
+  five types, stated where both can be seen at once.
+
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY** (the repo root carries
+  eight nested `.claude/worktrees/*` checkouts belonging to other sessions, and a duplicate benchmark
+  project under the repo root breaks the BDN Systems gate in place, so the copy excludes them),
+  **IS `ALL TESTS PASSED! ✓` IN 18m 52s WITH 113 GREEN STEPS AND ZERO FAILURES.** Its banner reads
+  `Fresh isolated test run required: pre-commit verification / Existing cache entries will not
+  satisfy this invocation`, so no cached whole-gate or per-step result was accepted. Inside it: unit
+  **2,518** (`Failed: 0`, 4m 51s), the estate **5,675** (`Failed: 0`), **34 `Native N# tests:` steps
+  green — the compiler-service contracts plus all 33 native projects, including the new
+  `✓ PASSED: Native N# tests: tests/native/columnar-emit-facts`** — the ownership audit's own
+  **18 / 18** among them, the Step 2b format contract gate, and the Step 10b ECMA-335 IL verification
+  gate. Step timings: compiler build 2m 21s, unit tests 6m 58s, native tests 4m 42s, SDK pack and
+  install 4m 23s. The gate ran against a byte-copy of the code tree; the only file edited afterwards
+  is this one, which is prose and is not an input to any compile step.
+
+  **EVIDENCE.** Native estate **5,629 → 5,675 by COUNT DIFF (+46, the exact declarations added:
+  6 + 5 + 13 + 9 + 13)**, `Failed: 0` on the FIRST run, under the restore-flag discipline
+  (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`); **unit 2,603 → 2,518 =
+  exactly the 85 migrated cases** (4 + 16 + 30 + 25 + 10), `Failed: 0`; the new native project
+  **11 / 11** and the gate-equivalent native project count **32 → 33**; **live tree
+  `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files, 246
+  diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), ZERO
+  rows in any `.tests.nl` and ZERO naming a file this slice added; the project-scoped format check
+  reports **"All files are properly formatted."** on the FIRST run; **audit 18 / 18 after correctly
+  failing 17 / 18 pre-repin with exactly ONE violation** — `OWN008: reviewedHeadFingerprint does not
+  match canonical current ceilings and states; observed head-v1:e277ed81e768529c`, **the exact value
+  the replica had computed BEFORE the audit ran**, so the audit CHECKED the arithmetic rather than
+  supplying it. There is no `OWN004`/`OWN006` row because the five files are gone and their rows
+  already say so. The five ratchet rows become **`state: removed`, `currentLines`/`NonBlank`/
+  `AssertionMarkers` → 0 / 0 / 0, `text-v1:removed`** — `20/18/2`, `66/60/11`, `80/72/19`,
+  `101/91/16`, `102/87/22` all zeroed while their **immutable epoch ceilings stay untouched**; the
+  two-key head repinned LAST, **`5ac3eb43e0331c25` → `e277ed81e768529c`**, in the JSON header AND
+  the `OwnershipPolicy.ReviewedHeadFingerprint` constant, from a walk **VALIDATED AGAINST THE
+  PRISTINE MANIFEST FIRST** (the replica reproduced all three stored fingerprints — pathset, epoch
+  facts and head — before a single row was edited); manifest **391 lines**, no BOM, and the whole
+  ratchet diff is **exactly six changed lines**; `epochPathFingerprint` and `epochFactFingerprint`
+  unchanged, as a pure removal must leave them. The dead sweep found **nothing to correct**: no file
+  under `memory/` or `docs/` names any of the five deleted files or any of the five subjects, and
+  the only live mentions anywhere are the successors' own provenance headers.
+
+  **THE REMAINING INVENTORY, MEASURED: THE BLOCKED MINI-CLUSTER SET IS OFF THE LIST ENTIRELY AND
+  NOTHING REPLACED IT.** The C# test estate is **50 → 45 files, 59,113 → 58,744 lines**. What is
+  left, by file and by line count on this tree:
+  the **async clusters** — `tests/LanguageServerTests.cs` **4,201** (142 async, 25 C# receivers),
+  `tests/CliParityAuditTests.cs` **1,822** (1 async) and `tests/LanguageServerAutoImportTests.cs`
+  **181** (3 async), all LSP-fixture or CLI-harness territory; **setup/teardown**, whose gap is an
+  ANALYSER one (`NL001`) and not an emit one; the **ONE residual case** in the shrunk
+  `tests/CodeIntelligenceTests.cs` **62**, whose `CultureInfo` wall is recorded at its exact decline
+  site in that file's own header; and the ordinary un-triaged remainder, whose cheapest candidates
+  are now `NullabilityMetadataTests.cs` **59**, `ColumnarDeclarationScanTests.cs` **67**,
+  `LocalFunctionTests.cs` **84** and `SoaRecordNullConditionalTests.cs` **98**.
+  **Every entry on this list names its own blocker; none of them is estate-blocked-only.**
+
+  **THE ONE STANDING PRODUCT DEFECT THIS SLICE FOUND AND DID NOT FIX** (it blocks no cluster, and
+  fixing it is a language change, not a test migration): **an UNSUFFIXED integer literal always types
+  as `int` and never widens by magnitude.** `let x: long = 3000000000` declines at
+  `emit.typed-local.initializer` while `let x: long = 3000000000L` emits and runs; and
+  `someUlong == 255` reports `NL202: The '==' operator doesn't work with 'ulong' and 'int'` at every
+  magnitude while `someUlong == 255UL` passes. Both halves are measured by execution and recorded
+  here at their exact sites.
+
+  **Task 020 stays UNCHECKED and `tasks/README.md` is NOT edited.** **NOT COMMITTED — the mandate
+  reserves that.**
+
+- Active sub-slice (020 arc, PRIOR TURN — **SLICE 10 STAGE 2 SPENDS THE WIDENING: THE
   CODE-INTELLIGENCE PAIR MIGRATES 44 + 12, `tests/CompletionEngineTests.cs` IS DELETED WHOLE, AND
-  `tests/CodeIntelligenceTests.cs` SHRINKS TO THE ONE CASE A CULTURE WALL HOLDS.**)
+  `tests/CodeIntelligenceTests.cs` SHRINKS TO THE ONE CASE A CULTURE WALL HOLDS. COMMITTED at
+  `f00130366`.**)
 
   **THE SPLIT LANDED EXACTLY AS THE STAGE-1 PROBE MEASURED IT, AND BOTH ROUTES CAME BACK GREEN ON
   THEIR FIRST RUN.** `tests/CodeIntelligenceTests.cs` (**1,354 lines / 45 `[Fact]`s / 127 `Assert.`
