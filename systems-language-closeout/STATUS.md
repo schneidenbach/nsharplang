@@ -1,6 +1,44 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-17 (**020 SLICE 4 — FIVE C# ASSERTION LAYERS ARE DELETED IN ONE SLICE, AND THE
+Last updated: 2026-08-17 (**020 SLICE 5 — FIVE MORE C# ASSERTION LAYERS ARE DELETED, THE BATCH WAS
+PRICED BY A NINE-ROUND PROBE, AND THE MUTATION PROOF LANDS CLEAN WITH ZERO COLLATERAL.** **THE BATCH
+IS THE NEXT FIVE CHEAPEST ESTATE-ROUTABLE CLUSTERS** — `AnalyzerBindingFacts` 123L,
+`TypeReferenceFacts` 137L, `PerformanceFactStore` 155L, `ParserTokenFacts` 207L, `SemanticModel` 252L
+— **874 C# lines and 39 xUnit cases, six files' worth of `[Fact]`s and not one `[Theory]`**, priced
+by ONE probe `.tests.nl` carrying every risky shape from all five because the estate reports only the
+FIRST decline. **THE PROBE TOOK NINE ROUNDS AND FOUND TWO WALLS, AND THE FIRST ONE IS A RESERVED
+WORD**: round 1 declined at bare `parse.test` with no detail, and four bisecting rounds — which
+CLEARED the obvious suspect, a negative literal argument (`OpenScope(-1, 1, 1)` emits fine) —
+isolated it to a local named **`scoped`**, which is `TokenType.Scoped`; the second is that reading a
+NAMED TUPLE ELEMENT off a walked dictionary entry (`entry.Key.Line`) declines at
+`emit.if.condition` while the walk itself emits. **A THIRD WALL APPEARED ONLY ON THE REAL BUILD, AS
+IT DID IN SLICE 4**: a **`null` ELEMENT INSIDE A TUPLE LITERAL** (`(File: null, Line: 1, Column: 1)`)
+declines at `emit.expression.unhandled-kind`. **FIVE FILES ARE DELETED — `TypeReferenceFactsTests.cs`
+137L, `AnalyzerBindingFactsTests.cs` 123L, `PerformanceFactStoreTests.cs` 155L,
+`ParserTokenFactsTests.cs` 207L, `SemanticModelTests.cs` 252L** — replaced by five new `.tests.nl`
+files: **83 declarations, 441 assertion lines, 2,271 lines**. **EVERY CLUSTER CARRIES ITS OWN FULL
+PROOF SET.** One comparator engine with five alias tables decodes each deleted file out of `HEAD` —
+now also expanding a `foreach` over a string array, a tuple-valued `Assert.Equal` into element-wise
+`.Item1`/`.Item2` rows, C# object initializers, and `AssertTokenSet`'s `Enum.GetValues<TokenType>()`
+sweep into its 148 per-token rows — and reports **1,464 C# assertions in, 1,464 MATCHED, 0 missing, 0
+differing, 410 EXTRA**, with a per-cluster perturbation flipping all five verdicts to DIFFERS. **FIVE
+SUBJECT MUTATIONS IN FIVE DIFFERENT KERNELS PRODUCE EXACTLY 5 FAILURES OUT OF 5,224 — 5,219 PASSED —
+AND EACH FAILS ITS OWN NAMED DECLARATION WITH ZERO COLLATERAL.** Evidence: **native estate 5,141 →
+5,224 by COUNT DIFF (+83, the exact declarations added)**; **unit 3,093 → 3,054 / 3,054** = exactly
+the 39 migrated cases; **live tree 393 / 246 — the inherited baseline to the digit** with the same
+ten-code census, the ONE row naming a migrated subject being an INHERITED `NL202` at
+`PerformanceFactStore.nl:40`; format clean on the FIRST run; **audit 18/18 after correctly failing
+17/18 on exactly FIVE `OWN006`s**, head `34ba119ed469a7c3 → 126e0109b77ba0d1` repinned LAST in both
+keys from a walk validated against the pristine manifest first, manifest 391 lines no BOM. **`git
+diff HEAD --numstat -- '*.cs'` is `added=0 deleted=874` over FIVE files; zero new C#;
+`Program.Testing.cs` stays 618, not opened.** **FOUR FINDINGS**, including the reserved-word wall and
+a diagnostic-quality defect the live check exposed: **NL202 names a property getter "this function"
+and renders a named-tuple key type as the INTERNAL `NSharpLang.Compiler.TupleTypeInfo`**. **12
+canonical C# assertion layers remain (6 estate / 1 native / 5 blocked), alongside the async clusters,
+the 97.6-blocked pair and setup/teardown. Task 020 stays UNCHECKED.** NOT COMMITTED — the mandate
+reserves that)
+
+Last updated (prior): 2026-08-17 (**020 SLICE 4 — FIVE C# ASSERTION LAYERS ARE DELETED IN ONE SLICE, AND THE
 PROBE OVERTURNED A SPELLING BEFORE IT COST A CLUSTER.** **THE BATCH WAS PRICED BY EXECUTION, NOT BY
 READING**: slice 3's inventory ranks its sixteen estate-routable clusters by line count, so this
 slice took the six cheapest and put every risky shape from all six into ONE probe `.tests.nl` —
@@ -3165,7 +3203,21 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 3 IS A MIGRATION, AND THE SWEEP
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 5 IS THE SECOND BATCH MIGRATION,
+  AND THE PROBE PAID FOR ITSELF TWICE OVER.** The five cheapest remaining estate-routable clusters —
+  `AnalyzerBindingFacts` 123L, `TypeReferenceFacts` 137L, `PerformanceFactStore` 155L,
+  `ParserTokenFacts` 207L, `SemanticModel` 252L, **874 C# lines / 39 xUnit cases** — are deleted and
+  replaced by five `.tests.nl` files carrying **83 declarations and 441 assertions**. The nine-round
+  batch probe found two walls before a line of contract was written (a local named `scoped`, which
+  is `TokenType.Scoped`, takes the whole file down at `parse.test`; a named tuple element cannot be
+  read off a walked dictionary entry) and the real build found a third (a tuple literal with a
+  `null` element). The comparator reports **1,464 C# assertions in, 1,464 matched, 0 missing, 0
+  differing, 410 extra**, and five subject mutations produce **exactly five failures, each naming
+  its own declaration, with ZERO collateral**. **12 canonical C# assertion layers remain** (6 estate
+  / 1 native / 5 blocked); the next cheapest is `Preprocessor` 303L. **Task 020 stays UNCHECKED.**
+  (Prior: **SLICE 4 DELETED FIVE ASSERTION LAYERS IN ONE BATCH — 366 C# lines and 65 xUnit cases —
+  and its probe overturned an array-literal spelling before it cost a cluster.**)
+  (Prior: **SLICE 3 IS A MIGRATION, AND THE SWEEP
   THAT CHOSE IT OVERTURNED THE OBVIOUS TARGET TWICE.** The async row slice 2 named by demand is the
   estate's most EXPENSIVE territory (142 of it in `LanguageServerTests.cs` alone: 10 wall kinds, 729
   wall sites, 25 C# receivers), and five probes proved the `tests/native` estate is bounded to
@@ -3365,7 +3417,13 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 020 slice 3 — MIGRATION, chosen by an execution-corrected wall-count sweep over
+- Current iteration: 020 slice 5 — the SECOND BATCH MIGRATION: the five cheapest remaining
+  estate-routable clusters (874 C# lines, 39 xUnit cases) priced by one nine-round probe, migrated
+  with five per-cluster proof sets, and closed with a five-mutation non-vacuity pass that has zero
+  collateral. Three walls measured and routed around, one of them a reserved word (`scoped`)
+- Current iteration (prior): 020 slice 4 — the FIRST batch migration: the five cheapest
+  estate-routable clusters of slice 3's sixteen, probed live in one file before they were written
+- Current iteration (prior): 020 slice 3 — MIGRATION, chosen by an execution-corrected wall-count sweep over
   74 `*Tests.cs` files. The async row is the estate's MOST expensive territory (142 of the 134-test
   demand row live in `LanguageServerTests.cs`: 10 wall kinds, 25 C# receivers), and the `tests/native`
   estate is bounded to PRIMITIVE-argument subject calls (dependency-assembly construction and enum
@@ -3406,7 +3464,243 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (020 arc, THIS TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE ONE
+- Active sub-slice (020 arc, THIS TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE TWO
+  MEASURED WALLS RECORDED BEFORE ANY PRODUCTION EDIT at tip `05d65da38`): **020 SLICE 5 — THE NEXT
+  FIVE CHEAPEST ESTATE-ROUTABLE CLUSTERS, PRICED BY A NINE-ROUND BATCH PROBE.**
+
+  **THE BATCH.** Slice 4's remaining inventory leaves eleven estate-routable clusters; this slice
+  takes the five cheapest — `AnalyzerBindingFacts` 123L, `TypeReferenceFacts` 137L (probed green
+  last slice), `PerformanceFactStore` 155L, `ParserTokenFacts` 207L, `SemanticModel` 252L — which is
+  **874 C# lines, 39 `[Fact]`s and zero `[Theory]`s, so 39 xUnit cases**. One probe `.tests.nl`
+  (`Slice5BatchProbe.tests.nl`, deleted before the migration lands) carried every risky shape from
+  all five, because the estate reports only the FIRST decline.
+
+  | probe | cluster | shape under test | verdict |
+  |---|---|---|---|
+  | A | `TypeReferenceFacts` | `SourceSpan` `==` and `SourceSpan.None`, the `.Span` setter, deep display trees, a BARE `TypeReference` through both fallback arms, `GetDisplayNameOrVoid(null)`, both join helpers | **ZERO WALLS** |
+  | B | `AnalyzerBindingFacts` | a `ValueTuple<int, int>` answer read through `.Item1`/`.Item2`, `NSharpMethodGroupInfo`, `AnonymousUnionTypeInfo`, `AliasTypeInfo`, `NewtypeInfo` | **ZERO WALLS** |
+  | C | `PerformanceFactStore` | instance store, a `null` literal into a `string?` key part, `All.ContainsKey((File: …, Line: …, Column: …))`, `Merge`, `PerformanceFacts.Default`, a `for entry in store.All` walk | **ONE WALL, MEASURED AND ROUTED AROUND** (below) |
+  | D | `ParserTokenFacts` | a **148-element array literal of enum member accesses**, `.Length`, a `while` sweep with `assert` inside it, a linear-search helper taking `TokenType[]` | **ZERO WALLS** |
+  | E | `SemanticModel` | instance model, `TypeInfo?` answers through `(x as object).ToString()`, `Dictionary` indexer + `ContainsKey`, `IReadOnlyList` `Scopes`, `FunctionTypeInfo.ReturnType` assignment | **ONE WALL, MEASURED AND ROUTED AROUND** (below) |
+
+  **WALL 1 — A LOCAL NAMED `scoped` TAKES THE WHOLE FILE DOWN AT `parse.test`.** Round 1 declined at
+  `parse.test` on the SemanticModel probe with no further detail; four bisecting rounds (splitting
+  the declaration, then clearing the negative-literal argument `OpenScope(-1, 1, 1)`, which is
+  INNOCENT and emits) isolated it to `scopedType := …` having been spelled `scoped := …`. `scoped`
+  is `TokenType.Scoped` — a reserved word, and the reserved-word family's newest member. Renaming
+  the local is the whole fix.
+
+  **WALL 2 — READING A NAMED TUPLE ELEMENT OFF A WALKED DICTIONARY ENTRY DECLINES AT
+  `emit.if.condition`.** `for entry in store.All { … }` over a `Dictionary<(File: string?, Line:
+  int, Column: int), PerformanceFacts>` EMITS and counts correctly; `if entry.Key.Line > 0` inside
+  that walk does NOT. The route around is the spelling the C# itself used —
+  `All.ContainsKey((File: "a.nl", Line: 3, Column: 10))` with a tuple literal, which is green.
+
+  **THE PROBE ENDS GREEN AND THE COUNT ARITHMETIC IS PROVED ON IT FIRST**: 18 probe declarations
+  report `Passed! Failed: 0, Total: 5159` — the 5,141 baseline plus exactly 18. The probe file is
+  DELETED before the migration lands; the final estate carries none of it.
+
+  ### WHAT LANDED
+
+  **ONE STAGE, FIVE CLUSTERS, NO NEW CAPABILITY AND NO TOOLSET REPUBLISH.** The capability question
+  was asked first and answered by slice 3's rule and this slice's probe: the estate that needs no
+  gap at all is this one.
+
+  **THE C# MOVED IN ONE DIRECTION ONLY.** `git diff HEAD --numstat -- '*.cs'` is **`added=0
+  deleted=874` over FIVE files**, with **zero new C# files**. `Program.Testing.cs` stays at **618**,
+  not edited and not opened. `git diff HEAD` over production `.nl` is **EMPTY** — the slice adds
+  `.tests.nl` only, which is why the live-tree check set is provably byte-identical to the
+  baseline's.
+
+  | deleted C# | lines / xUnit cases | successor `.tests.nl` (all new) | lines / declarations / asserts |
+  |---|---|---|---|
+  | `tests/TypeReferenceFactsTests.cs` | 137 / 6 | `TypeReferenceFacts.tests.nl` | 359 / 17 / 90 |
+  | `tests/AnalyzerBindingFactsTests.cs` | 123 / 4 | `AnalyzerBindingFacts.tests.nl` | 302 / 11 / 95 |
+  | `tests/PerformanceFactStoreTests.cs` | 155 / 10 | `PerformanceFactStore.tests.nl` | 372 / 16 / 84 |
+  | `tests/ParserTokenFactsTests.cs` | 207 / 5 | `ParserTokenFacts.tests.nl` | 692 / 15 / 54 |
+  | `tests/SemanticModelTests.cs` | 252 / 14 | `SemanticModel.tests.nl` | 546 / 24 / 118 |
+  | **total** | **874 / 39** | | **2,271 / 83 / 441** |
+
+  **THE THIRD WALL, WHICH ONLY THE REAL BUILD COULD SHOW.** A tuple LITERAL with a `null` element —
+  `store.All.ContainsKey((File: null, Line: 1, Column: 1))` — declines at
+  `emit.expression.unhandled-kind`. The probe had exercised `null` as a bare ARGUMENT (green) and a
+  tuple literal with a string (green); the COMBINATION is the wall, and no probe that compares
+  shapes rather than products would have found it. The `null`-file key is reached through
+  `Lookup(null, …)` instead, which is the entry point production uses anyway.
+
+  **EVERY CLUSTER'S EQUIVALENCE IS PROVED MECHANICALLY AND SEPARATELY.** One comparator engine, five
+  per-cluster alias tables, grown from slice 4's with five new decodings, each of which is a real
+  shape in this batch and none of which is cluster-specific: a C# **object initializer** (`new T(a)
+  { Span = v }`) and the N# **two-statement mutation** that spells it now render identically; a
+  **local's mutation history** is part of its identity, so two stores that differ only in what was
+  recorded into them cannot collide; `Assert.Equal((7, 11), pos)` expands to element-wise
+  `.Item1`/`.Item2` rows; a C# **`foreach` over an array literal** is expanded per element; and the
+  N# extractor DESCENDS into `if x != null { … }` narrowing blocks, which is how this estate spells
+  "the answer is not null, and here is what it is".
+
+  **THE SWEEP CLUSTER IS DECODED ON BOTH SIDES FROM THE PRODUCT'S OWN ENUM.** `ParserTokenFacts`'s
+  C# passed each predicate as a `Func<TokenType, bool>` VALUE and swept `Enum.GetValues<TokenType>()`
+  — neither of which this estate expresses. Both sides are therefore expanded to the same
+  element-wise form: the C#'s `AssertTokenSet(pred, t1…tn)` against the 148 `TokenType` members read
+  out of `Token.nl` (the PRODUCT source, neither test side), and the N#'s `while` sweep against its
+  own explicit 148-member table. **9 C# sweeps × 148 = 1,332 rows plus 4 direct assertions; the N#
+  answers all 1,336 and adds a TENTH sweep** — `IsCastOperandStart`, which the C# only spot-checked.
+
+  | cluster | C# decoded | N# decoded | MATCHED | MISSING | DIFFERING | N# EXTRA |
+  |---|---|---|---|---|---|---|
+  | `TypeReferenceFacts` | 29 | 90 | **29** | 0 | 0 | **60** |
+  | `AnalyzerBindingFacts` | 34 | 95 | **34** | 0 | 0 | **61** |
+  | `PerformanceFactStore` | 27 | 84 | **27** | 0 | 0 | **57** |
+  | `ParserTokenFacts` | 1,336 | 1,519 | **1,336** | 0 | 0 | **152** |
+  | `SemanticModel` | 38 | 118 | **38** | 0 | 0 | **80** |
+  | **total** | **1,464** | **1,906** | **1,464** | **0** | **0** | **410** |
+
+  **THE COMPARATOR IS NON-VACUOUS FIVE TIMES OVER.** One perturbation per cluster, applied to the N#
+  text in memory, flips that cluster's verdict from `EQUIVALENT` to `DIFFERS` and names the exact
+  row: the explicit-span answer moved one column; `explicitPosition.Item1` `7` → `8`; the recorded
+  escape `Returned` → `Stored`; the first looked-up variable's text → `"MUTANT"`; and
+  `TokenType.Identifier` swapped for `TokenType.Eof` in the `CanStartExpression` expected set.
+
+  **WHERE THE SUCCESSORS ARE STRICTLY STRONGER, PER CLUSTER.**
+  - **`TypeReferenceFacts` (+60)**: the explicit span asserted on COMPOSITES and proved to fall
+    through when INVALID (the gate is `IsValid`, not "assigned"); the name span measured against the
+    name's length, its one-column floor and its zero-position refusal; every composite arm proved to
+    recurse into the RIGHT child, including the function arm's counter-intuitive return type; all
+    eight display arms alone, the empty/single-element shapes, tuple element NAMES, both join entry
+    points, `GetDisplayNameOrVoid(null)`, and the no-arm fallbacks of both walks.
+  - **`AnalyzerBindingFacts` (+61)**: the parameter position's two gates proved INDEPENDENT (a line
+    with no column answers the parameter's line and the fallback's column) — invisible to the
+    deleted file's both-or-neither pair; each of `IsValueBinding`'s four refusals alone; the ten
+    remaining `TypeInfo` shapes answering `"variable"`; and the two functions proved to AGREE, kind
+    string by kind string.
+  - **`PerformanceFactStore` (+57)**: the other two thirds of the key (line and column) proved to
+    discriminate; `null` proved distinct from `""`; last-write-wins proved over a THIRD write; both
+    empty-side merges; the `null`-file key surviving a merge; `All` proved to agree with `Count` and
+    to be walkable; and **`Default.ValueLayout`, the one member of the default row that is NOT its
+    enum's first and the one the deleted file never read**.
+  - **`ParserTokenFacts` (+152)**: `IsCastOperandStart` swept over all 148 tokens rather than
+    spot-checked at four; a guard test proving the swept table IS the whole enum and that every
+    expected member appears in it; the exact two-token difference between the two expression-start
+    tables proved in BOTH directions plus their agreement on the other 146; the deliberate overlaps
+    of the recovery tables; and `Eof` refused by all nine non-terminator predicates.
+  - **`SemanticModel` (+80)**: all FIVE ranks of the flat lookup chain (the C# pinned one pair); a
+    function looked up as its RETURN type; the whole per-type member table, which the C# never
+    reached; the type-reference table's non-positive-position refusal and its separation from the
+    expression table; the column proved irrelevant BETWEEN the boundary lines; an UNCLOSED scope
+    proved invisible to position lookup while still visible flatly; the deepest-scope rule proved
+    order-independent; scoped FUNCTIONS; and the scope table's own bookkeeping (ids, version,
+    out-of-range no-ops).
+
+  **NON-VACUITY IS EXECUTED, NOT ASSERTED — FIVE SUBJECT MUTATIONS IN FIVE DIFFERENT KERNELS, IN ONE
+  PASS, WITH ZERO COLLATERAL.** `IsValidParamsType`'s `"Queue"` name misspelled;
+  `GetParameterDeclarationPosition`'s column gate tightened to `> 1`; `PerformanceFacts.Default`'s
+  layout changed to `Struct`; `IsModifierKeyword`'s `File` arm swapped for `Duck`; and
+  `ContainsPosition`'s end-column test tightened to `>=`. The estate reports **exactly 5 failures out
+  of 5,224 — 5,219 passed** — and each names its OWN declaration and no other:
+  `TypeReferenceFactsValidateParamsTypeReferences`,
+  `AnalyzerBindingFactsTreatNonPositiveParameterCoordinatesAsAbsent`,
+  `PerformanceFactStoreDefaultsAreTheMostConservativeRow`,
+  `ParserTokenFactsOwnTheModifierKeywords`, `SemanticModelIncludesBothScopeBoundaries`. All five
+  subjects restored BYTE-IDENTICALLY (`git diff HEAD` over production `.nl` is empty).
+
+  **PROOFS AND COUNTS.**
+  - **Native BootstrapServices estate 5,141 → 5,224 by COUNT DIFF (+83, the exact number of
+    declarations added: 17 + 11 + 16 + 15 + 24)**, under the restore-flag discipline
+    (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`), `Failed: 0`.
+  - **Unit suite 3,093 → 3,054 / 3,054** = exactly the 39 migrated xUnit cases (6 + 4 + 10 + 5 +
+    14), `Failed: 0`.
+  - **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json`: 393 files,
+    246 rows — the inherited baseline to the digit**, same ten-code census (`NL202:85 NL402:68
+    NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), and ZERO rows in any
+    `.tests.nl` (the check set excludes them, which is why slice 4's four new files did not move the
+    file count either). **ONE row names a migrated subject and it is INHERITED**: `NL202` at
+    `PerformanceFactStore.nl:40`.
+  - **Format**: `nlc format --project src/NSharpLang.Compiler.BootstrapServices --check` reports
+    "All files are properly formatted" — clean on the FIRST run, over all five new files.
+  - **`tests/native` projects: 30 / 303 cases, unchanged and all green** — this slice adds none; the
+    gate's own Step 3a sweep reports 30 project runs summing 303 cases.
+  - **THE FULL NON-VS-CODE PRODUCT GATE IS GREEN, FRESH AND ISOLATED.**
+    `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` worktree carrying exactly this
+    slice's twelve code paths: **`ALL TESTS PASSED` in 18m 36s, 110 green steps, ZERO failures**,
+    with the unit suite at 3,054 and the native estate at 5,224 **inside the gate** (both matching
+    the out-of-gate measurements to the digit), all 30 native projects green, the **format contract
+    gate PASSING with the five new `.tests.nl` inside it**, and the IL verification gate reporting
+    **all 67 N# assemblies pass with no new errors vs baseline**. `pgrep` confirmed no other gate was
+    running before launch, the full log was written to a file rather than tailed, and the worktree
+    was removed afterwards.
+  - **DEAD SWEEP, SCOPED AND HONEST.** Nothing references the five deleted test classes: every grep
+    hit is a ratchet row this slice moves to `removed`, a STATUS line, a successor's own header, or —
+    for `SemanticModelTests` — the SURVIVING and unrelated `AnalyzerSemanticModelTests.cs`, which
+    merely contains the name as a substring. And nothing is orphaned: a per-entry-point census over
+    478 non-test `.nl`/`.cs` files finds **78 external call sites over 30 owners** —
+    `ColumnarParserRecovery` alone reaches `ParserTokenFacts` 26 times, `TypeReferences.nl` and
+    thirteen others reach `TypeReferenceFacts` 31 times, ten analyser owners reach
+    `AnalyzerBindingFacts` 14 times, and `SemanticModel` is reached by four LSP handlers plus
+    `Analyzer.cs` — plus 47 in-file member calls and, for `PerformanceFactStore`, eight carrier
+    sites in `ProjectSnapshot.nl`, `MultiFileCompiler.cs` and `SystemsAnalyzer.cs`.
+
+  **RATCHET — FIVE ROWS, ALL TO `removed`, WITH THE WALK VALIDATED BEFORE ANYTHING WAS EDITED.** The
+  FNV-1a walks were reimplemented and reproduced **all three** accepted values off the PRISTINE
+  manifest first (utf-8-sig read, regexed header): head `34ba119ed469a7c3`, pathset
+  `8a26e1529863444b`, epochfacts `1b3090747e517fc1` — the pathset walk being a SORTED newline JOIN
+  rather than the length-prefixed fact encoding the other two use.
+  - `TypeReferenceFactsTests.cs` **137/119/22 → 0/0/0**, `AnalyzerBindingFactsTests.cs`
+    **123/113/36 → 0/0/0**, `PerformanceFactStoreTests.cs` **155/123/37 → 0/0/0**,
+    `ParserTokenFactsTests.cs` **207/195/10 → 0/0/0**, `SemanticModelTests.cs` **252/200/52 →
+    0/0/0** — each `state: "existing-debt" → "removed"`, `currentFingerprint → "text-v1:removed"`,
+    epoch ceilings preserved.
+  - Head repinned **LAST** and in BOTH keys — the manifest header AND `OwnershipPolicy`'s constant
+    in `OwnershipAudit.nl` — `head-v1:34ba119ed469a7c3 → head-v1:126e0109b77ba0d1`. Manifest **391
+    lines, no BOM** (`7b 0a 20`); `epochFileCount` 381 and both epoch fingerprints untouched,
+    because no epoch fact moved.
+  - **The audit is non-vacuous by execution**: against the PRISTINE manifest with the five files
+    already deleted it **correctly FAILS 17/18 with exactly FIVE violations**, one `OWN006` per
+    deleted path — and **passes 18/18 after the repin**.
+  - The five new `.tests.nl` files need no manifest rows: `.nl` is ignored by `Classify`.
+
+  **FOUR FINDINGS.**
+  - **(1) `scoped` IS A RESERVED WORD, AND A LOCAL OF THAT NAME TAKES THE WHOLE FILE DOWN AT
+    `parse.test` WITH NO DETAIL.** It is `TokenType.Scoped`. The decline names the test declaration
+    and nothing inside it, so the only route to it is bisection — five rounds here, which also
+    CLEARED a negative literal argument (`OpenScope(-1, 1, 1)`) that looked far more suspicious and
+    emits perfectly. Add `scoped` to the reserved-word family alongside
+    `type`/`nameof`/`on`/`params`/`newtype`/`union`/`record`/`base`/`file`/`allow`/`required`/`match`.
+  - **(2) A NAMED TUPLE ELEMENT CANNOT BE READ OFF A WALKED DICTIONARY ENTRY.** `for entry in
+    store.All { … }` over a `Dictionary<(File: string?, Line: int, Column: int), …>` emits and
+    counts; `if entry.Key.Line > 0` inside it declines at `emit.if.condition`.
+  - **(3) A TUPLE LITERAL WITH A `null` ELEMENT DECLINES AT `emit.expression.unhandled-kind`.**
+    `(File: null, Line: 1, Column: 1)` in argument position is refused while `(File: "a.nl", …)` is
+    fine and a bare `null` argument is fine. This is the slice's second demonstration that a probe
+    comparing SHAPES cannot be exhaustive: only building the real contracts found it.
+  - **(4) `PerformanceFactStore.nl:40` CARRIES AN INHERITED `NL202`, AND THE MESSAGE HAS TWO
+    DEFECTS.** The lazy `Facts` getter assigns the nullable field and then returns it, so `return
+    facts` is `Dictionary<…>?` against a declared `Dictionary<…>` — the field assignment does not
+    narrow. The diagnostic reads *"Function 'this function' should return
+    Dictionary<NSharpLang.Compiler.TupleTypeInfo, PerformanceFacts> but returns
+    Dictionary<NSharpLang.Compiler.TupleTypeInfo, PerformanceFacts>?"*: it names a property getter
+    **"this function"**, and it renders the named-tuple key type as the INTERNAL model class
+    **`NSharpLang.Compiler.TupleTypeInfo`** rather than `(File: string?, Line: int, Column: int)`.
+    Left UNFIXED: the narrowing is a production `.nl` change and the message is an owner change, so
+    each is its own slice.
+
+  **WHAT 020 STILL OWES.** **12 canonical C# assertion layers remain** (17 before this slice):
+
+  | route | count | files |
+  |---|---|---|
+  | **BootstrapServices estate** | **6** | `Preprocessor` 303L (**the next batch's cheapest**), `BindingMap` 332L, `DiagnosticSpanResolver` 358L, `Lexer` 894L, `Linter` 1,366L, `Formatter` 2,132L |
+  | `tests/native` (primitive arguments) | 1 | `DotnetRunnerTests` 65L — five real `dotnet` processes, an external result object, one regex assertion |
+  | **BLOCKED** on `Type`-constant rows (NL310 / finding 99.1), reflection over an emitted assembly, or a C# receiver (`ColumnarCompiler`) | 5 | `ColumnarRuntimeTypeFacts` 20L, `ColumnarPatternFacts` 66L, `NumericLiteralFacts` 80L, `ColumnarNumericFacts` 101L, `ColumnarTypeCanonicalizer` 102L |
+
+  Outside that set the three owed items are UNCHANGED: **the async clusters**
+  (`LanguageServerTests.cs` 142 async / 4,201 lines / 25 C# receivers,
+  `LanguageServerAutoImportTests.cs` 3, `CliParityAuditTests.cs` 1 — all LSP-fixture or CLI-harness
+  territory); **the `IReadOnlyDictionary`-widening pair** (`tests/CodeIntelligenceTests.cs` 1,354L
+  and `tests/CompletionEngineTests.cs` 322L, still blocked on finding 97.6); and **setup/teardown**,
+  whose demand is 3 ctor+`IDisposable` classes plus 1 `IAsyncLifetime`, all in LSP or Docker fixture
+  territory, and whose gap is an ANALYSER one (`NL001`), not an emit one.
+  **Task 020 stays UNCHECKED and `tasks/README.md` is NOT edited.**
+
+- Active sub-slice (020 arc, PRIOR TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE ONE
   MEASURED WALL RECORDED BEFORE ANY PRODUCTION EDIT at tip `92798b61c`): **020 SLICE 4 — THE FIVE
   CHEAPEST ESTATE-ROUTABLE CLUSTERS OF SLICE 3'S SIXTEEN, PROBED LIVE BEFORE THEY WERE WRITTEN.**
 
