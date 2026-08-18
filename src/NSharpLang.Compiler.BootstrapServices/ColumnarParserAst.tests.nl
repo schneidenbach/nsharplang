@@ -5524,3 +5524,70 @@ test "016 N+3: FileParseAst.Success is false when the CompilationUnit is absent"
     parsed := new FileParseAst(null, new List<CompilerError>())
     assert !parsed.Success
 }
+
+// ---- 020 slice 12: the local-function MODIFIER and BODY-FORM arms -------------------------------
+//
+// `tests/LocalFunctionTests.cs` (84 lines, four `[Fact]`s) is deleted here, and all four cases land
+// below as WHOLE-TREE goldens rather than as the four-or-fewer spot assertions the C# made — so the
+// modifier bitmask, the body discriminator AND every anchor around them are pinned at once.
+//
+// Three of the four carried arms no golden anywhere reached: the `static` modifier on a local
+// function, the EXPRESSION-BODIED form (where `Body` is null and `ExpressionBody` is not), and the
+// `async` modifier. The fourth — a plain local function — has a same-SHAPE golden above in tranche
+// 10 ("a LOCAL function materializes LocalFunctionStatement over its own FunctionDeclaration") on a
+// different fixture; it is restated below on the deleted file's own source so the migration carries
+// that file's fixture rather than a paraphrase of it.
+
+// A LOCAL function's DECLARATION anchors on the STATEMENT START, not on the `func` keyword — the
+// opposite of a top-level or member function, whose comment above ("`public static async func`
+// accumulates the Modifiers bitmask") records that Parser.cs :375 captures Current AFTER
+// ParseModifiers. Measured: `    static func Inner` puts the FunctionDeclaration at column 5, where
+// `static` begins, not at column 12 where `func` does. Nothing anywhere stated this asymmetry.
+test "020 slice 12: a `static` local function carries Modifiers.Static on its own declaration" {
+    actual := RunAst("func Outer(): void {\n    static func Inner(): int {\n        return 42\n    }\n}\n")
+    innerBody := Golden.Block1(Golden.Return(Golden.IntLit("42", 3, 16), 3, 9), 2, 30)
+    inner := Golden.Func("Inner", Golden.NoParams(), Golden.SimpleT("int", 2, 26, 29), innerBody, null, null, Golden.NoConstraints(), Modifiers.Static, 2, 5)
+    outerBody := Golden.Block1(Golden.LocalFunc(inner, 2, 5), 1, 20)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("Outer", Golden.NoParams(), Golden.SimpleT("void", 1, 15, 19), outerBody, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+test "020 slice 12: an expression-bodied local function fills ExpressionBody and leaves Body null" {
+    actual := RunAst("func Outer(): void {\n    func Inner(x: int) => x * 2\n}\n")
+    parameters := Golden.NoParams()
+    parameters.Add(Golden.Param("x", Golden.SimpleT("int", 2, 19, 22), null, false, ParameterModifier.None, 2, 16))
+    expressionBody := Golden.Bin(Golden.Ident("x", 2, 27), BinaryOperator.Multiply, Golden.IntLit("2", 2, 31), 2, 29)
+    inner := Golden.Func("Inner", parameters, null, null, expressionBody, null, Golden.NoConstraints(), Modifiers.None, 2, 5)
+    outerBody := Golden.Block1(Golden.LocalFunc(inner, 2, 5), 1, 20)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("Outer", Golden.NoParams(), Golden.SimpleT("void", 1, 15, 19), outerBody, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+test "020 slice 12: an `async` local function carries Modifiers.Async on its own declaration" {
+    actual := RunAst("func Outer(): void {\n    async func Inner(): string {\n        return \"test\"\n    }\n}\n")
+    innerBody := Golden.Block1(Golden.Return(Golden.StrLit("\"test\"", 3, 16), 3, 9), 2, 32)
+    inner := Golden.Func("Inner", Golden.NoParams(), Golden.SimpleT("string", 2, 25, 31), innerBody, null, null, Golden.NoConstraints(), Modifiers.Async, 2, 5)
+    outerBody := Golden.Block1(Golden.LocalFunc(inner, 2, 5), 1, 20)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("Outer", Golden.NoParams(), Golden.SimpleT("void", 1, 15, 19), outerBody, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+// The deleted file's FIRST case, on its own fixture. Tranche 10 above already states the same
+// SHAPE on a different source (`func outer()` / `func inner()`); this states it on the exact source
+// the C# used, so the migration carries the deleted fixture rather than a paraphrase of it.
+test "020 slice 12: a plain local function materializes over the deleted file's own fixture" {
+    actual := RunAst("func Outer(): void {\n    func Inner(): int {\n        return 42\n    }\n}")
+    innerBody := Golden.Block1(Golden.Return(Golden.IntLit("42", 3, 16), 3, 9), 2, 23)
+    inner := Golden.Func("Inner", Golden.NoParams(), Golden.SimpleT("int", 2, 19, 22), innerBody, null, null, Golden.NoConstraints(), Modifiers.None, 2, 5)
+    outerBody := Golden.Block1(Golden.LocalFunc(inner, 2, 5), 1, 20)
+    decls := new List<Declaration>()
+    Golden.AddFunc(decls, Golden.Func("Outer", Golden.NoParams(), Golden.SimpleT("void", 1, 15, 19), outerBody, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}

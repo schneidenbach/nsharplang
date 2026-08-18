@@ -43,6 +43,18 @@ and the leaf text), `FormatterSourceText.tests.nl` (the front door — source te
 source text out, with idempotence and the reparse round trip) and `FormatterConfig.tests.nl`
 (`FormatterConfig`, `.editorconfig` reading and the `FormatterConfigKernels` int parser).
 
+Four more subjects moved out of `tests/Tests.csproj` in 020 slice 12 and now have no C# assertion
+layer at all. `NullabilityMetadataCore.tests.nl` states the CLR↔N# built-in maps as one sixteen-row
+table read two ways, the 3 × 3 nullability wrapping table, and the reference-nullability eligibility
+partition, beside `NullabilityTypeDisplay`'s sixteen display arms. `StringLiteralDecoder.tests.nl`
+crosses all eleven escapes through the scalar seam and pins the divergence between the strict and
+tolerant decoders. `OutputFormatterDiagnosticClusterKernels.tests.nl` states the diagnostic-cluster
+triage layer — both tiers of the category classifier, all nine source constructs, the message
+pattern, the cluster id and the escaped next command — with the serialised payload beside the other
+envelopes in `OutputFormatterJsonKernels.tests.nl`. The local-function parser arms are whole-tree
+goldens in `ColumnarParserAst.tests.nl`, and the four `ColumnarCompiler.TryEmitProgram` cases are
+real source shapes in `tests/native/columnar-emit-facts`.
+
 Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
 (restore with `-p:NSharpExcludeTests=false --force-evaluate` first).
 

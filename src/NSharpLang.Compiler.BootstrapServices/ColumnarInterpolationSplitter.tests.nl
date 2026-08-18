@@ -279,3 +279,121 @@ test "the base-call split declines non base-call shapes" {
     dottedName := ""
     assert !ColumnarInterpolationSplitter.TrySplitBaseCall("base.Nested.GetInfo()", out dottedName), "A base call with a dotted name declines."
 }
+
+// ---- 020 slice 12: `TrySplit` ITSELF, the entry point above the sub-splits ---------------------
+//
+// Everything above states a SUB-SPLIT — `TrySplitCast`, `TrySplitEquality`, `TrySplitCoalesce`,
+// `TrySplitBaseCall`, `TryEvaluateIntegerAdditive` — reached with a hole body already in hand.
+// Nothing above states `TrySplit`, the function that turns a whole literal token into the parts
+// list, and it is the only one of the family the parser calls. Its assertion layer was six `[Fact]`s
+// and two `[Theory]`s in `tests/ColumnarLiteralFactsTests.cs`, deleted by 020 slice 12.
+//
+// THE RAW-STRING ARM IS THE LOAD-BEARING ONE. In a `$"""…"""` literal a backslash is two characters
+// and `{{` is a literal brace pair rather than an escape, so the same body splits differently
+// depending on the literal form that contains it — and the deleted file stated that only once, on
+// one body. It is stated here against its ordinary-literal twin so the difference is visible in one
+// place.
+
+test "the splitter splits a raw interpolated literal, keeping its backslash and its brace pair" {
+    parts := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"\"\"a\\n{name}{{name}}\"\"\"", parts)
+
+    assert parts.Count == 3
+    assert !parts[0].IsHole
+    assert parts[0].Text == "a\\n"
+    assert parts[1].IsHole
+    assert parts[1].Text == "name"
+    assert !parts[2].IsHole
+    assert parts[2].Text == "{name}"
+}
+
+test "the same body in an ordinary literal decodes its escape and collapses its brace pair the same way" {
+    parts := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"a\\n{name}{{name}}\"", parts)
+
+    assert parts.Count == 3
+    assert !parts[0].IsHole
+
+    // The ordinary arm leaves the escape for the DECODER rather than decoding it in the splitter,
+    // so the text segment is byte-identical to the raw arm's. That the two arms agree here — and
+    // that `StringLiteralDecoder.DecodeInterpolatedText` is what makes them differ downstream — is
+    // the fact the deleted file could not state, because it only ever split the raw form.
+    assert parts[0].Text == "a\\n"
+    assert parts[1].IsHole
+    assert parts[1].Text == "name"
+    assert !parts[2].IsHole
+    assert parts[2].Text == "{name}"
+}
+
+test "the splitter accepts a single coalesce hole and rejects a chained one" {
+    accepted := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"email: {email ?? missingEmail}\"", accepted)
+    assert accepted.Count == 2
+    assert !accepted[0].IsHole
+    assert accepted[0].Text == "email: "
+    assert accepted[1].IsHole
+    assert accepted[1].Text == "email ?? missingEmail"
+
+    rejected := new List<ColumnarInterpolationPart>()
+    assert !ColumnarInterpolationSplitter.TrySplit("$\"email: {primary ?? fallback ?? missing}\"", rejected), "A chained coalesce hole is not a modeled shape."
+}
+
+test "the splitter accepts an integer additive hole and a modulo hole" {
+    additive := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"Expected: {1000 + 1000 - 500}\"", additive)
+    assert additive.Count == 2
+    assert !additive[0].IsHole
+    assert additive[0].Text == "Expected: "
+    assert additive[1].IsHole
+    assert additive[1].Text == "1000 + 1000 - 500"
+
+    // Trailing literal text after the hole makes this a three-part split, not a two-part one.
+    modulo := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"Duration: {Minutes % 60}m\"", modulo)
+    assert modulo.Count == 3
+    assert modulo[1].IsHole
+    assert modulo[1].Text == "Minutes % 60"
+    assert !modulo[2].IsHole
+    assert modulo[2].Text == "m"
+}
+
+test "the splitter accepts a one argument instance call hole" {
+    parts := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"eq={a.Equals(c)}\"", parts)
+
+    assert parts.Count == 2
+    assert !parts[0].IsHole
+    assert parts[0].Text == "eq="
+    assert parts[1].IsHole
+    assert parts[1].Text == "a.Equals(c)"
+}
+
+test "the splitter accepts a bare call hole whose argument is a positive or a negative number" {
+    positive := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"value={ClassifyNumber(150)}\"", positive)
+    assert positive.Count == 2
+    assert !positive[0].IsHole
+    assert positive[1].IsHole
+    assert positive[1].Text == "ClassifyNumber(150)"
+
+    negative := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"value={ClassifyNumber(-5)}\"", negative)
+    assert negative.Count == 2
+    assert !negative[0].IsHole
+    assert negative[1].IsHole
+    assert negative[1].Text == "ClassifyNumber(-5)"
+}
+
+test "the splitter accepts both equality holes" {
+    equal := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"eq={a == c}\"", equal)
+    assert equal.Count == 2
+    assert equal[1].IsHole
+    assert equal[1].Text == "a == c"
+
+    notEqual := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"ne={a != c}\"", notEqual)
+    assert notEqual.Count == 2
+    assert notEqual[1].IsHole
+    assert notEqual[1].Text == "a != c"
+}

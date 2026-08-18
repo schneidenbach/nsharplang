@@ -652,3 +652,78 @@ test "the error envelope is not ok and carries a coded, detailed payload" {
     assert OfjkString2(json, "error", "code") == "noSymbol"
     assert OfjkString3(json, "error", "details", "file") == "Program.nl"
 }
+
+// ---- 020 slice 12: WHAT A CLUSTER CONTAINS, not just which keys the envelope has ---------------
+//
+// The two contracts above reach `DiagnosticClustersToJson` for its ROOT KEYS and for file-name
+// ordering and stop at the envelope. `tests/DiagnosticClusteringTests.cs` — deleted by 020 slice 12
+// — was the only place the cluster PAYLOAD was ever asserted, and it asserted it through the C#
+// `OutputFormatter` forwarder. The cluster MODEL's own decisions now live in
+// `OutputFormatterDiagnosticClusterKernels.tests.nl`; what belongs here is the claim that the
+// serialiser puts every one of those decisions into the JSON under the name an agent reads.
+
+func OfjkClusterFixture(): List<DiagnosticResult> {
+    diagnostics := new List<DiagnosticResult>()
+    diagnostics.Add(new DiagnosticResult("NL102", "error", "Expected token ';'", "src/A.nl", 40, 5, 1, "let answer = 42", null, "Add ';'", null, null, null, null))
+    diagnostics.Add(new DiagnosticResult("NL102", "error", "Expected token ';'", "src/B.nl", 7, 5, 1, "let total = count + 1", null, "Add ';'", null, null, null, null))
+    diagnostics.Add(new DiagnosticResult("NL301", "error", "Undefined variable 'StringBuilder'", "src/C.nl", 12, 10, 13, "sb := new StringBuilder()", null, "Import System.Text or qualify StringBuilder", null, null, null, null))
+    return diagnostics
+}
+
+test "a serialised cluster carries its category, count, construct, recipe, risk and next command" {
+    json := OutputFormatterJsonKernels.DiagnosticClustersToJson(OfjkClusterFixture(), "/repo")
+
+    assert OfjkArrayLength1(json, "clusters") == 2
+
+    assert json.Contains("\"category\": \"syntax-missing-terminator\"")
+    assert json.Contains("\"count\": 2")
+    assert json.Contains("\"sourceConstruct\": \"variable-declaration\"")
+    assert json.Contains("\"recipe\": \"syntax:statement-boundary\"")
+    assert json.Contains("\"risk\": \"high\"")
+    assert json.Contains("\"nextCommand\": \"nlc query inspect --file src/B.nl --pos 7:5\"")
+    assert json.Contains("\"category\": \"identifier-resolution\"")
+
+    // The first cluster is the two-diagnostic one, and its files are its own.
+    assert OfjkArrayStrings(json, "files") == "src/A.nl,src/B.nl"
+
+    // Order: the high-risk syntax cluster is serialised ahead of the identifier one.
+    assert json.IndexOf("syntax-missing-terminator", StringComparison.Ordinal) < json.IndexOf("identifier-resolution", StringComparison.Ordinal)
+}
+
+test "a serialised cluster carries its root location, its related diagnostics and its examples" {
+    json := OutputFormatterJsonKernels.DiagnosticClustersToJson(OfjkClusterFixture(), "/repo")
+
+    // The root is the EARLIEST location in the cluster, not the first supplied.
+    assert json.Contains("\"rootLocation\": {")
+    assert json.Contains("\"file\": \"src/B.nl\"")
+    assert json.Contains("\"line\": 7")
+
+    assert json.Contains("\"relatedDiagnostics\": [")
+    assert json.Contains("\"code\": \"NL102\"")
+    assert json.Contains("\"code\": \"NL301\"")
+
+    assert json.Contains("\"suggestedNextActions\": [")
+    assert json.Contains("Fix the earliest statement-boundary parse error first")
+    assert json.Contains("Resolve the first missing identifier")
+
+    assert json.Contains("\"examples\": [")
+    assert json.Contains("\"sourceSnippet\": \"let answer = 42\"")
+
+    // THE SERIALISER'S DEFAULT ENCODER ESCAPES AN APOSTROPHE. The diagnostic message is
+    // `Expected token ';'`, and `System.Text.Json`'s default `JavaScriptEncoder` renders each
+    // apostrophe as `'` — so the raw form never appears in the payload an agent reads.
+    // Nothing anywhere stated this, and a reader comparing the message by eye would be wrong.
+    assert !json.Contains("Expected token ';'")
+    assert json.Contains("Expected token \\u0027;\\u0027")
+}
+
+test "a canonical async function declaration serialises as a function-declaration cluster" {
+    diagnostics := new List<DiagnosticResult>()
+    diagnostics.Add(new DiagnosticResult("NL102", "error", "Expected token ';'", "src/A.nl", 12, 5, 1, "async func Load(): Task<int> {", null, "Add ';'", null, null, null, null))
+    diagnostics.Add(new DiagnosticResult("NL102", "error", "Expected token ';'", "src/B.nl", 20, 5, 1, "override async func Save(): Task {", null, "Add ';'", null, null, null, null))
+
+    json := OutputFormatterJsonKernels.DiagnosticClustersToJson(diagnostics, "/repo")
+
+    assert OfjkArrayLength1(json, "clusters") == 1
+    assert json.Contains("\"sourceConstruct\": \"function-declaration\"")
+}
