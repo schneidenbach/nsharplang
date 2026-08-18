@@ -365,6 +365,22 @@ ALREADY accepts skips at `schemaVersion` 1 — it cross-checks `passed + failed 
 `outcome_counts["skipped"] == summary.skipped` — and the runner already maps xUnit's `ITestSkipped`
 to a `skipped` outcome with its reason.
 
+### Which native estate a migrated cluster belongs in
+
+Step 3a runs **two** native estates, and they have different capability ceilings. Choose by the
+ARGUMENT TYPES the cluster's subject calls take — measured by probe, not assumed:
+
+| the cluster's subject calls take… | estate | why |
+|---|---|---|
+| `string` / `int` / `bool` / arrays / literals, answering primitives | **`tests/native/<name>/`**, subject reached as a `dll:` dependency, run by the LIVE CLI | tables (`with (…) […]`) are available here, so each row reports as its own test |
+| an ENUM member, a CONSTRUCTED object, or anything else the emitter must resolve in the dependency assembly | **`src/NSharpLang.Compiler.BootstrapServices/<Subject>.tests.nl`**, same assembly, compiled by the PINNED toolset | a dependency-assembly enum member declines at `emit.typed-local.initializer` (and `emit.call.static-member-unmodeled` in argument position), and `new <dependency type>(…)` declines at `emit.local.initializer`; in a table row the enum member is refused earlier still, by `NL310` |
+
+The pinned toolset predates table-driven lowering, so the BootstrapServices estate takes plain `test`
+declarations with `assert` lines — which is also why its contract count moves by exactly the number
+of DECLARATIONS added. Its reported total runs ~22 above a `grep -c '^test "'` census (5,071 vs 5,093
+at the `OperatorFacts` slice), so measure the estate with `dotnet test` before and after and diff;
+never quote the grep as the contract count.
+
 ## Validation cadence
 
 Use the narrowest relevant inner loop while editing:

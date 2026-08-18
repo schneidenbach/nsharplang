@@ -1,6 +1,54 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-17 (**020 SLICE 1 — TABLE-DRIVEN TEST CASES ARE LIVE, AND
+Last updated: 2026-08-17 (**020 SLICE 3 — `tests/OperatorFactsTests.cs` IS DELETED AND ITS CONTRACTS
+ARE N#, AND THE SWEEP THAT CHOSE IT OVERTURNED THE OBVIOUS TARGET TWICE.** **THE ASYNC ROW IS THE
+ESTATE'S MOST EXPENSIVE TERRITORY, NOT ITS NEXT MIGRATION**: slice 2's census named `async Task` (134
+tests) as the largest demand, and this slice measured where those tests LIVE — **142 of them are in
+`tests/LanguageServerTests.cs` alone, the estate's costliest file at 10 wall kinds / 729 wall sites /
+25 C# receivers**, with the other two async files (`LanguageServerAutoImportTests.cs`,
+`CliParityAuditTests.cs`) the same LSP-fixture and CLI-harness territory. **AND THE `tests/native`
+ESTATE HAS A MEASURED CAPABILITY CEILING**: five probes through a freshly built tip CLI show a
+dependency-assembly static call emits with string/int/bool/array arguments (`ok: true`, 1/1 twice) but
+DECLINES the moment an argument is a constructed object (`new SimpleTypeInfo("Task")` →
+`emit.local.initializer`) or an ENUM MEMBER (`op: UnaryOperator = UnaryOperator.Negate` →
+`emit.typed-local.initializer`; in argument position `emit.call.static-member-unmodeled`; in a table
+row, refused earlier still by **NL310**) — **which is exactly why `ParserLiteralFacts` was cheap: its
+inputs were strings**. So the zero-wall route is the OTHER gate estate, the BootstrapServices
+`.tests.nl` files Step 3a runs FIRST, where the subject, the enums and the assertions are the same
+assembly's own. **`tests/OperatorFactsTests.cs` (98 lines, 57 assertions, 6 `[Fact]`s, 63 ratchet
+assertion markers) IS DELETED** and `OperatorFacts.tests.nl` replaces it — **265 lines, 10
+declarations, 133 assertions**, over a subject with **seven production N# referrers across 31 call
+sites and zero C# ones**. **THE SUCCESSOR IS STRICTLY STRONGER AND THE MARGIN IS MEASURED**: a
+comparator decodes the deleted C# out of `HEAD` and reports **57 assertions in, 57 MATCHED, 0 missing,
+0 differing, and 64 EXTRA** — every member of all three operator enums against every entry point that
+accepts it, plus the three `GetRequired*` gates and `TryGetCompoundAssignmentBinaryOperator`, which
+the C# never touched at all; the comparator's non-vacuity control flips to DIFFERS on one perturbed
+row. **FOUR MUTATIONS PRODUCE EXACTLY FOUR FAILURES OUT OF 5,093 — 5,089 passed — each naming its own
+declaration and no other.** Evidence: **native estate 5,083 → 5,093 by COUNT DIFF (+10, the exact
+declarations added)** under the restore-flag discipline; **unit 3,158 / 3,158** = 3,164 − the 6
+migrated `[Fact]`s; **live tree 393 / 246 — the inherited baseline to the digit** with the same
+ten-code census and ZERO rows naming `OperatorFacts`; format clean on the FIRST run; 30 native
+projects unchanged; **audit 18/18 after correctly failing 17/18 on exactly one `OWN006`**, the ratchet
+row moved to `state: "removed"` with epoch ceilings 98/88/63 preserved and the two-key head repinned
+LAST from a walk **validated against the pristine manifest first**, `a27fa10f3fb354b4 →
+91c119df9ea67f25`, manifest 391 lines no BOM. **`git diff HEAD --numstat -- '*.cs'` is `added=0
+deleted=98` over ONE file; `Program.Testing.cs` stays 618 and `ColumnarProgramInputBuilder.cs` 1062,
+neither opened.** **FOUR FINDINGS**, the first of which is the rule for every future 020 cluster
+(primitive-in/primitive-out → `tests/native`; enum or constructed arguments → the BootstrapServices
+estate), and the second a diagnostic-quality defect left deliberately unfixed: **NL310 names the enum
+MEMBER as if it were an expression kind** ("nullCoalesce expression is not supported here"), because
+`DescribeExpression` answers a member access's member name. **22 canonical C# assertion layers over
+same-named N# subjects remain, inventoried and routed (16 estate / 1 native / 5 blocked), alongside
+the async clusters, the 97.6-blocked pair and setup/teardown. Task 020 stays UNCHECKED.** **THE FULL
+NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` WORKTREE, IS `ALL TESTS PASSED` IN 18m 24s WITH
+110 GREEN STEPS AND ZERO FAILURES** — unit 3,158, the estate 5,093, all 30 native projects / 303
+cases, the format contract gate and the IL verification gate inside. NOT COMMITTED — the mandate
+reserves that)
+
+Last updated (prior): 2026-08-17 (**NOTE: slice 2's header entry was never written — the entry below
+this one is slice 1 — but slice 2's full record IS in the Cursor block, and it is COMMITTED at
+`493a82eab`. The same omission is recorded for slices 16 and 21 further down.**
+**020 SLICE 1 — TABLE-DRIVEN TEST CASES ARE LIVE, AND
 `tests/DocQueryTests.cs` IS DELETED.** **"FIRST MISSING" WAS PROVED BY EXECUTION, NOT BY READING**:
 five probe projects through a freshly built tip CLI showed plain tests green at 1/1 while a table
 declaration, a `skip` clause and a `setup` block each took the WHOLE test file down at
@@ -3076,7 +3124,19 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 2 MEASURED `skip` AND DECLINED TO
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 3 IS A MIGRATION, AND THE SWEEP
+  THAT CHOSE IT OVERTURNED THE OBVIOUS TARGET TWICE.** The async row slice 2 named by demand is the
+  estate's most EXPENSIVE territory (142 of it in `LanguageServerTests.cs` alone: 10 wall kinds, 729
+  wall sites, 25 C# receivers), and five probes proved the `tests/native` estate is bounded to
+  PRIMITIVE-argument subject calls — dependency-assembly construction (`new SimpleTypeInfo(…)`) and
+  dependency-assembly enum member access (`UnaryOperator.Negate`) BOTH decline at emit, and the enum
+  in a table row is refused earlier still by NL310. So the zero-wall route is the OTHER gate estate:
+  the BootstrapServices `.tests.nl` files that Step 3a runs first. **The migrated cluster is
+  `tests/OperatorFactsTests.cs` → `src/NSharpLang.Compiler.BootstrapServices/OperatorFacts.tests.nl`**,
+  the third pure canonical C# assertion layer over an already-N# subject to be deleted, and the
+  successor is strictly stronger (it also covers the three throwing `GetRequired*` entry points and
+  `TryGetCompoundAssignmentBinaryOperator`, which the C# never touched).
+  (Prior: **SLICE 2 MEASURED `skip` AND DECLINED TO
   BUILD IT: THE C# ESTATE HAS NO CONSUMER FOR IT.** The mandated sweep over **2,818 attributed test
   methods in 279 classes** found **ZERO** `[Fact(Skip=…)]`, `SkipException`, `[ConditionalFact]` or
   trait/`.runsettings` filters; the ONE true `Skip=` in the repo is `DockerFactAttribute`, in the
@@ -3264,7 +3324,13 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   67 slices, 23,060 → 2,962 lines (−87.2 %), contracts 1,554 → 3,890, 80 N# owners / 47,173
   production lines, 29 driver loops, FOUR toolset repins in the whole arc and ZERO from slice 49
   onward. 016 was ACCEPTED at `53e272711` with `Parser.cs` DELETED.)
-- Current iteration: 020 slice 2 — the SKIP CAPABILITY WAS MEASURED AND DECLINED. The C# estate has
+- Current iteration: 020 slice 3 — MIGRATION, chosen by an execution-corrected wall-count sweep over
+  74 `*Tests.cs` files. The async row is the estate's MOST expensive territory (142 of the 134-test
+  demand row live in `LanguageServerTests.cs`: 10 wall kinds, 25 C# receivers), and the `tests/native`
+  estate is bounded to PRIMITIVE-argument subject calls (dependency-assembly construction and enum
+  member access both decline at emit). The zero-wall route is the BootstrapServices `.tests.nl` estate,
+  which Step 3a runs too — so `tests/OperatorFactsTests.cs` migrates there
+- Current iteration (prior): 020 slice 2 — the SKIP CAPABILITY WAS MEASURED AND DECLINED. The C# estate has
   no consumer for it, so nothing was built; the slice migrated `tests/ParserLiteralFactsTests.cs`
   instead, and the census names `async Task` (134 real tests) as the next capability by demand
 - Current iteration (prior): 019 slice 22 stage 2 — `DocQuery.cs` DELETED. The whole file, 19 members and
@@ -3299,7 +3365,243 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (020 arc, THIS TURN — MEASUREMENT, PIVOT AND CLUSTER RECORDED BEFORE ANY
+- Active sub-slice (020 arc, THIS TURN — THE SWEEP, THE WALL-COUNT COSTING AND THE CHOSEN CLUSTER
+  RECORDED BEFORE ANY EDIT at tip `493a82eab`): **020 SLICE 3 — THE ASYNC CLUSTERS ARE THE MOST
+  EXPENSIVE FILES IN THE ESTATE, NOT THE CHEAPEST, AND THE `tests/native` ESTATE IS CAPABILITY-BOUNDED
+  TO PRIMITIVE-ARGUMENT SUBJECT CALLS. THE MEASURED-CHEAPEST REAL CLUSTER IS
+  `tests/OperatorFactsTests.cs`, MIGRATED INTO THE BOOTSTRAPSERVICES `.tests.nl` ESTATE AT ZERO
+  WALLS.**
+
+  **THE SWEEP RAN OVER THE WHOLE C# TEST ESTATE FIRST — 74 `*Tests.cs` FILES — AND IT WAS COSTED BY
+  WALL COUNT, NOT BY LINE COUNT.** Slice 2's census named `async Task` as the largest demand row (134
+  tests). This slice asked where those 134 tests LIVE, and the answer disqualifies them: **142 of the
+  estate's `async Task` methods are in ONE file, `tests/LanguageServerTests.cs`, which is the most
+  expensive file in the whole estate by every wall measure** — 10 wall kinds / 729 wall sites, 183 LSP
+  markers, 187 filesystem markers, 8 fixture markers and **25 distinct C# receiver types**. The other
+  two async-shaped files are the same territory: `LanguageServerAutoImportTests.cs` (3 async, 6 wall
+  kinds, LSP fixture) and `CliParityAuditTests.cs` (1 async, 9 wall kinds / 426 sites, 257 filesystem
+  markers). The mandate warns off LSP/Docker territory unless measurement says otherwise, and
+  measurement says the opposite: **the async demand row is entirely LSP-fixture and CLI-harness
+  territory, and it is the LAST thing 020 should migrate, not the next.**
+
+  | candidate (wall kinds / wall sites) | lines | asserts | why it costs what it costs |
+  |---|---|---|---|
+  | **`OperatorFactsTests.cs` 0 / 0** | 98 | 57 | subject `OperatorFacts` is N# in BootstrapServices; every call takes ONE N# enum and answers `string`, `string?` or `bool`; zero collections, zero reflection, zero `typeof`, zero fixtures, zero C# receivers |
+  | `PerformanceFactStoreTests.cs` 0 / 0 | 155 | 27 | instance store + a TUPLE-KEYED `All` dictionary + a 6-member `PerformanceFacts` record + a defaulted local factory |
+  | `SemanticModelTests.cs` 0 / 0 | 252 | 38 | instance model, and every assertion reads `.ToString()` on a user N# type (the `(value as object).ToString()` gotcha) |
+  | `DotnetRunnerTests.cs` 1 / 1 | 65 | 10 | spawns 5 real `dotnet` processes, reads an external result object's properties, and one assertion is a REGEX (`Assert.Matches`) |
+  | `ColumnarDeclineReasonFactsTests.cs` 1 / 2 | 103 | 16 | 3 of its 6 tests are primitive-only; the other 3 need `new ColumnarDeclineReason(…)` and property reads on a returned `CompilerError` |
+  | `GeneratorSequenceTypeFactsTests.cs` 1 / 4 | 57 | 8 | `new List<TypeInfo>` + `new GenericTypeInfo` + `BuiltInTypes.Int` per row |
+  | `TaskLikeTypeFactsTests.cs` 1 / 5 | 50 | 15 | four TypeInfo shapes + a result record with `Found`/`SourceResultType` |
+  | `ParserTokenFactsTests.cs` 2 / 2 | 207 | 5 | passes the predicates as `Func<TokenType, bool>` VALUES and sweeps `Enum.GetValues<TokenType>()` |
+  | `NumericLiteralFactsTests.cs` 2 / 19 | 80 | 13 | 9 `typeof` rows (NL310) + `out` params + `ulong` bounds |
+  | `ColumnarRuntimeTypeFactsTests.cs` 3 / 9 | 20 | 1 | shortest file in the estate and still expensive: 4 `Type`-constant rows, refused by NL310, needing finding 99.1's `Type.GetType` seeding |
+  | `ColumnarPatternFactsTests.cs` 4 / 24, `ColumnarNumericFactsTests.cs` 4 / 62 | 66 / 101 | 8 / 12 | `typeof` rows PLUS driving `ColumnarCompiler.TryEmitProgram` (a C# type) PLUS reflection over the emitted assembly |
+  | `LanguageServerAutoImportTests.cs` 6 / 20 | 181 | 7 | the cheapest async-shaped file, and it is LSP-fixture territory |
+  | `CliParityAuditTests.cs` 9 / 426 | 1,822 | 329 | 1 async test, 257 filesystem sites, 4 C# receivers |
+  | `LanguageServerTests.cs` 10 / 729 | 4,201 | 460 | **the 142-async file: 183 LSP, 187 filesystem, 8 fixture, 25 C# receivers** |
+
+  **AND THE COSTING WAS THEN CORRECTED BY EXECUTION, WHICH OVERTURNED THE STATIC RANKING TWICE.** Five
+  probe projects through a freshly built tip CLI (`src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll test
+  --project … --no-cache --json`, `NSHARP_COLUMNAR_DECLINE_LOG=1`) measured what a `tests/native`
+  project — the slice-2 shape, BootstrapServices as a `dll:` dependency — can actually express:
+
+  | probe | shape | verdict |
+  |---|---|---|
+  | A | `ColumnarDeclineReasonFacts.LineFromOffset("one\ntwo\nthree", 4)` — string+int args | **`ok: true`, 1/1** |
+  | B | `fileLengths := [5, 3, 4]` then `MapMergedOffsetFileIndex(fileLengths, 2, 7)` — int[] literal | **`ok: true`, 1/1** |
+  | C | `new ColumnarDeclineReason(…)` — construct a dependency-assembly N# class | **DECLINES** `emit.local.initializer` → `emit.tests.body`, whole file down |
+  | E1 | `new SimpleTypeInfo("Task")` — the same in one argument | **DECLINES**, same site |
+  | W1 | `op: UnaryOperator = UnaryOperator.Negate` / `GetUnaryText(UnaryOperator.Negate)` | **DECLINES** `emit.typed-local.initializer`, and in argument position `emit.call.static-member-unmodeled` |
+  | W1′ | the same enum member as a TABLE ROW | refused EARLIER, at **NL310**: "table-driven test case values must be compile-time constants" |
+
+  **SO THE `tests/native` ESTATE IS BOUNDED TO PRIMITIVE-ARGUMENT SUBJECT CALLS, AND THAT IS WHY
+  `ParserLiteralFacts` WAS CHEAP: ITS INPUTS WERE STRINGS.** Every remaining Facts cluster takes an
+  ENUM or a CONSTRUCTED AST object, so every one of them meets at least one emit wall there — and the
+  two walls' owners are `ColumnarIlEmitter.cs` (C#, forbidden to grow) or per-member rows in
+  `ColumnarExternalBindingPlans.nl` (catalog spam for a test-only need). **A bounded N#-side fix was
+  looked for and priced honestly rather than assumed: it is NOT one scan function this time.**
+
+  **THE OTHER GATE ESTATE HAS THE SAME CLUSTER AT ZERO WALLS, AND STEP 3a RUNS BOTH.**
+  `tests/scripts/test-all-core.sh:356-374` runs the BootstrapServices `.tests.nl` estate through
+  `dotnet test -p:NSharpExcludeTests=false`, and only THEN sweeps every `tests|examples` project.yml
+  with a `*.tests.nl` through the live CLI. In the BootstrapServices estate the subject, the enums and
+  the assertions are all **the same assembly's own**, so W1/C/E1 cannot arise: the estate's 171
+  `.tests.nl` files already spell `BinaryOperator.Add`, `new GenericTypeInfo(…)`, `out` parameters and
+  `try`/`catch` exception assertions everywhere (`AnalyzerOperatorExpressions.tests.nl:270`,
+  `LoopSequenceTypeFacts.tests.nl:8`, `AnalyzerArrayLiteral.tests.nl:312`,
+  `AnalyzerScopeStack.tests.nl:105`). **Cheapest by wall count is therefore the BootstrapServices
+  estate, and the cluster is `tests/OperatorFactsTests.cs`.**
+
+  **WHY `OperatorFactsTests.cs` WINS THE TIE.** Several clusters cost zero walls in that estate; this
+  one is chosen on three measured tie-breaks. (1) **Assertion density**: 57 `Assert.` calls over 98
+  lines — the densest of the zero-wall set, and 63 assertion markers by the ratchet's own count. (2)
+  **No existing native coverage**: `OperatorFacts.tests.nl` does not exist, while
+  `LoopSequenceTypeFacts` already has one — so the migration adds contracts rather than duplicating
+  them. (3) **The subject is entirely N# and entirely alive**: `OperatorFacts.nl` (403 lines) has
+  **seven production N# referrers over 31 call sites** (`AnalyzerAssignment`,
+  `AnalyzerOperatorExpressions`, `AnalyzerExpressionTreeValidator`, `AnalyzerDiagnosticSpans`,
+  `AnalyzerWriteTargets`, `AnalyzerAttributeValidator`, `FormatterWalk`) and **zero C# referrers**, so
+  the C# file is a pure canonical assertion layer over an already-N# surface — the
+  `DocQueryTests.cs` / `ParserLiteralFactsTests.cs` shape for the third time.
+
+  **THE MIGRATION IS ALSO STRICTLY STRONGER, AT NO WALL COST.** The C# file tests six of the
+  subject's thirteen entry points and never touches `GetRequiredBinaryText` /
+  `GetRequiredUnaryText` / `GetRequiredAssignmentText` (which THROW on an unmapped operator) or
+  `TryGetCompoundAssignmentBinaryOperator` (the `+=` → `+` mapping the analyser's compound-assignment
+  arm depends on). Both families are expressible with shapes the estate already uses, so the successor
+  covers them.
+
+  ### WHAT LANDED
+
+  **ONE STAGE, NO NEW CAPABILITY, NO TOOLSET REPUBLISH — AND THE REASON IS THE MEASUREMENT ABOVE.**
+  The slice is a migration; the capability question was asked first and answered "the gap is not one
+  scan function this time, and the estate that needs no gap at all is the other one."
+
+  **THE C# MOVED IN ONE DIRECTION ONLY, AND ONLY ONE FILE MOVED AT ALL.**
+  `git diff HEAD --numstat -- '*.cs'` is **`added=0 deleted=98`** over ONE file, with **zero new C#
+  files**. `Program.Testing.cs` stays at **618** and `ColumnarProgramInputBuilder.cs` at **1062** —
+  not repinned, not edited, not opened. `tests/OperatorFactsTests.cs` **98 → 0, DELETED**, and
+  `src/NSharpLang.Compiler.BootstrapServices/OperatorFacts.tests.nl` replaces it: **265 lines, 10
+  declarations, 133 assertions**, of which 52 lines are the header explaining what the kernel is easy
+  to get wrong.
+
+  **THE EQUIVALENCE IS PROVED MECHANICALLY, NOT BY EYE.** A comparator reads the DELETED C# file out
+  of `HEAD`, decodes every `Assert.Equal` / `Assert.Null` / `Assert.True` / `Assert.False` into an
+  `(entry point, operand, expected)` triple, decodes the N# `assert` lines the same way, and diffs:
+
+  | | count |
+  |---|---|
+  | C# assertions decoded | **57** |
+  | N# assertions decoded (single-operand form) | **121** |
+  | **MATCHED** | **57** |
+  | MISSING in N# | **0** |
+  | DIFFERING | **0** |
+  | N# extra (strictly stronger) | **64** |
+
+  Every one of the deleted file's six `[Fact]` methods maps onto a named N# declaration, and the
+  mapping is many-to-one exactly where the C# grouped two families in one method
+  (`OperatorFacts_ReturnsBinaryOperatorOverloadMetadata` splits 4 + 4 across the CLR-name and symbol
+  contracts; `OperatorFacts_IdentifiesExpressionTreeSupportedOperators` splits 5 + 4 across the binary
+  and unary ones). **The comparator's NON-VACUITY CONTROL**: perturb one N# expectation in memory
+  (`GetBinaryText(Modulo) == "%"` → `"MUTANT"`) and the verdict flips to **DIFFERS**. The 12
+  assertions of the compound-assignment contract are outside the single-operand decoder (they take an
+  `out` parameter and compare enum values) and are counted as extra coverage, not as equivalence.
+
+  **NON-VACUITY IS EXECUTED, NOT ASSERTED.** Four mutations, one per behavioural family and each in a
+  DIFFERENT declaration, run in one pass: `GetUnaryText(IndexFromEnd)` `"^" → "~"`,
+  `GetBinaryClrName(Or)` `null → "op_LogicalOr"`, the `!` dropped from
+  `IsSupportedExpressionTreeUnaryOperator(PreIncrement)`, and the compound-assignment answer
+  `Add → Subtract`. The estate reports **exactly 4 failures out of 5,093 — 5,089 passed — and the
+  four names are exactly the four mutated declarations**:
+  `OperatorFactsRenderEveryUnaryOperatorsSourceText`,
+  `OperatorFactsNameTheCLRMethodForEveryOverloadableBinaryOperator`,
+  `OperatorFactsAdmitExactlyTwoExpressionTreeUnaryOperators`,
+  `OperatorFactsMapTheFourCompoundAssignmentsAndRefuseTheOtherTwo`. Restored byte-identical,
+  **5,093 / 5,093**.
+
+  **PROOFS AND COUNTS.**
+  - **Native BootstrapServices estate 5,083 → 5,093 by COUNT DIFF (+10, the exact number of
+    declarations added)**, under the restore-flag discipline (`-p:NSharpExcludeTests=false
+    --force-evaluate`, then `--no-restore`), `Failed: 0`. This is the mirror image of slice 2, and for
+    the same reason read the other way: slice 2's coverage could not live here because a table needs
+    the LIVE CLI, and this slice's coverage could not live THERE because an enum member needs the same
+    assembly.
+  - **Unit suite 3,164 → 3,158 / 3,158** = exactly the six migrated `[Fact]` methods, `Failed: 0`.
+  - **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json`: 393 files,
+    246 rows — the inherited baseline to the digit**, same census (`NL202:85 NL402:68 NL905:26
+    NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), and **ZERO rows naming
+    `OperatorFacts`**. The file count is unchanged BECAUSE the new file is a `.tests.nl`: 393 is
+    exactly the non-test `.nl` count (565 − 172), and the SDK's check set excludes tests. The
+    successor's analysis is proved by the estate compile instead, which is stronger.
+  - **Format**: `nlc format --check` on the new owner reports "All files are properly formatted" —
+    clean on the FIRST run, unlike slice 2's.
+  - **`tests/native` projects: 30 / 303 cases, unchanged and all `ok: true`** — this slice adds none;
+    the gate's own Step 3a sweep reports 30 projects summing 303 cases, every one validated against
+    the `schemaVersion 1` envelope contract.
+  - **THE FULL NON-VS-CODE PRODUCT GATE IS GREEN, FRESH AND ISOLATED.**
+    `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` worktree carrying exactly this
+    slice's five paths: **`ALL TESTS PASSED` in 18m 24s, 110 green steps, ZERO failures**, with the
+    unit suite at 3,158, the native estate at 5,093, all 30 native projects green, the **format
+    contract gate PASSING with the new `.tests.nl` inside it**, and the IL verification gate inside.
+    `pgrep` confirmed no other gate was running before launch, and the full log was written to a file
+    rather than tailed. The `memory/testing.md` edit landed after the worktree snapshot and is
+    provably outside every gate input set (`test-all-core.sh:193` — the sets cover `docs/` and
+    `website/docs/`, not `memory/`).
+  - **DEAD SWEEP, SCOPED AND HONEST.** Nothing anywhere references `OperatorFactsTests` (the two grep
+    hits are the ratchet row, which this slice moves to `removed`, and the successor's own header
+    naming what it replaces). And the migration orphans nothing: a per-entry-point census shows **all
+    THIRTEEN entry points keep production referrers — 31 call sites across 7 N# owners** — including
+    the two families the C# never covered (`GetRequired*` at 4 sites,
+    `TryGetCompoundAssignmentBinaryOperator` at 1).
+
+  **RATCHET — ONE ROW, AND IT GOES TO `removed`, WITH THE WALK VALIDATED BEFORE ANYTHING WAS EDITED.**
+  The FNV-1a walks were reimplemented and reproduced **all three** accepted values off the PRISTINE
+  manifest first (utf-8-sig read, regexed header): head `a27fa10f3fb354b4`, pathset
+  `8a26e1529863444b`, epochfacts `1b3090747e517fc1`.
+  - `tests/OperatorFactsTests.cs` **98/88/63 → 0/0/0**, `state: "existing-debt" → "removed"`,
+    `currentFingerprint: "text-v1:c22a219342bc96ae" → "text-v1:removed"`, epoch ceilings 98/88/63
+    preserved — the `Formatter.cs` / `Linter.cs` / `DocQuery.cs` / `DocQueryTests.cs` /
+    `ParserLiteralFactsTests.cs` row shape for the sixth time.
+  - Head repinned **LAST** and in BOTH keys — the manifest header AND `OwnershipPolicy`'s constant in
+    `OwnershipAudit.nl` — `head-v1:a27fa10f3fb354b4 → head-v1:91c119df9ea67f25`. Manifest **391 lines,
+    no BOM** (`7b 0a 20`); `epochFileCount` 381 and both epoch fingerprints untouched, because no
+    epoch fact moved.
+  - **The audit is non-vacuous by execution**: against the PRISTINE manifest with the file already
+    deleted it **correctly FAILS 17/18 with exactly one violation** — `OWN006
+    [tests/OperatorFactsTests.cs]: active debt entry disappeared; mark it removed in the same deletion
+    commit` — and **passes 18/18 after the repin**.
+  - The new `.tests.nl` needs no manifest row: `.nl` is ignored by `Classify`, exactly as
+    `doc-query`'s and `parser-literal-facts`' N# successors were.
+
+  **FOUR FINDINGS.**
+  - **(1) THE `tests/native` ESTATE HAS A CAPABILITY CEILING, AND IT IS THE ARGUMENT-TYPE SET.** A
+    dependency-assembly static call emits when its arguments are literals, locals and arrays; it
+    declines the moment an argument is a CONSTRUCTED object (`emit.local.initializer`) or an ENUM
+    MEMBER (`emit.typed-local.initializer` / `emit.call.static-member-unmodeled`). `ParserLiteralFacts`
+    was cheap because its inputs are strings. **This is the rule for choosing future 020 clusters:
+    string/int/bool-in, primitive-out goes to `tests/native`; everything else belongs in the
+    BootstrapServices estate.**
+  - **(2) NL310's MESSAGE NAMES THE ENUM MEMBER AS IF IT WERE AN EXPRESSION KIND.** A row holding
+    `BinaryOperator.NullCoalesce` reports "**nullCoalesce expression** is not supported here";
+    `BinaryOperator.Add` reports "add expression"; `UnaryOperator.Negate` reports "negate expression".
+    The cause is exact: `DescribeExpression` answers a member access's MEMBER NAME
+    (`AnalyzerExpressionStatements.nl:1032`) and `DescribeTableCaseValue` then lower-cases it and
+    appends " expression" (`AnalyzerDeclarationWalkers.nl`). It is a diagnostic-quality defect, not a
+    correctness one, and it is left UNFIXED deliberately: the estate has a standing contract on that
+    exact sentence shape (`AnalyzerDeclarationWalkers.tests.nl:576`), so changing it is its own slice.
+  - **(3) THE `"operator"` FALLBACK AND ITS THREE THROW ARMS ARE UNREACHABLE THROUGH A DECLARED
+    MEMBER.** All 20 `BinaryOperator`, 8 `UnaryOperator` and 6 `AssignmentOperator` members are mapped
+    by the three text functions, so `GetRequired*`'s `InvalidOperationException` can only fire on an
+    out-of-range value no member spells. The successor pins the PASS-THROUGH instead of inventing an
+    int-to-enum cast the whole estate never uses.
+  - **(4) THE ESTATE'S REPORTED TOTAL RUNS 22 ABOVE ITS `test "` CENSUS, AND IT IS PRE-EXISTING.**
+    5,061 declarations vs 5,083 reported before this slice; 5,071 vs 5,093 after. The DIFF is exact
+    (+10) on both sides of the accounting, so the count-diff discipline is unaffected — but the
+    absolute numbers are not interchangeable, and a future slice should not treat a grep census as
+    the estate's contract count.
+
+  **WHAT 020 STILL OWES, INVENTORIED RATHER THAN GESTURED AT.** A classifier over the whole C# test
+  estate finds **22 remaining canonical assertion layers whose subject is an N#-owned type of the
+  same name** (23 before this slice), and routes each one by finding (1)'s measured rule:
+
+  | route | count | files |
+  |---|---|---|
+  | **BootstrapServices estate** (enum or constructed arguments) | **16** | `TaskLikeTypeFacts` 50L, `GeneratorSequenceTypeFacts` 57L, `AnalyzerOverloadSignatureFacts` 75L, `LoopSequenceTypeFacts` 81L, `ColumnarDeclineReasonFacts` 103L, `AnalyzerBindingFacts` 123L, `TypeReferenceFacts` 137L, `PerformanceFactStore` 155L, `ParserTokenFacts` 207L, `SemanticModel` 252L, `Preprocessor` 303L, `BindingMap` 332L, `DiagnosticSpanResolver` 358L, `Lexer` 894L, `Linter` 1,366L, `Formatter` 2,132L |
+  | `tests/native` (primitive arguments) | 1 | `DotnetRunnerTests` 65L — and it is not as cheap as the classifier says: it spawns five real `dotnet` processes, reads an external result object's properties, and one assertion is a regex |
+  | **BLOCKED** on `Type`-constant rows (NL310 / finding 99.1), reflection over an emitted assembly, or a C# receiver (`ColumnarCompiler`) | 5 | `ColumnarRuntimeTypeFacts` 20L, `ColumnarPatternFacts` 66L, `NumericLiteralFacts` 80L, `ColumnarNumericFacts` 101L, `ColumnarTypeCanonicalizer` 102L |
+
+  Outside that set, the three things 020 still owes are unchanged and now priced: **the async
+  clusters** (`LanguageServerTests.cs` 142 async / 4,201 lines / 25 C# receivers,
+  `LanguageServerAutoImportTests.cs` 3, `CliParityAuditTests.cs` 1 — all LSP-fixture or CLI-harness
+  territory, and the estate's most expensive files); **the `IReadOnlyDictionary`-widening pair**
+  (`tests/CodeIntelligenceTests.cs` 1,354L and `tests/CompletionEngineTests.cs` 322L, still blocked on
+  finding 97.6, which is a LATER slice's stage 1); and **setup/teardown**, whose demand is still the
+  3 ctor+`IDisposable` classes plus 1 `IAsyncLifetime` measured in slice 2 — every one of them in the
+  LSP or Docker fixture territory, and the gap is an ANALYSER one (`NL001`), not an emit one.
+  **Task 020 stays UNCHECKED and `tasks/README.md` is NOT edited.**
+
+- Active sub-slice (020 arc, PRIOR TURN — MEASUREMENT, PIVOT AND CLUSTER RECORDED BEFORE ANY
   PRODUCTION EDIT at tip `3ed71b4a0`): **020 SLICE 2 — THE SKIP CAPABILITY WAS MEASURED AND IT HAS
   NO CONSUMER, SO IT WAS NOT BUILT. THE SLICE MIGRATES `tests/ParserLiteralFactsTests.cs` INSTEAD.**
 
