@@ -1,6 +1,47 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-17 (**020 SLICE 3 — `tests/OperatorFactsTests.cs` IS DELETED AND ITS CONTRACTS
+Last updated: 2026-08-17 (**020 SLICE 4 — FIVE C# ASSERTION LAYERS ARE DELETED IN ONE SLICE, AND THE
+PROBE OVERTURNED A SPELLING BEFORE IT COST A CLUSTER.** **THE BATCH WAS PRICED BY EXECUTION, NOT BY
+READING**: slice 3's inventory ranks its sixteen estate-routable clusters by line count, so this
+slice took the six cheapest and put every risky shape from all six into ONE probe `.tests.nl` —
+because the estate reports only the FIRST decline, and a probe file is the only way to price a batch
+without spending a build per cluster. Round 1 declined at **`emit.local.initializer`** on a
+HETEROGENEOUS array literal of constructed elements (`[new SimpleTypeReference(…), new
+ArrayTypeReference(…)]`); round 2 replaced every such literal with EXPLICIT-ARITY helper funcs — the
+spelling the estate's 171 existing `.tests.nl` files already use — and all six came back
+**`Passed! Failed: 0, Total: 5099`**, 5,093 + the six probes on the nose. **FIVE FILES ARE DELETED —
+`TaskLikeTypeFactsTests.cs` 50L, `GeneratorSequenceTypeFactsTests.cs` 57L,
+`AnalyzerOverloadSignatureFactsTests.cs` 75L, `LoopSequenceTypeFactsTests.cs` 81L,
+`ColumnarDeclineReasonFactsTests.cs` 103L — 366 C# lines and 65 xUnit cases**, replaced by four new
+`.tests.nl` files plus ten declarations grown into the one that already existed: **48 declarations,
+379 assertions**. **EVERY CLUSTER CARRIES ITS OWN FULL PROOF SET.** A comparator decodes each deleted
+file out of `HEAD`, expands its `[Theory]` rows, inlines its locals, unescapes its literals to
+runtime values and diffs against the N#: **130 C# assertions in, 130 MATCHED, 0 missing, 0 differing,
+248 EXTRA**, and a per-cluster perturbation flips all five verdicts to DIFFERS. **FIVE SUBJECT
+MUTATIONS IN FIVE DIFFERENT KERNELS PRODUCE 6 FAILURES OUT OF 5,141 — 5,135 PASSED — AND EACH
+MUTATION FAILS ITS OWN NAMED DECLARATION**; the sixth failure is COLLATERAL AND IT IS EVIDENCE, a
+pre-existing `AnalyzerFunctionBodies` contract that renders the same diagnostic sentence. Evidence:
+**native estate 5,093 → 5,141 by COUNT DIFF (+48, the exact declarations added)**; **unit 3,158 →
+3,093 / 3,093** = exactly the 65 migrated cases; **live tree 393 / 246 — the inherited baseline to
+the digit** with the same ten-code census, the ONE row naming a migrated subject being an INHERITED
+`NL202` on `AnalyzerOverloadSignatureFacts.nl:106` (the slice edits no production `.nl` at all);
+format clean on the FIRST run; 30 native projects / 303 cases unchanged; **audit 18/18 after
+correctly failing 17/18 on exactly FIVE `OWN006`s**, the five ratchet rows moved to `state:
+"removed"` with epoch ceilings preserved and the two-key head repinned LAST from a walk **validated
+against the pristine manifest first**, `91c119df9ea67f25 → 34ba119ed469a7c3`, manifest 391 lines no
+BOM. **`git diff HEAD --numstat -- '*.cs'` is `added=0 deleted=366` over FIVE files; zero new C#;
+`Program.Testing.cs` stays 618, not opened.** **FOUR FINDINGS**, the load-bearing two being the
+array-literal wall above and that **`TypeInfo.Equals(TypeInfo)` DECLINES at
+`emit.return.expression`** — an inherited `object.Equals(object)` through a user N# base receiver is
+not emittable, and `BuiltInTypes.Is` is the spelling that works; that wall was INVISIBLE to the probe
+and appeared only on the first build of the real contracts. **17 canonical C# assertion layers remain
+(11 estate / 1 native / 5 blocked), alongside the async clusters, the 97.6-blocked pair and
+setup/teardown. Task 020 stays UNCHECKED.** **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A
+`/tmp` WORKTREE, IS `ALL TESTS PASSED` IN 18m 32s WITH 110 GREEN STEPS AND ZERO FAILURES** — unit
+3,093, the estate 5,141, all 30 native projects / 303 cases, the format contract gate and the IL
+verification gate inside. NOT COMMITTED — the mandate reserves that)
+
+Last updated (prior): 2026-08-17 (**020 SLICE 3 — `tests/OperatorFactsTests.cs` IS DELETED AND ITS CONTRACTS
 ARE N#, AND THE SWEEP THAT CHOSE IT OVERTURNED THE OBVIOUS TARGET TWICE.** **THE ASYNC ROW IS THE
 ESTATE'S MOST EXPENSIVE TERRITORY, NOT ITS NEXT MIGRATION**: slice 2's census named `async Task` (134
 tests) as the largest demand, and this slice measured where those tests LIVE — **142 of them are in
@@ -3365,7 +3406,230 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (020 arc, THIS TURN — THE SWEEP, THE WALL-COUNT COSTING AND THE CHOSEN CLUSTER
+- Active sub-slice (020 arc, THIS TURN — THE BATCH, ITS PER-CLUSTER PROBE VERDICTS AND THE ONE
+  MEASURED WALL RECORDED BEFORE ANY PRODUCTION EDIT at tip `92798b61c`): **020 SLICE 4 — THE FIVE
+  CHEAPEST ESTATE-ROUTABLE CLUSTERS OF SLICE 3'S SIXTEEN, PROBED LIVE BEFORE THEY WERE WRITTEN.**
+
+  **THE STATIC RANKING WAS RE-PROBED, AND IT LIED AGAIN — THIS TIME ABOUT A SPELLING, NOT A
+  CLUSTER.** Slice 3's inventory routes 16 clusters to this estate and orders them by line count.
+  This slice took the six cheapest (`TaskLikeTypeFacts` 50L, `GeneratorSequenceTypeFacts` 57L,
+  `AnalyzerOverloadSignatureFacts` 75L, `LoopSequenceTypeFacts` 81L, `ColumnarDeclineReasonFacts`
+  103L, `TypeReferenceFacts` 137L as the reserve) and put every risky shape from all six into ONE
+  probe `.tests.nl` compiled by the estate's own build — because the estate reports only the FIRST
+  decline, so a probe file is the only way to price a batch without spending a build per cluster.
+
+  | probe | cluster | shape under test | verdict |
+  |---|---|---|---|
+  | A | `TaskLikeTypeFacts` | constructed `SimpleTypeInfo` / `GenericTypeInfo` / `ExternalTypeInfo` args, a `null` literal into a `TypeReference?` parameter, result-record property reads, `(x as object).ToString()` through a narrowed nullable | **ZERO WALLS** |
+  | B | `GeneratorSequenceTypeFacts` | constructed `GenericTypeInfo` + `bool` arg, `string.Contains` on the answer | **ZERO WALLS** |
+  | C | `AnalyzerOverloadSignatureFacts` | nested `TypeReference` trees, `TupleTypeElement`, `new FunctionTypeInfo()` + field assignment, `List<FunctionTypeInfo>` widening to an `IReadOnlyList<FunctionTypeInfo>` parameter | **ONE WALL, MEASURED AND ROUTED AROUND** (below) |
+  | D | `LoopSequenceTypeFacts` | `TypeInfo?` answer through `as GenericTypeInfo`, `.TypeArguments[i]`, text of a user N# type | **ZERO WALLS** |
+  | E | `TypeReferenceFacts` (reserve) | `SourceSpan` `==`, `.Span` setter mutation, deep display-name trees | **ZERO WALLS** |
+  | F | `ColumnarDeclineReasonFacts` | `int[]` literal local, `new ColumnarDeclineReason(…)`, `CompilerError` property reads, `StartsWith`/`EndsWith` with `StringComparison.Ordinal` | **ZERO WALLS** |
+
+  **THE ONE WALL IS AN ARRAY-LITERAL SPELLING, NOT A CLUSTER.** Round 1 of the probe built its
+  argument lists with a generic `Xs([...])` helper taking `TypeReference[]`, and the estate refused
+  the first HETEROGENEOUS one — `[new SimpleTypeReference("string"), new ArrayTypeReference(new
+  NullableTypeReference(new SimpleTypeReference("int")))]`, two different derived types under one
+  array literal — at **`emit.local.initializer` for `nested`**, taking the whole build down with
+  `NL103`. Round 2 replaced every array literal of CONSTRUCTED elements with EXPLICIT-ARITY helper
+  funcs (`…Refs1`, `…Refs2`, `…Tuples2`), which is the spelling the estate's 171 existing
+  `.tests.nl` files already use (`new TypeParameter[](n)` plus index assignment, never a literal of
+  `new` expressions), and the same six probes came back **`Passed! Failed: 0, Total: 5099`** —
+  5,093 + the six probe declarations, on the nose. Array literals of PRIMITIVES (`[5, 3, 4]`,
+  `["T"]`) and of member accesses (`[BuiltInTypes.String]`) were never the problem and are kept.
+
+  **THE BATCH IS THE FIVE CHEAPEST, AND `TypeReferenceFacts` STAYS ON THE SHELF.** The mandate caps
+  a batch at five, so the slice takes `TaskLikeTypeFacts`, `GeneratorSequenceTypeFacts`,
+  `AnalyzerOverloadSignatureFacts`, `LoopSequenceTypeFacts` and `ColumnarDeclineReasonFacts` —
+  50 + 57 + 75 + 81 + 103 = **366 C# lines, 6 files → 5 files deleted**, 14 `[Fact]`s and 7
+  `[Theory]`s expanding to **65 xUnit cases**. `TypeReferenceFacts` was probed green and is
+  recorded as the next slice's cheapest known-routable cluster rather than forced into this one.
+
+  ### WHAT LANDED
+
+  **ONE STAGE, FIVE CLUSTERS, NO NEW CAPABILITY AND NO TOOLSET REPUBLISH.** The slice is a batch
+  migration; the capability question was asked first and answered by slice 3's rule plus this
+  slice's own probe — the estate that needs no gap at all is this one.
+
+  **THE C# MOVED IN ONE DIRECTION ONLY.** `git diff HEAD --numstat -- '*.cs'` is **`added=0
+  deleted=366` over FIVE files**, with **zero new C# files**. `Program.Testing.cs` stays at **618**,
+  not edited and not opened. `git diff HEAD --stat` over production `.nl` is **EMPTY** — the slice
+  adds `.tests.nl` only.
+
+  | deleted C# | lines / xUnit cases | successor `.tests.nl` | lines / declarations / asserts |
+  |---|---|---|---|
+  | `tests/TaskLikeTypeFactsTests.cs` | 50 / 3 | `TaskLikeTypeFacts.tests.nl` (new) | 286 / 8 / 70 |
+  | `tests/GeneratorSequenceTypeFactsTests.cs` | 57 / 15 | `GeneratorSequenceTypeFacts.tests.nl` (new) | 181 / 8 / 62 |
+  | `tests/AnalyzerOverloadSignatureFactsTests.cs` | 75 / 2 | `AnalyzerOverloadSignatureFacts.tests.nl` (new) | 251 / 8 / 41 |
+  | `tests/LoopSequenceTypeFactsTests.cs` | 81 / 26 | `LoopSequenceTypeFacts.tests.nl` (17 → 302) | 302 / 11 (+10) / 104 |
+  | `tests/ColumnarDeclineReasonFactsTests.cs` | 103 / 19 | `ColumnarDeclineReasonFacts.tests.nl` (new) | 286 / 14 / 102 |
+
+  **EVERY CLUSTER'S EQUIVALENCE IS PROVED MECHANICALLY AND SEPARATELY.** One comparator engine, five
+  per-cluster alias tables. It reads each DELETED file out of `HEAD`, expands its `[Theory]` rows,
+  inlines its locals, decodes every `Assert.*` into a `(predicate, expected)` pair over a
+  normalised S-expression whose string literals are UNESCAPED TO RUNTIME VALUES, decodes the N#
+  `assert` lines the same way, and diffs. Sequence assertions are expanded element-wise
+  (`Assert.Equal(new[]{"string","int"}, xs.TypeArguments.Select(a => a.ToString()))` becomes two
+  element assertions); `Assert.IsType<T>(E)` becomes a runtime-kind assertion that also BINDS `E`;
+  and the `StringComparison.Ordinal` argument N# requires is normalised away on both sides.
+
+  | cluster | C# decoded | N# decoded | MATCHED | MISSING | DIFFERING | N# EXTRA |
+  |---|---|---|---|---|---|---|
+  | `TaskLikeTypeFacts` | 15 | 70 | **15** | 0 | 0 | **55** |
+  | `GeneratorSequenceTypeFacts` | 19 | 62 | **19** | 0 | 0 | **43** |
+  | `AnalyzerOverloadSignatureFacts` | 9 | 41 | **9** | 0 | 0 | **31** |
+  | `LoopSequenceTypeFacts` | 45 | 104 | **45** | 0 | 0 | **59** |
+  | `ColumnarDeclineReasonFacts` | 42 | 102 | **42** | 0 | 0 | **60** |
+  | **total** | **130** | **379** | **130** | **0** | **0** | **248** |
+
+  **THE COMPARATOR IS NON-VACUOUS FIVE TIMES OVER.** One perturbation per cluster, applied to the N#
+  text in memory, flips that cluster's verdict from `EQUIVALENT` to `DIFFERS` and names the exact
+  row: the first `IsUnitTaskLikeType` assertion negated; `ExpectedSequenceKind(false)` → `"MUTANT"`;
+  the nested signature string → `"MUTANT"`; the first sync element text → `"MUTANT"`; and
+  `MapMergedOffsetFileIndex(…, 0) == 0` → `== 7`.
+
+  **WHERE THE SUCCESSORS ARE STRICTLY STRONGER, PER CLUSTER.**
+  - **`TaskLikeTypeFacts` (+55)**: the C# reached THREE of the TWELVE `TypeInfo` dispatch arms. All
+    twelve are asserted — class, struct, record, interface, union, enum, SoA record and SoA row
+    included — plus `IsTaskLikeName` directly over its four exact spellings, both suffix rules and
+    ten refusals, plus the extractor's arity gate and both `TaskLikeResultType` factories.
+  - **`GeneratorSequenceTypeFacts` (+43)**: `IsGeneratorSequenceTypeName` asserted directly for all
+    six accepted sync names, the one async name, and arity 0/2 in both modes; both normalisations
+    (`UnqualifiedTypeName`, `StripGenericArity`) alone and composed; and the two suggestion
+    sentences pinned WHOLE where the C# used `Assert.Contains`.
+  - **`AnalyzerOverloadSignatureFacts` (+31)**: all EIGHT `TypeReference` arms rendered alone, the
+    empty and single-element shapes of the three list walks, the name-dropping rule stated as an
+    equality between a named and an unnamed tuple, the absent-signature arms, order sensitivity, and
+    distinctness against a two-element set and against the empty set.
+  - **`LoopSequenceTypeFacts` (+59)**: the three name tables asserted directly and exhaustively —
+    5 dictionary names, 2 span names, 15 collection names — plus the synthesised `KeyValuePair`'s
+    REFLECTION generic definition (the thing that makes `.Key`/`.Value` resolve downstream), the
+    dictionary arity/mode gates, and the two normalisations.
+  - **`ColumnarDeclineReasonFacts` (+60)**: the two `Resolve*` gates production actually calls
+    (carried source-file id wins; an out-of-range id does NOT), contiguous files at separator
+    length 0, out-of-range and bare-`\r` line/column answers, both renderings with each optional
+    clause dropped, the carrier's own accessors, and the other THREE emission-error factories plus
+    the router's emit-only → AOT → SoA → plain precedence.
+
+  **NON-VACUITY IS EXECUTED, NOT ASSERTED — FIVE SUBJECT MUTATIONS IN FIVE DIFFERENT KERNELS, IN ONE
+  PASS.** The SoA-row arm's `+ ".Row"` dropped; `ExpectedSequenceKind(true)` shortened;
+  `HasSourceParameterSignature` tightened to require a non-empty list; the synthesised pair renamed
+  `KeyValuePair` → `KeyValuePairs`; and `ResolveLocalOffset`'s carried-id answer `offset` →
+  `offset + 1`. The estate reports **6 failures out of 5,141 — 5,135 passed** — and **each mutation
+  fails its OWN named declaration and no other cluster's**:
+  `TaskLikeTypeFactsReachEveryDeclaredTypeArm`,
+  `GeneratorSequenceTypeFactsOwnBothDiagnosticSentencesWhole`,
+  `OverloadSignatureFactsRefuseToMatchAnAbsentSignature`,
+  `LoopSequenceTypeFactsEnumerateDictionariesAsKeyValuePairs`,
+  `ColumnarDeclineReasonFactsPreferACarriedSourceFileIdOverTheMergedWalk`. The **sixth failure is
+  COLLATERAL AND IT IS EVIDENCE**: `AnalyzerFunctionBodies.tests.nl`'s async-generator diagnostic
+  contract also renders `ExpectedSequenceKind(true)`, so a pre-existing sibling contract catches the
+  same product change — the kernel is load-bearing, not decorative. All five subjects restored
+  BYTE-IDENTICALLY (`git diff HEAD` over production `.nl` is empty).
+
+  **PROOFS AND COUNTS.**
+  - **Native BootstrapServices estate 5,093 → 5,141 by COUNT DIFF (+48, the exact number of
+    declarations added: 8 + 8 + 8 + 10 + 14)**, under the restore-flag discipline
+    (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`), `Failed: 0`.
+  - **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json`: 393 files,
+    246 rows — the inherited baseline to the digit**, same ten-code census (`NL202:85 NL402:68
+    NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`). **ONE row names a
+    migrated subject and it is INHERITED, not introduced**: `NL202` at
+    `AnalyzerOverloadSignatureFacts.nl:106` — `return typeObject.ToString()` answers `string?` where
+    `string` is declared. The slice edits no production `.nl` at all, so the check set is provably
+    byte-identical to the baseline's.
+  - **Unit suite 3,158 → 3,093 / 3,093** = exactly the 65 migrated xUnit cases (3 + 15 + 2 + 26 +
+    19, the `[Theory]` rows expanded), `Failed: 0`.
+  - **Format**: `nlc format --check` on `src/NSharpLang.Compiler.BootstrapServices` reports "All
+    files are properly formatted" — clean on the FIRST run, over all five new/grown files.
+  - **`tests/native` projects: 30 / 303 cases, unchanged and all green** — this slice adds none; the
+    gate's own Step 3a sweep reports 30 projects summing 303 cases, every one validated against the
+    `schemaVersion 1` envelope contract.
+  - **THE FULL NON-VS-CODE PRODUCT GATE IS GREEN, FRESH AND ISOLATED.**
+    `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` worktree carrying exactly this
+    slice's twelve paths: **`ALL TESTS PASSED` in 18m 32s, 110 green steps, ZERO failures**, with
+    the unit suite at 3,093, the native estate at 5,141, all 30 native projects green, the **format
+    contract gate PASSING with the four new `.tests.nl` inside it**, and the IL verification gate
+    inside. `pgrep` confirmed no other gate was running before launch, and the full log was written
+    to a file rather than tailed. The worktree was removed afterwards.
+  - **DEAD SWEEP, SCOPED AND HONEST.** Nothing anywhere references the five deleted test classes
+    (every grep hit is a ratchet row this slice moves to `removed`, a STATUS line, or a successor's
+    own header). And nothing is orphaned: a per-entry-point census over every non-test `.nl`/`.cs`
+    finds **25 external production call sites across 5 owners** — `AnalyzerFunctionTypeFactory`,
+    `AnalyzerFunctionBodies`, `AnalyzerDeclarationPolicy`, `AnalyzerLoopSequence` and the one C#
+    caller, `MultiFileCompiler.cs` — plus **40 in-file sites** for the internal helpers
+    (`IsTaskLikeName` 14, `GetParameterTypeSignature` 7, the three name tables, the merged-offset
+    walk, the three emission-error factories). A name-based census would call those tables dead;
+    they are the kernels.
+
+  **RATCHET — FIVE ROWS, ALL TO `removed`, WITH THE WALK VALIDATED BEFORE ANYTHING WAS EDITED.** The
+  FNV-1a walks were reimplemented and reproduced **all three** accepted values off the PRISTINE
+  manifest first (utf-8-sig read, regexed header): head `91c119df9ea67f25`, pathset
+  `8a26e1529863444b`, epochfacts `1b3090747e517fc1`. (The pathset walk is a SORTED newline JOIN of
+  the paths, not the length-prefixed fact encoding the other two use — a first attempt using the
+  fact encoding reproduced the other two and missed this one, which is why the validation runs
+  first.)
+  - `TaskLikeTypeFactsTests.cs` **50/41/18 → 0/0/0**, `GeneratorSequenceTypeFactsTests.cs`
+    **57/50/12 → 0/0/0**, `AnalyzerOverloadSignatureFactsTests.cs` **75/69/11 → 0/0/0**,
+    `LoopSequenceTypeFactsTests.cs` **81/73/14 → 0/0/0**, `ColumnarDeclineReasonFactsTests.cs`
+    **103/90/22 → 0/0/0** — each `state: "existing-debt" → "removed"`, `currentFingerprint →
+    "text-v1:removed"`, epoch ceilings preserved.
+  - Head repinned **LAST** and in BOTH keys — the manifest header AND `OwnershipPolicy`'s constant
+    in `OwnershipAudit.nl` — `head-v1:91c119df9ea67f25 → head-v1:34ba119ed469a7c3`. Manifest **391
+    lines, no BOM** (`7b 0a 20`); `epochFileCount` 381 and both epoch fingerprints untouched,
+    because no epoch fact moved.
+  - **The audit is non-vacuous by execution**: against the PRISTINE manifest with the five files
+    already deleted it **correctly FAILS 17/18 with exactly FIVE violations**, one `OWN006` per
+    deleted path ("active debt entry disappeared; mark it removed in the same deletion commit") —
+    and **passes 18/18 after the repin**.
+  - The four new `.tests.nl` files need no manifest rows: `.nl` is ignored by `Classify`.
+
+  **FOUR FINDINGS.**
+  - **(1) THE ESTATE REFUSES AN ARRAY LITERAL WHOSE ELEMENTS ARE CONSTRUCTED OBJECTS.** `[new
+    SimpleTypeReference("string"), new ArrayTypeReference(…)]` targeted at `TypeReference[]` declines
+    at `emit.local.initializer`; explicit-arity helper funcs (`…Refs2(a, b)`) emit. Array literals of
+    PRIMITIVES (`[5, 3, 4]`) and of member accesses (`[BuiltInTypes.String]`) are fine. This is why
+    the estate's 171 existing `.tests.nl` files build object arrays with `new T[](n)` plus index
+    assignment and never with a literal of `new` expressions — the idiom was load-bearing, not
+    stylistic.
+  - **(2) `TypeInfo.Equals(TypeInfo)` DECLINES AT `emit.return.expression`.** Calling the INHERITED
+    `object.Equals(object)` through a user N# base-class receiver with a user-typed argument is not
+    emittable. The product's own `BuiltInTypes.Is(actual, expected)` is the spelling that works, and
+    it is the better contract anyway. This wall was invisible to the probe — the probe compared
+    TEXT — and only appeared on the first build of the real contracts, which is the argument for
+    building the real files rather than trusting a probe to be exhaustive.
+  - **(3) `AnalyzerOverloadSignatureFacts.nl:106` CARRIES AN INHERITED `NL202`.** The fallback arm
+    of `GetParameterTypeSignature` returns `typeObject.ToString()`, which is `string?` against a
+    declared `string`. It is also the ONE arm the successor deliberately does not contract, because
+    reaching it needs a bare `TypeReference` base instance. Left UNFIXED: it is a production `.nl`
+    change and therefore its own slice.
+  - **(4) `tests/native/ownership-audit/OwnershipAudit.nl` IS UNFORMATTED AT `HEAD` AND OUTSIDE THE
+    GATE.** `nlc format --check` on that project fails on redundant `public` modifiers — proved
+    pre-existing by format-checking `HEAD`'s copy in isolation. The gate's format contract covers
+    `examples`, `templates`, `tests/fixtures/issue-tracker` and
+    `src/NSharpLang.Compiler.BootstrapServices` only (`test-all-core.sh:315-318`), so the two-key
+    repin does not disturb it. Recorded, not fixed.
+
+  **WHAT 020 STILL OWES.** **17 canonical C# assertion layers remain** (22 before this slice), routed
+  by slice 3's measured rule:
+
+  | route | count | files |
+  |---|---|---|
+  | **BootstrapServices estate** | **11** | `TypeReferenceFacts` 137L (**probed green this slice — the next batch's cheapest**), `AnalyzerBindingFacts` 123L, `PerformanceFactStore` 155L, `ParserTokenFacts` 207L, `SemanticModel` 252L, `Preprocessor` 303L, `BindingMap` 332L, `DiagnosticSpanResolver` 358L, `Lexer` 894L, `Linter` 1,366L, `Formatter` 2,132L |
+  | `tests/native` (primitive arguments) | 1 | `DotnetRunnerTests` 65L — still not as cheap as the classifier says (five real `dotnet` processes, an external result object, one regex assertion) |
+  | **BLOCKED** on `Type`-constant rows (NL310 / finding 99.1), reflection over an emitted assembly, or a C# receiver (`ColumnarCompiler`) | 5 | `ColumnarRuntimeTypeFacts` 20L, `ColumnarPatternFacts` 66L, `NumericLiteralFacts` 80L, `ColumnarNumericFacts` 101L, `ColumnarTypeCanonicalizer` 102L |
+
+  Outside that set the three owed items are UNCHANGED: **the async clusters**
+  (`LanguageServerTests.cs` 142 async / 4,201 lines / 25 C# receivers,
+  `LanguageServerAutoImportTests.cs` 3, `CliParityAuditTests.cs` 1 — all LSP-fixture or CLI-harness
+  territory); **the `IReadOnlyDictionary`-widening pair** (`tests/CodeIntelligenceTests.cs` 1,354L
+  and `tests/CompletionEngineTests.cs` 322L, still blocked on finding 97.6); and **setup/teardown**,
+  whose demand is still 3 ctor+`IDisposable` classes plus 1 `IAsyncLifetime`, all in LSP or Docker
+  fixture territory, and whose gap is an ANALYSER one (`NL001`), not an emit one.
+  **Task 020 stays UNCHECKED and `tasks/README.md` is NOT edited.**
+
+- Active sub-slice (020 arc, PRIOR TURN — THE SWEEP, THE WALL-COUNT COSTING AND THE CHOSEN CLUSTER
   RECORDED BEFORE ANY EDIT at tip `493a82eab`): **020 SLICE 3 — THE ASYNC CLUSTERS ARE THE MOST
   EXPENSIVE FILES IN THE ESTATE, NOT THE CHEAPEST, AND THE `tests/native` ESTATE IS CAPABILITY-BOUNDED
   TO PRIMITIVE-ARGUMENT SUBJECT CALLS. THE MEASURED-CHEAPEST REAL CLUSTER IS
