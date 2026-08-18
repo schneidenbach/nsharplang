@@ -131,6 +131,41 @@ func AssignabilityDictionaryOpen(): Type {
     return AssignabilityOpen("System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
 }
 
+// `SortedDictionary` is NOT in CoreLib — it ships in `System.Collections`, the same assembly as
+// `Stack`, `LinkedList` and `SortedSet`. Naming CoreLib here resolves to null and the fixture would
+// silently compare against `object`.
+func AssignabilitySortedDictionaryOpen(): Type {
+    return AssignabilityOpen("System.Collections.Generic.SortedDictionary`2, System.Collections")
+}
+
+func AssignabilityReadOnlyDictionaryOpen(): Type {
+    return AssignabilityOpen("System.Collections.Generic.IReadOnlyDictionary`2, System.Private.CoreLib")
+}
+
+func AssignabilityDictionaryInterfaceOpen(): Type {
+    return AssignabilityOpen("System.Collections.Generic.IDictionary`2, System.Private.CoreLib")
+}
+
+// The two-argument counterpart of `AssignabilityKnownGeneric`.
+func AssignabilityKnownGeneric2(
+    name: string,
+    definition: Type,
+    first: TypeInfo,
+    second: TypeInfo): GenericTypeInfo {
+    return new GenericTypeInfo(
+        name,
+        AssignabilityArgs2(first, second),
+        new ReflectionTypeInfo(definition))
+}
+
+// The two-argument spelling with NO definition — a source-declared type that merely shares the name.
+func AssignabilitySpelledGeneric2(
+    name: string,
+    first: TypeInfo,
+    second: TypeInfo): GenericTypeInfo {
+    return new GenericTypeInfo(name, AssignabilityArgs2(first, second), null)
+}
+
 func AssignabilitySpanOpen(): Type {
     return AssignabilityOpen("System.Span`1, System.Private.CoreLib")
 }
@@ -316,6 +351,88 @@ test "known-generic arity must agree and the covariant targets hand back their a
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("ICollection", collectionOpen, BuiltInTypes.Object),
         AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String))) == "decided:false"
+}
+
+// THE TWO-ARGUMENT WIDENING, AND THE GATE IT USED TO DIE AT.
+//
+// `IsKnownGenericConversion` has answered `IReadOnlyDictionary` <- `Dictionary`/`SortedDictionary`
+// since task 019 slice 15, and the columnar emitter has carried the matching upcast for just as
+// long — and yet EVERY spelling of the widening still reported `NL202` (finding 97.6: return,
+// argument, local and field alike). The reason is that this classification consults the conversion
+// table only AFTER `TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition` admits BOTH sides, and
+// that table carried one-argument heads only. These contracts state the decision END-TO-END, which
+// is the only altitude at which the gate and the row are both in view.
+test "the two-argument dictionary widening is decided, and it is decided invariantly" {
+    owner := AssignabilityOwner("/tmp/assign-readonly-dictionary.nl")
+    dictionaryOpen := AssignabilityDictionaryOpen()
+    sortedOpen := AssignabilitySortedDictionaryOpen()
+    readOnlyOpen := AssignabilityReadOnlyDictionaryOpen()
+    dictionaryInterfaceOpen := AssignabilityDictionaryInterfaceOpen()
+
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:true"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.Int),
+        AssignabilityKnownGeneric2("SortedDictionary", sortedOpen, BuiltInTypes.String, BuiltInTypes.Int)))
+        == "decided:true"
+
+    // BOTH ARGUMENTS ARE INVARIANT and NO pending pair is ever handed back, because the read-only
+    // dictionary is deliberately absent from `IsCovariantKnownGenericTarget`. A covariant target
+    // would answer `pending [...]` here; this one answers `decided:false` on either axis.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.Object),
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:false"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.Object, BuiltInTypes.String),
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:false"
+
+    // The relation is one-directional and it does not reach its own head or an unrelated one.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String),
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:false"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:false"
+
+    // `IDictionary<K, V>` is the two-argument head that stays OUT: no conversion row names it, and
+    // the identity table does not admit it, so it is refused in either position.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IDictionary", dictionaryInterfaceOpen, BuiltInTypes.String, BuiltInTypes.String),
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:false"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
+        AssignabilityKnownGeneric2("IDictionary", dictionaryInterfaceOpen, BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:false"
+
+    // A same-spelled SOURCE declaration does not acquire the relation, in either position — the same
+    // rule the one-argument rows above state.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilitySpelledGeneric2("IReadOnlyDictionary", BuiltInTypes.String, BuiltInTypes.String),
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:false"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
+        AssignabilitySpelledGeneric2("Dictionary", BuiltInTypes.String, BuiltInTypes.String)))
+        == "decided:false"
+
+    // ARITY still decides first: a one-argument source cannot reach a two-argument target.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
+        AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.String)))
+        == "decided:false"
+
+    // CONTROL — the one-argument row this mirrors is unmoved.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("IReadOnlyList", AssignabilityReadOnlyListOpen(), BuiltInTypes.Int),
+        AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.Int)))
+        == "decided:true"
 }
 
 test "an alias is resolved before variance is judged" {

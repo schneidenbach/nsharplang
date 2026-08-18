@@ -7,16 +7,16 @@ import NSharpLang.Compiler.Ast
 
 // CONTRACTS FOR THE SNAPSHOT'S ACCESSORS AND THE POSITION RESOLVERS (019 slice 21).
 //
-// WHAT IS ASSERTED HERE IS BOUNDED BY A MEASURED TOOLSET GAP, AND THE BOUND IS STATED RATHER THAN
-// WORKED AROUND. `ProjectSnapshot`'s collections are `IReadOnlyDictionary<K, V>`, and
-// `Dictionary<K, V>` does not widen to `IReadOnlyDictionary<K, V>` in ANY position here — return,
-// argument or field assignment — while `List<T>` widens to `IReadOnlyList<T>` in all three (both
-// halves proved by an isolated probe that builds GREEN for the list and reports NL202 for the
-// dictionary). So a snapshot can be RECEIVED by N# and never CONSTRUCTED by it, and every contract
-// that would need to build one stays in the C# suite, where the conversion is implicit:
-// `tests/CodeIntelligenceTests.cs`, `tests/CompletionEngineTests.cs` and
-// `tests/QueryIntegrationTests.cs` construct snapshots and drive the whole query surface through
-// them. THE CATALOG ROW THAT WOULD LIFT THIS IS NAMED IN THE SLICE RECORD.
+// WHAT IS ASSERTED HERE WAS BOUNDED BY A MEASURED TOOLSET GAP, AND THE GAP IS NOW CLOSED.
+// `ProjectSnapshot`'s collections are `IReadOnlyDictionary<K, V>`, and `Dictionary<K, V>` did not
+// widen to `IReadOnlyDictionary<K, V>` in ANY position — return, argument or field assignment —
+// while `List<T>` widened to `IReadOnlyList<T>` in all three, so a snapshot could be RECEIVED by N#
+// and never CONSTRUCTED by it and every contract that needed to build one stayed in the C# suite.
+// **020 SLICE 10 PUBLISHED THE WIDENING** (the two-argument dictionary heads were missing from
+// `TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition`, the gate above the conversion row), so
+// this file's bound is lifted as soon as the toolset carries it: the snapshot-driven contracts are
+// reachable from the estate and the C# pair is migratable. Until then the six snapshot-free things
+// below remain what this file states.
 //
 // SIX THINGS THAT NEED NO SNAPSHOT ARE STATED HERE, AND FIVE OF THEM WERE UNREACHABLE BEFORE:
 //   (a) `Bindings` IS NULL WHEN `Index` IS NULL AND IS THE INDEX'S OWN MAP OTHERWISE. The

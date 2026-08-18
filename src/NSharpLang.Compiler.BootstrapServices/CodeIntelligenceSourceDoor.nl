@@ -11,10 +11,12 @@ import NSharpLang.Compiler.Ast
 // Ten members that turn a POSITION into the word, span, line, context or doc comment an answer
 // prints, plus the relative path every result row carries. Like the pure half they resolve nothing;
 // unlike it they need the file's text, and the text arrives as a `string?` rather than as a project
-// snapshot. THAT IS NOT A STYLE CHOICE: `IReadOnlyDictionary<K, V>` is absent from the columnar
-// emitter's resolvable-type catalog, so a snapshot's `SourceTexts` cannot cross into N# at all. The
-// already-shipped `CodeIntelligenceSourceTextKernels` face the same wall and answer it the same way,
-// which is why every one of them takes `source: string` too.
+// snapshot. THAT WAS A WALL WHEN THESE MEMBERS WERE WRITTEN AND IS A CHOICE NOW:
+// `IReadOnlyDictionary<K, V>` was absent from the columnar emitter's resolvable-type catalog, so a
+// snapshot's `SourceTexts` could not cross into N# at all. 019 slice 15 published the head — which
+// is why `SourceText` below takes the map itself — and 020 slice 10 published the WIDENING that lets
+// a caller BUILD one. The other members still take `source: string` because the text is all they
+// need, exactly as `CodeIntelligenceSourceTextKernels` does.
 class CodeIntelligenceSourceDoor {
 
     // ── The path every result row carries ────────────────────────────────

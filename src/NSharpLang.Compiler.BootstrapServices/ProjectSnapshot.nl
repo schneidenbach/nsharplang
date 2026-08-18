@@ -31,13 +31,14 @@ import NSharpLang.Compiler.Performance
 // that is a legitimate state rather than an error. `SystemsReport` instead SUBSTITUTES an empty
 // report for a missing one, so no JSON writer has to special-case a null.
 //
-// `sourceTexts` IS REQUIRED WHERE THE C# DEFAULTED IT, AND THAT IS A MEASURED CONSEQUENCE RATHER
-// THAN A PREFERENCE. The C# wrote `sourceTexts ?? new Dictionary<string, string>()`; N# cannot
-// spell that, because `Dictionary<K, V>` does not widen to `IReadOnlyDictionary<K, V>` in ANY
-// position — return, argument or field assignment — while `List<T>` widens to `IReadOnlyList<T>` in
-// all three. So a read-only dictionary can be RECEIVED here but never CREATED here, and the honest
-// resolution is to make the caller say it has none rather than to fake one. Exactly one call site
-// relied on the default and it is a test.
+// `sourceTexts` IS REQUIRED WHERE THE C# DEFAULTED IT, AND THE REASON THAT WAS FORCED IS NOW GONE
+// WHILE THE SIGNATURE STAYS. The C# wrote `sourceTexts ?? new Dictionary<string, string>()`, and N#
+// could not spell it: `Dictionary<K, V>` did not widen to `IReadOnlyDictionary<K, V>` in ANY
+// position — return, argument or field assignment — while `List<T>` widened to `IReadOnlyList<T>` in
+// all three. 020 slice 10 published the widening, so a read-only dictionary can now be CREATED here
+// as well as RECEIVED here. The parameter stays REQUIRED all the same: every call site already
+// passes one, and making the caller say it has none is the honest spelling rather than the one the
+// wall forced. Exactly one call site ever relied on the default and it is a test.
 class ProjectSnapshot {
     projectRootValue: string
     compilationUnitsValue: IReadOnlyDictionary<string, CompilationUnit>

@@ -1,6 +1,79 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-18 (**020 SLICE 9 — `tests/FormatterTests.cs` IS DELETED, AND THE ESTATE ROUTE
+Last updated: 2026-08-18 (**020 SLICE 10 STAGE 1 — THE `IReadOnlyDictionary<K, V>` WIDENING IS
+PUBLISHED, AND FINDING 90.8 HAS A THIRD SHAPE: THE MISSING HALF WAS A GATE ABOVE A ROW THAT WAS
+ALREADY THERE.** **THE WALL WAS RE-PROVEN BY EXECUTION AT THIS TIP BEFORE A LINE WAS EDITED, THROUGH
+BOTH PIPELINES.** A probe project spelling `Dictionary<string, string>` →
+`IReadOnlyDictionary<string, string>` four ways reports **NL202 in the RETURN, the LOCAL
+declared-type, the FIELD assignment and the ARGUMENT position** under the PINNED SDK (`dotnet build`
+against `~/.nuget/local-feed`) and **the same four** under the freshly built tip CLI, while the
+`List<T>` → `IReadOnlyList<T>` controls in the same positions pass the analyser. Finding 97.6 is REAL
+and CURRENT. **AND THE ROOT CAUSE IS NOT WHERE THE FINDING POINTED.** The emitter's upcast row
+(`ColumnarReferenceConversionFacts.IsExactKnownUpcast`) and the analyser's conversion row
+(`AnalyzerAssignabilityFacts.IsKnownGenericConversion`) were BOTH published on 2026-08-14 by 019
+slice 15 stages 1 and 2 — and BOTH were DEAD, because
+`AnalyzerAssignabilityFacts.ClassifyKnownGenericAssignability` consults the conversion table only
+AFTER `TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition` admits BOTH sides, and that table
+carried **ONE-ARGUMENT heads only** (15 of them, `IEnumerable` through `ObservableCollection`). The
+wall was even CONTRACT-PINNED AS A WALL: `TypeInfoIdentityFacts.tests.nl` asserted
+`!HasKnownRuntimeGenericDefinition("Dictionary", Dictionary\`2)`. **THE ROW IS THREE ARMS IN ONE
+PRODUCTION OWNER AND NOTHING ELSE** — `Dictionary` → `System.Collections.Generic.Dictionary\`2,
+System.Private.CoreLib`, `SortedDictionary` → `…SortedDictionary\`2, **System.Collections**` (NOT
+CoreLib; the CoreLib spelling resolves to null, verified by execution before it was written) and
+`IReadOnlyDictionary` → `…IReadOnlyDictionary\`2, System.Private.CoreLib`: exactly the heads the two
+already-published rows name, and no more. **`IDictionary<K, V>` STAYS OUT** and is now the contract's
+negative in the place `Dictionary` used to hold. **15 insertions in one production `.nl` file; `git
+diff HEAD --numstat -- '*.cs'` is EMPTY; zero new C#; `Program.Testing.cs` stays 618, not opened.**
+**THE EXECUTABLE PROOF IS A NEW NATIVE PROJECT AND IT IS PARAMETER-SHAPED THROUGHOUT**:
+`tests/native/readonly-dictionary-widening` (project **31**), 291 lines, **9 declarations, 34
+assertion lines**, every entry point receiving its concrete collection as an ARGUMENT so nothing can
+be folded away. It crosses the ARGUMENT, RETURN and FIELD positions with every reader the interface
+declares (`TryGetValue`, `ContainsKey`, the indexer), carries the `SortedDictionary` sibling in both
+positions, and — because `EmitValueCoercion` is known to no-op SILENTLY for closed generics over
+emitted user types — **reads a value back through the widened view every time**, including over a
+user-declared REFERENCE element and a user-declared VALUE element, and observes a **later write
+through the concrete map**, which proves the conversion is the same object rather than a copy or
+garbage. **THE NON-VACUITY CONTROL IS THE ROW ITSELF, AND IT IS EXACT ON BOTH SIDES**: reverted, the
+native project reports **14 NL202s and the test build FAILS**, and the estate reports **exactly 2
+failures out of 5,570 — `TheTwoArgumentDictionaryWideningIsDecidedAndItIsDecidedInvariantly` and
+`TypeInfoIdentityRecognizesOnlyExactAdmittedRuntimeGenericDefinitions`, each naming its OWN
+declaration with ZERO collateral**. **THREE NEIGHBOURING GAPS ARE MEASURED AND LEFT**: a typed local
+`widened: IReadOnlyDictionary<K, V> = concrete` declines at `emit.typed-local.unsupported-type`
+AFTER the analyser accepts it and the `IReadOnlyList<T>` control declines at the identical site;
+constructing any type that lives in a REFERENCED assembly declines at `emit.local.initializer`
+(which is why every native project reaches production types by reflection); and
+`IReadOnlyDictionary<K, V>.Count` still reports NL303 exactly as `IReadOnlySet<T>` does. **THE
+ENUMERATION RESIZES THE BLOCKED PAIR**: `tests/CodeIntelligenceTests.cs` is 1,354 L / 45 `[Fact]`s
+and **43 of them never touch a snapshot** — they drive `OutputFormatter`, a PURE FORWARDER (271 L, 38
+members, each one call into an N# kernel) over 24 result models that are ALL N# — so they are
+estate-routable today and were never 97.6's hostages; **exactly TWO are**, the `GetDiagnostics` pair
+that builds a snapshot by hand and asks `CodeIntelligenceQueries.Diagnostics`, and this row is
+precisely what they needed. `tests/CompletionEngineTests.cs` (322 L / 12) is a DIFFERENT problem the
+widening does not solve: its setup needs the C# `Analyzer` (2,960 L, task 017 territory), which lives
+in `Compiler.dll` — the assembly that DEPENDS on BootstrapServices — so its route is a native project
+reaching `Analyzer` and `CompletionEngine` BY REFLECTION, as `tests/native/query-completions` already
+does. Evidence: **native estate 5,569 → 5,570 by COUNT DIFF (+1, the exact declaration added)**,
+`Failed: 0`, under the restore-flag discipline; the new native project **9 / 9**; **live tree 393 /
+246 — the inherited baseline to the digit** with the same ten-code census (`NL202:85 NL402:68
+NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), ZERO rows in any `.tests.nl`
+and the two rows naming a touched file both INHERITED `NL905`s in production
+`AnalyzerAssignabilityFacts.nl` (lines 144–145, the function-type arm this slice did not open); the
+project-scoped format check clean on the FIRST run; **audit 18 / 18 with NO REPIN — the first slice
+in the arc that needs none**, because the change is `.nl` only and a native `project.yml` is an
+explicit audit exception, so the manifest stays **391 lines** with no BOM and the two-key head stays
+`9880a58a099a48bb`. The dead sweep corrected **three live comments** that still stated the wall as
+present (`ProjectSnapshot.nl`, `CodeIntelligenceSourceDoor.nl` — whose text contradicted the
+`IReadOnlyDictionary` parameter directly beneath it — and `CodeIntelligenceNavigation.tests.nl`).
+**THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` COPY THAT EXCLUDES THE NESTED
+`.claude/worktrees/*` CHECKOUTS, IS `ALL TESTS PASSED` IN 18m 57s WITH 111 GREEN STEPS AND ZERO
+FAILURES** — its banner reads `Fresh isolated test run required: pre-commit verification / Existing
+cache entries will not satisfy this invocation`, and inside it are unit **2,659**, the estate
+**5,570**, all **31** native projects (the new one at **9 / 9**), the format contract gate and the IL
+verification gate. **Task 020 stays UNCHECKED.** NOT COMMITTED — the mandate reserves that, and stage
+2 waits on the coordinator's commit plus the dual-feed toolset republish, because the estate is
+compiled by the PINNED toolset and cannot SPELL the widening until then)
+
+Last updated (prior): 2026-08-18 (**020 SLICE 9 — `tests/FormatterTests.cs` IS DELETED, AND THE ESTATE ROUTE
 IS NOW EMPTY.** The arc's largest cluster — **2,132 lines, 121 `[Fact]`s, 0 `[Theory]`s, 148
 `Assert.` statements** — leaves for **TWO** estate files carrying **86 declarations, 210 assertion
 lines and 800 lines**: `FormatterSourceText.tests.nl` **577** (the formatter's front door — source
@@ -3394,7 +3467,142 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 9 DELETED `tests/FormatterTests.cs`
+- Current task: **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 10 STAGE 1 PUBLISHES THE
+  `IReadOnlyDictionary<K, V>` WIDENING — THE NAMED ROW THAT UNBLOCKS THE CODE-INTELLIGENCE PAIR — AND
+  THE HALF THAT WAS MISSING TURNS OUT TO BE A GATE ABOVE A ROW THAT WAS ALREADY THERE.**
+
+  **THE WALL WAS RE-MEASURED BY EXECUTION FIRST, AND IT HAD NOT MOVED.** Before any edit, one probe
+  project (`outputType: exe`, `Main` present — finding 90.5's lesson) spells the widening FOUR ways:
+  a func RETURNING `IReadOnlyDictionary<string, string>` from a `Dictionary` local; a TYPED LOCAL of
+  the interface initialised from a `Dictionary`; a FIELD of the interface assigned a `Dictionary` in
+  a constructor; and a PARAMETER of the interface taking a `Dictionary` argument. Under the PINNED
+  SDK it reports **four `NL202`s, one per position**. Under the freshly built tip CLI it reports the
+  SAME four. The `List<T>` → `IReadOnlyList<T>` controls in the same positions clear the analyser in
+  both. **Finding 97.6 is real, current, and identical on both pipelines.**
+
+  **THE ROOT CAUSE IS THE THIRD HALF, AND IT IS A NEW SHAPE OF FINDING 90.8.** Slices 15 stage 1 and
+  stage 2 (`27a5df665`, `477b64337`, both 2026-08-14) published the emitter's
+  `Dictionary`/`SortedDictionary` → `IReadOnlyDictionary` upcast in
+  `ColumnarReferenceConversionFacts.IsExactKnownUpcast` AND the analyser's matching
+  `AnalyzerAssignabilityFacts.IsKnownGenericConversion` row. Both were in the tree at this tip, both
+  were in the PINNED pack, and every spelling still reported `NL202`. The reason:
+  `ClassifyKnownGenericAssignability` reaches `IsKnownGenericConversion` only after
+  `TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition` admits BOTH sides, and that table listed
+  fifteen **ONE-ARGUMENT** heads and no two-argument one. Finding 90.8 has said twice that the
+  catalogs are SEPARATE; this is the first time the missing half was a **GATE ABOVE** a published row
+  rather than a peer catalog — and the wall was **CONTRACT-PINNED AS A WALL**, because
+  `TypeInfoIdentityFacts.tests.nl` asserted `!HasKnownRuntimeGenericDefinition("Dictionary", …)`.
+
+  **THE ROW, MINIMALLY.** Three arms in ONE production owner: `Dictionary` →
+  `System.Collections.Generic.Dictionary\`2, System.Private.CoreLib`; `SortedDictionary` →
+  `…SortedDictionary\`2, System.Collections`; `IReadOnlyDictionary` → `…IReadOnlyDictionary\`2,
+  System.Private.CoreLib`. Exactly the heads the two published rows name and NO MORE — `IDictionary`
+  is left out and is now the contract's negative. **The `System.Collections` assembly for
+  `SortedDictionary` was VERIFIED BY EXECUTION before it was written** (the CoreLib spelling resolves
+  to null, which would have made the fixture compare silently against `object`). Nothing else moved:
+  the emitter's type catalog, its assembly scan and its coercion row were all already sufficient,
+  which the running probe proves.
+
+  **THE PROOF SET.**
+  (1) **NATIVE, PARAMETER-SHAPED, RUNNING**: `tests/native/readonly-dictionary-widening` — the 31st
+  native project, 291 lines, **9 declarations / 34 assertion lines**, `9 / 9`. Every entry point
+  takes its concrete collection as an ARGUMENT. It crosses ARGUMENT, RETURN and FIELD with all three
+  readers the interface declares (`TryGetValue`, `ContainsKey`, indexer); it carries the
+  `SortedDictionary` sibling in both positions and over an `int` value; and it answers the
+  `EmitValueCoercion` hazard head-on — a `Dictionary<string, Widget>` over a user CLASS and a
+  `Dictionary<string, Point>` over a user STRUCT both widen and hand back the real member value, and
+  a **write through the concrete map after the widening is visible through the widened view**, so the
+  conversion is the same object rather than a copy or garbage.
+  (2) **ESTATE, AT THE ALTITUDE THE GATE LIVES AT**: one new declaration in
+  `AnalyzerAssignabilityFacts.tests.nl` states the END-TO-END decision — `decided:true` for
+  `Dictionary`/`SortedDictionary`, `decided:false` on EITHER differing argument (the read-only
+  dictionary is deliberately NOT covariant, so it never hands back a pending pair), `decided:false`
+  backwards, `decided:false` for `IDictionary` in either position, `decided:false` for a same-spelled
+  SOURCE declaration in either position, arity first, and the one-argument control unmoved. The
+  amended identity contract states the three heads positively and moves its negative to `IDictionary`
+  plus two wrong-definition rows.
+  (3) **NON-VACUITY IS EXACT ON BOTH SIDES.** With the row reverted and the CLI rebuilt, the native
+  project reports **14 `NL202`s and the test build fails**; the estate reports **exactly 2 failures
+  out of 5,570**, `TheTwoArgumentDictionaryWideningIsDecidedAndItIsDecidedInvariantly` and
+  `TypeInfoIdentityRecognizesOnlyExactAdmittedRuntimeGenericDefinitions` — **each naming its own
+  declaration, zero collateral**. The row was restored from the saved patch and re-verified.
+
+  **THREE NEIGHBOURING GAPS WERE MEASURED AND LEFT, WITH CONTROLS.** A typed local
+  `widened: IReadOnlyDictionary<K, V> = concrete` passes the analyser and then declines at
+  `emit.typed-local.unsupported-type`; the `IReadOnlyList<string>` CONTROL declines at the identical
+  site, so it is a head-independent emit gap that predates this row and the widened local is simply
+  not spelled. Constructing any type that lives in a REFERENCED assembly declines at
+  `emit.local.initializer` (probed with `new CompletionItem(...)` with BOTH `Compiler.dll` and
+  `BootstrapServices.dll` referenced) — which is the real reason every native project reaches
+  production types by reflection, and it means the native route was never 97.6's hostage.
+  `IReadOnlyDictionary<K, V>.Count` still reports `NL303`, exactly as `IReadOnlySet<T>` does
+  (slice 15 stage 2 recorded that control).
+
+  **THE ENUMERATION IS THE OTHER HALF OF THIS STAGE, AND IT RESIZES THE BLOCKED PAIR.**
+  `tests/CodeIntelligenceTests.cs` is **1,354 lines / 45 `[Fact]`s / 115 `Assert.`**, and **43 of its
+  45 cases never touch a snapshot at all**: they drive `OutputFormatter`, which is a **PURE
+  FORWARDER** — 271 lines, 38 members, each a single call into `OutputFormatterJsonKernels`,
+  `OutputFormatterTextBuilders`, `OutputFormatterDiagnosticKernels` or
+  `CodeIntelligenceResultKernels`, plus one null-coalescing adapter — over **24 result models that
+  are ALL N# in BootstrapServices**. Those 43 are ESTATE-ROUTABLE TODAY and were never 97.6's
+  hostages. **EXACTLY TWO CASES WERE**: the two `GetDiagnostics` contracts, which build a snapshot by
+  hand and ask `CodeIntelligenceService.GetDiagnostics` — itself a one-line forwarder to
+  `CodeIntelligenceQueries.Diagnostics`, N# in BootstrapServices. This row is precisely what they
+  needed. THREE probe questions remain for the 43, all named rather than assumed: the
+  `System.Text.Json` READ surface (`JsonDocument.Parse` plus
+  `RootElement.GetProperty(…).GetString()/GetInt32()/GetBoolean()` and `EnumerateObject()` — note
+  finding 98.5, a two-hop instance property chain on an external type declines); an **ANONYMOUS
+  OBJECT** in one `ErrorToJson` fixture, which N# has no spelling for at all and which is therefore a
+  WALL for that single case unless the fixture is re-spelled; and a `CultureInfo.CurrentCulture`
+  static SET in one more. `tests/CompletionEngineTests.cs` (**322 / 12 / 49**) is a DIFFERENT problem
+  and the widening does not solve it: its `SetupWithSource` needs the C# `Analyzer` (2,960 lines,
+  task 017 territory) to produce a `SemanticModel`, and `Analyzer` lives in `Compiler.dll`, the
+  assembly that DEPENDS on BootstrapServices — so no estate `.tests.nl` can reach it, and its route
+  is a NATIVE project reaching `Analyzer` and `CompletionEngine` BY REFLECTION exactly as
+  `tests/native/query-completions` already does.
+
+  Evidence: **native estate 5,569 → 5,570 by COUNT DIFF (+1, the exact declaration added)**,
+  `Failed: 0`, under the restore-flag discipline (`-p:NSharpExcludeTests=false --force-evaluate`,
+  then `--no-restore`); the new native project **9 / 9**; **live tree
+  `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files, 246
+  diagnostics — the inherited baseline to the digit** with the same ten-code census (`NL202:85
+  NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), ZERO rows in any
+  `.tests.nl`, and the two rows naming a touched file both INHERITED `NL905`s in production
+  `AnalyzerAssignabilityFacts.nl:144-145` (the function-type arm this slice did not open); the
+  project-scoped format check clean on the FIRST run; **audit 18 / 18 with NO REPIN, the first slice
+  in this arc that needs none** — the change is `.nl` only and a native `project.yml` is an explicit
+  audit exception (`IsExactDataOrAssetException`), so the manifest stays **391 lines** with no BOM
+  and the two-key head stays `9880a58a099a48bb`. **`git diff HEAD --numstat -- '*.cs'` is EMPTY**;
+  zero new C#; `Program.Testing.cs` stays **618**, not opened. The dead sweep corrected **three live
+  comments** that still stated the wall as present: `ProjectSnapshot.nl` (the `sourceTexts` paragraph
+  — the required parameter STAYS, but for an honest reason now rather than a forced one),
+  `CodeIntelligenceSourceDoor.nl` (whose header contradicted the `IReadOnlyDictionary` parameter
+  directly beneath it) and `CodeIntelligenceNavigation.tests.nl` (whose stated bound is lifted the
+  moment the toolset carries the row).
+
+  **THE REMAINING INVENTORY IS UNCHANGED IN COUNT AND CHANGED IN CHARACTER: 5 canonical C# assertion
+  layers — 0 ESTATE-BLOCKED-ONLY / 5 with a named route.** The pair is no longer one blocker but
+  three separable pieces: 43 `OutputFormatter` cases estate-routable today, 2 `GetDiagnostics` cases
+  waiting only on the toolset republish of THIS row, and `CompletionEngineTests.cs` waiting on a
+  native reflection harness rather than on any catalog row. Beside them stand the blocked
+  mini-cluster set (`ColumnarRuntimeTypeFacts` 20L, `ColumnarPatternFacts` 66L, `NumericLiteralFacts`
+  80L, `ColumnarNumericFacts` 101L, `ColumnarTypeCanonicalizer` 102L), the async clusters
+  (`LanguageServerTests.cs` 142 async / 4,201L / 25 C# receivers, `LanguageServerAutoImportTests.cs`
+  3, `CliParityAuditTests.cs` 1) and setup/teardown, whose gap is an ANALYSER one (`NL001`).
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` COPY** (the repo root carries nested
+  `.claude/worktrees/*` checkouts that break the benchmark gate in place, so the copy excludes them),
+  **IS `ALL TESTS PASSED` IN 18m 57s WITH 111 GREEN STEPS AND ZERO FAILURES** — its banner reads
+  `Fresh isolated test run required: pre-commit verification / Existing cache entries will not
+  satisfy this invocation`, and inside it are unit **2,659** (4m 53s), the estate **5,570**, all
+  **31** native projects with the new one reporting **9 / 9**, the format contract gate and the IL
+  verification gate. The gate ran against a byte-copy of the code tree; the only file edited
+  afterwards is this one, which is prose and is not an input to any compile step.
+  **STAGE 2 IS BLOCKED ON THE COORDINATOR'S COMMIT AND THE DUAL-FEED TOOLSET REPUBLISH**, because the
+  estate is compiled by the PINNED toolset and cannot SPELL the widening until the pack carries it —
+  the native contracts can and do, because native projects compile with the freshly built CLI.
+  **Task 020 stays UNCHECKED.**
+
+- Active sub-slice (020 arc, PRIOR TURN — SLICE 9's LANDED RECORD): **020 — NATIVE N# TEST-RUNNER CAPABILITIES. SLICE 9 DELETED `tests/FormatterTests.cs`
   WHOLE — THE ARC'S LARGEST CLUSTER — AND CLOSED THE ESTATE ROUTE.** **2,132 lines / 121 `[Fact]`s /
   0 `[Theory]`s / 148 `Assert.` statements** leave for TWO estate files —
   `FormatterSourceText.tests.nl` **577** (71 declarations, 145 assertion lines) and
@@ -3862,7 +4070,7 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   manifest 391 lines, no BOM. The slice-41-era `async func(): Task` checker crash was FIXED by the
   user's chip (branch `intelligent-haslett-5d862e`, `9a3603674`, merged-up through the tip and
   clean — ready to land on `systems-language`).
-- Active sub-slice (020 arc, THIS TURN — THE PROBE VERDICTS RECORDED BEFORE ANY PRODUCTION EDIT at
+- Active sub-slice (020 arc, PRIOR TURN — THE PROBE VERDICTS RECORDED BEFORE ANY PRODUCTION EDIT at
   tip `3d10916cb`): **020 SLICE 8 — `tests/LinterTests.cs`, AND THE PROBE OVERTURNS SLICE 7'S OWN
   PRICING WARNING.**
 

@@ -129,6 +129,16 @@ func IdentityRuntimeGenericOf(
         new ReflectionTypeInfo(definition))
 }
 
+// The two-argument spelling the dictionary heads carry. `HasKnownRuntimeGenericDefinition` reads the
+// DEFINITION rather than the argument count, but a one-argument fixture over a `` `2 `` definition
+// would state something no real program can produce.
+func IdentityRuntimeGenericPair(name: string, definition: Type): GenericTypeInfo {
+    return new GenericTypeInfo(
+        name,
+        IdentityTypePair(BuiltInTypes.String, BuiltInTypes.Int),
+        new ReflectionTypeInfo(definition))
+}
+
 test "type info identity compares recursive structural shapes exactly" {
     assert TypeInfoIdentityFacts.AreEqual(
         new SimpleTypeInfo("int"),
@@ -268,11 +278,51 @@ test "type info identity recognizes only exact admitted runtime generic definiti
             IdentityRequiredRuntimeType(
                 "System.Collections.Generic.List`1, System.Private.CoreLib")))
 
-    assert !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
-        IdentityRuntimeGeneric(
+    // The three TWO-ARGUMENT heads. They are admitted here so the conversion row above them can be
+    // reached at all: `IsKnownGenericConversion` already answers
+    // `IReadOnlyDictionary` <- `Dictionary`/`SortedDictionary`, and the columnar emitter already
+    // carries the matching upcast, but a conversion is never consulted until BOTH sides name a
+    // definition this table knows. `SortedDictionary` lives in `System.Collections`, not in CoreLib.
+    assert TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
+        IdentityRuntimeGenericPair(
             "Dictionary",
             IdentityRequiredRuntimeType(
                 "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")))
+    assert TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
+        IdentityRuntimeGenericPair(
+            "SortedDictionary",
+            IdentityRequiredRuntimeType(
+                "System.Collections.Generic.SortedDictionary`2, System.Collections")))
+    assert TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
+        IdentityRuntimeGenericPair(
+            "IReadOnlyDictionary",
+            IdentityRequiredRuntimeType(
+                "System.Collections.Generic.IReadOnlyDictionary`2, System.Private.CoreLib")))
+
+    // `IDictionary<K, V>` is the head the table still does NOT carry, and it is the honest successor
+    // to the `Dictionary` negative this contract used to state: no published conversion row names
+    // it, so admitting it would publish a relation nothing implements.
+    assert !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
+        IdentityRuntimeGenericPair(
+            "IDictionary",
+            IdentityRequiredRuntimeType(
+                "System.Collections.Generic.IDictionary`2, System.Private.CoreLib")))
+    // A dictionary head against the WRONG runtime definition is still refused: the table is an
+    // identity check, not a name check.
+    assert !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
+        IdentityRuntimeGenericPair(
+            "Dictionary",
+            IdentityRequiredRuntimeType(
+                "System.Collections.Generic.SortedDictionary`2, System.Collections")))
+    assert !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
+        IdentityRuntimeGenericPair(
+            "IReadOnlyDictionary",
+            IdentityRequiredRuntimeType(
+                "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")))
+    assert !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
+        new GenericTypeInfo(
+            "Dictionary",
+            IdentityTypePair(BuiltInTypes.String, BuiltInTypes.Int)))
     assert !TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
         IdentityRuntimeGeneric(
             "List",

@@ -227,6 +227,15 @@ class TypeInfoIdentityFacts {
         return HaveSameNonConstructedReflectionTypeIdentity(left, right)
     }
 
+    // THE GATE ABOVE `IsKnownGenericConversion`, AND THE TABLE IS THE ADMISSION ITSELF. A known
+    // generic conversion is only consulted once BOTH sides carry a definition this table names, so a
+    // conversion row published without its identity rows is dead: that is exactly how finding 97.6
+    // survived the emitter's `Dictionary`/`SortedDictionary` -> `IReadOnlyDictionary` upcast row and
+    // the analyser's matching `IsKnownGenericConversion` row — both were in place, and every
+    // spelling still reported `NL202`, because the two-argument dictionary heads were absent HERE.
+    // The three added rows are exactly the heads those two published rows name, and no more: the
+    // read-only dictionary's KEY stays invariant (it is deliberately not a covariant target), so the
+    // argument comparison the caller runs is unchanged.
     static func HasKnownRuntimeGenericDefinition(typeInfo: GenericTypeInfo): bool {
         definition := typeInfo.GenericDefinition as ReflectionTypeInfo
         if definition == null {
@@ -265,6 +274,12 @@ class TypeInfoIdentityFacts {
             expectedIdentity = "System.Collections.ObjectModel.Collection`1, System.Private.CoreLib"
         } else if name == "ObservableCollection" {
             expectedIdentity = "System.Collections.ObjectModel.ObservableCollection`1, System.ObjectModel"
+        } else if name == "Dictionary" {
+            expectedIdentity = "System.Collections.Generic.Dictionary`2, System.Private.CoreLib"
+        } else if name == "SortedDictionary" {
+            expectedIdentity = "System.Collections.Generic.SortedDictionary`2, System.Collections"
+        } else if name == "IReadOnlyDictionary" {
+            expectedIdentity = "System.Collections.Generic.IReadOnlyDictionary`2, System.Private.CoreLib"
         } else {
             return false
         }
