@@ -14,9 +14,11 @@ import NSharpLang.Compiler.Ast
 // `yield`, `using`, `lock`, `switch`, `print`) plus the ten test-DSL declarations that carry
 // statement bodies (`test`, `setup`, `teardown`, the table-driven and skip forms, and the `assert` /
 // `assert throws` statements). The declaration family moved in slice 17 to
-// `ColumnarParserDeclarations.tests.nl`; expressions, operator precedence, patterns, literals, the
-// preprocessor and the file-header family are later tranches of the same arc, and
-// `tests/ParserTests.cs` survives this slice carrying them.
+// `ColumnarParserDeclarations.tests.nl` and the four NON-EXPRESSION families — patterns and `match`,
+// parameter and argument modifiers, operator and conversion overloads, constructor initializers — in
+// slice 19 to `ColumnarParserPatterns.tests.nl`; expressions and operator precedence, literals, the
+// preprocessor, attributes and the file-header family are later tranches of the same arc, and
+// `tests/ParserTests.cs` survives carrying them.
 //
 // THE STATEMENT KINDS THIS FAMILY NEVER TESTED ARE NOT MISSING — THEY ARE PINNED NEXT DOOR.
 // `while`, `const`/`readonly` locals, `break`, `continue`, `throw`, `unsafe`, `alloc`, `allow`, local

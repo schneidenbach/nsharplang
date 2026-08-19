@@ -1,6 +1,55 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-19 (**020 SLICE 18 — RANK 1's SECOND TRANCHE: THE STATEMENT FAMILY AND THE TEST
+Last updated: 2026-08-19 (**020 SLICE 19 — RANK 1's THIRD TRANCHE: THE FOUR NON-EXPRESSION FAMILIES OF
+`tests/ParserTests.cs` — PATTERNS/`match`, PARAMETER AND ARGUMENT MODIFIERS, OPERATOR AND CONVERSION
+OVERLOADS, CONSTRUCTOR INITIALIZERS. 46 OF ITS REMAINING 139 `[Fact]`s / 1,397 C# LINES / 345
+`Assert.` OCCURRENCES. A SHRINK AGAIN — THE FILE SURVIVES AT 2,655 LINES AND 93 METHODS.** **THE
+SLICE-18 SKETCH'S "47" IS CORRECTED TO 46 BY MEASUREMENT**: `ConstructorDeclaration` occurs in exactly
+THREE method bodies in the whole file, and the sketch's fourth was a NAME match on two
+object-initializer EXPRESSION tests — the residue arithmetic reconciles exactly (60 expression methods
+where the sketch said 59). The tranche was enumerated method by method and **RECORDED IN THIS FILE
+BEFORE ANY MIGRATION EDIT**, classified by the AST node types the assertions NAME rather than by test
+names — which is what moved `TestNamedArguments` INTO the argument family (its only value claims are
+`Argument.Name`) and `TestNullableArrayPostfixOrder` OUT of it despite sitting inside the `params`
+block. `git diff HEAD --numstat -- '*.cs'` is **`99 1542` over ONE file, a NET of −1,443** = 1,397
+method lines + 46 blank separators, and the deletion is provably PURE: re-applying the line filter to
+`HEAD:tests/ParserTests.cs` reproduces the working file BYTE-FOR-BYTE. Zero new C#;
+`Program.Testing.cs` stays **618**, not opened. The successor is **one new estate file,
+`ColumnarParserPatterns.tests.nl` — 1,023 lines, 46 declarations, 98 assert lines** — plus a **+50/−0**
+extension to `ColumnarParserAst.tests.nl`. **`AstEq.FieldNames` NEEDED ZERO NEW ENTRIES** exactly as
+the sketch predicted; `Golden` needed **five** — the four RETURNING list-element builders the sketch
+named (`CaseM`/`PatPropF`/`PropInit`/`TupleElemF`) plus `OpFunc`, because the existing `OperatorFunc`
+hardcodes `Modifiers.None` and `IsOperatorOverload = true` and fits NEITHER shape this tranche
+measured. **THIS IS THE ARC'S FIRST TRANCHE WITH A NEGATIVE HALF** — two of the five
+`AssertHasParseError` sites — and they get `PeCensus`/`PeRow`/`PeDecls` ordered censuses instead of
+whole-tree goldens. **THE PROBE'S FIRST RUN FOUND A DEFECT IN THE PROBE**, one NL103 decline caused by
+a hand-typed `Golden.Cast(targetType, expr, …)` against the estate's five-argument
+`Cast(expr, targetType, kind, …)`, while the GENERATOR's text for the same fixture was correct; the
+rewritten probe used the generator's own bodies verbatim and reported **`Total: 6152` = 6,139 + exactly
+13, `Failed: 0`, ZERO declines.** **489 MIGRATING C# CLAIM ROWS IN, 489 MATCHED, 0 MISSING, 0
+UNDECODED, 5,324 EXTRA** — 345 `Assert.` occurrences → 344 statements (one line carries two) → 346
+executed (an `Assert.All` lambda over three elements) → 489 rows; the goldens state **5,813 rows over
+837 pinned nodes**, reaching **4,581 distinct (route, path) pairs against the C#'s 340 — a 13.5×
+widening over the SAME 46 fixtures, whose text was verified byte-identical on both sides BY THE C#
+COMPILER ITSELF** rather than by a hand-rolled literal reader (this tranche is the first to use FOUR
+C# literal forms — 25 verbatim, 9 single-line, 11 concatenations and 1 raw `"""…"""`). **THE 837 IS
+CONFIRMED BY A THIRD SOURCE** — a path →
+type map dumped straight off the PARSED tree has exactly 837 paths — **THE COMPARATOR'S N# SIDE IS
+DECODED FROM THE COMMITTED FILE** through a builder table whose 58 arities are cross-checked against
+the estate's own `Golden` signatures, and **THE GENERATOR SELF-VERIFIES** by constructing the tree it
+emits. **TWENTY-FIVE PERTURBATION CONTROLS, TWENTY-ONE MOVE, AND ALL FOUR THAT DO NOT ARE PROVEN
+NON-OBSERVABLE BY COUNT AND REPLACED.**
+ **EIGHTEEN
+ATTRIBUTABLE MUTATIONS, EVERY RUN REPORTING `Total: 6185`, EVERY OWNER RESTORED BYTE-IDENTICALLY,
+EVERY ONE FAILING AT LEAST ONE OF THIS SLICE'S OWN CONTRACTS — NO SURVIVOR AND NO DECLINE; TEN ARE
+STRICTLY-STRONGER**, and for the eight node-kind mutations the `own` column was PREDICTED from the
+golden's node census before the run and matched exactly, eight times out of eight. **AND THE RECORD
+CORRECTED ITSELF**: reading the mutation panel's `siblings` column showed that FIVE of the seven shape
+facts the first draft called new were already pinned by `ColumnarParserAst.tests.nl`'s tranches
+9c/10/11, so the successor's own section headers, `memory/components/parser.md` and this record now
+name four genuine findings and label the rest restatements over the real-world corpus.
+
+Last updated (prior): 2026-08-19 (**020 SLICE 18 — RANK 1's SECOND TRANCHE: THE STATEMENT FAMILY AND THE TEST
 DSL OF `tests/ParserTests.cs`, 23 OF ITS REMAINING 162 `[Fact]`s / 608 C# LINES / 140 `Assert.`
 OCCURRENCES. A SHRINK AGAIN — THE FILE SURVIVES AT 4,098 LINES AND 139 METHODS.** **THE MANDATE'S
 "~35-45 METHODS" ESTIMATE IS OVERTURNED BY MEASUREMENT AND THE MEASUREMENT IS WHAT WAS TAKEN**:
@@ -3796,7 +3845,617 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 18 TAKES RANK 1's SECOND TRANCHE:
+- Active sub-slice (020 arc, THIS TURN — **SLICE 19 TAKES RANK 1's THIRD TRANCHE: THE FOUR
+  NON-EXPRESSION FAMILIES OF `tests/ParserTests.cs` — PATTERNS/`match`, PARAMETER/ARGUMENT MODIFIERS,
+  OPERATOR AND CONVERSION OVERLOADS, AND CONSTRUCTOR INITIALIZERS. 46 OF ITS 139 REMAINING `[Fact]`s /
+  1,397 C# LINES / 345 `Assert.` OCCURRENCES. A SHRINK AGAIN — `ParserTests.cs` SURVIVES AT 93
+  METHODS.**)
+
+  ### THE TRANCHE — ENUMERATED FROM THE C# AND RECORDED BEFORE ANY MIGRATION EDIT
+
+  **THE SLICE-18 SKETCH'S FAMILY SIZES ARE RE-MEASURED, AND ONE OF THE FOUR IS CORRECTED DOWNWARD.**
+  Slice 18 priced this tranche's four families at 23 + 14 + 6 + 4 = **47**. Re-classifying all 139
+  residual methods by the AST node types their assertions NAME (not by their test names — the
+  slice-18 lesson) reproduces three of the four exactly and puts constructor initializers at **3**,
+  not 4: `ConstructorDeclaration` occurs in exactly **three** method bodies in the whole 4,098-line
+  file (lines 3001, 3034, 3074), because `TestConstructorDeclaration` already moved in slice 17's
+  tranche. The sketch's fourth was a NAME match — `TestNewExpression_ObjectInitializerWithoutEmpty…`
+  and `TestTargetTypedNewWithInitializer` both carry "Constructor"/"Initializer" in their names and
+  neither asserts a `ConstructorDeclaration`; both are object-initializer expression tests and belong
+  to the expression tranche. **The residue arithmetic is unchanged**: 60 expression methods + 3
+  constructor-initializer methods, where the sketch said 59 + 4, so the split moved one method and
+  lost none. **So the tranche is 46, and the estimate is corrected rather than met.**
+
+  **THE 46 METHODS, BY SUB-FAMILY, WITH THEIR C# LINE RANGES AT `8c40ba048`.**
+
+  **(a) PATTERNS AND `match` — 23 methods, 858 lines, 212 `Assert.`**: `TestMatchExpression`
+  (353-382), `TestMatchExpressionWithUnionPattern` (384-426), `TestMatchExpressionWithGuard`
+  (1212-1257), `TestMatchExpressionWithUnionPatternAndGuard` (1259-1301), `TestRelationalPattern`
+  (1420-1461), `TestAndPattern` (1463-1493), `TestOrPattern` (1495-1525), `TestNotPattern`
+  (1527-1556), `TestPositionalPattern` (1558-1591), `TestListPatternEmpty` (1593-1620),
+  `TestListPatternLiteral` (1622-1650), `TestListPatternWithSlice` (1652-1685),
+  `TestListPatternWithNamedSlice` (1687-1717), `TestListPatternWithMiddleSlice` (1719-1751),
+  `TestComplexCombinedPatterns` (1753-1789), `TestTypePatternSimple` (1791-1832),
+  `TestTypePatternWithQualifiedName` (1834-1863), `TestTypePatternWithGuard` (1865-1894),
+  `TestNestedPropertyPatternWithLiteral` (2008-2061), `TestNestedPropertyPatternWithBinding`
+  (2063-2115), `TestPropertyPatternSourceLocations` (2117-2151), `TestThreeLevelNestedPropertyPattern`
+  (2153-2198), `TestUnionCaseWithNestedPropertyPattern` (2200-2245).
+
+  **(b) PARAMETER AND ARGUMENT MODIFIERS — 14 methods, 252 lines, 74 `Assert.`**: `TestNamedArguments`
+  (459-484), `TestRefParameter` (2754-2770), `TestOutParameter` (2772-2788), `TestParamsParameter`
+  (2790-2804), `TestParamsWithOtherParameters` (2824-2840), `TestParamsWithReadOnlySpan` (2843-2858),
+  `TestParamsWithSpan` (2860-2873), `TestParamsWithIEnumerable` (2875-2888), `TestParamsWithList`
+  (2890-2903), `TestParamsWithIReadOnlyList` (2905-2918), `TestRefArgument` (2920-2947),
+  `TestOutArgument` (2949-2976), and the family's TWO NEGATIVES,
+  `TestInlineOutVarDeclarationReportsParseError` (3321-3336) and
+  `TestInlineOutExplicitTypeDeclarationReportsParseError` (3338-3353).
+
+  **(c) OPERATOR AND CONVERSION OVERLOADS — 6 methods, 181 lines, 39 `Assert.`**:
+  `TestOperatorOverloadBinaryPlus` (2247-2277), `TestOperatorOverloadUnaryMinus` (2279-2305),
+  `TestOperatorOverloadComparison` (2307-2341), `TestOperatorOverloadBitwise` (2343-2375),
+  `TestImplicitConversionOperator` (2377-2403), `TestExplicitConversionOperator` (2405-2432).
+
+  **(d) CONSTRUCTOR INITIALIZERS — 3 methods, 106 lines, 20 `Assert.`**:
+  `TestConstructorWithThisInitializer` (2978-3014), `TestConstructorWithBaseInitializer` (3016-3047),
+  `TestConstructorWithMultipleArguments` (3049-3085).
+
+  **`TestNamedArguments` IS IN (b) BY SUBJECT, NOT BY PROXIMITY.** It sits 2,300 lines away from the
+  rest of the family, and slice 18 listed it among the methods it deferred. Its only two value claims
+  are `Arguments[0].Name` and `Arguments[1].Name` — the `Argument` node's own non-`Value` fields,
+  which is exactly what `TestRefArgument` and `TestOutArgument` claim about `Argument.Modifier`. Its
+  subject is the argument node, so it moves with the argument node's family.
+
+  **`TestNullableArrayPostfixOrder` (2806-2822) SITS INSIDE THE `params` BLOCK AND IS DELIBERATELY NOT
+  IN THIS TRANCHE.** It reads `func.Parameters[0].Type` only to reach an `ArrayTypeReference` wrapping
+  a `NullableTypeReference`; its subject is postfix TYPE-REFERENCE order, and it names no modifier at
+  all. Position in the file is not family membership.
+
+  **`TestThisKeyword` (1092-1141) AND `TestBaseKeyword` (1143-1183) ARE NOT CONSTRUCTOR INITIALIZERS.**
+  Both assert a `ThisExpression`/`BaseExpression` inside an ordinary method body (`this.name = name`,
+  `base.MakeSound()`); neither mentions `ConstructorDeclaration` or `.Initializer`. They are expression
+  tests and stay for the expression tranche.
+
+  **BOTH PRIVATE HELPERS SURVIVE, AND THAT WAS CHECKED RATHER THAN ASSUMED.** `Parse` is called by the
+  93 residual methods. `AssertHasParseError` is called at exactly five sites (795, 3210, 3335, 3352,
+  4096); **TWO of the five are in this tranche** — the `out var` / `out int` inline-declaration pair —
+  so unlike slices 17 and 18 this tranche HAS a negative half, and it gets `PeCensus`/`PeRow` ordered
+  censuses rather than a whole-tree golden. Three sites remain, so the helper stays.
+
+  ### WHAT LANDED — 1,397 C# LINES, AND THE DELETION ADDS NOT ONE LINE OF CONTENT
+
+  **THE C# MOVED IN ONE DIRECTION ONLY, AND THE DELETION IS PROVABLY PURE.** `git diff HEAD --numstat
+  -- '*.cs'` is **`99 1542` over exactly ONE file** — a NET of **−1,443**, which is the tranche's 1,397
+  method lines plus the 46 blank separators that followed them. The 99 "added" lines are diff
+  re-alignment of identical boilerplate, not edits: **re-applying the same line filter to
+  `HEAD:tests/ParserTests.cs` reproduces the working file BYTE-FOR-BYTE** (sha256
+  `bd4b7571bd292096…` on both sides), so no surviving line's content changed. Zero new C# files.
+  `Program.Testing.cs` stays at **618**, not opened (`git diff --numstat` over it is empty).
+  `tests/ParserTests.cs` **4,098 → 2,655 lines, 139 → 93 `[Fact]`s, 1,013 → 668 `Assert.`
+  occurrences**, still zero `[Theory]`s. The C# test estate is **35 files (unchanged), 50,625 →
+  49,182 lines**.
+
+  **THE SUCCESSOR IS ONE NEW ESTATE FILE — `ColumnarParserPatterns.tests.nl`, 1,023 lines, 46 test
+  declarations, 98 assert lines** (two per positive contract — the clean-parse census and the
+  whole-tree diff — and five per negative: `!Success`, the census, the whole row, the no-second-row
+  guard and the recovered top level), plus a **+50 / −0** extension to `ColumnarParserAst.tests.nl`,
+  which owns `AstEq` and `Golden`.
+
+  **THE REGISTRY NEEDED NOTHING AND `Golden` NEEDED FIVE BUILDERS.** `AstEq.FieldNames` needed
+  **zero** new entries — every pattern, operator and constructor node type was already registered,
+  exactly as the slice-18 sketch predicted. `Golden` needed **five**: the four RETURNING list-element
+  forms the sketch named (`CaseM` for `MatchCase`, `PatPropF` for `PropertyPattern`, `PropInit` for
+  `PropertyInitializer`, `TupleElemF` for `TupleElement`), each the returning sibling of an existing
+  `Add*` appender at the same arity, plus one the sketch did not: **`OpFunc`**. The existing
+  `OperatorFunc` hardcodes `Modifiers.None`, `IsOperatorOverload = true` and both conversion flags
+  false, and that fits NEITHER shape this tranche measured — a `static func operator +` carries
+  `Modifiers.Static`, and an `implicit operator` carries `IsOperatorOverload = FALSE` with a null
+  symbol — so `OpFunc` states the whole flag word and both operator spans. The pattern family makes
+  the returning-builder argument unavoidable rather than merely convenient: in
+  `{ Address: { City: city } }` a `PropertyPattern` holds an `ObjectPattern` that holds a LIST of
+  `PropertyPattern`, so the tree alternates element and list at every level and an appender — which
+  returns nothing — cannot sit in the argument position the next level needs.
+
+  ### THE PROBE, AND THE ONE DECLINE IT CAUGHT
+
+  **THE PROBE RAN BEFORE THE MIGRATION AND ITS FIRST RUN FOUND A DEFECT — IN THE PROBE.** The first
+  pass hand-adapted eleven risky shapes and reported **ONE NL103 decline**, `emit.expression-statement.call`
+  at `Prb020s19.tests.nl:134:5`. The cause was not the columnar backend and not the generator: the
+  hand-typed line called `Golden.Cast(targetType, expr, line, column)` where the estate's builder is
+  `Cast(expr, targetType, kind, line, column)` — four arguments in the wrong order for a five-argument
+  builder. **The generator's own output for the same fixture was correct**, so the lesson is
+  mechanical and is now the rule: a probe body is the GENERATOR's text verbatim, never re-typed. The
+  rewritten probe carried thirteen generated bodies — the two-consecutive-typed-nullable-nulls
+  `PatPropF`, a three-deep alternating `PropertyPattern`/`ObjectPattern` nest, a null-named
+  `TupleElemF` beside a `TupleT` return type and a `SlicePattern`, a five-deep `PAnd`-inside-`PPos`-
+  inside-`POr` nest, `OpFunc` at full arity with `Modifiers.Static` and two nested `SpanOf` calls, a
+  conversion operator with a null `OperatorSymbol` between four bool literals and the zero span, a
+  `ClassF` with three consecutive nullable nulls beside a `CtorF` whose initializer is a `this()` call,
+  `ParameterModifier.Params` carrying a `GenericT`, an `ArgumentModifier.Ref` pair, a named-argument
+  pair, a four-arm `PPos` fixture, and the negative half reaching `PeParse`/`PeCensus`/`PeRow` ACROSS
+  FILES — and reported **`Total: 6152` = 6,139 + exactly 13, `Failed: 0`, with ZERO declines.** The
+  probe was deleted before the migration landed.
+
+  ### THE COMPARATOR — 489 MIGRATING C# CLAIM ROWS IN, 489 MATCHED, 0 MISSING, 0 UNDECODED
+
+  Both sides are decoded by one mechanical decoder into a shared `(route, path, kind, expected)`
+  vocabulary, where `route` is one of the 44 positive sources and `path` is a position in the tree.
+  **Both sides carry the SAME 46 SOURCES, and that was MEASURED WITHOUT THIS SCRIPT'S OWN LITERAL
+  READER**: the C# side's fixture text is decoded by the **C# COMPILER ITSELF** — every `var source =
+  …` literal is pasted verbatim into a generated console program that prints the decoded strings as
+  JSON — and compared against the `source := "…"` literal extracted from the committed `.nl`. **46 of
+  46 byte-identical.** That matters more here than in either earlier tranche, because this tranche is
+  the first whose fixtures use FOUR different C# literal forms, counted rather than assumed: **25**
+  verbatim `@"…"`, **9** single-line `"…"`, **11** multi-line `"…" + "…"` concatenations
+  (`TestRelationalPattern` and ten siblings) and **1** C# RAW literal `"""…"""`
+  (`TestPropertyPatternSourceLocations`), whose indentation is stripped by the closing delimiter and
+  which a hand-rolled reader gets wrong.
+
+  **THE N# SIDE IS DECODED FROM THE COMMITTED FILE, NOT FROM THE JSON THE GENERATOR CONSUMED.** The
+  decoder re-evaluates the `Golden.*` builder calls out of `ColumnarParserPatterns.tests.nl` itself
+  through a builder table that is cross-checked TWO ways: **every entry's arity is compared against
+  the estate's own `public static func Golden.<name>(…)` signature** (58 builders, all matching — a
+  table that mis-reads a call is a hard failure at startup), and **a registered field with no value in
+  the decoded node is a hard failure**, so a builder that silently dropped a field cannot pass.
+
+  **AND THE GENERATOR SELF-VERIFIES BEFORE IT EMITS.** It CONSTRUCTS the very tree its emitted text
+  describes — through the same constructors the `Golden` builders call — and deep-compares that
+  against the parsed tree with a mirror of `AstEq.Diff`. All 44 contracts emitted with **0 failures**.
+
+  **Completeness arithmetic is exact on both sides, and the one discrepancy is explained rather than
+  rounded.** C#: **345 source-level `Assert.` occurrences** in the tranche (independently confirmed by
+  the file-level count, 1,013 → 668) → **344 statements**, because exactly one line carries two
+  (`Assert.All(listPattern.Elements, e => Assert.IsType<LiteralPattern>(e));`) → **346 executed**, once
+  that lambda is expanded over its three elements (+2) → **489 claim rows, 0 UNDECODED** (180
+  node-type, 155 non-null, 89 value, 48 cardinality, 8 predicate-existence, 6 null, 2 predicate-count,
+  1 flag). N#: 44 whole-tree goldens → **5,813 claim rows** (2,708 value, 1,232 non-null, 837
+  node-type, 641 null, 395 cardinality) over **837 pinned nodes**. **Matched 489, missing 0, extra
+  5,324.** The C# reached **340 distinct (route, path) pairs**; the goldens pin **4,581** — a **13.5×**
+  widening over the identical fixtures.
+
+  **THE 837 IS CONFIRMED BY A THIRD SOURCE, NOT BY THE GOLDEN'S OWN ARITHMETIC.** The generator also
+  dumps a path → runtime-node-type map straight off the PARSED tree; it has **exactly 837 paths**, the
+  same number the golden decoder walks, so the goldens pin every node the parser built and no more.
+
+  **THREE RESOLUTIONS ARE DECLARED RATHER THAN HIDDEN, AND NONE CONSULTS THE ARTIFACT.** This tranche
+  is the first to use LINQ over the tree, and all three forms resolve against **the parser's own dumped
+  tree**, never against the golden being checked. `Members.OfType<FunctionDeclaration>()
+  .FirstOrDefault(f => f.IsOperatorOverload)` resolves to a concrete member index, and the EXISTENCE
+  claim its `Assert.NotNull` makes is kept as a distinct `predexists` row matched by searching the
+  GOLDEN for an element under that list with that field value — so a golden that put the operator
+  somewhere else, or dropped the flag, still fails. `…Where(f => f.IsOperatorOverload).ToList()`
+  followed by `Assert.Equal(2, operators.Count)` becomes a `predcard` row matched by COUNTING the
+  golden's elements that carry both the node type and the flag. And `Assert.All(list, e =>
+  Assert.IsType<T>(e))` expands into one node-type row per element, with the element count taken from
+  the parser. The `as T` normalisation slices 17 and 18 declared is inherited unchanged and is worth
+  180 node-type rows here — the pattern family's assertions are node types almost to the exclusion of
+  everything else.
+
+  ### TWENTY-FIVE PERTURBATION CONTROLS, TWENTY-ONE MOVE, AND ALL FOUR THAT DO NOT ARE PROVEN
+  NON-OBSERVABLE AND REPLACED
+
+  Twenty-one on the N# side and four on the C# side. Every control records the file's sha256 before
+  the edit, computes the edited text BEFORE opening the file for write, and restores in a `finally`
+  with the sha256 re-checked. The C#-side controls edit a MATERIALISED COPY of
+  `HEAD:tests/ParserTests.cs` kept OUTSIDE the repository — the tranche is already deleted from the
+  working tree, and a scratch copy inside the tree is exactly the file the ownership audit refuses.
+  The two C#-side deletions are LINE-COUNT PRESERVING, which is not cosmetic: the decoder reads each
+  method body by LINE RANGE, so removing a line would shift every later method's range and silently
+  decode the wrong bodies.
+
+  **AND THE PANEL WAS RE-RUN AFTER THE MUTATION HARNESS FINISHED, NOT ALONGSIDE IT.** A control edits
+  the LIVE successor file for the duration of one comparator run, and the mutation harness rebuilds the
+  estate from that same file — so a panel running concurrently with a rebuild could have leaked a
+  perturbed contract into an estate run. The numbers below are from a run made with nothing else
+  touching the tree, and the two mutation rows that overlapped the earlier exploratory panel (M1, M2)
+  both matched their independently PREDICTED own-counts exactly, so no leak reached them either.
+
+  | control | Δ matched | Δ missing |
+  |---|---|---|
+  | N1 — a pinned `SlicePattern` BindingName | **−1** | +1 |
+  | N2 — a dropped `MatchCase` from a cases list | **−1** | +1 |
+  | N3 — a golden `Line` in a route with no position claim | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N3b — a golden `Line` on one of the THREE pinned property anchors | **−1** | +1 |
+  | N3c — a golden `Column` on one of the THREE pinned property anchors | **−1** | +1 |
+  | N4 — a whole deleted `test` declaration | **−8** | +8 |
+  | N5 — a swapped NODE TYPE, same arity (`PAnd` → `POr`) | **−1** | +1 |
+  | N5b — the same swap on the `PAnd` INSIDE `not (…)` | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N6 — an operator KEYWORD SPAN moved | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N6b — a changed `OperatorSymbol` | **−1** | +1 |
+  | N6c — a changed operator `Name` | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N7 — a lost `Modifiers.Static` on an operator overload | **−1** | +1 |
+  | N8 — a flipped `IsOperatorOverload` (the predicate the C# filtered on) | **−2** | +2 |
+  | N9 — a flipped `IsImplicitConversion` | **−1** | +1 |
+  | N10 — a non-null `Guard` that becomes null | **−2** | +2 |
+  | N10b — a null `Guard` that grows a value | **−1** | +1 |
+  | N11 — a `ParameterModifier` flip | **−1** | +1 |
+  | N12 — an `ArgumentModifier` flip | **−1** | +1 |
+  | N13 — a dropped `Argument` NAME | **−1** | +1 |
+  | N14 — an operator that stops being one (the two-element predicate COUNT) | **−1** | +1 |
+  | N15 — a swapped ctor-initializer callee (`ThisExpression` → `BaseExpression`) | **−1** | +1 |
+  | C1 — one assert blanked | **−1** | 0 |
+  | C2 — an expected value changed | **−1** | +1 |
+  | C3 — a whole `[Fact]` body emptied | **−8** | 0 |
+  | C4 — an asserted node type changed | **−2** | +2 |
+
+  **THE FOUR THAT DO NOT MOVE ARE NON-OBSERVABLE BY CONSTRUCTION, AND EACH PROOF IS A COUNT, NOT AN
+  ARGUMENT.** **N3**: the tranche's 1,397 C# lines contain exactly three `.Line` and three `.Column`
+  assertions and **ZERO of either outside `TestPropertyPatternSourceLocations`** — so a golden `Line`
+  anywhere else is invisible; replaced by **N3b/N3c**, which move that method's own pinned anchors and
+  do. **N5b**: `TestComplexCombinedPatterns` reads `notPattern.Pattern` only as far as
+  `Assert.IsType<PositionalPattern>` and never reaches the `AndPattern` inside it, so swapping that
+  node's type is unobserved; replaced by **N5**, the same swap on the `AndPattern`
+  `TestAndPattern` DOES assert. **N6**: `OperatorKeywordSpan` and `OperatorSymbolSpan` appear **ZERO**
+  times in the tranche, and the comparator does not model spans on EITHER side, so this is outside its
+  vocabulary rather than merely unstated — the operator spans are covered by the MUTATION panel
+  instead (M9), which is the right instrument for a claim the comparator cannot express; replaced by
+  **N6b**, the symbol itself. **N6c**: the tranche reads `.Name` on `classDecl` and on a `param`, and
+  **ZERO** times on an operator or conversion declaration itself; replaced by N6b as well.
+
+  ### THE MUTATION PROOF — EIGHTEEN ATTRIBUTABLE MUTATIONS AGAINST A VERIFIED GREEN BASELINE
+
+  **THE ATTRIBUTION PREDICATE WAS VERIFIED AGAINST THE RUNNER'S OWN GENERATED NAMES BEFORE A SINGLE
+  OWN-COUNT WAS TRUSTED, AND THE TRAP HAS A THIRD FORM.** A `--logger trx` run of the green estate was
+  dumped and the 6,185 names read directly: the runner renders
+  `NSharpTests.Test_020S19ParserPatterns…`. The strict prefix `Test_020S19ParserPatterns` matches
+  **exactly 46** — the tranche. The naive lower-case substring `s19` matches **6**, and **not one of
+  the six is in the tranche**: they are `…Parsercs1929…`-style names carrying Parser.cs line numbers,
+  and the generated names are PascalCase so `s19` can never match a real one. Slice 17's naive
+  predicate under-counted to ZERO, slice 18's over-counted by six, and this one counts six of the
+  WRONG tests — three different wrong answers from the same shortcut.
+
+  **THE BASELINE WAS ESTABLISHED FIRST AND IT EARNED ITS PLACE: `Failed: 0, Total: 6185`.** Each
+  mutation is a single-expression edit in the production owner `ColumnarParserRecovery.nl`; the harness
+  records the file's sha256 before it is touched, restores with `git checkout --`, re-checks the
+  sha256, and **REFUSES TO PRINT A VERDICT UNLESS THE RUN REPORTS A `Total:`**, so a build failure can
+  never be mistaken for a passing mutation. The `--logger trx` output is written to
+  `--results-directory` paths in the SCRATCH tree, never inside the repository — the OWN009 trap slice
+  18 recorded, avoided by construction.
+
+  **THE STRICTLY-STRONGER CLAIM IS PROVED AT ROW LEVEL, NOT BY GREP.** Of the comparator's **489
+  decoded C# claim rows**, exactly **six** state a `Line` or a `Column`, and all six are in
+  `TestPropertyPatternSourceLocations` on the SAME node kind (`PropertyPattern`, at 3:11, 3:22 and
+  3:34); **zero** rows state any `Span` at all; the only `.Name` rows anywhere in the operator family
+  are `Parameters[i].Name`, `ReturnType.Name` and `Parameters[0].Type.Name` — **never the operator
+  declaration's own `Name`**; and the only rows under a `TypePattern.Type` are one node-type row and
+  one `.Name` row, with no position. So **M1–M10 are invisible to all 46 deleted methods by
+  construction**: a parser that anchored every slice, list, positional, `and`, relational, `match` and
+  object pattern one column to the right, gave a type pattern's type reference a real position instead
+  of `0, 0`, slid the `operator` keyword span, and renamed every conversion operator, would have passed
+  the entire deleted tranche.
+
+  **THE `siblings` COLUMN IS INFORMATIVE, NOT NOISE.** For the anchor mutations it names exactly which
+  PRE-EXISTING parity contract covers the same shape — M1's single sibling is
+  `016 N+1c tranche 9c: a slice pattern ([1, .. rest]) anchors on the '['`, M2's two are that one plus
+  `a list pattern ([1, 2]) materializes ListPattern (:3383)`, M3's is
+  `a positional pattern ((1, 2)) materializes PositionalPattern (:3401)`. Reading that column is what
+  corrected this record's novelty claims (see below); a mutation with ZERO siblings is one whose shape
+  nothing outside this slice had pinned.
+
+  **AND THE `own` COLUMN IS A PREDICTION FOR THE EIGHT NODE-KIND MUTATIONS, NOT A POST-HOC COUNT.**
+  Each moves ONE node kind, so the number of this slice's contracts it must break is the number of
+  routes whose golden pins that kind — read off the golden's own node census BEFORE the run:
+  `SlicePattern` 3, `ListPattern` 5, `PositionalPattern` 2, `AndPattern` 2, `RelationalPattern` 4,
+  `MatchExpression` 23, `ObjectPattern` 5, `TypePattern` 3. **All eight matched exactly**, which is a
+  second, independent check that the goldens pin what the census says they pin.
+
+  | mutation | failures | own | siblings |
+  |---|---|---|---|
+  | M1 — a SlicePattern anchors one column right | **4 / 6185** | 3 | 1 |
+  | M2 — a ListPattern anchors one column right | **7 / 6185** | 5 | 2 |
+  | M3 — a PositionalPattern anchors one column right | **3 / 6185** | 2 | 1 |
+  | M4 — an AndPattern anchors one column right | **3 / 6185** | 2 | 1 |
+  | M5 — a RelationalPattern anchors one column right | **5 / 6185** | 4 | 1 |
+  | M6 — a MatchExpression anchors one column right | **41 / 6185** | 23 | 18 |
+  | M7 — an ObjectPattern anchors one column right | **7 / 6185** | 5 | 2 |
+  | M8 — a TypePattern type reference gains a real position instead of 0,0 | **4 / 6185** | 3 | 1 |
+  | M9 — the operator KEYWORD SPAN slides one column right | **5 / 6185** | 4 | 1 |
+  | M10 — a conversion operator keeps the wrong NAME | **3 / 6185** | 1 | 2 |
+  | M11 — a RelationalPattern loses the second character of its operator | **2 / 6185** | 2 | 0 |
+  | M12 — a named SlicePattern keeps a stray suffix | **4 / 6185** | 3 | 1 |
+  | M13 — a nested PropertyPattern loses its name | **8 / 6185** | 5 | 3 |
+  | M14 — `params` is read as `ref` | **8 / 6185** | 7 | 1 |
+  | M15 — an `out` ARGUMENT loses its modifier | **4 / 6185** | 1 | 3 |
+  | M16 — every conversion operator becomes implicit | **1 / 6185** | 1 | 0 |
+  | M17 — a `base(...)` initializer delegates to `this(...)` | **2 / 6185** | 1 | 1 |
+  | M18 — a UnionCasePattern truncates its dotted case name | **3 / 6185** | 3 | 0 |
+
+all report Total 6185: True
+every one fails at least one OWN contract: True
+strictly-stronger group: M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 (10)
+
+  **NO MUTANT SURVIVED AND NONE DECLINED.** All eighteen report `Total: 6185`, so the estate BUILT AND
+  RAN in every one; the owner was restored byte-identically every time (`git status` over
+  `ColumnarParserRecovery.nl` is clean after the panel, and no production `.nl` in the tree is
+  modified); and **every one fails at least one of THIS slice's own contracts** — the weakest, M16, still
+  takes one. There is therefore no zero-failure mutant to prove equivalent and replace.
+
+  **TEN OF THE EIGHTEEN ARE STRICTLY-STRONGER PROOFS: THE DELETED C# WOULD HAVE PASSED THEM.** M1-M10.
+  Seven move a pattern anchor one column (`SlicePattern`, `ListPattern`, `PositionalPattern`,
+  `AndPattern`, `RelationalPattern`, `MatchExpression`, `ObjectPattern`); M8 gives a type pattern's type
+  reference a real position instead of `0, 0`; M9 slides the `operator` keyword span; M10 renames every
+  conversion operator. Against the comparator's 489 decoded rows, **six** state a position and all six
+  are `PropertyPattern` anchors in one method, **zero** state any span, and **zero** read an operator
+  declaration's own `Name` — so all ten were invisible to every one of the 46 deleted methods.
+
+  **AND THE OTHER EIGHT ARE THE CONTROL GROUP THAT PROVES THE MIGRATION DID NOT LOSE ANYTHING**: M11
+  (the relational operator text, an `Assert.Equal`), M12 (the slice binding name, an `Assert.Equal`),
+  M13 (a nested property-pattern name, an `Assert.Equal`), M14 (`params` read as `ref`, an
+  `Assert.Equal(ParameterModifier.Params, …)`), M15 (an `out` argument's modifier, an `Assert.Equal`),
+  M16 (`IsImplicitConversion`, an `Assert.False`), M17 (the `base(…)` callee, an
+  `Assert.IsType<BaseExpression>`) and M18 (the dotted union case name, an `Assert.Equal`) each break a
+  claim the deleted file DID make, and each fails this slice's own contract — so the restatement is
+  wired through, not merely present.
+
+  ### THE STRICTLY-STRONGER DELTAS — AND AN OVER-CLAIM THIS SLICE CAUGHT IN ITSELF
+
+  **THE CLEAN-PARSE PIN CAME BACK CLEAN AGAIN, OVER A THIRD FAMILY.** The C# helper `Parse(source)`
+  returns `result.CompilationUnit!` and DISCARDS `result.Errors`, so every positive case in
+  `ParserTests.cs` is structurally silent about whether the source it calls "valid" parses cleanly.
+  Each positive successor pins `PsCensus(source) == ""` FIRST, and **all 44 are clean** — so across
+  slices 17, 18 and 19 the pin has now found no defect over **117** real-world fixtures, and it is kept
+  rather than dropped, because it is the guard that makes the silence impossible to re-introduce.
+
+  **THE FIRST DRAFT OF THIS RECORD CLAIMED SEVEN NEW SHAPE FACTS, AND FIVE OF THE SEVEN WERE ALREADY
+  PINNED NEXT DOOR — A SIXTH ONLY HALF-NEW. THE MUTATION PANEL IS WHAT CAUGHT IT, AND THE CLAIM IS
+  CORRECTED RATHER THAN QUIETLY KEPT.** M1 (a `SlicePattern` anchored one column right) failed three of this slice's own
+  contracts AND **one sibling** — `016 N+1c tranche 9c: a slice pattern ([1, .. rest]) anchors on the
+  '[' and keeps the binding name (Parser.cs :3373)` — whose comment states the very fact the draft was
+  about to call unrecorded. A sweep of `ColumnarParserAst.tests.nl` for every other claimed finding
+  then showed the same for six more: **tranche 9c** pins the implicit-binding `{ N }` property pattern
+  leaving `Pattern` null (:3494), the `TypePattern` whose type reference is
+  `SimpleTypeReference(name, 0, 0)` (the `BareT` helper, :3444) and a two-element positional pattern
+  (:3401); **tranche 10** pins `func f(ref a: int, out b: int)` with its parameters at the NAME columns
+  (12 and 24), `func f(params xs: int[], …)` at column 15, `func operator +` with its symbol and BOTH
+  operator spans (:505-506), and `: base(x)` anchored on `base` (:1536); **tranche 11** pins an
+  `implicit operator`'s whole flag word (`false, null, true, true`). **Every one of those shapes is restated here
+  over the real-world corpus and is NOT claimed as a finding**, in the file's own section headers as well as
+  in this record.
+
+  **WHAT IS ACTUALLY NEW IS FOUR THINGS, AND EACH IS NAMED WITH WHAT MAKES IT NEW.**
+
+  **A PARENTHESIZED PATTERN IS A ONE-ELEMENT `PositionalPattern`.** There is no parenthesized-pattern
+  node anywhere in the tree, so `(> 0 and < 10) or (> 90 and < 100)` materializes
+  `OrPattern(PositionalPattern[AndPattern], PositionalPattern[AndPattern])`. Tranche 9c's contract is
+  the TWO-element `(1, 2)`, which cannot distinguish a tuple pattern from a parenthesis; the
+  one-element form is what does. `TestComplexCombinedPatterns` noticed the node type — it asserts
+  `IsType<PositionalPattern>` with the comment "Parenthesized and pattern" — and then stopped, never
+  reaching the `AndPattern` inside, which is why perturbation control **N5b** correctly does not move.
+
+  **`static func operator +` CARRIES `Modifiers.Static` WHERE THE CONVERSION FORM CARRIES
+  `Modifiers.None`, AND THE DECLARATION ANCHORS ON `func`.** Both pre-existing contracts use sources
+  WITHOUT a `static` modifier, so neither could state the modifier interaction — and that is not a
+  cosmetic gap: it is exactly why `Golden.OperatorFunc`, whose `Modifiers.None` is hardcoded, could not
+  express this corpus and `Golden.OpFunc` had to be added. The declaration's own anchor is column 24 in
+  `                static func operator +(…)` — the `func`, not the `static` at 17 and not the
+  `operator` at 29 — while `OperatorKeywordSpan` covers 29-37 and `OperatorSymbolSpan` 38-39. The
+  conversion form's two spans are also STATED here (`Golden.SpanOf(0, 0, 0)`) where tranche 11 only
+  left them at a constructor default.
+
+  **THE WHOLE ARGUMENT HALF HAD NO CONTRACT AT ALL.** An `Argument`'s three registered fields are
+  `Name`, `Value` and `Modifier` — it carries **no position** — and no synthetic-corpus contract states
+  any of them. `Swap(ref x, ref x)` sets `ArgumentModifier.Ref` on both, `int.TryParse("123", out
+  result)` sets `Out` on the SECOND only, and `CreateUser(name: "John", age: 30)` sets `Name` with
+  `Modifier` left at `None` — the node's two non-`Value` fields, from three fixtures.
+
+  **AND THE NEGATIVE HALF FOUND THAT THE REFUSAL COSTS NOTHING.** `out var num` and `out int value`
+  each produce **exactly one** diagnostic — `NL103@8:40+7` and `NL103@8:40+9` — underlining the inline
+  DECLARATION rather than the `out` keyword (the span widens by two for the longer spelling), with a
+  **null** `Suggestions` list, and **both functions come back from recovery with their bodies intact**
+  (`FunctionDeclaration[TryParse/s2]FunctionDeclaration[Main/s1]`). `AssertHasParseError` asserted
+  `!Success` plus "some error message contains this text", which a parse reporting it ten times, or
+  discarding both function bodies, would also have satisfied.
+
+  **AND THE MARGIN, BY KIND.** Against 489 migrating C# rows the goldens state 5,813 over the same 44
+  fixtures, across **837 nodes**: 102 simple type references, 89 identifiers, 50 match cases, 48 blocks,
+  48 parameters, 44 compilation units, 43 functions, 35 int literals, 33 string literals, 27 identifier
+  patterns, 26 variable declarations, 23 match expressions, 23 returns, 20 member accesses, 18 property
+  patterns, 15 fields, 14 literal patterns, 14 binary expressions, 12 relational patterns, 12 arguments,
+  10 object patterns, and the rest — each with every registered field, every anchor and every list
+  length.
+
+  ### EVIDENCE
+
+  **Native estate 6,139 → 6,185 by COUNT DIFF (+46, the exact declarations added)**, `Failed: 0`, under
+  the restore-flag discipline (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`),
+  measured on a CLEAN-`bin`/`obj` serial run: `Failed: 0, Passed: 6185, Total: 6185`.
+  **Unit 2,111 → 2,065 = exactly the 46 migrated xUnit cases** — predicted before the migration from a
+  re-measured `[Fact]` count and a re-confirmed zero `[Theory]` count, rather than explained after it.
+  Measured on the FULL suite run serially: `Failed: 0, Passed: 2065, Total: 2065` in 4 m 47 s. (A
+  29-second 2,134-case log in the parent scratchpad belongs to SLICE 18 and is not this slice's
+    evidence — a short duration is the tell for a stale or filtered run.) No native project is added
+  or changed, so the gate-equivalent native project count stays
+  **33**.
+
+  **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files, 246
+  diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`) and ZERO
+  rows in any `.tests.nl`. The check runs against a CLI built from this branch, not the installed
+  `~/.nsharp/bin/nlc`. Its exit is non-zero because `ok:false` — the 246 inherited errors — which is
+  the baseline, not a failure of this slice.
+
+  **AND THE `.tests.nl` CLAIM IS EARNED AGAINST THE REAL YARDSTICK, NOT THE STRUCTURAL ONE.** `nlc
+  check` never sees a `.tests.nl` at all (`ProjectSourceFileFilter` drops them by extension and no CLI
+  switch turns them on), so "zero rows in any `.tests.nl`" is a property of the check. The real
+  measurement is a scratch copy of the estate with all **223** contract files renamed to
+  `.checked.nl`: **616 files checked, 1,271 rows, and only 105 of the 223 are clean.** Against that
+  yardstick `ColumnarParserPatterns.tests.nl` reports **ZERO rows**, matching its siblings
+  `ColumnarParserDeclarations` (0), `ColumnarParserStatements` (0) and `ColumnarParserErrorRecovery`
+  (0), where `ColumnarParserAst` carries 18 and `ColumnarParserRecovery` 51.
+
+  **AND THAT YARDSTICK CAUGHT A ROW THIS SLICE WAS ABOUT TO ADD.** The first measurement put
+  `ColumnarParserAst.tests.nl` at **19** rows against slice 18's 18: the new `OpFunc` builder, declared
+  `: Declaration`, earned the same inherited `NL202` ("should return Declaration but returns
+  `NSharpLang.Compiler.Ast.FunctionDeclaration`") that thirteen of the `*F` member builders already
+  carry. Its two closest siblings `Func` and `OperatorFunc` return the CONCRETE type and carry no such
+  row, so `OpFunc` was changed to match them — `List<Declaration>.Add` takes the derived type directly,
+  exactly as the `members.Add(Golden.Func(…))` callers next door already do — and the file is back to
+  **exactly the 18 rows it reported at `8c40ba048`**. The estate total is likewise unchanged at 1,271:
+  the new file adds a file and no rows.
+
+  **Ownership audit 18 / 18 after correctly failing 17 / 18 pre-repin with exactly ONE violation** —
+  `OWN008: reviewedHeadFingerprint does not match canonical current ceilings and states; observed
+  head-v1:dd2fd679a2926012`, **the exact value a Python replica of `OwnershipFacts` had computed BEFORE
+  the audit ran**, so the audit CHECKED the arithmetic rather than supplying it. The replica was
+  **VALIDATED AGAINST THE PRISTINE MANIFEST FIRST**: it reproduced all three stored fingerprints
+  (pathset `8a26e1529863444b`, epoch facts `1b3090747e517fc1`, head `f6d8bd2010059319`) before a single
+  row was edited. **The row SHRINKS in place and stays `existing-debt`**: `currentLines` / `NonBlank` /
+  `AssertionMarkers` **4098 → 2655, 3460 → 2240, 1154 → 762**, fingerprint `7f5de72a0b2cf7a0` →
+  `61b1926ad3c119c7`, while its **immutable epoch ceilings (6130 / 5210 / 1733 / 0) stay untouched**.
+  **The marker delta is exactly −392, and the 392 is reconciled against the AUDIT'S OWN marker
+  definition rather than an assumed one** (`OwnershipAudit.CountAssertionMarkers`, :755-763, counts
+  `[Fact]` + `[Theory]` + `Assert.` + `Should(` + `test(` + `it(` + `expect(`). Counting each of the
+  seven across `HEAD:tests/ParserTests.cs` and the working file gives **`[Fact]` 139 → 93 (−46)**,
+  **`Assert.` 1,013 → 668 (−345)** and **`it(` 2 → 1 (−1)**, with the other four zero on both sides:
+  **−392 total, and 46 + 345 = 391 plus that ONE `it(`**. The stray marker is the substring inside
+  `implicit operator Fahrenheit(c: Celsius)` — a source-literal line in the deleted
+  `TestImplicitConversionOperator`. **The audit is the arbiter and it agrees**: its observed-file check
+  (`observedFile.AssertionMarkers != entry.CurrentAssertionMarkers`, :1275) passed against the written
+    762, and the ONLY violation it reported pre-repin was the head key. The two-key head is repinned
+  **LAST and TOGETHER**,
+  `f6d8bd2010059319` → `dd2fd679a2926012`, in the JSON header AND the
+  `OwnershipPolicy.ReviewedHeadFingerprint` constant, with **zero occurrences of the old value left
+  anywhere under `tests/native/ownership-audit/`**; manifest **391 lines**, no BOM, trailing newline
+  intact, and the whole ratchet diff is **exactly two changed lines in the JSON plus the one
+  constant**. `epochPathFingerprint` and `epochFactFingerprint` are unchanged, as a pure shrink must
+  leave them, and the replica ASSERTS both before it writes. **The manifest is edited LINE BY LINE
+  rather than round-tripped through a JSON dump.**
+
+  **The project-scoped format check reports "All files are properly formatted."** on the
+  BootstrapServices estate, on the first run. `tests/native/ownership-audit` reports one unformatted
+  file (`OwnershipAudit.nl`) — **and that is PRE-EXISTING, proven directly rather than by stashing**:
+  at the moment of the check `git status` over `OwnershipAudit.nl` was EMPTY, so the file was
+  byte-identical to `8c40ba048` and the failure is inherited. The one line this slice changes there is
+  the head constant.
+
+  **THE OWN003 AND OWN009 TRAPS WERE BOTH AVOIDED BY CONSTRUCTION.** The gate log is written OUTSIDE
+  the byte-copy (`/private/tmp/s19-gate.log`), and the `--logger trx` results directories the mutation
+  panel writes are kept in the SCRATCH tree (`--results-directory` outside the repo); the one
+  `TestResults/` the baseline run created inside the project was deleted before the audit and before
+  the gate, and the copy verification counts `.trx` files and `TestResults` directories inside the copy
+  and reports zero.
+
+  **AND ONE `dotnet test` RUN WAS REJECTED RATHER THAN COUNTED.** A first post-repin estate run exited
+  **0 with ZERO output and no `Passed:` line** — the known silent-abort mode after concurrent builds
+  share `obj`/`bin`. The standing rule is that "exit 0 + no `Passed:` line" is a FAILURE, not a pass, so
+  the run was discarded, `bin`/`obj` cleaned, and the estate re-run SERIALLY with nothing else touching
+  the tree. Only the serial run's numbers are recorded below.
+
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY.** The repo root still
+  carries nested `.claude/worktrees/*` checkouts belonging to other sessions, and a duplicate benchmark
+  project under the repo root breaks the BDN Systems gate in place, so the copy excludes
+  `.claude/worktrees` and nothing else. **The copy's contents were verified directly rather than
+  assumed, on nine checks**: `.claude/worktrees` does NOT exist inside it, `.git` does, the
+  benchmark-project count inside it is **0**, the successor is present, `TestMatchExpression` occurs
+  **0** times in its `tests/ParserTests.cs`, there are **0** `.trx` files and **0** `TestResults`
+  directories anywhere in it, the repinned head `dd2fd679a2926012` appears in **BOTH** ratchet keys
+  with **ZERO** occurrences of the old `f6d8bd2010059319` anywhere under
+  `tests/native/ownership-audit/`, and the documentation edits are in it. A competing-gate check
+  (`pgrep -f test-all-core.sh`) was run BEFORE launching and was clear.
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` was launched from inside the copy with **its log
+  written OUTSIDE the copied tree** (`/private/tmp/s19-gate.log`) — slice 17's OWN003 trap, avoided by
+  construction — and the `--commit` flag forces a fresh isolated run that no cached whole-gate or
+  per-step result can satisfy. Its banner reads **`Fresh isolated test run required:
+  pre-commit verification / Existing cache entries will not satisfy this invocation`**.
+
+  **THE VERDICT: `ALL TESTS PASSED! ✓`, exit 0, ZERO `✗ FAILED` lines in the whole 570-line log across
+  113 passing steps, and the driver STORED the validated cache result (`72c582b0bda8540f`, 1136 s) —
+  which it does only on success.** Inside the gate: unit `Failed: 0, Passed: 2065` (4 m 49 s, the
+  full suite, independently reproducing this slice's own serial measurement); the compiler-service
+  estate `Failed: 0, Passed: 6185`; **all 33 native projects tested, `tests/native/ownership-audit`
+  among them and PASSING — so the repinned two-key head is validated by the gate, not merely by a
+  local run**; 67 N# assemblies pass IL verification with no new errors versus baseline; the
+  formatting gate passes; and SDK pack + template creation + example builds + `nlc check` over the
+  examples all pass.
+
+  The passing gate ran against a byte-copy of the code tree; **the only file edited afterwards is this
+  one**, which is prose and is not an input to any compile step.
+
+  **THE WHOLE MODIFIED-FILE SET, JUSTIFIED FILE BY FILE:**
+
+  | modified file | kind | why it changed |
+  |---|---|---|
+  | `tests/ParserTests.cs` | **shrunk** | the migrated tranche, 4,098 → 2,655 (a pure line deletion, net −1,443, byte-verified) |
+  | `src/…/ColumnarParserPatterns.tests.nl` | **new estate contract** | the successor — 44 whole-tree positives and the family's 2 negatives |
+  | `src/…/ColumnarParserAst.tests.nl` | **test helpers** | the four returning list-element builders and `OpFunc`; zero contract changes, zero registry changes, `+50 / −0` |
+  | `src/…/ColumnarParserDeclarations.tests.nl` | **one comment** | its header priced the 162 methods it left behind; slice 18 took 23 and slice 19 takes 46 |
+  | `src/…/ColumnarParserStatements.tests.nl` | **one comment** | its header still listed patterns among the later tranches |
+  | `memory/components/parser.md` | **documentation** | five contract files → six, what the pattern/modifier/operator tranche measured, and the residual `ParserTests.cs` families |
+  | `memory/testing.md` | **documentation** | the file inventory still said 139 `[Fact]`s left and named the wrong residual families |
+  | `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` | **ratchet** | one shrunk row, plus the head key |
+  | `tests/native/ownership-audit/OwnershipAudit.nl` | **ratchet** | the second key of the two-key head repin — one line |
+  | `STATUS.md` | **ledger** | this record |
+
+  ### THE UPDATED BUCKET-(a) QUEUE AND THE TRANCHE-4 PLAN
+
+  Rank 1 is two thirds spent. `ParserTests.cs` survives at **2,655 lines / 93 `[Fact]`s** and stays
+  rank 1 until the last tranche takes it to zero; the native-route set behind it is unchanged.
+
+  | rank | file | L | methods | route | why it is priced there |
+  |---|---|---|---|---|---|
+  | 1 | `ParserTests.cs` (residue) | 2,655 | 93 | estate | two or three tranches left, same helpers, same two halves |
+  | 2 | the native-route set | — | — | `tests/native/*` | `AnalyzerTests` (13,451 / 816), `AnalyzerSemanticModelTests`, `AnalyzerBindingMapTests`, `QueryIntegrationTests`, `SystemsNSharpTests`, `PlaygroundCompilerTests`, and the split remainders of `ErrorHandlingTests` / `EventSubscriptionTests` / `AstNodeFinderTests` — every one has a subject ABOVE the estate |
+
+  **THE RESIDUE, RE-MEASURED THE SAME WAY THIS TRANCHE WAS CLASSIFIED**: expressions and operator
+  precedence **60 methods / 1,822 lines**, the file-header family (package + imports) **12 / 217**,
+  literals and interpolation **9 / 184**, attributes **8 / 206**, the preprocessor **4 / 104** — 93
+  methods and 2,533 lines in all, which reconciles to the file exactly.
+
+  **TRANCHE 4 IS THE FOUR REMAINING SMALL FAMILIES TOGETHER — 33 methods, 711 lines** — because the
+  expression family alone is 1,822 lines, over the ~1,500-line cap the slice-16 sketch set, and
+  splitting a small family to pad it would defeat the family split that makes each successor a
+  coherent file. That leaves **tranche 5 = the postfix/primary expression half (~44 methods, ~1,372
+  lines)** and **tranche 6 = the operator/precedence half (~16 methods, ~450 lines)**, after which
+  `ParserTests.cs` is empty and BOTH private helpers (`Parse`, `AssertHasParseError`) go with it. The
+  three remaining `AssertHasParseError` sites are one in attributes (tranche 4), one in literals
+  (tranche 4) and one in expressions (`AnonymousUnionType_ReportsMissingRightArm`), so tranche 4 has a
+  negative half of two and the pattern established here carries.
+
+  **`AstEq.FieldNames` STILL NEEDS NOTHING.** Every attribute, literal, interpolation, import, package
+  and preprocessor node type is already registered — the same measurement that was true for this
+  tranche. What tranche 4 needs is the returning-builder set for `AttributeNode`'s argument list and
+  `ImportDirective`, in the same `Add*`-sibling shape as the nine added across slices 18 and 19.
+
+  **THE TOOLING IS CORPUS-AGNOSTIC AND SURVIVES.** The generator (which self-verifies by constructing
+  what it emits), the comparator (which decodes the N# side out of the FILE and cross-checks its
+  builder table's arities against the estate), the twenty-five-control perturbation panel and the
+  mutation harness all live in the scratch tree and take their corpus from a JSON list of
+  `(name, source)` pairs. Every caution this slice inherited held, and **four are added.**
+
+  1. **A PROBE BODY IS THE GENERATOR'S TEXT VERBATIM, NEVER RE-TYPED.** The first probe pass
+     hand-adapted its bodies and produced one NL103 decline that was a defect in the probe — a
+     four-argument `Golden.Cast(targetType, expr, …)` call against a five-argument
+     `Cast(expr, targetType, kind, …)` builder — while the generator's own text for the same fixture
+     was correct. A hand-typed probe tests the hand, not the tree.
+  2. **THE C# FIXTURE TEXT IS DECODED BY THE C# COMPILER, NOT BY A HAND-ROLLED LITERAL READER.** This
+     tranche is the first whose fixtures use four different literal forms — 25 verbatim `@"…"`, 9
+     single-line `"…"`, 11 multi-line `"…" + "…"` concatenations and 1 C# RAW `"""…"""` whose
+     indentation is stripped by the closing delimiter — and a reader that gets any of them wrong makes
+     the byte-identity check circular. Pasting every literal verbatim into a generated console program
+     and reading its JSON output makes the compiler the oracle.
+  3. **A FACT THE DELETED C# COULD NOT SEE IS NOT AUTOMATICALLY A FACT NOTHING HAD RECORDED — SWEEP
+     THE SIBLING PARITY FILE BEFORE CALLING ANYTHING A FINDING.** This record's first draft listed
+     seven new shape facts; a sweep of `ColumnarParserAst.tests.nl` showed FIVE of the seven already
+          pinned outright by stage-N+1c tranches 9c/10/11 and a sixth only half-new, and the
+     mutation panel is what surfaced it — M1's
+     "siblings 1" was a tranche-9c contract whose own comment states the fact the draft was about to
+     claim. The sibling count in a mutation row is therefore evidence about NOVELTY, not just about
+     blast radius, and it should be read that way. The corrected count is four new facts, and the
+     other seven are restated over the real-world corpus and labelled as restatements in the
+     successor's own section headers.
+  4. **THE ATTRIBUTION PREDICATE'S TRAP HAS A THIRD FORM: THE NAIVE SUBSTRING CAN MATCH ONLY WRONG
+     NAMES.** The runner renders `NSharpTests.Test_020S19ParserPatterns…`, so the strict prefix
+     `Test_020S19ParserPatterns` matches **exactly 46** — the tranche — while the lower-case `s19`
+     matches **6**, and **all six are unrelated** (`…Parsercs1929…`-style Parser.cs line numbers); it
+     matches **zero** of the 46, because the generated names are PascalCase. Slice 17's naive predicate
+     under-counted to zero, slice 18's over-counted by six, and this one counts six of the wrong
+     tests. Only the runner's own generated prefix, read out of a `--logger trx` dump of the green
+     estate, is safe.
+
+  **`Program.Testing.cs` IS STILL 618 AND STILL UNOPENED.** Task 020's closing rule needs BOTH an empty
+  bucket (a) and an N#-owned runner surface; bucket (a) still has both entries, so **task 020 stays
+  UNCHECKED and `tasks/README.md` is NOT edited.**
+
+- Previous sub-slice (020 arc, COMMITTED at `8c40ba048` — **SLICE 18 TOOK RANK 1's SECOND TRANCHE:
   `tests/ParserTests.cs` STATEMENTS, 23 OF ITS 162 REMAINING `[Fact]`s / 608 C# LINES / 140 `Assert.`
   OCCURRENCES. A SHRINK AGAIN — `ParserTests.cs` SURVIVES AT 139 METHODS.**)
 

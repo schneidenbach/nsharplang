@@ -1651,6 +1651,56 @@ public class Golden {
     public static func TeardownF(body: BlockStatement, line: int, column: int): Declaration {
         return new TeardownDeclaration(body, line, column)
     }
+
+    // ---- 020 slice 19 (the `ParserTests.cs` PATTERN / PARAMETER-MODIFIER / OPERATOR-OVERLOAD /
+    // CONSTRUCTOR-INITIALIZER tranche): four more RETURNING list-element builders, plus the whole
+    // operator-overload function ----
+    //
+    // The four element builders exist for the same structural reason as slice 18's eight, and the
+    // pattern family makes the reason unavoidable rather than merely convenient: in
+    // `{ Address: { City: city } }` a `PropertyPattern` holds an `ObjectPattern` that holds a LIST of
+    // `PropertyPattern`, so the tree alternates element and list at every level and an APPENDER — which
+    // returns nothing — cannot sit in the argument position the next level needs. Each is the returning
+    // form of an existing `Add*` at the SAME arity, so the two forms stay interchangeable and neither
+    // states less than the other.
+
+    public static func CaseM(pattern: Pattern, guard: Expression?, body: Expression): MatchCase {
+        return new MatchCase(pattern, guard, body)
+    }
+
+    // `pattern` is nullable because `{ Name: n }` with a bare binding leaves it null and fills
+    // `bindingName` instead.
+    public static func PatPropF(name: string, pattern: Pattern?, bindingName: string?, line: int, column: int): PropertyPattern {
+        return new PropertyPattern(name, pattern, bindingName, line, column)
+    }
+
+    // `name` is nullable because an INDEXER initializer (`[0]: "x"`) carries a null Name and an
+    // IndexExpression instead.
+    public static func PropInit(name: string?, indexExpression: Expression?, value: Expression, nameLine: int, nameColumn: int): PropertyInitializer {
+        return new PropertyInitializer(name, indexExpression, value, nameLine, nameColumn)
+    }
+
+    public static func TupleElemF(name: string?, value: Expression): TupleElement {
+        return new TupleElement(name, value)
+    }
+
+    // The operator-overload / conversion-operator `FunctionDeclaration`, whole. `OperatorFunc` above
+    // hardcodes `Modifiers.None`, `IsOperatorOverload = true` and both conversion flags false, and that
+    // fits NEITHER shape this tranche measured: a binary `operator +` carries `Modifiers.Static`, while
+    // an `implicit operator` carries `IsOperatorOverload = FALSE`, a NULL `OperatorSymbol` and both
+    // operator spans left at their zero default. This one states the whole flag word and both spans, so
+    // the two shapes stay distinguishable from each other and from an ordinary function.
+    // The return type is the CONCRETE `FunctionDeclaration`, matching `Func` and `OperatorFunc` above
+    // rather than the `*F` member builders below: declaring it as `Declaration` earns the same
+    // inherited NL202 ("should return Declaration but returns …") that thirteen of those builders carry,
+    // and a `.tests.nl` this slice adds should not add a row. `List<Declaration>.Add` takes the derived
+    // type directly, exactly as the `members.Add(Golden.Func(…))` callers next door already do.
+    public static func OpFunc(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, modifiers: Modifiers, isOperatorOverload: bool, operatorSymbol: string?, isConversionOperator: bool, isImplicitConversion: bool, keywordSpan: SourceSpan, symbolSpan: SourceSpan, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
+        node := new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, null, null, null, modifiers, new List<AttributeNode>(), isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column)
+        node.OperatorKeywordSpan = keywordSpan
+        node.OperatorSymbolSpan = symbolSpan
+        return node
+    }
 }
 
 // ---- contracts ----

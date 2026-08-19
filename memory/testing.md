@@ -15,13 +15,14 @@
 ### Test Files
 ```
 tests/
-├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 139 [Fact]s left (expressions and
-│                                 operator precedence, patterns, literals and interpolation, the
-│                                 preprocessor and file-header families, attributes, parameter
-│                                 modifiers, operator overloads, generic calls, lambdas).
-│                                 The 50 DECLARATION cases moved to N# in 020 slice 17 and the 23
-│                                 STATEMENT + test-DSL cases in slice 18; the whole error half moved
-│                                 in slice 16. See memory/components/parser.md.
+├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 93 [Fact]s left (expressions and
+│                                 operator precedence 60, the file-header family 12, literals and
+│                                 interpolation 9, attributes 8, the preprocessor 4).
+│                                 The 50 DECLARATION cases moved to N# in 020 slice 17, the 23
+│                                 STATEMENT + test-DSL cases in slice 18, and the 46 PATTERN /
+│                                 parameter-modifier / operator-overload / constructor-initializer
+│                                 cases in slice 19; the whole error half moved in slice 16.
+│                                 See memory/components/parser.md.
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
@@ -57,8 +58,11 @@ triage layer — both tiers of the category classifier, all nine source construc
 pattern, the cluster id and the escaped next command — with the serialised payload beside the other
 envelopes in `OutputFormatterJsonKernels.tests.nl`. The local-function parser arms are whole-tree
 goldens in `ColumnarParserAst.tests.nl` — whose `AstEq` reflective comparator and `Golden.*` builders
-are shared by `ColumnarParserDeclarations.tests.nl`, the whole-tree contracts for the declaration
-family (020 slice 17) — and the four `ColumnarCompiler.TryEmitProgram` cases are
+are shared by `ColumnarParserDeclarations.tests.nl` (the declaration family, 020 slice 17),
+`ColumnarParserStatements.tests.nl` (statements and the test DSL, slice 18) and
+`ColumnarParserPatterns.tests.nl` (patterns/`match`, parameter and argument modifiers, operator and
+conversion overloads and constructor initializers, slice 19) — and the four
+`ColumnarCompiler.TryEmitProgram` cases are
 real source shapes in `tests/native/columnar-emit-facts`.
 
 Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`

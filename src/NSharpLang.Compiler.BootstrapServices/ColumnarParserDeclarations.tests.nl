@@ -14,10 +14,11 @@ import NSharpLang.Compiler.Ast
 // newtype / soa-record headers, their members (fields, properties, indexers, constructors, member
 // functions), modifiers, generics and `where` constraints. The 162 methods it left behind are later
 // tranches of the same arc: slice 18 took the STATEMENT family plus the test DSL (23 methods) to
-// `ColumnarParserStatements.tests.nl`, and `tests/ParserTests.cs` survives at 139 methods carrying
-// expressions and operator precedence, patterns, literals and interpolation, the preprocessor and
-// file-header families, attributes, parameter modifiers, operator overloads, generic calls and
-// lambdas.
+// `ColumnarParserStatements.tests.nl`, slice 19 the four NON-EXPRESSION families (46 methods —
+// patterns and `match`, parameter and argument modifiers, operator and conversion overloads,
+// constructor initializers) to `ColumnarParserPatterns.tests.nl`, and `tests/ParserTests.cs` survives
+// at 93 methods carrying expressions and operator precedence, the file-header family, literals and
+// interpolation, attributes and the preprocessor.
 //
 // THE ROUTE IS THE WHOLE-TREE GOLDEN, AND IT IS STRICTLY STRONGER THAN WHAT IT REPLACES.
 // Every migrated C# case went through one private helper:

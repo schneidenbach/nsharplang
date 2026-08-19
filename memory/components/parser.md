@@ -158,7 +158,7 @@ Package names recover **with the written text preserved**: a malformed segment w
 ## Testing
 
 Two layers:
-- **Native contracts** (canonical): five files, one per observable contract of the same owner.
+- **Native contracts** (canonical): six files, one per observable contract of the same owner.
   `ColumnarParserRecovery.tests.nl` pins the `ParseFilePreamble` diagnostic stream in POSITION-SORTED
   order (the CLI-shaped oracle order); `ColumnarParserErrorRecovery.tests.nl` pins the `ParseFileAst`
   contract — diagnostics in RECORDING order, whole message / snippet / explanation / hint / suggestion
@@ -166,17 +166,22 @@ Two layers:
   `ColumnarParserAst.tests.nl` pins the materialized AST node-by-node against goldens inventoried from
   Parser.cs, and owns the `AstEq` reflective comparator and the `Golden.*` builders all three AST
   files use; `ColumnarParserDeclarations.tests.nl` pins WHOLE TREES over the real-world declaration
-  corpus (task 020 slice 17); and `ColumnarParserStatements.tests.nl` pins whole trees over the
-  real-world STATEMENT and test-DSL corpus (task 020 slice 18). **The two entry points do not
+  corpus (task 020 slice 17); `ColumnarParserStatements.tests.nl` pins whole trees over the
+  real-world STATEMENT and test-DSL corpus (task 020 slice 18); and `ColumnarParserPatterns.tests.nl`
+  pins whole trees over the PATTERN / `match`, parameter- and argument-modifier, operator- and
+  conversion-overload and constructor-initializer corpus, plus the two inline-`out` refusals, which
+  are that file's negative half (task 020 slice 19). **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
 - **C# suite**: `tests/ParserTests.cs` (plus the analyzer / linter / formatter / completion suites)
   drives the same `ParseFileAst` entry. It is being migrated tranche by tranche: **slice 17 took the
-  DECLARATION family — 50 of its 212 `[Fact]`s, 1,358 lines — and slice 18 the STATEMENT family plus
-  the test DSL — 23 more, 608 lines — leaving 139 methods** covering expressions and operator
-  precedence, patterns, literals and interpolation, the preprocessor and file-header families,
-  attributes, parameter modifiers, operator overloads, generic calls and lambdas. The error-case half —
+  DECLARATION family — 50 of its 212 `[Fact]`s, 1,358 lines — slice 18 the STATEMENT family plus
+  the test DSL — 23 more, 608 lines — and slice 19 the four NON-EXPRESSION families (patterns and
+  `match` 23, parameter and argument modifiers 14, operator and conversion overloads 6, constructor
+  initializers 3) — 46 more, 1,397 lines — leaving 93 methods** covering expressions and operator
+  precedence (60), the file-header family (12), literals and interpolation (9), attributes (8) and
+  the preprocessor (4). The error-case half —
   `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
   cases — was migrated to `ColumnarParserErrorRecovery.tests.nl` and deleted in task 020 slice 16.
   **One capability did not survive the move and is recorded here rather than lost**: that file bounded
@@ -218,6 +223,34 @@ kinds — `while`, `const`/`readonly` locals, `break`, `continue`, `throw`, `uns
 local functions, tuple deconstruction, the empty statement and `await foreach` — appear ZERO times in
 `ParserTests.cs` and are already pinned by `ColumnarParserAst.tests.nl`'s tranche 10, so slice 18
 added no contracts for them.
+
+**WHAT THE PATTERN / MODIFIER / OPERATOR TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice
+19).** The clean-parse pin holds on all 44 positive sources too, so it has now found no defect over
+**117** real-world fixtures. The margin here is total rather than incidental: the tranche's 1,397 C#
+lines contain exactly **three** `.Line` and **three** `.Column` assertions, all six in
+`TestPropertyPatternSourceLocations` and all about the same three property names, so every other
+position in every other fixture was unstated.
+
+**WHAT IS NEW TO THE LEDGER, AS OPPOSED TO MERELY NEW TO THE DELETED TESTS, WAS CHECKED RATHER THAN
+ASSUMED** — `ColumnarParserAst.tests.nl`'s stage-N+1c tranches 9c/10/11 already pin, over synthetic
+one-line sources, the `SlicePattern` anchored on the `[` rather than its `..` (:3373), the
+implicit-binding property pattern `{ N }` that leaves `Pattern` null (:3494), the `TypePattern` whose
+type reference is `SimpleTypeReference(name, 0, 0)` (:3444), a two-element positional pattern (:3401),
+`func operator +` with its symbol and both spans (:505-506), an `implicit operator`'s whole flag word,
+and `: base(x)` anchored on `base` (:1536). Those seven are **restated over the real-world corpus, not
+claimed as findings.** Four things ARE new. **A parenthesized pattern is a one-element
+`PositionalPattern`** — there is no parenthesized-pattern node — so `(> 0 and < 10) or (…)` nests
+`AndPattern` inside `PositionalPattern` inside `OrPattern`, a shape the two-element contract could not
+reach. **`static func operator +` carries `Modifiers.Static` where the conversion form carries
+`Modifiers.None`**, and the declaration anchors on `func`, not on `static` and not on `operator`; both
+pre-existing contracts use sources without a `static`, which is exactly why `Golden.OperatorFunc`'s
+hardcoded `Modifiers.None` could not express this corpus and `Golden.OpFunc` had to be added. **The
+whole ARGUMENT half is unpinned elsewhere**: `Argument` carries no position at all (`Name`, `Value`,
+`Modifier` are its three registered fields), and `ref x` / `out result` / `name:` set `Modifier` and
+`Name` on a node no synthetic contract had ever stated. And **the two inline-`out` refusals cost
+nothing**: each reports exactly ONE `NL103`, underlining the inline DECLARATION rather than the `out`
+keyword (span 7 for `out var num`, 9 for `out int value`), with a NULL suggestion list, and both
+functions come back from recovery with their bodies intact.
 
 **AND `Parser.cs` IS GONE**, so `ParseFileAst` is the sole production parse entry (`FixApplicator.cs`,
 `Formatter.nl`, `AnalyzerImports.nl`, `AnalyzerProjectDiscovery.nl`, `CodeIntelligenceQueries.nl`).
