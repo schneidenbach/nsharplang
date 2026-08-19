@@ -275,6 +275,27 @@ selected native regression assemblies themselves before verification.
   fixtures stay covered by the validated per-step cache without a gate-script change, because the
   `native-nsharp-tests` step is keyed on `UNIT_INPUTS_HASH` and the UNIT input set already covers
   `tests/` wholesale
+- **`project.yml`** has no C# assertion layer: the four owners are stated one file each in the same
+  estate — `ProjectFileParser.tests.nl` (whole documents in, every field read back, and all NINE
+  validation refusals plus the four `FileNotFoundException` sentences as whole messages, where the
+  deleted C# reached three refusals and produced no file-not-found at all),
+  `ProjectConfigModels.tests.nl` (the defaults and the source walk, with all TWELVE skipped
+  directory names one at a time plus four kept neighbours as controls),
+  `ProjectSourceFileFilter.tests.nl` (the glob engine arm by arm — and it records that `**/name`
+  does NOT match a root-level `name/`, unlike MSBuild) and `Reference.tests.nl` (the four kinds,
+  their precedence, and `Validate`, which had no direct coverage at all). `AssemblyVersionUtilities
+  .tests.nl` states the package-version kernel as a TABLE rather than as a differential sweep
+  against `int.TryParse`, because `CultureInfo` cannot be reached from this estate in either
+  direction
+- **The shipped `examples/` corpus** has no C# assertion layer: `ExampleProjectCorpus.tests.nl`
+  walks all nineteen example projects through the compiler's OWN discovery
+  (`MultiFileCompilerInputBuilder.BuildFromProject`), parser and linter, pinning each project's file
+  count, zero parse errors and an empty lint census. **It REQUIRES every directory to exist**,
+  which the deleted C# theories did not — each opened with `if (!Directory.Exists(…)) return;`. One
+  of the nineteen, `11-advanced-features`, is covered by nothing else in the repository: the gate's
+  Step 10a keeps a directory only when it has a `project.yml` or a top-level `.nl` file, and that
+  one has neither. The remaining half of `nlc check` (semantic analysis and IL emission) stays with
+  Step 10a, which runs the real binary over a superset of these directories
 
 ### Known Testing Limitation
 Raw filtered `dotnet test --filter` invocations can hang in this project because of the
@@ -421,7 +442,7 @@ one, sweep the C# test estate for tests that actually need it. The sweep taken a
 | capability | C# tests that need it | measured runner state (probed against a freshly built tip CLI) |
 |---|---|---|
 | table-driven cases | shipped, consumed twice | live |
-| **skip** | **0** — no `[Fact(Skip=…)]`, no `SkipException`, no `[ConditionalFact]`, no trait filters anywhere. The only `Skip=` in the repo is `DockerFactAttribute`, in the Testcontainers `IntegrationTests` project the gate never runs; the 6 `if (!Directory.Exists(…)) return;` guards in `ExampleLintTests.cs` are RUNTIME conditions a static `skip "reason"` cannot express | declines the WHOLE FILE at `parse.declaration-scan`; an **emit-only** gap — parser, analyser, formatter, LSP, runner and JSON envelope all already carry it |
+| **skip** | **0** — no `[Fact(Skip=…)]`, no `SkipException`, no `[ConditionalFact]`, no trait filters anywhere. The only `Skip=` in the repo is `DockerFactAttribute`, in the Testcontainers `IntegrationTests` project the gate never runs. The 6 `if (!Directory.Exists(…)) return;` guards that used to live in `ExampleLintTests.cs` — the original finding here — **are gone: that file is deleted and its successor `ExampleProjectCorpus.tests.nl` REQUIRES all nineteen example directories, so an absent corpus now fails instead of silently passing** | declines the WHOLE FILE at `parse.declaration-scan`; an **emit-only** gap — parser, analyser, formatter, LSP, runner and JSON envelope all already carry it. **No consumer remains: the last runtime skip emulation in the estate was migrated away rather than expressed** |
 | setup/teardown | 3 classes with a real ctor+`IDisposable` pair, all LSP or Docker fixtures | fails EARLIER than skip, in the **analyser**: a `setup { seed := 7 }` binding is not visible to the test body, so `NL001 Variable 'seed' is declared but never read` |
 | **async `Task`** | **134** | **ALREADY SERVED.** A plain `test` body may `await`; an assertion that fails after an await FAILS, and an exception thrown inside awaited work is REPORTED with its message (probe: 3 declarations → 1 passed / 2 failed, each named). Only the `async test "…"` DECLARATION form is missing (`NL101`), and no C# test needs it |
 | async `ValueTask` | 0 | same path |

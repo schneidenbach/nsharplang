@@ -853,6 +853,13 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.BootstrapServices/FixApplicatorValidationMessages.tests.nl` | The five rejection sentences and the error-slot clamp |
 | `src/NSharpLang.Compiler.BootstrapServices/FixApplicatorEditEngine.tests.nl` | The raw return codes, the error slots, the three line-ending arms, the malformed-call guard |
 | `src/NSharpLang.Compiler.BootstrapServices/DiagnosticGoldenSuite.tests.nl` | The curated top-25 corpus (24 diagnostics) pinned against `tests/fixtures/diagnostics/` |
+| `src/NSharpLang.Compiler.BootstrapServices/ProjectFileParser.tests.nl` | Whole `project.yml` documents in, every field read back; all nine validation refusals and the four file-not-found sentences as whole messages; the generated template pinned whole |
+| `src/NSharpLang.Compiler.BootstrapServices/ProjectConfigModels.tests.nl` | `ProjectConfig`'s defaults and the recursive source walk — all twelve skipped directory names one at a time, plus kept neighbours as controls |
+| `src/NSharpLang.Compiler.BootstrapServices/ProjectSourceFileFilter.tests.nl` | The exclude-glob engine arm by arm (`*`, `**/`, `?`, backslash normalisation, case sensitivity) and the `.tests.nl` suffix rule |
+| `src/NSharpLang.Compiler.BootstrapServices/Reference.tests.nl` | The four dependency kinds, their precedence, `HasValue`, and `Validate` against the disk |
+| `src/NSharpLang.Compiler.BootstrapServices/AssemblyVersionUtilities.tests.nl` | Package version → four-part assembly version, and the component kernel as a pinned table |
+| `src/NSharpLang.Compiler.BootstrapServices/ExampleProjectCorpus.tests.nl` | All nineteen shipped `examples/` projects walked through the compiler's own discovery, parser and linter — directories REQUIRED, file counts pinned |
+| `src/NSharpLang.Compiler.BootstrapServices/LinterFileImportUsage.tests.nl` | NL010 on a file import: resolved against the disk, spans over the quoted path, two imports tracked separately |
 
 ---
 

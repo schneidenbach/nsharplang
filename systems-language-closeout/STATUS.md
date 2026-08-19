@@ -3593,7 +3593,475 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 14 SPENDS THE WHOLE REMAINING CHEAP BUCKET-(a)
+- Active sub-slice (020 arc, THIS TURN — **SLICE 15 SPENDS THE TWO TOP RANKS OF THE SLICE-14 QUEUE:
+  `ProjectFileTests.cs` + `ExampleLintTests.cs`, 1,573 C# LINES AND 80 xUnit CASES, BOTH TERMINALLY
+  DELETED.**)
+
+  ### THE PROBED SELECTION — RECORDED BEFORE ANY MIGRATION EDIT
+
+  **THE BATCH IS RANKS 1 AND 2 OF THE SLICE-14 QUEUE, AND THE ~1,600-LINE CAP CLOSES IT AT EXACTLY
+  TWO.** `ProjectFileTests.cs` (903) + `ExampleLintTests.cs` (670) = **1,573**. Rank 3
+  (`ParserErrorTests.cs`, 1,914) breaks the cap on its own and is NOT taken. Both clusters route to
+  the **estate** (`src/NSharpLang.Compiler.BootstrapServices`), so the probe is one file.
+
+  | rank | file | L | xUnit cases | `[Fact]`/`[Theory]` | `Assert.` | subjects, all N#-owned in the estate's own assembly |
+  |---|---|---|---|---|---|---|
+  | 1 | `ProjectFileTests.cs` | 903 | 36 | 36 / 0 | 117 | `ProjectFileParser.nl`, `ProjectConfigModels.nl`, `Reference.nl`, `AssemblyVersionUtilities.nl`, `ProjectSourceFileFilter` + `AssemblyVersionKernels` in `CompilerBootstrapServices.nl` |
+  | 2 | `ExampleLintTests.cs` | 670 | 44 | 27 / 2 (17 `InlineData`) | 27 | `Linter.nl` end to end — `LinterNamespaceImportUsage.nl`, `LinterFileImportUsage.nl`, `LinterMissingImport.nl` — plus `MultiFileCompilerInputBuilder` and `ProjectFileParser` over the shipped `examples/` corpus |
+
+  **THE PROBE RAN BEFORE ANY MIGRATION EDIT AND TOOK FIVE ROUNDS**, one throwaway `.tests.nl`
+  carrying every risky shape of BOTH clusters: temp project trees written with
+  `Directory.CreateDirectory` / `File.WriteAllText` / `Directory.Delete(dir, true)`, the bare
+  `Path.GetTempFileName()` route with `File.Delete`, `ProjectFileParser.Parse` /
+  `ParseFromDirectory` / `ParseFromDirectoryOrDefault` / `CreateDefault` / `GenerateTemplate`, a
+  `ProjectConfig` read through fifteen properties including `Dependencies[0].Type` against a
+  `ReferenceType` enum member, `new ProjectConfig { Name: "…" }`, `Exclude.Add`, the two-argument
+  `GetSourceFiles(dir, false)` at full arity, `ProjectSourceFileFilter.Filter` over `string[]`
+  locals, `new Reference { Nuget: "…" }`, whole `InvalidOperationException` MESSAGES captured
+  through `try` / `catch ex: Exception`, `AssemblyVersionUtilities.TryGetAssemblyVersion` with a
+  `Version` `out` parameter, `AssemblyVersionKernels.TryParseComponent` over a ten-element array
+  literal, `ColumnarParserRecovery.ParseFileAst(...).Errors.Count`, `new
+  Linter(LinterConfig.FromEditorConfig(dir)).Lint(unit, path, source)`, the repo-root walk into the
+  shipped `examples/` corpus, and `MultiFileCompilerInputBuilder.BuildFromProject` — **the
+  compiler's OWN source-file discovery**. **The final round reports `Total: 5896` = 5,882 + exactly
+  14, with ZERO declines.**
+
+  **THREE WALLS, EVERY ONE ISOLATED BY EXECUTION RATHER THAN GUESSED.**
+    - **W1 — `file` IS RESERVED IN LOOP-VARIABLE POSITION.** `for file in files { … }` declines at
+      `parse.test`; renaming the loop variable to `sourcePath` is the whole fix. This is a NEW row
+      on the carried reserved-word list (`scoped`/`with`/`init`/`ref`/`assert`/`type`/`record`/…),
+      found because the discovery sweep is the first estate contract to walk a file list.
+    - **W2 — A PROPERTY READ CANNOT BE AN EXPRESSION STATEMENT.** `try { emptyReference.Type }`
+      declines at `emit.expression-statement.unsupported` ("not a modeled assignment, call, await, or
+      postfix mutation"). The C# spelled `Assert.Throws<InvalidOperationException>(() =>
+      emptyRef.Type)`, whose lambda body is an expression. The route is a helper that RETURNS the
+      property (`return PrbReferenceTypeName(reference.Type)`) inside the `try`, which also makes the
+      no-throw arm observable instead of implicit.
+    - **W3 — `==` BETWEEN TWO `Version` REFERENCES DECLINES.** `assert parsed == new Version(1, 2, 3,
+      0)` declines at `emit.statement.block-child` (node kind 61) — and it is isolated, not guessed:
+      the SAME block's `new Version(1, 2, 3, 0)` bound to a local emits, `.Major` / `.Minor` /
+      `.Build` / `.Revision` all emit, and `parsed.Equals(expectedVersion)` emits. It is the
+      BCL-class `==` operator and nothing else. The route is `.Equals` plus a `ToString()` pin, which
+      is strictly stronger than the C#'s `Assert.Equal(new Version(1,2,3,0), version)` because it
+      states the rendered four-part text as well as the equality.
+
+  **NOTHING ELSE ON THE CARRIED WALL LIST WAS HIT**, because the probe was written to the carried
+  rules from the start: FULL ARITY everywhere, `.Length` read off a BOUND LOCAL and never off a call
+  result, one `catch` per `try`, no `match` in local-binding position, no `typeof` over an enum, no
+  typed `IReadOnly*` LOCAL, no `System.Random`, and the repo-root walk spelled with
+  `Path.GetDirectoryName` into a `string?` rather than `Directory.GetParent`.
+
+  **AND THE PROBE ANSWERED THE ONE STRUCTURAL QUESTION THE QUEUE LEFT OPEN.** Rank 2's six
+  `examples/`-reading facts run `CheckCommand.Execute`, which lives in `NSharpLang.Cli` and reaches
+  `CodeIntelligenceService` + `MultiFileCompiler` in `NSharpLang.Compiler` — **both of which sit
+  ABOVE the estate in the dependency graph, so no estate `.tests.nl` can call them.** The estate can
+  nevertheless state the same corpus at the same fidelity for the phases it owns:
+  `MultiFileCompilerInputBuilder.BuildFromProject` IS the discovery the compiler runs,
+  `ColumnarParserRecovery.ParseFileAst` IS the parse it runs, and `new
+  Linter(LinterConfig.FromEditorConfig(fileDir)).Lint(unit, fullPath, source)` IS, character for
+  character, the lint `MultiFileCompiler.RunLinter` runs. The residual analyzer/IL half is held by
+  the gate's Step 10a, which runs the REAL `nlc check` binary over a superset of these directories
+  and fails the gate on any error. **This is recorded here as the declared route BEFORE the
+  migration, not discovered after it.**
+
+  ### WHAT LANDED — TWO CLUSTERS, 1,573 C# LINES, BOTH TERMINALLY DELETED
+
+  **THE C# MOVED IN ONE DIRECTION ONLY.** `git diff HEAD --numstat -- '**/*.cs'` is
+  **`added=0 deleted=1573` over exactly TWO files**, with **zero new C# files**. `Program.Testing.cs`
+  stays at **618**, not opened. Both clusters are TERMINALLY DELETED — no split, no shrunk survivor:
+  `ProjectFileTests.cs` **903 → 0**, `ExampleLintTests.cs` **670 → 0**. The C# test estate is
+  **38 → 36 files, 56,101 → 54,528 lines** (three of the remaining 36 carry no `[Fact]` at all).
+
+  **THE SUCCESSORS: SEVEN NEW ESTATE FILES AND TWO APPENDED — 1,884 LINES, 81 DECLARATIONS, 441
+  ASSERT LINES.** One file per production owner, which is the estate's convention; the two linter
+  clusters are APPENDS because their subjects are the same public rules those files already state.
+
+  | successor | lines | declarations | assert lines | owner it states |
+  |---|---|---|---|---|
+  | `ProjectFileParser.tests.nl` (new) | 476 | 18 | 147 | `ProjectFileParser.nl` |
+  | `ProjectConfigModels.tests.nl` (new) | 251 | 9 | 64 | `ProjectConfigModels.nl` |
+  | `Reference.tests.nl` (new) | 208 | 9 | 44 | `Reference.nl` |
+  | `AssemblyVersionUtilities.tests.nl` (new) | 168 | 10 | 57 | `AssemblyVersionUtilities.nl` + `AssemblyVersionKernels` |
+  | `ProjectSourceFileFilter.tests.nl` (new) | 181 | 9 | 51 | `ProjectSourceFileFilter` in `CompilerBootstrapServices.nl` |
+  | `ExampleProjectCorpus.tests.nl` (new) | 238 | 9 | 29 | the shipped `examples/` corpus through `MultiFileCompilerInputBuilder` + `ColumnarParserRecovery` + `Linter` |
+  | `LinterFileImportUsage.tests.nl` (new) | 108 | 3 | 7 | `LinterFileImportUsage.nl` |
+  | `LinterNamespaceImportUsage.tests.nl` (appended) | +177 | +12 | +35 | `LinterNamespaceImportUsage.nl` end to end |
+  | `LinterMissingImport.tests.nl` (appended) | +77 | +2 | +7 | `LinterMissingImport.nl` end to end |
+  | **total** | **1,884** | **81** | **441** | |
+
+  **THE WHOLE MODIFIED-FILE SET, JUSTIFIED FILE BY FILE. THE PRODUCTION DIFF IS EMPTY.**
+
+  | modified file | kind | why it changed |
+  |---|---|---|
+  | `memory/testing.md` | **documentation** | the skip-capability row is corrected — its ONLY named consumer was `ExampleLintTests.cs`'s six `Directory.Exists` guards, and they are gone — plus two new bullets for the `project.yml` owners and the examples corpus |
+  | `memory/components/cli-toolchain.md` | **documentation** | seven rows added to the code-intelligence coverage table |
+  | `non-nsharp-growth-ratchet.v1.json` | **ratchet** | two rows to `state: removed`, plus the head key |
+  | `OwnershipAudit.nl` | **ratchet** | the second key of the two-key head repin — one line, the `ReviewedHeadFingerprint` constant |
+  | `STATUS.md` | **ledger** | this record |
+
+  **No production `.nl` and no production `.cs` file carries a diff.** The migration needed no
+  visibility change, no new accessor and no seam: `ProjectFileParser`, `ProjectConfig`,
+  `LanguageConfig`, `SystemsConfig`, `Reference`, `ReferenceType`, `ProjectSourceFileFilter`,
+  `AssemblyVersionUtilities`, `AssemblyVersionKernels`, `MultiFileCompilerInputBuilder`,
+  `ColumnarParserRecovery`, `Linter` and `LinterConfig` are all public in the estate's own assembly.
+
+  ### THE COMPARATOR — 176 MIGRATING C# CLAIMS IN, 157 MATCHED, 19 ROUTED, 0 MISSING
+
+  Both sides are decoded out of HEAD and the working tree by one mechanical decoder into a shared
+  vocabulary `(route, kind, expected)`, where `route` is the entry point plus the exact inputs that
+  reached it — `Parse[YAML:name: MyProject\n…].Dependencies[0].Version`,
+  `Lint[SRC:\nimport System\n\nfunc main() {…}]#has:NL010`, `example[11-advanced-features]#no-errors`.
+  **Both sides go through the SAME route builders**; only the surface syntax differs.
+  **Completeness arithmetic is exact on both sides: C# 143 decoded statements → 176 claim rows + 8
+  absorbed + 0 undecoded; N# 441 assert lines → 935 claim rows + 502 absorbed + 0 undecoded.
+  Matched 157, routed 19, missing 0, extra 778.** The C# row count exceeds its statement count
+  because the CLR-parity loop is expanded per case; the N# row count exceeds its statement count
+  because a whole-census equality expands into one row per lint code.
+
+  **BOTH SIDES ARE NORMALISED TO ACTUAL TEXT, NOT TO SOURCE SPELLING**, so C#'s `@`-verbatim
+  literals and N#'s escaped literals cannot make identical YAML documents or identical lint sources
+  look different. Locals are threaded to the values that built them — a temp directory, the file
+  written into it, the config parsed out of that file — so the two sides' different local NAMES are
+  invisible to the match. **SIX NORMALISATIONS ARE DECLARED RATHER THAN HIDDEN:**
+    - **N1 — A WHOLE-CENSUS EQUALITY STATES ONE ROW PER LINT CODE.** The estate spells
+      `LnieCensus(source) == "NL001@6:5+1;NL010@2:8+6;"`, where the C# spelled
+      `Assert.Contains(diagnostics, d => d.Code == "NL010")`. The census expands to one `#has:CODE`
+      row for each of the ten codes the linter's configuration carries (true for the reported ones,
+      **false for the other nine — which is what answers every `DoesNotContain`**), plus one
+      positional row per reported diagnostic and one count row per reported code.
+    - **N2 — A REJECTION STATES BOTH ITS TYPE AND ITS TEXT.** `PfpParseOutcome(path) ==
+      "InvalidOperationException|Invalid outputType: 'invalid'. Must be 'exe' or 'library'."` answers
+      `<parsed:NAME>` when nothing is thrown, so one N# line carries the C#'s
+      `Assert.Throws<InvalidOperationException>` row AND a strictly stronger whole-text row.
+    - **N3 — `Assert.NotNull` IS SUBSUMED BY ANY ROW THAT READS A MEMBER OFF THE SAME SUBJECT**,
+      because reading a member off null throws. Four rows are absorbed this way, none dropped.
+    - **N4 — A WHOLE-MESSAGE CENSUS ANSWERS ANY SUBSTRING QUESTION ABOUT IT.** The C#'s
+      `d.Message.Contains("System.Text")` is matched against the N# messages census by substring, in
+      BOTH directions: a `DoesNotContain` is matched only when no reported message of that code
+      contains the fragment.
+    - **N5 — THE CLR ORACLE IS REPLICATED IN THE COMPARATOR, NOT IN THE ESTATE.** The deleted file's
+      ten-case sweep compared `AssemblyVersionKernels.TryParseComponent` against `int.TryParse(…,
+      NumberStyles.None, InvariantCulture, …)`. `CultureInfo` is a carried decline, so the successor
+      pins the ten answers as constants and the comparator replicates the oracle to expand the loop
+      into 20 rows and check them.
+    - **N6 — `nlc check` REPORTS ZERO ERRORS IS A CONJUNCTION OF FOUR PHASES**: discovery+parse,
+      lint, semantic analysis, and IL emission. The estate owns the first two and states them; the
+      last two are held by the gate's Step 10a. **The 19 such rows are reported in their own
+      `routed` column rather than counted as matched**, so the arithmetic never claims the estate
+      states something it does not. The two `no unused-import warning` rows are NOT in that column —
+      they are pure lint claims and are fully matched.
+
+  **THE DECODER CORRECTED ITSELF SEVEN TIMES BEFORE IT WAS TRUSTED, AND EVERY CORRECTION WAS A
+  SILENT WRONG ANSWER RATHER THAN A CRASH**: (1) the C# statement splitter treated ANY brace pair as
+  a block, so every `var x = new ProjectConfig { … };` was silently dropped and seven assertions went
+  undecoded; (2) an N# `assert` was split at the FIRST ` == ` in the line, which for a lint source
+  containing `if b == 0` cut the string literal in half and lost the whole claim; (3) the
+  FirstOrDefault-to-index resolution emitted `#Dependencies[0]` where the member walk emitted
+  `.Dependencies[0]`, so four rows missed on a single character; (4) `state["excludes"]` was shared
+  across N# blocks, so one test's `Exclude.Add` leaked into another test's route; (5) the C#
+  file-import tree scan used `[^,]+` for the path expression and could not span the comma inside
+  `Path.Combine(tempDir, "Models.nl")`, so half of every temp tree was invisible; (6) array
+  equalities were emitted with kind `names` on one side and `equal` on the other; and (7) a generic
+  member-binding rule intended for the N# decoder was applied to the C# decoder as well and
+  short-circuited both the FirstOrDefault and the GetSourceFiles resolutions.
+
+  **EIGHTEEN PERTURBATION CONTROLS MOVE THE VERDICT AND ALL EIGHTEEN PASS** — one migrating assert
+  deleted from each of the nine successor files that carry migrating rows, a whole N# `test`
+  declaration deleted (which unmatches **12** rows, not 1), two N# expected values changed, one C#
+  assert deleted, a whole C# `[Fact]` body deleted (**3** rows), two C# expected values changed and
+  one C# theory row repointed. The harness restores every perturbed file from a saved copy and
+  **re-verifies that the baseline verdict returns exactly** before it prints its result.
+
+  **AND THREE OF THOSE CONTROLS WERE REJECTED AND REPLACED RATHER THAN ACCEPTED.**
+    - Changing a reported COLUMN inside a census reported `DID NOT MOVE`. It is **non-observable by
+      construction**: the deleted file never asserted a span, so every positional row is 100% new
+      coverage. Replaced with a control that flips a reported CODE, which the C# does assert.
+    - Changing an example project's FILE COUNT reported `DID NOT MOVE`, for the same reason — `nlc
+      check`'s error count cannot see a discovery count. Replaced with a control that flips
+      `parseErrors`, which moves the routed column.
+    - "Delete a whole C# `[Fact]`" was written as a method RENAME, which the decoder still reads.
+      Replaced with a deletion of the fact's three assertions.
+    - **Two further controls exposed that a claim is stated TWICE in the successor** (the padded
+      assembly version, through both `.Equals` and `.ToString()`; the NL002 census, in both the
+      reporting case and its removal control). Deleting one statement left the row matched. Both
+      controls were widened to delete BOTH statements, and both then move.
+
+  ### THE STRICTLY-STRONGER DELTAS, BY WHAT THEY STATE
+
+  **NINE VALIDATION REFUSALS, WHERE THE DELETED FILE REACHED THREE.** `ValidateConfig` refuses an
+  output type, a backend, a test framework, an async default type, a language profile, a systems
+  mode, an unknown-external-calls policy, an AOT target and a stack budget — nine distinct sentences.
+  The deleted file wrote `Assert.Throws<InvalidOperationException>` three times, which cannot tell
+  one refusal from another: a parser that answered "Invalid backend" to every bad document would
+  have passed all three. All nine are stated as whole messages, the ORDER of the walk is stated with
+  a document that is wrong in two places at once, and a control document that sets every one of
+  those fields to a LEGAL value parses — so each refusal is decided by the value and not by the
+  section being present.
+
+  **AND THE FILE-NOT-FOUND FAMILY WAS ENTIRELY UNASSERTED.** `Parse` on a missing path, an `entry:`
+  naming a file that is not there, a `dll:` that is not there and a `project:` that is not there are
+  four different `FileNotFoundException`s carrying four different sentences — each naming both what
+  the user wrote and where it resolved to. No C# assertion ever produced one. All four are stated,
+  each with the accepting control beside it, and so is the asymmetry nothing had written down: a
+  `nuget:` and a `framework:` row are NOT checked against the disk, which is what makes a
+  restore-less `nlc check` work at all.
+
+  **THE GENERATED TEMPLATE IS PINNED WHOLE.** The deleted file asserted that seven substrings appear
+  somewhere in it. That is satisfied by a template with its lines in any order, with a duplicated
+  key, or with the whole commented-out dependency block gone. `nlc new` writes this file into every
+  project a user ever starts; it is now stated as one 24-line text, plus the fact that it contains
+  no `\r` — so it cannot become platform-dependent — and the round trip proves this parser accepts
+  what that generator writes.
+
+  **ALL TWELVE SKIPPED DIRECTORY NAMES, ONE AT A TIME, WITH FOUR KEPT NEIGHBOURS AS CONTROLS.** The
+  deleted file's tree exercised two of the twelve (`.worktrees` and `bin`). A row silently lost from
+  `ShouldSkipSourceDirectory` makes `nlc build` start compiling `obj/`, `node_modules/` or a nested
+  `.git` worktree. Each name is now its own row over the same tree, the ordinal-ignore-case
+  comparison is stated (`BIN`, `Obj`), and `server`, `docs`, `src` and `binaries` are shown to be
+  WALKED — the last of those being the name that would break a prefix match.
+
+  **THE GLOB ENGINE IS SEPARATED ARM BY ARM, AND SEPARATING IT FOUND A DIVERGENCE FROM MSBUILD.**
+  The deleted file reached the matcher through exactly one pattern. `*` is now shown not to cross a
+  directory separator, `?` to match exactly one character, a backslash to be normalised before
+  comparison (without which every `exclude:` silently stops working on Windows), and the pattern to
+  be matched case-SENSITIVELY while the directory skip list is case-INsensitive — two rules living
+  next to each other that nothing had ever compared. **And `**/name` does NOT match a root-level
+  `name/`**: the `**/` arm only retries after it has crossed a separator, where MSBuild's `**/`
+  matches zero directories as well as many. A user who writes `exclude: ["**/snapshots/*.nl"]` keeps
+  a root-level `snapshots/` in the build. It is PINNED rather than corrected, because changing what
+  an `exclude:` pattern means changes what every existing project compiles.
+
+  **THE COMPONENT KERNEL'S OVERFLOW BOUNDARY IS WALKED RATHER THAN SAMPLED.** The deleted file's
+  sweep looked at `2147483647` and `2147483648`; a kernel that rejected everything above `214748364`
+  would have passed both. The two-digit carry arm and the last-digit arm are separate branches and
+  are separated here, along with the `out` value on every rejection — which the C#'s `out _` could
+  not see, and which is the difference between a rejected version and a half-parsed one.
+
+  **`Reference.Validate` HAD NO DIRECT COVERAGE AT ALL.** Every C# assertion reached it only through
+  a `Parse` that happened to succeed. Its four arms, the rooted-versus-relative path resolution each
+  disk-backed arm performs, and the three "must have a value" refusals are stated — as is the
+  precedence between the four fields, which decides what a row naming two kinds means, and
+  `HasValue`, the predicate that drops an empty row before anything can throw from it.
+
+  **NINETEEN EXAMPLE PROJECTS BECOME A REQUIREMENT INSTEAD OF A SKIP.** Every one of the deleted
+  file's seventeen `nlc check` cases opened with `if (!Directory.Exists(projectPath)) return;` — a
+  corpus that had been moved or not checked out reported seventeen passes. The successor requires
+  all nineteen directories, pins each project's discovered file count, its zero parse errors and its
+  empty lint census, and pins the corpus totals (**19 directories, 77 files, 0 parse errors, empty
+  census**) so a project that silently stops discovering shows up as an arithmetic change rather
+  than a quiet one. **`12-multi-file-projects/TestExample` carries two `.nl` files and discovers
+  ONE**, because the other is a `.tests.nl` — a fact `nlc check`'s error count cannot see.
+
+  **AND ONE OF THE NINETEEN IS COVERED BY NOTHING ELSE IN THE REPOSITORY.** The gate's Step 10a
+  keeps an example directory only when it has a `project.yml` or a top-level `.nl` file.
+  `examples/11-advanced-features` has neither — its eight sources live in eight sub-directories — so
+  the gate skips it and the deleted `[Theory]` row was its only coverage. Deleting that row without
+  a successor would have been a real, silent coverage loss. It is stated.
+
+  **TWELVE OF EXAMPLELINTTESTS' EIGHTEEN SOURCE-STRING CASES ASSERTED ONLY ABSENCE, AND NINE OF
+  THOSE TWELVE RAN AGAINST AN ENTIRELY EMPTY DIAGNOSTIC LIST.** That is measured, not alleged: the
+  census of every one of those nine is `""`. A linter with the NL010 rule deleted outright would
+  have passed twelve of the eighteen. **Every absence claim in the successor therefore carries a
+  REMOVAL CONTROL** — the same source with the one usage that keeps the import alive taken out,
+  which must then report it at a stated line, column and length — and where the shape allows it, a
+  SIBLING control that shows the walk made a DISTINCTION rather than bailing out.
+
+  **AND THE CONTROLS CORRECTED THE DELETED FILE'S READING OF ITS OWN TESTS, TWICE.**
+    - `Lint_UnionMatchExhaustive_NoWarnings` carried NO IMPORT AT ALL, so its `DoesNotContain`
+      was true of a file with nothing to report. The contract it was reaching for — that a name used
+      inside a match ARM keeps its import alive — is stated as a pair: used in the arm, silent;
+      the arm's body replaced by a literal, reported.
+    - `NL010_MultipleImports_OnlyUnusedFlagged` asserted `nl010s.Count >= 1` plus one message
+      fragment. A lower bound cannot see that `System` is dead too, nor that
+      `System.Collections.Generic` is alive. All three imports are now stated at once.
+
+  **THE NL002 SQUIGGLE LANDS ON `new`, NOT ON THE TYPE NAME.** Stating the span is what found it:
+  `items := new List<int>()` reports NL002 at column 14 over three characters. It is pinned rather
+  than corrected, because moving a reported span changes what every editor draws.
+
+  **A FILE IMPORT'S SPAN COVERS THE QUOTED PATH, QUOTES INCLUDED** — a different length rule from
+  the namespace arm's bare name, and written down nowhere. Two file imports are shown to be tracked
+  separately, in both directions, so a linter that reported "some import is unused" whenever any was
+  would fail. **And an import naming a file that is not there is left ALONE**, the same conservative
+  arm the unknown-namespace rule takes: the control creates the file it names, changes nothing else,
+  and the import is then reported.
+
+  ### THE MUTATION PROOF — RUN AGAINST A VERIFIED GREEN BASELINE
+
+  **THE BASELINE WAS ESTABLISHED FIRST AND IT EARNED ITS PLACE.** With the test-inclusive restore in
+  place the unmutated tree reports **5,963 / `Failed: 0`**, so every verdict below is attributable.
+  Each mutation is a single-expression edit in a PRODUCTION owner; the harness records the file's
+  sha256 before it is touched, restores with `git checkout --`, re-checks the sha256, and **REFUSES
+  TO PRINT A VERDICT UNLESS THE RUN REPORTS A `Total:`** — a decline or a build failure is reported
+  as `*** NO TEST RUN — this verdict is NOT attributable ***` rather than as a clean green.
+
+  **FOURTEEN MUTATIONS IN SIX PRODUCTION OWNERS, EVERY VERDICT ATTRIBUTABLE (every run reports
+  `Total: 5963`, so the estate BUILT AND RAN in all fourteen), AND EVERY OWNER RESTORED
+  BYTE-IDENTICALLY to the sha256 recorded before it was touched.**
+
+  | mutation | owner | failures | whose |
+  |---|---|---|---|
+  | M1 — an unknown `outputType` stops being refused | `ProjectFileParser.nl` | **1 / 5963** | **ONLY this slice's own** |
+  | M2 — the generated template names a different target framework | `ProjectFileParser.nl` | **2 / 5963** | **ONLY this slice's own** |
+  | M3 — the empty-reference filter stops filtering | `ProjectFileParser.nl` | **1 / 5963** | **ONLY this slice's own** |
+  | M4 — the `bin` skip becomes case-sensitive and mis-ordered | `ProjectConfigModels.nl` | **3 / 5963** | **ONLY this slice's own** |
+  | M5c — the source walk stops descending into sub-directories | `ProjectConfigModels.nl` | **8 / 5963** | **ONLY this slice's own** |
+  | M6 — the `.tests.nl` suffix is measured one character short | `CompilerBootstrapServices.nl` | **9 / 5963** | **ONLY this slice's own** |
+  | M7 — a single `*` starts crossing directory separators | `CompilerBootstrapServices.nl` | **2 / 5963** | **ONLY this slice's own** |
+  | M8 — the component kernel starts accepting a leading `+` | `CompilerBootstrapServices.nl` | **1 / 5963** | **ONLY this slice's own** |
+  | M9 — build metadata after a `+` stops being cut | `AssemblyVersionUtilities.nl` | **1 / 5963** | **ONLY this slice's own** |
+  | M10 — the accepted component arity widens at both ends | `AssemblyVersionUtilities.nl` | **1 / 5963** | **ONLY this slice's own** |
+  | M11 — the reference-kind precedence puts `dll` before `nuget` | `Reference.nl` | **1 / 5963** | **ONLY this slice's own** |
+  | M12 — the dll refusal transposes the written value and the resolved path | `Reference.nl` | **2 / 5963** | **ONLY this slice's own** |
+  | M13 — the `System` type table loses `DateTime` | `LinterNamespaceImportUsage.nl` | **5 / 5963** | **ONLY this slice's own** |
+  | M14 — the NL002 sentence is reworded | `LinterMissingImport.nl` | **3 / 5963** | 1 this slice's own + 2 pre-existing siblings in `LinterMissingImport.tests.nl` |
+
+  **THIRTEEN OF THE FOURTEEN LAND ENTIRELY INSIDE DECLARATIONS THIS SLICE WROTE, WITH ZERO
+  COLLATERAL. 38 of the 40 failing declarations across all fourteen runs are this slice's own.**
+
+  **AND ONE MUTATION WAS AN EQUIVALENT MUTANT, WHICH WAS PROVEN AND REPLACED — TWICE.**
+    - **M5 — widening the walk's file mask from `"*.nl"` to `"*.n?"` fails NOTHING.** It is a genuine
+      equivalent mutant, not a coverage hole: every `.nl` file in every temp tree and in the whole
+      shipped corpus has the two-character extension `nl`, so the two masks select the same set. It
+      is not accepted as a result.
+    - **M5b, its first replacement, DECLINES TO EMIT.** `SearchOption.AllDirectories` is unmodeled in
+      this estate (`emit.statement.block-child`, node kind 23), so the harness reported
+      `NO TEST RUN — NOT attributable` instead of reading the decline as a green. **This is exactly
+      the failure mode the refuse-without-`Total:` rule exists for.**
+    - **M5c, the second replacement, is observable and sharp**: the walk stops descending into
+      sub-directories at all, and it fails **8 of 5,963** — including
+      `11-advanced-features`, whose eight sources ALL live in sub-directories.
+
+  **SEVEN OF THE FOURTEEN ARE STRICTLY-STRONGER PROOFS: the deleted C# would have passed them.**
+    - **M12** transposes the two halves of the dll refusal, so a developer is told
+      `DLL not found: <resolved absolute path> (resolved to <what they wrote>)`. The deleted file
+      never produced a `FileNotFoundException` at all, so **zero** of its 117 assertions could fail.
+    - **M9** cuts version metadata at `-` only. The deleted file's one metadata input
+      (`1.2.3-beta.1+build.5`) carries BOTH markers, so cutting at the `-` still yields `1.2.3` and
+      the C# passes. The successor's `1.2.3+build.5` row is what fails.
+    - **M10** widens the accepted arity to one-through-five components. No C# assertion looked at a
+      one- or five-part version.
+    - **M11** reverses the reference-kind precedence. Every C# `Reference` named exactly one field,
+      so the precedence was unobservable.
+    - **M3** stops the empty-reference filter from filtering. The C#'s one `Assert.Empty` on the
+      generated template is satisfied anyway, because the template's dependency block is COMMENTED
+      and produces no rows for the filter to drop.
+    - **M7** lets a single `*` cross directory separators. The C#'s one exclude pattern
+      (`Generated/*.nl`) excludes the same file either way.
+    - **M14** rewords the NL002 sentence. The deleted file asserted `d.Code == "NL002"` and never the
+      message, so it passes; the successor's whole-message row fails, and so do two pre-existing
+      estate siblings — which is layered coverage over the same sentence, not collateral.
+
+  **AND M13 IS THE PROOF THAT THE CORPUS SWEEP IS LIVE.** Removing `DateTime` from the `System`
+  type table fails **5 of 5,963** — one of them the namespace rule's own row, and **four of them the
+  examples corpus**: `16-task-cli`, `17-issue-tracker/backend`, the single-directory sweep and the
+  77-file corpus total all report NL010 on shipped example sources. That is precisely the regression
+  the deleted `nlc check` theories existed to catch, reproduced by a contract that cannot skip.
+
+  ### EVIDENCE
+
+  **Native estate 5,882 → 5,963 by COUNT DIFF (+81, the exact declarations added: 18 + 9 + 9 + 10 +
+  9 + 3 + 9 + 12 + 2)**, `Failed: 0`, under the restore-flag discipline (`-p:NSharpExcludeTests=false
+  --force-evaluate`, then `--no-restore`). **Unit 2,368 → 2,288 = exactly the 80 migrated xUnit
+  cases** (36 `[Fact]` + 27 `[Fact]` + 17 `[InlineData]` rows), `Failed: 0`. No native project is
+  added or changed, so the gate-equivalent native project count stays **33**.
+
+  **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files,
+  246 diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`),
+  **ZERO rows in any `.tests.nl`** and **ZERO naming a file this slice added**.
+
+  **The project-scoped format check reports "All files are properly formatted."** on the
+  BootstrapServices estate.
+
+  **Ownership audit 18 / 18 after correctly failing 17 / 18 pre-repin with exactly ONE violation** —
+  `OWN008: reviewedHeadFingerprint does not match canonical current ceilings and states; observed
+  head-v1:a5eb225ff4face49`, **the exact value a Python replica of `OwnershipFacts` had computed
+  BEFORE the audit ran**, so the audit CHECKED the arithmetic rather than supplying it. The replica
+  was **VALIDATED AGAINST THE PRISTINE MANIFEST AT HEAD FIRST**: it reproduced all three stored
+  fingerprints (pathset `8a26e1529863444b`, epoch facts `1b3090747e517fc1`, head `95ab072194454479`)
+  before a single row was edited. The two ratchet rows become **`state: removed`, `currentLines` /
+  `NonBlank` / `AssertionMarkers` → 0 / 0 / 0, `text-v1:removed`** — `903/779/156` and `670/580/56`
+  zeroed while their **immutable epoch ceilings stay untouched**; the two-key head repinned LAST,
+  **`95ab072194454479` → `a5eb225ff4face49`**, in the JSON header AND the
+  `OwnershipPolicy.ReviewedHeadFingerprint` constant; manifest **391 lines**, no BOM, trailing
+  newline intact, and the whole ratchet diff is **exactly three changed lines in the JSON plus the
+  one constant**. `epochPathFingerprint` and `epochFactFingerprint` are unchanged, as a pure removal
+  must leave them, and the repin script asserts both before it writes. **The manifest is edited LINE
+  BY LINE rather than round-tripped through a JSON dump** — an early attempt at the latter reflowed
+  all 381 rows from 391 lines to 6,106 and was reverted.
+
+  **The dead sweep corrected TWO live documentation files.** `memory/testing.md` carried the
+  measurement that made this cluster interesting in the first place — "the 6 `if
+  (!Directory.Exists(…)) return;` guards in `ExampleLintTests.cs` are RUNTIME conditions a static
+  `skip "reason"` cannot express" — and that sentence is now false, so the skip row records that the
+  file is gone and its successor REQUIRES the corpus. Two bullets were added for the `project.yml`
+  owners and the examples corpus, and `memory/components/cli-toolchain.md` gained seven rows in the
+  code-intelligence coverage table. No other file under `memory/` or `docs/` names either deleted
+  file, and the only live mentions anywhere are the successors' own provenance headers.
+
+  **AND ONE ENVIRONMENTAL FAILURE MODE WAS HIT AND HANDLED RATHER THAN MISREAD.** The mutation
+  harness's first run used a bare `dotnet test --no-restore` after each `git checkout --`, and every
+  one of the fourteen runs — INCLUDING THE BASELINE — returned **exit 0 with ZERO output**, the known
+  silent abort. Because the harness refuses a verdict without a `Total:` line, all fourteen were
+  reported as NOT ATTRIBUTABLE instead of as fourteen clean greens. The fix is a test-inclusive
+  restore before every run (4m 19s per cycle instead of 40s), and the rerun produced the table above.
+
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY** (the repo root carries
+  EIGHT nested `.claude/worktrees/*` checkouts belonging to other sessions, and a duplicate benchmark
+  project under the repo root breaks the BDN Systems gate in place, so the copy excludes them and
+  nothing else — verified by listing `/private/tmp/nl020s15gate/.claude/worktrees`, which does not
+  exist, and `/private/tmp/nl020s15gate/.git`, which does, and by counting benchmark projects inside
+  the copy, which is 0), **IS `ALL TESTS PASSED! ✓` IN 18m 41s WITH 113 GREEN STEPS AND ZERO
+  FAILURES** (`GATE EXIT 0`). Its banner reads `Fresh isolated test run required: pre-commit
+  verification / Existing cache entries will not satisfy this invocation`, so no cached whole-gate or
+  per-step result was accepted. Inside it: unit **2,288** (`Failed: 0`, 4m 45s), the estate **5,963**
+  (`Failed: 0`), **all 33 native projects green** plus the compiler-service contracts step, the Step
+  2b format contract gate and the Step 10b ECMA-335 IL verification gate. Step timings: compiler
+  build 2m 21s, unit tests 6m 47s, native tests 4m 45s, SDK pack and install 4m 23s. **The verdict is
+  read from the LOG's `ALL TESTS PASSED` line and the driver's `GATE EXIT 0`, and the byte-copy's
+  contents were checked directly — the two deleted C# clusters absent (0 of 2 found) and all seven
+  new estate successors present — not from `pgrep`, which in slice 12 matched the watcher's own
+  command string.** The gate ran against a byte-copy of the code tree; the only file edited
+  afterwards is this one, which is prose and is not an input to any compile step.
+
+  **Task 020 stays UNCHECKED and `tasks/README.md` is NOT edited** — the slice-12 triage's bucket (a)
+  is still NOT empty after this batch (the ranked remainder is below), and the closing rule requires
+  both an empty bucket (a) and an N#-owned runner surface. **NOT COMMITTED — the mandate reserves
+  that.**
+
+  ### THE UPDATED BUCKET-(a) QUEUE
+
+  Both remaining cheap ranks are spent, and the remainder re-ranks:
+
+  | rank | file | L | cases | route | why it is priced there |
+  |---|---|---|---|---|---|
+  | 1 | `ParserErrorTests.cs` | 1,914 | 91 | estate | pure source-in; the recovery parser, the golden-AST route and the diagnostic machinery all already exist in the estate. **Over the ~1,600-line cap, so it is a batch of its own or a two-part split** |
+  | 2 | `ParserTests.cs` | 6,087 | 212 | estate | pure source-in and very large; the whole-tree golden route is proven. Needs its own multi-slice plan — a natural split is by declaration family |
+  | 3 | the native-route set | — | — | `tests/native/*` | `AnalyzerTests` (13,451 / 816), `AnalyzerSemanticModelTests`, `AnalyzerBindingMapTests`, `QueryIntegrationTests`, `SystemsNSharpTests`, `PlaygroundCompilerTests`, and the split remainders of `ErrorHandlingTests` / `EventSubscriptionTests` / `AstNodeFinderTests` |
+
+  **AND THIS SLICE MEASURED THE BOUNDARY THAT DECIDES RANK 3, WHICH THE EARLIER TRIAGES HAD LEFT AS
+  AN ASSUMPTION.** The estate is the BOTTOM of the dependency graph: `NSharpLang.Compiler` references
+  `NSharpLang.Compiler.BootstrapServices`, never the reverse, and the estate's `project.yml` carries
+  only two NuGet dependencies. So **no estate `.tests.nl` can ever reach `Analyzer`,
+  `SemanticModel`, `BindingMap`, `CodeIntelligenceService`, `MultiFileCompiler` or any CLI command** —
+  every remaining cluster whose subject is one of those must go through a `tests/native/*` project
+  that references `Compiler.dll` (the shape `tests/native/completion-engine`, `doc-query` and
+  `query-completions` already use). Ranks 1 and 2 are the last two pure-estate clusters of any size.
+
+  **WHAT AN ESTATE CONTRACT *CAN* DO WITH A COMPILER-OWNED PHASE, PROVED HERE**: it can state every
+  phase the estate itself owns over the SAME inputs, at full fidelity, by calling the very entry
+  points the compiler calls (`MultiFileCompilerInputBuilder.BuildFromProject`,
+  `ColumnarParserRecovery.ParseFileAst`, `LinterConfig.FromEditorConfig` + `Linter.Lint`), and hand
+  the residual phase to the product gate with the coverage stated explicitly. That is what the
+  nineteen example projects do here, and it is the pattern rank 3 should reach for before a new
+  native project is added.
+
+  **`Program.Testing.cs` IS STILL 618 AND STILL UNOPENED.** Task 020's closing rule needs BOTH an
+  empty bucket (a) and an N#-owned runner surface; bucket (a) has three entries left, so **task 020
+  stays UNCHECKED and `tasks/README.md` is NOT edited.**
+
+- Active sub-slice (020 arc, PRIOR TURN — **SLICE 14 SPENDS THE WHOLE REMAINING CHEAP BUCKET-(a)
   HEAD: `FixApplicatorTests.cs` + `LinterUnusedVariableTests.cs` + `DiagnosticGoldenTests.cs`,
   1,329 C# LINES AND 62 xUnit CASES, ALL THREE TERMINALLY DELETED.**)
 

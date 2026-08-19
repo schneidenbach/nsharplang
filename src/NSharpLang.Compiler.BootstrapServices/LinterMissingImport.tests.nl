@@ -598,3 +598,80 @@ test "the suggestion is composed from the namespace the decision returned, never
 
     assert LinterMissingImport.Message(name) == "I can't find 'JsonSerializer' — it looks like a missing import"
 }
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// END-TO-END NL002 CONTRACTS OVER REAL SOURCE (020 slice 15)
+//
+// These came out of `tests/ExampleLintTests.cs`, which is deleted. That file asked three questions:
+// `List` without `import System.Collections.Generic` reports, `List` with it does not, and
+// `StringBuilder` without `import System.Text` reports.
+//
+// THE MIDDLE ONE WAS THE ONLY NON-VACUOUS HALF OF A PAIR AND IT HAD NO PARTNER. Its census is
+// stated whole below, next to the removal control that makes it mean something, and the two
+// reporting cases now state WHERE the squiggle lands — which turns out to be a fact nothing had
+// ever written down.
+
+func LmieCensus(source: string): string {
+    parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
+    unit := parsed.CompilationUnit
+    if unit == null {
+        throw new InvalidOperationException("the parser answered no compilation unit for: " + source)
+    }
+
+    if parsed.Errors.Count != 0 {
+        throw new InvalidOperationException("the source did not parse cleanly: " + source)
+    }
+
+    linter := new Linter(LinterConfig.Default())
+    diagnostics := linter.Lint(unit, "test.nl", source)
+    census := ""
+    for diagnostic in diagnostics {
+        census = census + diagnostic.Code + "@" + diagnostic.Location.Line.ToString() + ":" + diagnostic.Location.Column.ToString() + "+" + diagnostic.Length.ToString() + ";"
+    }
+
+    return census
+}
+
+func LmieMessages(source: string): string {
+    parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
+    unit := parsed.CompilationUnit
+    if unit == null {
+        throw new InvalidOperationException("the parser answered no compilation unit for: " + source)
+    }
+
+    linter := new Linter(LinterConfig.Default())
+    diagnostics := linter.Lint(unit, "test.nl", source)
+    census := ""
+    for diagnostic in diagnostics {
+        census = census + diagnostic.Code + "|" + diagnostic.Message + ";"
+    }
+
+    return census
+}
+
+test "A CONSTRUCTED TYPE WITH NO IMPORT REPORTS NL002 — AND THE SPAN IS THE `new` KEYWORD" {
+    // The deleted file asked only whether an NL002 exists. The span is stated here, and stating it
+    // is what found that the squiggle covers `new` (column 14, three characters) rather than the
+    // type name it is complaining about. That is pinned rather than corrected: moving a reported
+    // span changes what every editor draws and is a product decision, not a test migration.
+    listSource := "\nfunc main() {\n    items := new List<int>()\n    x := items\n}"
+    assert LmieCensus(listSource) == "NL002@3:14+3;NL001@4:5+1;"
+    assert LmieMessages(listSource) == "NL002|I can't find 'List' — it looks like a missing import;NL001|Variable 'x' is declared but never read;"
+
+    builderSource := "\nfunc main() {\n    sb := new StringBuilder()\n    x := sb\n}"
+    assert LmieCensus(builderSource) == "NL002@3:11+3;NL001@4:5+1;"
+    assert LmieMessages(builderSource) == "NL002|I can't find 'StringBuilder' — it looks like a missing import;NL001|Variable 'x' is declared but never read;"
+}
+
+test "the import silences NL002, and REMOVING IT BRINGS THE SAME DIAGNOSTIC BACK" {
+    // The absence claim, stated as a whole census so an unrelated diagnostic cannot hide inside it.
+    assert LmieCensus("\nimport System.Collections.Generic\n\nfunc main() {\n    items := new List<int>()\n    x := items\n}") == "NL001@6:5+1;"
+
+    // REMOVAL CONTROL: the identical body with the import line taken out. The NL001 moves up two
+    // lines with the text and the NL002 appears, so the silence above is the import doing its job.
+    assert LmieCensus("\nfunc main() {\n    items := new List<int>()\n    x := items\n}") == "NL002@3:14+3;NL001@4:5+1;"
+
+    // And the same for System.Text, which the deleted file only ever asked in the reporting
+    // direction.
+    assert LmieCensus("\nimport System.Text\n\nfunc main() {\n    sb := new StringBuilder()\n    x := sb\n}") == "NL001@6:5+1;"
+}
