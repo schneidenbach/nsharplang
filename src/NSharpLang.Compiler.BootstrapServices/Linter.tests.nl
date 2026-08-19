@@ -1058,3 +1058,343 @@ test "EVERY ONE OF THE TEN RULES REPORTS AT ERROR SEVERITY BY DEFAULT" {
     assert LntFirstOf(LntLint("\nfunc Main() {\n    if [1, 2, 3] != null {\n        x := 5\n    }\n}"), "NL016").Severity == DiagnosticSeverity.Error
     assert LntFirstOf(LntLint("\nfunc main() {\n    x := 5\n    if true {\n        x := 10\n        y := x + 1\n    }\n}"), "NL020").Severity == DiagnosticSeverity.Error
 }
+
+// ── NL001 AND NL012 POSITIONS, AND THE SUBTREES THE USAGE WALK MUST REACH ─────────────────────
+//
+// These replace `tests/LinterUnusedVariableTests.cs`, the last canonical C# assertion layer over the
+// linter's unused-binding rules. The subject is the public `Linter.Lint` entry end to end: source
+// in, positioned diagnostics out, through `LinterWalk.nl`, `LinterWalkState.nl`,
+// `LinterInterpolationScan.nl` and `LinterBindingUsageCore.nl`.
+//
+// THE ONE STRUCTURAL WEAKNESS OF THE DELETED FILE, AND WHAT REPLACES IT. Nineteen of its
+// twenty-three cases asserted only `Assert.DoesNotContain(diagnostics, d => …)`. That is the weakest
+// assertion form there is: **a linter that reported nothing at all would have passed every one of
+// them.** It is not a hypothetical — the census below shows that EIGHTEEN of those nineteen sources
+// lint to an entirely EMPTY diagnostic list, so most of the suite was satisfied by silence. The one
+// exception is the raw-string case, and its single diagnostic is one the assertion never mentioned.
+//
+// EVERY NEGATIVE CLAIM HERE THEREFORE CARRIES A CONTROL, and the controls come in two kinds:
+//
+//   * A REMOVAL CONTROL takes the same source and deletes only the read. If the variable is then
+//     reported — at a stated line, column and length — the original silence was a credited read and
+//     not an absent rule.
+//   * A SIBLING CONTROL adds a genuinely unused variable ALONGSIDE the credited one. If the sibling
+//     is reported while the credited one is not, the walk reached the subtree and made a
+//     DISTINCTION, rather than bailing out of the enclosing function.
+//
+// The whole diagnostic list is stated in both directions, so an extra diagnostic is a failure too.
+//
+// AND ONE CLAIM THE DELETED FILE GOT ACCIDENTALLY RIGHT FOR THE WRONG REASON. Its raw-string case
+// asserted that `value` is not reported. It is not — but `message`, the variable HOLDING the raw
+// string, IS reported, and `DoesNotContain("'value'")` is equally happy either way. Stated below as
+// the two-diagnostic answer it actually is.
+
+func LnuCensus(diagnostics: List<Diagnostic>): string {
+    census := ""
+    for diagnostic in diagnostics {
+        census = census + diagnostic.Code + "@" + diagnostic.Location.Line.ToString() + ":" + diagnostic.Location.Column.ToString() + "+" + diagnostic.Length.ToString() + ";"
+    }
+
+    return census
+}
+
+func LnuCensusOf(sourceText: string): string {
+    return LnuCensus(LntLint(sourceText))
+}
+
+// The text the reported span actually covers, taken out of the source the linter was given. A
+// line/column/length triple that does not land on the identifier is a squiggle in the wrong place.
+func LnuSpanText(sourceText: string, diagnostic: Diagnostic): string {
+    lines := sourceText.Split('\n')
+    line := lines[diagnostic.Location.Line - 1]
+    start := diagnostic.Location.Column - 1
+    if start < 0 || start + diagnostic.Length > line.Length {
+        return "<out of range>"
+    }
+
+    return line.Substring(start, diagnostic.Length)
+}
+
+// The tree the parser produces when it recovers from a broken array length: everything is real
+// except the length expression, which is the `<error>` placeholder. No source text produces this on
+// its own, because a real parse reports the syntax error alongside it.
+func LnuPlaceholderUnit(lengthName: string): CompilationUnit {
+    statements := new List<Statement>()
+    statements.Add(new VariableDeclarationStatement(
+        "arr",
+        null,
+        new NewExpression(
+            new ArrayTypeReference(new SimpleTypeReference("int", 0, 0)),
+            new List<Argument>(),
+            null,
+            2,
+            15,
+            new IdentifierExpression(lengthName, 2, 23)),
+        VariableKind.Let,
+        2,
+        9))
+
+    declarations := new List<Declaration>()
+    declarations.Add(new FunctionDeclaration(
+        "main",
+        new List<Parameter>(),
+        null,
+        new BlockStatement(statements, 1, 13),
+        null,
+        null,
+        null,
+        Modifiers.None,
+        new List<AttributeNode>(),
+        false,
+        null,
+        false,
+        false,
+        1,
+        1))
+
+    return new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+}
+
+// ── the reported position ─────────────────────────────────────────────────────────────────────
+
+// Successor to UnusedVariable_DiagnosticPointsToVariableName_NotKeyword,
+// UnusedVariable_InferredDeclaration_DiagnosticPointsToVariableName and
+// UnusedVariable_ShorthandDeclaration_DiagnosticPointsToVariableName.
+test "NL001's squiggle covers the variable NAME, whichever form declared it" {
+    letSource := "func main() { let unused = 42 }"
+    letDiagnostic := LntSingleOf(LntLint(letSource), "NL001")
+    assert letDiagnostic.Location.Line == 1
+    assert letDiagnostic.Location.Column == 19
+    assert letDiagnostic.Length == "unused".Length
+
+    inferredSource := "func main() { unused := 42 }"
+    inferredDiagnostic := LntSingleOf(LntLint(inferredSource), "NL001")
+    assert inferredDiagnostic.Location.Line == 1
+    assert inferredDiagnostic.Location.Column == 15
+    assert inferredDiagnostic.Length == "unused".Length
+
+    shorthandSource := "func main() {\n    asdf := \"meow\"\n}"
+    shorthandDiagnostic := LntSingleOf(LntLint(shorthandSource), "NL001")
+    assert shorthandDiagnostic.Location.Line == 2
+    assert shorthandDiagnostic.Location.Column == 5
+    assert shorthandDiagnostic.Length == "asdf".Length
+
+    // NOT IN THE DELETED FILE: the triple is checked AGAINST THE SOURCE. Three numbers can be
+    // individually right and still name a span that lands on a keyword — the deleted file asserted
+    // that `19` is the column and separately that `6` is the length, and never that the two of them
+    // together cover the word `unused`. A one-column drift would have been invisible.
+    assert LnuSpanText(letSource, letDiagnostic) == "unused"
+    assert LnuSpanText(inferredSource, inferredDiagnostic) == "unused"
+    assert LnuSpanText(shorthandSource, shorthandDiagnostic) == "asdf"
+
+    // And each source produces exactly one diagnostic and nothing else.
+    assert LnuCensusOf(letSource) == "NL001@1:19+6;"
+    assert LnuCensusOf(inferredSource) == "NL001@1:15+6;"
+    assert LnuCensusOf(shorthandSource) == "NL001@2:5+4;"
+}
+
+// Successor to TrulyUnusedVariable_ShouldBeDetected.
+test "a genuinely unused variable is still reported, beside code that does read" {
+    source := "func main() { let unused = 42; print(\"hello\") }"
+    diagnostic := LntSingleOf(LntLint(source), "NL001")
+
+    assert diagnostic.Message.Contains("'unused'")
+    assert LnuSpanText(source, diagnostic) == "unused"
+    assert LnuCensusOf(source) == "NL001@1:19+6;"
+}
+
+// ── string interpolation ──────────────────────────────────────────────────────────────────────
+
+// Successor to VariableUsedInStringInterpolation_ShouldNotBeMarkedUnused.
+test "a variable read inside an interpolated string is read" {
+    assert LnuCensusOf("func main(): void\n    let name = \"Alice\"\n    print($\"Hello {name}\")") == ""
+
+    // REMOVAL CONTROL: drop the hole and `name` is reported at its own position. Without this the
+    // claim above is satisfied by a linter with no NL001 rule at all.
+    assert LnuCensusOf("func main(): void\n    let name = \"Alice\"\n    print(\"Hello\")") == "NL001@2:9+4;"
+
+    // SIBLING CONTROL: an unused neighbour is still reported while `name` is not, so the scan made a
+    // distinction rather than crediting everything in the function.
+    assert LnuCensusOf("func main(): void\n    let name = \"Alice\"\n    let spare = 1\n    print($\"Hello {name}\")") == "NL001@3:9+5;"
+}
+
+// Successor to VariableUsedInInterpolatedRawString_ShouldNotBeMarkedUnused.
+test "a variable read inside an interpolated RAW string is read, and its holder is not" {
+    // THE DELETED FILE ASKED THE WRONG QUESTION AND GOT THE RIGHT ANSWER. It asserted only that
+    // `value` is absent. It is — but `message`, which holds the raw string and is never read, IS
+    // reported, and `DoesNotContain("'value'")` cannot tell the two apart. The whole answer:
+    assert LnuCensusOf("func main(): void\n    let value = 42\n    let message = $\"\"\"\n        The value is {value}\n    \"\"\"") == "NL001@3:9+7;"
+
+    // REMOVAL CONTROL: with the hole replaced by a literal, BOTH are reported — so the single
+    // diagnostic above is exactly one credited read, not a raw string the scanner skipped whole.
+    assert LnuCensusOf("func main(): void\n    let value = 42\n    let message = $\"\"\"\n        The value is 42\n    \"\"\"") == "NL001@2:9+5;NL001@3:9+7;"
+}
+
+// Successor to MultipleVariablesInStringInterpolation_ShouldNotBeMarkedUnused.
+test "every hole of a multi-hole interpolation credits its own variable" {
+    assert LnuCensusOf("func main(): void\n    let first = \"John\"\n    let last = \"Doe\"\n    let age = 30\n    print($\"{first} {last} is {age} years old\")") == ""
+
+    // REMOVAL CONTROL, AND IT IS PER-HOLE. Dropping only the `{age}` hole reports only `age`, so the
+    // scan credits each hole separately rather than crediting every name in the file once it finds
+    // any interpolation at all.
+    assert LnuCensusOf("func main(): void\n    let first = \"John\"\n    let last = \"Doe\"\n    let age = 30\n    print($\"{first} {last} is old\")") == "NL001@4:9+3;"
+}
+
+// ── loops ─────────────────────────────────────────────────────────────────────────────────────
+
+// Successor to LoopVariable_Foreach_ShouldNotBeMarkedUnused.
+test "a foreach loop variable is exempt from NL001 by construction, not by being read" {
+    assert LnuCensusOf("func main(): void\n    let numbers = [1, 2, 3]\n    foreach (num in numbers)\n        print(num)") == ""
+
+    // THE CONTROL CORRECTS THE DELETED FILE'S READING OF ITS OWN TEST. It claimed `num` is silent
+    // because the body reads it. Remove the read and `num` is STILL silent — a loop variable is
+    // exempt the way a parameter is exempt, and the exemption is what the assertion was really
+    // measuring. `numbers`, by contrast, is credited by the loop header: it is reported the moment
+    // the loop stops reading it.
+    assert LnuCensusOf("func main(): void\n    let numbers = [1, 2, 3]\n    foreach (num in numbers)\n        print(1)") == ""
+}
+
+// Successor to VariableUsedInForeachBody_ShouldNotBeMarkedUnused.
+test "a variable read only inside a foreach BODY is read" {
+    assert LnuCensusOf("func main(): void\n    let multiplier = 2\n    let numbers = [1, 2, 3]\n    foreach (num in numbers)\n        print(num * multiplier)") == ""
+
+    // REMOVAL CONTROL: the body stops reading `multiplier` and it is reported, so the walk descends
+    // into the loop body rather than treating the whole loop as opaque.
+    assert LnuCensusOf("func main(): void\n    let multiplier = 2\n    let numbers = [1, 2, 3]\n    foreach (num in numbers)\n        print(num)") == "NL001@2:9+10;"
+}
+
+// Successor to ForLoop_LoopVariableShouldNotBeMarkedUnused.
+test "a for-loop variable is exempt too" {
+    assert LnuCensusOf("func main(): void\n    for (let i = 0; i < 10; i++)\n        print(i)") == ""
+
+    // SIBLING CONTROL: a plain local beside the loop is still reported, so the loop does not silence
+    // the enclosing scope.
+    assert LnuCensusOf("func main(): void\n    for (let i = 0; i < 10; i++)\n        print(i)\n    let spare = 1") == "NL001@4:9+5;"
+}
+
+// ── call chains ───────────────────────────────────────────────────────────────────────────────
+
+// Successor to VariableUsedInLINQChain_ShouldNotBeMarkedUnused.
+test "a variable read through a LINQ chain is read" {
+    assert LnuCensusOf("func main(): void\n    let numbers = [1, 2, 3, 4, 5]\n    let doubled = numbers.Select(x => x * 2).ToList()\n    Console.WriteLine(doubled)") == ""
+
+    // REMOVAL CONTROL: only the final read of `doubled` is dropped. `numbers` stays silent because
+    // the chain still reads it, so one source separates the two claims the deleted file made
+    // together.
+    assert LnuCensusOf("func main(): void\n    let numbers = [1, 2, 3, 4, 5]\n    let doubled = numbers.Select(x => x * 2).ToList()\n    Console.WriteLine(1)") == "NL001@3:9+7;"
+}
+
+// Successor to VariableUsedInMethodChain_ShouldNotBeMarkedUnused.
+test "a variable read through a method chain is read" {
+    assert LnuCensusOf("func main(): void\n    let text = \"hello\"\n    let result = text.ToUpper().Trim()\n    print(result)") == ""
+
+    assert LnuCensusOf("func main(): void\n    let text = \"hello\"\n    let result = text.ToUpper().Trim()\n    print(1)") == "NL001@3:9+6;"
+}
+
+// ── test declarations ─────────────────────────────────────────────────────────────────────────
+
+// Successor to VariableUsedInAssertCondition_ShouldNotBeMarkedUnused.
+test "a variable read by an assert CONDITION is read" {
+    assert LnuCensusOf("test \"assert reads locals\" {\n    first := CreateIssue(\"First\")\n    second := CreateIssue(\"Second\")\n\n    assert first.Id == 1\n    assert second.Id == 2\n}") == ""
+
+    // REMOVAL CONTROL: drop the second assert and only `second` is reported — the conditions are
+    // walked one at a time, not as a block that credits everything once any assert is present.
+    assert LnuCensusOf("test \"assert reads locals\" {\n    first := CreateIssue(\"First\")\n    second := CreateIssue(\"Second\")\n\n    assert first.Id == 1\n}") == "NL001@3:5+6;"
+}
+
+// Successor to VariableUsedInAssertMessage_ShouldNotBeMarkedUnused.
+test "a variable read by an assert MESSAGE is read" {
+    assert LnuCensusOf("test \"assert reads message\" {\n    expectedMessage := \"should be true\"\n\n    assert true, expectedMessage\n}") == ""
+
+    // REMOVAL CONTROL: the message operand is a SECOND slot on the assert, and dropping it alone
+    // reports the variable. Without this the claim is satisfied by a walk that never looks at either
+    // operand.
+    assert LnuCensusOf("test \"assert reads message\" {\n    expectedMessage := \"should be true\"\n\n    assert true\n}") == "NL001@2:5+15;"
+}
+
+// Successor to VariableUsedInAssertThrowsBody_ShouldNotBeMarkedUnused.
+test "a variable read inside an assert throws BODY is read" {
+    assert LnuCensusOf("test \"assert throws reads locals\" {\n    value := \"bad\"\n\n    assert throws InvalidOperationException {\n        ThrowIfInvalid(value)\n    }\n}") == ""
+
+    assert LnuCensusOf("test \"assert throws reads locals\" {\n    value := \"bad\"\n\n    assert throws InvalidOperationException {\n        ThrowIfInvalid(\"bad\")\n    }\n}") == "NL001@2:5+5;"
+}
+
+// ── the subtrees the expression walk used to drop ─────────────────────────────────────────────
+//
+// Each of these was a FALSE NL001 or NL012 before the walk routed its default arm through
+// `AstChildrenCore`, because the enclosing expression had no case of its own and its children were
+// never visited. A regression here is a diagnostic against correct code, which is the worst thing a
+// linter can do — so each one carries BOTH controls.
+
+// Successor to VariableUsedOnlyAsArrayLength_ShouldNotBeMarkedUnused.
+test "a variable read only as an ARRAY LENGTH is read" {
+    assert LnuCensusOf("\nfunc main() {\n    n := 4\n    arr := new int[n]\n    print arr.Length\n}") == ""
+
+    // REMOVAL CONTROL: a literal length, and `n` is reported.
+    assert LnuCensusOf("\nfunc main() {\n    n := 4\n    arr := new int[4]\n    print arr.Length\n}") == "NL001@3:5+1;"
+
+    // SIBLING CONTROL: the walk reaches the length slot AND still reports an unused neighbour.
+    assert LnuCensusOf("\nfunc main() {\n    n := 4\n    spare := 7\n    arr := new int[n]\n    print arr.Length\n}") == "NL001@4:5+5;"
+}
+
+// Successor to VariableUsedOnlyAsStackallocLength_ShouldNotBeMarkedUnused.
+test "a variable read only as a STACKALLOC LENGTH is read" {
+    assert LnuCensusOf("\nfunc main() {\n    len := 16\n    scratch := stackalloc byte[len]\n    print scratch.Length\n}") == ""
+    assert LnuCensusOf("\nfunc main() {\n    len := 16\n    scratch := stackalloc byte[16]\n    print scratch.Length\n}") == "NL001@3:5+3;"
+    assert LnuCensusOf("\nfunc main() {\n    len := 16\n    spare := 7\n    scratch := stackalloc byte[len]\n    print scratch.Length\n}") == "NL001@4:5+5;"
+}
+
+// Successor to VariableUsedOnlyUnderAllocMarker_ShouldNotBeMarkedUnused.
+test "a variable read only under an ALLOC marker is read" {
+    assert LnuCensusOf("\nfunc main() {\n    n := 4\n    arr := alloc new byte[n]\n    print arr.Length\n}") == ""
+    assert LnuCensusOf("\nfunc main() {\n    n := 4\n    arr := alloc new byte[4]\n    print arr.Length\n}") == "NL001@3:5+1;"
+    assert LnuCensusOf("\nfunc main() {\n    n := 4\n    spare := 7\n    arr := alloc new byte[n]\n    print arr.Length\n}") == "NL001@4:5+5;"
+}
+
+// Successor to VariableUsedOnlyAsIndexerInitializerKey_ShouldNotBeMarkedUnused.
+test "a variable read only as an INDEXER-INITIALIZER KEY is read" {
+    assert LnuCensusOf("\nimport System.Collections.Generic\n\nfunc main() {\n    key := \"one\"\n    dict := new Dictionary<string, int> {\n        [key] = 1\n    }\n    print dict.Count\n}") == ""
+    assert LnuCensusOf("\nimport System.Collections.Generic\n\nfunc main() {\n    key := \"one\"\n    dict := new Dictionary<string, int> {\n        [\"one\"] = 1\n    }\n    print dict.Count\n}") == "NL001@5:5+3;"
+    assert LnuCensusOf("\nimport System.Collections.Generic\n\nfunc main() {\n    key := \"one\"\n    spare := 7\n    dict := new Dictionary<string, int> {\n        [key] = 1\n    }\n    print dict.Count\n}") == "NL001@6:5+5;"
+}
+
+// Successor to VariableUsedOnlyInOnSubscriptionHandler_ShouldNotBeMarkedUnused.
+test "a variable read only inside an ON-SUBSCRIPTION handler is read" {
+    assert LnuCensusOf("\nclass Button {\n    event Clicked: System.EventHandler\n}\n\nfunc main() {\n    message := \"clicked\"\n    button := new Button()\n    on button.Clicked (sender, args) => {\n        print message\n    }\n}") == ""
+    assert LnuCensusOf("\nclass Button {\n    event Clicked: System.EventHandler\n}\n\nfunc main() {\n    message := \"clicked\"\n    button := new Button()\n    on button.Clicked (sender, args) => {\n        print \"clicked\"\n    }\n}") == "NL001@7:5+7;"
+    assert LnuCensusOf("\nclass Button {\n    event Clicked: System.EventHandler\n}\n\nfunc main() {\n    message := \"clicked\"\n    spare := 7\n    button := new Button()\n    on button.Clicked (sender, args) => {\n        print message\n    }\n}") == "NL001@8:5+5;"
+}
+
+// Successor to ParameterUsedOnlyInStackallocLength_ShouldNotBeMarkedUnread and
+// ParameterUsedOnlyAsArrayLength_ShouldNotBeMarkedUnread.
+test "a PARAMETER read only as a stackalloc or array length is read" {
+    assert LnuCensusOf("\nfunc Scratch(size: int): int {\n    scratch := stackalloc byte[size]\n    return scratch.Length\n}") == ""
+    assert LnuCensusOf("\nfunc Make(count: int): int {\n    arr := new int[count]\n    return arr.Length\n}") == ""
+
+    // REMOVAL CONTROLS — and these report NL012, not NL001, which is the whole reason a parameter
+    // needs its own pair of claims. The deleted file asserted the ABSENCE of NL012 and never once
+    // showed the rule firing on these shapes.
+    assert LnuCensusOf("\nfunc Scratch(size: int): int {\n    scratch := stackalloc byte[16]\n    return scratch.Length\n}") == "NL012@2:14+1;"
+    assert LnuCensusOf("\nfunc Make(count: int): int {\n    arr := new int[4]\n    return arr.Length\n}") == "NL012@2:11+1;"
+
+    // SIBLING CONTROLS: a second, genuinely unread parameter is reported while the credited one is
+    // not, so the length slot credits one parameter rather than the whole signature.
+    assert LnuCensusOf("\nfunc Scratch(size: int, spare: int): int {\n    scratch := stackalloc byte[size]\n    return scratch.Length\n}") == "NL012@2:25+1;"
+    assert LnuCensusOf("\nfunc Make(count: int, spare: int): int {\n    arr := new int[count]\n    return arr.Length\n}") == "NL012@2:23+1;"
+}
+
+// ── the parser-error placeholder ──────────────────────────────────────────────────────────────
+
+// Successor to ParserErrorPlaceholder_InArrayLength_SuppressesUnusedVariableFollowOn.
+test "a parser-error placeholder in an array length suppresses the unused-variable follow-on" {
+    // A file that failed to parse must not also be told its variables are unused: the reads the
+    // parser could not recover are exactly the reads the linter cannot see. This unit is built by
+    // hand because no source text produces it — a real parse would report the syntax error too.
+    assert LnuCensus(new Linter().Lint(LnuPlaceholderUnit("<error>"), "test.nl", null)) == ""
+
+    // AND THE CONTROL IS THE POINT. The identical tree with a REAL name in the length slot reports
+    // `arr` at its own position, so the suppression is driven by the placeholder and by nothing else
+    // about the shape. The deleted file asserted only the absence, which a linter that ignored
+    // hand-built trees entirely would also satisfy.
+    assert LnuCensus(new Linter().Lint(LnuPlaceholderUnit("n"), "test.nl", null)) == "NL001@2:9+3;"
+}

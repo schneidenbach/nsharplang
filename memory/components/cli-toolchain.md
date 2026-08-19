@@ -848,6 +848,11 @@ nlc query <cmd>
 | `tests/native/completion-engine` | `CompletionEngine` over real projects, reached by reflection |
 | `tests/CodeIntelligenceTests.cs` | One residual case: the culture-invariant severity fallback |
 | `src/NSharpLang.Compiler.BootstrapServices/CodeFix.tests.nl` | `CodeFixService`, its six providers and `CodeFixActionHelpers`; every edit proved by applying it |
+| `src/NSharpLang.Compiler.BootstrapServices/FixApplicatorCore.tests.nl` | Applied source as whole text; every rejection as its whole message, naming the blamed edit |
+| `src/NSharpLang.Compiler.BootstrapServices/FixApplicatorTextEditOrderer.tests.nl` | The five ordering keys in isolation, plus a 200-list differential sweep against an independent oracle |
+| `src/NSharpLang.Compiler.BootstrapServices/FixApplicatorValidationMessages.tests.nl` | The five rejection sentences and the error-slot clamp |
+| `src/NSharpLang.Compiler.BootstrapServices/FixApplicatorEditEngine.tests.nl` | The raw return codes, the error slots, the three line-ending arms, the malformed-call guard |
+| `src/NSharpLang.Compiler.BootstrapServices/DiagnosticGoldenSuite.tests.nl` | The curated top-25 corpus (24 diagnostics) pinned against `tests/fixtures/diagnostics/` |
 
 ---
 

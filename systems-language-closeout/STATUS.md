@@ -3593,7 +3593,468 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 13 SPENDS THE TRIAGE'S TOP TWO RANKS: THE WHOLE
+- Active sub-slice (020 arc, THIS TURN — **SLICE 14 SPENDS THE WHOLE REMAINING CHEAP BUCKET-(a)
+  HEAD: `FixApplicatorTests.cs` + `LinterUnusedVariableTests.cs` + `DiagnosticGoldenTests.cs`,
+  1,329 C# LINES AND 62 xUnit CASES, ALL THREE TERMINALLY DELETED.**)
+
+  ### THE PROBED SELECTION — RECORDED BEFORE ANY MIGRATION EDIT
+
+  **THE BATCH IS RANKS 1, 2 AND 6 OF THE SLICE-13 QUEUE, AND THE ~1,350-LINE CAP CLOSES IT AT
+  EXACTLY THREE.** `FixApplicatorTests.cs` (554) + `LinterUnusedVariableTests.cs` (469) = 1,023; rank 6
+  `DiagnosticGoldenTests.cs` (306) is taken ONLY because the first two probed clean and it brings the
+  batch to **1,329**, inside the cap. Ranks 3, 4, 5 are NOT taken: `ProjectFileTests.cs` (903),
+  `ExampleLintTests.cs` (670) and `ParserErrorTests.cs` (1,914) each break the cap on their own.
+  All three chosen clusters route to the **estate** (`src/NSharpLang.Compiler.BootstrapServices`), so
+  the probe is one file.
+
+  | rank | file | L | xUnit cases | `Assert.` | subjects, all N#-owned in the estate's own assembly |
+  |---|---|---|---|---|---|
+  | 1 | `FixApplicatorTests.cs` | 554 | 35 | 45 | `FixApplicatorCore.nl`, `FixApplicatorTextEditOrderer.nl`, `FixApplicatorEditEngine.nl`, `FixApplicatorValidationMessages.nl` |
+  | 2 | `LinterUnusedVariableTests.cs` | 469 | 23 | 37 | `Linter.nl` end to end — `LinterWalk.nl`, `LinterWalkState.nl`, `LinterInterpolationScan.nl`, `LinterBindingUsageCore.nl` |
+  | 6 | `DiagnosticGoldenTests.cs` | 306 | 4 | 15 | `OutputFormatterTextBuilders.nl`, `DiagnosticCatalog.nl` |
+
+  **THE PROBE RAN BEFORE ANY MIGRATION EDIT AND TOOK THREE ROUNDS.** One throwaway `.tests.nl` per
+  round carrying every risky shape of ALL THREE clusters: a `TextEdit[]` ARRAY handed to an
+  `IReadOnlyCollection<TextEdit>` parameter, a seeded pseudo-random generator, whole
+  `InvalidOperationException` MESSAGES captured through `try` / `catch ex: Exception` (not merely the
+  type), CR-only / CRLF / LF sources through `ApplyEdits`, a 200-iteration differential sweep against a
+  hand-written ordering oracle, `Diagnostic.Length` and `Diagnostic.Location.*` off a bound local, ten
+  linter source strings carrying `$"…{x}"`, `$"""…"""`, `stackalloc`, `alloc`, an indexer-initializer
+  key, an `on … =>` subscription handler and `assert` / `assert throws` bodies, a hand-built
+  `CompilationUnit` down to `NewExpression(…, ArrayLengthExpression: IdentifierExpression("<error>"))`
+  at FULL positional arity, repo-root discovery, `File.ReadAllText`, `Environment.GetEnvironmentVariable`,
+  `String.IsNullOrWhiteSpace`, `Char.IsWhiteSpace` / `IsLetter` / `IsLetterOrDigit`, `"unused".Length`,
+  the fourteen-argument `DiagnosticResult` and `OutputFormatterTextBuilders.DiagnosticsToText`.
+  **Round 2 reported `Total: 5831` = 5,823 + exactly 8 and round 3 `Total: 5835` = 5,831 + exactly 4,
+  both `Failed: 0`, with ZERO declines.**
+
+  **ONE WALL, AND IT WAS ISOLATED BY EXECUTION RATHER THAN GUESSED.**
+    - **W1 — `System.Random` CANNOT BE CONSTRUCTED IN THE ESTATE AT ALL.** Round 1 declined on
+      `rng := new Random(seed)` at `emit.local.initializer`. The isolation probe narrowed it in two
+      steps rather than assuming the seeded overload was the problem: `IsoMakeRandom(seed: int): Random
+      { return new Random(seed) }` declines at `emit.return.expression`, so it is not the local
+      binding; and **the PARAMETERLESS `new Random()` declines too**, so it is not the `int` overload
+      either. The type is unreachable, full stop. **The route is an N#-written 32-bit LCG over an
+      `int[1]` state cell** (`state[0] = state[0] * 1664525 + 1013904223`, masked with
+      `& 2147483647`), which round 2 proves emits — wrapping `*`, `+`, bitwise `&` and `%` all
+      included. **This is a STRENGTHENING, not a workaround**: the BCL's `Random(seed)` sequence is
+      explicitly NOT stable across .NET versions, so the deleted file's 200-seed sweep was sampling a
+      runtime-dependent input set that a framework upgrade could silently change. The LCG is fixed
+      forever, and the differential property is identical.
+
+  **NOTHING ELSE ON THE CARRIED WALL LIST WAS HIT**, because the probe was written to the carried rules
+  from the start: FULL ARITY everywhere in the hand-built AST, `.Length` read off a BOUND LOCAL and
+  never off a call result, one `catch` per `try`, no `match` in local-binding position, no
+  `Modifiers.HasFlag`, no `typeof` over an enum, and no typed `IReadOnly*` LOCAL (the ARRAY crossed at
+  the CALL SITE into an `IReadOnlyCollection` PARAMETER is a different thing, and round 2 proves it
+  emits). **`Directory.GetParent` is a carried decline and was never spelled**: repo-root discovery
+  walks with `Path.GetDirectoryName` into a `string?` instead, which round 2 and round 3 both prove.
+
+  ### WHAT LANDED — THREE CLUSTERS, 1,329 C# LINES, ALL THREE TERMINALLY DELETED
+
+  **THE C# MOVED IN ONE DIRECTION ONLY.** `git diff HEAD --numstat -- '**/*.cs'` is
+  **`added=0 deleted=1329` over exactly THREE files**, with **zero new C# files**. `Program.Testing.cs`
+  stays at **618**, not opened. All three clusters are TERMINALLY DELETED — no split, no shrunk
+  survivor: `FixApplicatorTests.cs` **554 → 0**, `LinterUnusedVariableTests.cs` **469 → 0**,
+  `DiagnosticGoldenTests.cs` **306 → 0**.
+
+  **THE SUCCESSORS: FIVE NEW ESTATE FILES AND ONE APPENDED — 2,134 LINES, 59 DECLARATIONS, 330
+  ASSERT LINES.** One file per production owner, which is the estate's convention; the linter cluster
+  is an APPEND because its subject is the same public `Linter.Lint` entry that `Linter.tests.nl`
+  already states, and a second file would have duplicated its whole helper block.
+
+  | successor | lines | declarations | assert lines | owner it states |
+  |---|---|---|---|---|
+  | `FixApplicatorCore.tests.nl` (new) | 462 | 14 | 94 | `FixApplicatorCore.nl` |
+  | `FixApplicatorTextEditOrderer.tests.nl` (new) | 394 | 4 | 25 | `FixApplicatorTextEditOrderer.nl` |
+  | `FixApplicatorValidationMessages.tests.nl` (new) | 159 | 3 | 27 | `FixApplicatorValidationMessages.nl` |
+  | `FixApplicatorEditEngine.tests.nl` (new) | 301 | 11 | 86 | `FixApplicatorEditEngine.nl` |
+  | `DiagnosticGoldenSuite.tests.nl` (new) | 480 | 7 | 34 | `OutputFormatterTextBuilders.nl` + `DiagnosticCatalog.nl` |
+  | `Linter.tests.nl` (appended) | +338 | +20 | +64 | `Linter.nl` end to end |
+  | **total** | **2,134** | **59** | **330** | |
+
+  **THE WHOLE MODIFIED-FILE SET, JUSTIFIED FILE BY FILE. THE PRODUCTION DIFF IS EMPTY.**
+
+  | modified file | kind | why it changed |
+  |---|---|---|
+  | `memory/testing.md` | **documentation** | three new bullets beside the lexer/linter/formatting/code-fix ones: the fix applicator's four owners, the unused-binding controls, and the golden suite — including its misnaming and the verified cache-coverage finding |
+  | `memory/components/cli-toolchain.md` | **documentation** | five rows added to the code-intelligence coverage table |
+  | `non-nsharp-growth-ratchet.v1.json` | **ratchet** | three rows to `state: removed`, plus the head key |
+  | `OwnershipAudit.nl` | **ratchet** | the second key of the two-key head repin — one line, the `ReviewedHeadFingerprint` constant |
+  | `STATUS.md` | **ledger** | this record |
+
+  **No production `.nl` and no production `.cs` file carries a diff.** The migration needed no
+  visibility change, no new accessor and no seam: `FixApplicatorCore`, `FixApplicatorEditEngine`,
+  `FixApplicatorTextEditOrderer`, `FixApplicatorValidationMessages`, `TextEdit`, `Linter`,
+  `ColumnarParserRecovery`, the `.nl` AST records, `OutputFormatterTextBuilders`, `DiagnosticCatalog`
+  and `DiagnosticResult` are all public in the estate's own assembly.
+
+  **AND ONE C# FORWARDER IS REMOVED FROM THE ASSERTION PATH ENTIRELY.** The deleted golden file
+  called `OutputFormatter.DiagnosticsToText`, which is a one-line pass-through in
+  `src/NSharpLang.Compiler/CodeIntelligence/OutputFormatter.cs` to the estate's
+  `OutputFormatterTextBuilders.DiagnosticsToText`. The successor calls the N# owner directly.
+
+  ### THE COMPARATOR — 93 MIGRATING C# CLAIMS IN, 93 MATCHED, 0 MISSING, ZERO UNDECODED EITHER SIDE
+
+  Both sides are decoded out of HEAD and the working tree by one mechanical decoder into a shared
+  vocabulary `(route, kind, expected)`, where `route` is the entry point plus the exact arguments that
+  reached it — `FixApplicatorCore#ApplyEdits("aaa\nbbb\nccc",[(1,0,1,3,"AAA");(3,0,3,3,"CCC")])`,
+  `Linter#Lint("func main() { let unused = 42 }")#NL001.Location.Column`,
+  `Golden#every-diagnostic.DocsUrl`. **Completeness arithmetic is exact on both sides: C# 97
+  `Assert.` statements → 93 claim rows + 4 absorbed + 0 undecoded; N# 330 `assert` lines → 574 claim
+  rows + 181 absorbed + 0 undecoded. Matched 93, missing 0, extra 481.** The C# side is exactly one
+  row per decoded statement; the N# side's row count exceeds its statement count because a whole-census
+  equality expands into one row per reported code and one per credited-but-unreported name (see N1).
+
+  **BOTH SIDES ARE NORMALISED TO ACTUAL TEXT, NOT TO SOURCE SPELLING**, so C#'s regular, `@`-verbatim
+  and `"""`-raw literals and N#'s escaped literals cannot make identical claims look different. Locals
+  are threaded to the values that built them — a source string, an edit list built with `FacTwo(…)` or
+  with `FacEdits()` plus `.Add`, a diagnostic bound by `LntSingleOf(LntLint(source), "NL001")` — so the
+  two sides' different local NAMES are invisible to the match. **FOUR NORMALISATIONS ARE DECLARED
+  RATHER THAN HIDDEN:**
+    - **N1 — A WHOLE-CENSUS EQUALITY STATES ONE ROW PER DIAGNOSTIC AND ONE PER SILENT BINDING.** The
+      estate spells `LnuCensusOf(source) == "NL001@2:9+4;"`, where the C# spelled
+      `Assert.DoesNotContain(…, d => d.Message.Contains("'x'"))` and `Assert.Contains("'x'", …)`. The
+      census is expanded by slicing each reported span out of the source to recover the NAME, and
+      every declared binding the census does NOT report becomes an `absent` row. **50 expansions.**
+    - **N2 — A REJECTION STATES BOTH ITS TYPE AND ITS TEXT.** The estate's `FacApplyMessage(…) ==
+      "<whole message>"` answers `<no throw>` when nothing is thrown and
+      `<wrong exception type: …>` when the wrong one is, so one N# line carries the C#'s
+      `Assert.Throws<InvalidOperationException>` row, its `Assert.Contains(<fragment>)` row and a
+      strictly stronger whole-text row. **30 expansions.**
+    - **N3 — THE THREE `Assert.NotNull(unusedDiag)` ROWS ARE ABSORBED**, because the successor reaches
+      the same diagnostic through `LntSingleOf`, which throws when the count is not exactly one. The
+      absence claim is not dropped, it is subsumed by a stronger one.
+    - **N4 — `Assert.All(diagnostics, d => …)` IS A LOOP HEADER, NOT A CLAIM.** Its five lambda-body
+      statements are decoded individually rather than collapsed into the wrapper, so the wrapper is
+      absorbed and the arithmetic stays one row per real statement.
+
+  **THE DECODER CORRECTED ITSELF SIX TIMES BEFORE IT WAS TRUSTED, AND EVERY CORRECTION WAS A SILENT
+  WRONG ANSWER RATHER THAN A CRASH**: (1) the edit-tuple pattern required the `new` keyword, so every
+  `FacOne(1, 5, 1, 5, " beautiful")` on the N# side decoded as NO edits at all, and **29 of the 45
+  FixApplicator rows silently missed**; (2) an N# local was resolved by searching the WHOLE FILE, so two tests that
+  legitimately reuse the name `edits` or `sameLine` bound to the first definition and three rows
+  mismatched — locals are now resolved inside the ENCLOSING test block; (3) the N# source argument was
+  taken as "the first string literal after the call name", which broke as soon as the source was a
+  local (`letSource`); (4) `Assert.All`'s lambda body was double-counted, inflating the C# row count by
+  four while leaving five statements undecoded; (5) the C# `"unused".Length` was decoded as the string
+  `unused` rather than folded to `6`, so all three length claims mismatched; and (6) the single-edit
+  ordering contract states its claim twice in one block — once for an array and once for a list of the
+  same edit — and the decoder keyed it on BOTH, producing a two-element route that matched nothing.
+
+  **SIXTEEN PERTURBATION CONTROLS MOVE THE VERDICT AND ALL SIXTEEN PASS** — one migrating N# assert
+  deleted from each of the four successor files that carry migrating rows, a whole N# `test`
+  declaration deleted (which unmatches **10** rows, not 1), the Linter position contract deleted
+  (**9**), the hand-built placeholder census deleted, two N# expected values changed, one C# assert
+  deleted, a whole C# `[Fact]` deleted, and three C# expected values changed on three different
+  clusters.
+
+  **AND ONE OF THOSE CONTROLS FOUND A REAL DECODER DEFECT RATHER THAN CONFIRMING ONE.** The two
+  ordering rows were originally ADDED STRUCTURALLY by the comparator's driver instead of being decoded
+  from the file, so deleting the contract that states them could not move the verdict — the control
+  reported `DID NOT MOVE` and the driver was fixed to decode them. **Three further controls reported
+  `DID NOT MOVE` and were proven NON-OBSERVABLE BY CONSTRUCTION rather than accepted**: two of them
+  perturbed `FixApplicatorValidationMessages.tests.nl` and `FixApplicatorEditEngine.tests.nl`, which
+  answer **ZERO** migrating rows between them and are 100% new coverage, and the third changed the
+  COORDINATES inside a whole rejection message, which cannot unmatch a C# row that only ever asserted
+  the substring `"outside the document"`. All three were replaced with observable variants.
+
+  **WHICH SUCCESSOR ANSWERS WHICH CLUSTER, EXACTLY:**
+
+  | N# file | migrating C# rows it answers | all claim rows it states |
+  |---|---|---|
+  | `FixApplicatorCore.tests.nl` | 43 | 140 |
+  | `Linter.tests.nl` (appended) | 34 | 411 |
+  | `DiagnosticGoldenSuite.tests.nl` | 14 | 21 |
+  | `FixApplicatorTextEditOrderer.tests.nl` | 2 | 2 |
+  | `FixApplicatorValidationMessages.tests.nl` | **0 — entirely new coverage** | absorbed |
+  | `FixApplicatorEditEngine.tests.nl` | **0 — entirely new coverage** | absorbed |
+  | **total** | **93** (C#: FixApplicator 45, Linter 34, Golden 14) | **574** |
+
+  ### THE MUTATION PROOF — RUN AGAINST A VERIFIED GREEN BASELINE
+
+  **THE BASELINE WAS ESTABLISHED FIRST AND IT EARNED ITS PLACE.** With the test-inclusive restore in
+  place the unmutated tree reports **5,882 / `Failed: 0`**, so every verdict below is attributable.
+  Each mutation is a single-expression edit in a PRODUCTION owner; the harness restores with
+  `git checkout --`, re-checks the file's sha256 against the value recorded before it was touched, and
+  **REFUSES TO PRINT A VERDICT UNLESS THE RUN REPORTS A `Total:`** — a build failure is reported as
+  `*** NO TEST RUN — this verdict is NOT attributable ***` rather than as a clean green.
+
+  **ELEVEN MUTATIONS IN SIX PRODUCTION OWNERS, EVERY VERDICT ATTRIBUTABLE (every run reports
+  `Total: 5882`, so the estate BUILT AND RAN in all eleven), EVERY OWNER RESTORED BYTE-IDENTICALLY to
+  the sha256 recorded before it was touched, and — unlike slice 13 — **NOT ONE EQUIVALENT MUTANT**:
+  every single mutation is observable, so there is no non-result to explain away.**
+
+| mutation | owner | failures | whose |
+  |---|---|---|---|
+  | M1 — end-line ordering key reverses | `FixApplicatorTextEditOrderer.nl` | **3 / 5882** | **ONLY this slice's own, zero collateral** — 3 of them |
+  | M2 — co-location tiebreak reverses | `FixApplicatorTextEditOrderer.nl` | **4 / 5882** | 3 this slice's own + 1 pre-existing sibling in `CodeFix.tests.nl` |
+  | M3 — the column bound stops being inclusive | `FixApplicatorEditEngine.nl` | **15 / 5882** | 11 this slice's own + 4 pre-existing siblings in `CodeFix.tests.nl` |
+  | M4 — adjacency becomes overlap | `FixApplicatorEditEngine.nl` | **3 / 5882** | 2 this slice's own + 1 pre-existing sibling in `CodeFix.tests.nl` |
+  | M5 — a bare CR stops ending a line | `FixApplicatorEditEngine.nl` | **2 / 5882** | **ONLY this slice's own, zero collateral** — 2 of them |
+  | M6 — the past-the-end clamp picks the FIRST edit | `FixApplicatorValidationMessages.nl` | **1 / 5882** | **ONLY this slice's own, zero collateral** — 1 of them |
+  | M7 — the range renderer transposes two coordinates | `FixApplicatorValidationMessages.nl` | **11 / 5882** | **ONLY this slice's own, zero collateral** — 11 of them |
+  | M8 — the NL001 span is one character wide | `LinterWalkState.nl` | **18 / 5882** | **ONLY this slice's own, zero collateral** — 18 of them |
+  | M9 — a NewExpression stops exposing its array-length child | `AstChildrenCore.nl` | **3 / 5882** | **ONLY this slice's own, zero collateral** — 3 of them |
+  | M10 — an alloc marker stops exposing the expression it wraps | `AstChildrenCore.nl` | **1 / 5882** | **ONLY this slice's own, zero collateral** — 1 of them |
+  | M11 — an unknown code ignores the caller's fallback severity | `DiagnosticCatalog.nl` | **2 / 5882** | 1 this slice's own + 1 pre-existing sibling in `DiagnosticCatalog.tests.nl` |
+
+  **SEVEN OF THE ELEVEN LAND ENTIRELY INSIDE DECLARATIONS THIS SLICE WROTE, WITH ZERO COLLATERAL**,
+  and the four that also move a sibling are layered coverage over the same behaviour: `CodeFix.tests.nl`
+  proves its fixes by APPLYING them through this very applicator, so an applicator defect must show up
+  there too. **56 of the 63 failing declarations across all eleven runs are this slice's own.**
+
+  **THE STRICTLY-STRONGER PROOF IS M7, AND IT IS EXACT.** Transposing two coordinates inside
+  `FormatEditRange` fails **11 of 5,882** — every one of them a whole-message pin this slice wrote —
+  while **every one of the deleted file's ten `Assert.Contains` assertions would still have passed**,
+  because the fragments `"outside the document"`, `"Overlapping edits detected"`, `"Invalid edit
+  range"` and `"Invalid edit position"` are all still present in the transposed message. A fix
+  applicator that told a developer to look at line 5 column 2 when the problem is at line 2 column 5
+  would have shipped.
+
+  **AND THE SECOND ONE IS M8.** Narrowing the NL001 span to a single character fails **18 of 5,882**,
+  all this slice's own, because every whole-census claim carries `+<length>`. The deleted file asserted
+  a `Length` in exactly three places, so fifteen of those eighteen were newly stated here — and a
+  one-character squiggle under a ten-character variable name is precisely the defect the deleted file's
+  three positioning cases existed to prevent and could not generalise.
+
+  **M5, M6, M9 AND M10 EACH FAIL ONLY WHAT THE DELETED FILE COULD NOT REACH.** The bare-CR line-ending
+  arm (2), the past-the-end index clamp inside the message renderer (1), and the two `AstChildrenCore`
+  child slots that credit an array length and an `alloc` operand (3 and 1) are all invisible to any
+  assertion the deleted files made — the linter ones because `DoesNotContain` is satisfied by silence,
+  and the applicator ones because no C# test ever called the engine or the renderer directly.
+
+  ### THE STRICTLY-STRONGER DELTAS, BY WHAT THEY STATE
+
+  **EVERY REJECTION IS STATED AS ITS WHOLE MESSAGE, NOT AS A SUBSTRING.** The deleted applicator file
+  refused ten edit lists and asserted each with `Assert.Contains(<fragment>, ex.Message)` — and those
+  ten fragments are only FOUR distinct strings: `"Overlapping edits detected"` five times,
+  `"outside the document"` three times, and `"Invalid edit range"` and `"Invalid edit position"` once
+  each. Five different overlapping edit lists were told apart by nothing at all. The successor pins **30 whole messages**, including the formatted coordinates of the
+  offending edit and, for an overlap, of BOTH edits in the order the validator walks them. An
+  applicator that refused the right document for the wrong reason, or blamed the wrong edit, now
+  fails. The applied-source claims go the same way: **40 `ApplyEdits` claims — 39 stating a whole
+  resulting text, plus one stating that two differently-ordered input lists agree** — where the
+  deleted file's 25 `Assert.Equal`s included two ordering claims and left 23 applied texts.
+
+  **A BARE CARRIAGE RETURN IS A LINE ENDING, AND NOTHING ANYWHERE HAD SAID SO.** The deleted file
+  covered LF and CRLF. `CountLogicalLines`, `BuildLineLengthsInto` and `SplitLogicalLinesInto` each
+  carry a SEPARATE classic-Mac arm, and all three were unreached. A mixed document — CRLF, then bare
+  CR, then LF — is stated too, because that is the case that separates a real line walk from "split
+  on `\n` and strip `\r`". So is the fact that the applicator's OUTPUT is always LF: applying any
+  edit to a CRLF file normalises the whole file, a real behaviour of `nlc fix` that nothing stated.
+
+  **THE ONE-ARGUMENT `ValidateAndSortEdits` IS A DIFFERENT CONTRACT AND THE DELETED FILE NEVER CALLED
+  IT.** Without a document the POSITION check drops out and the shape, order and overlap checks do
+  not. Both halves are stated, on the SAME edit, so the difference is the document and nothing else.
+  This is the overload the language server needs for a buffer it has not read.
+
+  **THE ENGINE'S FIVE RETURN CODES ARE STATED AS NUMBERS, AND SO ARE ITS ERROR SLOTS.** Every one of
+  the deleted file's thirty-five cases went through `FixApplicatorCore`, which converts the engine's
+  code into an exception and discards it as a message. That route cannot reach the engine's two SHAPE
+  rejections at all — a count larger than the columns carrying it, and an output buffer with no room
+  — because `FixApplicatorCore` builds well-shaped tables by construction. Both are stated, and so is
+  the fact that **the apply kernel does NOT validate**: handed an edit the validator would reject, it
+  applies what it can and still reports success, which is exactly why the front door validates first.
+
+  **`FixApplicatorValidationMessages` HAD NO DIRECT COVERAGE AT ALL, AND ITS FALLBACK ARM IS
+  UNREACHABLE FROM THE PRODUCT.** `FixApplicatorCore` never calls the renderer with code 0, so the
+  "N# fix applicator kernel rejected the edit validation." sentence — the line that runs if a future
+  engine grows a rejection code and the renderer does not learn it — could not be reached by any
+  end-to-end test. It is stated, along with every clamping arm of `ValidationIndex`: the engine
+  writes −1 into both slots before it walks, so a renderer that trusted the slot would format edit −1.
+
+  **THE ORDERING COMPARATOR'S FIVE KEYS ARE ISOLATED ONE AT A TIME, AND THEIR PRECEDENCE IS PROVED.**
+  The deleted file had exactly two ordering claims: one single-edit identity, and one 200-seed
+  differential sweep. Neither can say WHICH key decided. The successor states each key with
+  everything else held equal — including that key 3 and key 4 run ASCENDING while keys 1, 2 and 5 run
+  descending, which is the flip that makes a nested edit sort inside its container — and then proves
+  precedence with three pairs that disagree on two keys at once.
+
+  **AND THE SWEEP ITSELF IS NOW HONEST ABOUT ITS OWN INPUTS.** The deleted file asserted nothing about
+  what it generated: a `Random` that answered zero every time would have swept 200 EMPTY lists and
+  reported success. The successor pins the census — 200 lists, 1,412 edits, 4 empty lists, 153 lists
+  carrying co-located inserts, largest list 14, every list size from 0 to 14 actually reached, 533
+  single-line and 573 line-spanning edits and 306 forced co-located inserts. **That census is not
+  decoration: it caught a real defect in the generator this slice wrote.** The first LCG took its
+  output from the state's LOW bits, which on a linear congruential generator have famously short
+  periods — `Next(0, 12)` answered ODD NUMBERS ONLY, so half of every list size was unreachable. The
+  generator now divides before taking the modulus, and the size census is what holds it honest.
+
+  **THE SWEEP ALSO STOPPED BEING A PURE AGREEMENT TEST.** Agreement is silent when both sides are
+  wrong the same way, and the deleted file's LINQ oracle was written from the same paragraph as the
+  subject. Every one of the 200 lists now also states that the answer is SORTED under the comparator
+  — judged without consulting either sort — and that it is a PERMUTATION of the input.
+
+  **NINETEEN OF THE DELETED LINTER FILE'S TWENTY-THREE CASES ASSERTED ONLY ABSENCE, AND EIGHTEEN OF
+  THOSE NINETEEN RAN AGAINST AN ENTIRELY EMPTY DIAGNOSTIC LIST.** That is measured, not alleged: the
+  census of every one of those sources is `""`. A linter with the NL001 rule deleted outright would
+  have passed eighteen of the file's twenty-three tests. **Every negative claim in the successor
+  therefore carries a control** — 50 whole-census claims where the deleted file made 22
+  `DoesNotContain` and one `Empty`:
+    - a REMOVAL control, the same source with only the read deleted, which must now report the
+      variable at a stated line, column and length; and
+    - where the shape allows it, a SIBLING control that adds a genuinely unused neighbour, so the
+      walk is shown to have reached the subtree and made a DISTINCTION rather than bailing out.
+
+  **AND THE CONTROLS CORRECTED THE DELETED FILE'S READING OF ITS OWN TESTS, TWICE.**
+    - `LoopVariable_Foreach_ShouldNotBeMarkedUnused` claimed the loop variable is silent because the
+      body reads it. Remove the read and it is STILL silent: a foreach loop variable is exempt from
+      NL001 the way a parameter is, and the assertion was measuring the exemption, not the read.
+    - `VariableUsedInInterpolatedRawString_ShouldNotBeMarkedUnused` asserted the absence of `value`.
+      `value` is indeed absent — but `message`, the variable HOLDING the raw string, IS reported, and
+      `DoesNotContain("'value'")` is equally happy either way. The successor states the two-diagnostic
+      answer, and its removal control shows BOTH reported once the hole becomes a literal.
+
+  **THE NL001 SPAN IS CHECKED AGAINST THE SOURCE, NOT JUST AGAINST THREE NUMBERS.** The deleted file
+  asserted that 19 is the column and, separately, that 6 is the length. It never asserted that the
+  two of them together cover the word `unused`, so a one-column drift was invisible. The successor
+  slices the reported span out of the source it linted and states the text.
+
+  **THE PARSER-ERROR PLACEHOLDER SUPPRESSION IS GIVEN ITS CONTROL.** The deleted file built a
+  compilation unit by hand and asserted that `arr` is NOT reported. The successor builds the IDENTICAL
+  tree with a real name in the array-length slot and shows `arr` reported at (2,9) over three
+  characters — so the suppression is driven by the `<error>` placeholder and by nothing else about the
+  shape. Without the second half, a linter that ignored hand-built trees entirely would pass.
+
+  **THE GOLDEN SUITE'S SIZE IS STATED, AND STATING IT FOUND THE SUITE IS MISNAMED.** The deleted file
+  asserted that SOME parser, SOME analyzer and SOME linter diagnostic exists — satisfied by a corpus
+  of three, and blind to a suite that had silently lost twenty entries. The successor pins the count,
+  the three per-category counts, the distinctness of every code and the corpus order. **The very first
+  thing it found is that the "top 25" suite holds TWENTY-FOUR diagnostics** — five parser, nine
+  analyzer, ten linter. The rendered snapshot has been saying so in its own first content line
+  (`Diagnostic clusters (24 groups, 24 diagnostics)`) since the fixture was checked in, and nothing
+  ever compared the two. The number is PINNED rather than corrected, because making the name true
+  means choosing a twenty-fifth diagnostic and regenerating a shipped fixture — a product-content
+  decision, not a test migration — and the cross-check between the corpus count and the rendering is
+  now stated so the drift cannot widen.
+
+  **AND THE DOCS TABLE IS CROSSED IN FULL.** The deleted file asserted the URL PREFIX, which a builder
+  that sent all twenty-four diagnostics to the same page would satisfy. All twenty-four whole
+  category-qualified URLs are stated.
+
+  **THE TRANSCRIPTION OF THE CORPUS IS PROVED BY THE FIXTURE ITSELF, NOT BY INSPECTION.**
+  `FormatSingleDiagnosticText` prints the code, the severity-derived title, the file, the line, the
+  column, the source snippet, a caret line whose width is the LENGTH, the message, the explanation,
+  the help line and the docs URL. The re-spelled corpus renders **byte-identical to the checked-in
+  `tests/fixtures/diagnostics/top25.golden.txt`**, so every field of all twenty-four entries is proved
+  to have moved across unchanged — a single wrong column or a single character of drifted prose would
+  have failed the snapshot.
+
+  **ONE LATENT DEFECT IS FIXED BY THE MOVE.** The deleted file built its snapshot header with
+  `StringBuilder.AppendLine`, which emits `Environment.NewLine`, while normalising only the RENDERED
+  part before comparing. The checked-in fixture uses `\n`, so the golden test could only ever have
+  passed on a platform whose newline is `\n` — on Windows it would have failed on the header alone.
+  The successor spells `"\n"`.
+
+  ### EVIDENCE
+
+  **Native estate 5,823 → 5,882 by COUNT DIFF (+59, the exact declarations added: 14 + 4 + 3 + 11 +
+  7 + 20)**, `Failed: 0`, under the restore-flag discipline (`-p:NSharpExcludeTests=false
+  --force-evaluate`, then `--no-restore`). **Unit 2,430 → 2,368 = exactly the 62 migrated xUnit
+  cases** (35 + 23 + 4), `Failed: 0`. No native project is added or changed, so the gate-equivalent
+  native project count stays **33**.
+
+  **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files,
+  246 diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), **ZERO rows in any `.tests.nl`** and **ZERO naming a file this slice added**.
+
+  **The project-scoped format check reports "All files are properly formatted."** on the
+  BootstrapServices estate.
+
+  **Ownership audit 18 / 18 after correctly failing 17 / 18 pre-repin with exactly ONE violation** —
+  `OWN008: reviewedHeadFingerprint does not match canonical current ceilings and states; observed head-v1:95ab072194454479`, **the exact value a Python replica of `OwnershipFacts` had computed BEFORE the
+  audit ran**, so the audit CHECKED the arithmetic rather than supplying it. The replica was
+  **VALIDATED AGAINST THE PRISTINE MANIFEST AT HEAD FIRST**: it reproduced all three stored
+  fingerprints (pathset `8a26e1529863444b`, epoch facts `1b3090747e517fc1`, head `49843b8b82e9c10c`)
+  before a single row was edited. The three ratchet rows become **`state: removed`, `currentLines` /
+  `NonBlank` / `AssertionMarkers` → 0 / 0 / 0, `text-v1:removed`** — `554/452/83`, `469/364/61` and
+  `306/268/20` zeroed while their **immutable epoch ceilings stay untouched**; the two-key head
+  repinned LAST, **`49843b8b82e9c10c` → `95ab072194454479`**, in the JSON header AND the
+  `OwnershipPolicy.ReviewedHeadFingerprint` constant; manifest **391 lines**, no BOM, and the whole
+  ratchet diff is **exactly four changed lines in the JSON plus the one constant**.
+  `epochPathFingerprint` and `epochFactFingerprint` are unchanged, as a pure removal must leave them,
+  and the repin script asserts both before it writes.
+
+  **The dead sweep corrected TWO live documentation files**: `memory/testing.md` (three new bullets
+  naming the subjects that lost their C# assertion layer, beside the lexer, linter, formatting and
+  code-fix ones) and `memory/components/cli-toolchain.md` (five rows added to the code-intelligence
+  coverage table). No other file under `memory/` or `docs/` names any of the three deleted files, and
+  the only live mentions anywhere are the successors' own provenance headers.
+
+  **AND ONE GATE-INFRASTRUCTURE QUESTION WAS ASKED AND ANSWERED RATHER THAN ASSUMED.**
+  `DiagnosticGoldenSuite.tests.nl` is the first estate contract file that READS A REPO FILE, so the
+  validated per-step cache had to be checked: the `native-nsharp-tests` step is keyed on
+  `UNIT_INPUTS_HASH`, and `SETS["UNIT"]` already covers `tests/` wholesale, which includes
+  `tests/fixtures/`. **No gate-script change is needed and none was made** — and no C# was added to
+  `tests/GateStepInputSetGuardTests.cs` either, which the ratchet would have refused.
+
+  **The C# test estate is 41 → 38 files, 57,430 → 56,101 lines** (`tests/*.cs`; three of the
+  remaining 38 carry no `[Fact]` at all and are infrastructure by construction).
+
+  **Task 020 stays UNCHECKED and `tasks/README.md` is NOT edited** — the slice-12 triage's bucket (a)
+  is still NOT empty after this batch (the ranked remainder is below), and the closing rule requires
+  both an empty bucket (a) and an N#-owned runner surface. **NOT COMMITTED — the mandate reserves
+  that.**
+
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY** (the repo root carries
+  EIGHT nested `.claude/worktrees/*` checkouts belonging to other sessions, and a duplicate benchmark
+  project under the repo root breaks the BDN Systems gate in place, so the copy excludes them and
+  nothing else — verified by listing `/private/tmp/nl020s14gate/.claude/worktrees`, which does not
+  exist, and `/private/tmp/nl020s14gate/.git`, which does, and by counting benchmark projects inside
+  the copy, which is 0), **IS `ALL TESTS PASSED! ✓` IN 18m 50s WITH 113 GREEN STEPS AND ZERO FAILURES**
+  (`GATE EXIT 0`). Its banner reads `Fresh isolated test run required: pre-commit verification /
+  Existing cache entries will not satisfy this invocation`, so no cached whole-gate or per-step result
+  was accepted. Inside it: unit **2,368** (`Failed: 0`, 4m 50s), the estate **5,882** (`Failed: 0`),
+  **all 33 native projects green**, the Step 2b format contract gate and the Step 10b ECMA-335 IL
+  verification gate. Step timings: compiler build 2m 21s, unit tests 6m 52s, native tests 4m 46s, SDK
+  pack and install 4m 24s. **The verdict is read from the LOG's `ALL TESTS PASSED` line and the
+  driver's `GATE EXIT 0`, and the byte-copy's contents were checked directly — the deleted C# clusters
+  absent (0 of 3 found), the five new estate successors present, and
+  `tests/fixtures/diagnostics/top25.golden.txt` present, which the new golden suite reads — not from
+  `pgrep`, which in slice 12 matched the watcher's own command string.** The gate ran against a
+  byte-copy of the code tree; the only file edited afterwards is this one, which is prose and is not
+  an input to any compile step.
+
+  **AND ONE ENVIRONMENTAL FAILURE WAS CAUGHT BY BASELINE-DIFF RATHER THAN BLAMED ON THE SLICE.**
+  A `dotnet test` on the estate returned **exit 0 with ZERO output** — the known silent-abort after
+  concurrent builds share `obj`/`bin` — which was treated as a FAILURE, not a pass. Cleaning
+  `bin`/`obj` and rerunning serially then reported **3 failures**:
+  `ConfiguredDLLRuntimeAssetsDeployImplementationsAndRetainMetadataOnlyInputs` and the two
+  `ExternalReferencePaths*` contracts in `ExternalAssemblyScan.tests.nl`. **They were attributed by
+  stashing this slice's six files out and rerunning: HEAD's own content reported the SAME three
+  failures at `Failed: 3, Passed: 5820, Total: 5823`** — the inherited baseline total, so the delta
+  really is +59 and zero new failures. The root cause is that those three contracts require a
+  **DEBUG-configuration** `obj/Debug/net10.0/refint/` assembly to exist beside a RELEASE test run, and
+  `rm -rf obj` had removed it; one `dotnet build -c Debug` restored it and the estate returned to
+  **5,882 / `Failed: 0`**. Nothing in the slice was changed to make them pass.
+
+  ### THE UPDATED BUCKET-(a) QUEUE
+
+  Three ranks spent — 1, 2 and 6 of the slice-13 queue — and the remainder re-ranks:
+
+  | rank | file | L | route | why it is priced there |
+  |---|---|---|---|---|
+  | 1 | `ProjectFileTests.cs` | 903 | estate | `ProjectFileParser.nl`, `AssemblyVersion*.nl`; 36/36 N#-owned, and the temp-`project.yml` shape is already precedented by `LinterConfig.tests.nl` |
+  | 2 | `ExampleLintTests.cs` | 670 | estate (27 of 29) | `Linter.nl`; 21 pure-string facts and 6 that read `examples/` — and THIS slice has now proved an estate `.tests.nl` can read a repo file (`DiagnosticGoldenSuite.tests.nl` reads `tests/fixtures/diagnostics/`), which was the only open question on the six |
+  | 3 | `ParserErrorTests.cs` | 1,914 | estate | pure source-in; the golden-AST and diagnostic machinery already exists. Over the ~1,350-line cap, so it is a batch of its own or a split |
+  | 4 | `ParserTests.cs` | 6,087 | estate | pure but very large; the whole-tree golden route is proven. Needs its own multi-slice plan |
+  | 5 | the native-route set | — | `tests/native/*` | `AnalyzerTests`, `AnalyzerSemanticModelTests`, `AnalyzerBindingMapTests`, `QueryIntegrationTests`, `SystemsNSharpTests`, `PlaygroundCompilerTests`, and the split remainders of `ErrorHandlingTests` / `EventSubscriptionTests` / `AstNodeFinderTests` |
+
+  **ONE MEASUREMENT FROM THIS SLICE WIDENS THE ROUTE SET AGAIN.** The slice-12 triage priced
+  `DiagnosticGoldenTests.cs` at rank 6 because "the cost is the golden-file fixture, not the subject",
+  and the carried wall list said `Directory.GetParent` declines — which is how the C# file walked to
+  the repo root. **`Path.GetDirectoryName` into a `string?` walks it instead, and it emits.** An estate
+  `.tests.nl` can therefore reach any checked-in repo file, which is what rank 2's six `examples/`
+  facts need. The gate needs no change for it either: the `native-nsharp-tests` step is keyed on
+  `UNIT_INPUTS_HASH`, and the UNIT input set already covers `tests/` wholesale, so a fixture edit
+  still invalidates the step that reads it.
+
+  **`Program.Testing.cs` IS STILL 618 AND STILL UNOPENED.** Task 020's closing rule needs BOTH an
+  empty bucket (a) and an N#-owned runner surface; bucket (a) has five entries left, so **task 020
+  stays UNCHECKED and `tasks/README.md` is NOT edited.**
+
+- Active sub-slice (020 arc, PRIOR TURN — **SLICE 13 SPENDS THE TRIAGE'S TOP TWO RANKS: THE WHOLE
   `ErrorReportingTests.cs` + `CodeFixTests.cs` PAIR, 1,139 C# LINES AND 59 xUnit CASES, TERMINALLY
   DELETED.**)
 

@@ -255,6 +255,26 @@ selected native regression assemblies themselves before verification.
 - **Code fixes** have no C# assertion layer: `CodeFixService`, its six providers and
   `CodeFixActionHelpers` are stated in `CodeFix.tests.nl` in the same estate, where every edit is
   proved by APPLYING it through `FixApplicatorCore.ApplyEdits` and re-parsing the result
+- **The fix applicator** has no C# assertion layer: the four owners are stated one file each in the
+  same estate — `FixApplicatorCore.tests.nl` (applied source as WHOLE text, and every rejection as
+  its whole message rather than a substring, so the blamed edit is named),
+  `FixApplicatorTextEditOrderer.tests.nl` (each of the five ordering keys in isolation plus a
+  200-list differential sweep against an independently written oracle, over an N#-owned generator
+  because `System.Random` cannot be constructed in this estate),
+  `FixApplicatorValidationMessages.tests.nl` (the five rejection sentences and the index clamp) and
+  `FixApplicatorEditEngine.tests.nl` (the raw return codes, the error slots, the three line-ending
+  arms and the malformed-call guard)
+- **The unused-binding rules** are stated end to end in `Linter.tests.nl`, where every "this
+  variable is NOT reported" claim carries a control — the same source with the read removed, or with
+  an unused sibling added — so a linter that reported nothing could not pass. This replaced a C#
+  file in which seventeen of nineteen negative cases ran against an entirely empty diagnostic list
+- **The top-25 diagnostic golden suite** has no C# assertion layer: `DiagnosticGoldenSuite.tests.nl`
+  holds the curated corpus and pins it against `tests/fixtures/diagnostics/`, calling
+  `OutputFormatterTextBuilders.DiagnosticsToText` directly instead of through the C# `OutputFormatter`
+  forwarder. **It also records that the suite is misnamed: it holds TWENTY-FOUR diagnostics.** The
+  fixtures stay covered by the validated per-step cache without a gate-script change, because the
+  `native-nsharp-tests` step is keyed on `UNIT_INPUTS_HASH` and the UNIT input set already covers
+  `tests/` wholesale
 
 ### Known Testing Limitation
 Raw filtered `dotnet test --filter` invocations can hang in this project because of the
