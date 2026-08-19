@@ -847,7 +847,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterDiagnosticKernels.tests.nl` | Severity arithmetic, reference deduplication, end-to-end diagnostics |
 | `tests/native/completion-engine` | `CompletionEngine` over real projects, reached by reflection |
 | `tests/CodeIntelligenceTests.cs` | One residual case: the culture-invariant severity fallback |
-| `tests/CodeFixTests.cs` | CodeFixProviders (auto-import, unused variable removal) |
+| `src/NSharpLang.Compiler.BootstrapServices/CodeFix.tests.nl` | `CodeFixService`, its six providers and `CodeFixActionHelpers`; every edit proved by applying it |
 
 ---
 

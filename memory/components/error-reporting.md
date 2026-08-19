@@ -240,7 +240,10 @@ See: https://docs.n-sharp.dev/errors/NL305
 
 ## Testing
 
-Error reporting tests are in `tests/ErrorReportingTests.cs` covering:
+Error reporting has no C# assertion layer. Its canonical contracts are N# and live beside their
+subjects in `src/NSharpLang.Compiler.BootstrapServices` — `CompilerError.tests.nl`,
+`ErrorSuggestions.tests.nl`, `ErrorSuggestionHelpers.tests.nl` and `ErrorMessageBuilder.tests.nl` —
+covering:
 - Error code formatting and DiagnosticId
 - Source snippet rendering with caret markers
 - All formatting paths (Elm, Rust, Tooling, MSBuild)

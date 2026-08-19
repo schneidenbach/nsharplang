@@ -20,8 +20,6 @@ tests/
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
-├── ErrorReportingTests.cs       - Error formatting tests
-├── CodeFixTests.cs              - Code fix provider tests
 ├── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
 └── QueryIntegrationTests.cs     - CLI toolchain integration tests (uses real example projects)
 ```
@@ -246,7 +244,17 @@ selected native regression assemblies themselves before verification.
   and `CodeIntelligenceService.LoadProject` BY REFLECTION — the route `tests/native/query-completions`
   established, and the only one available, because the engine's inputs need the C# `Analyzer` that
   lives in the assembly which DEPENDS on BootstrapServices
-- **CodeFixTests** — CodeFixProviders (auto-import, unused variable removal)
+- **Error reporting** has no C# assertion layer: the diagnostic record, the suggestion tables and the
+  Elm-style builders are stated in N#, beside their subjects in the same estate —
+  `CompilerError.tests.nl` (the rust-style, tooling and MSBuild renderers as WHOLE texts, the
+  diagnostic-id derivation and its override, the seven-heading Elm severity table, the inline-text
+  folder), `ErrorSuggestions.tests.nl` (the whole code-to-suggestion table, the typo probe and the
+  Levenshtein kernel), `ErrorSuggestionHelpers.tests.nl` (`SmartSuggester`'s RANKED answers and
+  `TypeConversionSuggester`'s ordered rule table) and `ErrorMessageBuilder.tests.nl` (the docs-URL
+  table, the similar-names switch and the three list renderers)
+- **Code fixes** have no C# assertion layer: `CodeFixService`, its six providers and
+  `CodeFixActionHelpers` are stated in `CodeFix.tests.nl` in the same estate, where every edit is
+  proved by APPLYING it through `FixApplicatorCore.ApplyEdits` and re-parsing the result
 
 ### Known Testing Limitation
 Raw filtered `dotnet test --filter` invocations can hang in this project because of the

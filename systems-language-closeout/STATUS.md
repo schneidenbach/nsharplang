@@ -1,6 +1,68 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-18 (**020 SLICE 12 — THE WHOLE REMAINING C# TEST ESTATE IS TRIAGED INTO FOUR
+Last updated: 2026-08-18 (**020 SLICE 13 — THE TRIAGE'S TOP TWO RANKS ARE SPENT: THE WHOLE
+`ErrorReportingTests.cs` + `CodeFixTests.cs` PAIR, 1,139 C# LINES AND 59 xUnit CASES, TERMINALLY
+DELETED.** The ~1,200-line cap closes the batch at exactly two — `FixApplicatorTests.cs` (554) would
+put it at 1,693 and is NOT taken. `git diff HEAD --numstat -- '*.cs'` is **`added=0 deleted=1139` over
+exactly TWO files**; zero new C#; `Program.Testing.cs` stays **618**, not opened; **no production
+`.nl` or `.cs` file carries a diff at all**. The successors are **five NEW estate files, one per
+production owner — 1,970 lines, 85 declarations, 596 assert lines**: `CompilerError.tests.nl`,
+`ErrorSuggestions.tests.nl`, `ErrorSuggestionHelpers.tests.nl`, `ErrorMessageBuilder.tests.nl`,
+`CodeFix.tests.nl`. **THE PROBE RAN FIRST AND ITS SELECTION WAS RECORDED BEFORE ANY MIGRATION EDIT**;
+round 2 reported `Total: 5755` = 5,738 + exactly 17 with ZERO declines. **TWO WALLS, EACH ISOLATED BY
+EXECUTION RATHER THAN GUESSED**: `match` is reserved in LOCAL-BINDING position (round 1 changed two
+shapes at once, so round 3 reintroduced only that one — and the shape that looked guiltier, a
+parenthesised `??` coalesce then INDEXED, is innocent), and **`.Length` read off a CALL RESULT
+declines** at `emit.statement.block-child` while `.Count` off a call result and `.DiagnosticId` off a
+static call both emit — isolated by construction, because the successor's own green run keeps the same
+eleven-argument call, four nulls and all, bound to a LOCAL. **THE COMPARATOR REPORTS 191 MIGRATING C#
+CLAIM ROWS IN, 191 MATCHED, 0 MISSING, 411 EXTRA, WITH ZERO UNDECODED ON EITHER SIDE** — C# 187
+`Assert.` statements → 191 rows + 0 absorbed; N# 596 `assert` lines → 602 rows + 0 absorbed; locals are
+threaded to constructor trees on both sides, four normalisations are DECLARED (defaulted-parameter
+trimming, joined-enumeration expansion, projected-`Select` expansion, and a three-row lambda-predicate
+table), and **the decoder corrected itself THIRTEEN times before it was trusted, every correction a
+silent wrong answer rather than a crash** — among them a reverse bracket scan that counted brackets
+INSIDE STRING LITERALS (so `"match result {"` and the needle `"$\"{"` each unbalanced their enclosing
+call), a call-paren finder that walked past a collection initialiser's brace and returned the FIRST
+ELEMENT'S constructor, a `.Count`/`.Length` fold that rewrote the record FIELD `CompilerError.Length`
+on ONE side only, and `new[]` (no space) missing the `new ` prefix test. **TWELVE PERTURBATION CONTROLS
+MOVE THE VERDICT AND ALL TWELVE PASS.** **NINE MUTATIONS IN FIVE PRODUCTION OWNERS, EVERY VERDICT
+ATTRIBUTABLE** (every run reports `Total: 5823`; the harness restores with `git checkout --` and
+REFUSES a verdict without a `Total:`), and **seven of the nine land entirely inside declarations this
+slice wrote**. **M3 IS A PROVEN EQUIVALENT MUTANT** — the two transposed Levenshtein locals are the two
+operands of the SAME `MinInt`, so exchanging them cannot change a minimum — and **M3b replaces it with
+an observable one** that breaks the kernel's symmetry and fails exactly the symmetry contract this
+slice wrote. **THE STRICTLY-STRONGER PROOF IS M4 AND IT IS EXACT**: swapping `SmartSuggester`'s
+0.7/0.3 weights fails 2 of 5,823, both of them this slice's WHOLE-LIST ranking claims, while **every
+one of the deleted file's five `SmartSuggester` assertions would still have passed** — `Contains`,
+`NotEmpty` and `Count <= 2` are all satisfied by a differently-weighted ranking, so a suggester that
+started proposing the wrong name first would have shipped. **THE MARGINS ARE STRUCTURAL**: seventeen
+WHOLE renderings replace forty `Contains` samples (pinning the gutter width, both marker indents and
+the block order); the renderer-selection rule is isolated to `HumanExplanation` ALONE; the
+`Suggestions`-suppresses-`Suggestion` rule and the seven-heading Elm severity table had zero coverage;
+`GetSuggestion`'s whole table is crossed (21 answers, 4 context-dependent codes with both arms, 7
+proved NULL) where the deleted file sampled three; the TypeNotFound TYPO PATH had no coverage anywhere;
+the docs-URL table is 18 anchors where the deleted file stated ONE; every code-fix edit is now PROVED
+BY APPLYING IT (fourteen applied sources against the deleted file's three); the null-check fix's
+`== null` polarity, the bare-CR line ending, the `?[` index arm and the third suggestion-only action
+were all unstated; and **the service's dispatch table has SIX rows where the deleted file reached
+FOUR** — `NL011` and `NL010` were only ever tested through their providers directly. Evidence: **native
+estate 5,738 → 5,823 by COUNT DIFF (+85, the exact declarations added)**, `Failed: 0`; **unit 2,489 →
+2,430 = exactly the 59 migrated xUnit cases**, `Failed: 0`; native project count still **33**; **live
+tree 393 / 246 — the inherited baseline to the digit** with the same ten-code census, ZERO rows in any
+`.tests.nl` and ZERO naming a file this slice added; format clean on the FIRST run; **audit 18 / 18
+after correctly failing 17 / 18 pre-repin with exactly ONE `OWN008` observing
+`head-v1:49843b8b82e9c10c`, the exact value a replica VALIDATED AGAINST THE PRISTINE MANIFEST had
+computed before the audit ran**; the two ratchet rows become `state: removed` with their immutable
+epoch ceilings untouched and the two-key head repinned LAST,
+`fb6a22540cbd89d3` → `49843b8b82e9c10c`, manifest 391 lines no BOM. The dead sweep corrected THREE live
+documentation files. **The full non-VS-Code gate, fresh and isolated from a `/tmp` byte-copy that
+excludes the nested worktrees, is `ALL TESTS PASSED! ✓` in 18m 54s with 113 GREEN STEPS and ZERO
+FAILURES (`GATE EXIT 0`), its banner confirming no cached result was accepted.** **The C# test
+estate is 43 → 41 files, 58,569 → 57,430 lines. Task 020 stays UNCHECKED and `tasks/README.md` is
+NOT edited.** NOT COMMITTED — the mandate reserves that)
+
+Last updated (prior): 2026-08-18 (**020 SLICE 12 — THE WHOLE REMAINING C# TEST ESTATE IS TRIAGED INTO FOUR
 BUCKETS, AND THE CHEAPEST FIVE CLUSTERS ARE SPENT. 020 NOW HAS A COMPLETION MAP, AND IT SAYS THE TASK
 IS NOT DONE.** All **45 files / 58,744 lines** are classified — the forty-five line counts add to
 58,744 exactly — into **(a)** canonical assertion layer over an N#-owned subject, **(b)** C#-subject
@@ -3531,7 +3593,413 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 12 TRIAGES THE WHOLE REMAINING C# TEST ESTATE INTO
+- Active sub-slice (020 arc, THIS TURN — **SLICE 13 SPENDS THE TRIAGE'S TOP TWO RANKS: THE WHOLE
+  `ErrorReportingTests.cs` + `CodeFixTests.cs` PAIR, 1,139 C# LINES AND 59 xUnit CASES, TERMINALLY
+  DELETED.**)
+
+  ### THE PROBED SELECTION — RECORDED BEFORE ANY MIGRATION EDIT
+
+  **THE BATCH IS THE TRIAGE'S RANK 1 AND RANK 2, AND THE ~1,200-LINE CAP CLOSES IT AT EXACTLY TWO.**
+  `ErrorReportingTests.cs` (541) + `CodeFixTests.cs` (598) = **1,139 lines**; the next-ranked entry,
+  `FixApplicatorTests.cs` (554), would put the batch at 1,693 and is therefore NOT taken. Both
+  clusters route to the **estate** (`src/NSharpLang.Compiler.BootstrapServices`), so the probe is one
+  file.
+
+  | rank | file | L | xUnit cases | `Assert.` | subjects, all N#-owned in the estate's own assembly |
+  |---|---|---|---|---|---|
+  | 1 | `ErrorReportingTests.cs` | 541 | 34 | 105 | `CompilerError.nl`, `ErrorSuggestions.nl`, `ErrorSuggestionHelpers.nl` (`SmartSuggester` + `TypeConversionSuggester`), `ErrorMessageBuilder.nl` |
+  | 2 | `CodeFixTests.cs` | 598 | 25 | 82 | `CodeFix.nl` (`CodeFixService` + six providers + `CodeFixActionHelpers`), `CodeAction.nl`, `TextEdit.nl`, `FixApplicatorCore.nl`, `ColumnarParserRecovery.nl` |
+
+  **THE PROBE RAN BEFORE ANY MIGRATION EDIT AND TOOK THREE ROUNDS.** One throwaway `.tests.nl`
+  (17 `test` declarations) carrying every risky shape of BOTH clusters: the five-argument
+  `CompilerError.Create` plus post-construction field mutation (`Suggestion`, `SourceSnippet`,
+  `Length`, `DiagnosticIdOverride`, `Suggestions`), the nine-argument `WithSnippet` and
+  thirteen-argument `WithSnippetDetailed`, `Format` / `FormatForTooling` / `FormatForMsBuild`, a
+  `List<string>?` field read through `??`, a `Dictionary<string, string>?` read through `??` and then
+  INDEXED, the `$"{` needle, `new SmartSuggester(List<string>)`, the six-argument `Diagnostic` over a
+  three-argument `Location` struct, `ColumnarParserRecovery.ParseFileAst(...).CompilationUnit` handed
+  to an `object` parameter, `new CodeFixService().GetCodeActions(...)` INLINE, `TextEdit.Equals`,
+  `FixApplicatorCore.ApplyEdits`, `ValidateAndSortEdits(List<TextEdit>)` through its
+  `IReadOnlyCollection<TextEdit>` parameter, a `for` walk over an `IEnumerable<string>` property, and
+  CRLF / CR-only / LF sources. **Round 2 reported `Total: 5755` = 5,738 + exactly 17, `Failed: 0`,
+  with ZERO declines.**
+
+  **ONE WALL, AND IT WAS ISOLATED BY EXECUTION RATHER THAN GUESSED.** Round 1 declined at
+  `parse.test` on a `test` declaration that changed TWO shapes at once, so the verdict was not yet
+  attributable. Round 3 reintroduced ONE of them:
+    - **W1 — `match` IS RESERVED IN LOCAL-BINDING POSITION, RE-PROVEN AT THIS TIP.**
+      `match := ErrorMessageBuilder.NonExhaustiveMatch(...)` declines at `parse.test`; renaming the
+      local is the whole fix. This is a carried row from the reserved list, re-probed rather than
+      trusted.
+    - **AND THE SHAPE THAT LOOKED GUILTIER IS INNOCENT.** `(nullableDictionary ?? new
+      Dictionary<string, string>())["key"]` — a parenthesised coalesce, INDEXED — emits. Round 3
+      keeps it and is green apart from W1, so the round-1 decline is attributed to `match` alone.
+
+  **NOTHING ELSE ON THE CARRIED WALL LIST WAS HIT**, because the probe was written to the carried
+  rules from the start: FULL ARITY everywhere (no defaulted parameter is omitted), no
+  `(x as object) == (y as object)`, no `typeof` over an enum, no `Modifiers.HasFlag`, no typed
+  `IReadOnly*` LOCAL (the `IReadOnlyCollection` PARAMETER is crossed at the call site, which is a
+  different thing and emits), and no heterogeneous array literal of constructed elements.
+
+  **AND A SECOND WALL SURFACED ONLY WHEN THE REAL SUCCESSORS WERE BUILT, WHICH IS WHY THE PROBE IS A
+  FLOOR AND NOT A CEILING.**
+    - **W2 — `.Length` READ OFF A CALL RESULT DECLINES.**
+      `assert CompilerError.CreateDetailed(…).Length == 1` declines at `emit.statement.block-child`
+      (node kind 61). It is `.Length` specifically, not member-access-off-a-call in general: the
+      probe had already proved `new AddMissingImportCodeFixProvider().GetCodeActions(…).Count == 0`
+      emits, and `CompilerError.Create(…).DiagnosticId == "NL101"` sits EARLIER in the same file and
+      emitted. **AND IT IS ISOLATED BY CONSTRUCTION, NOT BY GUESS**: the declining statement's OTHER
+      unusual feature was four consecutive `null` arguments, and the successor's own green run keeps
+      that call — same eleven arguments, same four nulls — bound to a LOCAL. The single remaining
+      difference between the declining form and the green one is the local. The route is therefore
+      `x := f()` then `assert x.Length == 1`, which is what every `.Length` claim in these files
+      spells.
+
+  ### WHAT LANDED — TWO CLUSTERS, 1,139 C# LINES, BOTH TERMINALLY DELETED
+
+  **THE C# MOVED IN ONE DIRECTION ONLY.** `git diff HEAD --numstat -- '*.cs'` is
+  **`added=0 deleted=1139` over exactly TWO files**, with **zero new C# files**. `Program.Testing.cs`
+  stays at **618**, not opened. Both clusters are TERMINALLY DELETED — no split, no shrunk survivor:
+  `ErrorReportingTests.cs` **541 → 0**, `CodeFixTests.cs` **598 → 0**.
+
+  **THE SUCCESSORS: FIVE NEW ESTATE FILES — 1,970 LINES, 85 DECLARATIONS, 596 ASSERT LINES.** One
+  file per production owner, which is the estate's convention:
+
+  | successor | lines | declarations | assert lines | owner it states |
+  |---|---|---|---|---|
+  | `CompilerError.tests.nl` (new) | 386 | 18 | 113 | `CompilerError.nl` |
+  | `ErrorSuggestions.tests.nl` (new) | 213 | 11 | 86 | `ErrorSuggestions.nl` |
+  | `ErrorSuggestionHelpers.tests.nl` (new) | 327 | 17 | 96 | `ErrorSuggestionHelpers.nl` — `SmartSuggester` + `TypeConversionSuggester` |
+  | `ErrorMessageBuilder.tests.nl` (new) | 321 | 12 | 115 | `ErrorMessageBuilder.nl` |
+  | `CodeFix.tests.nl` (new) | 723 | 27 | 186 | `CodeFix.nl`, `CodeAction.nl`, `TextEdit.nl` |
+  | **total** | **1,970** | **85** | **596** | |
+
+  **THE WHOLE MODIFIED-FILE SET, JUSTIFIED FILE BY FILE. THE PRODUCTION DIFF IS EMPTY.**
+
+  | modified file | kind | why it changed |
+  |---|---|---|
+  | `memory/testing.md` | **documentation** | the file-tree listing loses its two deleted rows, and the `CodeFixTests` bullet becomes two paragraphs naming the subjects that lost their C# assertion layer, beside the lexer, linter, formatting and code-intelligence ones |
+  | `memory/components/error-reporting.md` | **documentation** | its "Testing" section pointed at `tests/ErrorReportingTests.cs`; it now names the four `.tests.nl` successors |
+  | `memory/components/cli-toolchain.md` | **documentation** | the code-fix row of the code-intelligence coverage table now names `CodeFix.tests.nl` |
+  | `non-nsharp-growth-ratchet.v1.json` | **ratchet** | two rows to `state: removed`, plus the head key |
+  | `OwnershipAudit.nl` | **ratchet** | the second key of the two-key head repin — one line, the `ReviewedHeadFingerprint` constant |
+  | `STATUS.md` | **ledger** | this record |
+
+  **No production `.nl` and no production `.cs` file carries a diff** —
+  `git diff HEAD --numstat -- 'src/**/*.nl'` excluding `*.tests.nl` is EMPTY. The migration needed no
+  visibility change, no new accessor and no seam: `CompilerError`, `ErrorCode`, `ErrorSeverity`,
+  `ErrorSuggestions`, `SmartSuggester`, `TypeConversionSuggester`, `ErrorMessageBuilder`,
+  `CodeFixService`, its six providers, `CodeFixActionHelpers`, `Diagnostic`, `Location`, `CodeAction`,
+  `TextEdit`, `FixApplicatorCore` and `ColumnarParserRecovery` are all public in the estate's own
+  assembly, which is exactly why these two clusters priced first and second in the slice-12 triage.
+
+  ### THE COMPARATOR — 191 MIGRATING C# CLAIMS IN, 191 MATCHED, 0 MISSING, ZERO UNDECODED EITHER SIDE
+
+  Both sides are decoded out of HEAD and the working tree by one mechanical decoder into a shared
+  vocabulary `(route, kind, expected)`, where `route` is the entry point plus any accessor path taken
+  off the value it produced (`CompilerError#Create(TypeMismatch,…)#Format(B:false)`,
+  `ErrorMessageBuilder#TypeMismatch(…)#FormatForTooling()`,
+  `CodeFixService()#GetCodeActions(Diagnostic(…),ColumnarParserRecovery#ParseFileAst(…).CompilationUnit,…)[I:0].Edits[I:0].NewText`).
+  **Completeness arithmetic is exact on both sides: C# 187 `Assert.` statements → 191 claim rows +
+  0 absorbed + 0 undecoded; N# 596 `assert` lines → 602 claim rows + 0 absorbed + 0 undecoded.
+  Matched 191, missing 0, extra 411.** The C# row count exceeds its statement count because ONE
+  `Assert.Equal` over a projected `Select` states five rows (see N2 below); the N# row count exceeds
+  its assert count because SIX joined-enumeration equalities each state two (see N1).
+
+  **LOCALS ARE THREADED TO CONSTRUCTOR TREES ON BOTH SIDES**, so the two sides' different local NAMES
+  cannot make identical claims look different: the C#'s `error` / `formatted` / `fixes` and the N#'s
+  same-shaped locals both canonicalise to the constructor tree that produced them, and a
+  post-construction field assignment (`error.Suggestion = …`) is folded into that tree as
+  `{Suggestion=S:…}`. **FOUR NORMALISATIONS ARE DECLARED RATHER THAN HIDDEN:**
+    - **DEFAULTED PARAMETERS ARE TRIMMED ON BOTH SIDES.** The estate must spell every call at FULL
+      ARITY (a measured wall); the C# used C#'s defaults. A trailing argument EQUAL to the declared
+      default is dropped from the canonical form on both sides, so `CompilerError.Create(…, 10, 5)`
+      and `CompilerError.Create(…, 10, 5, ErrorSeverity.Error)` are the same call, and a
+      NON-default severity still separates.
+    - **N1 — A JOINED ENUMERATION STATES ONE `Contains` PER ELEMENT PLUS THE LENGTH.**
+      `FixableDiagnosticCodes` is an `IEnumerable<string>`, which the estate walks into a joined
+      string and the C# handed to `Assert.Contains` + `Assert.Single`. `CodeFixCodesText(X) == "NL002"`
+      therefore expands to exactly those two rows. **7 expansions.**
+    - **N2 — A PROJECTED-`Select` EQUALITY STATES ONE ROW PER INDEX.**
+      `Assert.Equal(new[]{…}, sorted.Select(edit => edit.NewText))` expands to
+      `sorted[i].NewText == item_i`, which is what the estate spells directly. **1 expansion, 5 rows.**
+    - **N3 — THE THREE PREDICATE-FORM `Assert.Contains(fixes, fix => …)` ROWS MAP TO THE ESTATE'S TWO
+      EXISTENCE HELPERS BY AN EXPLICIT TABLE**, because a lambda has no estate spelling. **3 rows.**
+
+  **THE DECODER CORRECTED ITSELF THIRTEEN TIMES BEFORE IT WAS TRUSTED, AND EVERY CORRECTION WAS A
+  SILENT WRONG ANSWER RATHER THAN A CRASH**: (1) `"print".Length` starts with a quote, so it was read
+  as a STRING LITERAL and the claim's expected value became the text `print".Lengt`; (2) the C#
+  `ParseCode` helper was inlined without its OWN local, so every one of the twenty-five code-fix
+  routes carried the bare name `result.CompilationUnit`; (3) a binding-form `var fix =
+  Assert.Single(…)` silently DROPPED the length claim it also makes; (4) a collection built by
+  `new List<T> { a, b }` and one built by `new List<T>()` + `.Add(a)` + `.Add(b)` canonicalised
+  differently, so every list argument mismatched; (5) `.Add` on a threaded local was not accumulated
+  at all; (6) a `?? "<default>"` unwrap — which the estate needs and the C# did not — was opaque, so
+  every nullable-returning subject's claims mismatched; (7) the head of a call was split on the last
+  dot ANYWHERE rather than the last TOP-LEVEL one, so `(hint ?? "").Contains(…)` decoded as a call to
+  a receiver-less name; (8) a string literal's `.Length` was not folded to its constant, so
+  `"print".Length` and `5` never met; (9) `x.Equals(y)` — the estate's spelling for a record equality
+  the C# wrote as `Assert.Equal` — was decoded as a boolean call rather than as an equality claim;
+  (10) the reverse bracket scan counted brackets INSIDE STRING LITERALS, so the argument
+  `"match result {"` and the needle `"$\"{"` each unbalanced their enclosing call and seven claims
+  decoded as raw multi-line text; (11) the call-paren finder walked PAST a collection initialiser's
+  brace and returned the parenthesis of the FIRST ELEMENT'S constructor, so
+  `new List<TextEdit> { new TextEdit(1,0,1,0,"test") }` decoded as a call to `List<TextEdit>` with the
+  ELEMENT's arguments; (12) the `.Count`/`.Length` fold — added so `Assert.Empty(x)` and
+  `x.Count == 0` would meet — also rewrote the record FIELD `CompilerError.Length` into a
+  collection-length claim, and only on ONE side, so a matched pair silently unmatched; and (13) an
+  implicitly-typed array is spelled `new[]` with NO space, so the `new ` prefix test missed it and the
+  whole five-element edit list decoded as raw text.
+
+  **TWELVE PERTURBATION CONTROLS MOVE THE VERDICT AND ALL TWELVE PASS** — one N# assert deleted from
+  each of the five successors, an N# expected value changed, one C# assert deleted, a whole C#
+  `[Fact]` deleted, a C# expected value changed, a whole N# `test` declaration deleted (which
+  unmatches **8** rows, not 1), the N# joined-enumeration row deleted (which unmatches **2**, because
+  N1 expands it), and the N# predicate-existence row deleted (which unmatches the N3-mapped row).
+
+  ### THE MUTATION PROOF — RUN AGAINST A VERIFIED GREEN BASELINE
+
+  **THE BASELINE WAS ESTABLISHED FIRST AND IT EARNED ITS PLACE.** With the test-inclusive restore in
+  place the unmutated tree reports **5,823 / `Failed: 0`**, so every verdict below is attributable.
+  Each mutation is a single-expression edit in a production owner; the harness restores with
+  `git checkout --` (which cannot corrupt a deletion-shaped mutation, the slice-12 v1 defect) and
+  **REFUSES TO PRINT A VERDICT UNLESS THE RUN REPORTS A `Total:`** — a build failure is reported as
+  `*** NO TEST RUN — this verdict is NOT attributable ***` rather than as a clean green.
+
+  **NINE MUTATIONS IN FIVE PRODUCTION OWNERS, EVERY VERDICT ATTRIBUTABLE (every run reports
+  `Total: 5823`, so the estate BUILT AND RAN in all nine), AND EVERY OWNER RESTORED BYTE-IDENTICALLY
+  to the sha256 recorded before it was touched.**
+
+  | mutation | owner | failures | whose |
+  |---|---|---|---|
+  | M1 — the inline-text folder stops inserting a space for a folded newline | `CompilerError.nl` | **2 / 5,823** | **BOTH this slice's own** — the MsBuild whole-value claim and the new `NormalizeInlineText` contract |
+  | M2 — `FormatForTooling` forgets that a suggestions list suppresses the help line | `CompilerError.nl` | **1 / 5,823** | **ONLY the successor's own, zero collateral** — `ASuggestionsListSuppressesTheHelpLineInBothRichRenderers`, the contract whose title states the claim |
+  | M3 — the Levenshtein matrix transposes its deletion and insertion indices | `ErrorSuggestions.nl` | **0 / 5,823** | **A PROVEN EQUIVALENT MUTANT — see below** |
+  | M3b — the Levenshtein DELETION arm costs two, making the kernel asymmetric | `ErrorSuggestions.nl` | **2 / 5,823** | the successor's own symmetry contract, plus one pre-existing sibling (`ACandidateWithinEditDistanceTwo…`) |
+  | M4 — the similarity score swaps its distance and prefix weights | `ErrorSuggestionHelpers.nl` | **2 / 5,823** | **BOTH this slice's own** ranked-list contracts, and NEITHER of the deleted file's `Contains` claims would have moved |
+  | M5 — the numeric type table loses its `char` row | `ErrorSuggestionHelpers.nl` | **1 / 5,823** | **ONLY the successor's own** twelve-name table |
+  | M6 — the null-check fix folds an equality comparison to `true` instead of `false` | `CodeFix.nl` | **1 / 5,823** | **ONLY the successor's own**, and the deleted file never exercised `== null` at all |
+  | M7 — the empty-catch comment indents by two instead of four | `CodeFix.nl` | **2 / 5,823** | **BOTH this slice's own** — the LF and the CRLF applied-source claims |
+  | M8 — an empty similar-names list is passed through instead of becoming null | `ErrorMessageBuilder.nl` | **1 / 5,823** | **ONLY the successor's own** list-renderer contract |
+
+  **M3 REPORTED ZERO FAILURES AND THAT IS THE CORRECT ANSWER, NOT A HOLE — IT IS AN EQUIVALENT
+  MUTANT, AND THE PROOF IS ONE LINE.** The two swapped expressions are the two operands of the SAME
+  `MinInt(MinInt(deletion, insertion), substitution)`; exchanging which local holds which value cannot
+  change a minimum. The mutation is unobservable by construction, so a green estate is the RIGHT
+  verdict and reporting it as an uncaught defect would have been false. **The slice does not leave a
+  non-result standing**: M3b replaces it with a mutation that IS observable — the deletion arm costs
+  two, so the kernel stops being symmetric — and M3b fails exactly the symmetry contract this slice
+  wrote, which is the claim the deleted file's four one-directional samples could not make.
+
+  **SEVEN OF THE NINE VERDICTS LAND ENTIRELY INSIDE DECLARATIONS THIS SLICE WROTE**, and the two that
+  also move a sibling (M3b, and M1's pre-existing MsBuild neighbours) are layered coverage over the
+  same behaviour rather than collateral damage.
+
+  **THE STRICTLY-STRONGER PROOF IS M4, AND IT IS EXACT.** Swapping `SmartSuggester`'s 0.7/0.3 weights
+  fails **2 of 5,823** — `TheSuggesterRanksByEditDistance` and `TheSuggesterConsidersTheSharedPrefix`,
+  both of them the WHOLE-LIST claims this slice added — while **every one of the deleted file's own
+  five `SmartSuggester` assertions would still have passed**, because `Contains`, `NotEmpty` and
+  `Count <= 2` are all satisfied by a differently-weighted ranking. A suggester that started proposing
+  the wrong name first would have shipped.
+
+  ### THE STRICTLY-STRONGER DELTAS, BY WHAT THEY STATE
+
+  **THE THREE RENDERERS ARE PINNED AS WHOLE TEXTS, NOT SAMPLED.** **Seventeen** complete renderings
+  are stated character for character — rust-style, tooling and MSBuild — where the deleted file made
+  forty `Contains` samples. A whole text pins the GUTTER WIDTH (`Line.ToString().PadLeft(3)`), the
+  MARKER INDENT, the blank line between every block, the BLOCK ORDER and the closing `TrimEnd`, and
+  none of those is visible to any `Contains` claim. **THE TWO RENDERERS INDENT THEIR MARKER
+  DIFFERENTLY** — rust-style by `Column - 1`, Elm-style by `Column - 1 + 6` to clear its
+  `{Line}|     ` gutter — and the same record can be printed through both, so the two indents are
+  stated side by side.
+
+  **THE RENDERER-SELECTION RULE IS ISOLATED TO ONE FIELD.** The deleted file's
+  `RustStyle_StillWorksWithoutElmContext` asserted the rust-style output and the absence of
+  "TYPE MISMATCH". The successor takes the SAME error, adds only `HumanExplanation`, and shows the
+  entire rendering flip — so the claim is "this one field chooses the renderer", not "these two errors
+  happen to render differently".
+
+  **A `Suggestions` LIST SUPPRESSES THE `Suggestion` HELP LINE IN BOTH RICH RENDERERS, AND AN EMPTY
+  LIST DOES NOT.** The `renderedSuggestions` flag had zero coverage anywhere; both arms are now stated
+  in both renderers, as whole values.
+
+  **AND THE RENDERER NEVER CONSULTS `ErrorSuggestions`.** The deleted file's
+  `DoesNotContain("Ensure types are compatible")` is given its point: that exact string is stated as
+  the `ErrorSuggestions` answer FOR THE SAME CODE, and an error with no suggestion is shown to render
+  NO help line at all. Without both halves the assertion only says "some other string is missing".
+
+  **THE ELM SEVERITY TABLE IS CROSSED IN FULL — twelve codes over seven headings — PLUS ITS ONE
+  ORDERING FACT**: the severity test runs first, so a warning-severity type mismatch is headed
+  WARNING, not TYPE MISMATCH. The deleted file reached four headings, each only indirectly, through a
+  rendered string.
+
+  **THE DIAGNOSTIC ID IS SHOWN TO BE DERIVED FROM THE ENUM VALUE RATHER THAN TABULATED** (five bands
+  of the code space crossed), and `DiagnosticIdOverride` — which nothing anywhere stated — is shown to
+  replace it on the record AND inside both rendered headers.
+
+  **`GetSuggestion`'s WHOLE TABLE IS STATED: twenty-one context-free answers, four codes whose answer
+  DEPENDS on what they are given (with both arms each), and seven codes proved to answer NULL.** The
+  deleted file sampled three. The null rows matter because the table is a FALL-THROUGH CHAIN, not a
+  switch: `UndefinedVariable` with no context does not return, it falls past every remaining arm.
+
+  **THE TYPO PATH HAD NO COVERAGE ANYWHERE.** The deleted file only ever called `TypeNotFound`
+  WITHOUT context, so `IsPossibleTypo`, `FindSimilarType` and the ten-name `CommonTypes` table behind
+  them were untested. All three are stated, including the asymmetry that `FindSimilarType` has NO
+  threshold of its own — it always answers — so only `IsPossibleTypo` may gate the suggestion.
+
+  **THE LEVENSHTEIN KERNEL IS SHOWN TO BE SYMMETRIC**, and its two empty-string short-circuits — the
+  arms that run BEFORE the matrix is allocated — are stated. Four one-directional samples cannot see a
+  transposed deletion/insertion index, which is exactly what mutation M3 introduces.
+
+  **`SmartSuggester`'s ANSWERS BECOME RANKED LISTS.** All five deleted cases are restated as WHOLE
+  lists: `Consol` answers exactly `Console`; `usreName` answers exactly `userName` — the three
+  `user`-prefixed siblings are EXCLUDED, so the prefix term alone cannot carry a candidate over the
+  threshold; `getUserNam` answers all three in ranked order with the `get` tie broken by CANDIDATE
+  ORDER; and `test` answers exactly `test1,test2` at max 2 and `test1,test2,test3` at max 3, because
+  all five score identically. **The deleted file asserted `Contains`, `NotEmpty` and `Count <= 2`,
+  every one of which a suggester returning all candidates in input order would pass.** The scorer's
+  two terms are also stated directly, with a prefix-participation claim that holds the distance term
+  constant, and the non-positive-maximum short circuit is stated for the first time.
+
+  **`TypeConversionSuggester`'s WHOLE ORDERED TABLE** — the six rules the deleted file never asked
+  for, the generic numeric fallback, the twelve-name `IsNumericType` table, and the fact that the
+  specific `double -> int` rule is NOT redundant with the fallback, because only it warns about
+  TRUNCATION while the fallback warns about RANGE.
+
+  **THE DOCS-URL TABLE: eighteen distinct anchors across twenty-two builder calls.** The deleted file
+  stated ONE. A builder pointed at the wrong error page would have passed every test in the
+  repository.
+
+  **THE SIMILAR-NAMES SWITCH, WHICH GOVERNS FOUR BUILDERS.** Each answers a DIFFERENT contextual hint
+  depending on whether the caller found near-misses, and `OptionalNames` turns an empty list into NULL
+  so the "Did you mean one of these?" block is ABSENT rather than present and empty. The deleted file
+  saw one arm of two of them.
+
+  **THE MACHINE-READABLE `RelatedInfo` IS READ FOR THE FIRST TIME.** `NonExhaustiveMatch` carries its
+  missing cases as data as well as prose, which is the form the language server and `nlc query`
+  consume, and nothing anywhere had looked at it.
+
+  **EVERY CODE-FIX EDIT IS PROVED BY APPLYING IT.** Where the deleted file asserted four coordinates,
+  the successor ALSO runs the edit through `FixApplicatorCore.ApplyEdits` and states the resulting
+  source in full — and where the fix rewrites an expression, re-parses the result. A fix that reports
+  plausible coordinates and produces broken source is the failure mode that matters, and the deleted
+  file reached `ApplyEdits` in three places; the successor states **fourteen** applied sources.
+
+  **THE NULL-CHECK FIX'S OTHER POLARITY.** `== null` folds to `false`, with its own title; the deleted
+  file only ever exercised `!= null`, so a provider that answered `true` for both would have passed.
+  `while` is a condition too, with its own six-character keyword offset, and a line carrying neither
+  keyword is refused rather than rewritten.
+
+  **A BARE CARRIAGE RETURN IS A LINE ENDING TOO.** The deleted file covered LF and CRLF; the
+  classic-Mac branch of `TryGetSourceLine` had no coverage anywhere.
+
+  **THE MAYBE-NULL MENU IS STATED IN FULL, IN ORDER — four actions when an operator is found, three
+  when the access is already guarded.** The deleted file named two of the three suggestion-only
+  actions and never counted them, so the third — "Assert non-null only after proving the value is
+  present", the most dangerous advice in the list — was unstated, and a fourth spurious entry would
+  have gone unnoticed. The `?[` index-access arm, its own title and its applied result are stated too.
+
+  **THE SERVICE'S DISPATCH TABLE HAS SIX ROWS AND THE DELETED FILE REACHED FOUR.** `NL011` and `NL010`
+  were only ever tested through their providers DIRECTLY, so nothing proved the SERVICE knew about
+  them at all. All six are stated by the code the answering action carries back, plus three negative
+  rows — a prefix, a lower-case code and an empty one — that pin the dispatch to an ORDINAL comparison
+  on the whole code.
+
+  **THE ONLY NON-QUICKFIX ACTION IN THE PRODUCT IS PINNED.** `RemoveUnusedImport`'s
+  `CodeActionKind.SourceOrganizeImports` is what puts it under "Organize Imports" in the editor rather
+  than in the light bulb; the deleted file asserted only its safety level.
+
+  **`TextEdit`'s EQUALITY AND HASH CONTRACT.** Each of the five fields is proved to participate, a
+  non-`TextEdit` argument is proved to compare false, and equal edits are proved to hash alike —
+  everything the fix applicator's ordering depends on.
+
+  **`CodeAction`'s FOUR CONSTRUCTORS AND WHAT EACH DEFAULTS**, including that the kind-only overload
+  leaves safety at `Safe`, the most permissive value and therefore the one a missing argument must not
+  silently pick.
+
+  **AND THE SIX PROVIDER DECLARATIONS ARE CROSSED WITH THE SERVICE'S DISPATCH**, the base class is
+  shown to declare nothing and answer nothing, and the five character kernels the providers share are
+  stated directly rather than through a rendered fix.
+
+  ### EVIDENCE
+
+  **Native estate 5,738 → 5,823 by COUNT DIFF (+85, the exact declarations added: 18 + 11 + 17 + 12 +
+  27)**, `Failed: 0`, under the restore-flag discipline (`-p:NSharpExcludeTests=false
+  --force-evaluate`, then `--no-restore`). **Unit 2,489 → 2,430 = exactly the 59 migrated xUnit cases**
+  (34 + 25), `Failed: 0`. No native project is added or changed, so the gate-equivalent native project
+  count stays **33**.
+
+  **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files, 246
+  diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`), **ZERO
+  rows in any `.tests.nl`** and **ZERO naming a file this slice added**.
+
+  **The project-scoped format check reports "All files are properly formatted."** on the
+  BootstrapServices estate on the FIRST run — no formatter pass was needed on any of the five new
+  files.
+
+  **Ownership audit 18 / 18 after correctly failing 17 / 18 pre-repin with exactly ONE violation** —
+  `OWN008: reviewedHeadFingerprint does not match canonical current ceilings and states; observed
+  head-v1:49843b8b82e9c10c`, **the exact value a Python replica of `OwnershipFacts` had computed
+  BEFORE the audit ran**, so the audit CHECKED the arithmetic rather than supplying it. The replica
+  was **VALIDATED AGAINST THE PRISTINE MANIFEST FIRST**: it reproduced all three stored fingerprints
+  (pathset `8a26e1529863444b`, epoch facts `1b3090747e517fc1`, head `fb6a22540cbd89d3`) before a single
+  row was edited. There is no `OWN004`/`OWN006` row because the two files are gone and their rows now
+  say so. The two ratchet rows become **`state: removed`, `currentLines` / `NonBlank` /
+  `AssertionMarkers` → 0 / 0 / 0, `text-v1:removed`** — `598/509/115` and `541/452/139` zeroed while
+  their **immutable epoch ceilings stay untouched**; the two-key head repinned LAST,
+  **`fb6a22540cbd89d3` → `49843b8b82e9c10c`**, in the JSON header AND the
+  `OwnershipPolicy.ReviewedHeadFingerprint` constant; manifest **391 lines**, no BOM, and the whole
+  ratchet diff is **exactly three changed lines in the JSON plus the one constant**.
+  `epochPathFingerprint` and `epochFactFingerprint` are unchanged, as a pure removal must leave them.
+
+  **The dead sweep corrected THREE live documentation files**: `memory/testing.md` (the `tests/` file
+  tree loses its two rows, and the `CodeFixTests` bullet becomes two paragraphs naming the subjects
+  that lost their C# assertion layer), `memory/components/error-reporting.md` (its "Testing" section
+  pointed at the deleted file and now names the four successors) and
+  `memory/components/cli-toolchain.md` (the code-fix row of the code-intelligence coverage table). No
+  other file under `memory/` or `docs/` names either deleted file, and the only live mentions anywhere
+  are the successors' own provenance headers.
+
+  **The C# test estate is 43 → 41 files, 58,569 → 57,430 lines** (`tests/*.cs`; three of the
+  remaining 41 carry no `[Fact]` at all and are infrastructure by construction).
+
+  **Task 020 stays UNCHECKED and `tasks/README.md` is NOT edited** — the slice-12 triage's bucket (a)
+  is still NOT empty after this batch (the ranked remainder is below), and the closing rule requires both an empty bucket (a)
+  and an N#-owned runner surface. **NOT COMMITTED — the mandate reserves that.**
+
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY** (the repo root carries
+  nested `.claude/worktrees/*` checkouts belonging to other sessions, and a duplicate benchmark
+  project under the repo root breaks the BDN Systems gate in place, so the copy excludes them —
+  verified by listing `/private/tmp/nl020s13gate/.claude/worktrees`, which does not exist, and
+  `/private/tmp/nl020s13gate/.git`, which does), **IS `ALL TESTS PASSED! ✓` IN 18m 54s WITH 113 GREEN
+  STEPS AND ZERO FAILURES** (`GATE EXIT 0`). Its banner reads `Fresh isolated test run required:
+  pre-commit verification / Existing cache entries will not satisfy this invocation`, so no cached
+  whole-gate or per-step result was accepted. Inside it: unit **2,430** (`Failed: 0`, 4m 49s), the
+  estate **5,823** (`Failed: 0`), **all 33 native projects green**, the Step 2b format contract gate
+  and the Step 10b ECMA-335 IL verification gate. Step timings: compiler build 2m 25s, unit tests
+  6m 54s, native tests 4m 41s, SDK pack and install 4m 24s. **The verdict is read from the LOG's
+  `ALL TESTS PASSED` line and the driver's `GATE EXIT 0`, and the byte-copy's existence was checked
+  directly — not from `pgrep`, which in slice 12 matched the watcher's own command string.** The gate
+  ran against a byte-copy of the code tree; the only file edited afterwards is this one, which is
+  prose and is not an input to any compile step.
+
+  ### THE UPDATED BUCKET-(a) QUEUE
+
+  Two ranks spent, and the remainder re-ranks by one place each:
+
+  | rank | file | L | route | why it is priced there |
+  |---|---|---|---|---|
+  | 1 | `FixApplicatorTests.cs` | 554 | estate | `FixApplicatorCore.nl`; pure string + `TextEdit` lists, and this slice has now proved `ApplyEdits`, `ValidateAndSortEdits` and `TextEdit` equality all emit from the estate. One `Random(seed)` differential oracle to re-spell |
+  | 2 | `LinterUnusedVariableTests.cs` | 469 | estate | `Linter.nl`, beside four existing linter contract files; one hand-built-AST fact |
+  | 3 | `ProjectFileTests.cs` | 903 | estate | `ProjectFileParser.nl`; 36/36, temp-`project.yml` shape already precedented |
+  | 4 | `ExampleLintTests.cs` | 670 | estate (27 of 29) | `Linter.nl`; 21 pure-string facts, 6 read `examples/` |
+  | 5 | `ParserErrorTests.cs` | 1,914 | estate | pure source-in; the golden-AST and diagnostic machinery already exists |
+  | 6 | `DiagnosticGoldenTests.cs` | 306 | estate | subject is N#-owned; the cost is the golden-file fixture, not the subject |
+  | 7 | `ParserTests.cs` | 6,087 | estate | pure but very large; the whole-tree golden route is proven |
+  | 8 | the native-route set | — | `tests/native/*` | `AnalyzerTests`, `AnalyzerSemanticModelTests`, `AnalyzerBindingMapTests`, `QueryIntegrationTests`, `SystemsNSharpTests`, `PlaygroundCompilerTests`, and the split remainders of `ErrorHandlingTests` / `EventSubscriptionTests` / `AstNodeFinderTests` |
+
+- Active sub-slice (020 arc, PRIOR TURN — **SLICE 12 TRIAGES THE WHOLE REMAINING C# TEST ESTATE INTO
   FOUR BUCKETS AND SPENDS THE CHEAPEST FIVE. 020's COMPLETION MAP NOW EXISTS: bucket (a) IS NOT
   EMPTY, SO THE TASK STAYS OPEN AND ITS QUEUE IS RANKED.**)
 
