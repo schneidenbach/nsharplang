@@ -15,7 +15,10 @@
 ### Test Files
 ```
 tests/
-├── ParserTests.cs               - Parsing tests
+├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 162 [Fact]s left (statements,
+│                                 expressions, literals, attributes, operator overloads, test DSL).
+│                                 The 50 DECLARATION cases moved to N# in 020 slice 17; the whole
+│                                 error half moved in slice 16. See memory/components/parser.md.
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
@@ -50,7 +53,9 @@ tolerant decoders. `OutputFormatterDiagnosticClusterKernels.tests.nl` states the
 triage layer — both tiers of the category classifier, all nine source constructs, the message
 pattern, the cluster id and the escaped next command — with the serialised payload beside the other
 envelopes in `OutputFormatterJsonKernels.tests.nl`. The local-function parser arms are whole-tree
-goldens in `ColumnarParserAst.tests.nl`, and the four `ColumnarCompiler.TryEmitProgram` cases are
+goldens in `ColumnarParserAst.tests.nl` — whose `AstEq` reflective comparator and `Golden.*` builders
+are shared by `ColumnarParserDeclarations.tests.nl`, the whole-tree contracts for the declaration
+family (020 slice 17) — and the four `ColumnarCompiler.TryEmitProgram` cases are
 real source shapes in `tests/native/columnar-emit-facts`.
 
 Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`

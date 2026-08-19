@@ -158,24 +158,50 @@ Package names recover **with the written text preserved**: a malformed segment w
 ## Testing
 
 Two layers:
-- **Native contracts** (canonical): three files, one per observable contract of the same owner.
+- **Native contracts** (canonical): four files, one per observable contract of the same owner.
   `ColumnarParserRecovery.tests.nl` pins the `ParseFilePreamble` diagnostic stream in POSITION-SORTED
   order (the CLI-shaped oracle order); `ColumnarParserErrorRecovery.tests.nl` pins the `ParseFileAst`
   contract — diagnostics in RECORDING order, whole message / snippet / explanation / hint / suggestion
-  list / docs URL per diagnostic, plus the recovered declaration, statement and member censuses; and
-  `ColumnarParserAst.tests.nl` pins the materialized AST node-by-node. **The two entry points do not
+  list / docs URL per diagnostic, plus the recovered declaration, statement and member censuses;
+  `ColumnarParserAst.tests.nl` pins the materialized AST node-by-node against goldens inventoried from
+  Parser.cs, and owns the `AstEq` reflective comparator and the `Golden.*` builders both AST files
+  use; and `ColumnarParserDeclarations.tests.nl` pins WHOLE TREES over the real-world declaration
+  corpus (task 020 slice 17). **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
 - **C# suite**: `tests/ParserTests.cs` (plus the analyzer / linter / formatter / completion suites)
-  drives the same `ParseFileAst` entry, covering statement, expression and declaration shapes and
-  operator precedence. The error-case half — `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
+  drives the same `ParseFileAst` entry. It is being migrated tranche by tranche: **slice 17 took the
+  DECLARATION family — 50 of its 212 `[Fact]`s, 1,358 lines — leaving 162 methods** covering
+  statements, expressions and operator precedence, literals, the preprocessor family, attributes,
+  parameter modifiers, operator overloads and the test DSL. The error-case half —
+  `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
   cases — was migrated to `ColumnarParserErrorRecovery.tests.nl` and deleted in task 020 slice 16.
   **One capability did not survive the move and is recorded here rather than lost**: that file bounded
   its three malformed table-driven parses with `Task.Run` + a ten-second `Wait`, so a lost no-progress
   guard failed fast instead of hanging the run. `Task.Run`, `Stopwatch` and `Environment.TickCount64`
   all decline to emit in the BootstrapServices estate, so no wall-clock bound is expressible in a
   `.tests.nl` today; a no-progress regression in `ParseTestDeclaration` now hangs the native step.
+
+**WHAT THE DECLARATION TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice 17).** The C#
+helper `Parse(source)` returns `result.CompilationUnit!` and DISCARDS `result.Errors`, so every one
+of the 212 positive cases was silent about whether its "valid" source parses cleanly; the successor
+pins `PdCensus(source) == ""` on all 50 of its sources and **all 50 are clean**. Four shape facts the
+whole-tree pins state and the member reads could not: a type declaration's `Line`/`Column` anchor on
+its KEYWORD, not on its first modifier (`partial class User` anchors at the `class`, column 21 of
+column 13); `required init Id: string` sets Required|Init in **both** `Modifiers` and
+`PropertyModifier`, and the C# asserted only the former; a base list splits with the FIRST entry
+always becoming `BaseClass` even when it is an interface (`class SimpleClass : IFoo, IBar` puts
+`IFoo` in `BaseClass`), which the C# noted in a comment but asserted only for one case; and an
+expression-bodied `Name: string => …` member materializes a **PropertyDeclaration**, while `Name :=
+"Alice"` materializes a **FieldDeclaration with a null `Type`** — two member kinds from two spellings
+that look alike.
+
+**AND `Parser.cs` IS GONE**, so `ParseFileAst` is the sole production parse entry (`FixApplicator.cs`,
+`Formatter.nl`, `AnalyzerImports.nl`, `AnalyzerProjectDiscovery.nl`, `CodeIntelligenceQueries.nl`).
+The pre-cutover goldens in `ColumnarParserAst.tests.nl` still pin the tree Parser.cs produced, but a
+golden written AFTER the cutover has no second parser to check it, and is a behavioural snapshot
+whose C#-asserted subset is a faithful restatement.
 
 ## Usage Example
 

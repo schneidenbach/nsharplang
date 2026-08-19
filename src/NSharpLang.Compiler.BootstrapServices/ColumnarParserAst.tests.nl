@@ -20,8 +20,20 @@ import NSharpLang.Compiler.Ast
 // the identical golden-value methodology the 432 diagnostic contracts use. Because Parser.cs and the owner
 // now construct the SAME N# node types (post-N+1b), matching the golden proves byte-exact node parity.
 //
-// TESTS-ONLY: `ParseFileAst` has no production caller; Parser.cs remains the sole production authority
-// until the N+2 cutover. Tranche 1 covered the CompilationUnit CONTAINER + preamble + FileImports + the
+// THAT PARAGRAPH IS HISTORY, AND SO WAS THE LINE THAT USED TO FOLLOW IT. It said "TESTS-ONLY:
+// `ParseFileAst` has no production caller; Parser.cs remains the sole production authority until the
+// N+2 cutover." **THE N+2 CUTOVER HAPPENED: `src/NSharpLang.Compiler/Parser.cs` NO LONGER EXISTS**,
+// and `ParseFileAst` is the production parse entry — `FixApplicator.cs`, `Formatter.nl`,
+// `AnalyzerImports.nl`, `AnalyzerProjectDiscovery.nl` and `CodeIntelligenceQueries.nl` all call it.
+// Two consequences, both stated rather than left to be re-derived. (1) The goldens below remain
+// exactly as strong as they were — they are hard-coded literals inventoried from Parser.cs while it
+// existed, so they still pin the tree that parser produced. (2) There is no longer a SECOND parser to
+// serve as an independent oracle for a NEW golden, so a golden added after the cutover — including
+// every one in `ColumnarParserDeclarations.tests.nl` — is a behavioural snapshot of the sole parser,
+// whose C#-asserted subset is a faithful restatement and whose remaining fields are new pins.
+// (Found by task 020 slice 17's dead sweep.)
+//
+// Tranche 1 covered the CompilationUnit CONTAINER + preamble + FileImports + the
 // empty-body top-level TYPE declarations struct/interface/enum/record; tranche 2 added ClassDeclaration
 // (a mis-diagnosed name collision, not an emitter gap — see the Golden.AddClass region note). Tranche 3
 // (here) threads MEMBERS through the type bodies: the FieldDeclaration member for the initializer-free
@@ -1501,6 +1513,94 @@ public class Golden {
 
     public static func Param(name: string, paramType: TypeReference, defaultValue: Expression?, isThis: bool, modifier: ParameterModifier, line: int, column: int): Parameter {
         return new Parameter(name, paramType, defaultValue, isThis, modifier, null, line, column, false, null)
+    }
+
+    // ---- 020 slice 17 (the `ParserTests.cs` DECLARATION tranche): FULL-ARITY declaration builders ----
+    //
+    // The `Add*` builders above are narrow by design — each was cut to exactly the fields one tranche of
+    // the N+1c parity corpus needed, so a class with members has one builder, a class with a base type
+    // has another, and a class with BOTH has none. `ColumnarParserDeclarations.tests.nl` states whole
+    // trees over a real-world corpus where those combine freely, so the builders below take EVERY stored
+    // field of their node. They return the constructed node instead of appending it, which lets a
+    // generated tree nest a member list inside a type inside a declaration list without a builder per
+    // combination.
+    //
+    // Attributes are constructed as an EMPTY list rather than taken as a parameter: no source in that
+    // corpus carries an attribute (the attribute family is a later tranche). The field is still
+    // COMPARED — AstEq walks `Attributes` on every registered declaration — so an attribute that
+    // appeared where none belongs would fail the diff, which is why the empty list is baked in rather
+    // than the field left out of the registry.
+    //
+    // Every `new` is FULLY QUALIFIED into `NSharpLang.Compiler.Ast`. The stubs that once collided on the
+    // simple names now live in `NSharpLang.Compiler.TestStubs`, but this file imports both
+    // `NSharpLang.Compiler` and `NSharpLang.Compiler.Ast`, and the qualification costs nothing.
+
+    public static func ClassF(name: string, typeParameters: List<TypeParameter>?, baseClass: TypeReference?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParameters, baseClass, interfaces, members, primaryConstructorParameters, modifiers, new List<AttributeNode>(), line, column)
+    }
+
+    public static func StructF(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, isRefStruct: bool, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.StructDeclaration(name, typeParameters, interfaces, members, primaryConstructorParameters, modifiers, new List<AttributeNode>(), line, column, isRefStruct)
+    }
+
+    public static func RecordF(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, isStruct: bool, modifiers: Modifiers, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.RecordDeclaration(name, typeParameters, interfaces, members, primaryConstructorParameters, isStruct, modifiers, new List<AttributeNode>(), line, column)
+    }
+
+    public static func InterfaceF(name: string, typeParameters: List<TypeParameter>?, baseInterfaces: List<TypeReference>, members: List<Declaration>, modifiers: Modifiers, isDuckInterface: bool, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.InterfaceDeclaration(name, typeParameters, baseInterfaces, members, modifiers, isDuckInterface, new List<AttributeNode>(), line, column)
+    }
+
+    public static func EnumF(name: string, members: List<EnumMember>, enumType: EnumType, modifiers: Modifiers, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.EnumDeclaration(name, members, enumType, modifiers, new List<AttributeNode>(), line, column)
+    }
+
+    public static func UnionF(name: string, typeParameters: List<TypeParameter>?, cases: List<UnionCase>, modifiers: Modifiers, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.UnionDeclaration(name, typeParameters, cases, modifiers, new List<AttributeNode>(), line, column)
+    }
+
+    public static func SoaF(name: string, columns: List<SoaColumnDeclaration>, modifiers: Modifiers, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.SoaRecordDeclaration(name, columns, modifiers, new List<AttributeNode>(), line, column)
+    }
+
+    public static func TypeAliasF(name: string, aliasedType: TypeReference, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.TypeAliasDeclaration(name, aliasedType, line, column)
+    }
+
+    public static func NewtypeF(name: string, underlyingType: TypeReference, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.NewtypeDeclaration(name, underlyingType, line, column)
+    }
+
+    // A field's `Type` is NULLABLE — `Name := "Alice"` leaves it null for inference — while a property's
+    // and an indexer's are not, which is why only this one takes a `TypeReference?`.
+    public static func FieldF(name: string, fieldType: TypeReference?, initializer: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, initializer, modifiers, propertyModifier, new List<AttributeNode>(), line, column)
+    }
+
+    public static func PropF(name: string, propertyType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, expressionBody: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.PropertyDeclaration(name, propertyType, getBody, setBody, expressionBody, modifiers, propertyModifier, new List<AttributeNode>(), line, column)
+    }
+
+    public static func IndexerF(parameters: List<Parameter>, indexerType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, modifiers: Modifiers, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.IndexerDeclaration(parameters, indexerType, getBody, setBody, modifiers, new List<AttributeNode>(), line, column)
+    }
+
+    public static func CtorF(parameters: List<Parameter>, body: BlockStatement, initializer: Expression?, modifiers: Modifiers, line: int, column: int): Declaration {
+        return new NSharpLang.Compiler.Ast.ConstructorDeclaration(parameters, body, initializer, modifiers, new List<AttributeNode>(), line, column)
+    }
+
+    // `Constraints1` builds a one-entry list; a `where K : IKey where V : IValue` header needs two, so
+    // the list is built by appending instead of by constructing.
+    public static func AddConstraint(constraints: List<GenericConstraint>, typeParameter: string, constraintTypes: List<TypeReference>, special: SpecialConstraintKind) {
+        constraints.Add(new GenericConstraint(typeParameter, constraintTypes, special))
+    }
+
+    // `PropertyModifier` is a flags enum too, and `required init Id: string` sets Required|Init in it
+    // as well as in `Modifiers` — the sibling of `Mods2` for the member-level flag word.
+    // It uses the same int-bitmask + cast idiom as `Mods2` above.
+    public static func PropMods2(first: PropertyModifier, second: PropertyModifier): PropertyModifier {
+        value := System.Convert.ToInt32(first) | System.Convert.ToInt32(second)
+        return (PropertyModifier)value
     }
 }
 
