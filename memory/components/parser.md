@@ -158,23 +158,25 @@ Package names recover **with the written text preserved**: a malformed segment w
 ## Testing
 
 Two layers:
-- **Native contracts** (canonical): four files, one per observable contract of the same owner.
+- **Native contracts** (canonical): five files, one per observable contract of the same owner.
   `ColumnarParserRecovery.tests.nl` pins the `ParseFilePreamble` diagnostic stream in POSITION-SORTED
   order (the CLI-shaped oracle order); `ColumnarParserErrorRecovery.tests.nl` pins the `ParseFileAst`
   contract — diagnostics in RECORDING order, whole message / snippet / explanation / hint / suggestion
   list / docs URL per diagnostic, plus the recovered declaration, statement and member censuses;
   `ColumnarParserAst.tests.nl` pins the materialized AST node-by-node against goldens inventoried from
-  Parser.cs, and owns the `AstEq` reflective comparator and the `Golden.*` builders both AST files
-  use; and `ColumnarParserDeclarations.tests.nl` pins WHOLE TREES over the real-world declaration
-  corpus (task 020 slice 17). **The two entry points do not
+  Parser.cs, and owns the `AstEq` reflective comparator and the `Golden.*` builders all three AST
+  files use; `ColumnarParserDeclarations.tests.nl` pins WHOLE TREES over the real-world declaration
+  corpus (task 020 slice 17); and `ColumnarParserStatements.tests.nl` pins whole trees over the
+  real-world STATEMENT and test-DSL corpus (task 020 slice 18). **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
 - **C# suite**: `tests/ParserTests.cs` (plus the analyzer / linter / formatter / completion suites)
   drives the same `ParseFileAst` entry. It is being migrated tranche by tranche: **slice 17 took the
-  DECLARATION family — 50 of its 212 `[Fact]`s, 1,358 lines — leaving 162 methods** covering
-  statements, expressions and operator precedence, literals, the preprocessor family, attributes,
-  parameter modifiers, operator overloads and the test DSL. The error-case half —
+  DECLARATION family — 50 of its 212 `[Fact]`s, 1,358 lines — and slice 18 the STATEMENT family plus
+  the test DSL — 23 more, 608 lines — leaving 139 methods** covering expressions and operator
+  precedence, patterns, literals and interpolation, the preprocessor and file-header families,
+  attributes, parameter modifiers, operator overloads, generic calls and lambdas. The error-case half —
   `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
   cases — was migrated to `ColumnarParserErrorRecovery.tests.nl` and deleted in task 020 slice 16.
   **One capability did not survive the move and is recorded here rather than lost**: that file bounded
@@ -196,6 +198,26 @@ always becoming `BaseClass` even when it is an interface (`class SimpleClass : I
 expression-bodied `Name: string => …` member materializes a **PropertyDeclaration**, while `Name :=
 "Alice"` materializes a **FieldDeclaration with a null `Type`** — two member kinds from two spellings
 that look alike.
+
+**WHAT THE STATEMENT TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice 18).** The same
+clean-parse pin (`PsCensus(source) == ""`) holds on all 23 statement sources, so the pin has now
+found no defect over 73 real-world fixtures. Five shape facts the whole-tree pins state and the
+member reads could not. **A `using` declaration inherits the `using` KEYWORD's anchor, not its own
+name's**: in `using stream := File.OpenRead("file.txt")` the inner `VariableDeclarationStatement`
+sits at column 17 with the `UsingStatement`, while `stream` starts at column 23 — and the statement's
+`Expression` arm is null, which the C# never read. **`lock (obj)` materializes NO
+`ParenthesizedExpression`**: `lock obj` and `lock (obj)` both put a bare `IdentifierExpression` in
+`LockObject` and differ only by one column, so the deleted `Assert.NotNull(lockStmt.LockObject)`
+could not tell the two spellings apart. **A negative table cell is a unary `Negate` over a POSITIVE
+literal** — `(-1, 1, 0)` gives `UnaryExpression(Negate)` at the `-` over `IntLiteral "1"` — where the
+C# asserted only that the row held three cells. **A post-increment anchors on its `++`, never on its
+operand** (`i++` puts the node at column 38 with `i` at 37). **A `CatchClause` carries no `Line`/
+`Column` at all**, and the N# `catch ex: FormatException` form produces a shape byte-identical to
+C#-style `catch (Exception ex)` apart from the type's own span. The statement family's untested
+kinds — `while`, `const`/`readonly` locals, `break`, `continue`, `throw`, `unsafe`, `alloc`, `allow`,
+local functions, tuple deconstruction, the empty statement and `await foreach` — appear ZERO times in
+`ParserTests.cs` and are already pinned by `ColumnarParserAst.tests.nl`'s tranche 10, so slice 18
+added no contracts for them.
 
 **AND `Parser.cs` IS GONE**, so `ParseFileAst` is the sole production parse entry (`FixApplicator.cs`,
 `Formatter.nl`, `AnalyzerImports.nl`, `AnalyzerProjectDiscovery.nl`, `CodeIntelligenceQueries.nl`).

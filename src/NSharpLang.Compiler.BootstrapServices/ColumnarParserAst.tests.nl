@@ -29,7 +29,8 @@ import NSharpLang.Compiler.Ast
 // exactly as strong as they were — they are hard-coded literals inventoried from Parser.cs while it
 // existed, so they still pin the tree that parser produced. (2) There is no longer a SECOND parser to
 // serve as an independent oracle for a NEW golden, so a golden added after the cutover — including
-// every one in `ColumnarParserDeclarations.tests.nl` — is a behavioural snapshot of the sole parser,
+// every one in `ColumnarParserDeclarations.tests.nl` and `ColumnarParserStatements.tests.nl` — is a
+// behavioural snapshot of the sole parser,
 // whose C#-asserted subset is a faithful restatement and whose remaining fields are new pins.
 // (Found by task 020 slice 17's dead sweep.)
 //
@@ -1601,6 +1602,54 @@ public class Golden {
     public static func PropMods2(first: PropertyModifier, second: PropertyModifier): PropertyModifier {
         value := System.Convert.ToInt32(first) | System.Convert.ToInt32(second)
         return (PropertyModifier)value
+    }
+
+    // ---- 020 slice 18 (the `ParserTests.cs` STATEMENT tranche): the RETURNING list-element builders ----
+    //
+    // The statement family's list elements (`Argument`, `CatchClause`, `SwitchCase`, the two
+    // `InterpolatedStringPart` forms) and its three test-DSL declarations already have `Add*`
+    // APPENDERS above. An appender cannot be nested: a `SwitchCase` whose statement list holds a call
+    // whose argument list holds another expression has to be built inside-out, and the generated whole
+    // trees in `ColumnarParserStatements.tests.nl` nest exactly that way. These return the node instead
+    // of appending it, at the SAME full arity as their appender siblings, so the two forms stay
+    // interchangeable and neither is a narrower claim than the other.
+    //
+    // `Argument`'s constructor gives `Modifier` a DEFAULT value; the columnar path declines a call that
+    // omits a defaulted parameter, so `ArgF` takes it explicitly and every caller passes it.
+
+    public static func ArgF(name: string?, value: Expression, modifier: ArgumentModifier): Argument {
+        return new Argument(name, value, modifier)
+    }
+
+    public static func CatchF(exceptionType: TypeReference?, variableName: string?, block: BlockStatement): CatchClause {
+        return new CatchClause(exceptionType, variableName, block)
+    }
+
+    // `pattern` is nullable because a `default =>` arm materializes a SwitchCase with a null Pattern.
+    public static func CaseF(pattern: Pattern?, statements: List<Statement>, line: int, column: int): SwitchCase {
+        return new SwitchCase(pattern, statements, line, column)
+    }
+
+    public static func TextPart(text: string, line: int, column: int): InterpolatedStringPart {
+        return new InterpolatedStringText(text, line, column)
+    }
+
+    public static func HolePart(expr: Expression, formatClause: string?, line: int, column: int): InterpolatedStringPart {
+        return new InterpolatedStringHole(expr, formatClause, line, column)
+    }
+
+    // The test-DSL declarations. `TableCases` is a list OF LISTS — one inner list per table row — and
+    // `TableParameters` / `TableCases` / `SkipReason` are all null for a plain `test "…" { … }`.
+    public static func TestF(description: string, body: BlockStatement, tableParameters: List<Parameter>?, tableCases: List<List<Expression> >?, skipReason: string?, line: int, column: int): Declaration {
+        return new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column)
+    }
+
+    public static func SetupF(body: BlockStatement, line: int, column: int): Declaration {
+        return new SetupDeclaration(body, line, column)
+    }
+
+    public static func TeardownF(body: BlockStatement, line: int, column: int): Declaration {
+        return new TeardownDeclaration(body, line, column)
     }
 }
 

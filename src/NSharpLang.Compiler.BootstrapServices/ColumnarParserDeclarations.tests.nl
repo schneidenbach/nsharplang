@@ -12,10 +12,12 @@ import NSharpLang.Compiler.Ast
 // C# lines, 350 `Assert.` statements — which task 020 slice 17 deletes. The tranche is the type and
 // function DECLARATION family: class / struct / record / interface / enum / union / type-alias /
 // newtype / soa-record headers, their members (fields, properties, indexers, constructors, member
-// functions), modifiers, generics and `where` constraints. The remaining 162 methods — statements,
-// expressions and operator precedence, literals and the preprocessor family, attributes, parameter
-// modifiers, operator overloads and the test DSL — are later tranches of the same arc, and
-// `tests/ParserTests.cs` survives this slice carrying them.
+// functions), modifiers, generics and `where` constraints. The 162 methods it left behind are later
+// tranches of the same arc: slice 18 took the STATEMENT family plus the test DSL (23 methods) to
+// `ColumnarParserStatements.tests.nl`, and `tests/ParserTests.cs` survives at 139 methods carrying
+// expressions and operator precedence, patterns, literals and interpolation, the preprocessor and
+// file-header families, attributes, parameter modifiers, operator overloads, generic calls and
+// lambdas.
 //
 // THE ROUTE IS THE WHOLE-TREE GOLDEN, AND IT IS STRICTLY STRONGER THAN WHAT IT REPLACES.
 // Every migrated C# case went through one private helper:

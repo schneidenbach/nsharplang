@@ -15,10 +15,13 @@
 ### Test Files
 ```
 tests/
-├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 162 [Fact]s left (statements,
-│                                 expressions, literals, attributes, operator overloads, test DSL).
-│                                 The 50 DECLARATION cases moved to N# in 020 slice 17; the whole
-│                                 error half moved in slice 16. See memory/components/parser.md.
+├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 139 [Fact]s left (expressions and
+│                                 operator precedence, patterns, literals and interpolation, the
+│                                 preprocessor and file-header families, attributes, parameter
+│                                 modifiers, operator overloads, generic calls, lambdas).
+│                                 The 50 DECLARATION cases moved to N# in 020 slice 17 and the 23
+│                                 STATEMENT + test-DSL cases in slice 18; the whole error half moved
+│                                 in slice 16. See memory/components/parser.md.
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
