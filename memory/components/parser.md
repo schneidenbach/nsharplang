@@ -158,12 +158,24 @@ Package names recover **with the written text preserved**: a malformed segment w
 ## Testing
 
 Two layers:
-- **Native contracts** (canonical): `ColumnarParserRecovery.tests.nl` pins the ordered diagnostic stream
-  and `ColumnarParserAst.tests.nl` pins the materialized AST node-by-node. Run with
+- **Native contracts** (canonical): three files, one per observable contract of the same owner.
+  `ColumnarParserRecovery.tests.nl` pins the `ParseFilePreamble` diagnostic stream in POSITION-SORTED
+  order (the CLI-shaped oracle order); `ColumnarParserErrorRecovery.tests.nl` pins the `ParseFileAst`
+  contract — diagnostics in RECORDING order, whole message / snippet / explanation / hint / suggestion
+  list / docs URL per diagnostic, plus the recovered declaration, statement and member censuses; and
+  `ColumnarParserAst.tests.nl` pins the materialized AST node-by-node. **The two entry points do not
+  always agree on ORDER** — see the "recording order is not position order" contract — so a census's
+  order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
-- **C# suite**: `tests/ParserTests.cs` and `tests/ParserErrorTests.cs` (plus the analyzer / linter /
-  formatter / completion suites) drive the same `ParseFileAst` entry, covering statement, expression and
-  declaration shapes, operator precedence, and error cases.
+- **C# suite**: `tests/ParserTests.cs` (plus the analyzer / linter / formatter / completion suites)
+  drives the same `ParseFileAst` entry, covering statement, expression and declaration shapes and
+  operator precedence. The error-case half — `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
+  cases — was migrated to `ColumnarParserErrorRecovery.tests.nl` and deleted in task 020 slice 16.
+  **One capability did not survive the move and is recorded here rather than lost**: that file bounded
+  its three malformed table-driven parses with `Task.Run` + a ten-second `Wait`, so a lost no-progress
+  guard failed fast instead of hanging the run. `Task.Run`, `Stopwatch` and `Environment.TickCount64`
+  all decline to emit in the BootstrapServices estate, so no wall-clock bound is expressible in a
+  `.tests.nl` today; a no-progress regression in `ParseTestDeclaration` now hangs the native step.
 
 ## Usage Example
 

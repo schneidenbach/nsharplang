@@ -1,6 +1,82 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-18 (**020 SLICE 13 — THE TRIAGE'S TOP TWO RANKS ARE SPENT: THE WHOLE
+Last updated: 2026-08-19 (**020 SLICE 16 — RANK 1 SPENT ALONE: THE WHOLE `ParserErrorTests.cs`, 1,914
+C# LINES / 91 TEST METHODS / 104 xUNIT CASES / 419 `Assert.` STATEMENTS, TERMINALLY DELETED.** The
+slice-15 queue's own recommendation was that this file is "a batch of its own"; it is, and nothing
+else is taken. **THE QUEUE'S "91 CASES" WAS 91 METHODS**: the file carries 86 `[Fact]` + 5 `[Theory]`
+with 18 `[InlineData]` rows, so the unit delta to expect is **104** — measured BEFORE the migration,
+so the count diff was predicted rather than explained afterwards. `git diff HEAD --numstat -- '*.cs'`
+is **`added=0 deleted=1914` over exactly ONE file**; zero new C#; `Program.Testing.cs` stays **618**,
+not opened. The successor is **one new estate file, `ColumnarParserErrorRecovery.tests.nl` — 1,498
+lines, 103 declarations, 390 assert lines**. **THE PROBE RAN FIRST AND ITS SELECTION WAS RECORDED
+BEFORE ANY MIGRATION EDIT**; seven rounds, final round `Total: 5978` = 5,963 + exactly 15 with ZERO
+declines. **FOUR WALLS, AND TOGETHER THEY CLOSE ONE ROUTE**: `Task.Run` is unmodeled
+(`emit.local.initializer`) and an inline lambda in its overload set declines at `emit.body` — but the
+lambda is INNOCENT, since bound to an explicit `Func<int>` local it emits and invokes; `Stopwatch` is
+an unsupported local type; `Environment.TickCount64` declines at `emit.typed-local.initializer`. **So
+no wall-clock bound is expressible in the estate, and the one deleted capability is named rather than
+lost**: the malformed-table theory's `Task.Run` + ten-second `Wait` made a no-progress regression fail
+FAST. Two of its three rows already have full-field contracts in `ColumnarParserRecovery.tests.nl`;
+the third had none and is added. **THE COMPARATOR REPORTS 660 MIGRATING C# CLAIM ROWS IN, 628
+MATCHED, 32 ROUTED, 0 MISSING, 1,320 EXTRA, WITH ZERO UNDECODED ON EITHER SIDE** — C# 481 decoded
+`Assert.` statements → 660 rows + 3 absorbed (the three `Wait` rows, the wall, named not hidden); N#
+390 assert lines → 1,348 rows + 18 absorbed; **both sides carry the SAME 101 DISTINCT ROUTES**, four
+normalisations are DECLARED, and **the 32 routed rows are the LSP half, whose destination was CHECKED
+rather than asserted** — `LspDiagnosticConverter` is `internal` in `NSharpLang.LanguageServer`, ABOVE
+this assembly, and `tests/LanguageServerDiagnosticsTests.cs` owns `AssertLspRange` at 20+ sites
+including theory rows over the same sources. **THE DECODER CORRECTED ITSELF ELEVEN TIMES BEFORE IT
+WAS TRUSTED, AND TWO OF THOSE CORRECTIONS HAD MADE A CLEAN VERDICT HIDE A WHOLE FAMILY**: a method
+splitter that counted RAW braces found 36 of the 91 methods (nearly every source literal contains
+braces) — fixed with a same-length literal MASK, after which it finds 91 methods / 5 theories / 18
+rows / **104 expanded cases, exactly the measured unit delta**, so the decoder is cross-checked
+against a number it did not produce; and the eight `Span_NL10x` cases assert through two PRIVATE
+HELPERS that do not match `Assert\.`, so the whole NL101-NL108 span table was invisible while
+`missing` read 0. **SEVENTEEN PERTURBATION CONTROLS, SIXTEEN MOVE, AND THE ONE THAT DOES NOT IS
+PROVEN NON-OBSERVABLE AND REPLACED** (changing a census COLUMN the deleted file never asserted; C8b
+changes one it does). **THIRTEEN ATTRIBUTABLE MUTATIONS IN FOUR PRODUCTION OWNERS, every run
+reporting `Total: 6066` and every owner restored byte-identically** — and **TWO WERE NOT ACCEPTED AS
+RESULTS**: M12 DECLINED to emit (`emit.statement.unreachable-after-transfer`) and was reported
+`NO TEST RUN — NOT attributable` rather than read as a green, replaced by an observable M12b; and
+**M13 IS A PROVEN EQUIVALENT MUTANT** — all 89 `ErrorCode` members lie in [101, 963] so every id is
+already three digits and `ToString("Dn")` only pads, and the path is live rather than dead
+(`DiagnosticIdOverride` is set only by `StrictLintDiagnostics`/`SystemsFindingDiagnostics`, never by
+`ParserErrorDiagnostics`) — replaced by M13b. **M6 IS THE PROOF THE MIGRATION IS WIRED THROUGH EVERY
+ROW: one trailing slash on the docs URL fails 94 of 6,066, ALL 94 this slice's own.** **NINE FACTS
+NOTHING HAD WRITTEN DOWN**: top-level recovery MANUFACTURES `<error>`-named CLASS declarations (three
+for `@@ invalid`, four between two classes); `##` lexes as a PREPROCESSOR directive so `@@ ## !! %%`
+reports TWO diagnostics, not four; an unclosed function brace turns the next function into a LOCAL
+function; a malformed field INITIALIZER swallows the field after it while a missing TYPE does not;
+the `enum Status: decimal` refusal is the ONLY corpus row with a null `HumanExplanation`, which routes
+it through the RUST renderer while every other parser diagnostic is Elm; the tuple placeholder anchors
+at line 3 COLUMN 2; interpolation-hole errors ARE reported with a span inside the hole (the deleted
+test of that name asserted only `NotNull` and never tested its own contract); **`ParseFileAst` returns
+RECORDING order, which is NOT the position order `ParseFilePreamble` returns** — the same source comes
+back in OPPOSITE orders from the two entry points, which is why the successor is a NEW file rather
+than an append; and the reserved-keyword-after-dot hint carries a DOUBLE SPACE. Evidence: **native
+estate 5,963 → 6,066 by COUNT DIFF (+103, the exact declarations added)**, `Failed: 0`; **unit 2,288 →
+2,184 = exactly the 104 migrated xUnit cases**, `Failed: 0`; native project count still **33**. **Live tree 393 files / 246 diagnostics — the inherited baseline to the digit** with the same
+ten-code census, ZERO rows in any `.tests.nl` and ZERO naming the file this slice added; format
+clean on the first run; **audit 18 / 18 after correctly failing 17 / 18 pre-repin with exactly ONE
+`OWN008` observing `head-v1:d2b5b0e758f2127e`, the exact value a replica VALIDATED AGAINST THE
+PRISTINE MANIFEST had computed before the audit ran**; the one ratchet row becomes `state: removed`
+with its immutable epoch ceilings untouched and the two-key head repinned LAST and TOGETHER,
+`a5eb225ff4face49` → `d2b5b0e758f2127e`, manifest 391 lines no BOM. **AN EARLIER ATTEMPT AT THAT
+REPIN VIOLATED THE PROTOCOL — the row was flipped while the constant was untouched — AND WAS
+UNWOUND TO PRISTINE AND REDONE IN ORDER**, which is recorded because a half-repinned manifest that
+happens to pass is indistinguishable from a correct one. The dead sweep corrected THREE live files,
+one of them a PRODUCTION comment pointing at the deleted cluster — the slice's only production `.nl`
+edit, comment-only, called out rather than buried. **The fresh isolated gate from a `/tmp` byte-copy
+excluding the eight nested worktrees was launched with its no-cache banner confirmed and its copy
+contents verified by listing, and was STILL IN FLIGHT when this record was written — it is not
+reported as passed, because an unread verdict is not evidence.** The C# test estate is 36 → 35
+files, 54,528 → 52,614 lines.
+**Task 020 stays UNCHECKED and `tasks/README.md` is NOT edited.** NOT COMMITTED — the mandate reserves
+that)
+
+**NOTE: slices 14 and 15 have no header entry — the entry below this one is slice 13 — but both of
+their full records ARE in the Cursor block, and this slice continues directly from slice 15's queue.**
+
+Last updated (prior): 2026-08-18 (**020 SLICE 13 — THE TRIAGE'S TOP TWO RANKS ARE SPENT: THE WHOLE
 `ErrorReportingTests.cs` + `CodeFixTests.cs` PAIR, 1,139 C# LINES AND 59 xUnit CASES, TERMINALLY
 DELETED.** The ~1,200-line cap closes the batch at exactly two — `FixApplicatorTests.cs` (554) would
 put it at 1,693 and is NOT taken. `git diff HEAD --numstat -- '*.cs'` is **`added=0 deleted=1139` over
@@ -3593,9 +3669,508 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 15 SPENDS THE TWO TOP RANKS OF THE SLICE-14 QUEUE:
-  `ProjectFileTests.cs` + `ExampleLintTests.cs`, 1,573 C# LINES AND 80 xUnit CASES, BOTH TERMINALLY
-  DELETED.**)
+- Active sub-slice (020 arc, THIS TURN — **SLICE 16 TAKES RANK 1 ALONE: `tests/ParserErrorTests.cs`,
+  1,914 C# LINES / 91 TEST METHODS / 104 EXPANDED xUNIT CASES, TERMINALLY DELETED.**)
+
+  ### THE PROBED SELECTION — RECORDED BEFORE ANY MIGRATION EDIT
+
+  **THE BATCH IS RANK 1 OF THE SLICE-15 QUEUE AND IT IS ALONE IN ITS BATCH, WHICH IS THAT QUEUE'S
+  OWN RECOMMENDATION** ("over the ~1,600-line cap, so it is a batch of its own or a two-part split").
+  `ParserErrorTests.cs` is 1,914 lines. **THE QUEUE'S "91 CASES" IS 91 TEST METHODS, NOT 91 xUNIT
+  CASES**: the file carries 86 `[Fact]` + 5 `[Theory]` (18 `[InlineData]` rows), so the unit-suite
+  delta to expect is **104**, not 91 — measured before the migration so the count diff is predicted
+  rather than explained afterwards. 419 `Assert.` statements. Rank 2 (`ParserTests.cs`, 6,087) is NOT
+  started; its multi-slice sketch is at the end of this record.
+
+  **THE SUBJECT IS 100% ESTATE-OWNED, WITH ONE MEASURED EXCEPTION.** `ColumnarParserRecovery.nl`
+  (9,242 lines, `ParseFileAst` → `FileParseAst`), `CompilerError.nl`, `ErrorCode.nl`,
+  `DiagnosticSpanResolver.nl`, `Declarations.nl`, `Statements.nl` and `Expressions.nl` are all public
+  in `src/NSharpLang.Compiler.BootstrapServices`, and the owner already carries two contract files
+  (`ColumnarParserRecovery.tests.nl` 6,016 and `ColumnarParserAst.tests.nl` 5,593). The exception is
+  the 8 `Span_NL10x_*` tests' shared `AssertSpan` helper, which calls
+  `LspDiagnosticConverter.FromCompilerError` — an `internal static` class in
+  `src/NSharpLang.LanguageServer/Services`, i.e. ABOVE the estate. **That half is NOT lost by the
+  deletion, and this was checked rather than assumed**: `tests/LanguageServerDiagnosticsTests.cs`
+  owns `AssertLspRange` and calls `FromCompilerError` at 20+ sites, including `[Theory]` rows over the
+  SAME malformed-parameter-list sources (`func main(: string)`, `func main(name:)`,
+  `func main(name: string, )`, `func main<T,>()`, `class Box<>`) asserting the same
+  line/column/length AND the 0-based end-exclusive range. The LSP derivation is that file's subject
+  and that file is not in this slice's scope. The compiler-side span half — the (line, column,
+  length) and the UNDERLINED TEXT — migrates here.
+
+  **THE PROBE RAN BEFORE ANY MIGRATION EDIT AND TOOK SEVEN ROUNDS**, one throwaway
+  `Prb020s16.tests.nl` carrying every risky shape of the cluster: `ParseFileAst` + `.Success` +
+  `.Errors` + `.CompilationUnit`, a StringBuilder diagnostic census with `int.ToString()`, the
+  nullable `Suggestions: List<string>?` read through a local plus `for` over it, the
+  single-match-by-predicate shape rendered null-free, `as` casts off `List<Declaration>` for
+  function/class/struct/enum, the nullable `Body: BlockStatement?` walk into `.Statements`, the
+  statement-kind arms (`VariableDeclarationStatement` / `PrintStatement` / `ForeachStatement` /
+  `ForStatement` / `WhileStatement` / `TupleDeconstructionStatement`), `ForStatement.Body as
+  ForeachStatement` and `WhileStatement.Body as BlockStatement`, `String.Join` over
+  `TupleDeconstructionStatement.Names`, `deconstruction.Initializer as IdentifierExpression` reading
+  `.Name` and `.Line`, `(int)Code` + `.ToString("D3")` + the `DocsUrl` anchor, `Format(false)` at
+  full arity, a `\r` inside a source literal, a bare `{` inside a plain literal (the interpolated
+  raw-string fixture), a distinct-line set built with `List<int>.Contains`, `ClassDeclaration.Members.Count`,
+  and a COMPLETE node census via a `node: object?` parameter + `GetType().Name`. **The final round
+  reports `Total: 5978` = 5,963 + exactly 15, `Failed: 0`, with ZERO declines — so the baseline
+  5,963 is confirmed by arithmetic and every expected value in the probe was correct on the first
+  execution.**
+
+  **FOUR WALLS, EVERY ONE ISOLATED BY EXECUTION, AND TOGETHER THEY CLOSE ONE ROUTE.**
+    - **W1 — AN INLINE LAMBDA IN A BCL GENERIC OVERLOAD SET DECLINES.** `Task.Run(() =>
+      PrbParse(src).Errors.Count)` declines at `emit.body: lambda body emission declined in
+      'lambda'`.
+    - **W2 — `Task.Run` ITSELF IS UNMODELED, AND THE LAMBDA IS INNOCENT.** Binding the lambda to an
+      explicitly typed `work: Func<int> = () => …` local moves the decline to
+      `emit.local.initializer` on `Task.Run(work)`; the same lambda INVOKED DIRECTLY (`work()`)
+      emits and passes. So the wall is the generic `Task.Run<TResult>` call, not the closure.
+    - **W3 — `System.Diagnostics.Stopwatch` IS AN UNSUPPORTED LOCAL TYPE**
+      (`emit.local.unsupported-type: … System.Diagnostics.Stopwatch`).
+    - **W4 — `Environment.TickCount64` DECLINES** at `emit.typed-local.initializer`.
+    - **THE CONSEQUENCE, STATED RATHER THAN HIDDEN: no wall-clock or asynchronous bound is
+      expressible in the estate today.** The C#'s `Parser_MalformedTableDrivenTest_TerminatesWithErrors`
+      wraps the parse in `Task.Run` and fails after `Wait(TimeSpan.FromSeconds(10))`, so a
+      no-progress regression in `ParseTestDeclaration` fails FAST instead of hanging the host. The
+      successor states the three malformed rows' EXACT diagnostic censuses — strictly stronger about
+      the output than `Assert.False(Success)` + `Assert.NotEmpty(Errors)` — but it cannot reproduce
+      the fail-fast property. **This is a measured fidelity delta, and it names the next task-020
+      capability: the "whole-run timeout" already on task 020's own list now has its first concrete
+      consumer, three rows.**
+
+  **NOTHING ELSE ON THE CARRIED WALL LIST WAS HIT**, because the probe was written to the carried
+  rules from the start: FULL ARITY everywhere (`Format(false)`, `CompilerError.Create(…,
+  ErrorSeverity.Error)`), `.Count` and never `.Length` off a call result, nullable reads bound to a
+  LOCAL and null-checked before use (the idiom `CompilerError.nl` itself uses at four sites), no
+  `match` in local-binding position, no `typeof` over an enum, no typed `IReadOnly*` local, no
+  `CultureInfo`, no named arguments, and `GetType()` reached only through an `object?`-typed
+  parameter.
+
+  **THE DECLARED ROUTE FOR THE SHAPES THE ESTATE CANNOT SPELL AS-WRITTEN.** `Assert.Single(errors,
+  predicate)`, `Assert.Contains(errors, predicate)`, `errors.First(…)`, `errors.Select(e =>
+  e.Line).Distinct()` and `Assert.All` have no LINQ route here, and a nullable `CompilerError?`
+  return would put NL905 rows in a `.tests.nl` (the live-tree contract requires ZERO). They are
+  routed through null-free STRING KERNELS: a whole-diagnostic census (`NL102@3:5+1;`), a
+  single-match detail row that renders `matches=N` when the count is not one — so it carries
+  `Assert.Single`'s cardinality claim AND the whole-text fields in one value — a complete
+  declaration census by runtime node type, and a complete statement census. Every kernel is stated
+  here BEFORE the migration, not discovered after it.
+
+  ### WHAT LANDED — ONE CLUSTER, 1,914 C# LINES, TERMINALLY DELETED
+
+  **THE C# MOVED IN ONE DIRECTION ONLY.** `git diff HEAD --numstat -- '*.cs'` is
+  **`added=0 deleted=1914` over exactly ONE file**, with zero new C# files. `Program.Testing.cs`
+  stays at **618**, not opened. `tests/ParserErrorTests.cs` **1,914 → 0** — no split, no shrunk
+  survivor. The C# test estate is **36 → 35 files, 54,528 → 52,614 lines**.
+
+  **THE SUCCESSOR IS ONE NEW ESTATE FILE — `ColumnarParserErrorRecovery.tests.nl`, 1,498 lines, 103
+  test declarations, 390 assert lines**, one per production owner as the estate's convention requires
+  (the owner is `ColumnarParserRecovery.nl`; the `CompilerError` rendering claims land on the same
+  parsed errors, so they stay with them).
+
+  **WHY A NEW FILE RATHER THAN AN APPEND, AND IT IS NOT A STYLE CHOICE.** The owner already has a
+  6,016-line contract file, and every one of its contracts calls `ParseFilePreamble` — the
+  diagnostic-only entry point that returns POSITION-SORTED errors for the CLI-shaped oracle. The
+  deleted C# called `ParseFileAst`, which returns errors in Parser.cs's RECORDING order and also
+  hands back the recovered tree. **Those two orders are not the same, and this slice proved it by
+  execution**: the cascading source reports `NL102@3:13+3;NL106@2:6+4;` from `ParseFileAst` and
+  `NL106@2:6+4;NL102@3:13+3;` from `ParseFilePreamble`. Every consumer that prints `result.Errors` in
+  order — the CLI, MSBuild, the language server — sees the unsorted one, and nothing in the estate
+  stated it. Mixing the two conventions in one file would make every census ambiguous.
+
+  **12 OF THE 101 SOURCES ALREADY APPEAR BYTE-IDENTICALLY IN THE ESTATE, AND THAT WAS MEASURED, NOT
+  ASSUMED** (`decl-class`, `decl-struct`, `decl-type`, `missing-assign-value`, `foreach-no-in`,
+  `for-no-in`, `if-no-body`, `for-no-body`, `while-no-body`, `table-9`, `table-bracket-9` in
+  `ColumnarParserRecovery.tests.nl`; `type-brace-eof` in two linter contracts). They are restated here
+  through the OTHER entry point with their recovered trees, which the sorted entry cannot show —
+  layered coverage over one owner, not duplication of one claim.
+
+  **THE WHOLE MODIFIED-FILE SET, JUSTIFIED FILE BY FILE.**
+
+  | modified file | kind | why it changed |
+  |---|---|---|
+  | `tests/ParserErrorTests.cs` | **deleted** | the migrated cluster, 1,914 → 0 |
+  | `src/…/ColumnarParserErrorRecovery.tests.nl` | **new estate contract** | the successor |
+  | `src/…/ColumnarParserRecovery.nl` | **comment only** | one dead reference to the deleted file, corrected by the dead sweep; zero behaviour change |
+  | `memory/components/parser.md` | **documentation** | the testing section named the deleted file as a live layer; it now names the successor, records the three-file split and the ORDER difference that motivates it, and records the one capability that did not survive |
+  | `memory/testing.md` | **documentation** | the runner-capability table's `whole-run timeout` row had no measured demand; it now carries this cluster's three rows and the four measured declines |
+  | `non-nsharp-growth-ratchet.v1.json` | **ratchet** | one row to `state: removed`, plus the head key |
+  | `OwnershipAudit.nl` | **ratchet** | the second key of the two-key head repin — one line |
+  | `STATUS.md` | **ledger** | this record |
+
+  No production `.nl` carries a behaviour change and no production `.cs` carries a diff at all: the
+  migration needed no visibility change, no new accessor and no seam. `ColumnarParserRecovery`,
+  `FileParseAst`, `CompilerError`, `ErrorCode`, `ErrorSeverity`, `ParserErrorDiagnostics`, the AST
+  node types in `Declarations.nl` / `Statements.nl` / `Expressions.nl` and `DiagnosticSpanResolver`
+  are all public in the estate's own assembly.
+
+  ### THE COMPARATOR — 660 MIGRATING C# CLAIM ROWS IN, 628 MATCHED, 32 ROUTED, 0 MISSING
+
+  Both sides are decoded out of HEAD and the working tree by one mechanical decoder into a shared
+  vocabulary `(route, kind, expected)`, where `route` is the entry point plus the exact source that
+  reached it — `Parse[func test() { name. }]`. **Both sides carry the SAME 101 DISTINCT ROUTES**, so
+  no claim can be matched against a different fixture.
+
+  **Completeness arithmetic is exact on both sides: C# 481 decoded `Assert.` statements (of 419
+  literal `Assert.` occurrences plus the two private helpers, inlined) → 660 claim rows + 3 absorbed +
+  0 undecoded; N# 390 assert lines → 1,348 claim rows + 18 absorbed + 0 undecoded. Matched 628,
+  routed 32, missing 0, extra 1,320.**
+
+  **THE THREE ABSORBED C# STATEMENTS ARE THE WALL, NAMED**: the three `Assert.True(parse.Wait(...))`
+  rows of the malformed-table theory. They are reported as absorbed with the reason
+  "`Task.Run`/`Wait` timeout is not expressible in the estate" rather than counted as matched, so the
+  arithmetic never claims the estate states something it does not.
+
+  **THE 32 ROUTED ROWS ARE THE LSP HALF**, four per `AssertSpan` call across the eight `Span_NL10x`
+  cases (`start.line`, `start.character`, `end.character`, `end.line`). They are reported in their own
+  column, not as matched, and their destination was CHECKED rather than asserted:
+  `tests/LanguageServerDiagnosticsTests.cs` owns `AssertLspRange`, calls `FromCompilerError` at more
+  than twenty sites, and carries theory rows over the same malformed-parameter sources asserting the
+  same line/column/length AND the derived 0-based end-exclusive range.
+
+  **FOUR NORMALISATIONS ARE DECLARED RATHER THAN HIDDEN:**
+    - **N1 — A CENSUS ANSWERS EVERY CARDINALITY AND EVERY PREDICATE CLAIM.** One
+      `PeCensus(src) == "NL102@3:5+1;"` answers `Assert.Single(result.Errors)`,
+      `Assert.NotEmpty(...)`, `Assert.True(Count >= 3)`, `Assert.True(Count <= 5)`,
+      `Assert.Contains(errors, pred)`, `Assert.DoesNotContain(errors, pred)`,
+      `Assert.Single(errors, pred)`, `Assert.All(errors, …)` and the
+      `Select(e => e.Line).Distinct().Count()` claims — because it states the whole ordered list, and
+      absence follows from completeness. 62 `sel-count` rows, 13 `hasnot` rows and 12 `has` rows are
+      answered this way.
+    - **N2 — A WHOLE-TEXT ROW ANSWERS ANY SUBSTRING QUESTION ABOUT IT, IN BOTH DIRECTIONS.** The C#'s
+      `Assert.Contains("dot", error.HumanExplanation, OrdinalIgnoreCase)` is matched against the
+      pinned whole explanation by substring; a `DoesNotContain` is matched only when the whole text
+      genuinely does not contain the fragment.
+    - **N3 — THE ESTATE'S TEXT FIELDS ARE ESCAPED, SO THE C# EXPECTED VALUE IS ESCAPED BEFORE
+      COMPARISON.** `PeEsc` renders a bare CR as `\r` and a backslash as `\\` so a whole row is one
+      readable literal; the comparator applies the same transform to the C# side rather than
+      comparing raw against escaped. This is what lets the CRLF snippet claim and the escaped-quote
+      snippet claim match at all.
+    - **N4 — A TREE CENSUS ANSWERS EVERY `OfType<T>()` QUESTION.** `Assert.NotNull(classDecl)`,
+      `Assert.Equal(3, functions.Count)`, `Assert.Contains(functions, f => f.Name == "valid")`,
+      `Assert.NotEmpty(validFunc.Body!.Statements)` and the `IsType<ForeachStatement>` /
+      placeholder-anchor claims are all answered from `PeDecls` / `PeStmts`, which state the whole
+      recovered shape in order.
+
+  **THE DECODER CORRECTED ITSELF ELEVEN TIMES BEFORE IT WAS TRUSTED, AND EVERY CORRECTION WAS A
+  SILENT WRONG ANSWER RATHER THAN A CRASH — INCLUDING TWO THAT MADE THE VERDICT LOOK CLEAN WHILE
+  HIDING A WHOLE FAMILY.**
+    - **(4) THE METHOD SPLITTER COUNTED RAW BRACES AND FOUND 36 OF THE 91 METHODS.** Nearly every
+      source literal in this file contains `{` and `}`, so brace-depth nesting was wrong and 55
+      methods were silently dropped — and the arithmetic still printed a confident verdict. The fix
+      is a same-length literal MASK: every string-literal body is blanked to spaces before any brace
+      counting or statement splitting. With it the splitter finds **91 methods, 5 theories, 18
+      `[InlineData]` rows and 104 expanded cases — which is exactly the measured unit-suite delta**,
+      so the decoder is now cross-checked against a number it did not produce.
+    - **(10) THE EIGHT `Span_NL10x` CASES ASSERTED THROUGH TWO PRIVATE HELPERS**
+      (`SingleSyntaxError` and `AssertSpan`), and neither matches `Assert\.` — so all eight decoded
+      to almost nothing and the whole NL101-NL108 span table was invisible while `missing` read 0.
+      Both helpers are now inlined, which is where the 32 routed LSP rows and the 8 underlined-text
+      rows come from.
+    - (1) `$"NL{(int)error.Code:D3}"` is an INTERPOLATED literal, and treating it as a plain one
+      crashed the literal scanner; (2) so is `$"{error.Line}"`, whose whole content is an expression;
+      (5) `""` is a VALID census (a clean parse) and treating it as falsy silently dropped every
+      `count=0` claim; (7) `funcs.Count == 1` where the filter is `f.Name == "Bar"` is a NAMED count,
+      not a count of non-placeholder functions — the first rule counted 2 and reported a false miss;
+      (8) six `Assert.NotNull(error)` guards over `Errors.FirstOrDefault()` were undecoded and are a
+      cardinality claim; (9) `Assert.Contains(needle, X.Message)` was undecoded because the field
+      regex listed `HumanExplanation`/`ContextualHint`/`SourceSnippet`/`DocsUrl` and not `Message`;
+      (3) and (6) are the escape/CR normalisation above; (11) the three agreement controls were
+      absorbed under the wrong reason label.
+
+  **SEVENTEEN PERTURBATION CONTROLS, SIXTEEN OF WHICH MOVE THE VERDICT — AND THE ONE THAT DOES NOT IS
+  PROVEN NON-OBSERVABLE AND REPLACED.** Ten on the N# side (a census deleted, a whole row deleted, a
+  declaration census deleted, a statement census deleted, a member census deleted, an underlined-text
+  pin deleted, the Elm rendering pin deleted, a census value changed, a row message changed, and a
+  whole `test` declaration deleted — which unmatches **7** rows, not 1) and five on the C# side (an
+  assert deleted, an expected value changed, a theory row repointed, a whole `[Fact]` body emptied —
+  which removes **9** rows — and an `AssertSpan` helper row repointed, which is the control that
+  proves correction 10 actually took).
+    - **C8 — changing a reported COLUMN in the kw-field census reported `DID NOT MOVE`.** It is
+      non-observable BY CONSTRUCTION: `Parser_ReportsError_ReservedKeyword_AsFieldName` asserts the
+      code, the diagnostic id, the LINE, an explanation fragment and a non-empty suggestion list —
+      and no column and no length. Replaced with **C8b**, which changes the column of the
+      `dot-sameline` census, a column the deleted file DOES assert; it moves `missing` by 1.
+    - **C5 — deleting the member census moves the row and extra columns but NOT `missing`.** Retained
+      and reclassified rather than accepted: the deleted file never asserted a member NAME anywhere,
+      so the member census is 100% new coverage. **C5b** replaces its match-moving role by deleting
+      BOTH the success pin and the census of the clean-parse removal control, which then moves
+      `missing` by 2 — and finding that it took BOTH is itself a measurement: the claim is stated
+      twice.
+
+  ### THE MUTATION PROOF — RUN AGAINST A VERIFIED GREEN BASELINE
+
+  **THE BASELINE WAS ESTABLISHED FIRST AND IT EARNED ITS PLACE.** With the test-inclusive restore in
+  place the unmutated tree reports **6,066 / `Failed: 0`**, so every verdict below is attributable.
+  Each mutation is a single-expression edit in a PRODUCTION owner; the harness records the file's
+  sha256 before it is touched, restores with `git checkout --`, re-checks the sha256, and **REFUSES
+  TO PRINT A VERDICT UNLESS THE RUN REPORTS A `Total:`** — a decline or a build failure is reported
+  as `*** NO TEST RUN — this verdict is NOT attributable ***` rather than as a clean green.
+
+  **THIRTEEN ATTRIBUTABLE MUTATIONS IN FOUR PRODUCTION OWNERS (every run reports `Total: 6066`, so
+  the estate BUILT AND RAN in all thirteen), AND EVERY OWNER RESTORED BYTE-IDENTICALLY** to the
+  sha256 recorded before it was touched.
+
+  | mutation | owner | failures | whose |
+  |---|---|---|---|
+  | M1 — the reserved-keyword-after-dot hint loses its double space | `ColumnarParserRecovery.nl` | **2 / 6066** | 1 this slice's own + 1 pre-existing sibling |
+  | M2 — the trailing-comma explanation becomes the generic identifier sentence | `ColumnarParserRecovery.nl` | **2 / 6066** | 1 own + 1 sibling |
+  | M3 — the next-declaration NL106 explanation becomes the end-of-file wording | `ColumnarParserRecovery.nl` | **4 / 6066** | 2 own + 2 siblings |
+  | M4 — the enum-backing-type refusal gains a human explanation | `ColumnarParserRecovery.nl` | **1 / 6066** | **ONLY this slice's own** |
+  | M5 — the member-access suggestion list loses its actionable third entry | `ColumnarParserRecovery.nl` | **9 / 6066** | **ONLY this slice's own** |
+  | M6 — the docs URL gains a trailing slash | `ParserErrorDiagnostics.nl` | **94 / 6066** | **ONLY this slice's own** |
+  | M7 — the Elm renderer rewords its suggestion heading | `CompilerError.nl` | **4 / 6066** | 1 own + 3 siblings |
+  | M8 — the tooling renderer prints "help:" where it printed "did you mean:" | `CompilerError.nl` | **2 / 6066** | 1 own + 1 sibling |
+  | M9 — the missing-expression placeholder anchors ON the anchor token | `ColumnarParserRecovery.nl` | **2 / 6066** | 1 own + 1 sibling |
+  | M10 — the synthesized top-level recovery node stops being named `<error>` | `ColumnarParserRecovery.nl` | **6 / 6066** | 4 own + 2 siblings |
+  | M11 — the tuple-deconstruction suggestion list loses its worked example | `ColumnarParserRecovery.nl` | **2 / 6066** | **ONLY this slice's own** |
+  | M12b — the span resolver stops measuring identifier-like tokens | `DiagnosticSpanResolver.nl` | **22 / 6066** | 1 own + 21 siblings |
+  | M13b — the default diagnostic id is padded to four digits | `CompilerError.nl` | **147 / 6066** | 99 own + 48 siblings |
+
+  **M6 IS THE PROOF THAT THE MIGRATION IS WIRED THROUGH EVERY ROW.** Adding one trailing slash to the
+  docs URL fails **94 of 6,066, and all 94 are this slice's own declarations** — because every
+  `PeRow` pin ends with the whole URL. The deleted file asserted the URL for exactly ONE diagnostic.
+
+  **AND TWO MUTATIONS WERE NOT ACCEPTED AS RESULTS — ONE REFUSED, ONE PROVEN EQUIVALENT.**
+    - **M12 DECLINED TO EMIT AND THE HARNESS REFUSED THE VERDICT.** Inserting `return 1` at the TOP of
+      `InferVisibleTokenLength` makes the rest of the body dead code, and the emitter rejects it at
+      `emit.statement.unreachable-after-transfer`. The harness reported
+      `*** NO TEST RUN — this verdict is NOT attributable ***` rather than reading a decline as a
+      clean green. **This is exactly the failure mode the refuse-without-`Total:` rule exists for**,
+      and it is the second slice running in which that rule has caught a decline. **M12b replaces it**
+      by editing the identifier arm's RETURN EXPRESSION instead — same behaviour under test, no
+      unreachable statement, and it emits. It fails **22 of 6,066, 1 of them this slice's own** —
+      and that ratio is the POINT, not a weakness: `DiagnosticSpanResolver` already has a dense
+      contract file next door (fifteen `DiagnosticSpan…` declarations plus the analyzer's own span
+      rows), so this is LAYERED COVERAGE over a shared owner. The one own row is the enum-backing-type
+      contract, which is the ONLY corpus diagnostic whose span is resolved by inference rather than
+      supplied — exactly the row that should move, and the reason that contract exists.
+    - **M13 IS A PROVEN EQUIVALENT MUTANT, PROVEN BY ARGUMENT AND THEN CONFIRMED BY EXPERIMENT.**
+      Formatting the default diagnostic id with `"D2"` instead of `"D3"` fails NOTHING, and that is
+      not a coverage hole: **all 89 `ErrorCode` members lie in [101, 963] — every one of them is
+      already three digits — and `ToString("Dn")` pads to a MINIMUM width and never truncates**, so
+      `"D2"` and `"D3"` emit the identical string for every code the enum can produce. The path is
+      live rather than dead, which was checked separately rather than assumed:
+      `DiagnosticId => DiagnosticIdOverride ?? BuildDefaultDiagnosticId()`, and the override is set
+      only by `StrictLintDiagnostics` and `SystemsFindingDiagnostics` — never by
+      `ParserErrorDiagnostics` — so every parser diagnostic in the corpus reaches
+      `BuildDefaultDiagnosticId`. **M13b settles it empirically**: `"D4"` pads where `"D2"` could not, and it fails **147 of
+      6,066 with 99 of them this slice's own** — so the id path is emphatically live, the `"D2"`
+      no-op is genuine equivalence rather than a dead branch, and every census row in the successor
+      is reading a real `DiagnosticId`.
+
+  **SEVEN OF THE THIRTEEN ARE STRICTLY-STRONGER PROOFS: the deleted C# would have passed them.**
+    - **M6** — the deleted file asserted `Contains("https://docs.n-sharp.dev/errors/")` and
+      `Contains($"NL{(int)error.Code:D3}")`. A trailing slash satisfies BOTH. All 94 of the
+      successor's whole-URL rows fail.
+    - **M1** — the deleted file asserted `Contains("reserved keyword", …, OrdinalIgnoreCase)` on the
+      EXPLANATION; the mutation edits the HINT, which it never read.
+    - **M2** — the deleted file asserted `Message.Contains("Expected parameter name")`; the mutation
+      edits the explanation, so a parser answering the generic identifier sentence to every malformed
+      parameter list would have passed.
+    - **M3** — the deleted file asserted `e.Code == MissingClosingBrace` and never the text, so all
+      three NL106 variants were interchangeable to it.
+    - **M4** — the deleted file asserted the enum refusal's code, message fragment, span and snippet,
+      and nothing about the absence of an explanation. Adding one flips that diagnostic from the
+      rust-style renderer to the Elm-style one — a user-visible change it could not see.
+    - **M5** — the deleted file asserted `Assert.NotEmpty(error.Suggestions)`; a list that lost its
+      third and most actionable entry is still non-empty. Nine of the successor's rows fail.
+    - **M11** — the deleted file asserted the tuple message only, so a suggestion list that lost its
+      worked `getPerson()` example was invisible to it.
+
+  **AND M10 IS THE PROOF THAT THE TREE CENSUSES ARE LIVE.** Renaming the synthesized top-level
+  recovery node from `<error>` to `<unknown>` fails **6 of 6,066 — four of them this slice's own
+  declaration censuses**, including the two that state the manufactured-class finding. It is also
+  strictly stronger in one direction the deleted file cannot cover: its own recovery cases filter on
+  `Name != "<error>"`, so a rename makes its `classes.Count >= 1` bound MORE satisfied, never less.
+
+  ### THE STRICTLY-STRONGER DELTAS, BY WHAT THEY STATE
+
+  **THE ARITHMETIC OF THE MARGIN, BY KIND.** Against 660 migrating C# rows the successor states 1,348,
+  and the 1,320 extra rows are not padding — they are one whole diagnostic per source instead of one
+  sampled field: **105 human explanations pinned WHOLE where the C# made 16 substring claims; 104
+  contextual hints where it made 13; 105 complete suggestion LISTS where it made 5 `NotEmpty` checks;
+  104 whole messages, 104 whole snippets, 104 docs URLs, 145 census span rows, 103 whole censuses, 58
+  declaration censuses, 48 statement censuses, 8 member censuses.**
+
+  **NINE FACTS NOTHING IN THE REPOSITORY HAD WRITTEN DOWN, EVERY ONE FOUND BY WRITING THE CENSUS
+  RATHER THAN BY READING THE CODE.**
+    - **TOP-LEVEL RECOVERY MANUFACTURES CLASSES.** A stray token at the top level synthesizes a
+      `ClassDeclaration` named `<error>`. `@@ invalid` leaves THREE of them; `@@@@` between two class
+      declarations leaves FOUR, so a downstream walk over `Declarations` sees six classes for a
+      two-class file. This is exactly why the deleted file's own recovery cases filter on
+      `Name != "<error>"` — and nothing said where those nodes come from.
+    - **`##` LEXES AS A PREPROCESSOR DIRECTIVE.** `@@ ## !! %%` reports TWO diagnostics, not four:
+      `##` is consumed as a `PreprocessorDeclaration` and `!!`/`%%` go with it. The deleted assertion
+      was `Assert.NotEmpty(result.Errors)`, which is structurally incapable of noticing.
+    - **AN UNCLOSED FUNCTION BRACE TURNS THE NEXT FUNCTION INTO A LOCAL FUNCTION.** The cascading
+      source's statement census is `VariableDeclarationStatement(x);LocalFunctionStatement;` and its
+      declaration census has ONE top-level function. The deleted case asserted `Errors.Count <= 5`.
+    - **A MALFORMED FIELD INITIALIZER SWALLOWS THE FIELD AFTER IT.** `class Foo { Name: string = @@ /
+      Age: int }` recovers members `Name` and `<error>` — `Age` is GONE — while the missing-TYPE case
+      (`Name:` then `Items: List<>`) recovers BOTH fields. Two arms of one recovery with opposite
+      behaviour, sitting next to each other, and the deleted assertions (`Assert.NotNull(classDecl)`,
+      `Assert.True(classes.Count >= 2)`) could see neither. The two-bad-member case reports only
+      TWICE for two bad members, because the first swallow eats the second `= @@` whole.
+    - **THE `enum Status: decimal` REFUSAL IS THE ONLY CORPUS DIAGNOSTIC WITH A NULL
+      `HumanExplanation`** — and no hint and no suggestions, because it is built through the DEFAULT
+      span resolver rather than a purpose-built parser diagnostic. Since `HumanExplanation` alone
+      selects the renderer (a rule `CompilerError.tests.nl` states), this is the one parser diagnostic
+      a developer meets in RUST style while every other one is Elm style. A real user-visible
+      inconsistency, now stated instead of latent.
+    - **THE TUPLE PLACEHOLDER ANCHORS AT LINE 3 COLUMN 2.** The deleted file is a named regression test
+      for this anchoring bug and asserted the LINE only. The column is the half the bug got wrong in
+      the other direction.
+    - **ERRORS INSIDE AN INTERPOLATION HOLE ARE REPORTED, WITH A SPAN INSIDE THE HOLE.**
+      `Parser_InterpolatedString_ErrorsArePropagated` did not test its own name: its body was
+      `Assert.NotNull(result.CompilationUnit)` and its comment said "Should have at least one error";
+      it never asserted one. A parser that silently swallowed every diagnostic inside every hole would
+      have passed. The answer is NL102 at column 19, three characters over `1 +`.
+    - **`ParseFileAst` ORDER IS RECORDING ORDER, NOT POSITION ORDER** (the cascading source, above).
+    - **THE RESERVED-KEYWORD-AFTER-DOT HINT CONTAINS A DOUBLE SPACE** ("To reach a  member"). Pinned
+      as written, because the identical text is already pinned for the `class` keyword in
+      `ColumnarParserRecovery.tests.nl` — so the defect is knowingly recorded in two places rather
+      than silently accepted in one.
+
+  **THREE MORE MARGINS THAT ARE STRUCTURAL RATHER THAN INCIDENTAL.**
+    - **THE EIGHT MISSING-DECLARATION-NAME ROWS RECOVER TWO DIFFERENT WAYS.**
+      `func`/`class`/`struct`/`enum` materialize an `<error>`-named node;
+      `record`/`interface`/`union`/`type` materialize a node with no name at all. The deleted theory
+      asserted line/column/length and a snippet prefix, so the asymmetry was invisible.
+    - **THREE VARIANTS OF NL106 ARE NOW SEPARATED BY THEIR WHOLE TEXT**: the end-of-file wording
+      ("is missing its closing brace. I reached the end of the file"), the next-declaration wording
+      ("appears to be missing … I found 'class' on line 5, which looks like a new declaration", with
+      a different hint), and the type-body wording ("The type body that started on line 1 … Add a '}'
+      to close this type declaration"). The deleted file asserted `e.Code == MissingClosingBrace`, which
+      cannot tell one from another.
+    - **THE `if`/`for`/`while` MISSING-BODY TRIO SHARES ONE MESSAGE AND RECOVERS THREE DIFFERENT
+      BODIES**: an `IfStatement`, a `ForStatement` wrapping a foreach, and a `WhileStatement` over an
+      `EmptyStatement`. Nothing had stated what the parser substitutes for a missing body.
+
+  ### EVIDENCE
+
+  **Native estate 5,963 → 6,066 by COUNT DIFF (+103, the exact declarations added)**, `Failed: 0`,
+  under the restore-flag discipline (`-p:NSharpExcludeTests=false --force-evaluate`, then
+  `--no-restore`). **Unit 2,288 → 2,184 = exactly the 104 migrated xUnit cases** (86 `[Fact]` + 18
+  `[InlineData]` rows) — **and that number was PREDICTED before the migration**, from the corrected
+  method splitter, rather than explained after it. `Failed: 0`. No native project is added or changed,
+  so the gate-equivalent native project count stays **33**.
+
+  **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files,
+  246 diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`),
+  **ZERO rows in any `.tests.nl`** and **ZERO naming the file this slice added**. The check is run
+  against a CLI built from this branch, not the installed `~/.nsharp/bin/nlc`, which is routinely
+  stale. Its process exit code is 1 because `ok:false` — 246 inherited errors — which is the baseline,
+  not a failure of this slice; reading the exit code alone would have been a false alarm, and the
+  census is what settles it.
+
+  **The project-scoped format check reports "All files are properly formatted."** on the
+  BootstrapServices estate, on the first run.
+
+  **Ownership audit 18 / 18 after correctly failing 17 / 18 pre-repin with exactly ONE violation** —
+  `OWN008: reviewedHeadFingerprint does not match canonical current ceilings and states; observed
+  head-v1:d2b5b0e758f2127e`, **the exact value a Python replica of `OwnershipFacts` had computed
+  BEFORE the audit ran**, so the audit CHECKED the arithmetic rather than supplying it. The replica
+  was **VALIDATED AGAINST THE PRISTINE MANIFEST FIRST**: it reproduced all three stored fingerprints
+  (pathset `8a26e1529863444b`, epoch facts `1b3090747e517fc1`, head `a5eb225ff4face49`) before a
+  single row was edited. The one ratchet row becomes **`state: removed`, `currentLines` / `NonBlank` /
+  `AssertionMarkers` → 0 / 0 / 0, `text-v1:removed`** — `1914/1580/562` zeroed while its **immutable
+  epoch ceilings (`1923/1592/563`) stay untouched**; the two-key head repinned LAST and TOGETHER,
+  **`a5eb225ff4face49` → `d2b5b0e758f2127e`**, in the JSON header AND the
+  `OwnershipPolicy.ReviewedHeadFingerprint` constant; manifest **391 lines**, no BOM, trailing newline
+  intact, and the whole ratchet diff is **exactly two changed lines in the JSON plus the one
+  constant**. `epochPathFingerprint` and `epochFactFingerprint` are unchanged, as a pure removal must
+  leave them, and the repin script ASSERTS both before it writes. **The manifest is edited LINE BY
+  LINE rather than round-tripped through a JSON dump**, the reflow hazard slice 15 caught.
+
+  **AND THE REPIN WAS DONE TWICE, BECAUSE THE FIRST ATTEMPT VIOLATED THE PROTOCOL AND WAS UNWOUND.**
+  Mid-slice the row was flipped to `removed` while `OwnershipAudit.nl` was still untouched — an
+  INCOMPLETE two-key repin, and out of order besides. It was reverted to pristine, the replica was
+  re-validated against that pristine manifest, and the whole sequence was redone in the required
+  order: every other edit first, then the row flip, then the pre-repin `OWN008` observation, then both
+  keys together as the last edit. Recording this because a half-repinned manifest that happened to
+  pass would be indistinguishable from a correct one.
+
+  **The dead sweep corrected THREE live files.** `memory/components/parser.md` named the deleted file
+  as a live testing layer; it now names the successor, records the THREE-file split of the parser
+  contracts and the ORDER difference that motivates it, and records the one capability that did not
+  survive. `memory/testing.md`'s runner-capability table listed the whole-run timeout with NO measured
+  consumer; it now carries this cluster's three rows and the four measured declines. And
+  `ColumnarParserRecovery.nl:4173` carried a production comment pointing at "the committed
+  ParserErrorTests statement shapes" — a file that no longer exists. **That is the ONE production `.nl`
+  edit in this slice and it is a COMMENT: zero behaviour change, and it is called out here rather than
+  buried, because the alternative was leaving a production file pointing at a deleted one.** No other
+  file under `memory/` or `docs/` names the deleted cluster; the only remaining mentions anywhere are
+  historical provenance (the successor's own header and the two documentation rows above).
+
+  **THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY.** The repo root carries
+  EIGHT nested `.claude/worktrees/*` checkouts belonging to other sessions, and a duplicate benchmark
+  project under the repo root breaks the BDN Systems gate in place, so the copy
+  (`/private/tmp/nl020s16gate`) excludes `.claude/worktrees` and nothing else. **The copy's contents
+  were verified directly rather than assumed**: `.claude/worktrees` does NOT exist inside it, `.git`
+  does, the benchmark-project count inside it is **0**, the deleted cluster is absent (0 of 1), the
+  successor is present (1 of 1), and the repinned head `d2b5b0e758f2127e` appears in BOTH ratchet keys
+  with ZERO occurrences of the old `a5eb225ff4face49` anywhere under `tests/native/ownership-audit/`.
+  A competing-gate check (`pgrep -fl test-all-core.sh`) was run BEFORE launching and was clear.
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` was launched from inside the copy with its full
+  log to a NEW file (`s16-gate.log`), and its banner reads **`Fresh isolated test run required:
+  pre-commit verification / Existing cache entries will not satisfy this invocation`** — so no cached
+  whole-gate or per-step result can satisfy it. **THE VERDICT IS READ FROM THE LOG'S `ALL TESTS
+  PASSED` LINE AND THE DRIVER'S `GATE EXIT` CODE, AND AT THE TIME THIS RECORD WAS WRITTEN THE RUN WAS
+  STILL IN FLIGHT (Step 3 of ~13) — it is NOT reported here as passed, because a gate verdict that has
+  not been read is not evidence.** The gate ran against a byte-copy of the code tree; the only file
+  edited afterwards is this one, which is prose and is not an input to any compile step.
+
+  ### THE UPDATED BUCKET-(a) QUEUE
+
+  Rank 1 is spent. **The pure-estate route is now down to ONE cluster, and after it the whole
+  remainder is the native route.**
+
+  | rank | file | L | methods / cases | route | why it is priced there |
+  |---|---|---|---|---|---|
+  | 1 | `ParserTests.cs` | 6,087 | 212 / 212 | estate | pure source-in, one entry point (`ParseFileAst`), 212 `[Fact]`s and ZERO theories (the one `[InlineData]` in the file is inside a SOURCE literal, in a test about parsing attributes — measured, so the unit delta to expect is 212), 1,503 `Assert.` statements, and the whole-tree golden route is already mature next door (`ColumnarParserAst.tests.nl` carries 1,360 `Golden.` calls). **Four times the ~1,600-line cap, so it is a MULTI-SLICE effort — the sketch is below** |
+  | 2 | the native-route set | — | — | `tests/native/*` | `AnalyzerTests` (13,451 / 816), `AnalyzerSemanticModelTests`, `AnalyzerBindingMapTests`, `QueryIntegrationTests`, `SystemsNSharpTests`, `PlaygroundCompilerTests`, and the split remainders of `ErrorHandlingTests` / `EventSubscriptionTests` / `AstNodeFinderTests`. Every one of these has a subject ABOVE the estate (`Analyzer`, `SemanticModel`, `BindingMap`, `CodeIntelligenceService`, `MultiFileCompiler`, a CLI command), so each must go through a `tests/native/*` project with a `Compiler.dll` dep — the shape `completion-engine`, `doc-query` and `query-completions` already use |
+
+  **THE `ParserTests.cs` MULTI-SLICE SKETCH, FROM WHAT THIS SLICE LEARNED ABOUT PARSER-TERRITORY
+  ESTATE CONTRACTS.** The file is unusually uniform — 212 `[Fact]`s, no theories, and every one
+  of them goes through the same two private helpers (`Parse(source)`, which returns
+  `result.CompilationUnit!` and DISCARDS the diagnostics, and `AssertHasParseError(source, message)`,
+  which asserts `!Success` plus one `Message.Contains`) — so a migration does not need a new
+  vocabulary: it needs the two helpers' successors, and this slice has already built and proven both
+  halves. The positive half is `ColumnarParserAst.tests.nl`'s existing `AstEq.Diff` + `Golden.*`
+  whole-tree route (which is strictly stronger than `Parse(...)` + a handful of member reads, because
+  it pins every anchor at once, and which will need its `Golden` helper and `AstEq.FieldNames`
+  registry extended tranche by tranche as new node kinds arrive); the negative half is THIS file's
+  `PeCensus` + `PeRow`, which turns `AssertHasParseError`'s single `Contains` into a whole ordered
+  census plus whole message/snippet/explanation/hint/suggestions/URL. The natural split is by
+  DECLARATION AND STATEMENT FAMILY, four or five slices of roughly 40-50 methods and ~1,200-1,500 C#
+  lines each, ordered by how much `Golden`/`AstEq` extension each needs rather than by file order:
+  (1) declarations — function/class/struct/record/interface/enum/union/type-alias headers, members,
+  modifiers, generics and constraints; (2) statements — let/const, if/for/foreach/while, return,
+  print, block, try/catch/finally, using, lock, switch, yield, throw, unsafe, assert; (3) expressions
+  and operator precedence — the largest `Golden` extension, including lambdas (6 methods), match (4),
+  patterns, `new`/`with`/anonymous objects, interpolated-string holes, `typeof`, `unchecked`, postfix
+  and null-conditional chains; (4) literals, SoA records and the preprocessor family; (5) the residue
+  plus the whole-file round trips. Two cautions this slice measured and the plan should inherit:
+  **a `.tests.nl` must produce ZERO `nlc check` rows**, so nullable node handles have to be avoided in
+  favour of string kernels or `!= null`-narrowed locals, and **`ParseFileAst` returns diagnostics in
+  RECORDING order** — any census written for `ParserTests.cs` must say which order it is in, because
+  the sibling parity file's censuses are sorted. Expect the same shape of finding as here: the C#
+  helper `Parse()` throws away the diagnostic list entirely, so **every one of the 212 positive cases
+  is currently silent about whether the source it calls "valid" parses CLEANLY** — the first slice
+  should pin `PeCensus(src) == ""` for all of them, and should expect that pin to find sources that
+  do not.
+
+  **`Program.Testing.cs` IS STILL 618 AND STILL UNOPENED.** Task 020's closing rule needs BOTH an
+  empty bucket (a) and an N#-owned runner surface; bucket (a) has two entries left, so **task 020 stays
+  UNCHECKED and `tasks/README.md` is NOT edited.**
+
+  **AND THIS SLICE NAMES THE NEXT RUNNER CAPABILITY WITH MEASURED DEMAND BEHIND IT, WHICH IS WHAT THE
+  CLOSE-OUT CONTRACT ASKS FOR.** `memory/testing.md`'s capability table said the whole-run timeout was
+  "already a flag" and recorded no consumer. It now records one: three rows that wanted an IN-BODY
+  bound, and the four measured declines (`Task.Run` at `emit.local.initializer`, an inline lambda in
+  its overload set at `emit.body`, `Stopwatch` as an unsupported local type, `Environment.TickCount64`
+  at `emit.typed-local.initializer`) that make such a bound unwritable in a `.tests.nl` today.
 
   ### THE PROBED SELECTION — RECORDED BEFORE ANY MIGRATION EDIT
 

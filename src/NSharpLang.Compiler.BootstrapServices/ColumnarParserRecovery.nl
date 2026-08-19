@@ -4170,7 +4170,8 @@ class ColumnarParserRecovery {
 
     // ---- statement dispatch (Parser.cs ParseStatement :2219) ----
     // Stage 6 carries the let/const/readonly, if, for, foreach, while, return, print, block, and
-    // expression-statement kinds — the surface the committed ParserErrorTests statement shapes reach.
+    // expression-statement kinds — the surface the migrated parser-error statement shapes reach
+    // (now stated in ColumnarParserErrorRecovery.tests.nl; tests/ParserErrorTests.cs is deleted).
     // yield / break / continue / throw / try / using / lock / switch / allow / alloc / unsafe / assert /
     // preprocessor / local-function / await-foreach / off statements are later arc stages (the corpus
     // uses none); they would each add their own ReportError sites under the same shared-panic model.
