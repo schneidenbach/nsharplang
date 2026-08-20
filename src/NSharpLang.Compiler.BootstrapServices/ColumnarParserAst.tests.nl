@@ -1701,6 +1701,63 @@ public class Golden {
         node.OperatorSymbolSpan = symbolSpan
         return node
     }
+
+    // ---- 020 slice 20 (the `ParserTests.cs` FILE-HEADER / LITERAL / ATTRIBUTE / PREPROCESSOR
+    // tranche): four RETURNING list-element builders and five ATTRIBUTE-CARRYING declaration forms ----
+    //
+    // The four element builders are the returning siblings of `AddImport` / `AddFileImport` /
+    // `AddAttrArgs` / `AddPreproc`, at the SAME arity, for the same structural reason as the twelve
+    // added across slices 18 and 19: an attribute list nested inside a parameter inside a parameter
+    // list cannot be built by an appender, which returns nothing and so cannot sit in the argument
+    // position the next level needs.
+    //
+    // The five `*A` forms exist because the full-arity `*F` / `Func` / `Param` builders hardcode an
+    // EMPTY attribute list (`Param` hardcodes a NULL one — an attribute-free parameter really does
+    // carry null, which `TestMethodAndParameterAttributesStayScoped` asserted and this tranche pins).
+    // That was the right call for the three earlier tranches, whose corpora carried no attribute at
+    // all; this tranche IS the attribute family, so each `*A` takes the list its `*F` sibling bakes
+    // in, and nothing else changes. Every one returns its CONCRETE node type rather than the base —
+    // the slice-19 `OpFunc` lesson, which keeps this file at the 18 inherited `nlc check` rows it
+    // already reported instead of earning a fourteenth NL202.
+
+    public static func ImportF(ns: string, alias: string?, line: int, column: int): ImportDirective {
+        return new ImportDirective(ns, alias, line, column)
+    }
+
+    public static func FileImportF(path: string, alias: string?, pathColumn: int, pathLength: int, line: int, column: int): FileImport {
+        node := new FileImport(path, alias, line, column)
+        node.PathColumn = pathColumn
+        node.PathLength = pathLength
+        return node
+    }
+
+    public static func AttrF(name: string, args: List<Argument>, line: int, column: int): AttributeNode {
+        return new AttributeNode(name, args, line, column)
+    }
+
+    public static func PreprocF(directive: string, line: int, column: int): PreprocessorDeclaration {
+        return new PreprocessorDeclaration(directive, line, column)
+    }
+
+    public static func ClassA(name: string, typeParameters: List<TypeParameter>?, baseClass: TypeReference?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.ClassDeclaration {
+        return new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParameters, baseClass, interfaces, members, primaryConstructorParameters, modifiers, attributes, line, column)
+    }
+
+    public static func StructA(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, isRefStruct: bool, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.StructDeclaration {
+        return new NSharpLang.Compiler.Ast.StructDeclaration(name, typeParameters, interfaces, members, primaryConstructorParameters, modifiers, attributes, line, column, isRefStruct)
+    }
+
+    public static func FieldA(name: string, fieldType: TypeReference?, initializer: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.FieldDeclaration {
+        return new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, initializer, modifiers, propertyModifier, attributes, line, column)
+    }
+
+    public static func FuncA(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, expressionBody: Expression?, typeParameters: List<TypeParameter>?, constraints: List<GenericConstraint>?, modifiers: Modifiers, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
+        return new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParameters, constraints, modifiers, attributes, false, null, false, false, line, column)
+    }
+
+    public static func ParamA(name: string, paramType: TypeReference, defaultValue: Expression?, isThis: bool, modifier: ParameterModifier, attributes: List<AttributeNode>, line: int, column: int): Parameter {
+        return new Parameter(name, paramType, defaultValue, isThis, modifier, attributes, line, column, false, null)
+    }
 }
 
 // ---- contracts ----

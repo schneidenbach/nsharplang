@@ -15,13 +15,14 @@
 ### Test Files
 ```
 tests/
-├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 93 [Fact]s left (expressions and
-│                                 operator precedence 60, the file-header family 12, literals and
-│                                 interpolation 9, attributes 8, the preprocessor 4).
+├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 60 [Fact]s left, ALL of them
+│                                 expressions and operator precedence — the last tranche.
 │                                 The 50 DECLARATION cases moved to N# in 020 slice 17, the 23
-│                                 STATEMENT + test-DSL cases in slice 18, and the 46 PATTERN /
+│                                 STATEMENT + test-DSL cases in slice 18, the 46 PATTERN /
 │                                 parameter-modifier / operator-overload / constructor-initializer
-│                                 cases in slice 19; the whole error half moved in slice 16.
+│                                 cases in slice 19, and the 33 FILE-HEADER / literal and
+│                                 interpolation / attribute / preprocessor cases in slice 20;
+│                                 the whole error half moved in slice 16.
 │                                 See memory/components/parser.md.
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests

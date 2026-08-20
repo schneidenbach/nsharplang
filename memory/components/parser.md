@@ -158,7 +158,7 @@ Package names recover **with the written text preserved**: a malformed segment w
 ## Testing
 
 Two layers:
-- **Native contracts** (canonical): six files, one per observable contract of the same owner.
+- **Native contracts** (canonical): seven files, one per observable contract of the same owner.
   `ColumnarParserRecovery.tests.nl` pins the `ParseFilePreamble` diagnostic stream in POSITION-SORTED
   order (the CLI-shaped oracle order); `ColumnarParserErrorRecovery.tests.nl` pins the `ParseFileAst`
   contract — diagnostics in RECORDING order, whole message / snippet / explanation / hint / suggestion
@@ -170,18 +170,23 @@ Two layers:
   real-world STATEMENT and test-DSL corpus (task 020 slice 18); and `ColumnarParserPatterns.tests.nl`
   pins whole trees over the PATTERN / `match`, parameter- and argument-modifier, operator- and
   conversion-overload and constructor-initializer corpus, plus the two inline-`out` refusals, which
-  are that file's negative half (task 020 slice 19). **The two entry points do not
+  are that file's negative half (task 020 slice 19); and `ColumnarParserSmallFamilies.tests.nl` pins
+  whole trees over the FILE-HEADER (package / namespace / both import kinds), LITERAL and
+  INTERPOLATION, ATTRIBUTE and PREPROCESSOR corpus, plus that tranche's two refusals — the
+  interpolation trailing-token error and the attribute-after-parameter-name error, the arc's first
+  MULTI-diagnostic negative (task 020 slice 20). **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
 - **C# suite**: `tests/ParserTests.cs` (plus the analyzer / linter / formatter / completion suites)
   drives the same `ParseFileAst` entry. It is being migrated tranche by tranche: **slice 17 took the
   DECLARATION family — 50 of its 212 `[Fact]`s, 1,358 lines — slice 18 the STATEMENT family plus
-  the test DSL — 23 more, 608 lines — and slice 19 the four NON-EXPRESSION families (patterns and
+  the test DSL — 23 more, 608 lines — slice 19 the four NON-EXPRESSION families (patterns and
   `match` 23, parameter and argument modifiers 14, operator and conversion overloads 6, constructor
-  initializers 3) — 46 more, 1,397 lines — leaving 93 methods** covering expressions and operator
-  precedence (60), the file-header family (12), literals and interpolation (9), attributes (8) and
-  the preprocessor (4). The error-case half —
+  initializers 3) — 46 more, 1,397 lines — and slice 20 the four SMALL families (the file header 12,
+  literals and interpolation 9, attributes 8, the preprocessor 4) — 33 more, 711 lines — leaving 60
+  methods**, all of them expressions and operator precedence, which is the last tranche and takes
+  both private helpers (`Parse`, `AssertHasParseError`) with it. The error-case half —
   `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
   cases — was migrated to `ColumnarParserErrorRecovery.tests.nl` and deleted in task 020 slice 16.
   **One capability did not survive the move and is recorded here rather than lost**: that file bounded
@@ -251,6 +256,39 @@ whole ARGUMENT half is unpinned elsewhere**: `Argument` carries no position at a
 nothing**: each reports exactly ONE `NL103`, underlining the inline DECLARATION rather than the `out`
 keyword (span 7 for `out var num`, 9 for `out int value`), with a NULL suggestion list, and both
 functions come back from recovery with their bodies intact.
+
+**WHAT THE FILE-HEADER / LITERAL / ATTRIBUTE / PREPROCESSOR TRANCHE MEASURED THAT THE C# COULD NOT
+SEE (task 020 slice 20).** The clean-parse pin holds on all 31 positive sources, so it has now found
+no defect over **148** real-world fixtures. The margin is again total: the tranche's 711 C# lines
+state exactly **seven** positions, all inside TWO interpolation methods and all on the same
+hole-expression node and its receiver, and **zero** spans.
+
+**THE HEADLINE FINDING IS A RAW-INTERPOLATION RULE THE DELETED TEST WAS SILENTLY ACCEPTING.** In a
+**raw** interpolated string (`$"""…"""`), a `:` followed by optional whitespace SWALLOWS the next
+brace group into the literal text run instead of opening a hole — `q: {a}` and `"age": {person.Age}`
+are TEXT, while `q x{a}` and `"name": "{person.Name}"` (whose `{` follows a non-colon character) are
+holes, and a `{` followed by a newline is text as well. The colon that suppresses a hole may sit on
+an EARLIER line, and only the FIRST following brace group is swallowed (`q: {a} and {b}` gives text
+plus one hole). An ORDINARY `$"…"` interpolated string is unaffected — `$"q: {a}"` is a hole. This is
+almost certainly the format-clause scanner leaking outside a hole and it should be treated as a
+suspected defect, not as intended behaviour; it is pinned as measured because the parity corpus pins
+the owner. `TestInterpolatedRawString` asserted
+`Assert.Single(parts.OfType<InterpolatedStringHole>())` over a four-line JSON template with TWO brace
+groups and PASSED, because the second group had become text.
+
+**AND FOUR MORE.** An N# raw string literal keeps its own indentation — `Value` carries the leading
+newline, every line's leading spaces and the trailing indentation before the closing delimiter, so
+C#'s indent-stripping rule does NOT apply. An attribute argument spelled with `=`
+(`[FromQuery(Name = "q")]`) parses as an **AssignmentExpression** with a null `Argument.Name`, where
+the colon form (`[Attr(x: 1)]`, tranche 9b) fills `Name` instead. An attribute-free parameter carries
+a **NULL** `Attributes` list, not an empty one, while two bracket groups on one parameter flatten into
+ONE list in source order. And the attribute-after-parameter-name refusal **cascades**: it reports
+`NL102` with a repair suggestion and then SEVEN `NL101`s, leaving a body-less function and seven
+synthetic `<error>` class declarations — which the deleted `AssertHasParseError` ("some message
+contains this text") could not distinguish from a clean single-error recovery. Four shapes in this
+tranche were already pinned next door over synthetic sources (a file-scoped namespace, a package with
+an aliased import, an aliased file import's `PathColumn`/`PathLength`, and a top-level
+`PreprocessorDeclaration`) and are **restated over the real-world corpus, not claimed as findings**.
 
 **AND `Parser.cs` IS GONE**, so `ParseFileAst` is the sole production parse entry (`FixApplicator.cs`,
 `Formatter.nl`, `AnalyzerImports.nl`, `AnalyzerProjectDiscovery.nl`, `CodeIntelligenceQueries.nl`).

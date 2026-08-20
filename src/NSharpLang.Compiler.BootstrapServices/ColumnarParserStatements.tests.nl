@@ -16,9 +16,10 @@ import NSharpLang.Compiler.Ast
 // `assert throws` statements). The declaration family moved in slice 17 to
 // `ColumnarParserDeclarations.tests.nl` and the four NON-EXPRESSION families — patterns and `match`,
 // parameter and argument modifiers, operator and conversion overloads, constructor initializers — in
-// slice 19 to `ColumnarParserPatterns.tests.nl`; expressions and operator precedence, literals, the
-// preprocessor, attributes and the file-header family are later tranches of the same arc, and
-// `tests/ParserTests.cs` survives carrying them.
+// slice 19 to `ColumnarParserPatterns.tests.nl`, and the four SMALL families — the file header,
+// literals and interpolation, attributes and the preprocessor — in slice 20 to
+// `ColumnarParserSmallFamilies.tests.nl`; expressions and operator precedence are the last tranche of
+// the same arc, and `tests/ParserTests.cs` survives carrying them.
 //
 // THE STATEMENT KINDS THIS FAMILY NEVER TESTED ARE NOT MISSING — THEY ARE PINNED NEXT DOOR.
 // `while`, `const`/`readonly` locals, `break`, `continue`, `throw`, `unsafe`, `alloc`, `allow`, local

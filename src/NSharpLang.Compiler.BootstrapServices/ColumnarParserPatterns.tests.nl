@@ -14,9 +14,10 @@ import NSharpLang.Compiler.Ast
 // parameter and argument modifiers (14, including the family's two negatives), operator and
 // conversion overloads (6), and constructor initializers (3). The declaration family moved in slice
 // 17 to `ColumnarParserDeclarations.tests.nl` and the statement family in slice 18 to
-// `ColumnarParserStatements.tests.nl`; expressions and operator precedence, the file-header family,
-// literals and interpolation, attributes and the preprocessor are later tranches of the same arc,
-// and `tests/ParserTests.cs` survives this slice carrying them.
+// `ColumnarParserStatements.tests.nl`; the four SMALL families — the file header, literals and
+// interpolation, attributes and the preprocessor — moved in slice 20 to
+// `ColumnarParserSmallFamilies.tests.nl`, and expressions and operator precedence are the last
+// tranche of the same arc, which `tests/ParserTests.cs` survives carrying.
 //
 // THE SLICE-18 SKETCH PRICED THIS TRANCHE AT 47 AND THE MEASUREMENT SAYS 46. `ConstructorDeclaration`
 // occurs in exactly THREE method bodies in the whole file, not four: `TestConstructorDeclaration`
