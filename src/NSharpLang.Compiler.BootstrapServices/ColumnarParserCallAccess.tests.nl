@@ -24,8 +24,9 @@ import NSharpLang.Compiler.Ast
 //
 // THIS TRANCHE IS ALL POSITIVE. The residue's ONE `AssertHasParseError` site,
 // `AnonymousUnionType_ReportsMissingRightArm`, asserts a `UnionTypeReference` and is a type-reference
-// test, so it stays for tranche 6 together with BOTH private helpers — `Parse`, which the 30 surviving
-// methods still call, and `AssertHasParseError`, which that one still calls.
+// test, so it stayed for tranche 6 together with BOTH private helpers — `Parse`, which the 30 surviving
+// methods still called, and `AssertHasParseError`, which that one still called. Slice 22 took all of
+// it into `ColumnarParserKeywordLambdaType.tests.nl` and DELETED the C# file.
 //
 // THE ROUTE IS THE WHOLE-TREE GOLDEN, AND IT IS STRICTLY STRONGER THAN WHAT IT REPLACES. Twenty-nine of
 // the thirty positive cases went through one private helper:

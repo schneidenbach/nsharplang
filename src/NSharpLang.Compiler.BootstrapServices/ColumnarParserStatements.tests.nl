@@ -20,7 +20,8 @@ import NSharpLang.Compiler.Ast
 // literals and interpolation, attributes and the preprocessor — in slice 20 to
 // `ColumnarParserSmallFamilies.tests.nl`; and the CALL-AND-ACCESS tier of the expression family —
 // member access, call, index, range, `new` and its initializers, and generic calls — in slice 21 to
-// `ColumnarParserCallAccess.tests.nl`. `tests/ParserTests.cs` survives at 30 methods carrying the
+// `ColumnarParserCallAccess.tests.nl` and the last 30 to `ColumnarParserKeywordLambdaType.tests.nl`,
+// which DELETED `tests/ParserTests.cs`. It survived slice 21 at 30 methods carrying the
 // other half of the expressions, which is the arc's last tranche and deletes the file.
 //
 // THE STATEMENT KINDS THIS FAMILY NEVER TESTED ARE NOT MISSING — THEY ARE PINNED NEXT DOOR.

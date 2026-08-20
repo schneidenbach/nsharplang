@@ -18,7 +18,8 @@ import NSharpLang.Compiler.Ast
 // small family out of the expression half would defeat the family split that makes each successor a
 // coherent file. `tests/ParserTests.cs` survived that slice at 60 methods carrying exactly that half,
 // and slice 21 then SPLIT the half: the call-and-access tier (30 methods, 998 lines) moved to
-// `ColumnarParserCallAccess.tests.nl`, leaving 30 methods and 824 lines for the arc's last tranche.
+// `ColumnarParserCallAccess.tests.nl`, and slice 22 took the last 30 methods and 824 lines into
+// `ColumnarParserKeywordLambdaType.tests.nl`, which DELETED `tests/ParserTests.cs`.
 //
 // THE ROUTE IS THE WHOLE-TREE GOLDEN, AND IT IS STRICTLY STRONGER THAN WHAT IT REPLACES. All 31
 // positive cases went through one private helper:

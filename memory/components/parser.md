@@ -157,8 +157,8 @@ Package names recover **with the written text preserved**: a malformed segment w
 
 ## Testing
 
-Two layers:
-- **Native contracts** (canonical): seven files, one per observable contract of the same owner.
+ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
+- **Native contracts** (canonical): nine files, one per observable contract of the same owner.
   `ColumnarParserRecovery.tests.nl` pins the `ParseFilePreamble` diagnostic stream in POSITION-SORTED
   order (the CLI-shaped oracle order); `ColumnarParserErrorRecovery.tests.nl` pins the `ParseFileAst`
   contract — diagnostics in RECORDING order, whole message / snippet / explanation / hint / suggestion
@@ -178,23 +178,25 @@ Two layers:
   trees over the CALL-AND-ACCESS tier of the expression family — member access, call, index and
   range, `new` with its object and collection initializers, and the generic-call family with its
   `<`-disambiguation control — thirty contracts with no negative at all, the first all-positive
-  tranche of the arc (task 020 slice 21). **The two entry points do not
+  tranche of the arc (task 020 slice 21); and `ColumnarParserKeywordLambdaType.tests.nl` pins whole
+  trees over the LAST tranche — keyword and primary expressions (15), lambdas (7), type references
+  (4, carrying the campaign's final negative) and operators (4) — the file that finished the
+  migration (task 020 slice 22). **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
-- **C# suite**: `tests/ParserTests.cs` (plus the analyzer / linter / formatter / completion suites)
-  drives the same `ParseFileAst` entry. It is being migrated tranche by tranche: **slice 17 took the
-  DECLARATION family — 50 of its 212 `[Fact]`s, 1,358 lines — slice 18 the STATEMENT family plus
-  the test DSL — 23 more, 608 lines — slice 19 the four NON-EXPRESSION families (patterns and
-  `match` 23, parameter and argument modifiers 14, operator and conversion overloads 6, constructor
-  initializers 3) — 46 more, 1,397 lines — slice 20 the four SMALL families (the file header 12,
-  literals and interpolation 9, attributes 8, the preprocessor 4) — 33 more, 711 lines — and slice 21
-  the CALL-AND-ACCESS tier of the expression family (postfix access 9, index-from-end and ranges 6,
-  `new` and initializers 8, generic calls 7) — 30 more, 998 lines — leaving 30 methods and 883
-  lines**: the keyword and primary expressions (15), lambdas (7), type references (4) and the four
-  operator tests. That is the last tranche; it takes both private helpers (`Parse`,
-  `AssertHasParseError`) and the file itself with it. The error-case half —
-  `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
+- **There is no C# parser suite any more.** `tests/ParserTests.cs` was migrated tranche by tranche and
+  DELETED in task 020 slice 22: **slice 17 took the DECLARATION family — 50 of its 212 `[Fact]`s,
+  1,358 lines — slice 18 the STATEMENT family plus the test DSL — 23 more, 608 lines — slice 19 the
+  four NON-EXPRESSION families (patterns and `match` 23, parameter and argument modifiers 14,
+  operator and conversion overloads 6, constructor initializers 3) — 46 more, 1,397 lines — slice 20
+  the four SMALL families (the file header 12, literals and interpolation 9, attributes 8, the
+  preprocessor 4) — 33 more, 711 lines — slice 21 the CALL-AND-ACCESS tier of the expression family
+  (postfix access 9, index-from-end and ranges 6, `new` and initializers 8, generic calls 7) — 30
+  more, 998 lines — and slice 22 the remaining 30 methods and 824 lines, plus both private helpers
+  (`Parse`, `AssertHasParseError`) and the class itself.** The analyzer / linter / formatter /
+  completion suites still drive `ParseFileAst` indirectly, but none of them asserts on the parse tree.
+  The error-case half — `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
   cases — was migrated to `ColumnarParserErrorRecovery.tests.nl` and deleted in task 020 slice 16.
   **One capability did not survive the move and is recorded here rather than lost**: that file bounded
   its three malformed table-driven parses with `Task.Run` + a ten-second `Wait`, so a lost no-progress
@@ -233,8 +235,8 @@ operand** (`i++` puts the node at column 38 with `i` at 37). **A `CatchClause` c
 C#-style `catch (Exception ex)` apart from the type's own span. The statement family's untested
 kinds — `while`, `const`/`readonly` locals, `break`, `continue`, `throw`, `unsafe`, `alloc`, `allow`,
 local functions, tuple deconstruction, the empty statement and `await foreach` — appear ZERO times in
-`ParserTests.cs` and are already pinned by `ColumnarParserAst.tests.nl`'s tranche 10, so slice 18
-added no contracts for them.
+the `ParserTests.cs` that slice 18 read, and are already pinned by `ColumnarParserAst.tests.nl`'s
+tranche 10, so slice 18 added no contracts for them.
 
 **WHAT THE PATTERN / MODIFIER / OPERATOR TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice
 19).** The clean-parse pin holds on all 44 positive sources too, so it has now found no defect over

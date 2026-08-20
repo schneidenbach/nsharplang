@@ -17,7 +17,8 @@ import NSharpLang.Compiler.Ast
 // `ColumnarParserStatements.tests.nl`; the four SMALL families — the file header, literals and
 // interpolation, attributes and the preprocessor — moved in slice 20 to
 // `ColumnarParserSmallFamilies.tests.nl`, and the CALL-AND-ACCESS tier of the expression family
-// moved in slice 21 to `ColumnarParserCallAccess.tests.nl`. `tests/ParserTests.cs` survives at 30
+// moved in slice 21 to `ColumnarParserCallAccess.tests.nl` and the last 30 in slice 22 to
+// `ColumnarParserKeywordLambdaType.tests.nl`, which DELETED the C# file. It survived slice 21 at 30
 // methods carrying the other half of the expressions, which is the arc's last tranche.
 //
 // THE SLICE-18 SKETCH PRICED THIS TRANCHE AT 47 AND THE MEASUREMENT SAYS 46. `ConstructorDeclaration`

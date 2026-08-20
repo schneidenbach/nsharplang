@@ -15,17 +15,6 @@
 ### Test Files
 ```
 tests/
-├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 30 [Fact]s left — the keyword and
-│                                 primary expressions (15), lambdas (7), type references (4) and the
-│                                 four operator tests. ONE tranche left, and it deletes the file.
-│                                 The 50 DECLARATION cases moved to N# in 020 slice 17, the 23
-│                                 STATEMENT + test-DSL cases in slice 18, the 46 PATTERN /
-│                                 parameter-modifier / operator-overload / constructor-initializer
-│                                 cases in slice 19, the 33 FILE-HEADER / literal and interpolation /
-│                                 attribute / preprocessor cases in slice 20, and the 30
-│                                 CALL-AND-ACCESS cases (member access, call, index, range, `new` and
-│                                 its initializers, generic calls) in slice 21; the whole error half
-│                                 moved in slice 16. See memory/components/parser.md.
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
@@ -33,6 +22,16 @@ tests/
 ├── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
 └── QueryIntegrationTests.cs     - CLI toolchain integration tests (uses real example projects)
 ```
+
+**PARSING has no C# assertion layer either, as of task 020 slice 22.** `tests/ParserTests.cs` is
+DELETED: its 212 `[Fact]`s and 6,130 lines migrated to the BootstrapServices estate over six tranches
+— the 50 DECLARATION cases in slice 17, the 23 STATEMENT + test-DSL cases in slice 18, the 46
+PATTERN / parameter-modifier / operator-overload / constructor-initializer cases in slice 19, the 33
+FILE-HEADER / literal and interpolation / attribute / preprocessor cases in slice 20, the 30
+CALL-AND-ACCESS cases in slice 21, and the last 30 (keyword and primary expressions, lambdas, type
+references, operators) in slice 22, which also took both private helpers and the file itself. The
+whole error half had already moved in slice 16. The canonical contracts now live in
+`ColumnarParserAst.tests.nl` plus the six tranche files beside it. See `memory/components/parser.md`.
 
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
@@ -326,12 +325,12 @@ dotnet test tests/Tests.csproj
 
 ### Specific Test Class
 ```bash
-./scripts/dev.sh ParserTests
+./scripts/dev.sh AnalyzerTests
 ```
 
 ### Specific Test Method
 ```bash
-./scripts/dev.sh TestVariableDeclaration
+./scripts/dev.sh TestGenericConstraints
 ```
 
 ### With Detailed Output

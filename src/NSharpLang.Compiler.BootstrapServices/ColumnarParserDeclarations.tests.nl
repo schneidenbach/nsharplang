@@ -19,7 +19,8 @@ import NSharpLang.Compiler.Ast
 // constructor initializers) to `ColumnarParserPatterns.tests.nl`, and slice 20 the four SMALL
 // families (33 methods — the file header, literals and interpolation, attributes, the preprocessor)
 // to `ColumnarParserSmallFamilies.tests.nl`, and slice 21 the CALL-AND-ACCESS tier of the expression
-// family (30 methods) to `ColumnarParserCallAccess.tests.nl`. `tests/ParserTests.cs` survives at 30
+// family (30 methods) to `ColumnarParserCallAccess.tests.nl` and the LAST 30 to
+// `ColumnarParserKeywordLambdaType.tests.nl`, which DELETED `tests/ParserTests.cs`. It survived at 30
 // methods carrying the keyword and primary expressions, lambdas, type references and the four
 // operator tests, and nothing else.
 //
