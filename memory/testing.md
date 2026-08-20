@@ -15,15 +15,17 @@
 ### Test Files
 ```
 tests/
-├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 60 [Fact]s left, ALL of them
-│                                 expressions and operator precedence — the last tranche.
+├── ParserTests.cs               - Parsing tests, MID-MIGRATION: 30 [Fact]s left — the keyword and
+│                                 primary expressions (15), lambdas (7), type references (4) and the
+│                                 four operator tests. ONE tranche left, and it deletes the file.
 │                                 The 50 DECLARATION cases moved to N# in 020 slice 17, the 23
 │                                 STATEMENT + test-DSL cases in slice 18, the 46 PATTERN /
 │                                 parameter-modifier / operator-overload / constructor-initializer
-│                                 cases in slice 19, and the 33 FILE-HEADER / literal and
-│                                 interpolation / attribute / preprocessor cases in slice 20;
-│                                 the whole error half moved in slice 16.
-│                                 See memory/components/parser.md.
+│                                 cases in slice 19, the 33 FILE-HEADER / literal and interpolation /
+│                                 attribute / preprocessor cases in slice 20, and the 30
+│                                 CALL-AND-ACCESS cases (member access, call, index, range, `new` and
+│                                 its initializers, generic calls) in slice 21; the whole error half
+│                                 moved in slice 16. See memory/components/parser.md.
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests

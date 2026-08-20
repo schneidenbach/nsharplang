@@ -16,15 +16,16 @@ import NSharpLang.Compiler.Ast
 // 17 to `ColumnarParserDeclarations.tests.nl` and the statement family in slice 18 to
 // `ColumnarParserStatements.tests.nl`; the four SMALL families — the file header, literals and
 // interpolation, attributes and the preprocessor — moved in slice 20 to
-// `ColumnarParserSmallFamilies.tests.nl`, and expressions and operator precedence are the last
-// tranche of the same arc, which `tests/ParserTests.cs` survives carrying.
+// `ColumnarParserSmallFamilies.tests.nl`, and the CALL-AND-ACCESS tier of the expression family
+// moved in slice 21 to `ColumnarParserCallAccess.tests.nl`. `tests/ParserTests.cs` survives at 30
+// methods carrying the other half of the expressions, which is the arc's last tranche.
 //
 // THE SLICE-18 SKETCH PRICED THIS TRANCHE AT 47 AND THE MEASUREMENT SAYS 46. `ConstructorDeclaration`
 // occurs in exactly THREE method bodies in the whole file, not four: `TestConstructorDeclaration`
 // itself moved in slice 17, and the two residual methods whose NAMES carry "Constructor" or
 // "Initializer" (`TestNewExpression_ObjectInitializerWithoutEmptyConstructorParens`,
 // `TestTargetTypedNewWithInitializer`) assert object-initializer EXPRESSIONS and belong to the
-// expression tranche. The residue arithmetic is unchanged — 60 expression methods where the sketch
+// expression half — specifically to slice 21's call-and-access tranche, which took both. The residue arithmetic is unchanged — 60 expression methods where the sketch
 // said 59 — so the split moved one method and lost none.
 //
 // THE ROUTE IS THE WHOLE-TREE GOLDEN, AND IT IS STRICTLY STRONGER THAN WHAT IT REPLACES.

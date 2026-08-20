@@ -16,7 +16,9 @@ import NSharpLang.Compiler.Ast
 // the other) and the preprocessor (4). They are taken TOGETHER because the only other residue is the
 // expression family at 1,822 lines, over the ~1,500-line cap the slice-16 sketch set, and padding a
 // small family out of the expression half would defeat the family split that makes each successor a
-// coherent file. `tests/ParserTests.cs` survives this slice at 60 methods carrying exactly that half.
+// coherent file. `tests/ParserTests.cs` survived that slice at 60 methods carrying exactly that half,
+// and slice 21 then SPLIT the half: the call-and-access tier (30 methods, 998 lines) moved to
+// `ColumnarParserCallAccess.tests.nl`, leaving 30 methods and 824 lines for the arc's last tranche.
 //
 // THE ROUTE IS THE WHOLE-TREE GOLDEN, AND IT IS STRICTLY STRONGER THAN WHAT IT REPLACES. All 31
 // positive cases went through one private helper:

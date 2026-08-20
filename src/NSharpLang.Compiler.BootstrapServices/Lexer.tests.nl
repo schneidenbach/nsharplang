@@ -1209,7 +1209,9 @@ test "lexer reads the null conditional and coalescing operators" {
     assert tokens.Count == 6
 }
 
-// Successor to TestNullConditionalIndexing.
+// Successor to TestNullConditionalIndexing at the TOKEN level. That C# test also asserted the
+// parsed IndexAccessExpression, and that half moved in 020 slice 21 to
+// `ColumnarParserCallAccess.tests.nl`; this contract owns only the single-token lexing.
 test "lexer reads null conditional indexing as one token" {
     tokens := LexerContractTokens("arr?[0]")
 

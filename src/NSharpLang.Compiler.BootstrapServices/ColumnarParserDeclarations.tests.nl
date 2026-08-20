@@ -18,8 +18,10 @@ import NSharpLang.Compiler.Ast
 // patterns and `match`, parameter and argument modifiers, operator and conversion overloads,
 // constructor initializers) to `ColumnarParserPatterns.tests.nl`, and slice 20 the four SMALL
 // families (33 methods — the file header, literals and interpolation, attributes, the preprocessor)
-// to `ColumnarParserSmallFamilies.tests.nl`. `tests/ParserTests.cs` survives at 60 methods carrying
-// expressions and operator precedence, and nothing else.
+// to `ColumnarParserSmallFamilies.tests.nl`, and slice 21 the CALL-AND-ACCESS tier of the expression
+// family (30 methods) to `ColumnarParserCallAccess.tests.nl`. `tests/ParserTests.cs` survives at 30
+// methods carrying the keyword and primary expressions, lambdas, type references and the four
+// operator tests, and nothing else.
 //
 // THE ROUTE IS THE WHOLE-TREE GOLDEN, AND IT IS STRICTLY STRONGER THAN WHAT IT REPLACES.
 // Every migrated C# case went through one private helper:

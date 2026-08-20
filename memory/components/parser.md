@@ -174,7 +174,11 @@ Two layers:
   whole trees over the FILE-HEADER (package / namespace / both import kinds), LITERAL and
   INTERPOLATION, ATTRIBUTE and PREPROCESSOR corpus, plus that tranche's two refusals — the
   interpolation trailing-token error and the attribute-after-parameter-name error, the arc's first
-  MULTI-diagnostic negative (task 020 slice 20). **The two entry points do not
+  MULTI-diagnostic negative (task 020 slice 20); and `ColumnarParserCallAccess.tests.nl` pins whole
+  trees over the CALL-AND-ACCESS tier of the expression family — member access, call, index and
+  range, `new` with its object and collection initializers, and the generic-call family with its
+  `<`-disambiguation control — thirty contracts with no negative at all, the first all-positive
+  tranche of the arc (task 020 slice 21). **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
@@ -183,10 +187,13 @@ Two layers:
   DECLARATION family — 50 of its 212 `[Fact]`s, 1,358 lines — slice 18 the STATEMENT family plus
   the test DSL — 23 more, 608 lines — slice 19 the four NON-EXPRESSION families (patterns and
   `match` 23, parameter and argument modifiers 14, operator and conversion overloads 6, constructor
-  initializers 3) — 46 more, 1,397 lines — and slice 20 the four SMALL families (the file header 12,
-  literals and interpolation 9, attributes 8, the preprocessor 4) — 33 more, 711 lines — leaving 60
-  methods**, all of them expressions and operator precedence, which is the last tranche and takes
-  both private helpers (`Parse`, `AssertHasParseError`) with it. The error-case half —
+  initializers 3) — 46 more, 1,397 lines — slice 20 the four SMALL families (the file header 12,
+  literals and interpolation 9, attributes 8, the preprocessor 4) — 33 more, 711 lines — and slice 21
+  the CALL-AND-ACCESS tier of the expression family (postfix access 9, index-from-end and ranges 6,
+  `new` and initializers 8, generic calls 7) — 30 more, 998 lines — leaving 30 methods and 883
+  lines**: the keyword and primary expressions (15), lambdas (7), type references (4) and the four
+  operator tests. That is the last tranche; it takes both private helpers (`Parse`,
+  `AssertHasParseError`) and the file itself with it. The error-case half —
   `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
   cases — was migrated to `ColumnarParserErrorRecovery.tests.nl` and deleted in task 020 slice 16.
   **One capability did not survive the move and is recorded here rather than lost**: that file bounded
@@ -289,6 +296,39 @@ contains this text") could not distinguish from a clean single-error recovery. F
 tranche were already pinned next door over synthetic sources (a file-scoped namespace, a package with
 an aliased import, an aliased file import's `PathColumn`/`PathLength`, and a top-level
 `PreprocessorDeclaration`) and are **restated over the real-world corpus, not claimed as findings**.
+
+**WHAT THE CALL-AND-ACCESS TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice 21).** The
+clean-parse pin holds on all 30 sources too, so it has now found no defect over **178** real-world
+fixtures — and one of the thirty carried a WEAKER form of that claim itself
+(`Assert.DoesNotContain(result.Errors, e => e.Severity == ErrorSeverity.Error)`, which a
+warning-severity diagnostic satisfies and `PsCensus` does not). **The margin here is total: of the 368
+claim rows the 30 deleted methods decode to, the number stating a `Line`, a `Column`, a `Span`, a
+`NameLine` or a `NameColumn` is ZERO** — in 998 lines and 260 assertions — where slice 19's tranche had
+six such rows and slice 20's had seven. So all 419 anchors the successor pins were unstated, and a
+parser that moved every member access, index, call, range, `new`, initializer and array literal one
+column right would have passed the whole deleted tranche.
+
+**AND THE SIBLING SWEEP MOVED MOST OF THIS TRANCHE'S SHAPE RULES INTO THE RESTATEMENT COLUMN, WHICH IS
+WHY IT IS PART OF THE METHOD.** `ColumnarParserAst.tests.nl`'s stage-N+1c corpus already pins, over
+synthetic one-line sources, a null-conditional member access and index anchored on the **`?`** rather
+than the `.`/`[` (:3310, :3341), a `let a := 1` anchored on its **NAME** rather than the keyword
+(:4718), an `ObjectInitializerExpression` carrying its `NewExpression`'s anchor rather than the open
+brace (:3915), an INDEXER `PropertyInitializer` whose `NameLine`/`NameColumn` are **both zero**
+(:3937), an `ArrayTypeReference` whose `Span` is exactly its **element's** span (:3951 — `new T[2]`
+spans `T`, not `T[]`), a `RangeExpression` anchored on its `..` in both the two-ended and open-start
+forms (:3143, :3153), a nested generic type argument with split spans, and a **null** `TypeArguments`
+for a non-generic call. All are restated over the real corpus and labelled as restatements.
+**THREE SHAPES ARE GENUINELY NEW TO THE LEDGER**, each measured at ZERO occurrences in the estate
+before this file: a **parenthesized receiver under an index access** (`(items)[0]`, and four levels
+deep in `(nodes.name)[row] == "alpha"`, where the initializer also STOPS at the newline rather than
+swallowing the next line's assignment); the **`^n` index-from-end unary**, which no PARSER contract anywhere
+builds from source — the operator appears in the estate only over synthesised nodes, in
+`OperatorFacts.tests.nl` and `AnalyzerOperatorExpressions.tests.nl` — so its caret anchor and its
+composition inside a range (`arr[1..^1]`) are new to the parser ledger; and a `Properties` list
+**interleaving named and indexer initializers** in source order, which the all-named / all-indexer
+synthetic lists could not reach. A fourth thing the corpus adds rather than discovers is the
+LEADING-DOT continuation chain, whose links anchor on their own lines — no one-line source can
+express it.
 
 **AND `Parser.cs` IS GONE**, so `ParseFileAst` is the sole production parse entry (`FixApplicator.cs`,
 `Formatter.nl`, `AnalyzerImports.nl`, `AnalyzerProjectDiscovery.nl`, `CodeIntelligenceQueries.nl`).
