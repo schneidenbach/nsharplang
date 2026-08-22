@@ -1011,9 +1011,25 @@ Analyzer coverage is split deliberately across:
   anchored on the declared name for one column; the `NL905` suggestion is TEMPLATED with the user's
   own variable name and suggests `?[` for an index and `?.` for a dereference; and every one of the
   24 diagnostic rows carries a NULL `ContextualHint`.
+  **Slice 29 extended the same project with TRANCHE 1b** — generic constraint validation,
+  string-to-enum rejection, overload betterness, type-system edge cases, impossible patterns, numeric
+  narrowing cast suggestions and `default`/`new()` expressions: 82 more `[Fact]`s and 1,193 more C#
+  lines deleted, after which `AnalyzerTests.cs` has no `#region` left. **It found that the analyzer's
+  two entry points are different answers.** `Analyze(unit)` — which every deleted helper called, and
+  which has ZERO production callers — and `Analyze(unit, path, root, source)` — which both production
+  call sites use, `MultiFileCompiler.cs:282` and the language server's `DocumentManager.cs:277` —
+  agree on every CODE and disagree on 22 of the 33 reporting fixtures' POSITION and on
+  15 of their MESSAGES, where the rich path collapses `Variable 'c' is typed as 'Color', but the value
+  is 'string'` to the bare `Type mismatch` and DROPS the suggestion, adding a `ContextualHint` in its
+  place. That is the whole reason tranche 1a saw `ContextualHint` as `<null>` twenty-four times: the
+  field belongs to the entry point, not the fixture. `SourceSnippet` behaves the same way (33 non-null
+  rich, 0 plain). It also found that **a bodiless positional record does not parse** — `record
+  Person(Name: string, Age: int)` reports `NL102`/`NL106` and swallows the file — which makes two of
+  the deleted `AssertNoErrors` methods VACUOUS, invisible to an assertion that read only the analyzer.
 - `tests/AnalyzerTests.cs` for the REMAINING analyzer-shell diagnostics, flow analysis, call
-  binding, and end-to-end semantic behavior — 11,867 lines and 672 `[Fact]` + 35 `[Theory]` after
-  slice 28, still shrinking through the campaign's remaining tranches.
+  binding, and end-to-end semantic behavior — 10,674 lines and 590 `[Fact]` + 35 `[Theory]` after
+  slice 29, still shrinking through the campaign's remaining tranches, which are now cut by family
+  rather than by region.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

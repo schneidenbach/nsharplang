@@ -6,6 +6,10 @@ import System.Collections
 
 // THE ANALYZER'S ASSIGNABILITY AND FLOW-NARROWING RULES, READ FROM SOURCE TEXT, IN N#.
 //
+// THIS FILE HOLDS TWO TRANCHES. Slice 28's is below, under `// ---- contracts ----`; slice 29's —
+// tranche 1b, the seven remaining `#region`s — is behind its own banner further down, and its header
+// carries the findings that only the SECOND tranche's instruments could reach.
+//
 // These replace TRANCHE 1a of `tests/AnalyzerTests.cs` — the file's FIRST TWELVE `#region`s, taken
 // whole: `Nominal Subtyping`, `Numeric Widening`, `Nullable Assignability`, `Flow-Sensitive Null
 // Narrowing`, `Enum Exhaustiveness`, `Unknown Type Kinds`, the five `Flow Narrowing:` regions and
@@ -160,8 +164,33 @@ func AcParseUnit(source: string): object {
     return AcRequiredMember(AcParse(source), "CompilationUnit")
 }
 
-func AcParseCensus(source: string): string {
-    errors := AcRequiredMember(AcParse(source), "Errors") as IList
+func AcParseNamed(source: string): object {
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    if parserType == null {
+        throw new InvalidOperationException("The production recovery parser was not loadable.")
+    }
+
+    parseParameterTypes := new Type[](2)
+    parseParameterTypes[0] = typeof(string)
+    parseParameterTypes[1] = typeof(string)
+    parseMethod := parserType.GetMethod("ParseFileAst", parseParameterTypes)
+    if parseMethod == null {
+        throw new InvalidOperationException("The production ParseFileAst entry point was not found.")
+    }
+
+    parseArguments := new object?[](2)
+    SetAcObject(parseArguments, 0, source)
+    SetAcObject(parseArguments, 1, "test.nl")
+    parsed := parseMethod.Invoke(null, parseArguments)
+    if parsed == null {
+        throw new InvalidOperationException("The production recovery parser returned no result.")
+    }
+
+    return parsed
+}
+
+func AcCensusOfParse(parsed: object): string {
+    errors := AcRequiredMember(parsed, "Errors") as IList
     if errors == null {
         return "<not-a-list>"
     }
@@ -178,6 +207,44 @@ func AcParseCensus(source: string): string {
     }
 
     return census
+}
+
+func AcRowOfParse(parsed: object, index: int): string {
+    errors := AcRequiredMember(parsed, "Errors") as IList
+    if errors == null {
+        return "<not-a-list>"
+    }
+
+    if index >= errors.Count {
+        return "<no-such-error>"
+    }
+
+    entry := errors[index]
+    if entry == null {
+        return "<null-error>"
+    }
+
+    return AcText(entry, "Code") + "|" + AcText(entry, "Message") + "|" + AcText(entry, "Suggestion") + "|" + AcText(entry, "Severity")
+}
+
+func AcParseCensus(source: string): string {
+    return AcCensusOfParse(AcParse(source))
+}
+
+func AcParseNamedCensus(source: string): string {
+    return AcCensusOfParse(AcParseNamed(source))
+}
+
+func AcParseSuccess(source: string): string {
+    return AcText(AcParse(source), "Success")
+}
+
+func AcParseNamedSuccess(source: string): string {
+    return AcText(AcParseNamed(source), "Success")
+}
+
+func AcParseNamedRow(source: string, index: int): string {
+    return AcRowOfParse(AcParseNamed(source), index)
 }
 
 func AcAnalyze(source: string): object {
@@ -317,6 +384,80 @@ func AcHint(analysis: object, index: int): string {
     }
 
     return AcText(entry, "ContextualHint")
+}
+
+func AcSnippet(analysis: object, index: int): string {
+    errors := AcRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return "<not-a-list>"
+    }
+
+    if index >= errors.Count {
+        return "<no-such-error>"
+    }
+
+    entry := errors[index]
+    if entry == null {
+        return "<null-error>"
+    }
+
+    return AcText(entry, "SourceSnippet")
+}
+
+func AcAnalyzeWithSource(source: string): object {
+    unit := AcParseUnit(source)
+
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    if analyzerType == null || unitType == null {
+        throw new InvalidOperationException("The production analyzer types were not loadable.")
+    }
+
+    constructorParameterTypes := new Type[](0)
+    analyzerConstructor := analyzerType.GetConstructor(constructorParameterTypes)
+    if analyzerConstructor == null {
+        throw new InvalidOperationException("The production analyzer was not constructible.")
+    }
+    constructorArguments := new object?[](0)
+    analyzer := analyzerConstructor.Invoke(constructorArguments)
+
+    loadParameterTypes := new Type[](0)
+    loadMethod := analyzerType.GetMethod("LoadSystemAssemblies", loadParameterTypes)
+    if loadMethod == null {
+        throw new InvalidOperationException("The production LoadSystemAssemblies entry point was not found.")
+    }
+    loadArguments := new object?[](0)
+    loadMethod.Invoke(analyzer, loadArguments)
+
+    analyzeParameterTypes := new Type[](4)
+    analyzeParameterTypes[0] = unitType
+    analyzeParameterTypes[1] = typeof(string)
+    analyzeParameterTypes[2] = typeof(string)
+    analyzeParameterTypes[3] = typeof(string)
+    analyzeMethod := analyzerType.GetMethod("Analyze", analyzeParameterTypes)
+    if analyzeMethod == null {
+        throw new InvalidOperationException("The production four-argument Analyze entry point was not found.")
+    }
+
+    analyzeArguments := new object?[](4)
+    SetAcObject(analyzeArguments, 0, unit)
+    SetAcObject(analyzeArguments, 1, "test.nl")
+    SetAcObject(analyzeArguments, 2, null)
+    SetAcObject(analyzeArguments, 3, source)
+    analysis := analyzeMethod.Invoke(analyzer, analyzeArguments)
+
+    disposeParameterTypes := new Type[](0)
+    disposeMethod := analyzerType.GetMethod("Dispose", disposeParameterTypes)
+    if disposeMethod != null {
+        disposeArguments := new object?[](0)
+        disposeMethod.Invoke(analyzer, disposeArguments)
+    }
+
+    if analysis == null {
+        throw new InvalidOperationException("The production analyzer returned no result.")
+    }
+
+    return analysis
 }
 
 // ---- contracts ----
@@ -1500,4 +1641,1831 @@ test "020 s28 analyzer clean source: a zero-parameter lambda matches `Func<int>`
     assert AcHasErrors(analysis) == "False"
     assert AcErrorCount(analysis) == 0
     assert AcRow(analysis, 0) == "<no-such-error>"
+}
+
+
+// ================================================================================================
+// TRANCHE 1b — THE SEVEN REMAINING `#region`s OF `tests/AnalyzerTests.cs`. 82 `[Fact]`s, 1,193 C#
+// lines, 22 `Assert.` occurrences, 134 decoded claim rows. Task 020 slice 29 deletes them, and after
+// it the file has no `#region` left.
+//
+// THE HEADLINE: `Analyze(unit)` AND `Analyze(unit, path, root, source)` ARE DIFFERENT ANSWERS, AND
+// PRODUCTION CALLS THE ONE 73 OF THE 82 DELETED ASSERTIONS NEVER DROVE. There are exactly TWO
+// production call sites — `MultiFileCompiler.cs:282` and the language server's
+// `DocumentManager.cs:277` — and BOTH pass all four arguments; the one-argument overload has ZERO
+// production callers. The deleted helpers `AssertNoErrors`, `AssertHasError`, `AssertHasStrictError`
+// and `AssertNoWarning` all pass ONE. Measured over these 82 fixtures, the two entry points return
+// the same codes every time and disagree otherwise:
+//
+//   * 22 of the 33 reporting fixtures get a DIFFERENT COLUMN or LENGTH. The plain route anchors an
+//     `NL202` on the DECLARED NAME one column wide; the production route anchors it on the VALUE and
+//     underlines the whole thing (`null`, `"red"`, `42`). `NL506` is `is` two columns plain and
+//     `is string` nine columns rich. `NL208` on a circular constraint is the `f` of `func` plain and
+//     `func` rich.
+//   * 15 of them get a DIFFERENT MESSAGE, and the rich one is SHORTER. `Variable 'c' is typed as
+//     'Color', but the value is 'string'` becomes the bare `Type mismatch`, and its suggestion
+//     (`Ensure types are compatible or add explicit cast`) is DROPPED to null.
+//   * `ContextualHint` is non-null on 15 fixtures through the production route and on ZERO through
+//     the plain one. That is why slice 28 pinned `AcHint` as `<null>` twenty-four times: the field is
+//     a property of the ENTRY POINT, not of the fixture.
+//   * `SourceSnippet` is non-null on all 33 reporting fixtures rich and on ZERO plain.
+//
+// Every contract below states BOTH routes, so the deleted claim and the shipped behaviour are pinned
+// side by side.
+//
+// THREE FIXTURES DO NOT PARSE, AND TWO OF THEM MADE A VACUOUS CLAIM. A bodiless positional record —
+// `record Person(Name: string, Age: int)` — is a PARSE ERROR in N#: the parser reports `NL102
+// Expected '{'` and `NL106 Missing closing '}'` and swallows the rest of the file. Two of the three
+// fixtures that spell one are `AssertNoErrors` methods, so their `HasErrors == false` held only
+// because the analyzer never saw the declaration they were written to test. The deleted helper threw
+// `ParseResult.Errors` away; the census pins it, 82 times.
+//
+// THE FILE NAME IS INERT. `ParseFileAst(source, null)` and `ParseFileAst(source, "test.nl")` return
+// the same census and the same `Success` on all 82 fixtures — pinned in both spellings on every one,
+// which is what makes the two `AssertHasParseError` methods' `"test.nl"` route provably equivalent to
+// the `null` route the other 80 used.
+//
+// `AssertHasStrictError` IS NOT STRICT MODE. Its body is the same no-config `Analyze(source)` every
+// other helper calls; the name describes a severity-filtered CLAIM. Zero of the 82 bodies names a
+// `ProjectConfig`.
+// ================================================================================================
+
+// ======== Generic Constraint Validation — 21 contracts ========
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericConstraint_Satisfied_NoError)" {
+    source := "\n            interface IComparable {\n                func CompareTo(other: object): int\n            }\n            class MyInt : IComparable {\n                func CompareTo(other: object): int {\n                    return 0\n                }\n            }\n            func Max<T>(a: T, b: T): T where T : IComparable {\n                return a\n            }\n            func Main() {\n                result := Max(new MyInt(), new MyInt())\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL208:GenericConstraintViolation` at `11:27+3`, IDENTICAL on both analyzer entry points; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.GenericConstraint_Violated_Error)" {
+    source := "\n            interface IComparable {\n                func CompareTo(other: object): int\n            }\n            class Plain {\n            }\n            func Max<T>(a: T, b: T): T where T : IComparable {\n                return a\n            }\n            func Main() {\n                result := Max(new Plain(), new Plain())\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@11:27+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|`Plain` does not implement `IComparable`, which type parameter `T` of `Max` requires|Implement `IComparable` on `Plain`, or relax the constraint on `Max`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@11:27+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|`Plain` does not implement `IComparable`, which type parameter `T` of `Max` requires|Implement `IComparable` on `Plain`, or relax the constraint on `Max`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := Max(new Plain(), new Plain())"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL208:GenericConstraintViolation` that MOVES between the entry points — `2:13+1` plain, `2:13+4` through the four-argument route production actually calls; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.GenericConstraint_CircularSelf_Errors)" {
+    source := "\n            func Identity<T>(value: T): T where T : T {\n                return value\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@2:13+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|Type parameter `T` of `Identity` has a circular constraint dependency|Remove the cycle in the `where` clauses of `Identity` — a type parameter cannot be constrained to itself, directly or through other type parameters.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@2:13+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|Type parameter `T` of `Identity` has a circular constraint dependency|Remove the cycle in the `where` clauses of `Identity` — a type parameter cannot be constrained to itself, directly or through other type parameters.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func Identity<T>(value: T): T where T : T {"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL208:GenericConstraintViolation` that MOVES between the entry points — `2:13+1` plain, `2:13+4` through the four-argument route production actually calls; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.GenericConstraint_CircularMutual_Errors)" {
+    source := "\n            func Pick<T, U>(a: T, b: U): T where T : U where U : T {\n                return a\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@2:13+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|Type parameter `T` of `Pick` has a circular constraint dependency|Remove the cycle in the `where` clauses of `Pick` — a type parameter cannot be constrained to itself, directly or through other type parameters.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@2:13+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|Type parameter `T` of `Pick` has a circular constraint dependency|Remove the cycle in the `where` clauses of `Pick` — a type parameter cannot be constrained to itself, directly or through other type parameters.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func Pick<T, U>(a: T, b: U): T where T : U where U : T {"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericConstraint_FBounded_NoError)" {
+    source := "\n            interface IComparable<T> {\n                func CompareTo(other: T): int\n            }\n            func Max<T>(a: T, b: T): T where T : IComparable<T> {\n                return a\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericConstraint_TypeParamChain_NoError)" {
+    source := "\n            func Pick<T, U>(a: T, b: U): T where T : U where U : class {\n                return a\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SpecialConstraint_Class_WithStringArg_NoError)" {
+    source := "\n            func Identity<T>(value: T): T where T : class {\n                return value\n            }\n            func Main() {\n                result := Identity(\"hello\")\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL208:GenericConstraintViolation` at `6:36+2`, IDENTICAL on both analyzer entry points; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.SpecialConstraint_Class_WithIntArg_Error)" {
+    source := "\n            func Identity<T>(value: T): T where T : class {\n                return value\n            }\n            func Main() {\n                result := Identity(42)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@6:36+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|`int` is a value type, but type parameter `T` of `Identity` requires a reference type (the `class` constraint)|Pass a class instance for `T`, or relax the `class` constraint on `Identity`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@6:36+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|`int` is a value type, but type parameter `T` of `Identity` requires a reference type (the `class` constraint)|Pass a class instance for `T`, or relax the `class` constraint on `Identity`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := Identity(42)"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SpecialConstraint_Struct_WithIntArg_NoError)" {
+    source := "\n            func Box<T>(value: T): T where T : struct {\n                return value\n            }\n            func Main() {\n                result := Box(42)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL208:GenericConstraintViolation` that MOVES between the entry points — `6:31+1` plain, `6:31+7` through the four-argument route production actually calls; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.SpecialConstraint_Struct_WithStringArg_Error)" {
+    source := "\n            func Box<T>(value: T): T where T : struct {\n                return value\n            }\n            func Main() {\n                result := Box(\"hello\")\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@6:31+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|`string` is not a non-nullable value type, but type parameter `T` of `Box` requires one (the `struct` constraint)|Pass a non-nullable value type for `T`, or relax the `struct` constraint on `Box`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@6:31+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|`string` is not a non-nullable value type, but type parameter `T` of `Box` requires one (the `struct` constraint)|Pass a non-nullable value type for `T`, or relax the `struct` constraint on `Box`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := Box(\"hello\")"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SpecialConstraint_New_WithDefaultCtorClass_NoError)" {
+    source := "\n            class Widget {\n            }\n            func Create<T>(dummy: T): T where T : new() {\n                return dummy\n            }\n            func Main() {\n                w := new Widget()\n                result := Create(w)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SpecialConstraint_New_WithExplicitParameterlessCtorClass_NoError)" {
+    source := "\n            class Widget {\n                constructor() {\n                }\n            }\n            func Create<T>(dummy: T): T where T : new() {\n                return dummy\n            }\n            func Main() {\n                w := new Widget()\n                result := Create<Widget>(w)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL208:GenericConstraintViolation` at `11:42+1`, IDENTICAL on both analyzer entry points; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.SpecialConstraint_New_WithParameterizedCtorOnlyClass_Error)" {
+    source := "\n            class Widget {\n                constructor(size: int) {\n                }\n            }\n            func Create<T>(dummy: T): T where T : new() {\n                return dummy\n            }\n            func Main() {\n                w := new Widget(1)\n                result := Create<Widget>(w)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@11:42+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|`Widget` has no parameterless constructor, but type parameter `T` of `Create` requires one (the `new()` constraint)|Give `Widget` a parameterless constructor, or relax the `new()` constraint on `Create`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@11:42+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|`Widget` has no parameterless constructor, but type parameter `T` of `Create` requires one (the `new()` constraint)|Give `Widget` a parameterless constructor, or relax the `new()` constraint on `Create`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := Create<Widget>(w)"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: THE PARSE IS NOT SILENT — 2 diagnostics (NL102 NL106), pinned whole in BOTH file-name spellings; and ONE `NL208:GenericConstraintViolation` at `8:41+1`, IDENTICAL on both analyzer entry points; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.SpecialConstraint_New_WithParameterizedCtorOnly_Error)" {
+    source := "\n            record Point(X: int, Y: int)\n            func Create<T>(dummy: T): T where T : new() {\n                return dummy\n            }\n            func Main() {\n                p := new Point(1, 2)\n                result := Create<Point>(p)\n            }\n        "
+    assert AcParseSuccess(source) == "False"
+    assert AcParseCensus(source) == "NL102@3:13+4;NL106@2:20+5;"
+    assert AcParseNamedSuccess(source) == "False"
+    assert AcParseNamedCensus(source) == "NL102@3:13+4;NL106@2:20+5;"
+    assert AcParseNamedRow(source, 0) == "ExpectedToken|Expected '{'. Expected '{', got 'func'|<null>|Error"
+    assert AcParseNamedRow(source, 1) == "MissingClosingBrace|Missing closing '}'|<null>|Error"
+    assert AcParseNamedRow(source, 2) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@8:41+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|`Point` has no parameterless constructor, but type parameter `T` of `Create` requires one (the `new()` constraint)|Give `Point` a parameterless constructor, or relax the `new()` constraint on `Create`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@8:41+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|`Point` has no parameterless constructor, but type parameter `T` of `Create` requires one (the `new()` constraint)|Give `Point` a parameterless constructor, or relax the `new()` constraint on `Create`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := Create<Point>(p)"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: THE PARSE IS NOT SILENT — 1 diagnostic (NL103), pinned whole in BOTH file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `ParseResult.Success == false` plus one parse message substring (was AnalyzerTests.SpecialConstraint_ClassAndStruct_MutuallyExclusive_ParseError)" {
+    source := "\n            func Bad<T>(value: T): T where T : class, struct {\n                return value\n            }\n        "
+    assert AcParseSuccess(source) == "False"
+    assert AcParseCensus(source) == "NL103@2:55+6;"
+    assert AcParseNamedSuccess(source) == "False"
+    assert AcParseNamedCensus(source) == "NL103@2:55+6;"
+    assert AcParseNamedRow(source, 0) == "InvalidSyntax|Cannot have both 'class' and 'struct' constraints on the same type parameter — they are mutually exclusive|<null>|Error"
+    assert AcParseNamedRow(source, 1) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SpecialConstraint_Class_WithInterface_WithStringArg_NoError)" {
+    source := "\n            interface IComparable {\n                func CompareTo(other: object): int\n            }\n            class MyString : IComparable {\n                func CompareTo(other: object): int { return 0 }\n            }\n            func Process<T>(value: T): T where T : class, IComparable {\n                return value\n            }\n            func Main() {\n                ms := new MyString()\n                result := Process(ms)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SpecialConstraint_New_WithStructArg_NoError)" {
+    source := "\n            struct Point {\n                X: int\n                Y: int\n            }\n            func Create<T>(dummy: T): T where T : new() {\n                return dummy\n            }\n            func Main() {\n                p := new Point()\n                result := Create(p)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: THE PARSE IS NOT SILENT — 2 diagnostics (NL102 NL106), pinned whole in BOTH file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; so the deleted `AssertNoErrors` was VACUOUS: it never saw the parse complain; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SpecialConstraint_Class_WithRecordArg_NoError)" {
+    source := "\n            record Person(Name: string, Age: int)\n            func Process<T>(value: T): T where T : class {\n                return value\n            }\n            func Main() {\n                p := new Person(\"Alice\", 30)\n                result := Process(p)\n            }\n        "
+    assert AcParseSuccess(source) == "False"
+    assert AcParseCensus(source) == "NL102@3:13+4;NL106@2:20+6;"
+    assert AcParseNamedSuccess(source) == "False"
+    assert AcParseNamedCensus(source) == "NL102@3:13+4;NL106@2:20+6;"
+    assert AcParseNamedRow(source, 0) == "ExpectedToken|Expected '{'. Expected '{', got 'func'|<null>|Error"
+    assert AcParseNamedRow(source, 1) == "MissingClosingBrace|Missing closing '}'|<null>|Error"
+    assert AcParseNamedRow(source, 2) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: THE PARSE IS NOT SILENT — 1 diagnostic (NL103), pinned whole in BOTH file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `ParseResult.Success == false` plus one parse message substring (was AnalyzerTests.SpecialConstraint_StructAndNew_MutuallyExclusive_ParseError)" {
+    source := "\n            func Bad<T>(value: T): T where T : struct, new() {\n                return value\n            }\n        "
+    assert AcParseSuccess(source) == "False"
+    assert AcParseCensus(source) == "NL103@2:56+5;"
+    assert AcParseNamedSuccess(source) == "False"
+    assert AcParseNamedCensus(source) == "NL103@2:56+5;"
+    assert AcParseNamedRow(source, 0) == "InvalidSyntax|Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor|<null>|Error"
+    assert AcParseNamedRow(source, 1) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL208:GenericConstraintViolation` at `8:51+1`, IDENTICAL on both analyzer entry points; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.SpecialConstraint_New_WithPrimaryCtorClass_Error)" {
+    source := "\n            class RequiresPrimary(X: int) { }\n            func Create<T>(dummy: T): T where T : new() {\n                return dummy\n            }\n            func Main() {\n                r := new RequiresPrimary(1)\n                result := Create<RequiresPrimary>(r)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@8:51+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|`RequiresPrimary` has no parameterless constructor, but type parameter `T` of `Create` requires one (the `new()` constraint)|Give `RequiresPrimary` a parameterless constructor, or relax the `new()` constraint on `Create`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@8:51+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|`RequiresPrimary` has no parameterless constructor, but type parameter `T` of `Create` requires one (the `new()` constraint)|Give `RequiresPrimary` a parameterless constructor, or relax the `new()` constraint on `Create`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := Create<RequiresPrimary>(r)"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: THE PARSE IS NOT SILENT — 2 diagnostics (NL102 NL106), pinned whole in BOTH file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; so the deleted `AssertNoErrors` was VACUOUS: it never saw the parse complain; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SpecialConstraint_New_WithRecordStructArg_NoError)" {
+    source := "\n            record struct Size(Width: int, Height: int)\n            func Create<T>(dummy: T): T where T : new() {\n                return dummy\n            }\n            func Main() {\n                s := new Size(10, 20)\n                result := Create<Size>(s)\n            }\n        "
+    assert AcParseSuccess(source) == "False"
+    assert AcParseCensus(source) == "NL102@3:13+4;NL106@2:27+4;"
+    assert AcParseNamedSuccess(source) == "False"
+    assert AcParseNamedCensus(source) == "NL102@3:13+4;NL106@2:27+4;"
+    assert AcParseNamedRow(source, 0) == "ExpectedToken|Expected '{'. Expected '{', got 'func'|<null>|Error"
+    assert AcParseNamedRow(source, 1) == "MissingClosingBrace|Missing closing '}'|<null>|Error"
+    assert AcParseNamedRow(source, 2) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+// ======== String-to-Enum Rejection — 8 contracts ========
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `7:17+1` plain, `7:28+5` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.StringToEnum_Rejected)" {
+    source := "\n            enum Color {\n                Red = 0,\n                Blue = 1\n            }\n            func Main() {\n                c: Color = \"red\"\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@7:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@7:28+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "                c: Color = \"red\""
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `7:17+1` plain, `7:28+1` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.IntToEnum_Rejected)" {
+    source := "\n            enum Color {\n                Red = 0,\n                Blue = 1\n            }\n            func Main() {\n                c: Color = 0\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@7:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@7:28+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "                c: Color = 0"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.EnumToString_Allowed)" {
+    source := "\n            enum Color {\n                Red = 0,\n                Blue = 1\n            }\n            func Main() {\n                c := Color.Red\n                n: int = c\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StringEnumToString_Allowed)" {
+    source := "\n            enum Color {\n                Red = \"red\",\n                Blue = \"blue\"\n            }\n            func Main() {\n                c := Color.Red\n                s: string = c\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `7:17+1` plain, `7:28+5` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.StringToStringEnum_Rejected)" {
+    source := "\n            enum Color {\n                Red = \"red\",\n                Blue = \"blue\"\n            }\n            func Main() {\n                c: Color = \"red\"\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@7:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@7:28+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "                c: Color = \"red\""
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StringEnumAsParameterType_Allowed)" {
+    source := "\n            enum Status: string {\n                Active = \"active\",\n                Inactive = \"inactive\"\n            }\n            func Process(s: Status): string {\n                return s\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StringEnumAsReturnType_Allowed)" {
+    source := "\n            enum Status: string {\n                Active = \"active\",\n                Inactive = \"inactive\"\n            }\n            func GetDefault(): Status {\n                return Status.Active\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StringEnumAsRecordProperty_Allowed)" {
+    source := "\n            enum Status: string {\n                Active = \"active\",\n                Inactive = \"inactive\"\n            }\n            record Item {\n                CurrentStatus: Status\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+// ======== UN-REGIONED — one method, taken by what its body NAMES — 1 contract ========
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SetupSymbols_VisibleInTestBodies)" {
+    source := "\n            setup {\n                count := 42\n            }\n\n            test \"should see setup variable\" {\n                assert count == 42\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+// ======== Overload Resolution — Betterness Rules — 6 contracts ========
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.OverloadResolution_IntBeatsLong_WithIntArg)" {
+    source := "\n            func Foo(x: int): int { return x }\n            func Foo(x: long): long { return x }\n            func Main() {\n                r := Foo(42)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.OverloadResolution_IntBeatsObject_WithIntArg)" {
+    source := "\n            func Foo(x: int): int { return x }\n            func Foo(x: object) { }\n            func Main() {\n                Foo(42)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.OverloadResolution_TwoParams_FirstExactWins)" {
+    source := "\n            func Foo(x: int, y: int): int { return x }\n            func Foo(x: int, y: long): long { return x as long }\n            func Main() {\n                r := Foo(1, 2)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.OverloadResolution_NonParamsBeatsParams)" {
+    source := "\n            func Foo(x: int): int { return x }\n            func Foo(params x: int[]): int { return 0 }\n            func Main() {\n                r := Foo(1)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.OverloadResolution_ImplicitNumeric_IntToLong_Works)" {
+    source := "\n            func Process(x: long): long { return x }\n            func Main() {\n                r := Process(42)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.OverloadResolution_ImplicitNumeric_IntToDouble_Works)" {
+    source := "\n            func Process(x: double): double { return x }\n            func Main() {\n                r := Process(42)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+// ======== Missing Diagnostics — Type System Edge Cases — 14 contracts ========
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` at `4:22+7`, IDENTICAL on both analyzer entry points; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.VoidUsedAsValue_Rejected)" {
+    source := "\n            func DoStuff() { }\n            func Main() {\n                x := DoStuff()\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:22+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|This expression doesn't return a value (it's void) — you can't assign it to a variable|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:22+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|This expression doesn't return a value (it's void) — you can't assign it to a variable|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := DoStuff()"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL306:DuplicateDeclaration` at `2:30+1`, IDENTICAL on both analyzer entry points; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.DuplicateParameterNames_Rejected)" {
+    source := "\n            func Dup(x: int, x: string): int {\n                return 0\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@2:30+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|'x' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@2:30+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "DuplicateDeclaration|'x' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func Dup(x: int, x: string): int {"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullAssignment_NullToInterfaceType)" {
+    source := "\n            interface IFoo {\n                func Bar(): int\n            }\n            func Main() {\n                x: IFoo = null\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullAssignment_NullToArrayType)" {
+    source := "\n            func Main() {\n                x: int[] = null\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `3:17+1` plain, `3:27+4` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.NullAssignment_NullToBool_Rejected)" {
+    source := "\n            func Main() {\n                x: bool = null\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'x' is typed as 'bool', but the value is 'null'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:27+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "                x: bool = null"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `3:17+1` plain, `3:29+4` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.NullAssignment_NullToDouble_Rejected)" {
+    source := "\n            func Main() {\n                x: double = null\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'x' is typed as 'double', but the value is 'null'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:29+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "                x: double = null"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullableWidening_IntNullableToLongNullable)" {
+    source := "\n            func GetNullableInt(): int? { return null }\n            func Main() {\n                x: int? = GetNullableInt()\n                y: long? = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullableWidening_ByteNullableToIntNullable)" {
+    source := "\n            func GetNullableByte(): byte? { return null }\n            func Main() {\n                x: byte? = GetNullableByte()\n                y: int? = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullableWidening_FloatNullableToDoubleNullable)" {
+    source := "\n            func GetNullableFloat(): float? { return null }\n            func Main() {\n                x: float? = GetNullableFloat()\n                y: double? = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `5:17+1` plain, `5:27+1` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.NullableNarrowing_LongNullableToIntNullable_Rejected)" {
+    source := "\n            func GetNullableLong(): long? { return null }\n            func Main() {\n                x: long? = GetNullableLong()\n                y: int? = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'y' is typed as 'int?', but the value is 'long?'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:27+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "                y: int? = x"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `7:17+1` plain, `7:28+4` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.NullAssignment_NullToRecordStruct_Rejected)" {
+    source := "\n            record struct Point {\n                x: int = 0\n                y: int = 0\n            }\n            func Main() {\n                p: Point = null\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@7:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'p' is typed as 'Point', but the value is 'null'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@7:28+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "                p: Point = null"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullAssignment_NullToRecord_Allowed)" {
+    source := "\n            record Person {\n                name: string = \"unknown\"\n            }\n            func Main() {\n                p: Person = null\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `7:17+1` plain, `7:28+4` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.NullAssignment_NullToStruct_Rejected)" {
+    source := "\n            struct Point {\n                x: int = 0\n                y: int = 0\n            }\n            func Main() {\n                p: Point = null\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@7:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'p' is typed as 'Point', but the value is 'null'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@7:28+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "                p: Point = null"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullAssignment_NullToUnionType)" {
+    source := "\n            union Shape {\n                Circle { radius: double }\n                Rectangle { width: double, height: double }\n            }\n            func Main() {\n                s: Shape = null\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+// ======== Impossible Pattern Errors — 11 contracts ========
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL506:ImpossiblePattern` that MOVES between the entry points — `4:29+2` plain, `4:29+9` through the four-argument route production actually calls; the deleted claim was one severity-filtered message substring (was AnalyzerTests.ImpossiblePattern_IntIsString_ProducesError)" {
+    source := "\n            func Main() {\n                x: int = 42\n                result := x is string\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL506:ImpossiblePattern@4:29+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ImpossiblePattern|This 'is string' check is always false — a 'int' is never a 'string'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL506:ImpossiblePattern@4:29+9;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ImpossiblePattern|This 'is string' check is always false — a 'int' is never a 'string'|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := x is string"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL506:ImpossiblePattern` that MOVES between the entry points — `4:32+2` plain, `4:32+6` through the four-argument route production actually calls; the deleted claim was one severity-filtered message substring (was AnalyzerTests.ImpossiblePattern_BoolIsInt_ProducesError)" {
+    source := "\n            func Main() {\n                flag: bool = true\n                result := flag is int\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL506:ImpossiblePattern@4:32+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ImpossiblePattern|This 'is int' check is always false — a 'bool' is never a 'int'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL506:ImpossiblePattern@4:32+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ImpossiblePattern|This 'is int' check is always false — a 'bool' is never a 'int'|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := flag is int"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was that no message carries one substring (was AnalyzerTests.ImpossiblePattern_IntIsInt_NoWarning)" {
+    source := "\n            func Main() {\n                x: int = 42\n                result := x is int\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was that no message carries one substring (was AnalyzerTests.ImpossiblePattern_ClassIsInterface_NoWarning)" {
+    source := "\n            interface IShape {\n                func Area(): double\n            }\n            class Circle {\n                Radius: double\n                func Area(): double { return 3.14 * Radius * Radius }\n            }\n            func Main() {\n                c: Circle = new Circle { Radius: 1.0 }\n                result := c is IShape\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was that no message carries one substring (was AnalyzerTests.ImpossiblePattern_BaseClassIsDerived_NoWarning)" {
+    source := "\n            class Animal {\n                Name: string\n            }\n            class Dog : Animal {\n                Breed: string\n            }\n            func Main() {\n                a: Animal = new Dog { Name: \"Rex\", Breed: \"Lab\" }\n                result := a is Dog\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL506:ImpossiblePattern` that MOVES between the entry points — `10:29+2` plain, `10:29+6` through the four-argument route production actually calls; the deleted claim was one severity-filtered message substring (was AnalyzerTests.ImpossiblePattern_SealedClassUnrelated_ProducesError)" {
+    source := "\n            sealed class Cat {\n                Name: string\n            }\n            class Dog {\n                Name: string\n            }\n            func Main() {\n                c: Cat = new Cat { Name: \"Whiskers\" }\n                result := c is Dog\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL506:ImpossiblePattern@10:29+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ImpossiblePattern|This 'is Dog' check is always false — a 'Cat' is never a 'Dog'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL506:ImpossiblePattern@10:29+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ImpossiblePattern|This 'is Dog' check is always false — a 'Cat' is never a 'Dog'|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := c is Dog"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was that no message carries one substring (was AnalyzerTests.ImpossiblePattern_ObjectIsString_NoWarning)" {
+    source := "\n            func Main() {\n                obj: object = \"hello\"\n                result := obj is string\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was that no message carries one substring (was AnalyzerTests.ImpossiblePattern_UnionTypeIsCase_NoWarning)" {
+    source := "\n            union Shape {\n                Circle { radius: double }\n                Rectangle { width: double, height: double }\n            }\n            func Main() {\n                s: Shape = new Shape.Circle { radius: 1.0 }\n                x := match s {\n                    Shape.Circle { radius } => radius,\n                    _ => 0.0\n                }\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL506:ImpossiblePattern` that MOVES between the entry points — `4:22+2` plain, `4:22+9` through the four-argument route production actually calls; the deleted claim was one severity-filtered message substring (was AnalyzerTests.ImpossiblePattern_IsExpression_IntIsString_ProducesError)" {
+    source := "\n            func Main() {\n                n: int = 42\n                if n is string s {\n                    len: int = s.Length\n                }\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL506:ImpossiblePattern@4:22+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ImpossiblePattern|This 'is string' check is always false — a 'int' is never a 'string'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL506:ImpossiblePattern@4:22+9;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ImpossiblePattern|This 'is string' check is always false — a 'int' is never a 'string'|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                if n is string s {"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was that no message carries one substring (was AnalyzerTests.ImpossiblePattern_IsExpression_ObjectIsString_NoWarning)" {
+    source := "\n            func Main() {\n                obj: object = \"hello\"\n                if obj is string s {\n                    len: int = s.Length\n                }\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL506:ImpossiblePattern` that MOVES between the entry points — `4:29+2` plain, `4:29+9` through the four-argument route production actually calls; the deleted claim was one severity-filtered message substring (was AnalyzerTests.ImpossiblePattern_IsExpression_IntIsDouble_Error)" {
+    source := "\n            func Main() {\n                x: int = 5\n                result := x is double\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL506:ImpossiblePattern@4:29+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ImpossiblePattern|This 'is double' check is always false — a 'int' is never a 'double'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL506:ImpossiblePattern@4:29+9;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ImpossiblePattern|This 'is double' check is always false — a 'int' is never a 'double'|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := x is double"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+// ======== Numeric Narrowing Cast Suggestions — 8 contracts ========
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `5:17+1` plain, `5:26+1` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one non-null `ContextualHint` substring (was AnalyzerTests.NarrowingSuggestion_LongToInt_SuggestsCast)" {
+    source := "\n            func GetLong(): long { return 0 as long }\n            func Main() {\n                x: long = GetLong()\n                y: int = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'y' is typed as 'int', but the value is 'long'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:26+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Cannot implicitly convert 'long' to 'int'. Use an explicit cast: (int)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
+    assert AcSnippet(rich, 0) == "                y: int = x"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `4:17+1` plain, `4:28+1` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one non-null `ContextualHint` substring (was AnalyzerTests.NarrowingSuggestion_DoubleToFloat_SuggestsCast)" {
+    source := "\n            func Main() {\n                x: double = 3.14\n                y: float = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'y' is typed as 'float', but the value is 'double'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:28+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Cannot implicitly convert 'double' to 'float'. Use an explicit cast: (float)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
+    assert AcSnippet(rich, 0) == "                y: float = x"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` at `6:21+1` on both entry points, but the four-argument route rewrites the MESSAGE; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one non-null `ContextualHint` substring (was AnalyzerTests.NarrowingSuggestion_FunctionArgument_LongToInt_SuggestsCast)" {
+    source := "\n            func Foo(x: int) {}\n            func GetLong(): long { return 0 as long }\n            func Main() {\n                v: long = GetLong()\n                Foo(v)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@6:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'Foo' is 'long', but parameter 'x' expects 'int'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@6:21+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `long` as argument for parameter `x` of type `int`|<null>|Error"
+    assert AcHint(rich, 0) == "Cannot implicitly convert 'long' to 'int'. Use an explicit cast: (int)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
+    assert AcSnippet(rich, 0) == "                Foo(v)"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `5:17+1` plain, `5:24+1` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one non-null `ContextualHint` substring (was AnalyzerTests.NarrowingSuggestion_ReturnDoubleFromIntFunc_SuggestsCast)" {
+    source := "\n            func GetDouble(): double { return 0.0 }\n            func Compute(): int {\n                d: double = GetDouble()\n                return d\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'Compute' should return 'int', but this return statement gives back 'double'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:24+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Function 'Compute' should return int but returns double|<null>|Error"
+    assert AcHint(rich, 0) == "Cannot implicitly convert 'double' to 'int'. Use an explicit cast: (int)value\nWarning: This truncates decimals (e.g. 3.7 becomes 3) and may lose data if the value exceeds the target type's range."
+    assert AcSnippet(rich, 0) == "                return d"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `4:17+1` plain, `4:27+1` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one non-null `ContextualHint` substring (was AnalyzerTests.NarrowingSuggestion_IntToByte_LiteralTooLarge_SuggestsCast)" {
+    source := "\n            func Main() {\n                x: int = 300\n                y: byte = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'y' is typed as 'byte', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:27+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'byte'. Use an explicit cast: (byte)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
+    assert AcSnippet(rich, 0) == "                y: byte = x"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NarrowingSuggestion_IntToInt_NoError)" {
+    source := "\n            func Main() {\n                x: int = 42\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `4:17+1` plain, `4:26+1` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted body drove `Analyze(unit, path, root, source)` directly (was AnalyzerTests.NarrowingSuggestion_StringToInt_NotNumericNarrowing)" {
+    source := "\n            func Main() {\n                x: string = \"hello\"\n                y: int = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'y' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:26+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+    assert AcSnippet(rich, 0) == "                y: int = x"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `5:17+1` plain, `5:28+1` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one non-null `ContextualHint` substring (was AnalyzerTests.NarrowingSuggestion_LongToShort_SuggestsCast)" {
+    source := "\n            func GetLong(): long { return 0 as long }\n            func Main() {\n                x: long = GetLong()\n                y: short = x\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'y' is typed as 'short', but the value is 'long'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:28+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Cannot implicitly convert 'long' to 'short'. Use an explicit cast: (short)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
+    assert AcSnippet(rich, 0) == "                y: short = x"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+// ======== Default Expression — 13 contracts ========
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_IntVariable_NoErrors)" {
+    source := "\n            func Main() {\n                x: int = default\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_StringVariable_NoErrors)" {
+    source := "\n            func Main() {\n                s: string = default\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_ReturnFromIntFunction_NoErrors)" {
+    source := "\n            func Foo(): int {\n                return default\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL203:CannotInferType` at `2:10+7`, IDENTICAL on both analyzer entry points; the deleted body drove `Analyze(unit)` directly (was AnalyzerTests.DefaultExpression_NoTypeContext_ReportsError)" {
+    source := "func Main() {\n    x := default\n}"
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL203:CannotInferType@2:10+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CannotInferType|I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')|Add explicit type annotation: 'let x: Type = ...'|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL203:CannotInferType@2:10+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "CannotInferType|I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')|Add explicit type annotation: 'let x: Type = ...'|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    x := default"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL203:CannotInferType` at `2:10+3`, IDENTICAL on both analyzer entry points; the deleted body drove `Analyze(unit)` directly (was AnalyzerTests.TargetTypedNew_NoTypeContext_ReportsError)" {
+    source := "func Main() {\n    x := new()\n}"
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL203:CannotInferType@2:10+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CannotInferType|I can't figure out what type 'new()' should create here — add a type annotation or write the type after 'new'|For example, use `value: Person = new()` when the target type is clear, or `new Person()` when it is not.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL203:CannotInferType@2:10+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "CannotInferType|I can't figure out what type 'new()' should create here — add a type annotation or write the type after 'new'|For example, use `value: Person = new()` when the target type is clear, or `new Person()` when it is not.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    x := new()"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL203:CannotInferType` at `2:5+3`, IDENTICAL on both analyzer entry points; the deleted body drove `Analyze(unit)` directly (was AnalyzerTests.TargetTypedNew_ExpressionStatementNoTypeContext_ReportsError)" {
+    source := "func Main() {\n    new()\n}"
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL203:CannotInferType@2:5+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CannotInferType|I can't figure out what type 'new()' should create here — add a type annotation or write the type after 'new'|For example, use `value: Person = new()` when the target type is clear, or `new Person()` when it is not.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL203:CannotInferType@2:5+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "CannotInferType|I can't figure out what type 'new()' should create here — add a type annotation or write the type after 'new'|For example, use `value: Person = new()` when the target type is clear, or `new Person()` when it is not.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    new()"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.AnonymousObjectCreation_NoTypeContext_IsAllowed)" {
+    source := "func Main() {\n    value := new { Name: \"Ada\", Count: 1 }\n}"
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_FunctionArgument_NoErrors)" {
+    source := "\n            func Bar(x: int) {}\n            func Main() {\n                Bar(default)\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_NullableIntVariable_NoErrors)" {
+    source := "\n            func Main() {\n                x: int? = default\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_BoolVariable_NoErrors)" {
+    source := "\n            func Main() {\n                x: bool = default\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_DoubleVariable_NoErrors)" {
+    source := "\n            func Main() {\n                x: double = default\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_ReturnFromBoolFunction_NoErrors)" {
+    source := "\n            func IsReady(): bool {\n                return default\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and BOTH analyzer entry points are SILENT — empty censuses, zero errors, `<no-such-error>` at index 0; the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DefaultExpression_FieldInitializer_NoErrors)" {
+    source := "\n            class Counter {\n                count: int = default\n            }\n        "
+    assert AcParseSuccess(source) == "True"
+    assert AcParseCensus(source) == ""
+    assert AcParseNamedSuccess(source) == "True"
+    assert AcParseNamedCensus(source) == ""
+    assert AcParseNamedRow(source, 0) == "<no-such-error>"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
 }

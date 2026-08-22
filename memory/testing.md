@@ -165,6 +165,46 @@ underline, `NL501` on `match`, and `NL412` on the callee NAME with the parenthes
 **corrects slice 25's record**, where the same code's 13-column span was read as "the whole call
 including its parentheses" when 13 is the length of the name alone.
 
+**TRANCHE 1b — the SEVEN REMAINING `#region`s — followed in slice 29, and after it
+`tests/AnalyzerTests.cs` has NO `#region` left.** 82 `[Fact]`s, 1,193 C# lines and 22 `Assert.`
+occurrences, extending `tests/native/analyzer-clean-source` rather than adding a sibling (same
+subject, same fixtures territory, same entry point), so the native project count stays 39. The
+regions are generic constraint validation, string-to-enum rejection, overload betterness, type-system
+edge cases, impossible patterns, numeric narrowing cast suggestions and `default`/`new()` expressions.
+
+**Its headline is that `Analyze(unit)` and `Analyze(unit, path, root, source)` ARE DIFFERENT ANSWERS,
+and production calls the one 73 of the 82 deleted assertions never drove.** A repository-wide sweep
+finds exactly TWO production call sites and both pass all four arguments —
+`MultiFileCompiler.cs:282` (the compiler) and `DocumentManager.cs:277` (the IDE); the one-argument
+overload has ZERO production callers. `AssertNoErrors`, `AssertHasError`, `AssertHasStrictError` and
+`AssertNoWarning` all pass one. Over these 82 fixtures the two entry points
+agree on every CODE and disagree otherwise: **22 of the 33 reporting fixtures get a different COLUMN
+or LENGTH** (the plain route anchors `NL202` on the declared NAME one column wide, the production route
+on the VALUE and underlines all of it; `NL506` is `is` two columns plain and `is string` nine rich);
+**15 get a different MESSAGE, and the production one is WORSE** — `Variable 'c' is typed as 'Color',
+but the value is 'string'` collapses to the bare `Type mismatch` and its suggestion is DROPPED to
+null, with a `ContextualHint` added in its place. `ContextualHint` is non-null on 15 fixtures rich and
+ZERO plain, which is why slice 28 saw `<null>` twenty-four times: the field is a property of the ENTRY
+POINT, not of the fixture. `SourceSnippet` is non-null on all 33 reporting fixtures rich and ZERO
+plain. Every tranche-1b contract states BOTH routes.
+
+**THREE FIXTURES DO NOT PARSE AND TWO OF THEM MADE A VACUOUS CLAIM.** A bodiless positional record —
+`record Person(Name: string, Age: int)` — is a PARSE ERROR in N#: `NL102 Expected '{'` plus `NL106
+Missing closing '}'`, and the rest of the file is swallowed. Two of the three fixtures that spell one
+are `AssertNoErrors` methods, so their `HasErrors == false` held only because the analyzer never saw
+the declaration they were written to test. Slice 28's tranche had no false-clean fixture; this one has
+two, and only the pinned parse census could find them.
+
+Three more rules this tranche settled:
+- **The un-regioned method rule cuts BOTH ways.** `SetupSymbols_VisibleInTestBodies` sits between two
+  regions and names `AssertNoErrors` — the tranche's own shape — so it is IN, and the deletion is ONE
+  contiguous span. Slice 28's three un-regioned methods named a surface with no kernel and stayed out.
+  The rule is the same: classify by what the body NAMES.
+- **`AssertHasStrictError` is not strict mode.** Its body is the same no-config `Analyze(source)`; the
+  name describes a severity-filtered CLAIM. Zero of the 82 bodies names a `ProjectConfig`.
+- **The file name is inert.** `ParseFileAst(source, null)` and `ParseFileAst(source, "test.nl")` return
+  the same census and the same `Success` on all 82 fixtures, pinned in both spellings on every one.
+
 **Why the estate half is EMPTY here is itself a measurement.** `SemanticModel.nl` IS N# in the
 estate and `SemanticModel.tests.nl` already owns its ALGEBRA — it constructs a model directly,
 hand-records entries and pins the lookup ranking, the scope-depth rule and the inclusive bounds.
