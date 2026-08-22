@@ -460,6 +460,131 @@ func AcAnalyzeWithSource(source: string): object {
     return analysis
 }
 
+
+// ---- slice 30's kernels: the ERROR-CODE census read ----
+//
+// `AnalyzerTests.cs`'s `AssertHasErrorCode(source, code)` and `AssertNoErrorCode(source, code)` are
+// the one shape the campaign had no kernel for: both select by `e.Code == code && e.Severity ==
+// ErrorSeverity.Error` rather than by a message substring, and the presence half RETURNS the
+// matching row so the caller can read its fields. `AcCodeMatchIndex` is that selection, and the
+// four functions over it are what the deleted helpers could answer plus what they could not:
+// `AcCodeErrorCount` is the absence half exactly, `AcCodeCount` (built in slice 28) is its
+// severity-BLIND sibling and is pinned beside it on every fixture so the two are measured against
+// each other, and `AcCodeRow` / `AcCodeAnchor` state what the returned row actually says and where
+// it points. `AcSuggestions` reads the PLURAL `Suggestions` list — a member no contract in this arc
+// had read, and the one the deleted `error.Suggestion ?? string.Join(", ", error.Suggestions ?? …)`
+// fallback exists for.
+
+func AcCodeMatchIndex(analysis: object, codeName: string): int {
+    errors := AcRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return -1
+    }
+
+    index := 0
+    while index < errors.Count {
+        entry := errors[index]
+        if entry != null && AcText(entry, "Code") == codeName && AcText(entry, "Severity") == "Error" {
+            return index
+        }
+
+        index = index + 1
+    }
+
+    return -1
+}
+
+func AcCodeErrorCount(analysis: object, codeName: string): int {
+    errors := AcRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return -1
+    }
+
+    matches := 0
+    index := 0
+    while index < errors.Count {
+        entry := errors[index]
+        if entry != null && AcText(entry, "Code") == codeName && AcText(entry, "Severity") == "Error" {
+            matches = matches + 1
+        }
+
+        index = index + 1
+    }
+
+    return matches
+}
+
+func AcCodeRow(analysis: object, codeName: string): string {
+    index := AcCodeMatchIndex(analysis, codeName)
+    if index < 0 {
+        return "<no-such-code>"
+    }
+
+    return AcRow(analysis, index)
+}
+
+func AcCodeAnchor(analysis: object, codeName: string): string {
+    index := AcCodeMatchIndex(analysis, codeName)
+    if index < 0 {
+        return "<no-such-code>"
+    }
+
+    errors := AcRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return "<not-a-list>"
+    }
+
+    entry := errors[index]
+    if entry == null {
+        return "<null-error>"
+    }
+
+    return AcText(entry, "DiagnosticId") + "@" + AcText(entry, "Line") + ":" + AcText(entry, "Column") + "+" + AcText(entry, "Length")
+}
+
+func AcItemText(values: IList, index: int): string {
+    item := values[index]
+    if item == null {
+        return "<null>"
+    }
+
+    return item.ToString() ?? "<null>"
+}
+
+func AcSuggestions(analysis: object, index: int): string {
+    errors := AcRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return "<not-a-list>"
+    }
+
+    if index < 0 || index >= errors.Count {
+        return "<no-such-error>"
+    }
+
+    entry := errors[index]
+    if entry == null {
+        return "<null-error>"
+    }
+
+    values := AcMember(entry, "Suggestions") as IList
+    if values == null {
+        return "<null>"
+    }
+
+    joined := ""
+    position := 0
+    while position < values.Count {
+        if position > 0 {
+            joined = joined + ", "
+        }
+
+        joined = joined + AcItemText(values, position)
+        position = position + 1
+    }
+
+    return joined
+}
+
 // ---- contracts ----
 
 // ======== Nominal Subtyping — 3 contracts ========
@@ -3468,4 +3593,2447 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcHasErrors(rich) == "False"
     assert AcErrorCount(rich) == 0
     assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+
+// ======================================================================================
+// TRANCHE 2 — THE ERROR-CODE ASSERTION FAMILY (task 020 slice 30)
+// ======================================================================================
+//
+// These 106 declarations replace 106 methods and 1,743 lines of `tests/AnalyzerTests.cs`: every
+// method that named `AssertHasErrorCode` or `AssertNoErrorCode` (88 — 53 / 33 / 2 that name both),
+// plus the 18 direct-`Analyze` shape neighbours interleaved among their deletion runs from line
+// 9460 to the end of the file. **BOTH HELPERS DIE WITH THIS TRANCHE**: measured file-wide,
+// `AssertHasErrorCode` occurred 57 times (56 calls + its declaration) and `AssertNoErrorCode` 36
+// (35 + its declaration), and every call site was inside it.
+//
+// WHY THE BOUNDARY IS THIS AND NOT THE WHOLE `Analyze`+`ErrorCode` SHAPE. That shape is 42 methods
+// over 569 declaration lines and would carry the tranche to 1,868 — over budget. Line 9460 is the
+// first at which the two shapes SHARE a deletion run; taking the neighbours from there collapses
+// ten runs into eight and migrates the unresolved-type / generic-arity subject and the WHOLE NL319
+// subject rather than splitting them.
+//
+// THE ONE MISSING KERNEL. `AssertHasErrorCode` selects `e.Code == code && e.Severity ==
+// ErrorSeverity.Error`, asserts the match is non-null and RETURNS it; `AssertNoErrorCode` asserts
+// the same predicate matches nothing. `AcCodeMatchIndex` and the four functions over it are that
+// shape, and they are pinned on every fixture beside slice 28's severity-blind `AcCodeCount`.
+//
+// SEVEN THINGS THE 199 DELETED CLAIMS COULD NOT SEE, EVERY ONE MEASURED:
+//
+//   (a) THE SEVERITY HALF OF BOTH HELPERS IS DEAD OVER THIS CORPUS. All 82 diagnostics the 111
+//       fixtures produce are `Error`; `AcCodeCount` and `AcCodeErrorCount` agree on every fixture
+//       and every code, 0 disagreements. The predicate that reads `&& e.Severity ==
+//       ErrorSeverity.Error` never once discriminated anything. Both are pinned, so the day one of
+//       these codes starts arriving as a Warning, the pair separates.
+//
+//   (b) `AssertNoErrorCode` WAS ALMOST ALWAYS A VACUOUS "NOTHING AT ALL". 34 of its 35 fixtures
+//       analyse COMPLETELY SILENT: the assertion said "this one code is absent" where the truth was
+//       "every code is absent". Each of the 34 now pins an EMPTY census, an error COUNT of zero and
+//       `<no-such-error>` at index 0.
+//
+//   (c) AND THE ONE THAT IS NOT SILENT IS A FALSE CLEAN. `EnumValueObjectMemberAccess_Resolves` —
+//       the name says it resolves — reports `NL202:TypeMismatch@10:17+1`. The deleted assertion
+//       asked only about `UndefinedMember`, so it passed. Pinned here as the diagnostic it is.
+//
+//   (d) TWO FIXTURES DO NOT PARSE, AND ONE OF THEM PROVED NOTHING AT ALL.
+//       `BreakInsideSwitchInsideFinally_NoDiagnostic` spells a C# `switch`/`case` statement; the
+//       parse reports `NL102` at 11:23 with `Success == False` and the ANALYSIS REPORTS NOTHING, so
+//       the deleted `AssertNoErrorCode(ControlTransferOutOfFinally)` was satisfied by a file that
+//       never reached the walk. `Lock_OnEnumValue_ReportsNL320` spells an enum whose members are
+//       newline-separated rather than comma-separated; that reports `NL101` twice, and its NL320
+//       claim SURVIVES — but the analysis reports FOUR rows, two of them `NL903` complaining about
+//       an identifier literally named `<error>`, a recovery artefact leaking a synthetic name into
+//       a user-facing sentence. Both parse censuses are pinned WHOLE.
+//
+//   (e) A CODE NAMED `VisibilityConventionWarning` IS REPORTED AT `Error` SEVERITY, TWICE — the
+//       same shape slice 28 found in `NullabilityWarning`, in a second code.
+//
+//   (f) THE TWO ENTRY POINTS DISAGREE ON 28 OF THE PINNED ROWS, AND THE PRODUCTION ONE IS WORSE.
+//       Slice 29 measured this over its own corpus; this tranche measures it over a disjoint one
+//       and the direction is the same. The census differs on 16 fixtures, the code row on 28 and
+//       the code anchor on 13; the error COUNT never differs. On the 28, production DROPS the
+//       suggestion 15 times and GAINS one ZERO times. **THREE DELETED ASSERTIONS ARE TRUE ONLY OF
+//       THE ENTRY POINT NOTHING SHIPS**: the `'Items' is typed as 'List<Pt>', but the value is
+//       'List<Rs>'` sentence and its two siblings become the bare `Type mismatch` on the route
+//       `nlc check`, `nlc build` and the IDE take. Both routes are pinned on every fixture.
+//
+//   (g) THE PLURAL `Suggestions` LIST IS A PRODUCTION-ONLY FIELD. It is null on all 82 plain rows
+//       and non-null on 5 rich ones, so the `?? string.Join(", ", error.Suggestions ?? …)` fallback
+//       the deleted code carried is unreachable on the route the deleted code used. 37 of the 82
+//       rich rows also carry a `ContextualHint` that the plain route leaves null.
+//
+// THE ANCHOR AUDIT — ALL 82 POSITIONS READ BACK OUT OF THE FIXTURE TEXT. `NL319` underlines the
+// whole KEYWORD (`return`×6, `break`, `continue`); `NL201` the whole type name
+// (`MissingExternalType`×5); `NL303` the whole misspelled member, including the dotted
+// `Result.Sucess`; `NL316` the declared name; `NL207` the generic HEAD (`Box`×3, `List`, `Task`,
+// `Action`) except where the head is built-in or a type parameter, where it moves to the ARGUMENT;
+// `NL322` the indexer `[`. **`NL202` TRUNCATES on the plain route** — a bare `"` where the value is
+// a string literal, four times, and single letters elsewhere — which is exactly what the production
+// route repairs.
+//
+// THE TABLE. `GenericTypes_StaticMembers_ReportBeforeEmission` is the FIRST of `AnalyzerTests.cs`'s
+// 35 `[Theory]`s to leave the file, and it is a table here rather than three declarations because
+// BOTH its fixture and its message claim are interpolated per row. Every one of its four C#
+// parameters is load-bearing in the N# body. **AND THE PER-ROW PIN IMMEDIATELY FOUND A DEFECT THE
+// C# COULD NOT**: the three rows do not anchor alike. `field count` underlines `count` and
+// `property value` underlines `value`, but `method mk` underlines **`fu`** — column 12, length 2:
+// the column of the `func` keyword with the LENGTH of the member name. A single collapsed
+// assertion could not have said so; three separate `codeAnchor` values do.
+//
+// The fixtures are the deleted ones byte-for-byte: every literal was copied unmodified into a
+// generated console program that printed its sha256 and length, and the decoder that produced the
+// strings below reproduces all 111 shas and all 111 lengths with zero mismatches. All 111 are
+// distinct.
+
+test "020 s30 analyzer error codes: `ShadowedDeclaration`: the whole census is pinned (1 row); the deleted claim was that `ShadowedDeclaration` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ScopeNesting_NestedRedeclarationShadowsOuter_IsError)" {
+    source := "\n            func Main() {\n                x := 1\n                {\n                    x := 2\n                    print x\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL316:ShadowedDeclaration@5:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ShadowedDeclaration|'x' shadows an existing 'x' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'x' is still in scope), or remove it and reuse the existing 'x'|Error"
+    assert AcCodeErrorCount(analysis, "ShadowedDeclaration") == 1
+    assert AcCodeCount(analysis, "ShadowedDeclaration") == 1
+    assert AcCodeRow(analysis, "ShadowedDeclaration") == "ShadowedDeclaration|'x' shadows an existing 'x' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'x' is still in scope), or remove it and reuse the existing 'x'|Error"
+    assert AcCodeAnchor(analysis, "ShadowedDeclaration") == "NL316@5:21+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL316:ShadowedDeclaration@5:21+1;"
+    assert AcCodeRow(rich, "ShadowedDeclaration") == "ShadowedDeclaration|'x' shadows an existing 'x' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'x' is still in scope), or remove it and reuse the existing 'x'|Error"
+    assert AcCodeAnchor(rich, "ShadowedDeclaration") == "NL316@5:21+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `UndefinedMember`: the whole census is pinned (1 row); the deleted claim was that `UndefinedMember` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.EnumMemberAccess_UnknownStaticMember_ReportsUndefinedMember)" {
+    source := "\n            enum Status {\n                Pending,\n                Active,\n                Done\n            }\n\n            func Main(): Status {\n                return Status.Activ\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@9:31+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'Activ' not found on type 'Status'|Did you mean 'Active'?|Error"
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'Activ' not found on type 'Status'|Did you mean 'Active'?|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@9:31+5"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@9:31+5;"
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'Activ' not found on type 'Status'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@9:31+5"
+    assert AcSuggestions(rich, 0) == "Active"
+    assert AcHint(rich, 0) == "The type `Status` does not have a member named `Activ`.\nCheck for typos, or make sure you're accessing the right type."
+}
+
+test "020 s30 analyzer error codes: THE TRANCHE'S ONE FALSE CLEAN — the method name says it RESOLVES and the deleted `AssertNoErrorCode(UndefinedMember)` passed, but the analysis reports `NL202:TypeMismatch@10:17+1`; it is the only one of the 35 absence claims whose fixture is not completely silent (was AnalyzerTests.EnumValueObjectMemberAccess_Resolves)" {
+    source := "\n            enum Status {\n                Pending,\n                Active,\n                Done\n            }\n\n            func Main(): string {\n                status := Status.Active\n                return status.ToString()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@10:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'Main' should return 'string', but this return statement gives back 'string?'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 0
+    assert AcCodeCount(analysis, "UndefinedMember") == 0
+    assert AcCodeRow(analysis, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@10:31+8;"
+    assert AcCodeRow(rich, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `UndefinedMember`: the whole census is pinned (1 row); the deleted claim was that `UndefinedMember` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.EnumValueMemberAccess_EnumMemberName_ReportsUndefinedMember)" {
+    source := "\n            enum Status {\n                Pending,\n                Active,\n                Done\n            }\n\n            func Main(): Status {\n                status := Status.Active\n                return status.Done\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@10:31+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'Done' not found on type 'Status'|Did you mean 'Done'?|Error"
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'Done' not found on type 'Status'|Did you mean 'Done'?|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@10:31+4"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@10:31+4;"
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'Done' not found on type 'Status'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@10:31+4"
+    assert AcSuggestions(rich, 0) == "Done"
+    assert AcHint(rich, 0) == "The type `Status` does not have a member named `Done`.\nCheck for typos, or make sure you're accessing the right type."
+}
+
+test "020 s30 analyzer error codes: `ShadowedDeclaration`: the whole census is pinned (1 row); the deleted claim was that `ShadowedDeclaration` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Shadowing_InnerBlockLocalShadowingOuterLocal_IsError)" {
+    source := "\nfunc Main() {\n    count := 1\n    if count > 0 {\n        count := 2\n        print count\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL316:ShadowedDeclaration@5:9+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ShadowedDeclaration|'count' shadows an existing 'count' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'count' is still in scope), or remove it and reuse the existing 'count'|Error"
+    assert AcCodeErrorCount(analysis, "ShadowedDeclaration") == 1
+    assert AcCodeCount(analysis, "ShadowedDeclaration") == 1
+    assert AcCodeRow(analysis, "ShadowedDeclaration") == "ShadowedDeclaration|'count' shadows an existing 'count' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'count' is still in scope), or remove it and reuse the existing 'count'|Error"
+    assert AcCodeAnchor(analysis, "ShadowedDeclaration") == "NL316@5:9+5"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL316:ShadowedDeclaration@5:9+5;"
+    assert AcCodeRow(rich, "ShadowedDeclaration") == "ShadowedDeclaration|'count' shadows an existing 'count' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'count' is still in scope), or remove it and reuse the existing 'count'|Error"
+    assert AcCodeAnchor(rich, "ShadowedDeclaration") == "NL316@5:9+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `ShadowedDeclaration`: the whole census is pinned (1 row); the deleted claim was that `ShadowedDeclaration` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Shadowing_LocalShadowingParameter_IsError)" {
+    source := "\nfunc Greet(name: string) {\n    name := \"override\"\n    print name\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL316:ShadowedDeclaration@3:5+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ShadowedDeclaration|'name' shadows an existing 'name' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'name' is still in scope), or remove it and reuse the existing 'name'|Error"
+    assert AcCodeErrorCount(analysis, "ShadowedDeclaration") == 1
+    assert AcCodeCount(analysis, "ShadowedDeclaration") == 1
+    assert AcCodeRow(analysis, "ShadowedDeclaration") == "ShadowedDeclaration|'name' shadows an existing 'name' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'name' is still in scope), or remove it and reuse the existing 'name'|Error"
+    assert AcCodeAnchor(analysis, "ShadowedDeclaration") == "NL316@3:5+4"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL316:ShadowedDeclaration@3:5+4;"
+    assert AcCodeRow(rich, "ShadowedDeclaration") == "ShadowedDeclaration|'name' shadows an existing 'name' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'name' is still in scope), or remove it and reuse the existing 'name'|Error"
+    assert AcCodeAnchor(rich, "ShadowedDeclaration") == "NL316@3:5+4"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `ShadowedDeclaration`: the whole census is pinned (1 row); the deleted claim was that `ShadowedDeclaration` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Shadowing_NestedFunctionBlockShadowingOuter_IsError)" {
+    source := "\nfunc Outer() {\n    sum := 1\n    for i := 0; i < 3; i = i + 1 {\n        sum := i\n        print sum\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL316:ShadowedDeclaration@5:9+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ShadowedDeclaration|'sum' shadows an existing 'sum' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'sum' is still in scope), or remove it and reuse the existing 'sum'|Error"
+    assert AcCodeErrorCount(analysis, "ShadowedDeclaration") == 1
+    assert AcCodeCount(analysis, "ShadowedDeclaration") == 1
+    assert AcCodeRow(analysis, "ShadowedDeclaration") == "ShadowedDeclaration|'sum' shadows an existing 'sum' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'sum' is still in scope), or remove it and reuse the existing 'sum'|Error"
+    assert AcCodeAnchor(analysis, "ShadowedDeclaration") == "NL316@5:9+3"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL316:ShadowedDeclaration@5:9+3;"
+    assert AcCodeRow(rich, "ShadowedDeclaration") == "ShadowedDeclaration|'sum' shadows an existing 'sum' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs|Rename this declaration (the outer 'sum' is still in scope), or remove it and reuse the existing 'sum'|Error"
+    assert AcCodeAnchor(rich, "ShadowedDeclaration") == "NL316@5:9+3"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `ShadowedDeclaration`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `ShadowedDeclaration` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Shadowing_SiblingBlocksReusingName_IsAllowed)" {
+    source := "\nfunc Main() {\n    if true {\n        temp := 1\n        print temp\n    }\n    if false {\n        temp := 2\n        print temp\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ShadowedDeclaration") == 0
+    assert AcCodeCount(analysis, "ShadowedDeclaration") == 0
+    assert AcCodeRow(analysis, "ShadowedDeclaration") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ShadowedDeclaration") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ShadowedDeclaration") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ShadowedDeclaration") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `ShadowedDeclaration`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `ShadowedDeclaration` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Shadowing_LocalShadowingClassField_IsAllowed)" {
+    source := "\nclass Counter {\n    count: int = 0\n\n    func Increment() {\n        count := 1\n        print count\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ShadowedDeclaration") == 0
+    assert AcCodeCount(analysis, "ShadowedDeclaration") == 0
+    assert AcCodeRow(analysis, "ShadowedDeclaration") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ShadowedDeclaration") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ShadowedDeclaration") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ShadowedDeclaration") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `ShadowedDeclaration`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `ShadowedDeclaration` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Shadowing_DiscardAndUnderscoreNames_AreAllowed)" {
+    source := "\nfunc Main() {\n    _temp := 1\n    if true {\n        _temp := 2\n        print _temp\n    }\n    print _temp\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ShadowedDeclaration") == 0
+    assert AcCodeCount(analysis, "ShadowedDeclaration") == 0
+    assert AcCodeRow(analysis, "ShadowedDeclaration") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ShadowedDeclaration") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ShadowedDeclaration") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ShadowedDeclaration") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the whole census is pinned (1 row); the deleted claim was that `DefiniteAssignmentError` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.DefiniteAssignment_ReadAfterConditionalAssignment_IsError)" {
+    source := "\nfunc Cond(): bool {\n    return true\n}\n\nfunc Main() {\n    let total: int\n    if Cond() {\n        total = 5\n    }\n    print total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL304:DefiniteAssignmentError@11:11+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DefiniteAssignmentError|'total' is used here before it has been assigned a value on every path that reaches this point|Give 'total' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "DefiniteAssignmentError|'total' is used here before it has been assigned a value on every path that reaches this point|Give 'total' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "NL304@11:11+5"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL304:DefiniteAssignmentError@11:11+5;"
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "DefiniteAssignmentError|'total' is used here before it has been assigned a value on every path that reaches this point|Give 'total' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "NL304@11:11+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the whole census is pinned (1 row); the deleted claim was that `DefiniteAssignmentError` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.DefiniteAssignment_ReadBeforeAnyAssignment_IsError)" {
+    source := "\nfunc Main() {\n    let value: int\n    print value\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL304:DefiniteAssignmentError@4:11+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DefiniteAssignmentError|'value' is used here before it has been assigned a value on every path that reaches this point|Give 'value' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "DefiniteAssignmentError|'value' is used here before it has been assigned a value on every path that reaches this point|Give 'value' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "NL304@4:11+5"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL304:DefiniteAssignmentError@4:11+5;"
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "DefiniteAssignmentError|'value' is used here before it has been assigned a value on every path that reaches this point|Give 'value' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "NL304@4:11+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `DefiniteAssignmentError` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.DefiniteAssignment_AssignedOnAllBranches_IsAllowed)" {
+    source := "\nfunc Cond(): bool {\n    return true\n}\n\nfunc Main() {\n    let total: int\n    if Cond() {\n        total = 5\n    } else {\n        total = 0\n    }\n    print total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `DefiniteAssignmentError` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.DefiniteAssignment_AssignedBeforeUse_IsAllowed)" {
+    source := "\nfunc Main() {\n    let total: int\n    total = 42\n    print total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `DefiniteAssignmentError` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.DefiniteAssignment_InitializedAtDeclaration_IsAllowed)" {
+    source := "\nfunc Main() {\n    total := 0\n    print total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `DefiniteAssignmentError` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.DefiniteAssignment_EarlyReturnGuardsUnassignedPath_IsAllowed)" {
+    source := "\nfunc Cond(): bool {\n    return true\n}\n\nfunc Main() {\n    let total: int\n    if Cond() {\n        total = 5\n    } else {\n        return\n    }\n    print total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the whole census is pinned (1 row); the deleted claim was that `DefiniteAssignmentError` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.DefiniteAssignment_ArrayLengthUse_ReadBeforeAnyAssignment_IsError)" {
+    source := "\nfunc Main() {\n    let n: int\n    let arr = new int[n]\n    print arr.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL304:DefiniteAssignmentError@4:23+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DefiniteAssignmentError|'n' is used here before it has been assigned a value on every path that reaches this point|Give 'n' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "DefiniteAssignmentError|'n' is used here before it has been assigned a value on every path that reaches this point|Give 'n' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "NL304@4:23+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL304:DefiniteAssignmentError@4:23+1;"
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "DefiniteAssignmentError|'n' is used here before it has been assigned a value on every path that reaches this point|Give 'n' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "NL304@4:23+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the whole census is pinned (1 row); the deleted claim was that `DefiniteAssignmentError` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.DefiniteAssignment_ArrayLengthUse_ConditionallyAssigned_IsError)" {
+    source := "\nfunc Cond(): bool {\n    return true\n}\n\nfunc Main() {\n    let n: int\n    if Cond() {\n        n = 5\n    }\n    let arr = new int[n]\n    print arr.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL304:DefiniteAssignmentError@11:23+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DefiniteAssignmentError|'n' is used here before it has been assigned a value on every path that reaches this point|Give 'n' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "DefiniteAssignmentError|'n' is used here before it has been assigned a value on every path that reaches this point|Give 'n' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "NL304@11:23+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL304:DefiniteAssignmentError@11:23+1;"
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "DefiniteAssignmentError|'n' is used here before it has been assigned a value on every path that reaches this point|Give 'n' an initial value where you declare it, or assign it on every branch before this use.|Error"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "NL304@11:23+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `DefiniteAssignmentError`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `DefiniteAssignmentError` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.DefiniteAssignment_ArrayLengthUse_AssignedOnAllBranches_IsAllowed)" {
+    source := "\nfunc Cond(): bool {\n    return true\n}\n\nfunc Main() {\n    let n: int\n    if Cond() {\n        n = 5\n    } else {\n        n = 6\n    }\n    let arr = new int[n]\n    print arr.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 0
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `UndefinedVariable`: the whole census is pinned (1 row); the deleted claim was that `UndefinedVariable` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.StackAlloc_UndefinedLengthName_ReportsUndefinedVariable)" {
+    source := "\nfunc Scratch(): int {\n    scratch := stackalloc byte[undefinedName]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL301:UndefinedVariable@3:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find 'undefinedName' — it hasn't been declared in this scope|<null>|Error"
+    assert AcCodeErrorCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeRow(analysis, "UndefinedVariable") == "UndefinedVariable|I can't find 'undefinedName' — it hasn't been declared in this scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedVariable") == "NL301@3:32+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL301:UndefinedVariable@3:32+13;"
+    assert AcCodeRow(rich, "UndefinedVariable") == "UndefinedVariable|Variable 'undefinedName' not found|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedVariable") == "NL301@3:32+13"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Make sure you've declared this variable before using it."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.StackAlloc_StringLength_ReportsTypeMismatch)" {
+    source := "\nfunc Scratch(name: string): int {\n    scratch := stackalloc byte[name]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|stackalloc length must be an int, but this is a 'string'|Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|stackalloc length must be an int, but this is a 'string'|Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:32+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:32+4;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|stackalloc length must be an int, but this is a 'string'|Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:32+4"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.StackAlloc_LongLength_ReportsTypeMismatch)" {
+    source := "\nfunc Scratch(count: long): int {\n    scratch := stackalloc byte[count]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|stackalloc length must be an int, but this is a 'long'|Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|stackalloc length must be an int, but this is a 'long'|Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:32+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:32+5;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|stackalloc length must be an int, but this is a 'long'|Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:32+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.StackAlloc_NegativeConstantLength_Rejected)" {
+    source := "\nfunc Scratch(): int {\n    scratch := stackalloc byte[-1]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:32+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:32+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:32+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.StackAlloc_CastedNegativeConstantLength_Rejected)" {
+    source := "\nfunc Scratch(): int {\n    scratch := stackalloc byte[checked((int)-1)]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:32+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:32+7;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:32+7"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.StackAlloc_ParenthesizedNegativeConstantOperand_Rejected)" {
+    source := "\nfunc Scratch(): int {\n    scratch := stackalloc byte[unchecked(-(1))]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:32+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:32+9;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:32+9"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.StackAlloc_AliasedSignedCastNegativeConstantLength_Rejected)" {
+    source := "\ntype Count = short\n\nfunc Scratch(): int {\n    scratch := stackalloc byte[(Count)-1]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:32+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:32+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|stackalloc length must not be negative|Use a length of zero or more.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:32+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `TypeMismatch` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ArithmeticOp_OnRuntimeVectorType_ResolvesOperatorOverload_NoTypeMismatch)" {
+    source := "\nimport System.Numerics\n\nfunc vadd(a: Vector<int>, b: Vector<int>): Vector<int> {\n    return a + b\n}\n\nfunc vop(a: Vector<int>, b: Vector<int>, c: Vector<int>): Vector<int> {\n    return a * b - c\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 0
+    assert AcCodeCount(analysis, "TypeMismatch") == 0
+    assert AcCodeRow(analysis, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `TypeMismatch` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ArithmeticOp_OnFixedSizeVectorType_ResolvesOperatorOverload_NoTypeMismatch)" {
+    source := "\nimport System.Numerics\n\nfunc vadd(a: Vector3, b: Vector3): Vector3 {\n    return a + b\n}\n\nfunc vmul(a: Vector4, b: Vector4): Vector4 {\n    return a * b\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 0
+    assert AcCodeCount(analysis, "TypeMismatch") == 0
+    assert AcCodeRow(analysis, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `TypeMismatch` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ArithmeticOp_OnUserDeclaredStructOperator_NoTypeMismatch)" {
+    source := "\nstruct Vec2 {\n    X: double\n    Y: double\n\n    static func operator +(a: Vec2, b: Vec2): Vec2 {\n        return new Vec2 { X: a.X + b.X, Y: a.Y + b.Y }\n    }\n}\n\nfunc add(a: Vec2, b: Vec2): Vec2 {\n    return a + b\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 0
+    assert AcCodeCount(analysis, "TypeMismatch") == 0
+    assert AcCodeRow(analysis, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `TypeMismatch` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.BitwiseShiftAndUnaryOps_OnUserDeclaredStructOperators_NoTypeMismatch)" {
+    source := "\nstruct Flags {\n    Value: int\n\n    static func operator &(a: Flags, b: Flags): Flags {\n        return new Flags { Value: a.Value & b.Value }\n    }\n\n    static func operator <<(a: Flags, amount: int): Flags {\n        return new Flags { Value: a.Value << amount }\n    }\n\n    static func operator ~(value: Flags): Flags {\n        return new Flags { Value: ~value.Value }\n    }\n}\n\nfunc combine(a: Flags, b: Flags): Flags {\n    masked := a & b\n    shifted := masked << 2\n    return ~shifted\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 0
+    assert AcCodeCount(analysis, "TypeMismatch") == 0
+    assert AcCodeRow(analysis, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `TypeMismatch` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.LogicalNot_OnUserDeclaredStructOperator_NoTypeMismatch)" {
+    source := "\nstruct Flag {\n    Value: int\n\n    static func operator !(value: Flag): bool {\n        return value.Value == 0\n    }\n}\n\nfunc check(value: Flag): bool {\n    return !value\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 0
+    assert AcCodeCount(analysis, "TypeMismatch") == 0
+    assert AcCodeRow(analysis, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ArithmeticOp_OnTypeWithoutOperator_StillReportsTypeMismatch)" {
+    source := "\nclass Box {\n    Value: int\n}\n\nfunc bad(a: Box, b: Box): Box {\n    return a + b\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@7:14+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The '+' operator doesn't work with 'Box' and 'Box' — both sides need numeric values, but I found 'Box' and 'Box'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'Box' and 'Box' — both sides need numeric values, but I found 'Box' and 'Box'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@7:14+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@7:14+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'Box' and 'Box' — both sides need numeric values, but I found 'Box' and 'Box'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@7:14+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ArithmeticOp_VectorPlusUnrelatedType_StillReportsTypeMismatch)" {
+    source := "\nimport System.Numerics\n\nclass Box {\n    Value: int\n}\n\nfunc bad(a: Vector<int>, b: Box): Vector<int> {\n    return a + b\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@9:14+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The '+' operator doesn't work with 'Vector<int>' and 'Box' — both sides need numeric values, but I found 'Vector<int>' and 'Box'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'Vector<int>' and 'Box' — both sides need numeric values, but I found 'Vector<int>' and 'Box'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@9:14+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@9:14+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'Vector<int>' and 'Box' — both sides need numeric values, but I found 'Vector<int>' and 'Box'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@9:14+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ArithmeticOp_DeclaredOperatorWithWrongParameterTypes_StillReportsTypeMismatch)" {
+    source := "\nstruct Vec2 {\n    X: double\n    Y: double\n\n    static func operator +(a: int, b: int): Vec2 {\n        return new Vec2 { X: 0.0, Y: 0.0 }\n    }\n}\n\nfunc bad(a: Vec2, b: Vec2): Vec2 {\n    return a + b\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@12:14+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The '+' operator doesn't work with 'Vec2' and 'Vec2' — both sides need numeric values, but I found 'Vec2' and 'Vec2'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'Vec2' and 'Vec2' — both sides need numeric values, but I found 'Vec2' and 'Vec2'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@12:14+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@12:14+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'Vec2' and 'Vec2' — both sides need numeric values, but I found 'Vec2' and 'Vec2'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@12:14+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeNotFound`: the whole census is pinned (1 row); the deleted claim was that `TypeNotFound` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.UnresolvedType_InParameterAnnotation_ReportsTypeNotFound)" {
+    source := "func Handle(input: MissingExternalType) {\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@1:20+19;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 1
+    assert AcCodeCount(analysis, "TypeNotFound") == 1
+    assert AcCodeRow(analysis, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "NL201@1:20+19"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@1:20+19;"
+    assert AcCodeRow(rich, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "NL201@1:20+19"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeNotFound`: the whole census is pinned (2 rows); the deleted claim was that `TypeNotFound` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.UnresolvedType_InReturnType_ReportsTypeNotFound)" {
+    source := "func Make(): MissingExternalType {\n    return null\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@1:14+19;NL202:TypeMismatch@2:5+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 1
+    assert AcCodeCount(analysis, "TypeNotFound") == 1
+    assert AcCodeRow(analysis, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "NL201@1:14+19"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@1:14+19;NL202:TypeMismatch@2:12+4;"
+    assert AcCodeRow(rich, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "NL201@1:14+19"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeNotFound`: the whole census is pinned (1 row); the deleted claim was that `TypeNotFound` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.UnresolvedType_InNewExpression_ReportsTypeNotFound)" {
+    source := "func Main() {\n    x := new MissingExternalType()\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:14+19;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 1
+    assert AcCodeCount(analysis, "TypeNotFound") == 1
+    assert AcCodeRow(analysis, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "NL201@2:14+19"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:14+19;"
+    assert AcCodeRow(rich, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "NL201@2:14+19"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeNotFound`: the whole census is pinned (1 row); the deleted claim was that `TypeNotFound` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.UnresolvedType_InFieldType_ReportsTypeNotFound)" {
+    source := "class Box {\n    Value: MissingExternalType\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:12+19;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 1
+    assert AcCodeCount(analysis, "TypeNotFound") == 1
+    assert AcCodeRow(analysis, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "NL201@2:12+19"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:12+19;"
+    assert AcCodeRow(rich, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "NL201@2:12+19"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeNotFound`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.UnresolvedType_InGenericTypeArgument_ReportsArgNotTheKnownGeneric)" {
+    source := "import System.Collections.Generic\nfunc Handle(items: List<MissingExternalType>) {\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:25+19;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 1
+    assert AcCodeCount(analysis, "TypeNotFound") == 1
+    assert AcCodeRow(analysis, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "NL201@2:25+19"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:25+19;"
+    assert AcCodeRow(rich, "TypeNotFound") == "TypeNotFound|Type 'MissingExternalType' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'MissingExternalType'.|Error"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "NL201@2:25+19"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeNotFound`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.UnresolvedType_SuggestsNearestInScopeType)" {
+    source := "class Person {\n    Name: string\n}\nfunc Greet(p: Persn) {\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@4:15+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Persn' not found|Did you mean 'Person'? Otherwise add the 'import' or package reference that provides 'Persn'.|Error"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 1
+    assert AcCodeCount(analysis, "TypeNotFound") == 1
+    assert AcCodeRow(analysis, "TypeNotFound") == "TypeNotFound|Type 'Persn' not found|Did you mean 'Person'? Otherwise add the 'import' or package reference that provides 'Persn'.|Error"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "NL201@4:15+5"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@4:15+5;"
+    assert AcCodeRow(rich, "TypeNotFound") == "TypeNotFound|Type 'Persn' not found|Did you mean 'Person'? Otherwise add the 'import' or package reference that provides 'Persn'.|Error"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "NL201@4:15+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericNew_MissingTypeArguments_ReportsInvalidTypeArgument)" {
+    source := "class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box(5)\n    return 0\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@10:14+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' requires 1 type argument(s)|Specify them explicitly: 'new Box<...>(...)'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' requires 1 type argument(s)|Specify them explicitly: 'new Box<...>(...)'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@10:14+3"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@10:14+3;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' requires 1 type argument(s)|Specify them explicitly: 'new Box<...>(...)'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@10:14+3"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericNew_WrongArity_ReportsInvalidTypeArgument)" {
+    source := "class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box<int, string>(5)\n    return 0\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@10:14+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@10:14+3"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@10:14+3;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@10:14+3"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericAnnotation_WrongArity_ReportsInvalidTypeArgument)" {
+    source := "class Box<T> {\n    item: T\n}\n\nfunc Handle(input: Box<int, bool>) {\n    _ = input\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@5:20+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@5:20+3"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@5:20+3;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@5:20+3"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericAnnotation_BuiltInHeadWithTypeArguments_ReportsInvalidTypeArgument)" {
+    source := "record Holder {\n    Items: int<int>\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@2:12+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|'int' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'int'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|'int' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'int'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@2:12+3"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@2:12+3;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|'int' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'int'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@2:12+3"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericAnnotation_TypeParameterHeadWithTypeArguments_ReportsInvalidTypeArgument)" {
+    source := "func Handle<T>(input: T<int>) {\n    _ = input\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@1:23+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|'T' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'T'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|'T' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'T'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@1:23+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@1:23+1;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|'T' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'T'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@1:23+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericAnnotation_ExternalNonGenericHeadWithTypeArguments_ReportsInvalidTypeArgument)" {
+    source := "import System.Text\nfunc Handle(input: StringBuilder<int>) {\n    _ = input\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@2:20+13;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|'StringBuilder' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'StringBuilder'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|'StringBuilder' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'StringBuilder'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@2:20+13"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@2:20+13;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|'StringBuilder' is not generic, but 1 type argument(s) were provided|Remove the type arguments: 'StringBuilder'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@2:20+13"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `InvalidTypeArgument` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.GenericAnnotation_ExternalGenericHeadWithTypeArguments_HasNoArityDiagnostics)" {
+    source := "import System.Collections.Generic\nfunc Handle(items: List<int>) {\n    _ = items\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 0
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 0
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `InvalidTypeArgument` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.GenericAnnotation_ExternalGenericHeadWithNonGenericSibling_HasNoArityDiagnostics)" {
+    source := "import System.Threading.Tasks\nfunc Handle(task: Task<int>) {\n    _ = task\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 0
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 0
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericAnnotation_ExternalGenericWrongArity_ReportsInvalidTypeArgument)" {
+    source := "import System.Collections.Generic\nfunc Handle(items: List<int, string>) {\n    _ = items\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@2:20+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'List'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'List'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@2:20+4"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@2:20+4;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'List'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@2:20+4"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericAnnotation_ExternalGenericWithNonGenericSiblingWrongArity_ReportsInvalidTypeArgument)" {
+    source := "import System.Threading.Tasks\nfunc Handle(task: Task<int, string>) {\n    _ = task\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@2:19+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Task'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Task'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@2:19+4"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@2:19+4;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Task'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@2:19+4"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericAnnotation_CompilerKnownGenericWrongArity_ReportsInvalidTypeArgument)" {
+    source := "func Handle(value: Result<int>) {\n    _ = value\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@1:20+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@1:20+6"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@1:20+6;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@1:20+6"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument` / `TypeNotFound`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericAnnotation_ExternalGenericMultipleAritiesWrongArity_ReportsInvalidTypeArgument)" {
+    source := "import System\nfunc Handle(action: Action<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>) {\n    _ = action\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@2:21+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Action' does not take 17 type argument(s); available arities are 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16|Use one of the supported type-argument counts for 'Action'.|Error"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Action' does not take 17 type argument(s); available arities are 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16|Use one of the supported type-argument counts for 'Action'.|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@2:21+6"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 0
+    assert AcCodeCount(analysis, "TypeNotFound") == 0
+    assert AcCodeRow(analysis, "TypeNotFound") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@2:21+6;"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Action' does not take 17 type argument(s); available arities are 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16|Use one of the supported type-argument counts for 'Action'.|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@2:21+6"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcCodeRow(rich, "TypeNotFound") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `TypeNotFound`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.GenericNew_UnknownTypeArgument_ReportsTypeNotFound)" {
+    source := "class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box<Nope>(5)\n    return 0\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@10:18+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Nope' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Nope'.|Error"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 1
+    assert AcCodeCount(analysis, "TypeNotFound") == 1
+    assert AcCodeRow(analysis, "TypeNotFound") == "TypeNotFound|Type 'Nope' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Nope'.|Error"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "NL201@10:18+4"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@10:18+4;"
+    assert AcCodeRow(rich, "TypeNotFound") == "TypeNotFound|Type 'Nope' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Nope'.|Error"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "NL201@10:18+4"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `InvalidTypeArgument` / `TypeNotFound`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted body read the error list directly (was AnalyzerTests.GenericNew_CorrectArity_HasNoArityDiagnostics)" {
+    source := "class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box<int>(5)\n    return b.item\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 0
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 0
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "<no-such-code>"
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 0
+    assert AcCodeCount(analysis, "TypeNotFound") == 0
+    assert AcCodeRow(analysis, "TypeNotFound") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "<no-such-code>"
+    assert AcCodeRow(rich, "TypeNotFound") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); the deleted claim was that `ControlTransferOutOfFinally` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ReturnInsideFinally_Void_ReportsNL319)" {
+    source := "\nfunc F(n: int) {\n    try {\n        n = n + 1\n    } finally {\n        return\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@6:9+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@6:9+6"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@6:9+6;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@6:9+6"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `return`\nwould exit the `finally` early to reach the function, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); the deleted claim was that `ControlTransferOutOfFinally` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ReturnInsideFinally_Value_WithReturningCatch_ReportsNL319)" {
+    source := "\nfunc F(n: int): int {\n    try {\n        return 100 / n\n    } catch {\n        return 0 - 1\n    } finally {\n        return 7\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@8:9+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@8:9+6"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@8:9+6;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@8:9+6"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `return`\nwould exit the `finally` early to reach the function, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally` / `MissingReturn`: the whole census is pinned (2 rows); the deleted body read the error list directly (was AnalyzerTests.ReturnInsideFinally_Value_NoCatch_ReportsNL319)" {
+    source := "\nfunc F(n: int): int {\n    try {\n        return 100 / n\n    } finally {\n        return 2\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@6:9+6;NL305:MissingReturn@2:1+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@6:9+6"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcCodeErrorCount(analysis, "MissingReturn") == 1
+    assert AcCodeCount(analysis, "MissingReturn") == 1
+    assert AcCodeRow(analysis, "MissingReturn") == "MissingReturn|This function should return 'int', but not all code paths return a value — make sure every branch ends with a 'return'|Add a return statement or change return type to void|Error"
+    assert AcCodeAnchor(analysis, "MissingReturn") == "NL305@2:1+1"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@6:9+6;NL305:MissingReturn@2:1+6;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@6:9+6"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `return`\nwould exit the `finally` early to reach the function, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
+    assert AcCodeRow(rich, "MissingReturn") == "MissingReturn|Not all code paths return a value of type 'int'|Add a `return` statement, or change the return type to `void`|Error"
+    assert AcCodeAnchor(rich, "MissingReturn") == "NL305@2:1+6"
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcHint(rich, 1) == "Every code path through this function must end with a `return` statement that\nprovides a `int` value. If you don't need to return anything, change the\nreturn type to `void`."
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); the deleted claim was that `ControlTransferOutOfFinally` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.BreakInsideFinally_LoopOutside_ReportsNL319)" {
+    source := "\nfunc F(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            total = total + 1\n        } finally {\n            if i == 2 {\n                break\n            }\n        }\n    }\n    return total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@11:17+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'break'|Move the `break` outside the `finally` block.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'break'|Move the `break` outside the `finally` block.|Error"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@11:17+5"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@11:17+5;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'break'|Move the `break` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@11:17+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `break`\nwould exit the `finally` early to reach a loop outside the `finally`, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); the deleted claim was that `ControlTransferOutOfFinally` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ContinueInsideFinally_LoopOutside_ReportsNL319)" {
+    source := "\nfunc F(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            total = total + 1\n        } finally {\n            if i == 2 {\n                continue\n            }\n        }\n    }\n    return total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@11:17+8;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'continue'|Move the `continue` outside the `finally` block.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'continue'|Move the `continue` outside the `finally` block.|Error"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@11:17+8"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@11:17+8;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'continue'|Move the `continue` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@11:17+8"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `continue`\nwould exit the `finally` early to reach a loop outside the `finally`, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `ControlTransferOutOfFinally` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.BreakAndContinueInsideLoopOpenedInsideFinally_NoDiagnostic)" {
+    source := "\nfunc F(n: int): int {\n    total := 0\n    try {\n        total = total + 1\n    } finally {\n        i := 0\n        while i < n {\n            if i == 3 {\n                break\n            }\n            if i == 1 {\n                i = i + 2\n                continue\n            }\n            total = total + 1\n            i = i + 1\n        }\n    }\n    return total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `ControlTransferOutOfFinally` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ReturnInsideLambdaInsideFinally_NoDiagnostic)" {
+    source := "\nfunc F(): int {\n    r := 0\n    try {\n        r = 1\n    } finally {\n        let f: Func<int, int> = x => {\n            return x + 1\n        }\n        r = f(r)\n    }\n    return r\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `ControlTransferOutOfFinally` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ReturnInsideLocalFunctionInsideFinally_NoDiagnostic)" {
+    source := "\nfunc F(): int {\n    r := 0\n    try {\n        r = 1\n    } finally {\n        func bump(x: int): int {\n            return x + 1\n        }\n        r = bump(r)\n    }\n    return r\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally` / `InvalidSyntax`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.BreakInsideLambdaInsideFinally_ReportsInvalidSyntaxNotNL319)" {
+    source := "\nfunc F(): int {\n    i := 0\n    while i < 1 {\n        try {\n            i = i + 1\n        } finally {\n            let f: Func<int> = () => {\n                break\n                return 1\n            }\n            i = f()\n        }\n    }\n    return i\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@9:17+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here|Move this `break` inside a loop, or remove it if there is no loop to exit.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here|Move this `break` inside a loop, or remove it if there is no loop to exit.|Error"
+    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@9:17+5"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@9:17+5;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here|Move this `break` inside a loop, or remove it if there is no loop to exit.|Error"
+    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@9:17+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally` / `InvalidSyntax`: the whole census is pinned (1 row); the deleted body read the error list directly (was AnalyzerTests.ContinueInsideLocalFunctionInsideFinally_ReportsInvalidSyntaxNotNL319)" {
+    source := "\nfunc F(): int {\n    i := 0\n    while i < 1 {\n        try {\n            i = i + 1\n        } finally {\n            func bump(): int {\n                continue\n                return 1\n            }\n            i = bump()\n        }\n    }\n    return i\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@9:17+8;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here|Move this `continue` inside a loop, or remove it if there is no loop to continue.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here|Move this `continue` inside a loop, or remove it if there is no loop to continue.|Error"
+    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@9:17+8"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@9:17+8;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here|Move this `continue` inside a loop, or remove it if there is no loop to continue.|Error"
+    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@9:17+8"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); the deleted claim was that `ControlTransferOutOfFinally` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ReturnInsideTryNestedInsideFinally_ReportsNL319)" {
+    source := "\nfunc F(n: int) {\n    try {\n        n = n + 1\n    } finally {\n        try {\n            return\n        } catch {\n            n = 0\n        }\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@7:13+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@7:13+6"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@7:13+6;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@7:13+6"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `return`\nwould exit the `finally` early to reach the function, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); the deleted claim was that `ControlTransferOutOfFinally` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ReturnInsideLockNestedInsideFinally_ReportsNL319)" {
+    source := "\nfunc F(s: string) {\n    try {\n        print(s)\n    } finally {\n        lock s {\n            return\n        }\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@7:13+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@7:13+6"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@7:13+6;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@7:13+6"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `return`\nwould exit the `finally` early to reach the function, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `ControlTransferOutOfFinally` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ThrowInsideFinally_NoDiagnostic)" {
+    source := "\nfunc F(n: int): int {\n    r := 0\n    try {\n        r = 1\n    } finally {\n        if n == 0 {\n            throw new InvalidOperationException(\"fin\")\n        }\n    }\n    return r\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); the deleted claim was that `ControlTransferOutOfFinally` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.NestedFinallys_InnerReturnRejected)" {
+    source := "\nfunc F(n: int) {\n    try {\n        n = n + 1\n    } finally {\n        try {\n            n = n + 2\n        } finally {\n            return\n        }\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@9:13+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@9:13+6"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@9:13+6;"
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@9:13+6"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `return`\nwould exit the `finally` early to reach the function, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
+}
+
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `ControlTransferOutOfFinally` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ReturnAfterFinally_NoDiagnostic)" {
+    source := "\nfunc F(n: int): int {\n    try {\n        n = n + 1\n    } finally {\n        n = n + 2\n    }\n    return n\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: THE VACUOUS CLAIM — this fixture spells a C# `switch`/`case` statement, which is NOT N# syntax: the parse reports `NL102` at 11:23 with `Success == False` and the analysis then reports NOTHING AT ALL, so the deleted `AssertNoErrorCode(ControlTransferOutOfFinally)` was satisfied by a file that never reached the analyzer walk (was AnalyzerTests.BreakInsideSwitchInsideFinally_NoDiagnostic)" {
+    source := "\nfunc F(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            total = total + 1\n        } finally {\n            switch i {\n                case 2:\n                    break\n                default:\n                    total = total + 1\n            }\n        }\n    }\n    return total\n}"
+    assert AcParseCensus(source) == "NL102@11:23+1;"
+    assert AcParseSuccess(source) == "False"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 0
+    assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the whole census is pinned (1 row); the deleted claim was that `LockRequiresReferenceType` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Lock_OnIntLocal_ReportsNL320)" {
+    source := "\nfunc F() {\n    n := 5\n    lock n {\n        print(n)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL320:LockRequiresReferenceType@4:10+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "LockRequiresReferenceType|'int' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "LockRequiresReferenceType|'int' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "NL320@4:10+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL320:LockRequiresReferenceType@4:10+1;"
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "LockRequiresReferenceType|'int' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "NL320@4:10+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "`Monitor` locks on object IDENTITY. A value type has no stable identity: it would be\nboxed into a fresh object on every `lock`, so no two threads would ever contend on\nthe same lock — the lock would guard nothing."
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the whole census is pinned (1 row); the deleted claim was that `LockRequiresReferenceType` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Lock_OnRecordStructInstance_ReportsNL320)" {
+    source := "\nrecord struct Point {\n    X: int\n    Y: int\n}\n\nfunc F() {\n    p := new Point { X: 1, Y: 2 }\n    lock p {\n        print(p.X)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL320:LockRequiresReferenceType@9:10+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "LockRequiresReferenceType|'Point' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "LockRequiresReferenceType|'Point' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "NL320@9:10+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL320:LockRequiresReferenceType@9:10+1;"
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "LockRequiresReferenceType|'Point' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "NL320@9:10+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "`Monitor` locks on object IDENTITY. A value type has no stable identity: it would be\nboxed into a fresh object on every `lock`, so no two threads would ever contend on\nthe same lock — the lock would guard nothing."
+}
+
+test "020 s30 analyzer error codes: THIS FIXTURE DOES NOT PARSE — an enum whose members are newline-separated rather than comma-separated reports `NL101` TWICE and `Success == False`, and the analysis then reports FOUR rows, two of them `NL903` complaining about an identifier literally named `<error>`; the NL320 claim survives all of it, but the deleted assertion saw only that one code was present (was AnalyzerTests.Lock_OnEnumValue_ReportsNL320)" {
+    source := "\nenum Color {\n    Red\n    Green\n}\n\nfunc F() {\n    c := Color.Red\n    lock c {\n        print(1)\n    }\n}"
+    assert AcParseCensus(source) == "NL101@4:5+5;NL101@5:1+1;"
+    assert AcParseSuccess(source) == "False"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@7:1+7;NL903:VisibilityConventionWarning@5:1+7;NL903:VisibilityConventionWarning@7:1+7;NL320:LockRequiresReferenceType@9:10+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 4
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|A type named '<error>' already exists — each type name must be unique|<null>|Error"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "LockRequiresReferenceType|'Color' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "NL320@9:10+1"
+    assert AcSuggestions(analysis, 3) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@7:1+7;NL903:VisibilityConventionWarning@5:1+7;NL903:VisibilityConventionWarning@7:1+7;NL320:LockRequiresReferenceType@9:10+1;"
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "LockRequiresReferenceType|'Color' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "NL320@9:10+1"
+    assert AcSuggestions(rich, 3) == "<null>"
+    assert AcHint(rich, 3) == "`Monitor` locks on object IDENTITY. A value type has no stable identity: it would be\nboxed into a fresh object on every `lock`, so no two threads would ever contend on\nthe same lock — the lock would guard nothing."
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the whole census is pinned (1 row); the deleted claim was that `LockRequiresReferenceType` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Lock_OnNullableInt_ReportsNL320)" {
+    source := "\nfunc F() {\n    let n: int? = 5\n    lock n {\n        print(1)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL320:LockRequiresReferenceType@4:10+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "LockRequiresReferenceType|'int?' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "LockRequiresReferenceType|'int?' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "NL320@4:10+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL320:LockRequiresReferenceType@4:10+1;"
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "LockRequiresReferenceType|'int?' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "NL320@4:10+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "`Monitor` locks on object IDENTITY. A value type has no stable identity: it would be\nboxed into a fresh object on every `lock`, so no two threads would ever contend on\nthe same lock — the lock would guard nothing."
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the whole census is pinned (1 row); the deleted claim was that `LockRequiresReferenceType` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Lock_OnUnconstrainedTypeParameter_ReportsNL320)" {
+    source := "\nfunc LockIt<T>(x: T) {\n    lock x {\n        print(1)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL320:LockRequiresReferenceType@3:10+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "LockRequiresReferenceType|'T' is not a reference type as required by the lock statement|Constrain `T` to a reference type (`where T: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "LockRequiresReferenceType|'T' is not a reference type as required by the lock statement|Constrain `T` to a reference type (`where T: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "NL320@3:10+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL320:LockRequiresReferenceType@3:10+1;"
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "LockRequiresReferenceType|'T' is not a reference type as required by the lock statement|Constrain `T` to a reference type (`where T: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "NL320@3:10+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "`Monitor` locks on object IDENTITY. If `T` is instantiated with a value type, the\nvalue would be boxed into a fresh object on every `lock`, so no two threads would ever\ncontend on the same lock — the lock would guard nothing."
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the whole census is pinned (1 row); the deleted claim was that `LockRequiresReferenceType` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Lock_OnStructConstrainedTypeParameter_ReportsNL320)" {
+    source := "\nfunc LockIt<T>(x: T) where T: struct {\n    lock x {\n        print(1)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL320:LockRequiresReferenceType@3:10+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "LockRequiresReferenceType|'T' is not a reference type as required by the lock statement|Constrain `T` to a reference type (`where T: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 1
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "LockRequiresReferenceType|'T' is not a reference type as required by the lock statement|Constrain `T` to a reference type (`where T: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "NL320@3:10+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL320:LockRequiresReferenceType@3:10+1;"
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "LockRequiresReferenceType|'T' is not a reference type as required by the lock statement|Constrain `T` to a reference type (`where T: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "NL320@3:10+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "`Monitor` locks on object IDENTITY. If `T` is instantiated with a value type, the\nvalue would be boxed into a fresh object on every `lock`, so no two threads would ever\ncontend on the same lock — the lock would guard nothing."
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `LockRequiresReferenceType` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Lock_OnClassConstrainedTypeParameter_NoDiagnostic)" {
+    source := "\nfunc LockIt<T>(x: T) where T: class {\n    lock x {\n        print(1)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `LockRequiresReferenceType` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Lock_OnString_NoDiagnostic)" {
+    source := "\nfunc F(s: string) {\n    lock s {\n        print(s.Length)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `LockRequiresReferenceType` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Lock_OnClassInstance_NoDiagnostic)" {
+    source := "\nclass Box {\n    v: int\n}\n\nfunc F() {\n    b := new Box { v: 5 }\n    lock b {\n        print(b.v)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `LockRequiresReferenceType` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Lock_OnObjectField_NoDiagnostic)" {
+    source := "\nclass Counter {\n    count: int = 0\n    syncLock: object = new object()\n\n    func Increment() {\n        lock syncLock {\n            count++\n        }\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `LockRequiresReferenceType` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Lock_OnArray_NoDiagnostic)" {
+    source := "\nfunc F(items: int[]) {\n    lock items {\n        print(items.Length)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `LockRequiresReferenceType` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Lock_OnInterfaceTypedValue_NoDiagnostic)" {
+    source := "\ninterface Greeter {\n    func Greet(): string\n}\n\nclass Hello {\n    func Greet(): string {\n        return \"hi\"\n    }\n}\n\nfunc F(g: Greeter) {\n    lock g {\n        print(g.Greet())\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `LockRequiresReferenceType` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.Lock_OnExternalReflectionReferenceType_NoFalsePositive)" {
+    source := "\nimport System.Text\n\nfunc F() {\n    sb := new StringBuilder()\n    lock sb {\n        print(1)\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeCount(analysis, "LockRequiresReferenceType") == 0
+    assert AcCodeRow(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "LockRequiresReferenceType") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `MemberWriteThroughValueCopy`: the whole census is pinned (1 row); the deleted claim was that `MemberWriteThroughValueCopy` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.MemberWrite_ThroughListIndexerOfStruct_ReportsNL322)" {
+    source := "\nstruct S {\n    X: int\n}\n\nfunc F(): int {\n    lst := new List<S>()\n    lst.Add(new S { X: 1 })\n    lst[0].X = 5\n    return lst[0].X\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL322:MemberWriteThroughValueCopy@9:8+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back|Error"
+    assert AcCodeErrorCount(analysis, "MemberWriteThroughValueCopy") == 1
+    assert AcCodeCount(analysis, "MemberWriteThroughValueCopy") == 1
+    assert AcCodeRow(analysis, "MemberWriteThroughValueCopy") == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back|Error"
+    assert AcCodeAnchor(analysis, "MemberWriteThroughValueCopy") == "NL322@9:8+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL322:MemberWriteThroughValueCopy@9:8+2;"
+    assert AcCodeRow(rich, "MemberWriteThroughValueCopy") == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back (e.g. `tmp := …` / `tmp.X = …` / store `tmp`)|Error"
+    assert AcCodeAnchor(rich, "MemberWriteThroughValueCopy") == "NL322@9:8+2"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "A value type is copied every time it is returned from a call, an indexer, or a\nproperty. This write would land in that temporary copy and be thrown away with it —\nthe original value would never change."
+}
+
+test "020 s30 analyzer error codes: `MemberWriteThroughValueCopy`: the whole census is pinned (1 row); the deleted claim was that `MemberWriteThroughValueCopy` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.MemberWrite_ThroughStructCallResult_ReportsNL322)" {
+    source := "\nstruct S {\n    X: int\n}\n\nfunc Make(): S {\n    return new S { X: 1 }\n}\n\nfunc F() {\n    Make().X = 5\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL322:MemberWriteThroughValueCopy@11:5+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back|Error"
+    assert AcCodeErrorCount(analysis, "MemberWriteThroughValueCopy") == 1
+    assert AcCodeCount(analysis, "MemberWriteThroughValueCopy") == 1
+    assert AcCodeRow(analysis, "MemberWriteThroughValueCopy") == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back|Error"
+    assert AcCodeAnchor(analysis, "MemberWriteThroughValueCopy") == "NL322@11:5+4"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL322:MemberWriteThroughValueCopy@11:5+4;"
+    assert AcCodeRow(rich, "MemberWriteThroughValueCopy") == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back (e.g. `tmp := …` / `tmp.X = …` / store `tmp`)|Error"
+    assert AcCodeAnchor(rich, "MemberWriteThroughValueCopy") == "NL322@11:5+4"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "A value type is copied every time it is returned from a call, an indexer, or a\nproperty. This write would land in that temporary copy and be thrown away with it —\nthe original value would never change."
+}
+
+test "020 s30 analyzer error codes: `MemberWriteThroughValueCopy`: the whole census is pinned (1 row); the deleted claim was that `MemberWriteThroughValueCopy` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.CompoundMemberWrite_ThroughListIndexerOfStruct_ReportsNL322)" {
+    source := "\nstruct S {\n    X: int\n}\n\nfunc F() {\n    lst := new List<S>()\n    lst.Add(new S { X: 1 })\n    lst[0].X += 3\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL322:MemberWriteThroughValueCopy@9:8+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back|Error"
+    assert AcCodeErrorCount(analysis, "MemberWriteThroughValueCopy") == 1
+    assert AcCodeCount(analysis, "MemberWriteThroughValueCopy") == 1
+    assert AcCodeRow(analysis, "MemberWriteThroughValueCopy") == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back|Error"
+    assert AcCodeAnchor(analysis, "MemberWriteThroughValueCopy") == "NL322@9:8+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL322:MemberWriteThroughValueCopy@9:8+2;"
+    assert AcCodeRow(rich, "MemberWriteThroughValueCopy") == "MemberWriteThroughValueCopy|Cannot assign to 'X' because its receiver is a temporary copy of 'S', not a variable|Copy the value into a local first, modify the local, then store the whole value back (e.g. `tmp := …` / `tmp.X = …` / store `tmp`)|Error"
+    assert AcCodeAnchor(rich, "MemberWriteThroughValueCopy") == "NL322@9:8+2"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "A value type is copied every time it is returned from a call, an indexer, or a\nproperty. This write would land in that temporary copy and be thrown away with it —\nthe original value would never change."
+}
+
+test "020 s30 analyzer error codes: `MemberWriteThroughValueCopy`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `MemberWriteThroughValueCopy` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.MemberWrite_ThroughReferenceReceivers_NoFalsePositive)" {
+    source := "\nclass C {\n    X: int\n    constructor(v: int) {\n        X = v\n    }\n}\n\nfunc Pick(items: List<C>): C {\n    return items[0]\n}\n\nfunc F(): int {\n    lst := new List<C>()\n    lst.Add(new C(1))\n    lst[0].X = 5\n    Pick(lst).X = 6\n    return lst[0].X\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "MemberWriteThroughValueCopy") == 0
+    assert AcCodeCount(analysis, "MemberWriteThroughValueCopy") == 0
+    assert AcCodeRow(analysis, "MemberWriteThroughValueCopy") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "MemberWriteThroughValueCopy") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "MemberWriteThroughValueCopy") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "MemberWriteThroughValueCopy") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `MemberWriteThroughValueCopy`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `MemberWriteThroughValueCopy` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.MemberWrite_ThroughAddressableValueChains_NoFalsePositive)" {
+    source := "\nstruct Inner {\n    X: int\n}\n\nstruct Outer {\n    i: Inner\n}\n\nfunc G(p: Outer): int {\n    p.i.X = 7\n    return p.i.X\n}\n\nfunc F(): int {\n    o := new Outer { i: new Inner { X: 1 } }\n    o.i.X = 5\n    arr := new int[3]\n    arr[0] = 1\n    return o.i.X + G(o)\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "MemberWriteThroughValueCopy") == 0
+    assert AcCodeCount(analysis, "MemberWriteThroughValueCopy") == 0
+    assert AcCodeRow(analysis, "MemberWriteThroughValueCopy") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "MemberWriteThroughValueCopy") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "MemberWriteThroughValueCopy") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "MemberWriteThroughValueCopy") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: ONE OF THE THREE DELETED CLAIMS THAT ARE TRUE ONLY OF THE ENTRY POINT NOTHING SHIPS — the deleted body matched `'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'`, which the plain route says and the four-argument route production actually calls collapses to the bare `Type mismatch`; both routes are pinned here (was AnalyzerTests.ObjectInitializer_GenericCollectionElementMismatch_Error)" {
+    source := "\nrecord Pt {\n    X: int\n}\n\nrecord Rs {\n    S: string\n}\n\nrecord H {\n    Items: List<Pt>\n}\n\nfunc f(): int {\n    l := new List<Rs>()\n    l.Add(new Rs { S: \"abc\" })\n    h := new H { Items: l }\n    return h.Items[0].X\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@17:25+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@17:25+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@17:25+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@17:25+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_SameShapedElementTypeMismatch_Error)" {
+    source := "\nrecord Pt {\n    X: int\n}\n\nrecord Qt {\n    X: int\n}\n\nrecord H {\n    Items: List<Pt>\n}\n\nfunc f(): int {\n    l := new List<Qt>()\n    h := new H { Items: l }\n    return h.Items[0].X\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@16:25+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|'Items' is typed as 'List<Pt>', but the value is 'List<Qt>'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'List<Pt>', but the value is 'List<Qt>'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@16:25+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@16:25+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@16:25+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_DictionaryValueTypeMismatch_Error)" {
+    source := "\nrecord Pt {\n    X: int\n}\n\nrecord Rs {\n    S: string\n}\n\nrecord H {\n    Map: Dictionary<string, Pt>\n}\n\nfunc f(): int {\n    d := new Dictionary<string, Rs>()\n    h := new H { Map: d }\n    return h.Map[\"k\"].X\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@16:23+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|'Map' is typed as 'Dictionary<string, Pt>', but the value is 'Dictionary<string, Rs>'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'Map' is typed as 'Dictionary<string, Pt>', but the value is 'Dictionary<string, Rs>'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@16:23+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@16:23+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@16:23+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_SimpleFieldTypeMismatch_Error)" {
+    source := "\nrecord Pt {\n    X: int\n}\n\nfunc f(): int {\n    p := new Pt { X: \"abc\" }\n    return p.X\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@7:22+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|'X' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'X' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@7:22+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@7:22+5;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@7:22+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_GenericUserTypeArgumentMismatch_Error)" {
+    source := "\nrecord Pt {\n    X: int\n}\n\nrecord Rs {\n    S: string\n}\n\nrecord Box<T> {\n    Item: T\n}\n\nrecord H {\n    B: Box<Pt>\n}\n\nfunc f(h: H, b: Box<Rs>): H {\n    return new H { B: b }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@19:23+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|'B' is typed as 'Box<Pt>', but the value is 'Box<Rs>'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'B' is typed as 'Box<Pt>', but the value is 'Box<Rs>'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@19:23+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@19:23+1;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@19:23+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_ClosedGenericMemberSubstitution_Error)" {
+    source := "\nrecord Pt {\n    X: int\n}\n\nrecord Rs {\n    S: string\n}\n\nrecord Box<T> {\n    Item: T\n}\n\nfunc f(): Box<Pt> {\n    return new Box<Pt> { Item: new Rs { S: \"abc\" } }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@15:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|'Item' is typed as 'Pt', but the value is 'Rs'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'Item' is typed as 'Pt', but the value is 'Rs'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@15:32+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@15:32+3;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@15:32+3"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_ArrayElementTypeMismatch_Error)" {
+    source := "\nrecord Pt {\n    X: int\n}\n\nrecord Rs {\n    S: string\n}\n\nrecord H {\n    Items: Pt[]\n}\n\nfunc f(arr: Rs[]): H {\n    return new H { Items: arr }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@15:27+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|'Items' is typed as 'Pt[]', but the value is 'Rs[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'Pt[]', but the value is 'Rs[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@15:27+3"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@15:27+3;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@15:27+3"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (1 row); the deleted claim was that `TypeMismatch` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_UnionCasePropertyMismatch_Error)" {
+    source := "\nunion Result<T> {\n    Success { value: T }\n    Failure { error: string }\n}\n\nfunc f(): Result<int> {\n    return new Result.Success<int> { value: \"abc\" }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@8:45+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|'value' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'value' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@8:45+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@8:45+5;"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:45+5"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `TypeMismatch` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ObjectInitializer_MatchingGenericTypes_NoError)" {
+    source := "\nrecord Pt {\n    X: int\n}\n\nrecord Box<T> {\n    Item: T\n}\n\nrecord H {\n    Items: List<Pt>\n    Map: Dictionary<string, Pt>\n    B: Box<int>\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 7 })\n    d := new Dictionary<string, Pt>()\n    h := new H { Items: l, Map: d, B: new Box<int> { Item: 5 } }\n    return h.Items[0].X\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 0
+    assert AcCodeCount(analysis, "TypeMismatch") == 0
+    assert AcCodeRow(analysis, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch`: the analysis is COMPLETELY SILENT — census EMPTY, count 0; the deleted claim was that `TypeMismatch` is ABSENT at `Error` severity, which says nothing about any OTHER code (was AnalyzerTests.ObjectInitializer_WideningAndNullAndSubtype_NoError)" {
+    source := "\nclass Animal {\n}\n\nclass Dog : Animal {\n}\n\nrecord Pt {\n    X: int\n}\n\nrecord H {\n    V: double\n    Items: List<Pt>?\n    Pet: Animal\n    Tags: List<string>\n}\n\nfunc f(): H {\n    return new H { V: 3, Items: null, Pet: new Dog(), Tags: new() }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 0
+    assert AcCodeCount(analysis, "TypeMismatch") == 0
+    assert AcCodeRow(analysis, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcCodeRow(rich, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `UndefinedMember`: the whole census is pinned (1 row); the deleted claim was that `UndefinedMember` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_UnknownMemberName_Error)" {
+    source := "\nrecord H {\n    Items: List<int>\n}\n\nfunc f(): H {\n    return new H { Itmes: new List<int>() }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@7:20+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'Itmes' not found on type 'H'|Did you mean 'Items'?|Error"
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'Itmes' not found on type 'H'|Did you mean 'Items'?|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@7:20+5"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@7:20+5;"
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'Itmes' not found on type 'H'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@7:20+5"
+    assert AcSuggestions(rich, 0) == "Items"
+    assert AcHint(rich, 0) == "The type `H` does not have a member named `Itmes`.\nCheck for typos, or make sure you're accessing the right type."
+}
+
+test "020 s30 analyzer error codes: `UndefinedMember`: the whole census is pinned (1 row); the deleted claim was that `UndefinedMember` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_UnknownMemberOnClosedGeneric_Error)" {
+    source := "\nrecord Box<T> {\n    Item: T\n}\n\nfunc f(): Box<int> {\n    return new Box<int> { Itm: 5 }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@7:27+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'Itm' not found on type 'Box<int>'|Did you mean 'Item'?|Error"
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'Itm' not found on type 'Box<int>'|Did you mean 'Item'?|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@7:27+3"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@7:27+3;"
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'Itm' not found on type 'Box<int>'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@7:27+3"
+    assert AcSuggestions(rich, 0) == "Item"
+    assert AcHint(rich, 0) == "The type `Box<int>` does not have a member named `Itm`.\nCheck for typos, or make sure you're accessing the right type."
+}
+
+test "020 s30 analyzer error codes: `UndefinedMember`: the whole census is pinned (1 row); the deleted claim was that `UndefinedMember` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.ObjectInitializer_UnionCasePropertyTypo_Error)" {
+    source := "\nunion Result<T> {\n    Success { value: T }\n    Failure { error: string }\n}\n\nfunc f(): Result<int> {\n    return new Result.Success<int> { valu: 42 }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@8:38+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Union case 'Success' doesn't have a property named 'valu' — check the case definition for available properties|Did you mean 'value'?|Error"
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Union case 'Success' doesn't have a property named 'valu' — check the case definition for available properties|Did you mean 'value'?|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@8:38+4"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@8:38+4;"
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Union case 'Success' doesn't have a property named 'valu' — check the case definition for available properties|Did you mean 'value'?|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@8:38+4"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `UndefinedMember`: the whole census is pinned (2 rows); the deleted claim was that `UndefinedMember` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.UnionCaseConstruction_UnknownCase_Error)" {
+    source := "\nunion Result<T> {\n    Success { value: T }\n    Failure { error: string }\n}\n\nfunc f(): Result<int> {\n    return new Result.Sucess<int> { value: 42 }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@8:16+13;NL202:TypeMismatch@8:5+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "UndefinedMember|'Sucess' is not a case of union 'Result' — check the union definition for available cases|Did you mean 'Result.Success'?|Error"
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|'Sucess' is not a case of union 'Result' — check the union definition for available cases|Did you mean 'Result.Success'?|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@8:16+13"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@8:16+13;NL202:TypeMismatch@8:12+3;"
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|'Sucess' is not a case of union 'Result' — check the union definition for available cases|Did you mean 'Result.Success'?|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@8:16+13"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch` / `UndefinedMember`: the whole census is pinned (1 row); the deleted body claimed one code present and one absent, and nothing else (was AnalyzerTests.ObjectInitializer_InheritedMember_ResolvesAndTypeChecks)" {
+    source0 := "\nclass Base {\n    X: int\n}\n\nclass Derived : Base {\n}\n\nfunc f(): Derived {\n    return new Derived { X: 5 }\n}"
+    assert AcParseCensus(source0) == ""
+    assert AcParseSuccess(source0) == "True"
+    analysis0 := AcAnalyze(source0)
+    assert AcCensus(analysis0) == ""
+    assert AcHasErrors(analysis0) == "False"
+    assert AcErrorCount(analysis0) == 0
+    assert AcRow(analysis0, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis0, "TypeMismatch") == 0
+    assert AcCodeCount(analysis0, "TypeMismatch") == 0
+    assert AcCodeRow(analysis0, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis0, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeErrorCount(analysis0, "UndefinedMember") == 0
+    assert AcCodeCount(analysis0, "UndefinedMember") == 0
+    assert AcCodeRow(analysis0, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(analysis0, "UndefinedMember") == "<no-such-code>"
+    rich0 := AcAnalyzeWithSource(source0)
+    assert AcCensus(rich0) == ""
+    assert AcCodeRow(rich0, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich0, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeRow(rich0, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(rich0, "UndefinedMember") == "<no-such-code>"
+    source1 := "\nclass Base {\n    X: int\n}\n\nclass Derived : Base {\n}\n\nfunc f(): Derived {\n    return new Derived { X: \"abc\" }\n}"
+    assert AcParseCensus(source1) == ""
+    assert AcParseSuccess(source1) == "True"
+    analysis1 := AcAnalyze(source1)
+    assert AcCensus(analysis1) == "NL202:TypeMismatch@10:29+1;"
+    assert AcHasErrors(analysis1) == "True"
+    assert AcErrorCount(analysis1) == 1
+    assert AcRow(analysis1, 0) == "TypeMismatch|'X' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis1, "TypeMismatch") == 1
+    assert AcCodeCount(analysis1, "TypeMismatch") == 1
+    assert AcCodeRow(analysis1, "TypeMismatch") == "TypeMismatch|'X' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis1, "TypeMismatch") == "NL202@10:29+1"
+    assert AcSuggestions(analysis1, 0) == "<null>"
+    assert AcCodeErrorCount(analysis1, "UndefinedMember") == 0
+    assert AcCodeCount(analysis1, "UndefinedMember") == 0
+    assert AcCodeRow(analysis1, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(analysis1, "UndefinedMember") == "<no-such-code>"
+    rich1 := AcAnalyzeWithSource(source1)
+    assert AcCensus(rich1) == "NL202:TypeMismatch@10:29+5;"
+    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich1, "TypeMismatch") == "NL202@10:29+5"
+    assert AcSuggestions(rich1, 0) == "<null>"
+    assert AcHint(rich1, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+    assert AcCodeRow(rich1, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(rich1, "UndefinedMember") == "<no-such-code>"
+}
+
+test "020 s30 analyzer error codes: `TypeMismatch` / `UndefinedMember`: the whole census is pinned (2 rows); the deleted body claimed one code present and one absent, and nothing else (was AnalyzerTests.ObjectInitializer_ReflectionMembers_TypeCheckAndNameCheck)" {
+    source0 := "\nimport System.Text\n\nfunc f(): StringBuilder {\n    return new StringBuilder { Capacity: 10 }\n}"
+    assert AcParseCensus(source0) == ""
+    assert AcParseSuccess(source0) == "True"
+    analysis0 := AcAnalyze(source0)
+    assert AcCensus(analysis0) == ""
+    assert AcHasErrors(analysis0) == "False"
+    assert AcErrorCount(analysis0) == 0
+    assert AcRow(analysis0, 0) == "<no-such-error>"
+    assert AcCodeErrorCount(analysis0, "TypeMismatch") == 0
+    assert AcCodeCount(analysis0, "TypeMismatch") == 0
+    assert AcCodeRow(analysis0, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis0, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeErrorCount(analysis0, "UndefinedMember") == 0
+    assert AcCodeCount(analysis0, "UndefinedMember") == 0
+    assert AcCodeRow(analysis0, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(analysis0, "UndefinedMember") == "<no-such-code>"
+    rich0 := AcAnalyzeWithSource(source0)
+    assert AcCensus(rich0) == ""
+    assert AcCodeRow(rich0, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich0, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeRow(rich0, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(rich0, "UndefinedMember") == "<no-such-code>"
+    source1 := "\nimport System.Text\n\nfunc f(): StringBuilder {\n    return new StringBuilder { Capacity: \"abc\" }\n}"
+    assert AcParseCensus(source1) == ""
+    assert AcParseSuccess(source1) == "True"
+    analysis1 := AcAnalyze(source1)
+    assert AcCensus(analysis1) == "NL202:TypeMismatch@5:42+1;"
+    assert AcHasErrors(analysis1) == "True"
+    assert AcErrorCount(analysis1) == 1
+    assert AcRow(analysis1, 0) == "TypeMismatch|'Capacity' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeErrorCount(analysis1, "TypeMismatch") == 1
+    assert AcCodeCount(analysis1, "TypeMismatch") == 1
+    assert AcCodeRow(analysis1, "TypeMismatch") == "TypeMismatch|'Capacity' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis1, "TypeMismatch") == "NL202@5:42+1"
+    assert AcSuggestions(analysis1, 0) == "<null>"
+    assert AcCodeErrorCount(analysis1, "UndefinedMember") == 0
+    assert AcCodeCount(analysis1, "UndefinedMember") == 0
+    assert AcCodeRow(analysis1, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(analysis1, "UndefinedMember") == "<no-such-code>"
+    rich1 := AcAnalyzeWithSource(source1)
+    assert AcCensus(rich1) == "NL202:TypeMismatch@5:42+5;"
+    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich1, "TypeMismatch") == "NL202@5:42+5"
+    assert AcSuggestions(rich1, 0) == "<null>"
+    assert AcHint(rich1, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+    assert AcCodeRow(rich1, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(rich1, "UndefinedMember") == "<no-such-code>"
+    source2 := "\nimport System.Text\n\nfunc f(): StringBuilder {\n    return new StringBuilder { Capcity: 10 }\n}"
+    assert AcParseCensus(source2) == ""
+    assert AcParseSuccess(source2) == "True"
+    analysis2 := AcAnalyze(source2)
+    assert AcCensus(analysis2) == "NL303:UndefinedMember@5:32+7;"
+    assert AcHasErrors(analysis2) == "True"
+    assert AcErrorCount(analysis2) == 1
+    assert AcRow(analysis2, 0) == "UndefinedMember|Member 'Capcity' not found on type 'StringBuilder'|Did you mean 'Capacity'?|Error"
+    assert AcCodeErrorCount(analysis2, "TypeMismatch") == 0
+    assert AcCodeCount(analysis2, "TypeMismatch") == 0
+    assert AcCodeRow(analysis2, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(analysis2, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeErrorCount(analysis2, "UndefinedMember") == 1
+    assert AcCodeCount(analysis2, "UndefinedMember") == 1
+    assert AcCodeRow(analysis2, "UndefinedMember") == "UndefinedMember|Member 'Capcity' not found on type 'StringBuilder'|Did you mean 'Capacity'?|Error"
+    assert AcCodeAnchor(analysis2, "UndefinedMember") == "NL303@5:32+7"
+    assert AcSuggestions(analysis2, 0) == "<null>"
+    rich2 := AcAnalyzeWithSource(source2)
+    assert AcCensus(rich2) == "NL303:UndefinedMember@5:32+7;"
+    assert AcCodeRow(rich2, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeAnchor(rich2, "TypeMismatch") == "<no-such-code>"
+    assert AcCodeRow(rich2, "UndefinedMember") == "UndefinedMember|Member 'Capcity' not found on type 'StringBuilder'|<null>|Error"
+    assert AcCodeAnchor(rich2, "UndefinedMember") == "NL303@5:32+7"
+    assert AcSuggestions(rich2, 0) == "Capacity"
+    assert AcHint(rich2, 0) == "The type `StringBuilder` does not have a member named `Capcity`.\nCheck for typos, or make sure you're accessing the right type."
+}
+
+test "020 s30 analyzer error codes: `InvalidSyntax`: the whole census is pinned (1 row); the deleted claim was that `InvalidSyntax` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Nameof_UnsupportedTarget_ReportsAnalyzerDiagnostic)" {
+    source := "func f(): string {\n    return nameof(1 + 2)\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@2:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|nameof can only name an identifier or member access|Use nameof(value) or nameof(value.Member).|Error"
+    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|nameof can only name an identifier or member access|Use nameof(value) or nameof(value.Member).|Error"
+    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@2:21+1"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@2:21+1;"
+    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|nameof can only name an identifier or member access|Use nameof(value) or nameof(value.Member).|Error"
+    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@2:21+1"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "<null>"
+}
+
+// THE FIRST `[Theory]` TO LEAVE `AnalyzerTests.cs`. It is a table rather than three declarations
+// because BOTH sides of the C# were interpolated per row — the fixture was `$@"{typeKind} Box<T>
+// {{…{memberSource}…}}"` and the claim was `$"Static {memberKind} '{memberName}'"` — so all four
+// parameters stay load-bearing here: the body rebuilds the source from two of them and the expected
+// sentence from the other two. **AND THE PER-ROW `codeAnchor` IMMEDIATELY FOUND A DEFECT THE C#
+// COULD NOT**: `field count` underlines `count` and `property value` underlines `value`, but
+// `method mk` underlines `fu` — column 12, length 2, the column of the `func` keyword carrying the
+// LENGTH of the member name. One collapsed assertion could not have said so; three separate values
+// do.
+test "020 s30 analyzer error codes: a static member on a GENERIC type is refused before emission, one row per member kind — the fixture and the message are BOTH interpolated per row, which is why this is a table and not three contracts, and the three rows do NOT anchor alike: `count` and `value` are underlined whole while `mk` underlines `fu`, the `func` keyword's column with the member name's length (was AnalyzerTests.GenericTypes_StaticMembers_ReportBeforeEmission, all three [InlineData] rows)" with (typeKind: string, memberSource: string, memberKind: string, memberName: string, census: string, codeRow: string, codeAnchor: string) [
+    ("class", "static count: int", "field", "count", "NL323:FeatureNotImplemented@3:12+5;", "FeatureNotImplemented|Static field 'count' is not supported on generic type 'Box<T>' yet|Move the static member to a non-generic helper type, or make it an instance member.|Error", "NL323@3:12+5"),
+    ("record", "static func mk(): int {\n        return 1\n    }", "method", "mk", "NL323:FeatureNotImplemented@3:12+2;", "FeatureNotImplemented|Static method 'mk' is not supported on generic type 'Box<T>' yet|Move the static member to a non-generic helper type, or make it an instance member.|Error", "NL323@3:12+2"),
+    ("struct", "static value: int {\n        get {\n            return 1\n        }\n    }", "property", "value", "NL323:FeatureNotImplemented@3:12+5;", "FeatureNotImplemented|Static property 'value' is not supported on generic type 'Box<T>' yet|Move the static member to a non-generic helper type, or make it an instance member.|Error", "NL323@3:12+5")
+] {
+    source := typeKind + " Box<T> {\n    item: T\n    " + memberSource + "\n}\n\nfunc Use(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == census
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeRow(analysis, "FeatureNotImplemented") == codeRow
+    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == codeAnchor
+    assert codeRow.Contains("Static " + memberKind + " '" + memberName + "'")
+    assert codeRow.Contains("generic type 'Box<T>'")
+    rich := AcAnalyzeWithSource(source)
+    assert AcCodeRow(rich, "FeatureNotImplemented") == codeRow
 }

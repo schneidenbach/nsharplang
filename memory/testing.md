@@ -15,7 +15,7 @@
 ### Test Files
 ```
 tests/
-├── AnalyzerTests.cs             - Type checking tests (SHRINKING: task 020's seven-tranche campaign)
+├── AnalyzerTests.cs             - Type checking tests (SHRINKING: task 020's campaign, now cut by SHAPE)
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
 ├── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
@@ -204,6 +204,56 @@ Three more rules this tranche settled:
   name describes a severity-filtered CLAIM. Zero of the 82 bodies names a `ProjectConfig`.
 - **The file name is inert.** `ParseFileAst(source, null)` and `ParseFileAst(source, "test.nl")` return
   the same census and the same `Success` on all 82 fixtures, pinned in both spellings on every one.
+
+**TRANCHE 2 — the ERROR-CODE ASSERTION FAMILY — followed in slice 30, and after it both
+`AssertHasErrorCode` and `AssertNoErrorCode` are gone.** 106 methods (105 `[Fact]` + the campaign's
+FIRST migrated `[Theory]`), 1,743 C# lines, 85 in-body `Assert.` occurrences and 199 decoded claim
+rows, extending `tests/native/analyzer-clean-source` again, so the native project count stays 39.
+The boundary is by SHAPE, not by name or region: the 88 methods that named either helper, plus the
+18 direct-`Analyze` methods that read an `ErrorCode` and sit interleaved among their deletion runs
+from line 9460 to the end of the file — which collapses ten runs into eight and migrates the
+generic-arity subject and the WHOLE NL319 subject rather than splitting them.
+
+**The one missing kernel was an error-CODE census read.** Both helpers select
+`e.Code == code && e.Severity == ErrorSeverity.Error`, and the presence half RETURNS the matching
+row; `AcCodeMatchIndex` is that selection and `AcCodeErrorCount` / `AcCodeRow` / `AcCodeAnchor` are
+what it answers. `AcSuggestions` reads the PLURAL `Suggestions` list, which no contract in the arc
+had touched.
+
+**Six things the 199 deleted claims could not see:** (1) **the severity half of both helpers is
+dead over this corpus** — all 82 diagnostics the 111 fixtures produce are `Error`, so slice 28's
+severity-blind `AcCodeCount` and the new filtered `AcCodeErrorCount` agree on every fixture and every
+code; both are pinned so the day one arrives as a Warning they separate; (2) **34 of the 35
+`AssertNoErrorCode` fixtures analyse COMPLETELY SILENT**, so "this code is absent" was almost always
+"every code is absent"; (3) **the one that is not silent is a FALSE CLEAN** —
+`EnumValueObjectMemberAccess_Resolves` reports `NL202:TypeMismatch@10:17+1` and the deleted assertion
+asked only about `UndefinedMember`; (4) **two fixtures do not parse** — a C# `switch`/`case`
+statement (`NL102`, and the analysis then reports NOTHING, so its `AssertNoErrorCode` proved nothing
+at all) and an enum whose members are newline- rather than comma-separated (`NL101` twice; its NL320
+claim survives, but the analysis reports FOUR rows, two of them `NL903` complaining about an
+identifier literally named `<error>`); (5) **`VisibilityConventionWarning` is reported at `Error`
+severity**, the same shape slice 28 found in `NullabilityWarning`; (6) **the plural `Suggestions`
+list is a production-only field** — null on all 82 plain rows, non-null on 5 rich ones — so the
+`error.Suggestion ?? string.Join(", ", error.Suggestions ?? …)` fallback the deleted code carried was
+unreachable on the route the deleted code used.
+
+**The two-entry-point divergence reproduces on a disjoint corpus and in the same direction**: census
+differs on 16 fixtures, code row on 28, code anchor on 13, error COUNT on none; production DROPS the
+suggestion 15 times and gains one zero times; 37 of 82 rich rows carry a `ContextualHint` the plain
+route leaves null. **Three deleted assertions are true ONLY of the entry point nothing ships** — the
+`'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'` sentence and its two siblings collapse
+to the bare `Type mismatch` on the production route.
+
+**THE FIRST `[Theory]` LEFT THE FILE, AND THE PER-ROW PIN IMMEDIATELY FOUND A DEFECT.**
+`GenericTypes_StaticMembers_ReportBeforeEmission` is a table here rather than three declarations
+because BOTH its fixture and its message claim are interpolated per row, and all four C# parameters
+stay load-bearing in the N# body. `nlc test` counts its three rows as three tests, so the unit suite
+loses 108 cases (105 `[Fact]` + 3) and the native project gains 106 declarations that run as 108.
+The three rows do NOT anchor alike: `field count` underlines `count` and `property value` underlines
+`value`, but **`method mk` underlines `fu`** — column 12, length 2: the column of the `func` keyword
+with the length of the member name. `nlc test`'s table syntax already had a `[Theory]` consumer in
+`tests/native/parser-literal-facts`; what is new is that this is the first of `AnalyzerTests.cs`'s
+35, and that per-row identity earned its keep on the first try.
 
 **Why the estate half is EMPTY here is itself a measurement.** `SemanticModel.nl` IS N# in the
 estate and `SemanticModel.tests.nl` already owns its ALGEBRA — it constructs a model directly,

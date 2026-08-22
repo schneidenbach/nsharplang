@@ -1026,10 +1026,29 @@ Analyzer coverage is split deliberately across:
   rich, 0 plain). It also found that **a bodiless positional record does not parse** — `record
   Person(Name: string, Age: int)` reports `NL102`/`NL106` and swallows the file — which makes two of
   the deleted `AssertNoErrors` methods VACUOUS, invisible to an assertion that read only the analyzer.
+  **Slice 30 extended it again with TRANCHE 2 — the ERROR-CODE assertion family**: every method
+  that named `AssertHasErrorCode` or `AssertNoErrorCode` (88) plus the 18 direct-`Analyze` shape
+  neighbours interleaved among their deletion runs, 106 methods and 1,743 C# lines, after which
+  **both helpers are gone**. It added the one shape the campaign had no kernel for — a
+  severity-filtered error-CODE census read (`AcCodeMatchIndex` / `AcCodeErrorCount` / `AcCodeRow` /
+  `AcCodeAnchor`, plus `AcSuggestions` for the plural `Suggestions` list). Its findings: **the
+  severity half of both helpers is dead over this corpus** (all 82 diagnostics the 111 fixtures
+  produce are `Error`, so the severity-blind `AcCodeCount` and the filtered `AcCodeErrorCount` agree
+  everywhere); **34 of the 35 `AssertNoErrorCode` fixtures analyse completely silent**, so the
+  assertion "this code is absent" was almost always "everything is absent"; **the one that is not
+  silent is a false clean** (`EnumValueObjectMemberAccess_Resolves` reports
+  `NL202:TypeMismatch@10:17+1`); **`switch`/`case` is not N# syntax and newline-separated enum
+  members do not parse**, which made one deleted claim vacuous and left another passing over a file
+  whose analysis reports `NL903` about an identifier named `<error>`; **`VisibilityConventionWarning`
+  is reported at `Error` severity**; and the two entry points disagree again — census on 16 fixtures,
+  code row on 28, anchor on 13 — with **three deleted assertions true ONLY of the entry point nothing
+  ships**. The plural `Suggestions` list is a production-only field (0 of 82 plain rows, 5 of 82
+  rich), so the `?? error.Suggestions` fallback the deleted code carried was unreachable on the route
+  the deleted code used.
 - `tests/AnalyzerTests.cs` for the REMAINING analyzer-shell diagnostics, flow analysis, call
-  binding, and end-to-end semantic behavior — 10,674 lines and 590 `[Fact]` + 35 `[Theory]` after
-  slice 29, still shrinking through the campaign's remaining tranches, which are now cut by family
-  rather than by region.
+  binding, and end-to-end semantic behavior — 8,931 lines and 485 `[Fact]` + 34 `[Theory]` after
+  slice 30, still shrinking through the campaign's remaining tranches, which are now cut by shape
+  rather than by region or by name.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.
