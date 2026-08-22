@@ -1045,9 +1045,25 @@ Analyzer coverage is split deliberately across:
   ships**. The plural `Suggestions` list is a production-only field (0 of 82 plain rows, 5 of 82
   rich), so the `?? error.Suggestions` fallback the deleted code carried was unreachable on the route
   the deleted code used.
+  **Slice 31 extended it again with TRANCHE 3** — the WHOLE remaining direct-`Analyze` + `ErrorCode`
+  shape (24 methods, so that shape is now at ZERO) plus the `AnalyzeWithSource` + `ErrorCode`
+  shape's first 56, cut at the end of the readonly-field subject: 80 methods, 1,349 declaration
+  lines and 1,599 C# lines, carrying **31 of the residue's 34 `[Theory]`s as native tables**. It
+  needed NO new kernel and killed NO helper — the first tranche of which both are true. Its
+  headline is an anchor defect in the entry point nothing ships: over 148 row pairs analysed through
+  both routes, **23 differ in LENGTH and the one-argument route reports `1` in every one of the 23**
+  while the four-argument production route reports the real token width. The one-argument overload
+  receives no source text and cannot measure a token, which is why slice 30 saw `NL202` anchors as
+  truncated single letters. Seven suggestions and three messages also differ (the sharpest being
+  `MethodGroupToClrDelegate_RejectsNumericParameterConversion`, where the plain route offers a
+  suggestion and production offers none), and `ContextualHint` is non-null on 11 rich rows and 0
+  plain. It also found that **5 of the tranche's 13 absence claims were vacuous** — three fixtures
+  report nothing at all — and that `Method 'X' must be called or passed to a delegate` has TWO
+  owners, `ErrorMessageBuilder.nl` for the rich route and `AnalyzerReflectionCallReporter.nl` for
+  the plain one, each moving exactly 5 native contracts when mutated.
 - `tests/AnalyzerTests.cs` for the REMAINING analyzer-shell diagnostics, flow analysis, call
-  binding, and end-to-end semantic behavior — 8,931 lines and 485 `[Fact]` + 34 `[Theory]` after
-  slice 30, still shrinking through the campaign's remaining tranches, which are now cut by shape
+  binding, and end-to-end semantic behavior — 7,332 lines and 436 `[Fact]` + 3 `[Theory]` after
+  slice 31, still shrinking through the campaign's remaining tranches, which are now cut by shape
   rather than by region or by name.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining

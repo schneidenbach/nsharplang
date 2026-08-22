@@ -181,24 +181,6 @@ func main(): int {
         ");
     }
 
-    [Theory]
-    [InlineData("throw 1", "int")]
-    [InlineData("throw \"bad\"", "string")]
-    [InlineData("value: object = \"bad\"\n                throw value", "object")]
-    public void ThrowStatement_NonExceptionOperand_ReportsTypeMismatch(string statement, string operandType)
-    {
-        var result = AnalyzeWithSource($$"""
-            func Main() {
-                {{statement}}
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("Throw expressions must be assignable to System.Exception", error.Message);
-        Assert.Contains($"'{operandType}'", error.Message);
-        Assert.Contains("Exception-derived", error.Suggestion);
-    }
-
     [Fact]
     public void ThrowStatement_ExceptionOperands_AreValid()
     {
@@ -265,52 +247,6 @@ func main(): int {
     }
 
     [Fact]
-    public void ErrorTupleResultUseAfterNonReturningErrorBranch_IsRejected()
-    {
-        var result = Analyze(@"
-            import System
-
-            func Hi(): int {
-                throw new Exception(""boom"")
-            }
-
-            func Main() {
-                i, err := Hi()
-                if err != null {
-                    print err
-                }
-
-                print $""hi returned {i}""
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UnverifiedErrorResult);
-        Assert.Contains("'i'", error.Message);
-        Assert.Contains("'err'", error.Message);
-    }
-
-    [Fact]
-    public void ErrorTupleResultUseInsideErrorBranch_IsRejected()
-    {
-        var result = Analyze(@"
-            import System
-
-            func Hi(): int {
-                throw new Exception(""boom"")
-            }
-
-            func Main() {
-                i, err := Hi()
-                if err != null {
-                    print i
-                }
-            }
-        ");
-
-        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UnverifiedErrorResult);
-    }
-
-    [Fact]
     public void ErrorTupleResultUseAfterReturningErrorBranch_IsAllowed()
     {
         AssertNoErrors(@"
@@ -373,68 +309,6 @@ func main(): int {
                 print i
             }
         ");
-    }
-
-    [Fact]
-    public void DiscardedMustUseFunctionResult_IsRejected()
-    {
-        var result = Analyze(@"
-            [MustUse]
-            func Compute(): int {
-                return 42
-            }
-
-            func Main() {
-                Compute()
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
-        Assert.Contains("'Compute'", error.Message);
-        Assert.Contains("must be used", error.Message);
-    }
-
-    [Fact]
-    public void DiscardedMustUseMethodResult_IsRejected()
-    {
-        var result = Analyze(@"
-            class Calc {
-                [MustUse]
-                func Add(a: int, b: int): int {
-                    return a + b
-                }
-            }
-
-            func Main() {
-                let c := new Calc()
-                c.Add(1, 2)
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
-        Assert.Contains("'Add'", error.Message);
-    }
-
-    [Fact]
-    public void DiscardedMustUseSelectedOverload_IsRejected()
-    {
-        var result = Analyze(@"
-            [MustUse]
-            func Compute(): int {
-                return 42
-            }
-
-            func Compute(value: int): int {
-                return value
-            }
-
-            func Main() {
-                Compute()
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
-        Assert.Contains("'Compute'", error.Message);
     }
 
     [Fact]
@@ -536,23 +410,6 @@ func main(): int {
     }
 
     [Fact]
-    public void UndefinedBareCall_ReportsFunctionError()
-    {
-        var result = Analyze(@"
-            func Main() {
-                i := Hi()
-            }
-        ");
-
-        Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.UndefinedFunction &&
-            e.Message.Contains("Function 'Hi' not found"));
-        Assert.DoesNotContain(result.Errors, e =>
-            e.Code == ErrorCode.UndefinedVariable &&
-            e.Message.Contains("Hi"));
-    }
-
-    [Fact]
     public void BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember()
     {
         const string source = """
@@ -616,34 +473,6 @@ func Main() {
         ", "declared to return 'void'");
     }
 
-    [Theory]
-    [InlineData("func* Numbers(): IEnumerable<int> { return 1 }")]
-    [InlineData("async func* Numbers(): IAsyncEnumerable<int> { return 1 }")]
-    public void GeneratorReturnValue_ReportsInvalidSyntax(string declaration)
-    {
-        var result = AnalyzeWithSource("import System.Collections.Generic\n\n" + declaration);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Generator functions cannot return a value", error.Message);
-        Assert.Contains("yield value", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("yield 1")]
-    [InlineData("yield break")]
-    public void YieldOutsideGenerator_ReportsInvalidSyntax(string statement)
-    {
-        var result = AnalyzeWithSource($$"""
-            func Main() {
-                {{statement}}
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("'yield' can only be used inside a generator function", error.Message);
-        Assert.Contains("func*", error.Suggestion);
-    }
-
     [Fact]
     public void GeneratorSequenceReturnTypes_AreValid()
     {
@@ -666,90 +495,6 @@ func Main() {
                 yield 1
             }
             """);
-    }
-
-    [Theory]
-    [InlineData("func* Numbers(): int { yield 1 }", "int", "synchronous enumerable", "IEnumerable<T>")]
-    [InlineData("func* Numbers(): int[] { yield 1 }", "int[]", "synchronous enumerable", "IEnumerable<T>")]
-    [InlineData("func* Numbers(): IEnumerator<int> { yield 1 }", "IEnumerator", "synchronous enumerable", "IEnumerable<T>")]
-    [InlineData("func* Numbers(): IAsyncEnumerable<int> { yield 1 }", "IAsyncEnumerable", "synchronous enumerable", "IEnumerable<T>")]
-    [InlineData("async func* Numbers(): int { yield 1 }", "int", "async enumerable", "IAsyncEnumerable<T>")]
-    [InlineData("async func* Numbers(): IEnumerable<int> { yield 1 }", "IEnumerable", "async enumerable", "IAsyncEnumerable<T>")]
-    public void GeneratorNonSequenceReturnType_ReportsTypeMismatch(
-        string declaration,
-        string returnType,
-        string expectedSequenceKind,
-        string expectedSuggestion)
-    {
-        var result = AnalyzeWithSource("import System.Collections.Generic\n\n" + declaration);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains(expectedSequenceKind, error.Message);
-        Assert.Contains(returnType, error.Message);
-        Assert.Contains(expectedSuggestion, error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("func* Numbers(): IEnumerable<string> { yield 1 }", "int", "string")]
-    [InlineData("async func* Numbers(): IAsyncEnumerable<int> { yield \"bad\" }", "string", "int")]
-    public void GeneratorYieldValueTypeMismatch_ReportsTypeMismatch(
-        string declaration,
-        string yieldedType,
-        string elementType)
-    {
-        var result = AnalyzeWithSource("import System.Collections.Generic\n\n" + declaration);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains($"yield value is '{yieldedType}'", error.Message);
-        Assert.Contains($"sequence element type is '{elementType}'", error.Message);
-        Assert.Contains($"assignable to '{elementType}'", error.Suggestion);
-    }
-
-    [Fact]
-    public void LocalGeneratorNonSequenceReturnType_ReportsTypeMismatch()
-    {
-        var result = AnalyzeWithSource("""
-            func Main() {
-                func* Numbers(): int {
-                    yield 1
-                }
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("synchronous enumerable", error.Message);
-        Assert.Contains("returns 'int'", error.Message);
-        Assert.Contains("IEnumerable<T>", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("func* Numbers(): IEnumerable<int> => []")]
-    [InlineData("async func* Numbers(): IAsyncEnumerable<int> => []")]
-    public void GeneratorExpressionBody_ReportsInvalidSyntax(string declaration)
-    {
-        var result = AnalyzeWithSource("import System.Collections.Generic\n\n" + declaration);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Generator functions must use a block body", error.Message);
-        Assert.Contains("yield value", error.Suggestion);
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-    }
-
-    [Fact]
-    public void LocalGeneratorExpressionBody_ReportsInvalidSyntax()
-    {
-        var result = AnalyzeWithSource("""
-            import System.Collections.Generic
-
-            func Main() {
-                func* Numbers(): IEnumerable<int> => []
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Generator functions must use a block body", error.Message);
-        Assert.Contains("yield value", error.Suggestion);
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
     }
 
     [Fact]
@@ -797,40 +542,6 @@ func Main() {
     }
 
     [Fact]
-    public void ForIteratorMustHaveStatementEffect()
-    {
-        var result = AnalyzeWithSource("""
-            func Main() {
-                for i := 0; i < 3; i + 1 {
-                }
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidExpressionStatement);
-        Assert.Contains("for-loop iterator has no effect", error.Message);
-        Assert.Contains("for-loop iterators", error.ContextualHint);
-    }
-
-    [Fact]
-    public void ForIteratorDiscardedMustUseCall_IsRejected()
-    {
-        var result = Analyze("""
-            [MustUse]
-            func Next(): int {
-                return 1
-            }
-
-            func Main() {
-                for i := 0; i < 3; Next() {
-                }
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
-        Assert.Contains("'Next'", error.Message);
-    }
-
-    [Fact]
     public void BreakOutsideLoop_Error()
     {
         AssertHasError(@"
@@ -863,115 +574,6 @@ func Main() {
     }
 
     [Fact]
-    public void ExpressionStatement_BareMemberAccess_MethodGroupUsedAsValue()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                greeting := ""hello""
-                greeting.CompareTo
-            }
-        ");
-
-        Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.MethodGroupUsedAsValue &&
-            e.Message.Contains("CompareTo"));
-    }
-
-    [Fact]
-    public void ExpressionStatement_NonSideEffectingValue_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                value := 41
-                value + 1
-            }
-        ");
-
-        Assert.Contains(result.Errors, e => e.Code == ErrorCode.InvalidExpressionStatement);
-    }
-
-    [Fact]
-    public void MethodGroupUsedAsPrintValue_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                print ""hello"".ToString
-            }
-        ");
-
-        Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.MethodGroupUsedAsValue &&
-            e.Message.Contains("ToString") &&
-            e.ContextualHint?.Contains("delegate") == true);
-    }
-
-    [Fact]
-    public void MethodGroupUsedAsInferredVariableValue_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                value := ""hello"".ToString
-            }
-        ");
-
-        Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.MethodGroupUsedAsValue &&
-            e.Message.Contains("ToString"));
-    }
-
-    [Fact]
-    public void MethodGroupUsedAsExpressionStatement_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                ""hello"".ToString
-            }
-        ");
-
-        Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.MethodGroupUsedAsValue &&
-            e.Message.Contains("ToString"));
-    }
-
-    [Fact]
-    public void MethodGroupUsedAsObjectArgument_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Use(value: object) {
-                print value
-            }
-
-            func Main() {
-                Use(""hello"".ToString)
-            }
-        ");
-
-        Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.MethodGroupUsedAsValue &&
-            e.Message.Contains("ToString"));
-    }
-
-    [Fact]
-    public void GenericListOfNSharpType_CountProperty_IsNotMethodGroup()
-    {
-        var result = AnalyzeWithSource(@"
-            import System.Collections.Generic
-
-            class TaskItem {
-                Name: string
-            }
-
-            func Main() {
-                tasks := new List<TaskItem>()
-                total := tasks.Count
-                print total
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.MethodGroupUsedAsValue);
-    }
-
-    [Fact]
     public void ExpressionStatement_SideEffectingForms_NoErrors()
     {
         AssertNoErrors(@"
@@ -989,86 +591,6 @@ func Main() {
                 new Worker()
             }
         ");
-    }
-
-    [Fact]
-    public void Increment_NonIntegralOperand_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                value := ""hello""
-                value++
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("'++' operator doesn't work with 'string'", error.Message);
-        Assert.Contains("integral numeric value", error.Message);
-    }
-
-    [Fact]
-    public void Increment_NonAssignableTarget_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                1++
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("'++' operator needs an assignable target", error.Message);
-        Assert.Contains("variable, field, property, or indexed element", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("text.Length = 2", "Length", "=")]
-    [InlineData("text.Length += 1", "Length", "+=")]
-    [InlineData("text.Length++", "Length", "++")]
-    public void Write_ReadOnlyRuntimePropertyTarget_Error(string statement, string propertyName, string op)
-    {
-        var result = AnalyzeWithSource($$"""
-            func Main() {
-                text := "abc"
-                {{statement}}
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains($"Property '{propertyName}' is read-only", error.Message);
-        Assert.Contains($"'{op}'", error.Message);
-        Assert.Contains("settable property", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("other.Value = 2", "Value", "=")]
-    [InlineData("other.Value++", "Value", "++")]
-    [InlineData("Value = 2", "Value", "=")]
-    public void Write_ReadOnlySourcePropertyTarget_Error(string statement, string propertyName, string op)
-    {
-        var result = AnalyzeWithSource($$"""
-            class Box {
-                backing: int
-
-                Value: int {
-                    get {
-                        return backing
-                    }
-                }
-
-                constructor() {
-                    backing = 0
-                }
-
-                func Mutate(other: Box) {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains($"Property '{propertyName}' is read-only", error.Message);
-        Assert.Contains($"'{op}'", error.Message);
-        Assert.Contains("settable property", error.Suggestion);
     }
 
     [Fact]
@@ -1117,143 +639,6 @@ func Main() {
                 items.Capacity++
             }
         """);
-    }
-
-    [Theory]
-    [InlineData("(1 + 2) = 3", "=")]
-    [InlineData("checked(value) = 2", "=")]
-    [InlineData("unchecked(value) += 2", "+=")]
-    public void Assignment_NonAssignableTarget_Error(string statement, string op)
-    {
-        var result = AnalyzeWithSource($$"""
-            func Main() {
-                value := 1
-                {{statement}}
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains($"'{op}' assignment needs an assignable target", error.Message);
-        Assert.Contains("variable, field, property, indexed element", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("box?.Value = 1", "member access", "assigned with '='")]
-    [InlineData("box?.Next.Value = 1", "member access", "assigned with '='")]
-    [InlineData("box?.Value += 1", "member access", "assigned with '+='")]
-    [InlineData("box?.Value++", "member access", "changed with '++'")]
-    [InlineData("box?.Next.Value++", "member access", "changed with '++'")]
-    [InlineData("items?[0] = 1", "index access", "assigned with '='")]
-    [InlineData("matrix?[0][1] = 1", "index access", "assigned with '='")]
-    [InlineData("items?[0]++", "index access", "changed with '++'")]
-    [InlineData("bump(ref box?.Value)", "member access", "used as the ref argument")]
-    [InlineData("bump(ref box?.Next.Value)", "member access", "used as the ref argument")]
-    [InlineData("bump(ref items?[0])", "index access", "used as the ref argument")]
-    [InlineData("reset(out box?.Value)", "member access", "used as the out argument")]
-    public void Write_NullConditionalTarget_Error(string statement, string targetKind, string action)
-    {
-        var result = AnalyzeWithSource($$"""
-            class Box {
-                backing: int
-
-                Value: int {
-                    get {
-                        return backing
-                    }
-                    set {
-                        backing = value
-                    }
-                }
-
-                constructor() {
-                    backing = 0
-                }
-            }
-
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            func Main(box: Box?, items: int[]?, matrix: int[][]?) {
-                {{statement}}
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains($"Null-conditional {targetKind} can't be {action}", error.Message);
-        Assert.Contains("guard it for null", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("update(ref checked(value), out copy)", "ref")]
-    [InlineData("update(ref value, out unchecked(copy))", "out")]
-    public void RefOutArgument_NonAssignableTarget_Error(string statement, string modifier)
-    {
-        var result = AnalyzeWithSource($$"""
-            func update(ref value: int, out copy: int) {
-                copy = value
-                value += 1
-            }
-
-            func Main() {
-                value := 1
-                copy := 0
-                {{statement}}
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains($"'{modifier}' argument needs an assignable target", error.Message);
-        Assert.Contains($"as the {modifier} argument", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("if Int32.TryParse(\"42\", out checked(result)) { }", "out")]
-    [InlineData("Int32.TryParse(\"42\", out text.Length)", "out")]
-    [InlineData("update(ref items[0])", "ref")]
-    public void RefOutArgument_NonAddressableClrTargets_Error(string statement, string modifier)
-    {
-        var result = AnalyzeWithSource($$"""
-            import System
-            import System.Collections.Generic
-
-            func update(ref value: int) {
-                value += 1
-            }
-
-            func Main() {
-                result := 0
-                text := "abc"
-                items := new List<int>()
-                {{statement}}
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains($"'{modifier}' argument needs an assignable target", error.Message);
-        Assert.Contains($"as the {modifier} argument", error.Suggestion);
-    }
-
-    [Fact]
-    public void RefOutArgument_ArrayRangeSlice_Error()
-    {
-        var result = AnalyzeWithSource("""
-            func update(ref values: int[]) {
-            }
-
-            func Main() {
-                values := [1, 2, 3]
-                update(ref values[0..1])
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be used as the ref argument", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
     }
 
     [Fact]
@@ -1469,20 +854,6 @@ func Main() {
     }
 
     [Fact]
-    public void LogicalNot_NonBoolOperand_Error()
-    {
-        var result = AnalyzeWithSource(@"
-func bad(value: int): bool {
-    return !value
-}
-");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("'!' operator doesn't work with 'int'", error.Message);
-        Assert.Contains("boolean value", error.Message);
-    }
-
-    [Fact]
     public void NegativeIntegerLiteral_TargetTypedSignedNarrowing_IsPreserved()
     {
         AssertNoErrors(@"
@@ -1513,40 +884,6 @@ func Main() {
                 x := ""hello"" - ""world""
             }
         ", "doesn't work with");
-    }
-
-    [Fact]
-    public void RelationalOperator_InvalidOperands_ReportTypeMismatch()
-    {
-        var result = AnalyzeWithSource(@"
-func BadString(): bool {
-    return ""a"" < ""b""
-}
-
-func BadObject(value: object): bool {
-    return value > 0
-}
-
-func BadBool(left: bool, right: bool): bool {
-    return left <= right
-}
-
-func BadNullable(value: int?): bool {
-    return value >= 0
-}
-
-func BadMixed(left: ulong, right: long): bool {
-    return left < right
-}
-");
-
-        var errors = result.Errors.Where(e => e.Code == ErrorCode.TypeMismatch).ToList();
-        Assert.Equal(5, errors.Count);
-        Assert.Contains(errors, e => e.Message.Contains("'<' operator") && e.Message.Contains("'string' and 'string'"));
-        Assert.Contains(errors, e => e.Message.Contains("'>' operator") && e.Message.Contains("'object' and 'int'"));
-        Assert.Contains(errors, e => e.Message.Contains("'<=' operator") && e.Message.Contains("'bool' and 'bool'"));
-        Assert.Contains(errors, e => e.Message.Contains("'>=' operator") && e.Message.Contains("'int?' and 'int'"));
-        Assert.Contains(errors, e => e.Message.Contains("'<' operator") && e.Message.Contains("'ulong' and 'long'"));
     }
 
     [Fact]
@@ -1585,39 +922,6 @@ func CompareLower(left: string, right: string): bool {
     return leftChar < rightChar
 }
         ");
-    }
-
-    [Fact]
-    public void EqualityOperator_InvalidOperands_ReportTypeMismatch()
-    {
-        var result = AnalyzeWithSource(@"
-struct Plain {
-    Value: int
-}
-
-func BadObjectInt(value: object): bool {
-    return value == 1
-}
-
-func BadPlain(left: Plain, right: Plain): bool {
-    return left == right
-}
-
-func BadNullable(left: int?, right: int?): bool {
-    return left != right
-}
-
-func BadMixedDecimal(left: decimal, right: int): bool {
-    return left == right
-}
-");
-
-        var errors = result.Errors.Where(e => e.Code == ErrorCode.TypeMismatch).ToList();
-        Assert.Equal(4, errors.Count);
-        Assert.Contains(errors, e => e.Message.Contains("'==' operator") && e.Message.Contains("'object' and 'int'"));
-        Assert.Contains(errors, e => e.Message.Contains("'==' operator") && e.Message.Contains("'Plain' and 'Plain'"));
-        Assert.Contains(errors, e => e.Message.Contains("'!=' operator") && e.Message.Contains("'int?' and 'int?'"));
-        Assert.Contains(errors, e => e.Message.Contains("'==' operator") && e.Message.Contains("'decimal' and 'int'"));
     }
 
     [Fact]
@@ -1773,20 +1077,6 @@ func CountLetters(text: string): int {
     }
 
     [Fact]
-    public void LogicalOperators_UnknownOperand_DoesNotCascade()
-    {
-        var result = AnalyzeWithSource(@"
-func Main(flag: bool) {
-    if flag || missing {
-    }
-}
-        ");
-
-        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UndefinedVariable && e.Message.Contains("missing"));
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch && e.Message.Contains("Both sides of '||'"));
-    }
-
-    [Fact]
     public void TernaryConditionMustBeBoolean()
     {
         AssertHasError(@"
@@ -1807,37 +1097,6 @@ func Main(flag: bool) {
     }
 
     [Fact]
-    public void SizedArrayAllocation_WithConstructorArguments_ReportsSemanticDiagnostic()
-    {
-        var result = Analyze(@"
-            func sideEffect(): int {
-                return 1
-            }
-
-            func Main() {
-                values := new int[4](sideEffect())
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSizedArrayConstructorArguments);
-        Assert.Contains("Sized array allocation cannot also pass constructor arguments", error.Message);
-        Assert.Contains("new T[n]", error.Suggestion ?? string.Empty);
-    }
-
-    [Fact]
-    public void SizedArrayAllocation_WithConstructorArguments_StillAnalyzesArgumentExpressions()
-    {
-        var result = Analyze(@"
-            func Main() {
-                values := new int[4](missing)
-            }
-        ");
-
-        Assert.Contains(result.Errors, e => e.Code == ErrorCode.InvalidSizedArrayConstructorArguments);
-        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UndefinedVariable && e.Message.Contains("missing"));
-    }
-
-    [Fact]
     public void ArrayRangeIndexAccess_ReturnsArrayType()
     {
         AssertNoErrors(@"
@@ -1853,36 +1112,6 @@ func Main(flag: bool) {
     }
 
     [Fact]
-    public void RangeExpression_InvalidEndpointTypes_ReportTypeMismatch()
-    {
-        var result = AnalyzeWithSource(@"
-func BadStart(values: int[]) {
-    _ = values[""0""..2]
-}
-
-func BadEnd(values: int[]) {
-    _ = values[0..""2""]
-}
-
-func BadFromEnd(values: int[]) {
-    _ = values[0..^""2""]
-}
-
-func BadLong(values: int[], count: long) {
-    _ = values[0..count]
-}
-");
-
-        var errors = result.Errors.Where(e => e.Code == ErrorCode.TypeMismatch).ToList();
-        Assert.Equal(4, errors.Count);
-        Assert.Contains(errors, e => e.Message.Contains("Range bounds must be int or System.Index")
-            && e.Message.Contains("'string'"));
-        Assert.Contains(errors, e => e.Message.Contains("Range bounds must be int or System.Index")
-            && e.Message.Contains("'long'"));
-        Assert.Contains(errors, e => e.Message.Contains("'^' operator doesn't work with 'string'"));
-    }
-
-    [Fact]
     public void RangeExpression_IntCompatibleEndpoints_AreValid()
     {
         AssertNoErrors(@"
@@ -1892,52 +1121,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     all := values[..]
 }
         ");
-    }
-
-    [Fact]
-    public void ArrayIndexAccess_WithStringIndex_ReportsTypeMismatch()
-    {
-        var result = Analyze("""
-            func Main(): int {
-                values := [1, 2, 3]
-                return values["0"]
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("Array indexes must be int, System.Index, or System.Range", error.Message);
-        Assert.Contains("'string'", error.Message);
-        Assert.Contains("^n", error.Suggestion);
-    }
-
-    [Fact]
-    public void ArrayRangeIndexedAssignment_ReportsBeforeEmission()
-    {
-        var result = Analyze("""
-            func Main() {
-                values := [1, 2, 3]
-                values[0..1] = [4]
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be assigned", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
-    }
-
-    [Fact]
-    public void StringIndexedAssignment_ReportsImmutableString()
-    {
-        var result = Analyze("""
-            func Main() {
-                text := "hello"
-                text[0] = 'H'
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("String characters and slices cannot be assigned", error.Message);
-        Assert.Contains("strings are immutable", error.Suggestion);
     }
 
     [Fact]
@@ -2246,41 +1429,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-    [Theory]
-    [InlineData("catch ex: int { }", "int")]
-    [InlineData("catch ex: string { }", "string")]
-    [InlineData("catch ex: object { }", "object")]
-    public void CatchClause_NonExceptionType_ReportsTypeMismatch(string catchClause, string catchType)
-    {
-        var result = AnalyzeWithSource($$"""
-            func Main() {
-                try {
-                } {{catchClause}}
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("Catch type must be assignable to System.Exception", error.Message);
-        Assert.Contains($"'{catchType}'", error.Message);
-        Assert.Contains("Exception-derived", error.Suggestion);
-    }
-
-    [Fact]
-    public void CatchClause_UnknownType_ReportsTypeNotFoundOnly()
-    {
-        var result = AnalyzeWithSource("""
-            func Main() {
-                try {
-                } catch ex: MissingException {
-                }
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
-        Assert.Contains("MissingException", error.Message);
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-    }
-
     [Fact]
     public void CatchClause_ExceptionTypes_AreValid()
     {
@@ -2298,40 +1446,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
             }
             """);
-    }
-
-    [Theory]
-    [InlineData("int", "int")]
-    [InlineData("string", "string")]
-    [InlineData("object", "object")]
-    public void AssertThrows_NonExceptionType_ReportsTypeMismatch(string assertType, string expectedType)
-    {
-        var result = AnalyzeWithSource($$"""
-            func Main() {
-                assert throws {{assertType}} {
-                }
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("Assert throws type must be assignable to System.Exception", error.Message);
-        Assert.Contains($"'{expectedType}'", error.Message);
-        Assert.Contains("Exception-derived", error.Suggestion);
-    }
-
-    [Fact]
-    public void AssertThrows_UnknownType_ReportsTypeNotFoundOnly()
-    {
-        var result = AnalyzeWithSource("""
-            func Main() {
-                assert throws MissingException {
-                }
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
-        Assert.Contains("MissingException", error.Message);
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
     }
 
     [Fact]
@@ -2384,44 +1498,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         """);
     }
 
-    [Theory]
-    [InlineData("using value := 1 { }", "int")]
-    [InlineData("using let text: string = \"test\" { }", "string")]
-    [InlineData("using \"test\" { }", "string")]
-    public void UsingStatement_NonDisposableResource_Error(string statement, string typeName)
-    {
-        var result = AnalyzeWithSource($$"""
-            func Main() {
-                {{statement}}
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains($"Using resource of type '{typeName}' must implement IDisposable", error.Message);
-        Assert.Contains("Dispose(): void", error.Message);
-    }
-
-    [Theory]
-    [InlineData("func Dispose(value: int): void { }")]
-    [InlineData("func Dispose(): int { return 0 }")]
-    [InlineData("static func Dispose(): void { }")]
-    public void UsingStatement_InvalidDisposePattern_Error(string disposeMember)
-    {
-        var result = AnalyzeWithSource($$"""
-            class Resource {
-                {{disposeMember}}
-            }
-
-            func Main() {
-                using resource := new Resource() {
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Using resource of type 'Resource' must implement IDisposable", error.Message);
-    }
-
     [Fact]
     public void TupleDeconstruction_InferredElementTypes_Valid()
     {
@@ -2456,22 +1532,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         Assert.Equal("int", result.SemanticModel.LookupIdentifier("number")?.ToString());
         Assert.Equal("string", result.SemanticModel.LookupIdentifier("label")?.ToString());
         Assert.Equal("int", result.SemanticModel.LookupIdentifier("total")?.ToString());
-    }
-
-    [Theory]
-    [InlineData("x, y := 1", "needs a tuple value")]
-    [InlineData("x, y, z := (1, 2)", "has 3 target(s), but the initializer has 2 element(s)")]
-    [InlineData("x, y := (1, 2, 3)", "has 2 target(s), but the initializer has 3 element(s)")]
-    public void TupleDeconstruction_InvalidInitializer_Error(string statement, string message)
-    {
-        var result = AnalyzeWithSource($$"""
-            func Main() {
-                {{statement}}
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains(message, error.Message);
     }
 
     [Fact]
@@ -2548,24 +1608,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
 
         Assert.Empty(result.Errors);
         Assert.Equal("int", result.SemanticModel.LookupIdentifier("value")?.ToString());
-    }
-
-    [Theory]
-    [InlineData("foreach value in 1 { }", "foreach collection must be enumerable")]
-    [InlineData("await foreach value in [1, 2, 3] { }", "await foreach collection must be async enumerable")]
-    public void ForeachLoop_NonEnumerableCollection_Error(string statement, string message)
-    {
-        var result = AnalyzeWithSource($$"""
-            import System.Threading.Tasks
-
-            async func Main(): Task<int> {
-                {{statement}}
-                return 0
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains(message, error.Message);
     }
 
     [Fact]
@@ -2648,21 +1690,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void CompoundAssignment_BoolOperand_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                value := true
-                value += true
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("'+' operator doesn't work with 'bool' and 'bool'", error.Message);
-        Assert.Contains("numeric values", error.Message);
-    }
-
-    [Fact]
     public void CompoundAssignment_DecimalOperand_NoErrors()
     {
         AssertNoErrors(@"
@@ -2671,54 +1698,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 value += 2.5m
             }
         ");
-    }
-
-    [Fact]
-    public void CompoundAssignment_PromotedSmallIntegerResult_Error()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                left: byte = 1 as byte
-                right: byte = 2 as byte
-                left += right
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("'+=' assignment produces 'int'", error.Message);
-        Assert.Contains("can't be stored in 'byte'", error.Message);
-    }
-
-    [Fact]
-    public void NullCoalesceAssignment_NonNullableValueTarget_Invalid()
-    {
-        var result = Analyze(@"
-            func Main() {
-                x := 10
-                x ??= 5
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("left side of '??=' has type 'int'", error.Message);
-        Assert.Contains("can't be null", error.Message);
-        Assert.Contains("make the target nullable", error.Suggestion);
-    }
-
-    [Fact]
-    public void NullCoalesce_NonNullableValueLeft_Invalid()
-    {
-        var result = Analyze(@"
-            func Main(): int {
-                x := 10
-                return x ?? 5
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("left side of '??' has type 'int'", error.Message);
-        Assert.Contains("can't be null", error.Message);
-        Assert.Contains("make the left side nullable", error.Suggestion);
     }
 
     [Fact]
@@ -2775,21 +1754,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 Age: int
             }
         ");
-    }
-
-    [Fact]
-    public void SoaRecordDeclaration_IsFeatureGated()
-    {
-        var result = Analyze(@"
-            soa record NodeTable {
-                kind: int
-                valueStart: int
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("soa record 'NodeTable'", error.Message);
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
     }
 
     [Fact]
@@ -2887,234 +1851,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ", "readonly");
     }
 
-    [Theory]
-    [InlineData("bump(ref value)", "ref")]
-    [InlineData("reset(out this.value)", "out")]
-    public void ReadonlyField_RefOutArgumentOutsideConstructor_Error(string statement, string modifier)
-    {
-        var result = AnalyzeWithSource($$"""
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            class Counter {
-                readonly value: int
-
-                constructor() {
-                    value = 1
-                }
-
-                func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
-        Assert.Contains("remove `readonly`", error.Suggestion);
-    }
-
-    [Fact]
-    public void ReadonlyField_QualifiedInstanceAssignmentOutsideConstructor_Error()
-    {
-        var result = AnalyzeWithSource("""
-            class Counter {
-                readonly value: int
-
-                constructor() {
-                    value = 1
-                }
-
-                func Mutate(other: Counter) {
-                    other.value = 2
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("Field 'value' is readonly", error.Message);
-        Assert.Contains("constructor", error.Message);
-        Assert.Contains("remove `readonly`", error.Suggestion);
-    }
-
-    [Fact]
-    public void ReadonlyField_QualifiedInstanceAssignmentInConstructor_Error()
-    {
-        var result = AnalyzeWithSource("""
-            class Counter {
-                readonly value: int
-
-                constructor(other: Counter) {
-                    value = 1
-                    other.value = 2
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("current instance", error.Message);
-        Assert.Contains("current instance field directly", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("bump(ref other.value)", "ref")]
-    [InlineData("reset(out other.value)", "out")]
-    public void ReadonlyField_QualifiedInstanceRefOutArgument_Error(string statement, string modifier)
-    {
-        var result = AnalyzeWithSource($$"""
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            class Counter {
-                readonly value: int
-
-                constructor() {
-                    value = 1
-                }
-
-                func Mutate(other: Counter) {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("Field 'value' is readonly", error.Message);
-        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
-        Assert.Contains("remove `readonly`", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("value = 2")]
-    [InlineData("this.value = 2")]
-    public void ReadonlyField_InheritedAssignmentOutsideConstructor_Error(string statement)
-    {
-        var result = AnalyzeWithSource($$"""
-            class Base {
-                readonly value: int = 1
-            }
-
-            class Derived : Base {
-                func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("Field 'value' is readonly", error.Message);
-        Assert.Contains("constructor", error.Message);
-    }
-
-    [Theory]
-    [InlineData("value = 2")]
-    [InlineData("this.value = 2")]
-    public void ReadonlyField_InheritedAssignmentInDerivedConstructor_Error(string statement)
-    {
-        var result = AnalyzeWithSource($$"""
-            class Base {
-                readonly value: int = 1
-            }
-
-            class Derived : Base {
-                constructor() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("current instance", error.Message);
-        Assert.Contains("current instance field directly", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("bump(ref value)", "ref")]
-    [InlineData("reset(out this.value)", "out")]
-    public void ReadonlyField_InheritedRefOutArgument_Error(string statement, string modifier)
-    {
-        var result = AnalyzeWithSource($$"""
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            class Base {
-                readonly value: int = 1
-            }
-
-            class Derived : Base {
-                func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("Field 'value' is readonly", error.Message);
-        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
-    }
-
-    [Theory]
-    [InlineData("value++", "++")]
-    [InlineData("this.value--", "--")]
-    public void ReadonlyField_InheritedIncrement_Error(string statement, string op)
-    {
-        var result = AnalyzeWithSource($$"""
-            class Base {
-                readonly value: int = 1
-            }
-
-            class Derived : Base {
-                func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("Field 'value' is readonly", error.Message);
-        Assert.Contains($"'{op}'", error.Message);
-    }
-
-    [Theory]
-    [InlineData("value++", "++")]
-    [InlineData("this.value--", "--")]
-    public void ReadonlyField_IncrementOutsideConstructor_Error(string statement, string op)
-    {
-        var result = AnalyzeWithSource($$"""
-            class Counter {
-                readonly value: int
-
-                constructor() {
-                    value = 1
-                }
-
-                func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("Field 'value' is readonly", error.Message);
-        Assert.Contains($"'{op}'", error.Message);
-        Assert.Contains("remove `readonly`", error.Suggestion);
-    }
-
     [Fact]
     public void ReadonlyField_IncrementCurrentInstanceInConstructor_Valid()
     {
@@ -3129,52 +1865,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
             }
         """);
-    }
-
-    [Theory]
-    [InlineData("other.value++", "++")]
-    [InlineData("other.value--", "--")]
-    public void ReadonlyField_QualifiedInstanceIncrement_Error(string statement, string op)
-    {
-        var result = AnalyzeWithSource($$"""
-            class Counter {
-                readonly value: int
-
-                constructor() {
-                    value = 1
-                }
-
-                func Mutate(other: Counter) {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("Field 'value' is readonly", error.Message);
-        Assert.Contains($"'{op}'", error.Message);
-        Assert.Contains("remove `readonly`", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("State.Value++", "++")]
-    [InlineData("Value--", "--")]
-    public void StaticReadonlyField_Increment_Error(string statement, string op)
-    {
-        var result = AnalyzeWithSource($$"""
-            class State {
-                static readonly Value: int = 1
-
-                static func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("static readonly", error.Message);
-        Assert.Contains($"'{op}'", error.Message);
-        Assert.Contains("declaration", error.Suggestion);
     }
 
     [Theory]
@@ -3204,26 +1894,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         """);
     }
 
-    [Fact]
-    public void StaticReadonlyField_InheritedAssignment_Error()
-    {
-        var result = AnalyzeWithSource("""
-            class Base {
-                static readonly Value: int = 1
-            }
-
-            class Derived : Base {
-                static func Mutate() {
-                    Derived.Value = 2
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("Field 'Value' is static readonly", error.Message);
-        Assert.Contains("field initializer", error.Suggestion);
-    }
-
     [Theory]
     [InlineData("bump(ref Derived.Value)")]
     [InlineData("reset(out Derived.Value)")]
@@ -3248,108 +1918,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
             }
         """);
-    }
-
-    [Theory]
-    [InlineData("bump(ref Derived.Value)", "ref")]
-    [InlineData("reset(out Derived.Value)", "out")]
-    public void StaticReadonlyField_InheritedRefOutArgument_Error(string statement, string modifier)
-    {
-        var result = AnalyzeWithSource($$"""
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            class Base {
-                static readonly Value: int = 1
-            }
-
-            class Derived : Base {
-                static func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("static readonly", error.Message);
-        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
-        Assert.Contains("declaration", error.Suggestion);
-    }
-
-    [Fact]
-    public void StaticReadonlyField_InheritedIncrement_Error()
-    {
-        var result = AnalyzeWithSource("""
-            class Base {
-                static readonly Value: int = 1
-            }
-
-            class Derived : Base {
-                static func Mutate() {
-                    Derived.Value++
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("static readonly", error.Message);
-        Assert.Contains("'++'", error.Message);
-        Assert.Contains("declaration", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("State.Value = 2", "Value")]
-    [InlineData("Value = 2", "Value")]
-    public void StaticReadonlyField_SetOutsideDeclaration_Error(string statement, string fieldName)
-    {
-        var result = AnalyzeWithSource($$"""
-            class State {
-                static readonly Value: int = 1
-
-                static func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains($"Field '{fieldName}' is static readonly", error.Message);
-        Assert.Contains("field initializer", error.Suggestion);
-    }
-
-    [Theory]
-    [InlineData("bump(ref State.Value)", "ref")]
-    [InlineData("reset(out State.Value)", "out")]
-    [InlineData("bump(ref Value)", "ref")]
-    public void StaticReadonlyField_RefOutArgument_Error(string statement, string modifier)
-    {
-        var result = AnalyzeWithSource($$"""
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            class State {
-                static readonly Value: int = 1
-
-                static func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
-        Assert.Contains("static readonly", error.Message);
-        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
-        Assert.Contains("declaration", error.Suggestion);
     }
 
     [Fact]
@@ -4015,54 +2583,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void ListPattern_IEnumerablePattern_ReportsPatternTypeMismatch()
-    {
-        var result = Analyze(@"
-            import System.Collections.Generic
-
-            func Main(values: IEnumerable<int>): int {
-                return match values {
-                    [first] => first,
-                    _ => 0
-                }
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.PatternTypeMismatch);
-        Assert.Contains("arrays or indexable collections", error.Message);
-        Assert.Contains("IEnumerable<int>", error.Message);
-    }
-
-    [Theory]
-    [InlineData("value: string", "< \"m\"", "string", "string")]
-    [InlineData("value: string", "== \"m\"", "string", "string")]
-    [InlineData("value: object", "== 1", "object", "int")]
-    [InlineData("value: int?", "< 1", "int?", "int")]
-    [InlineData("value: decimal", "< 1m", "decimal", "decimal")]
-    public void RelationalPattern_UnsupportedComparison_ReportsTypeMismatch(
-        string declaration,
-        string pattern,
-        string valueType,
-        string patternType)
-    {
-        var result = Analyze($$"""
-            func Main({{declaration}}): int {
-                return match value {
-                    {{pattern}} => 1,
-                    _ => 0
-                }
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("Relational pattern", error.Message);
-        Assert.Contains($"'{valueType}'", error.Message);
-        Assert.Contains($"'{patternType}'", error.Message);
-        Assert.Contains("before IL emission", error.Message);
-        Assert.Contains("match guard", error.Suggestion);
-    }
-
-    [Fact]
     public void RelationalPattern_NumericWidening_IsValid()
     {
         AssertNoErrors("""
@@ -4361,21 +2881,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 let items: IEnumerable<string> = [""a"", ""b""]
             }
         ");
-    }
-
-    [Fact]
-    public void CollectionExpression_IQueryableAssignment_ReportsFeatureNotImplemented()
-    {
-        var result = Analyze(@"
-            import System.Linq
-
-            func Main() {
-                let items: IQueryable<int> = [1, 2, 3]
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("Collection expressions for 'IQueryable<int>'", error.Message);
     }
 
     [Fact]
@@ -4723,40 +3228,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void TestDefaultParametersRequiredAfterOptional()
-    {
-        // Invalid: required parameter after optional parameter
-        var result = Analyze(@"
-            func Invalid(a: int = 1, b: int) {
-                print a
-            }
-        ");
-
-        Assert.NotEmpty(result.Errors);
-        var error = result.Errors[0];
-        Assert.Equal(ErrorCode.RequiredParameterAfterOptional, error.Code);
-        Assert.Contains("'b'", error.Message);
-        Assert.Contains("can't come after optional", error.Message);
-    }
-
-    [Fact]
-    public void TestDefaultParametersMultipleRequiredAfterOptional()
-    {
-        // Invalid: multiple required parameters after optional ones
-        var result = Analyze(@"
-            func Invalid(a: int, b: int = 1, c: int, d: string) {
-                print a
-            }
-        ");
-
-        Assert.NotEmpty(result.Errors);
-        // Should report error for first required parameter after optional
-        var error = result.Errors.FirstOrDefault(e => e.Code == ErrorCode.RequiredParameterAfterOptional);
-        Assert.NotNull(error);
-        Assert.Contains("'c'", error.Message);
-    }
-
-    [Fact]
     public void TestDefaultParametersWithNullLiteral()
     {
         // Valid: nullable type with null default
@@ -4810,26 +3281,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
 
         Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void TestDefaultParametersInvalidNonConstant()
-    {
-        // Invalid: non-constant expression as default
-        var result = Analyze(@"
-            func GetValue(): int {
-                return 42
-            }
-
-            func Invalid(x: int = GetValue()) {
-                print x
-            }
-        ");
-
-        Assert.NotEmpty(result.Errors);
-        var error = result.Errors.FirstOrDefault(e => e.Code == ErrorCode.InvalidDefaultParameterValue);
-        Assert.NotNull(error);
-        Assert.Contains("default value for", error.Message);
     }
 
     [Fact]
@@ -5812,27 +4263,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
             }
         ", AspNetCoreConfig);
-    }
-
-    [Fact]
-    public void MethodGroupToClrDelegate_RejectsNumericParameterConversion()
-    {
-        var result = Analyze(@"
-            import System
-
-            func Use(action: Action<int>) {
-            }
-
-            func AcceptLong(value: long) {
-            }
-
-            func Main() {
-                Use(AcceptLong)
-            }
-        ");
-
-        Assert.True(result.HasErrors, "Expected method group binding to reject numeric parameter conversion.");
-        Assert.Contains(result.Errors, error => error.Code == ErrorCode.TypeMismatch);
     }
 
     [Fact]
@@ -8835,35 +7265,6 @@ func Describe(value: int | string): int {
     }
 
     // ── stackalloc length: full semantic analysis (NL301/NL202) ────────────
-
-    [Fact]
-    public void StackAlloc_SmallIntLengths_Accepted()
-    {
-        // byte/sbyte/short/ushort/char widen implicitly to int (N#'s element-count rule).
-        var result = Analyze(@"
-func Scratch(b: byte, s: short, c: char): int {
-    s1 := stackalloc byte[b]
-    s2 := stackalloc byte[s]
-    s3 := stackalloc byte[c]
-    return s1.Length + s2.Length + s3.Length
-}");
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedVariable);
-    }
-
-    [Fact]
-    public void StackAlloc_AliasedSmallIntLength_Accepted()
-    {
-        var result = Analyze(@"
-type Count = short
-
-func Scratch(count: Count): int {
-    scratch := stackalloc byte[count]
-    return scratch.Length
-}");
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedVariable);
-    }
 
     [Fact]
     public void StackAlloc_LengthExpression_RecordedInSemanticModel()

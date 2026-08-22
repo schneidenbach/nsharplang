@@ -255,6 +255,47 @@ with the length of the member name. `nlc test`'s table syntax already had a `[Th
 `tests/native/parser-literal-facts`; what is new is that this is the first of `AnalyzerTests.cs`'s
 35, and that per-row identity earned its keep on the first try.
 
+**TRANCHE 3 — the WHOLE remaining direct-`Analyze` + `ErrorCode` shape plus the first 56 of the
+`AnalyzeWithSource` + `ErrorCode` shape — followed in slice 31, and after it the direct-`Analyze` +
+`ErrorCode` shape is at ZERO.** 80 methods (49 `[Fact]` + **31 `[Theory]`s**), 1,349 declaration
+lines, 1,599 deleted C# lines, 242 in-body `Assert.` occurrences, 90 `InlineData` rows, 139 fixtures
+and 570 decoded claim rows, extending `tests/native/analyzer-clean-source` again (project count
+still 39). The `AnalyzeWithSource` prefix is cut at line 3353, the end of the readonly-field
+subject. **This is the first tranche in which NO helper dies** — `Analyze` keeps 15 consumers plus
+both `Assert*` helpers, `AnalyzeWithSource` keeps 26 plus the 33 beyond the cut — and that was
+verified rather than assumed.
+
+**THE TABLE CAPABILITY STOPPED BEING A MILESTONE.** 31 tables in one slice against slice 30's one:
+31 of the residue's 34 `[Theory]`s and 90 of its 97 `InlineData` rows. Columns are deduplicated by
+per-row VALUE TUPLE — two pins that vary identically share one column — and every C# parameter that
+survives only inside a claim is kept load-bearing by rebuilding the deleted substring in the body
+(`assert AcRow(rich, 0).Contains("'" + operandType + "'")`). The widest is
+`Write_NullConditionalTarget_Error` at twelve rows.
+
+**THE HEADLINE IS AN ANCHOR DEFECT IN THE ONE-ARGUMENT ROUTE, AND IT IS 23 ROWS WIDE.** Every one of
+the 139 fixtures was analysed through BOTH entry points. Of the 148 resulting row pairs, **23 differ
+in LENGTH and the plain route reports `1` in every single one of the 23** while production reports
+the real token width (2, 3, 5, 6, 7). The one-argument overload is handed no source text and so
+cannot measure a token; it emits a one-column underline and no caller can tell. Slice 30's anchor
+audit had already recorded `NL202` anchors as "TRUNCATED … single letters" — this names the cause.
+Seven SUGGESTIONS and three MESSAGES also differ, and `ContextualHint` is non-null on 11 rich rows
+and 0 plain ones. Not one of the 242 deleted `Assert.` calls read a line, a column or a length, so
+none of it was visible from `AnalyzerTests.cs`.
+
+**FIVE OF THE THIRTEEN ABSENCE CLAIMS WERE VACUOUS, AND A CONTROL PROVES IT.** Three fixtures —
+`GenericListOfNSharpType_CountProperty_IsNotMethodGroup`, `StackAlloc_SmallIntLengths_Accepted`,
+`StackAlloc_AliasedSmallIntLength_Accepted` — report NOTHING at all. Control V2 rewrites one of
+their absence claims to name two DIFFERENT absent codes and the comparator does not move; control V3
+does the same edit on a discriminating fixture and loses a row; control V1 strips the empty-census
+pin from the three N# contracts and loses five. The other eight absence claims are discriminating.
+Unlike tranche 2, **all 139 fixtures parse cleanly** — 139 empty parse censuses, 139 successes — so
+every analysis row is provably the analyzer's own.
+
+**The same sentence can have two owners, one per route.** `Method 'X' must be called or passed to a
+delegate` lives in `ErrorMessageBuilder.nl` (production route) AND in
+`AnalyzerReflectionCallReporter.nl` (plain route); mutating either moves exactly 5 native contracts,
+which is what pinning both routes on every fixture buys.
+
 **Why the estate half is EMPTY here is itself a measurement.** `SemanticModel.nl` IS N# in the
 estate and `SemanticModel.tests.nl` already owns its ALGEBRA — it constructs a model directly,
 hand-records entries and pins the lookup ranking, the scope-depth rule and the inclusive bounds.
