@@ -55,9 +55,11 @@ class ColumnarInterpolationSplitter {
         text := new StringBuilder(literal.Length)
         i := 2
         end := literal.Length - 1
+        isRaw := false
         if literal.Length >= 7 && literal[1] == '"' && literal[2] == '"' && literal[3] == '"' && literal[literal.Length - 1] == '"' && literal[literal.Length - 2] == '"' && literal[literal.Length - 3] == '"' {
             i = 4
             end = literal.Length - 3
+            isRaw = true
         } else {
             if literal[1] != '"' {
                 return -1
@@ -89,6 +91,16 @@ class ColumnarInterpolationSplitter {
                 }
 
                 close := FindColumnarInterpolatedStringClose(literal, i + 1, end)
+
+                // Raw-string parity with ParseInterpolatedString's `{`-literal heuristic: in a `$"""…"""`
+                // literal a `{` with no closing `}`, or whose brace group spans lines (the outer braces of
+                // an embedded JSON object), is literal TEXT, not a hole.
+                if isRaw && (close < 0 || ColumnarInterpolatedStringRangeSpansLine(literal, i + 1, close)) {
+                    text.Append('{')
+                    i = i + 1
+                    continue
+                }
+
                 if close < 0 {
                     return -1
                 }
@@ -156,6 +168,14 @@ class ColumnarInterpolationSplitter {
                     }
                 }
 
+                // Raw-string parity with ParseInterpolatedString: a lone `}` in a `$"""…"""` literal is
+                // literal TEXT (the closing brace of an embedded JSON object), not a malformed escape.
+                if isRaw {
+                    text.Append('}')
+                    i = i + 1
+                    continue
+                }
+
                 return -1
             }
 
@@ -212,6 +232,20 @@ class ColumnarInterpolationSplitter {
         }
 
         return -1
+    }
+
+    static func ColumnarInterpolatedStringRangeSpansLine(literal: string, start: int, end: int): bool {
+        i := start
+        while i < end {
+            c := literal[i]
+            if c == '\n' || c == '\r' {
+                return true
+            }
+
+            i = i + 1
+        }
+
+        return false
     }
 
     static func FindColumnarInterpolatedStringColon(literal: string, start: int, length: int): int {

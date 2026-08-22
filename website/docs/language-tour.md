@@ -935,6 +935,29 @@ WHERE name = '{name}'
 print sql
 ```
 
+In a raw interpolated string, `{expr}` is an interpolation hole exactly as in `$"..."` —
+including right after a colon, so JSON templating works naturally:
+
+```n#
+json := $"""
+{
+    "name": "{person.Name}",
+    "age": {person.Age}
+}
+"""
+```
+
+Two leniencies make embedded JSON and templates pleasant, with no `{{` escaping needed
+for structural braces:
+
+- A `{` that opens a **multi-line** brace group — like the outer JSON braces above — is
+  literal text. Only a brace group that opens and closes on one line is a hole.
+- A `{` with no closing `}` before the end of the string is literal text.
+
+To write a *single-line* literal brace group, escape with doubled braces: `{{` and `}}`
+each produce one literal brace. Format specifiers work inside holes as usual:
+`{price:F2}`.
+
 ## Imports and Packages
 
 ```n#

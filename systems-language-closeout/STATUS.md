@@ -5894,6 +5894,21 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
   with its own oracle work; pinning it means the fix will be visible as a contract change rather than
   as a silent one.
 
+  **[RESOLVED BY THE RAW-INTERPOLATION RULING SLICE]** The suspected defect IS one, and the fix
+  landed exactly as the pin predicted — as a visible contract change. The ruling: C#'s `:`-starts-a-
+  format-specifier rule applies INSIDE a hole, after an expression; the ported lookbehind mis-scoped
+  it to TEXT context, was inconsistent with the ordinary `$"…"` form, carried action-at-a-distance
+  (a colon on an EARLIER line suppressed the next line's hole), silently defeated raw-string JSON
+  templating with no diagnostic and no `$$`-style escape hatch, and even the shipped
+  `InterpolatedRawStrings` example had dodged it with `{{name}}` escapes that stopped demonstrating
+  interpolation. No design record, doc, or comment ever claimed it. The colon prong is REMOVED from
+  `ParseInterpolatedString`'s raw `{`-literal heuristic (the unclosed-`{` and multi-line-group
+  prongs stay — they are the intended JSON leniencies, now specified in the language tour);
+  `ColumnarInterpolationSplitter` gained the SAME raw leniencies so the emitter's hole plan agrees
+  with the parser (a raw JSON template now EMITS: text braces literal, `"age": {person.Age}` a live
+  hole — verified end-to-end by execution). The slice-20 contract now states two holes and three
+  text parts; the splitter contracts state the parity; the example interpolates again.
+
   **AND FOUR MORE, EACH NAMED WITH WHAT MAKES IT NEW.** **An N# raw string literal keeps its own
   indentation**: `Value` carries the leading newline, every line's leading spaces and the trailing
   indentation before the closing delimiter, so C#'s closing-delimiter indent-stripping rule does NOT
