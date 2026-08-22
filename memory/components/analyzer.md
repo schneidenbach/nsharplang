@@ -960,6 +960,15 @@ Analyzer coverage is split deliberately across:
   over interpolation holes, member accesses, and type annotations in every composite position
   (nullable, array, generic argument, delegate argument), and `FindAllReferences` with its WHOLE
   usage list rather than a count floor. Same native route and same reason.
+- `tests/native/analyzer-error-handling` for what the analyzer reports over MALFORMED and
+  C#-SHAPED source — undefined variables and functions, type and return-type mismatches, wrong
+  argument counts, duplicate declarations, unreachable code after `return` / two `return`s / `throw` /
+  an if-else whose branches both return, missing returns, and `break` / `continue` outside a loop.
+  Same native route and same reason. It also drives the **LINTER** over the same fixtures, and that
+  pairing is why it is one project rather than two: **the two owners DISAGREE on the if-else case.**
+  The analyzer reports `NL312:UnreachableStatement@7:5+1`; the linter reports NOTHING, while it does
+  report `NL006` for the other three terminators. The empty linter census is pinned deliberately, so
+  closing the divergence is a decision rather than an accident (task 020 slice 25).
 - `tests/AnalyzerTests.cs` for analyzer-shell diagnostics, flow analysis, call binding, and
   end-to-end semantic behavior.
 

@@ -185,7 +185,18 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   the `on` / `off` EVENT-SUBSCRIPTION corpus — the subscription as a bare expression statement, as a
   `:=` initializer and over a `this` receiver, the `off` statement, `on` / `off` used as ordinary
   identifiers, and a context control in which a local named `on` does not stop the next line parsing
-  a subscription (task 020 slice 24, migrated from `tests/EventSubscriptionTests.cs`). **The two entry points do not
+  a subscription (task 020 slice 24, migrated from `tests/EventSubscriptionTests.cs`); and
+  `ColumnarParserErrorHandling.tests.nl` pins whole trees over the ERROR-HANDLING corpus — 24
+  fixtures of malformed and C#-shaped source, 13 of which report a diagnostic and 11 of which report
+  NONE, each with its census and every diagnostic pinned WHOLE through `PeRow` (task 020 slice 25,
+  migrated from `tests/ErrorHandlingTests.cs`). **That file is where the `var` fact is written down**:
+  `var x = 5` is C# and not N#, so the parser reads `var` as an ordinary IdentifierExpression
+  statement and `x = 5` as a separate AssignmentExpression statement — twice the statements the
+  fixture's author intended, and none of them a declaration. Its other measured finds: an unterminated
+  `/* … */` swallows the WHOLE file and reports NOTHING; `func main() ` with no body parses silently
+  to a NULL `Body` (as against the empty BlockStatement `func main() {}` produces); 100 nested
+  parentheses produce 100 real `ParenthesizedExpression` nodes with no collapsing and no depth cap;
+  and a 1000-character identifier is carried whole with correct columns past 999. **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.

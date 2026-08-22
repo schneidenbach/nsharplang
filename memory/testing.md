@@ -64,6 +64,26 @@ program. **The whole usage LIST is now pinned, and that mattered**: the deleted
 `Assert.True(usages.Count >= 2)` was hiding a reference set of five in which three entries are the
 same position.
 
+**ERROR HANDLING — MALFORMED SOURCE, RECOVERY AND THE DIAGNOSTICS OVER IT — has no C# assertion
+layer either, as of task 020 slice 25.** `tests/ErrorHandlingTests.cs` is DELETED and its 39
+`[Fact]`s split 24 / 15 by subject, the third file this arc has split. **The subject test does not
+follow the method NAMES**: three methods called `Parser_*` assert only over `AnalysisResult` and are
+in the analyzer half. The PARSE half — 29 of the file's 57 decoded claim rows — is
+`ColumnarParserErrorHandling.tests.nl` in the estate, as WHOLE-TREE goldens. **This is the first
+tranche whose clean-parse pin is NON-EMPTY by design**: 13 of the 24 fixtures report 17 diagnostics
+between them, every one named by code, line, column and length AND pinned whole through `PeRow`, and
+the other 11 pin an EMPTY census — four of them fixtures whose names say the parser should be
+complaining. The ANALYSIS half is `tests/native/analyzer-error-handling`, which also drives the
+LINTER, because one deleted method drove both owners over one fixture and the PAIRING is the content.
+
+**What the deleted file could not see, and why the split earns itself:** 21 of the 24 parse methods
+asserted `Assert.NotNull(unit)` and NOTHING ELSE, so a parser returning an empty unit for all 21
+passed all 21 — and one fixture (an unterminated `/* … */`) really does return an empty unit, and
+reports no diagnostic about it. On the analysis side, `Assert.Contains(result.Errors, e =>
+(int)e.Code >= 200 && (int)e.Code < 300)` is a claim about a NUMERIC RANGE that is silent about every
+other row; two fixtures report more rows than the assertion named, and in both the extra rows are
+`NL301` on the word `var`.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
@@ -513,8 +533,14 @@ ARGUMENT TYPES the cluster's subject calls take — measured by probe, not assum
 
 **A file can have TWO subjects, and then it splits.** Membership is decided per CLUSTER, not per
 file: `tests/AstNodeFinderTests.cs` (slice 23) had a finder subject in the estate and an analyzer
-subject above it, and `tests/EventSubscriptionTests.cs` (slice 24) had a parser subject in the estate
-and an analyzer subject above it. Both were split rather than forced whole through the weaker route.
+subject above it, `tests/EventSubscriptionTests.cs` (slice 24) had a parser subject in the estate
+and an analyzer subject above it, and `tests/ErrorHandlingTests.cs` (slice 25) had the same pair.
+All three were split rather than forced whole through the weaker route. **Decide membership by
+decoding what each method CALLS, never by its name** — slice 25's file has three methods named
+`Parser_*` whose only claims are over `AnalysisResult`, and they belong in the native half.
+**And a subject the estate CAN reach may still belong in the native half**: slice 25's `Linter` rows
+are native, because the one deleted method that drove both owners drove them over ONE fixture and the
+pairing is what states the finding — that on one input the analyzer reports and the linter does not.
 Each native project carries its OWN reflection plumbing — `SetCompletionObject` / `SetDocQueryObject`
 / `SetEventObject` are the same idiom written per project — so a new subject gets a NEW sibling
 project named for it rather than a second tenancy in one named for something else.
