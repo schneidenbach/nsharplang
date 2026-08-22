@@ -3935,7 +3935,422 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 25 DELETES `tests/ErrorHandlingTests.cs` AND SPLITS
+- Active sub-slice (020 arc, THIS TURN — **SLICE 26 TAKES THE FIRST HALF OF
+  `tests/AnalyzerSemanticModelTests.cs`. THE FILE IS 1,361 C# LINES / 51 `[Fact]`s / 323 `Assert.`
+  OCCURRENCES / 390 RATCHET MARKERS, AND THE MEASURED SHAPE FORCES A SPLIT ACROSS TWO SLICES: THE
+  ~700-LINE CAP CANNOT HOLD IT. THIS SLICE TAKES THE 33 SEMANTIC-MODEL QUERY FACTS (631 DECLARATION
+  LINES, 134 `Assert.`) INTO A NEW NATIVE PROJECT; SLICE 27 TAKES THE 18 NOMINAL-TYPE FACTS. THE
+  RATCHET ROW SHRINKS EXACT-MATCH RATHER THAN BEING REMOVED.**)
+
+  ### THE MEASUREMENT, RECORDED BEFORE ANY EDIT
+
+  The classification is a mechanical decode, not a reading: a script walks every `[Fact]`, extracts
+  its body by brace balance, and classifies it by WHAT THE BODY CONSTRUCTS AND NAMES.
+
+  **ALL 51 BODIES CALL THE PRIVATE `Analyze(source)` HELPER, WHICH CONSTRUCTS `new Analyzer()`** —
+  measured, `51 / 51` — so like `AnalyzerTests.cs` this is a WHOLE-FILE NATIVE MOVE with **no estate
+  half at all**. There is no parse-only fact: the helper's own
+  `Assert.NotNull(parseResult.CompilationUnit)` is one of the file's two non-`[Fact]` asserts and is
+  expanded at each call site rather than being a fixture of its own.
+
+  **WHY THE ESTATE HALF IS EMPTY IS ITSELF A MEASUREMENT, NOT AN ASSUMPTION.** `SemanticModel.nl`
+  IS N# in the estate and the estate ALREADY owns its algebra: `SemanticModel.tests.nl` (546 lines,
+  25 contracts) constructs a `SemanticModel()` DIRECTLY, hand-records variables/properties/fields/
+  functions/types/expression types/scopes, and pins the lookup ranking, the scope-depth rule and the
+  inclusive bounds. What no estate contract can reach is the **POPULATION** — every one of the 51
+  deleted claims is over a model filled in by `Analyzer.Analyze`, and `Analyzer` is the C# class in
+  `Compiler.dll`, which depends on the estate rather than the other way round.
+
+  | group | facts | decl lines | `Assert.` | what the body names |
+  |---|---|---|---|---|
+  | **A — the SemanticModel QUERY surface (THIS SLICE)** | **33** | **631** | **134** | 53 surface reads: `LookupIdentifier` 16 (in 13 methods), `LookupIdentifierAtPosition` 13 (5), `GetTypeMembers` 8 (7), `LookupTypeAtPosition` 4 (3), `Fields` 3 (2), `LookupTypeReferenceAtPosition` 3 (2), `Scopes` 2 (1), `GetVisibleVariablesAtPosition` 2 (1), `ExpressionTypes` 1 (1), `Properties` 1 (1) |
+  | B — the TypeInfo SOURCE-FACT walker (slice 27) | 2 | 285 | 158 | `SemanticModel.Types[…]` → `ClassTypeInfo` / `StructTypeInfo` / `RecordTypeInfo` / `InterfaceTypeInfo` and their `DeclaredMembers` |
+  | C — the diagnostics those nominal facts drive (slice 27) | 16 | 301 | 29 | **NO semantic-model surface at all** — every claim is `result.Errors` |
+
+  **33 + 2 + 16 = 51** and **134 + 158 + 29 = 321**, the 321 being the 323 file-wide `Assert.`
+  occurrences less the 2 in the helpers. Declaration lines **631 + 285 + 301 = 1,217**.
+
+  **AND THE SPLIT DOES NOT FOLLOW THE METHOD NAMES — SLICE 25's LESSON REPRODUCES EXACTLY ONCE.**
+  Seventeen methods are named `Analyzer_NominalTypes_*`; a name-based cut would have taken those 17
+  and left `Analyzer_RecordTypes_RecordStructFlagInSemanticModel` behind. The decode says that method
+  reads `SemanticModel.Types["Point"]` and asserts `RecordTypeInfo.IsStruct` — **the same instrument
+  as the 265-line `Analyzer_NominalTypes_SourceFactsInSemanticModel` monster and nothing like the
+  query surface** — so it belongs with group B. One method, misplaced by name, caught by decode.
+
+  **WHY THE SPLIT IS ACROSS SLICES AND NOT ACROSS ESTATES.** Group A is 631 declaration lines; groups
+  B + C are 586. Either alone fits the ~700-line budget slices 23-25 held to; together they do not.
+  Group A goes first because it is the file's title subject and its instrument is one coherent family
+  of lookup kernels. **`FindColumn` — the file's second helper — is used by 5 methods and ALL FIVE ARE
+  IN GROUP A**, so the helper dies with this half rather than lingering as dead code.
+
+  | successor | lines | declarations | takes |
+  |---|---|---|---|
+  | `tests/native/analyzer-semantic-model/` | 1,515 (81,276 bytes) | 40 kernels + 33 contracts | the 136 decoded claim rows, by reflection through `Compiler.dll` |
+  | `tests/AnalyzerSemanticModelTests.cs` | 1,361 → **643** | 51 → **18** `[Fact]`s | keeps groups B + C for slice 27 |
+
+  ### WHAT THE SUCCESSOR MEASURED THAT THE DELETED ASSERTIONS COULD NOT SEE
+
+  Every contract pins the WHOLE model for its fixture: all five flat tables, `TypeMembers`, BOTH
+  position tables, the scope count and the whole scope list, the analysis census and `HasErrors` —
+  plus the parse census, pinned and EMPTY for all 33, which is what makes every analysis row provably
+  the analyzer's own. Eight findings come out of that:
+
+  1. **THREE FIXTURES ARE BYTE-IDENTICAL DUPLICATES.** 33 methods use **30 distinct sources**: the
+     simplest function fixture is analysed twice (once for `x`, once for the scope count), the
+     two-field class twice (member table, then flat table) and the config class twice.
+  2. **FOUR "CLEAN" FIXTURES ARE NOT CLEAN.** Two report `NL903:VisibilityConventionWarning` on a
+     leading-underscore field (`_host` at 3:5+5, `_active` at 3:5+7) and one reports
+     `NL316:ShadowedDeclaration@5:9+1`; **`HasErrors` is TRUE for all three**, on fixtures whose
+     methods never mentioned diagnostics.
+  3. **A FUNCTION DOES NOT LOOK UP AS ITSELF.** The `Functions` table holds a `FunctionTypeInfo`
+     whose `ToString()` is the CLR NAME `NSharpLang.Compiler.FunctionTypeInfo`; `LookupIdentifier`
+     routes it through `GetFunctionLookupType` and answers the RETURN type. Both are pinned, so the
+     mapping is visible rather than implied.
+  4. **THE FLAT TABLES COLLIDE ACROSS SCOPES, WHICH IS WHY THE POSITION TABLES EXIST.** Two functions
+     with a parameter of the same name leave ONE row in `Variables` (the second); two overloads leave
+     ONE row in `Functions`; shadowing leaves the INNER type flat. Each collision is pinned beside the
+     position-aware answer that resolves it.
+  5. **EVERY SCOPE'S END COLUMN IS `int.MaxValue` — 136 of 136 — AND NO SCOPE ENDS ON THE FIXTURE'S
+     OWN LAST LINE**, minimum difference 1, 0 of 136 at difference 0. One deleted assertion said
+     `Scopes.Count >= 2`, which a model with twenty scopes would satisfy; every count here is exact.
+  6. **THE ANALYZER OPENS TWELVE SCOPES FOR TWO LAMBDAS.** The LINQ chain fixture opens **FIFTEEN**
+     scopes for one statement — eight at 6:30 and four at 6:49, all holding the same `x=int` —
+     because lambda bodies are re-entered during overload resolution and each entry opens a scope
+     that is never merged. The indexed `Select` opens four at 6:31, each holding BOTH parameters.
+  7. **`GetVisibleVariablesAtPosition` ANSWERS FUNCTIONS TOO** — `test=NSharpLang.Compiler.FunctionTypeInfo`
+     is in both censuses. **The perturbation panel found this by REFUSING a control** whose anchor,
+     written against the expected variable-only census, occurred ZERO times.
+  8. **THE TWO POSITION TABLES ARE DIFFERENT TABLES**, pinned separately for every fixture. The
+     inferred-array fixture pins `TypeReferenceTypes` EMPTY; the wrapped `int?[]` annotation records
+     exactly ONE row, at the type's START, and no row for the inner `int`.
+
+  ### THE PROBE — IN THE REPOSITORY, THEN DELETED — AND FIVE EMIT WALLS IT WALKED INTO
+
+  `tests/native/s26-probe/` carried the kernels under a cumulative-prefix bisect that added one
+  function at a time and reported the first that stopped emitting; it is DELETED, and the tree
+  carries no `ProbeS26` file, no `s26-probe` directory and no `.trx` anywhere. A second decoder — a
+  scratch C# console program kept OUTSIDE the repository — pasted each deleted method's
+  fixture-construction PREFIX verbatim, printed each fixture's sha256, LENGTH and N# spelling, ran
+  the deleted `FindColumn(source, line, needle, occurrence)` helper verbatim for all **six** cursor
+  columns, and dumped the whole model through the same production entry points.
+
+  **THE DIAGNOSIS RECIPE IS THE FIRST NEW CAUTION, AND IT COST THE MOST TIME.** `nlc test` prints only
+  the decline's HumanExplanation — *"This product path requires successful N# columnar emission after
+  analysis passes"* — with **NO decline site**, and `nlc check` never sees a `.tests.nl`. Copying the
+  kernels into a scratch project as a plain `.nl` and running `nlc check --json` prints the whole
+  `NL103` with `Declined at emit.local.unsupported-type: … (file:line:col)`. **And NL010 (unused
+  import) is a BUILD ERROR that fires BEFORE emit**, so a harness that treats "NL010 only" as success
+  reads a *stopped* pipeline as a *passing* one — which sent an early bisect chasing an import that
+  had nothing to do with the real wall.
+
+  | wall, measured by bisection | the shape that emits |
+  |---|---|
+  | a LOCAL typed `System.Collections.IDictionary` — `emit.local.unsupported-type` | walk the dictionary through its enumerator BY REFLECTION into an `object?[]` |
+  | a LOCAL typed `System.Collections.IEnumerable` — same site | as above; **`IList` locals ARE accepted**, but a `Dictionary<,>` is not an `IList` |
+  | a function whose RETURN TYPE is `IList` | cast at each use site instead; an `as IList` LOCAL in the same file is fine |
+  | an insertion sort over `List<string>` whose condition calls `String.Compare`, in a file that also carries a reflective `GetProperty`/`GetField` walk | sort a `string[]`, comparing character by character |
+  | `new Type[](0)` / `new object?[](0)` INLINED into `GetMethod(...)` / `Invoke(...)` | name them as locals first — slice 25's shape, byte for byte |
+
+  ### THE COMPARATOR — 136 C# CLAIM ROWS IN, 136 MATCHED, 0 MISSING, 0 UNDECODED ON BOTH SIDES
+
+  Fixture identity is by **sha256 of the decoded source**, never by ordering — which is why the three
+  duplicate fixtures merge correctly into 30 keys. Completeness arithmetic is exact and every step is
+  a count: **134 `Assert.` occurrences → 131 statements → 136 rows**. The −3 is the three `Assert.`
+  occurrences NESTED inside other asserts; the +5 is the five extra atomic claims those nested forms
+  carry, and **all three multi-claim statements are in the SAME method**, the overload one
+  (`Assert.IsType<T>` = a non-null claim AND a type claim; `Assert.Single(…)` inside an
+  `Assert.Equal` = a count claim AND a value claim). Row kinds reconcile: **63 nonnull + 58 value +
+  8 contains + 3 count + 2 type + 1 present + 1 atleast = 136**, and by route **136 analyzer + 0
+  parse**, because there is no parse route in this cluster at all.
+
+  The N# side decodes to **1,415 rows over 1,001 distinct (fixture, path) pairs against the C#'s 101
+  — a 9.9× widening.**
+
+  **AND THE 0-MISSING REQUIREMENT CAUGHT A REAL GAP AGAIN, IN ITS EIGHTH SLICE OF DOING SO.** The
+  first comparator run reported **5 missing**, all of them the `GetVisibleVariablesAtPosition` rows:
+  the query extractor that told the C# decoder which queries to RUN anchored its pattern with `$`,
+  so the paths that carry a `.ContainsKey("…")` suffix matched nothing and those two queries were
+  never executed. Corrected, the successor gained the two censuses and the count went 131 → 136.
+
+  ### THE ANCHOR AUDIT — 308 PINNED POSITIONS, EVERY ONE READ BACK OUT OF THE FIXTURE TEXT
+
+  | pinned kind | count | what sits at that position, measured |
+  |---|---|---|
+  | scope START | 136 | **`{` 38**, **PAST END OF LINE 33**, `func` 29, a lambda parameter 12, `class` 9, `(` 4, `record` 4, `struct` 2, a property name 2, `constructor` 1, `foreach` 1 |
+  | `ExpressionTypes` | 96 | a NUMBER 33, a WORD 31, **`(` 12**, `.` 6, `[` 5, `"` 4, `+` 3, `>` 1, `*` 1 |
+  | `TypeReferenceTypes` | 48 | a type NAME, **48 / 48** |
+  | queried scope position | 13 | the identifier or `print` the deleted method pointed at |
+  | queried expression position | 4 | `base` ×2, `x`, `sizeof` |
+  | analysis diagnostics | 5 | `_host` ×2, `_active`, `unknownFunction`, `x` |
+  | queried type-reference position | 3 | `Box`, `Person`, `int` |
+  | queried visibility / overload position | 2 / 1 | `y`, `z` / `Pick` |
+
+  **THE 33 PAST-END SCOPE STARTS ARE THE AUDIT'S OWN FIND, AND THEY ARE ALL THE SAME ROW**: every
+  fixture's GLOBAL scope anchors at **1:1**, and every fixture literal begins with a newline, so in
+  all 33 that position is an EMPTY LINE. **Scope end columns are `int.MaxValue` 136 / 136.**
+
+  ### TWENTY-SIX PERTURBATION CONTROLS, THREE REFUSALS, EVERY NON-MOVER PROVEN AND REPLACED
+
+  Every control edits a MATERIALISED COPY kept OUTSIDE the repository, asserts the anchor's
+  OCCURRENCE COUNT before editing, re-runs both decoders and the comparator, and requires the
+  undecoded counts to stay at zero. Baseline `in 136 / matched 136 / missing 0 / undecoded 0, 0`.
+
+  | control | Δ matched | Δ missing |
+  |---|---|---|
+  | N1 the function's LOOKUP answer | **−1** | +1 |
+  | N2 a member census loses a row | **−1** | +1 |
+  | N3 the FLAT fields census loses a row (2 sites) | **−1** | +1 |
+  | N4 every scope count 3 → 2 | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N4b every scope count 3 → **1** | **−1** | +1 |
+  | N5 the overload's expression-table POSITION moves | **−1** | +1 |
+  | N6 every `HasErrors` False → True (28 sites) | **−2** | +2 |
+  | N7 the selected overload's synthetic name | **−1** | +1 |
+  | N8 the source parameter's RUNTIME type | **−1** | +1 |
+  | N9 the visible set loses the block-local name | **−1** | +1 |
+  | N10 EVERY parse census gains a row (33 sites) | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N11 EVERY global scope's start position (33 sites) | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N12 the `Types` table's own row | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N13 a fixture BYTE changes, so its sha moves | **−4** | +4 |
+  | N14 the `Properties` table's value | **−1** | +1 |
+  | N15 an inner-scope position-aware answer becomes null | **−1** | +1 |
+  | N16 the type-reference TABLE loses its `?` | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N16b the same value read through the QUERY | **−1** | +1 |
+  | N17 an expression census GAINS a row | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N17b the (9,15) row is REMOVED from that census | **−1** | +1 |
+  | C1 a C# expected value changed (2 sites) | **−2** | +2 |
+  | C2 three C# asserts DELETED | **−3** | 0 |
+  | C3 a C# asserted `IsType<T>` changed | **−1** | +1 |
+  | C4 a C# `ContainsKey` name changed | **−1** | +1 |
+  | C5 a C# queried LINE changed | **−2** | +2 |
+  | C6 the C# scope-count floor raised 2 → 9 | **−1** | +1 |
+  | C7b EVERY `Assert.NotNull(result.SemanticModel)` deleted | **−21** | 0 |
+  | C8 a C# looked-up NAME changed | **−1** | +1 |
+
+  **EVERY NON-MOVER IS NON-OBSERVABLE BY CONSTRUCTION, AND EVERY PROOF IS AN EXACT COUNT OVER THE 136
+  DECODED C# ROWS:** rows reading a PARSE diagnostic **0**; rows naming a scope BOUND **0** (the only
+  scope row in the whole file is one `atleast 2`, which is why N4 cannot move and N4b must); rows
+  reading the `Types` table **0**; rows reading the `TypeReferenceTypes` TABLE **0** (the C# reads
+  that value through the QUERY, which is what N16b moves); rows naming an expression position other
+  than (9,15) **0**.
+
+  **THE OCCURRENCE-COUNT ASSERTION EARNED ITSELF THREE TIMES.** N4 was REFUSED at 12 — `assert
+  SmScopeCount(model) == 3` occurs **16** times — and re-run at the measured count. C7 was REFUSED at
+  24: `Assert.NotNull(result.SemanticModel);` occurs **23** times, and **only 21 of the 23 are in
+  group A**, which the −21 then confirms from the other direction. And N9 was REFUSED because its
+  anchor occurred **ZERO** times — the census it was written against did not exist, because
+  `GetVisibleVariablesAtPosition` answers the FUNCTION as well as the variables. That refusal is
+  finding 7 above.
+
+  ### THE NATIVE MUTATION PANEL — FIVE VERDICTS, FOUR PREDICTIONS EXACT, ONE COMPUTED CORRECTION
+
+  Each mutation edits a production owner, REBUILDS the CLI — which publishes `Compiler.dll` and
+  `NSharpLang.Compiler.BootstrapServices.dll` into the directory the native projects take as `dll:`
+  dependencies — and re-runs the new subject together with the seven other `Compiler.dll`-driven
+  native projects, so the sibling column is measured. Baseline, all green: subject **33 / 33**,
+  `analyzer-error-handling` 15, `analyzer-event-subscription` 7, `analyzer-binding-map` 13,
+  `analyzer-identifier-binding` 4, `completion-engine` 12, `query-completions` 1, `doc-query` 11.
+
+  | mutation | owner | own | predicted | siblings |
+  |---|---|---|---|---|
+  | MN1 — the FUNCTION rank is removed from `LookupIdentifier` | `SemanticModel.nl` | **1 / 33** | 1 | none |
+  | MN2 — `GetVisibleVariablesAtPosition` stops adding the scope's FUNCTIONS | `SemanticModel.nl` | **1 / 33** | 1 | none |
+  | MN3 — position-aware lookup takes the SHALLOWEST containing scope | `SemanticModel.nl` | **1 / 33** | 1 | none |
+  | MN4 — `LookupTypeAtPosition` reads the TYPE-REFERENCE table | `SemanticModel.nl` | **4 / 33** | 4 | **1** (`completion-engine`) |
+  | MN5 — the CALL-SITE expression type is never recorded | **`Analyzer.cs` — C# in `Compiler.dll`** | **1 / 33** | 4 | none |
+
+  **MN3's PREDICTION IS THE ONE WORTH READING.** Reversing the depth rule was predicted to move ONE
+  of the five position-aware contracts, not all five, and the reason was computed before the run: the
+  depth comparison only arbitrates among scopes that HOLD THE NAME, and in four of the five fixtures
+  each name lives in exactly one scope. Only the shadowing fixture has `x` in two.
+
+  **MN5's PREDICTION WAS WRONG, AND THE REASON IS A COMPUTATION THE SURVIVORS STATE.** Deleting
+  `case 14`'s `RecordExpressionType(call.Callee.Line, call.Callee.Column, …)` was predicted to move
+  the four contracts whose expression census carries a method-typed row; it moves **one**, and the
+  runner names it — the overload contract. So the LINQ chain's `Where(...)` / `Select(...)` /
+  `ToList(...)` rows and the `base.value()` row at 17:20 are recorded on a DIFFERENT path, not
+  through the call driver's step 14; step 14 fires only where call analysis carries a resolved
+  OVERLOAD SET back to the callee position, which in this corpus happens exactly once.
+
+  **MN5 IS ALSO THE ROUTE'S OWN JUSTIFICATION**, and the estate panel below is the other half of it.
+
+  ### THE ESTATE MUTATION PANEL — THE SAME OWNERS, AGAINST A VERIFIED GREEN 6,316
+
+  **THE BASELINE IS `Failed: 0, Passed: 6316, Total: 6316`**, established fresh under the restore-flag
+  discipline (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`) — and it is
+  UNCHANGED from slice 25's, which it must be, because this slice adds no estate contract.
+
+  | mutation | owner | estate failures | predicted |
+  |---|---|---|---|
+  | ME1 — the FUNCTION rank is removed from `LookupIdentifier` | `SemanticModel.nl` | **3 / 6316** | 3 |
+  | ME2 — `LookupTypeAtPosition` reads the TYPE-REFERENCE table | `SemanticModel.nl` | **2 / 6316** | 2 |
+  | ME3 — the CALL-SITE expression type is never recorded | **`Analyzer.cs` — C#** | **0 / 6316** | 0 |
+  | ME4 — `GetVisibleVariablesAtPosition` stops adding the FUNCTIONS | `SemanticModel.nl` | **1 / 6316** | 1 |
+
+  **ALL FOUR ESTATE PREDICTIONS MATCHED EXACTLY, AND ME3 IS THE BLIND SPOT MEASURED FROM BOTH SIDES.**
+  The same one-statement edit to C# inside `Compiler.dll` moves **0 of 6,316 estate contracts** and
+  **1 of 33** in the new native project. The three `SemanticModel.nl` mutations move contracts in
+  BOTH estates — which is the division of labour stated plainly: `SemanticModel.tests.nl` owns the
+  model's ALGEBRA with hand-fed data, and this project owns what ANALYSIS puts into it.
+
+  Every run reported `Total: 6316`, so the estate BUILT AND RAN in each; every owner was restored
+  byte-identically after every mutation (`SemanticModel.nl` `6f7201eb6709506f`, `Analyzer.cs`
+  `0c5171e834b1e8e0`, `True` after all nine mutations across both panels), and no production file in
+  the tree is modified. The harness registers `atexit` and `SIGTERM`/`SIGINT` handlers that
+  `git checkout --` every owner, writes all output to the SCRATCH tree, and **REFUSES A VERDICT
+  UNLESS THE RUN REPORTS A NON-ZERO `total`** — a zero-test run is a NON-VERDICT, never a pass.
+
+  ### THE LIVE-TREE CHECKS
+
+  **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files, 246
+  diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`) and ZERO
+  rows in any `.tests.nl`. The check runs against a CLI built from this branch, not the installed
+  `~/.nsharp/bin/nlc`. Its non-zero exit is `ok:false` — the 246 inherited errors — which is the
+  baseline, not a failure of this slice.
+
+  **THE REAL YARDSTICK: a scratch copy of the estate with all 229 contract files renamed to
+  `.checked.nl` reports 622 files checked, 1,271 rows, and 111 of the 229 clean** — **identical to
+  slice 25's 622 / 1,271 / 229 / 111 in every column**, which is what a slice that adds no estate file
+  must produce. `SemanticModel.checked.nl` stays at exactly **1** row.
+
+  **The project-scoped format check reports "All files are properly formatted."** on the
+  BootstrapServices estate. The new native project reports **"No .nl files found to format."**,
+  because a project whose only source is a `.tests.nl` presents nothing to the formatter.
+  `tests/native/ownership-audit` reports one unformatted file (`OwnershipAudit.nl`) — **PRE-EXISTING,
+  proven directly again**: writing `HEAD`'s version of that file over this slice's one-line head
+  change reproduces the same failure, and the file is then restored byte-identically
+  (`git diff --numstat` back to `1 1`).
+
+  ### EVIDENCE
+
+  **Unit 1,906 → 1,873 = exactly the 33 migrated xUnit cases** — predicted before the deletion from a
+  re-measured `[Fact]` count of 33 and a re-confirmed ZERO `[Theory]` count, and observed by a
+  standalone `dotnet test tests/Tests.csproj` reporting `Failed: 0, Passed: 1873, Total: 1873`.
+  **The estate stays at `Failed: 0, Passed: 6316`** — no estate contract is added or touched.
+  **One native project is ADDED, so the gate-equivalent native project count goes 37 → 38**, counted
+  by the gate's own `find`; `tests/native/analyzer-semantic-model` reports
+  `{"total": 33, "passed": 33, "failed": 0}`. `tests/` still holds **30 `.cs` files** — the file
+  SHRANK rather than being deleted — and **44,574 lines**, down from 45,292, the **−718 being this
+  slice's deletion exactly**. `src/NSharpLang.Cli/Program.Testing.cs` stays at **618 and is not
+  edited**. Zero C# added anywhere; the only C# diff in the slice is one deletion, `0 718`.
+
+  **THE DELETION, RECONCILED MARKER BY MARKER.** `[Fact]` **51 → 18** (−33), `Assert.` **323 → 188**
+  (−135 = the 134 group-A body asserts plus the ONE inside the deleted `FindColumn`), `test(`
+  **15 → 0** and `it(` **1 → 0** — the 15 `test(` being `func test()` inside group-A fixture
+  literals and the single `it(` being the `Split(` in `FindColumn`. **−33 − 135 − 15 − 1 = −184**,
+  and the audit's own marker total goes **390 → 206**, which is −184. The dead sweep is clean in both
+  directions: `FindColumn` is gone, `using System;` went with it (nothing left in the file needs
+  `System`), and a repository-wide grep for all 33 deleted method names finds **zero** surviving
+  references outside this ledger and the successor.
+
+  ### THE RATCHET — ONE ROW SHRUNK EXACT-MATCH, ONE HEAD, WALKED AGAINST THE PRISTINE MANIFEST FIRST
+
+  The audit was run in **three states**, and the values were read off the audit's own output rather
+  than computed by hand: (1) pristine manifest against the changed file → **17 / 18**, `OWN004` and
+  `OWN005` printing the observed metrics `lines=643, nonblank=528, assertions=206` and the observed
+  fingerprint `text-v1:d90b04ec6e2cccdf` — all four independently reproduced by a direct count before
+  the run; (2) the row shrunk, head unchanged → **17 / 18**, `OWN008` whose observed value is
+  `head-v1:057afc7bf7f8c5a9`, **the pre-repin observation, printed by the audit itself**; (3) both
+  keys repinned → **18 / 18**.
+
+  The row **stays `existing-debt`** — the file still exists — and shrinks exact-match:
+  `1361 → 643`, `1111 → 528`, `390 → 206`, `text-v1:270714accf5f803a` → `text-v1:d90b04ec6e2cccdf`.
+  Its **immutable epoch ceilings (1363 / 1113 / 391) stay untouched**, as do `epochBytes` /
+  `currentBytes` (both 0), `epochPathFingerprint` and `epochFactFingerprint` — which a shrink that
+  removes no path must leave alone.
+
+  **The two-key head is repinned LAST and TOGETHER**, `2ae8a82847d84aa4` → `057afc7bf7f8c5a9`, in the
+  JSON header AND the `OwnershipPolicy.ReviewedHeadFingerprint` constant (`OwnershipAudit.nl` :241),
+  with **zero occurrences of either superseded value left anywhere under
+  `tests/native/ownership-audit/`**; manifest **391 lines**, no BOM (`7b 0a 20`), trailing newline
+  intact, and the whole ratchet diff is **exactly two changed lines in the JSON plus the one constant**
+  (`git diff --numstat`: `2 2` and `1 1`). **The manifest is edited LINE BY LINE rather than
+  round-tripped through a JSON dump.**
+
+  ### THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY
+
+  The repo root still carries nested `.claude/worktrees/*` checkouts belonging to other sessions, so
+  the copy excludes `.claude/worktrees` and nothing else. **The copy's contents were verified directly
+  rather than assumed, on nine checks**: `.claude/worktrees` does NOT exist inside it, `.git` does,
+  the `.csproj` count inside it is **18**, exactly the source's count excluding the worktrees — so the
+  duplicate `NSharpLang.Benchmarks.csproj` files under the nested worktrees are absent — the new
+  contract and its `project.yml` are present, the 33 deleted method names are ABSENT from the C# file
+  (18 `[Fact]`s left), there are **0** `.trx` files, **0** `TestResults` directories, **0** `ProbeS26`
+  files and **0** `s26-probe` directories anywhere in it, the repinned head `057afc7bf7f8c5a9` appears
+  in **BOTH** ratchet keys with **ZERO** occurrences of either superseded value
+  (`2ae8a82847d84aa4`, `2aafbddaafc83094`) anywhere under `tests/native/ownership-audit/`, the
+  documentation edits are in it, and it enumerates **38** native projects by the gate's own `find`.
+  A competing-gate check (`pgrep -f test-all-core.sh`) was run BEFORE launching and was clear.
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` was launched from inside the copy with **its log
+  written OUTSIDE the copied tree** (`/private/tmp/s26-gate.log`) — slice 17's OWN003 trap, avoided by
+  construction — and its banner reads **`Fresh isolated test run required: pre-commit verification /
+  Existing cache entries will not satisfy this invocation`**.
+
+  **THE VERDICT: `ALL TESTS PASSED! ✓`, ZERO `✗ FAILED` lines in the whole 589-line log across 118
+  passing steps, and the driver STORED the validated cache result (`218da2f8e8ac1eac`, 1157 s) —
+  which it does only on success.** Inside the gate: unit `Failed: 0, Passed: 1873` (4 m 46 s, the full
+  suite, independently reproducing this slice's own predicted count); the compiler-service estate
+  `Failed: 0, Passed: 6316`; **all 38 native projects tested — `analyzer-semantic-model` PASSING on
+  its first gate, and `tests/native/ownership-audit` PASSING, so the repinned two-key head is
+  validated by the gate rather than only by a local run**; 67 N# assemblies pass IL verification with
+  no new errors versus baseline; the formatting gate passes; and SDK pack + template creation +
+  example builds + `nlc check` over the examples all pass.
+
+  The passing gate ran against a byte-copy of the code tree; **the only file edited afterwards is this
+  one**, which is prose and is not an input to any compile step.
+
+  ### THE WHOLE MODIFIED-FILE SET, JUSTIFIED FILE BY FILE
+
+  | modified file | kind | why it changed |
+  |---|---|---|
+  | `tests/AnalyzerSemanticModelTests.cs` | **SHRUNK, deletions only** | the migrated half; `0 718`, 51 → 18 `[Fact]`s, plus the now-dead `FindColumn` helper and the now-dead `using System;` |
+  | `tests/native/analyzer-semantic-model/project.yml` | **new native project** | `dll:` dependencies identical to slice 25's, byte for byte |
+  | `tests/native/analyzer-semantic-model/AnalyzerSemanticModel.tests.nl` | **new native contract** | 33 contracts × the whole model — 5 flat tables, `TypeMembers`, both position tables, the scope list, the analysis census — plus 47 restated queries; 1,515 lines, 550 asserts |
+  | `memory/testing.md` | **documentation** | the semantic model joins the N#-only list with the arithmetic, the eight findings, the two emit walls and the decline-diagnosis recipe; the split rule gains "a file with ONE subject that is too big for the budget splits ACROSS SLICES, by instrument" |
+  | `memory/components/analyzer.md` | **documentation** | the analyzer's coverage list gains the new native project and the algebra-versus-population division |
+  | `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` | **ratchet** | one shrunk row, plus the head key |
+  | `tests/native/ownership-audit/OwnershipAudit.nl` | **ratchet** | the second head key |
+  | `STATUS.md` | **ledger** | this record |
+
+  ### WHAT IS LEFT OF TASK 020
+
+  The remaining inventory, re-measured at this commit:
+
+  | file | lines | `[Fact]`s | `Assert.` | route |
+  |---|---|---|---|---|
+  | `AnalyzerTests.cs` | 13,451 | 781 (+35 `[Theory]`) | 562 | the seven-tranche campaign sketched in slice 25 — native, no estate half |
+  | `SystemsNSharpTests.cs` | 2,402 | 60 | 412 | compiles and RUNS emitted assemblies; needs the SDK and a real build |
+  | `PlaygroundCompilerTests.cs` | 1,913 | 65 | 309 | drives `PlaygroundCompiler`, a `NSharpLang.Playground` type |
+  | `QueryIntegrationTests.cs` | 1,322 | 65 | 210 | drives the `nlc` CLI end to end against real example projects |
+  | **`AnalyzerSemanticModelTests.cs`** | **643** | **18** | **188** | **THE SECOND HALF OF THIS FILE — the next cluster** |
+
+  **THE NEXT CLUSTER IS THE REST OF `tests/AnalyzerSemanticModelTests.cs`** (643 / 18 / 188), and its
+  shape is already decoded: **2 methods are the `SemanticModel.Types[…]` SOURCE-FACT walker** —
+  `Analyzer_RecordTypes_RecordStructFlagInSemanticModel` (20 lines) and the 265-line, 153-assert
+  `Analyzer_NominalTypes_SourceFactsInSemanticModel` monster, which reads `ClassTypeInfo` /
+  `StructTypeInfo` / `RecordTypeInfo` / `InterfaceTypeInfo` and every field of their
+  `DeclaredMembers` (parameter modifiers, required counts, `params`, type parameters, generic
+  constraints, `MustUse`, async/generator flags) — and **16 are pure DIAGNOSTIC censuses** that read
+  only `result.Errors` and need no semantic-model surface at all. The 16 are nearly free: slice 25's
+  `EhCensus` / `EhRow` instrument covers them as they stand, renamed. The 2 need one new kernel
+  family — a TypeInfo walker — which is the only real work in the slice, and it is the same walker
+  the `AnalyzerTests.cs` campaign's `clean-only` tranche will want. **Take it whole**: 586
+  declaration lines is under the budget, and the file then DISAPPEARS and its ratchet row flips
+  `existing-debt` → `removed`. After it, the `AnalyzerTests.cs` campaign opens with tranche 1.
+
+  **THE NEXT CAPABILITY IS STILL NOT A CAPABILITY, WITH THE SAME NAMED EXCEPTION.** This slice needed
+  none of the task file's order — skip, setup/teardown, async `Task`, async `ValueTask`, structured
+  failure JSON, whole-run timeout: one probe, one real successor, and not one runner change;
+  `nlc test`'s JSON envelope is byte-for-byte the same schema. **The exception is still TABLE-DRIVEN
+  CASES**, whose first real consumer is the `AnalyzerTests.cs` campaign's 35 `[Theory]`s over 100
+  `InlineData` rows.
+
+  **AND `src/NSharpLang.Cli/Program.Testing.cs` IS STILL 618 AND STILL NOT EDITED.** Task 020's
+  closing rule needs BOTH an empty bucket (a) and an N#-owned runner surface. The runner surface is
+  not N#-owned and five C# files remain canonical assertion layers, so **task 020 stays UNCHECKED and
+  `tasks/README.md` is NOT edited.**
+
+- Previous sub-slice (020 arc, COMMITTED at `b96203ff6` — **SLICE 25 DELETES `tests/ErrorHandlingTests.cs` AND SPLITS
   IT 24 / 15 ACROSS BOTH ESTATES BY SUBJECT — THE THIRD FILE THIS ARC HAS SPLIT. 580 C# LINES, 39
   `[Fact]`s, 54 `Assert.` OCCURRENCES, 95 RATCHET MARKERS, 57 DECODED CLAIM ROWS. ITS RATCHET ROW
   FLIPS `existing-debt` → `removed`. THIS IS THE FIRST TRANCHE WHOSE CLEAN-PARSE PIN IS NON-EMPTY BY

@@ -969,6 +969,18 @@ Analyzer coverage is split deliberately across:
   The analyzer reports `NL312:UnreachableStatement@7:5+1`; the linter reports NOTHING, while it does
   report `NL006` for the other three terminators. The empty linter census is pinned deliberately, so
   closing the divergence is a decision rather than an accident (task 020 slice 25).
+- `tests/native/analyzer-semantic-model` for what ANALYSIS PUTS INTO `AnalysisResult.SemanticModel`
+  — every flat table (`Variables`, `Functions`, `Properties`, `Fields`, `Types`), `TypeMembers`,
+  both POSITION tables (`ExpressionTypes` and `TypeReferenceTypes`, pinned separately so a row in
+  the wrong one is a visible change), the whole scope list with both bounds, and the model's own
+  queries at the positions the deleted methods probed. Same native route and same reason: the model
+  is N# in the estate, but only `Analyzer` — C# in `Compiler.dll` — populates it, so
+  `SemanticModel.tests.nl` owns the ALGEBRA and this project owns the POPULATION (task 020 slice 26).
+  It states what nothing had: a function looks up as its RETURN type while the table it comes from
+  holds a `FunctionTypeInfo`; the flat tables COLLIDE across scopes (two functions with a parameter
+  of the same name leave ONE row); `GetVisibleVariablesAtPosition` answers FUNCTIONS too; every
+  scope's end column is `int.MaxValue`; and one LINQ chain opens FIFTEEN scopes, twelve of them for
+  two lambdas that are re-entered during overload resolution.
 - `tests/AnalyzerTests.cs` for analyzer-shell diagnostics, flow analysis, call binding, and
   end-to-end semantic behavior.
 

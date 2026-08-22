@@ -84,6 +84,46 @@ reports no diagnostic about it. On the analysis side, `Assert.Contains(result.Er
 other row; two fixtures report more rows than the assertion named, and in both the extra rows are
 `NL301` on the word `var`.
 
+**THE SEMANTIC MODEL'S QUERY SURFACE — what analysis PUTS INTO the model, as opposed to what the
+model DOES with what it is handed — has no C# assertion layer either, as of task 020 slice 26.**
+`tests/AnalyzerSemanticModelTests.cs` is 1,361 lines, and the ~700-line budget cannot hold it in one
+slice, so the file SPLITS ACROSS SLICES rather than across estates: **all 51 of its `[Fact]`s
+construct `new Analyzer()`, so there is no estate half at all.** Slice 26 takes the 33 that read the
+model through `LookupIdentifier`, `LookupIdentifierAtPosition`, `LookupTypeAtPosition`,
+`LookupTypeReferenceAtPosition`, `GetVisibleVariablesAtPosition`, `GetTypeMembers`, `Fields`,
+`Properties`, `Scopes` and `ExpressionTypes` into `tests/native/analyzer-semantic-model`; slice 27
+takes the 18 that read `SemanticModel.Types[…]` or only `result.Errors`. **The name split would have
+misplaced exactly one method** — `Analyzer_RecordTypes_RecordStructFlagInSemanticModel` is not named
+`NominalTypes_*` but reads `Types[…]` and belongs with the other half.
+
+**Why the estate half is EMPTY here is itself a measurement.** `SemanticModel.nl` IS N# in the
+estate and `SemanticModel.tests.nl` already owns its ALGEBRA — it constructs a model directly,
+hand-records entries and pins the lookup ranking, the scope-depth rule and the inclusive bounds.
+What no estate contract can reach is the POPULATION. The mutation panel measures the gap: removing
+the FUNCTION rank from `LookupIdentifier` moves 3 estate contracts AND 1 native one, while deleting
+the CALL-SITE `RecordExpressionType` in `Analyzer.cs` — C# inside `Compiler.dll` — moves **0 of the
+6,316 estate contracts and 1 in the new native project.**
+
+**What the deleted assertions could not see:** three of the 33 fixtures are BYTE-IDENTICAL
+duplicates (33 methods, 30 distinct sources); four "clean" fixtures report diagnostics nobody asked
+about (`NL903` on a leading-underscore field, `NL316` on a shadow); a function does not look up as
+itself (the `Functions` table holds a `FunctionTypeInfo` whose `ToString()` is its CLR NAME, and the
+LOOKUP answers the RETURN type); the flat tables COLLIDE across scopes, which is why the position
+tables exist; every scope's end column is `int.MaxValue` and no scope ever ends on the fixture's own
+last line; the analyzer opens **twelve scopes for two lambdas** in one LINQ chain; and
+`GetVisibleVariablesAtPosition` answers FUNCTIONS as well as variables — which the perturbation
+panel found by REFUSING a control whose anchor occurred zero times.
+
+**Two emit walls were measured by bisection while writing it, and both are general.** A LOCAL whose
+type is `System.Collections.IDictionary` or `System.Collections.IEnumerable` is declined at
+`emit.local.unsupported-type`; an `IList` local is accepted, but a `Dictionary<,>` is not an `IList`,
+so a dictionary is walked through its enumerator BY REFLECTION into an `object?[]`. And a function
+whose RETURN TYPE is `IList` declines, while an `as IList` local in the same file does not.
+Separately, an insertion sort over a `List<string>` whose condition calls `String.Compare` declines
+in any file that also carries a reflective member walk — sorting a `string[]` and comparing character
+by character emits. **`nlc check` on a `.nl` COPY is how to see any of this**: `nlc test` prints only
+the HumanExplanation, with no decline site, and `nlc check` never sees a `.tests.nl`.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
@@ -535,7 +575,11 @@ ARGUMENT TYPES the cluster's subject calls take — measured by probe, not assum
 file: `tests/AstNodeFinderTests.cs` (slice 23) had a finder subject in the estate and an analyzer
 subject above it, `tests/EventSubscriptionTests.cs` (slice 24) had a parser subject in the estate
 and an analyzer subject above it, and `tests/ErrorHandlingTests.cs` (slice 25) had the same pair.
-All three were split rather than forced whole through the weaker route. **Decide membership by
+All three were split rather than forced whole through the weaker route. **A file with ONE subject
+that is too big for the budget splits ACROSS SLICES instead**: `tests/AnalyzerSemanticModelTests.cs`
+(slice 26) is 1,361 lines and 51 `[Fact]`s that ALL construct `new Analyzer()`, so its cut is by
+INSTRUMENT — the model's query surface first, the `TypeInfo` source-fact walker and the diagnostics
+it drives second — and its ratchet row SHRINKS exact-match rather than flipping to `removed`. **Decide membership by
 decoding what each method CALLS, never by its name** — slice 25's file has three methods named
 `Parser_*` whose only claims are over `AnalysisResult`, and they belong in the native half.
 **And a subject the estate CAN reach may still belong in the native half**: slice 25's `Linter` rows
