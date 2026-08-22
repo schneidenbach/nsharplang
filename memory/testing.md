@@ -15,7 +15,7 @@
 ### Test Files
 ```
 tests/
-├── AnalyzerTests.cs             - Type checking tests
+├── AnalyzerTests.cs             - Type checking tests (SHRINKING: task 020's seven-tranche campaign)
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
 ├── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
@@ -124,6 +124,46 @@ mismatch` with a NULL suggestion**, the least helpful diagnostic in the cluster 
 in the deleted file could see. Two `using`-pattern rejections that differ in shape report a message
 that is equal BYTE FOR BYTE, and the static and instance readonly assignments report the same
 `NL309` at the same 7:13 with different sentences — pairs no substring match could have compared.
+
+**ASSIGNABILITY AND FLOW NARROWING — the first twelve regions of `tests/AnalyzerTests.cs` — have no
+C# assertion layer either, as of task 020 slice 28.** That file is the campaign's last big cluster:
+13,451 lines, 781 `[Fact]` + 35 `[Theory]`, ONE subject (every body funnels through a private
+`Analyze(source, config)` that calls `ParseFileAst(source, null)`, `new Analyzer()`,
+`LoadSystemAssemblies()` and the single-argument `Analyze(unit)`), so it is a WHOLE-FILE NATIVE move
+with no estate half at all — cut into tranches rather than estates. **Slice 28 took tranche 1a: the
+file's first TWELVE `#region`s, 109 `[Fact]`s and 1,584 lines, into `tests/native/analyzer-clean-source`.**
+
+Three rules that campaign confirmed, and one it corrected:
+- **The tranche is not the contiguous span.** Three un-regioned `ReflectionGenericReceiver_*` methods
+  sit between region 2 and region 3 and read `result.SemanticModel.LookupIdentifier`, a surface the
+  new project has no kernel for. They stayed behind, so the deletion is TWO spans. Classify by what
+  the body NAMES, never by where it sits.
+- **The instrument is COPIED, not shared.** `Ac*` is `analyzer-error-handling`'s `Eh*` plus
+  `analyzer-semantic-model`'s count pair, renamed. Two things are new: `AcHint` (the `ContextualHint`
+  field), and the NULL file name in the parse — the deleted helper passed `null` where slice 25's
+  passed `"test.nl"`.
+- **`[Theory]` is 0 in all 19 regions.** All 35 theories and all 100 `InlineData` rows are
+  un-regioned, so `nlc test`'s table-driven syntax — which compiles in `tests/native` and not in the
+  estate — still has NO consumer. Its first one is a later tranche.
+- **The campaign sketch was corrected by measurement, as every campaign's has been**: 19 regions, not
+  20; 53 in-body `Assert.`, not 55; 2,241 declaration lines where the sketch's 2,740 was the region
+  SPAN; and NINE private assertion helpers where the sketch named four.
+
+**What the deleted 109 could not see:** `AssertNoErrors` asserted one boolean (`HasErrors == false`)
+and 75 of the 109 bodies contained nothing else, so nothing stated how many rows there were or what
+they said — all 86 silent fixtures now pin an EMPTY census, a zero count and a `<no-such-error>`
+sentinel, and all 109 pin an EMPTY PARSE census the deleted helper discarded outright. **The
+rejected-lambda `NL202` says a value is not assignable to its own type** — `Variable 'f' is typed as
+'NSharpLang.Compiler.FunctionTypeInfo', but the value is 'NSharpLang.Compiler.FunctionTypeInfo'` —
+and that fixture reports TWO rows where the deleted method asked about one. A code NAMED
+`NullabilityWarning` is reported at `Error` severity, twice. `null` assigns to a non-nullable
+`string` and to a non-nullable class in SILENCE while `null` to `int` is rejected, so the annotation
+is enforced at the DEREFERENCE and not at the assignment — both halves pinned on adjacent fixtures.
+And no method in the tranche stated a line or a column: `NL202` anchors on the declared NAME,
+`NL905` on the RECEIVER, `NL907` on the `must` keyword and on `Value` with the dot outside the
+underline, `NL501` on `match`, and `NL412` on the callee NAME with the parentheses excluded — which
+**corrects slice 25's record**, where the same code's 13-column span was read as "the whole call
+including its parentheses" when 13 is the length of the name alone.
 
 **Why the estate half is EMPTY here is itself a measurement.** `SemanticModel.nl` IS N# in the
 estate and `SemanticModel.tests.nl` already owns its ALGEBRA — it constructs a model directly,

@@ -995,8 +995,25 @@ Analyzer coverage is split deliberately across:
   anchors at `duck`; `TypeMembers` and `DeclaredMembers` are different tables with different
   population rules; and **two initializer mismatches report an `NL202` whose whole message is the
   bare words `Type mismatch` with a NULL suggestion.**
-- `tests/AnalyzerTests.cs` for analyzer-shell diagnostics, flow analysis, call binding, and
-  end-to-end semantic behavior.
+- `tests/native/analyzer-clean-source` for what the analyzer decides about ASSIGNABILITY and FLOW
+  NARROWING read from SOURCE TEXT — nominal subtyping, the whole 43-pair numeric widening matrix and
+  its ten narrowing rejections, the nullable assignability matrix, flow-sensitive null narrowing
+  (guards, `??`, `throw`, `is` patterns, `match` null arms, reassignment, `?.`, member paths, loop
+  conditions, `must`, `.Value`, `HasValue`), enum exhaustiveness, error-recovery suppression, the
+  `&&` / `||` / is-pattern / same-symbol narrowing chains, and lambda-delegate structural
+  validation. Same native route and same reason (task 020 slice 28, the `AnalyzerTests.cs`
+  campaign's tranche 1a — 109 `[Fact]`s and 1,584 C# lines deleted). It states what nothing had:
+  the rejected-lambda `NL202` **says a value is not assignable to its own type**, both sides spelled
+  `NSharpLang.Compiler.FunctionTypeInfo`; a code NAMED `NullabilityWarning` is reported at `Error`
+  severity; `null` assigns to a non-nullable `string` and to a non-nullable class in SILENCE while
+  `null` to `int` is rejected, so the annotation is enforced at the dereference and not at the
+  assignment; the ten narrowing rejections are ONE message template over ten type pairs, all
+  anchored on the declared name for one column; the `NL905` suggestion is TEMPLATED with the user's
+  own variable name and suggests `?[` for an index and `?.` for a dereference; and every one of the
+  24 diagnostic rows carries a NULL `ContextualHint`.
+- `tests/AnalyzerTests.cs` for the REMAINING analyzer-shell diagnostics, flow analysis, call
+  binding, and end-to-end semantic behavior — 11,867 lines and 672 `[Fact]` + 35 `[Theory]` after
+  slice 28, still shrinking through the campaign's remaining tranches.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

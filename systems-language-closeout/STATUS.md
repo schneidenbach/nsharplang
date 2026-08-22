@@ -3935,7 +3935,530 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 27 TAKES THE REMAINDER OF
+- Active sub-slice (020 arc, THIS TURN — **SLICE 28 OPENS THE `tests/AnalyzerTests.cs` CAMPAIGN.
+  TRANCHE 1a: THE FILE'S FIRST TWELVE REGIONS — ASSIGNABILITY AND FLOW NARROWING — 109 `[Fact]`s /
+  1,584 C# LINES / 37 `Assert.` OCCURRENCES / 146 RATCHET MARKERS / 154 DECODED CLAIM ROWS, INTO A
+  NEW SIBLING `tests/native/analyzer-clean-source`. THE RATCHET ROW SHRINKS EXACT-MATCH; THE FILE
+  SURVIVES.**)
+
+  ### THE MEASUREMENT, RE-VERIFIED BY MECHANICAL DECODE AND RECORDED BEFORE ANY EDIT
+
+  Slice 25's sketch priced tranche 1 as **"the 20 REGIONS, taken whole"** — 190 methods, 55
+  `Assert.`, 2,740 method lines. **The decode corrects the sketch in three columns and confirms it in
+  one.** A script walks every `[Fact]`/`[Theory]`, extracts its body by brace balance with a C#
+  string-literal state machine, and attributes it to a region by a `#region`/`#endregion` stack.
+
+  | column | sketch | measured | note |
+  |---|---|---|---|
+  | regions | 20 | **19** | the sketch counted one region that does not exist |
+  | methods | 190 | **190** | **exact** — the regioned method count reproduces |
+  | `Assert.` | 55 | **53** | in-body occurrences, comment lines stripped |
+  | method lines | 2,740 | **2,241** decl / **2,431** with the attribute line | the sketch's number is the REGION SPAN (2,720), not the declaration count |
+
+  Whole-file re-measure: **13,451 lines, 781 `[Fact]` + 35 `[Theory]` = 816 methods, 100
+  `InlineData` rows, 565 `Assert.` occurrences**, of which **554 are inside the 816 bodies and 11 sit
+  in the file's NINE private assertion helpers** — `AssertNoErrors`, `AssertHasError`,
+  `AssertHasParseError`, `AssertHasHint`, `AssertHasStrictError`, `AssertNoWarning`,
+  `AssertHasErrorCode`, `AssertNoErrorCode` and the `AnalyzeWithSource`/`Analyze` pair. **The sketch
+  named four helpers; there are nine.** 554 + 11 = 565 reconciles the file exactly.
+
+  **2,241 DECLARATION LINES DOES NOT FIT THE ~1,500-LINE CAP, SO TRANCHE 1 SPLITS — AND THE MEASURED
+  BOUNDARY IS THE FILE'S FIRST TWELVE REGIONS.** Cumulatively, region 12 closes at 1,295 declaration
+  lines / 1,404 with attributes / 109 methods; region 13 (`Generic Constraint Validation`, 21
+  methods) would push it to 1,697, over the cap. Twelve is therefore the largest whole-region prefix
+  the cap admits, and it is contiguous in the file — `#region Nominal Subtyping` at 8078 through
+  `#endregion` at 9710.
+
+  | # | region | methods | decl lines | `Assert.` |
+  |---|---|---|---|---|
+  | 1 | Nominal Subtyping | 3 | 42 | 0 |
+  | 2 | Numeric Widening — Comprehensive Assignability Matrix | 53 | 534 | 0 |
+  | 3 | Nullable Assignability — Comprehensive Matrix | 9 | 81 | 0 |
+  | 4 | Flow-Sensitive Null Narrowing | 22 | 316 | 35 |
+  | 5 | Enum Exhaustiveness | 4 | 63 | 0 |
+  | 6 | Unknown Type Kinds | 1 | 13 | 2 |
+  | 7 | Flow Narrowing: && Chaining | 3 | 40 | 0 |
+  | 8 | Flow Narrowing: Is-Type Patterns | 3 | 52 | 0 |
+  | 9 | Flow Narrowing: Or-Chain | 4 | 60 | 0 |
+  | 10 | Flow Narrowing: And-Chain RHS Narrowing | 2 | 29 | 0 |
+  | 11 | Flow Narrowing: Same-Symbol Intersection | 2 | 34 | 0 |
+  | 12 | Lambda-Delegate Structural Validation | 3 | 31 | 0 |
+  | | **tranche 1a** | **109** | **1,295** | **37** |
+
+  **THE CONTIGUOUS SPAN IS NOT THE TRANCHE, AND THAT IS THE DECODE'S OWN FIND.** Lines 8078–9711
+  carry **112** `[Fact]`s, not 109: three un-regioned methods sit between region 2's `#endregion`
+  (8783) and region 3's `#region` (8835). All three are `ReflectionGenericReceiver_*`, and **all
+  three name `result.SemanticModel.LookupIdentifier`** — a semantic-model surface with no kernel in
+  this project. By the campaign's own rule (classify by what the body NAMES, never by where it sits)
+  they are NOT tranche 1a, so **the deletion is TWO spans, not one**: 8078–8784 (707 lines, 56
+  `[Fact]`, 0 `Assert.`) and 8835–9711 (877 lines, 53 `[Fact]`, 37 `Assert.`) — **1,584 lines, 109
+  `[Fact]`, 37 `Assert.`, 12 `#region`/`#endregion` pairs, 0 `[Theory]`, 0 `InlineData`**, verified
+  by grep over the extracted spans.
+
+  **THE TRANCHE CONTAINS ZERO `[Theory]`s, SO THE TABLE ROUTE IS NOT BUILT HERE.** All 35 theories
+  and all 100 `InlineData` rows are un-regioned, which the region table shows column by column: the
+  `[Theory]` and `InlineData` columns are 0 for every one of the 19 regions. `nlc test`'s
+  table-driven syntax (`test "…" with (a: int, …) [ (…), (…) ] { … }`) already compiles in
+  `tests/native` — slice 1's capability — but **its first real consumer lands in a LATER tranche**,
+  not this one. Nothing is stubbed for it here.
+
+  **BY WHAT THE 109 BODIES NAME — THREE SHAPES, AND THE CLEAN CLAIM IS TWO THIRDS OF THEM:**
+
+  | shape | methods | in-body `Assert.` | what the deleted body claimed |
+  |---|---|---|---|
+  | `AssertNoErrors(fixture)` and nothing else | **75** | 0 | `result.HasErrors == false` — ONE boolean |
+  | `AssertHasError(fixture, substring)` | **15** | 0 | `HasErrors == true` + some message contains a substring |
+  | direct `Analyze(fixture)` + `Assert.*` | **19** | 37 | `HasErrors`, plus `Contains`/`DoesNotContain`/`Single` over `Errors` |
+
+  **ALL 109 FIXTURES ARE DISTINCT AND ALL 109 WERE DECODED BY THE C# COMPILER ITSELF.** Each
+  method's `@"…"` literal was copied byte-for-byte out of `AnalyzerTests.cs` into a generated console
+  program that printed its sha256 and length; the Python decode used to build the contracts
+  reproduces all 109 shas and all 109 lengths with **zero mismatches**, and the 109 shas are
+  **109 distinct values**. **Only ONE verbatim literal appears per method** — measured, 109/109 — so
+  no fixture is assembled by concatenation.
+
+  **ZERO of the 109 methods reads a `.Line` or a `.Column`.** Two `Assert.Equal` calls read a
+  `.Length` (`"b".Length` and `"items".Length`); every other position in this tranche is unstated by
+  the deleted file, which is what makes the census's `line:column+length` a pure widening.
+
+  ### THE TENANT AND THE INSTRUMENT COPIES, CHOSEN BEFORE THE EDIT
+
+  The successor is a **NEW SIBLING, `tests/native/analyzer-clean-source/`**, as slice 27's closing
+  note directed: the subject is the analyzer's shell rather than the semantic model, and
+  `analyzer-semantic-model` is already 2,408 lines. **The gate-equivalent native project count goes
+  38 → 39.**
+
+  The instrument is **COPIED, not shared** — each native project carries its own reflection plumbing
+  by design and there is no prelude to import:
+
+  | kernel | copied from | changed |
+  |---|---|---|
+  | `SetAcObject` / `AcMember` / `AcRequiredMember` / `AcText` | `analyzer-error-handling`'s `Eh*` | renamed only |
+  | `AcParse` / `AcParseUnit` / `AcParseCensus` | same | **the file name is `null`, not `"test.nl"`** — the deleted helper's own call |
+  | `AcAnalyze` / `AcCensus` / `AcHasErrors` / `AcRow` | same | renamed only |
+  | `AcErrorCount` / `AcCodeCount` | `analyzer-semantic-model`'s `SmErrorCount` / `SmCodeCount` | renamed only |
+  | `AcHint` | **NEW** | reads `ContextualHint`, a field no contract in this arc had read |
+
+  The `TypeInfo` walker slice 27 built for reuse is **NOT copied**, and the measurement says why:
+  **zero of the 109 bodies names a `SemanticModel` surface.** It waits for a tranche that does — the
+  three `ReflectionGenericReceiver_*` methods this slice deliberately left behind are its first
+  customers.
+
+  ### THE PROBE — IN THE REPOSITORY, THEN DELETED — AND ITS OWN CONTROL
+
+  `tests/native/s28-probe/` carried the whole kernel set as a plain `.nl`, and
+  `nlc check --project … --json` reported **`ok: true`, `checkedFiles: 1`, ZERO diagnostics** — before
+  a single contract was written, and first try, because slices 26-27's wall list was followed by
+  construction: no local typed `IDictionary`/`IEnumerable`, no function returning `IList`, no
+  `new Type[](0)` inlined into a `GetMethod` call, full arity everywhere, and every array `Length`
+  read through the member walk.
+
+  **A SILENT PROBE IS ONLY EVIDENCE IF IT CAN SPEAK, SO IT WAS MADE TO.** One deliberate control —
+  a local typed `System.Collections.IDictionary` — was appended, and the same command answered
+  `ok: false` with `NL103 … Declined at emit.typed-local.unsupported-type: typed local declaration
+  type is not supported for 'table': System.Collections.IDictionary in 'ProbeControl'` at
+  **238:5, the exact line**, reproducing slice 27's refinement of the site name for an EXPLICITLY
+  typed local. The probe is DELETED: the tree carries no `ProbeS28` file and no `s28-probe` directory.
+
+  ### THE COMPARATOR — 154 C# CLAIM ROWS IN, 154 MATCHED, 0 MISSING, 0 UNDECODED ON BOTH SIDES
+
+  Fixture identity is by **sha256 of the decoded source**; all 109 are distinct. The N# side decodes
+  to **612 rows over 612 distinct (fixture, path) pairs against the C#'s 154 — a 4.0× widening**, and
+  every N# row is a distinct pair, so nothing is stated twice.
+
+  **THE CLAIM-ROW ARITHMETIC, EVERY STEP A COUNT: 37 in-body `Assert.` occurrences + 105
+  helper-expanded ones = 142 statements → 154 rows.** The 105 is 75 × 1 (`AssertNoErrors` expands to
+  its single `Assert.False`) + 15 × 2 (`AssertHasError` expands to `Assert.True` plus
+  `Assert.Contains`). The +12 from 142 to 154 is CONJUNCT EXPANSION: seven lambda predicates carry
+  more than one atom (4, 3, 4, 2, 3, 2 and 2 conjuncts), and 3+2+3+1+2+1 = 12. Row kinds reconcile:
+  **102 hasErrors + 22 present-substring + 12 absent-code + 6 present-severity + 5 present-code +
+  2 present-id + 2 present-length + 2 single-code + 1 absent-substring = 154.**
+
+  **THE 102 IS ITSELF A FIND.** 75 + 15 + 12 = 102, where the 12 comes from the nineteen direct
+  bodies — nine `Assert.False(result.HasErrors, …)` and three `Assert.True`. **Seven of the nineteen
+  make no `HasErrors` claim at all**, and two of those seven are on fixtures that analyse silent, so
+  86 silent fixtures carry only 84 `hasErrors == False` claims between them. That number is
+  confirmed from the other direction by control N2b, which flips all 86 and loses exactly **84**.
+
+  ### THE ANCHOR AUDIT — 24 PINNED POSITIONS, EVERY ONE READ BACK OUT OF THE FIXTURE TEXT
+
+  | pinned kind | count | what sits at that position, measured |
+  |---|---|---|
+  | `NL202:TypeMismatch` | 14 | the DECLARED NAME, one column — `y` ×11, `x`, `a`, `b`, `f` |
+  | `NL905:PossibleNullAccess` | 4 | the RECEIVER — `x` ×2 and `b` at one column, `items` at five |
+  | `NL907:NullabilityWarning` | 2 | the `must` KEYWORD (four columns) and the member name `Value` (five) |
+  | `NL501:NonExhaustiveMatch` | 2 | the `match` KEYWORD, five columns, in BOTH the enum and the nullable case |
+  | `NL412:UndefinedFunction` | 1 | `undefinedFunction`, seventeen columns — the callee NAME, parentheses EXCLUDED |
+  | `NL203:CannotInferType` | 1 | the surplus lambda PARAMETER `y` |
+
+  **AND THE AUDIT CORRECTS SLICE 25's RECORD.** That slice read `NL412`'s 13-column span as
+  "the whole call, not the name — `undefinedFunc()` including its parentheses". `undefinedFunc` is
+  thirteen characters and `undefinedFunc()` is fifteen, so the span was the NAME then too. Here the
+  callee is seventeen characters and the span is seventeen: **`NL412` underlines the name and never
+  the parentheses.** The C# stated ZERO lines and ZERO columns anywhere in the 1,584 deleted lines,
+  so all 24 positions are new.
+
+  ### FORTY-ONE PERTURBATION CONTROLS, FOUR REFUSALS, EVERY NON-MOVER PROVEN AND REPLACED
+
+  Every control edits a MATERIALISED COPY kept OUTSIDE the repository — the C# side from a pristine
+  `git show HEAD:` extract — asserts the anchor's OCCURRENCE COUNT before editing, re-runs both
+  decoders and the comparator, and requires the undecoded counts to stay at zero. Baseline
+  `in 154 / matched 154 / missing 0 / undecoded 0, 0`.
+
+  | control | Δ matched | Δ missing |
+  |---|---|---|
+  | N1 the HasValue-guard fixture's `hasErrors` | **−1** | +1 |
+  | N2 EVERY parse census (109 sites) | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N2b EVERY silent fixture's `hasErrors` (86 sites) | **−84** | +84 |
+  | N3 the CODE NAME in four narrowing censuses | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N3b the ten narrowing rows' MESSAGE | **−10** | +10 |
+  | N4 one narrowing row loses `is typed as` | **−1** | +1 |
+  | N5 EVERY shared NL202 SUGGESTION (14 sites) | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N5b the same 14 rows' SEVERITY | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N5c the null-to-`int` row's MESSAGE | **−1** | +1 |
+  | N6 the index-access LENGTH, 5 → 6 | **−1** | +1 |
+  | N6b the method-call LENGTH, 1 → 2 | **−1** | +1 |
+  | N7 six narrowing censuses' LINE and COLUMN | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N7b the stable-dereference LINE and COLUMN | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N8 EVERY `ContextualHint` (23 sites) | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N8b the method-call row's message loses the backticked NAME | **−1** | +1 |
+  | N9 EVERY silent fixture's error COUNT (86 sites) | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N9b the ten `PossibleNullAccess` ABSENCE counts | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N9c the ONE absence count on a fixture that DOES report | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N10 the `Assert.Single` counts | **−2** | +2 |
+  | N11 the stable-dereference row's DIAGNOSTIC ID | **−1** | +1 |
+  | N12 EVERY `NL905` row's SEVERITY (4 sites) | **−4** | +4 |
+  | N13 the lambda defect row's MESSAGE | **−1** | +1 |
+  | N14 EVERY silent fixture's row-0 SENTINEL (86 sites) | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N14b the nullable-match message loses `doesn't cover null` | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N14c EVERY `null` removed from the same message | **−1** | +1 |
+  | N15 the enum-gap message loses `doesn't cover all` | **−1** | +1 |
+  | N16 the `must` message loses `redundant` | **−1** | +1 |
+  | N17 the unguarded-access message loses `.Value` | **−1** | +1 |
+  | N18 the index message loses `Possible null index` | **−1** | +1 |
+  | N19 the invalidated-guard message loses `` `x` is null`` | **−1** | +1 |
+  | C1 EVERY `AssertHasError` substring, at the tranche's 14 | **REFUSED at 30** | |
+  | C1b the same edit at the file-wide 30 | **−14** | +14 |
+  | C2 TEN C# absence asserts DELETED | **−10** | 0 |
+  | C3 a C# named error CODE changes | **−1** | +1 |
+  | C4 a C# message substring is SHORTENED | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | C4b the same substring changed to one the message lacks | **−1** | +1 |
+  | C5 a C# expected LENGTH changes | **−1** | +1 |
+  | C6 a C# ABSENCE claim becomes a PRESENCE claim | **REFUSED at 7** | |
+  | C6b the same edit at the file-wide 7 | **−1** | +1 |
+  | C7 TWO C# FIXTURE bytes change so their shas move | **REFUSED at 3** | |
+  | C7b the same edit at the file-wide 3 | **−4** | +4 |
+  | C8 a C# expected SEVERITY changes (2 sites) | **−2** | +2 |
+  | C9 NINE C# `HasErrors == false` claims flip | **REFUSED at 11** | |
+  | C9b the same edit at the file-wide 11 | **−9** | +9 |
+  | C10 a C# expected DIAGNOSTIC ID changes | **−1** | +1 |
+  | C11 one whole C# clean-only METHOD deleted | **−1** | 0 |
+
+  **EVERY NON-MOVER IS NON-OBSERVABLE BY CONSTRUCTION, AND EVERY PROOF IS AN EXACT COUNT OVER THE 154
+  DECODED C# ROWS:** rows reading a PARSE census **0**; rows reading a diagnostic SUGGESTION **0**;
+  rows naming a LINE or a COLUMN **0**; rows reading a `ContextualHint` **0**; rows reading the total
+  error COUNT **0**; rows reading a row-index SENTINEL **0**; and PRESENT claims naming an `NL202`'s
+  code **0** — the fourteen `NL202`s are all reached through `AssertHasError`, which reads only the
+  MESSAGE, which is why N3 and N7 move nothing and N3b moves ten.
+
+  **THE SEVERITY PAIR IS THE SHARPEST OF THESE.** All six severity claims land on `NL905`/`NL907`
+  rows and **not one lands on an `NL202`**, so N5b's fourteen `Error` → `Warning` edits are invisible
+  while N12's four are worth −4. Nothing but the count could have told the two apart.
+
+  **AND THE THREE ABSENCE-COUNT NON-MOVERS ARE A REAL PROPERTY OF THE SUCCESSOR, NOT A GAP.** All
+  twelve `AcCodeCount(…) == 0` rows are REDUNDANT with the census beside them, because the census
+  names every code that is present, so an absence claim is already answered. N9c proves it holds even
+  on the one absent-code claim whose fixture DOES report a diagnostic. The only load-bearing
+  `AcCodeCount` rows in the file are the two that restate `Assert.Single`, which N10 moves.
+
+  **THE OCCURRENCE-COUNT ASSERTION EARNED ITSELF FOUR TIMES, AND ALWAYS THE SAME WAY**: the tranche's
+  count and the FILE's count differ, because `AnalyzerTests.cs` survives this slice. `", "is typed
+  as");` occurs **30** times in the file and 14 in the tranche; the `TypeMismatch` absence assert
+  **7** and 1; `y: byte = x` **3** and 2; the `Assert.False(result.HasErrors, …)` line **11** and 9.
+  Each was re-run at the file-wide count, and each moved exactly the tranche's share — 14, 1, 4 (two
+  fixtures × two rows) and 9 — which measures the tranche boundary from the other direction.
+
+  **TWO NON-MOVERS ARE FINDINGS ABOUT THE DELETED ASSERTIONS THEMSELVES.** C4 shortens a C# substring
+  from `Possible null dereference` to `Possible null deref` and NOTHING moves, because a prefix of
+  the real sentence still matches. N14b rewrites `This nullable match doesn't cover null` to `This
+  nullable match is incomplete` and nothing moves either — **the deleted assertion asked only for the
+  substring `null`, which the word `nullable` already satisfies.** N14c, which removes every
+  occurrence of `null` from the message, is the one that moves.
+
+  ### THE SIBLING-PARITY SWEEP — WHAT THE ESTATE ALREADY OWNS, AND WHAT IT CANNOT
+
+  Every owner this tranche exercises IS N# in the estate and every one already has a contract file:
+  `AnalyzerVariableDeclaration.tests.nl` (122 contracts), `AnalyzerNullFlow.tests.nl` (43),
+  `AnalyzerMemberAccess.tests.nl` (54), `AnalyzerPassThroughOperands.tests.nl` (42),
+  `AnalyzerLambdaAnalysis.tests.nl` (35), `AnalyzerMatchExhaustiveness.tests.nl` (28) and
+  `AnalyzerConversionFacts.tests.nl` (8). **But every one of them drives its owner DIRECTLY with a
+  hand-fed harness** — `NullFlowHarness` constructs the owner and records facts into a scope stack;
+  `MemberArmOf()` declares a variable and hands the arm a `MemberAccessExpression` it built itself.
+  **Not one starts from SOURCE TEXT.** The 109 contracts added here are the only ones that state
+  these rules the way a user meets them: parse, analyse, and read the whole census with its
+  positions. The mutation panel then measures the gap from both sides rather than asserting it.
+
+  ### THE NATIVE MUTATION PANEL — SEVEN VERDICTS AGAINST A VERIFIED GREEN 109 / 109
+
+  Each mutation edits a production owner, REBUILDS the CLI — which publishes `Compiler.dll` and
+  `NSharpLang.Compiler.BootstrapServices.dll` into the directory the native projects take as `dll:`
+  dependencies — and re-runs the subject together with eight sibling `Compiler.dll`-driven native
+  projects, so the sibling column is measured rather than assumed. Baseline, all green: subject
+  **109 / 109**, `analyzer-error-handling` 15, `analyzer-semantic-model` 51, `analyzer-binding-map`
+  13, `analyzer-event-subscription` 7, `analyzer-identifier-binding` 4, `completion-engine` 12,
+  `doc-query` 11, `query-completions` 1.
+
+  | mutation | owner | own | predicted | siblings |
+  |---|---|---|---|---|
+  | MN1 — the variable-declaration `TypeMismatch` sentence | `AnalyzerVariableDeclaration.nl` | **14 / 109** | 14 | `analyzer-error-handling` **1** |
+  | MN2 — the null-flow diagnostic's leading words | `AnalyzerNullFlow.nl` | **4 / 109** | 4 | none |
+  | MN3 — the enum-exhaustiveness sentence | `AnalyzerMatchExhaustiveness.nl` | **1 / 109** | 1 | none |
+  | MN4 — the nullable-match sentence | `AnalyzerMatchExhaustiveness.nl` | **1 / 109** | 1 | none |
+  | MN5 — the C# call-step arm that REPORTS a possible null access | **`Analyzer.cs` — C#** | **0 / 109** | 1 | none — **NON-MOVER, diagnosed and replaced** |
+  | MN5b — the C# `IndexAccessExpression` routing | **`Analyzer.cs` — C#** | **1 / 109** | 1 | none |
+  | MN6 — the unguarded-`.Value` sentence | `AnalyzerMemberAccess.nl` | **1 / 109** | 1 | none |
+
+  **MN5's ZERO IS THE PANEL'S OWN FIND, AND IT IS DIAGNOSED RATHER THAN EXCUSED.** Deleting
+  `Analyzer.cs:2046`'s `case 3: _nullFlow.ReportPossibleNullAccess(…)` changes nothing here because
+  **this corpus never reaches that arm.** `ReportPossibleNullAccess` has FOUR call sites and three of
+  them are N#: `AnalyzerMemberAccess.nl:360` reports the dereference (which is where `b.Open()`'s
+  diagnostic comes from — the receiver `b` is a member access, not the call), `AnalyzerIndexAccess.nl:205`
+  reports the index, and `AnalyzerNullFlow.nl:207` owns the `Possible null call:` wording that the
+  C# arm would produce. **No fixture in the tranche produces a `Possible null call:`** — a named gap
+  in the corpus, which is worth more than the mutation would have been. MN5b replaces it with a C#
+  arm the corpus provably reaches: exactly ONE of the 109 fixtures indexes (`items[0]`), and
+  re-routing `IndexAccessExpression` away from `DriveIndexAccess` fails exactly that one.
+
+  ### THE ESTATE MUTATION PANEL — THE SAME OWNERS, AGAINST A VERIFIED GREEN 6,316
+
+  **THE BASELINE IS `Failed: 0, Passed: 6316, Total: 6316`**, established fresh under the restore-flag
+  discipline (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`) — and it is
+  UNCHANGED from slices 25-27, which it must be, because this slice adds no estate contract. **The
+  first attempt reported a ZERO total and was REFUSED as a NON-VERDICT**, which is the restore-flag
+  wall exactly as recorded: after any other build the estate's `dotnet test` silently runs no tests
+  until the sources are re-evaluated. The harness now restores before every run.
+
+  | mutation | owner | estate failures | predicted |
+  |---|---|---|---|
+  | ME1 = MN1 — the variable-declaration sentence | `AnalyzerVariableDeclaration.nl` | **3 / 6316** | 3 |
+  | ME2 = MN2 — the null-flow leading words | `AnalyzerNullFlow.nl` | **6 / 6316** | 7 |
+  | ME3 = MN3 — the enum-exhaustiveness sentence | `AnalyzerMatchExhaustiveness.nl` | **3 / 6316** | 3 |
+  | ME4 = MN4 — the nullable-match sentence | `AnalyzerMatchExhaustiveness.nl` | **2 / 6316** | 2 |
+  | ME5 = MN5b — the C# index-access routing | **`Analyzer.cs` — C#** | **0 / 6316** | 0 |
+  | ME6 = MN6 — the unguarded-`.Value` sentence | `AnalyzerMemberAccess.nl` | **1 / 6316** | 0 |
+  | ME6b — the same sentence AFTER the words `can throw` | `AnalyzerMemberAccess.nl` | **0 / 6316** | 0 |
+
+  **BOTH MISSES ARE COMPUTED FACTS, AND BOTH WERE RUN DOWN TO THE CONTRACT.** ME2 was predicted at 7
+  by grepping `AnalyzerNullFlow.tests.nl` for the message; six moved, and the seventh is the contract
+  whose own title says why — *"a CALL operation is the one whose message is not built from the
+  operation word"*. It pins `Possible null call:`, a SEPARATE literal at `AnalyzerNullFlow.nl:207`,
+  which the mutation at :205 does not touch.
+
+  **ME6's MISS IS THE BLIND-SPOT MEASUREMENT ITSELF.** The prediction of 0 came from grepping for the
+  whole sentence and finding nothing; one estate contract moved, and it is
+  `AnalyzerMemberAccess.tests.nl:370`, which asserts `harness.Errors[0].Message.Contains("can throw")`
+  — **a NINE-CHARACTER substring, plus the code `907` and the answered type, and nothing else: no
+  position, no suggestion, no severity, no whole sentence.** ME6b changes only the words AFTER
+  `can throw` and the estate reports **0 / 6316** while the native subject reports **1 / 109**. That
+  is the gap stated as a number in both directions: everything in the diagnostic except nine
+  characters was unmeasured anywhere in the repository until this slice.
+
+  Every run reported `Total: 6316`, so the estate BUILT AND RAN in each; every owner was restored
+  byte-identically after every mutation (verified by sha), and no production file in the tree is
+  modified. The harness registers `atexit` and `SIGTERM`/`SIGINT` handlers that `git checkout --`
+  every owner, asserts each anchor's OCCURRENCE COUNT before editing and REFUSES otherwise, and
+  **REFUSES A VERDICT UNLESS THE RUN REPORTS A NON-ZERO `total`.**
+
+  ### THE RATCHET — ONE ROW SHRUNK EXACT-MATCH, ONE HEAD, WALKED AGAINST THE PRISTINE MANIFEST FIRST
+
+  The audit was run in **three states**, and every value was read off the audit's own output rather
+  than computed by hand: (1) pristine manifest against the shrunk file → **17 / 18**, `OWN004` and
+  `OWN005` printing *observed metrics lines=11867, nonblank=10323, assertions=1240* and
+  *observed text-v1:8ceaa0b5785aa580*; (2) the row shrunk, head unchanged → **17 / 18**, `OWN008`
+  whose observed value is `head-v1:1142b31ea02abe34`, **the pre-repin observation, printed by the
+  audit itself**; (3) both keys repinned → **18 / 18**.
+
+  The row STAYS `existing-debt` — the file survives — and shrinks:
+  `13451 → 11867`, `11743 → 10323`, `1388 → 1240`, and
+  `text-v1:a81a6db847902bd2` → `text-v1:8ceaa0b5785aa580`. Its **immutable epoch ceilings
+  (13452 / 11746 / 1393) stay untouched**, as do `epochBytes` / `currentBytes` (both 0).
+
+  **THE MARKER DELTA IS 148, NOT 146, AND THE TWO EXTRA ARE A SUBSTRING COINCIDENCE WORTH RECORDING.**
+  The audit's marker set is `[Fact]` + `[Theory]` + `Assert.` + `Should(` + `test(` + `it(` +
+  `expect(`, counted as raw substrings. The deleted spans hold 109 `[Fact]`, 37 `Assert.`, zero
+  `[Theory]` / `Should(` / `test(` / `expect(` — **and TWO `it(`**, both accidental: `ReturnUintHighBit(`
+  and `Nullability_StrictFlow_ThrowGuardNarrowsAfterEarlyExit(`. 109 + 37 + 2 = 148, and
+  1388 − 148 = 1240, which is exactly what the audit observed.
+
+  **The two-key head is repinned LAST and TOGETHER**, `a6f9e74a98c5e896` → `1142b31ea02abe34`, in the
+  JSON header AND the `OwnershipPolicy.ReviewedHeadFingerprint` constant (`OwnershipAudit.nl` :241),
+  with **zero occurrences of the superseded value left anywhere under
+  `tests/native/ownership-audit/`**; manifest **391 lines**, no BOM (`7b 0a 20`), trailing newline
+  intact, and the whole ratchet diff is **exactly two changed lines in the JSON plus the one
+  constant** (`git diff --numstat`: `2 2` and `1 1`). **The manifest is edited LINE BY LINE rather
+  than round-tripped through a JSON dump.**
+
+  ### THE LIVE-TREE CHECKS
+
+  **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393
+  files, 246 diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`) and ZERO
+  rows in any `.tests.nl`. The check runs against a CLI built from this branch, not the installed
+  `~/.nsharp/bin/nlc`. Its non-zero exit is `ok:false` — the 246 inherited errors — which is the
+  baseline, not a failure of this slice.
+
+  **THE REAL YARDSTICK: a scratch copy of the estate with all 229 contract files renamed to
+  `.checked.nl` reports 622 files checked, 1,271 rows, and 111 of the 229 clean** — **identical to
+  slices 25-27 in every column**, which is what a slice that adds no estate file must produce.
+  `SemanticModel.checked.nl` stays at exactly **1** row.
+
+  **The project-scoped format check reports "All files are properly formatted."** on the
+  BootstrapServices estate. The new native project reports **"No .nl files found to format."**,
+  because a project whose only source is a `.tests.nl` presents nothing to the formatter.
+  `tests/native/ownership-audit` reports one unformatted file (`OwnershipAudit.nl`) — **PRE-EXISTING,
+  proven directly again**: the check was re-run with `tests/native/ownership-audit` stashed to its
+  `HEAD` state and reproduced the same single failure, then the slice's changes were restored.
+
+  ### THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY
+
+  The repo root still carries nested `.claude/worktrees/*` checkouts belonging to other sessions, so
+  the copy excludes `.claude/worktrees` and nothing else. **The copy's contents were verified
+  directly rather than assumed, on eleven checks**: `.claude/worktrees` does NOT exist inside it,
+  `.git` does, the `.csproj` count inside it is **18** — exactly the source's count excluding the
+  worktrees, so the duplicate `NSharpLang.Benchmarks.csproj` files under the nested worktrees are
+  absent — `tests/*.cs` numbers **29** with `AnalyzerTests.cs` at **11,867** lines, the new contract
+  is present, there are **0** `.trx` files, **0** `TestResults` directories, **0** `ProbeS28` files
+  and **0** `s28-probe` directories anywhere in it, the repinned head `1142b31ea02abe34` appears in
+  **BOTH** ratchet keys with **ZERO** occurrences of the superseded `a6f9e74a98c5e896` anywhere under
+  `tests/native/ownership-audit/`, the documentation edits are in it, and it enumerates **39** native
+  projects by the gate's own `find`. A competing-gate check (`pgrep -f test-all-core.sh`) was run
+  BEFORE launching and was clear. `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` was launched
+  from inside the copy with **its log written OUTSIDE the copied tree** (`/private/tmp/s28-gate.log`)
+  — slice 17's OWN003 trap, avoided by construction — and its banner reads **`Fresh isolated test run
+  required: pre-commit verification / Existing cache entries will not satisfy this invocation`**.
+
+  **THE VERDICT: `ALL TESTS PASSED! ✓`, EXIT 0, ZERO `✗ FAILED` LINES IN THE WHOLE 593-LINE LOG
+  ACROSS 119 PASSING STEPS, and the driver STORED the validated cache result
+  (`4eecd3b30a9145f6`, 1143 s) — which it does only on success.** Inside the gate: unit
+  `Failed: 0, Passed: 1746` (4 m 47 s, the full suite, independently reproducing this slice's own
+  predicted count); the compiler-service estate `Failed: 0, Passed: 6316`; **all 39 native projects
+  tested — `analyzer-clean-source` PASSING at 109 on the gate's own run, and
+  `tests/native/ownership-audit` PASSING at 18, so the repinned two-key head is validated by the gate
+  rather than only by a local run**; 67 N# assemblies pass IL verification with no new errors versus
+  baseline; the formatting gate passes; and SDK pack + template creation + example builds +
+  `nlc check` over the examples all pass. Total 19 m 03 s.
+
+  The passing gate ran against a byte-copy of the code tree; **the only file edited afterwards is this
+  one**, which is prose and is not an input to any compile step.
+
+  ### EVIDENCE
+
+  **Unit 1,855 → 1,746 = exactly the 109 migrated xUnit cases** — predicted before the deletion from
+  a re-measured `[Fact]` count of 109 and a re-confirmed ZERO `[Theory]` count, and observed by a
+  standalone `dotnet test tests/Tests.csproj` reporting `Failed: 0, Passed: 1746, Total: 1746`.
+  **The estate stays at `Failed: 0, Passed: 6316`** — no estate contract is added or touched.
+  **The gate-equivalent native project count goes 38 → 39**, counted by the gate's own enumeration
+  (`find examples tests -name project.yml` filtered to directories holding a `*.tests.nl`);
+  `tests/native/analyzer-clean-source` reports `{"total": 109, "passed": 109, "failed": 0}` — green
+  on its FIRST run, with no contract needing correction. **`tests/` still holds 29 `.cs` files** —
+  this is a SHRINK, not a deletion — and **42,347 lines**, down from 43,931, the **−1,584 being this
+  slice's deletion exactly**. `src/NSharpLang.Cli/Program.Testing.cs` stays at **618 and is not
+  edited**.
+
+  **ZERO C# IS ADDED, AND THAT IS PROVEN RATHER THAN ASSERTED.** `git diff --numstat` on
+  `tests/AnalyzerTests.cs` reads `20 1604`, a net of −1,584; **all 20 "added" lines also appear among
+  the 1,604 removed lines** (measured: added lines that are not also removed lines = **0**), because
+  git re-aligned the three surviving `ReflectionGenericReceiver_*` methods across the two-span
+  deletion. No C# content is added anywhere in the slice.
+
+  **THE DELETION, RECONCILED MARKER BY MARKER.** `[Fact]` **781 → 672**, `Assert.` **565 → 528**,
+  `[Theory]` **35 → 35**, `[InlineData` **100 → 100**, lines **13,451 → 11,867**. The audit's own
+  marker total goes **1388 → 1240**. The dead sweep is clean in both directions: a repository-wide
+  grep for all 109 deleted method names finds **zero** surviving references outside this ledger and
+  the successor, and a sweep for all twelve deleted REGION names across `memory/`, `docs/` and
+  `tasks/` finds **zero** live-doc mentions to go stale.
+
+  **THE SUCCESSOR, MEASURED.** `tests/native/analyzer-clean-source/AnalyzerCleanSource.tests.nl` is
+  **1,503 lines / 93,656 bytes**, **109 contracts**, **14 kernels** and **612 asserts** — 5.6 asserts
+  per contract against the deleted file's 1.4 claim rows per method. `AstEq.FieldNames` and `Golden`
+  needed **ZERO** new entries; no estate file is touched at all.
+
+  ### THE WHOLE MODIFIED-FILE SET, JUSTIFIED FILE BY FILE
+
+  | modified file | kind | why it changed |
+  |---|---|---|
+  | `tests/AnalyzerTests.cs` | **SHRUNK** | tranche 1a migrated; `20 1604` for a net −1,584, 781 → 672 `[Fact]`, 565 → 528 `Assert.`, twelve `#region` blocks gone |
+  | `tests/native/analyzer-clean-source/project.yml` | **new native project** | `dll:` dependencies identical to slice 27's, byte for byte |
+  | `tests/native/analyzer-clean-source/AnalyzerCleanSource.tests.nl` | **new native contract** | 109 contracts over 14 kernels — 109 parse censuses, 109 analysis censuses, 24 whole rows with their hints, and the count pair |
+  | `memory/testing.md` | **documentation** | assignability and flow narrowing join the N#-only list, with the campaign's shape, the four sketch corrections, the two-span rule and the findings; the file tree marks `AnalyzerTests.cs` as shrinking |
+  | `memory/components/analyzer.md` | **documentation** | the analyzer's coverage list gains the new native project and its findings, and `AnalyzerTests.cs`'s entry is re-measured |
+  | `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` | **ratchet** | one row shrunk exact-match, plus the head key |
+  | `tests/native/ownership-audit/OwnershipAudit.nl` | **ratchet** | the second head key |
+  | `STATUS.md` | **ledger** | this record |
+
+  **No production file is modified.** The thirteen mutation runs edited five owners
+  (`AnalyzerVariableDeclaration.nl`, `AnalyzerNullFlow.nl`, `AnalyzerMatchExhaustiveness.nl`,
+  `AnalyzerMemberAccess.nl` and `Analyzer.cs`) and every one was restored byte-identically, verified
+  by sha after each run and by `git status` at the end.
+
+  ### WHAT IS LEFT OF TASK 020, AND THE TRANCHE-1b PLAN
+
+  The remaining inventory, re-measured at this commit:
+
+  | file | lines | `[Fact]`s | `Assert.` | route |
+  |---|---|---|---|---|
+  | **`AnalyzerTests.cs`** | **11,867** | **672 (+35 `[Theory]`)** | **528** | the campaign continues — tranche 1b next |
+  | `SystemsNSharpTests.cs` | 2,402 | 60 (+1 `[Theory]`) | 412 | compiles and RUNS emitted assemblies; needs the SDK and a real build |
+  | `PlaygroundCompilerTests.cs` | 1,913 | 65 (+4 `[Theory]`) | 309 | drives `PlaygroundCompiler`, a `NSharpLang.Playground` type |
+  | `QueryIntegrationTests.cs` | 1,322 | 65 | 210 | drives the `nlc` CLI end to end against real example projects |
+
+  **THE NEXT CLUSTER IS TRANCHE 1b: THE SEVEN REMAINING `#region`s, AND THEY FIT IN ONE SLICE.**
+  Measured now rather than priced: `Generic Constraint Validation` 21, `String-to-Enum Rejection` 8,
+  `Overload Resolution — Betterness Rules` 6, `Missing Diagnostics — Type System Edge Cases` 14,
+  `Impossible Pattern Errors` 11, `Numeric Narrowing Cast Suggestions` 8 and `Default Expression` 13
+  — **81 methods over 865 declaration lines and 16 in-body `Assert.` occurrences**, comfortably
+  inside the ~1,500-line cap, so tranche 1 completes in two slices rather than three.
+
+  **ITS SHAPE IS ALREADY DECODED, AND IT NEEDS TWO INSTRUMENT ADDITIONS, BOTH NAMED BY MEASUREMENT.**
+  By what the 81 bodies name: 40 `AssertNoErrors`, 18 `AssertHasError`, 6 `AssertNoWarning`, **6
+  `AssertHasHint`**, 5 `AssertHasStrictError`, 3 direct `Analyze`, **2 `AssertHasParseError`** and 1
+  `AnalyzeWithSource`. So:
+  - **`AcHint` is already built** — the six `AssertHasHint` methods read `ContextualHint`, the field
+    this slice added a kernel for and pinned as `<null>` twenty-four times. Tranche 1b is where it
+    stops being `<null>`.
+  - **The parse census stops being decoration.** Two methods call `AssertHasParseError`, which parses
+    with the file name `"test.nl"` and asserts over `ParseResult.Errors` — the first tranche whose
+    parse pin is non-empty, and the first that needs the `"test.nl"` spelling alongside this slice's
+    `null` one.
+  - **One method calls `AnalyzeWithSource`**, the FOUR-argument `Analyze(unit, "test.nl", null,
+    source)` that populates `SourceSnippet`. That is a second analyse kernel, and
+    `analyzer-semantic-model` already has its shape.
+  - `AssertNoWarning` and `AssertHasStrictError` need nothing new: both are census/row claims with a
+    severity filter, which `AcCensus` and `AcRow` already state whole.
+
+  Only **2 of the 81** read a `.Line` or a `.Column`, so positions stay a widening. `[Theory]` is
+  **0** again — the table route's first consumer is still further out, in one of the six un-regioned
+  tranches. Tranche 1b **EXTENDS `tests/native/analyzer-clean-source`** rather than adding a sibling:
+  same subject, same fixtures territory, same entry point — slice 27's rule for the second half of a
+  split — so the native project count stays 39. After it, `AnalyzerTests.cs` has no `#region` left
+  and the campaign moves to the six family tranches the sketch cut by leading name token, each of
+  which must be re-decoded before it is priced.
+
+  ### THE NEXT CAPABILITY IS STILL NOT A CAPABILITY, WITH THE SAME NAMED EXCEPTION
+
+  This slice needed none of the task file's order — skip, setup/teardown, async `Task`, async
+  `ValueTask`, structured failure JSON, whole-run timeout: one probe, one new sibling project, and not
+  one runner change; `nlc test`'s JSON envelope is byte-for-byte the same schema. **The exception is
+  still TABLE-DRIVEN CASES**, and this slice measured that its first consumer is NOT in tranche 1:
+  all 35 `[Theory]`s and all 100 `InlineData` rows are un-regioned, so every one of the 19 regions
+  scores zero in both columns.
+
+  **AND `src/NSharpLang.Cli/Program.Testing.cs` IS STILL 618 AND STILL NOT EDITED.** Task 020's
+  closing rule needs BOTH an empty bucket (a) and an N#-owned runner surface. The runner surface is
+  not N#-owned and four C# files remain canonical assertion layers, so **task 020 stays UNCHECKED and
+  `tasks/README.md` is NOT edited.**
+
+- Previous sub-slice (020 arc, COMMITTED at `50d89d26a` — **SLICE 27 TAKES THE REMAINDER OF
   `tests/AnalyzerSemanticModelTests.cs` AND THE FILE IS THEN DELETED WHOLE. 643 C# LINES / 18
   `[Fact]`s / 188 `Assert.` OCCURRENCES / 206 RATCHET MARKERS / 234 DECODED CLAIM ROWS. ITS RATCHET
   ROW FLIPS `existing-debt` → `removed`. THE ONE NEW INSTRUMENT IS A TypeInfo WALKER, BUILT FOR
