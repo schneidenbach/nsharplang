@@ -949,6 +949,17 @@ Analyzer coverage is split deliberately across:
   than an estate contract because `Analyzer` is the C# class in `Compiler.dll`, and `Compiler.dll`
   depends on BootstrapServices; every other type on that route (`SemanticModel`, `ClassTypeInfo`,
   `DeclaredMemberInfo`, `AnalysisResult`) is already N# in the estate.
+- `tests/native/analyzer-event-subscription` for the `on` / `off` event diagnostics end to end —
+  `NL317` on `+=` and `-=` over a real .NET event, `NL318` on `off` over a non-subscription, each
+  with its whole message and suggestion, and the WHOLE diagnostic census rather than one code. It is
+  a native project for the same reason as the row above, and it is the only coverage those two arms
+  have that runs the real analyzer over real reflection: `EventRequiresOnOff` appears in NO estate
+  contract, and `InvalidEventSubscription` appears in exactly one — `AnalyzerLambdaAnalysis.tests.nl`,
+  over a kernel harness with a stand-in subscription root, for the `on`-target-is-not-an-event arm.
+- `tests/native/analyzer-binding-map` for what `AnalysisResult.Bindings` answers — `GetBindingAt`
+  over interpolation holes, member accesses, and type annotations in every composite position
+  (nullable, array, generic argument, delegate argument), and `FindAllReferences` with its WHOLE
+  usage list rather than a count floor. Same native route and same reason.
 - `tests/AnalyzerTests.cs` for analyzer-shell diagnostics, flow analysis, call binding, and
   end-to-end semantic behavior.
 

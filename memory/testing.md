@@ -43,6 +43,27 @@ so the boundary columns are stated rather than implied. The analyzer half — th
 `Analyzer`, `SemanticModel` and `ClassTypeInfo` — is `tests/native/analyzer-identifier-binding`,
 because `Analyzer` is C# in `Compiler.dll`.
 
+**THE `on` / `off` EVENT-SUBSCRIPTION SYNTAX AND ITS DIAGNOSTICS have no C# assertion layer either,
+as of task 020 slice 24.** `tests/EventSubscriptionTests.cs` is DELETED and its ten `[Fact]`s split
+5 / 5 by subject, the second file this arc has split across both estates. The PARSE half — 49 of the
+file's 55 decoded claim rows — is `ColumnarParserEventSubscription.tests.nl` in the estate, as WHOLE
+TREE goldens, so every anchor the deleted assertions never stated is pinned: the `on` keyword the
+subscription and its statement share, the DOT the event target anchors on, the `(` and `{` of the
+handler. The ANALYSIS half — the 6 rows out of `Analyzer.Analyze` — is
+`tests/native/analyzer-event-subscription`, and it states the WHOLE diagnostic census rather than one
+code: **both rejecting fixtures report TWO errors, not one**, because `Assert.Single(errors, e =>
+e.Code == X)` is silent about every row carrying another code. The second row is an `NL203` on the
+handler's first lambda parameter.
+
+**THE BINDING MAP — go-to-definition and find-all-references — has no C# assertion layer either, as
+of the same slice.** `tests/AnalyzerBindingMapTests.cs` is DELETED WHOLE into
+`tests/native/analyzer-binding-map`: all twelve of its `[Fact]`s needed `Analyzer` to populate the
+map, so there is no estate half. Its eighteen cursor columns were runtime `FindColumn(...)`
+computations and were decoded by pasting the twelve fixtures AND that helper into a generated C#
+program. **The whole usage LIST is now pinned, and that mattered**: the deleted
+`Assert.True(usages.Count >= 2)` was hiding a reference set of five in which three entries are the
+same position.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
@@ -488,7 +509,15 @@ ARGUMENT TYPES the cluster's subject calls take — measured by probe, not assum
 |---|---|---|
 | `string` / `int` / `bool` / arrays / literals, answering primitives | **`tests/native/<name>/`**, subject reached as a `dll:` dependency, run by the LIVE CLI | tables (`with (…) […]`) are available here, so each row reports as its own test |
 | an ENUM member, a CONSTRUCTED object, or anything else the emitter must resolve in the dependency assembly | **`src/NSharpLang.Compiler.BootstrapServices/<Subject>.tests.nl`**, same assembly, compiled by the PINNED toolset | a dependency-assembly enum member declines at `emit.typed-local.initializer` (and `emit.call.static-member-unmodeled` in argument position), and `new <dependency type>(…)` declines at `emit.local.initializer`; in a table row the enum member is refused earlier still, by `NL310` |
-| a subject that lives ABOVE the estate (in `Compiler.dll`), whose values are not primitives | **`tests/native/<name>/`**, subject reached BY REFLECTION through `object` | this is the `tests/native/query-completions` / `completion-engine` / `analyzer-identifier-binding` route |
+| a subject that lives ABOVE the estate (in `Compiler.dll`), whose values are not primitives | **`tests/native/<name>/`**, subject reached BY REFLECTION through `object` | this is the `tests/native/query-completions` / `completion-engine` / `analyzer-identifier-binding` / `analyzer-event-subscription` route |
+
+**A file can have TWO subjects, and then it splits.** Membership is decided per CLUSTER, not per
+file: `tests/AstNodeFinderTests.cs` (slice 23) had a finder subject in the estate and an analyzer
+subject above it, and `tests/EventSubscriptionTests.cs` (slice 24) had a parser subject in the estate
+and an analyzer subject above it. Both were split rather than forced whole through the weaker route.
+Each native project carries its OWN reflection plumbing — `SetCompletionObject` / `SetDocQueryObject`
+/ `SetEventObject` are the same idiom written per project — so a new subject gets a NEW sibling
+project named for it rather than a second tenancy in one named for something else.
 
 **A `project:` reference would not change that second row, and 020 slice 23 measured why.** The
 decline is in the emitter's TYPE RESOLUTION, not in how the assembly arrives: naming a referenced

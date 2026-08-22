@@ -181,7 +181,11 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   tranche of the arc (task 020 slice 21); and `ColumnarParserKeywordLambdaType.tests.nl` pins whole
   trees over the LAST tranche — keyword and primary expressions (15), lambdas (7), type references
   (4, carrying the campaign's final negative) and operators (4) — the file that finished the
-  migration (task 020 slice 22). **The two entry points do not
+  migration (task 020 slice 22); and `ColumnarParserEventSubscription.tests.nl` pins whole trees over
+  the `on` / `off` EVENT-SUBSCRIPTION corpus — the subscription as a bare expression statement, as a
+  `:=` initializer and over a `this` receiver, the `off` statement, `on` / `off` used as ordinary
+  identifiers, and a context control in which a local named `on` does not stop the next line parsing
+  a subscription (task 020 slice 24, migrated from `tests/EventSubscriptionTests.cs`). **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
   `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.

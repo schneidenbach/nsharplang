@@ -3893,7 +3893,467 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 23 MEASURED THE CAPABILITY THE MANDATE NAMED AND FOUND
+- Active sub-slice (020 arc, THIS TURN — **SLICE 24 TAKES TWO FILES. `tests/EventSubscriptionTests.cs`
+  IS DELETED AND SPLIT 5 / 5 ACROSS BOTH ESTATES BY SUBJECT — THE SECOND FILE THIS ARC HAS SPLIT —
+  AND `tests/AnalyzerBindingMapTests.cs` IS DELETED WHOLE INTO A SECOND NEW NATIVE PROJECT. 540 C#
+  LINES, 22 `[Fact]`s, 107 `Assert.` OCCURRENCES, 136 RATCHET MARKERS, 144 DECODED CLAIM ROWS. BOTH
+  RATCHET ROWS FLIP `existing-debt` → `removed`.**)
+
+  ### THE SPLIT, RE-VERIFIED BY READING THE FILE BEFORE ANY EDIT
+
+  Slice 23 named the next cluster and priced its split at 5 / 5. **Re-measuring it reproduces that
+  exactly, and the measurement is a mechanical decode rather than a reading.** The five `Parse_*`
+  methods reach `ColumnarParserRecovery.ParseFileAst` and nothing else; the five `Analyze_*` methods
+  construct an `Analyzer`, call `LoadSystemAssemblies()` and then the SINGLE-ARGUMENT `Analyze(unit)`.
+  `Analyzer` is the C# class in `Compiler.dll`, which depends on the estate rather than the other way
+  round, so the two halves cannot live in one place. The decoder that produced the claim rows carries
+  the route per fixture and reports **parse facts = 5, analyze facts = 5**.
+
+  | successor | lines | declarations | takes |
+  |---|---|---|---|
+  | `src/…/ColumnarParserEventSubscription.tests.nl` | 176 | 6 | the 49 parse rows, as WHOLE-TREE goldens |
+  | `tests/native/analyzer-event-subscription/` | 316 | 7 | the 6 analysis rows, by reflection through `Compiler.dll` |
+  | `tests/native/analyzer-binding-map/` | 425 | 13 | all 89 binding-map rows, same route |
+
+  ### THE SECOND CLUSTER WAS TAKEN BECAUSE ITS SHAPE WAS MEASURED TO FIT, NOT ASSUMED
+
+  The mandate allowed `tests/AnalyzerBindingMapTests.cs` if its measured shape fits, capped at ~700 C#
+  lines. **It fits on the route and under the cap** — 357 + 183 = 540 — and the route was proved BY
+  EXECUTION before a line of the successor was written: a scratch native probe reached
+  `AnalysisResult.Bindings`, called `BindingMap.GetBindingAt` and `BindingMap.FindAllReferences`
+  through `object`, and got real answers back (`name:local@3:5`, `decl=name:local@3:5 usages=1[4:21;]`).
+  All twelve of its `[Fact]`s need `Analyzer`, so it is a WHOLE-FILE native move with no estate half.
+  **A NEW SIBLING PROJECT rather than a second tenancy in slice 23's**, and that is measured too:
+  `completion-engine`, `doc-query` and `query-completions` each carry their OWN copy of the reflection
+  plumbing (`SetCompletionObject` / `SetDocQueryObject` / …), so a per-subject project is the
+  established shape and a project named `analyzer-identifier-binding` holding event and binding-map
+  contracts would be a misnamed one.
+
+  ### THE PARSE HALF IS A WHOLE-TREE GOLDEN, AND EVERY ANCHOR CAME FROM THE PARSER ITSELF
+
+  The deleted `Parse_*` methods asserted node KINDS and two names. Not one stated a Line or a Column,
+  so a parser that produced the right shape at the wrong position passed all five. The successor pins
+  whole trees through `AstEq.Diff`, which is the house route for every other parser family in this
+  estate — and every position in it was TRANSCRIBED rather than counted: `ProbeS24.tests.nl` walked
+  each parsed tree and GENERATED the golden-builder body, reporting it through a failing assert.
+
+  ### THE PROBES — THREE, ALL DELETED OR OUTSIDE THE REPOSITORY BEFORE THE REAL FILES LANDED
+
+  `ProbeS24.tests.nl` (mechanical descriptions only, no raw quotes) generated all six golden bodies
+  and reported any node shape it did not model as a marker rather than flattening it — **zero markers
+  came back**. The run that carried the real estate file reported **5 real contracts PASSED and only
+  the 6 probe declarations failing, by design**; the probe was then deleted and the sixth contract —
+  the context control — added from its output. A scratch native project kept OUTSIDE the repository
+  carried the other two probe files, one for the analysis censuses and one for the binding map, and
+  it is that project — not a repository file — that measured the two emitter declines recorded below.
+
+  ### THE COMPARATORS — 144 C# CLAIM ROWS IN, 144 MATCHED, 0 MISSING, 0 UNDECODED
+
+  Both sides are decoded into one shared vocabulary per cluster, and fixture identity is by **sha256
+  of the decoded source**, never by ordering. **THE FIXTURES AND THE CURSOR COLUMNS ARE DECODED BY THE
+  C# COMPILER ITSELF**: all 22 literals are verbatim `@"…"` forms and were pasted unmodified into a
+  generated console program, which printed each one's sha256 and its N# spelling — and, for the
+  binding-map cluster, ALSO ran the deleted `FindColumn(source, line, needle, occurrence)` helper
+  verbatim and printed all **18** cursor columns it computes at runtime.
+
+  **Completeness arithmetic is exact and every step is a count.**
+
+  | cluster | `Assert.` occurrences | rows | reconciliation |
+  |---|---|---|---|
+  | events | 28 = 26 in-method + 2 in the `MainBody` helper | **55** | 14 `IsType` × 2 + 6 `Equal` + 2 `False` + 1 `Contains` + 3 `Single` = 40, plus the helper's 3 rows expanded at each of 5 call sites = 15 |
+  | binding map | 79 = 77 in-method + 2 in the `Analyze` / `FindColumn` helpers | **89** | 12 `IsType` × 2 + 16 `NotNull` + 45 `Equal` + 1 `True` + 2 `Contains` + 1 `DoesNotContain` |
+
+  Row kinds reconcile too: events **19 type + 24 nonnull + 11 value + 1 contains = 55**; binding map
+  **12 type + 28 nonnull + 45 value + 1 atleast + 2 contains-position + 1 excludes-line = 89**.
+  The N# side of the event cluster decodes to **373 rows over 6 contracts**, with **157 distinct
+  (route, path) pairs against the C#'s 19 — an 8.3× widening**; the binding-map successor states **59
+  claims decoding to 164 field-level rows** against the C#'s 89.
+
+  **AND THE 0-MISSING REQUIREMENT CAUGHT A REAL GAP AGAIN, IN ITS SEVENTH SLICE OF DOING SO — THIS
+  TIME IN THE SUCCESSOR RATHER THAN IN THE DECODER.** Every one of the twelve deleted binding-map
+  methods opened with `Assert.IsType<BindingMap>(result.Bindings)`; the first draft of the successor
+  restated that in only TWO of its contracts. The comparator named all twenty missing rows by fixture
+  and path (`G2…G11 analysis.Bindings type/nonnull`), the claim was added to the other ten, and the
+  count went 69 → 89.
+
+  ### THE ANCHOR AUDIT — EVERY PINNED POSITION CHECKED AGAINST THE TOKEN SITTING THERE
+
+  | node kind | where it anchors, measured |
+  |---|---|
+  | `OnSubscriptionExpression` | the `on` KEYWORD, **4 / 4** (F0 2:5, F1 2:12, F2 2:5, control 3:12) |
+  | `OffStatement` | the `off` KEYWORD, **2 / 2** (F3 2:5, control 4:5) |
+  | `MemberAccessExpression` | its **`.`**, **4 / 4** — F0 col 14 (`widget` 8-13, dot 14), F1 col 21, F2 col 12 (`this` 8-11, dot 12), control col 21 |
+  | `LambdaExpression` (block) | its **`(`**, **4 / 4** (F0 23, F1 30, F2 21, control 30) |
+  | `BlockStatement` (handler body) | its **`{`**, **4 / 4** (F0 41, F1 48, F2 39, control 48) |
+  | `BinaryExpression` | its **operator**, **1 / 1** (F4's `+` at 4:17, with `on` at 14 and `off` at 19) |
+  | `ExpressionStatement` | the statement start, which for `on` is the SAME column as the expression, **2 / 2** |
+  | `SymbolDeclaration` (binding map) | the declared NAME, **all 18 lookups** — `Greeter` at 2:7 not the `class` keyword at 2:1, `Person` at 2:8, `value` at 2:11 |
+
+  ### THE CLEAN-PARSE PINS, AND THE DESIGNED DIAGNOSTICS NAMED EXACTLY
+
+  Every contract pins a census first, and the deleted helpers could make none of them: the event
+  file's `Parse` discarded `.Errors`, and the binding-map file's `Analyze` asserted only that the unit
+  was non-null. **MEASURED: all six estate fixtures and all five event-analysis fixtures and all
+  twelve binding-map fixtures parse with an EMPTY diagnostic list** — 23 more real-world fixtures on
+  the pin, which has now covered 235 across slices 17-24.
+
+  **The designed diagnostics are the ANALYSIS ones, and they are named exactly.** `+=` and `-=` over
+  `AppDomain.CurrentDomain.ProcessExit` each report **`NL317:EventRequiresOnOff@5:5+35`** AND a second
+  row the deleted `Assert.Single(errors, e => e.Code == X)` was silent about —
+  **`NL203:CannotInferType@5:45+6`**, on the handler's first lambda parameter. `off x` over a plain
+  local reports **`NL318:InvalidEventSubscription@4:9+1`**. The shadowing binding-map fixture reports
+  **`NL203:CannotInferType@4:19+5`**. Everything else is empty.
+
+  ### WHAT THE SUCCESSORS MEASURED THAT THE DELETED ASSERTIONS COULD NOT SEE
+
+  1. **THE SECOND DIAGNOSTIC.** `Assert.Single(collection, predicate)` is a claim about the rows
+     carrying ONE code and says nothing about any other row. Both rejecting event fixtures report TWO
+     errors. The census states the whole list in recording order.
+  2. **A TRIPLICATED USAGE.** `Assert.True(usages.Count >= 2)` was the weakest claim in either file,
+     and it was hiding something: `FindAllReferences` over the `Config` class answers **five** usages
+     and **three of them are the same position** — `6:14`, the return type, recorded three times.
+  3. **THE GUIDANCE.** `+=` and `-=` agree on code and span and DIFFER in both message and
+     suggestion; the C# read one message once, for a substring.
+  4. **NEITHER DIAGNOSTIC IS A BAN ON ITS KEYWORD OR OPERATOR.** A captured subscription passed to
+     `off` analyses cleanly, and `x += 1` over an int local analyses cleanly. The deleted file asked
+     for neither, so both diagnostics were pinned only in the rejecting direction.
+  5. **THE CONTEXTUAL KEYWORD IS DECIDED BY SYNTAX, NOT BINDING.** The estate's control fixture binds
+     a local named `on` on one line and still parses `on widget.Clicked …` as a subscription on the
+     next. The deleted file had those two shapes in separate sources and could not compare them.
+  6. **THE DECLARATION KIND ON THE REFERENCE PATHS.** A function parameter's declaration reports Kind
+     `variable`, not `parameter`; nothing asserted it.
+  7. **A REFUSAL IN EACH CLUSTER.** A position that binds nothing answers nothing; an identifier the
+     fixture never declares binds to nothing.
+
+  ### FORTY PERTURBATION CONTROLS ACROSS TWO PANELS, AND EVERY NON-MOVER IS PROVEN AND REPLACED
+
+  Every control edits a MATERIALISED COPY kept outside the repository, asserts the anchor's
+  OCCURRENCE COUNT before editing, re-runs both decoders and the comparator, and requires the
+  undecoded count to stay at zero. **The occurrence-count assertion earned itself twice**: it refused
+  an anchor that had become ambiguous once the control contract was added, and it refused a
+  parse-census anchor whose count was 12 rather than 13.
+
+  | events panel | Δ matched | Δ missing |
+  |---|---|---|
+  | N1 the F0 handler loses a parameter | **−1** | +1 |
+  | N2 the F1 declaration name | **−1** | +1 |
+  | N3 the F2 member name | **−1** | +1 |
+  | N4 the F3 off-handle name | **−1** | +1 |
+  | N5 the F4 second declaration name | **−1** | +1 |
+  | N6 the F2 receiver node kind | **−1** | +1 |
+  | N7 an ANCHOR the C# never states | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N7b the F0 target node kind | **−1** | +1 |
+  | N8 the F0 PARSE CENSUS | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | N8b the F0 subscription node kind | **−4** | +4 |
+  | N9 the F0 statement kind | **−6** | +6 |
+  | V1 the NL317 row of the `+=` census | **−1** | +1 |
+  | V2 the `+=` message loses the event name | **−1** | +1 |
+  | V3 the `on`-form HasErrors claim | **−1** | +1 |
+  | V4 the SUGGESTION the C# never read | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | V4b the `-=` census NL317 row | **−1** | +1 |
+  | V5 the NL318 census code | **−1** | +1 |
+  | V6 the PARSE CENSUS pins | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | V6b the delegate fixture's HasErrors | **−1** | +1 |
+  | C1 one C# assert blanked | **−1** | 0 |
+  | C2 a C# expected value changed | **−1** | +1 |
+  | C3 a whole C# `[Fact]` body emptied | **−8** | 0 |
+  | C4 a C# asserted node type changed | **−1** | +1 |
+  | C5 a C# analyzer code changed | **−1** | +1 |
+
+  | binding-map panel | Δ matched | Δ missing |
+  |---|---|---|
+  | B1 the G0 bound NAME | **−1** | +1 |
+  | B2 the G0 reference-walk declaration LINE | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | B2b the G0 `GetBindingAt` declaration LINE | **−1** | +1 |
+  | B3 the G10 usage POSITION the C# asserts by predicate | **−1** | +1 |
+  | B4 the G11 usage set gains the line the C# forbids | **−1** | +1 |
+  | B5 the G4 KIND | **−1** | +1 |
+  | B6 one contract's `BindingMap` type claim | **−2** | +2 |
+  | B7 the G11 ANALYSIS CENSUS | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | B7b the G11 shadowed OUTER binding | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | B7c the G11 reference-walk declaration NAME | **−1** | +1 |
+  | B8 the PARSE CENSUS pins | 0 | 0 — **NON-OBSERVABLE, replaced** |
+  | B8b the G9 generic-argument binding | **−1** | +1 |
+  | D1 one C# assert blanked | **−1** | 0 |
+  | D2 a C# expected value changed | **−1** | +1 |
+  | D3 the C# usage-count floor raised beyond the truth | **−1** | +1 |
+  | D4 the C# `DoesNotContain` line changed to one that IS present | **−1** | +1 |
+
+  **EVERY NON-MOVER IS NON-OBSERVABLE BY CONSTRUCTION, AND EVERY PROOF IS A COUNT OVER THE DECODED C#
+  ROWS.** Events (55 rows): rows stating an anchor **0**, a parse census **0**, a `Suggestion` **0**,
+  a `Hint` **0**, a `DiagnosticId` **0**, a `Severity` **0**. Binding map (89 rows): rows over the G0
+  reference walk **0**, over the G11 outer-local position **0**, naming an analysis census **0**,
+  naming a parse census **0**.
+
+  ### THE TOOLING, AND THE CAUTIONS THIS SLICE ADDS
+
+  The two fixture decoders, the two comparators, the two perturbation panels and both mutation
+  harnesses live in the scratch tree. Every caution this slice inherited held, and **five are added.**
+
+  1. **A GENERATOR PROBE IS THE WAY TO WRITE A WHOLE-TREE GOLDEN.** Walk the parsed tree and EMIT the
+     `Golden.*` statements, then paste them verbatim; anything the generator does not model comes back
+     as a marker instead of a plausible-looking wrong value. All six bodies came back marker-free.
+  2. **THE NATIVE RUNNER REPORTS ONLY `Assertion failed` UNLESS THE ASSERT CARRIES A MESSAGE.**
+     `assert report == "<probe>", report` is what makes a probe readable, and `dotnet test -v q`
+     suppresses even that — use `-v n` or a `--logger trx`.
+  3. **`dotnet test` CAN EXIT 0 WITH ZERO OUTPUT, AND THAT IS A NON-VERDICT, NEVER A PASS.** It
+     happened in the middle of this slice's estate mutation panel, after `nlc test` builds had shared
+     the tree; all seven runs reported NO VERDICT and the harness printed no numbers. The fix is
+     `rm -rf bin obj` plus a restore with `-p:NSharpExcludeTests=false --force-evaluate`; the harness
+     now also retries once on a missing `Total:`.
+  4. **A METHOD HANDLE TYPED `object?` CANNOT BE `Invoke`D** — `emit.call.instance-member-unmodeled:
+     instance call 'Object.Invoke'`. Keep the `GetMethod(...)` call inline in the function that uses
+     it so the handle's static type stays `MethodInfo`. (And the inherited caution holds: an
+     `Invoke(target, new object?[](0))` as an EXPRESSION STATEMENT declines with the array inline.)
+  5. **CROSS-FILE FREE FUNCTIONS DO RESOLVE INSIDE ONE NATIVE PROJECT, BUT IMPORTS DO NOT.** A second
+     `.tests.nl` sees the first file's PascalCase functions and still fails `NL412` for its own
+     missing `import System`. Separately: the integer literal node is `IntLiteralExpression`, not
+     `IntegerLiteralExpression` — the wrong name declines at `emit.local.initializer` rather than
+     failing to resolve.
+
+  ### THE ESTATE MUTATION PANEL — SIX MUTATIONS AGAINST A VERIFIED GREEN BASELINE, AND ALL SIX
+  OWN-COUNTS MATCHED THE PREDICTION EXACTLY
+
+  **THE ATTRIBUTION PREDICATE WAS VERIFIED AGAINST THE RUNNER'S OWN GENERATED NAMES FIRST, BOTH WAYS.**
+  A `--logger trx` run of the green estate was dumped and all **6,290** names read: the strict prefix
+  `NSharpTests.Test_020S24ParserEvents` matches **exactly 6**, and a loose search for `020S24`
+  anywhere in a name matches **exactly 6 as well** — so no contract of this slice escapes the
+  predicate and no other contract is captured by it.
+
+  **THE BASELINE IS `Failed: 0, Total: 6290`.** Each mutation is a single-expression edit in the
+  production owner `ColumnarParserRecovery.nl`; the harness restores the owner as its FIRST action,
+  records its sha256, asserts the anchor's occurrence count, registers `atexit` and `SIGTERM` /
+  `SIGINT` handlers that `git checkout --` the owner, and **REFUSES TO PRINT A VERDICT UNLESS THE RUN
+  REPORTS A `Total:`**. All `--logger trx` output goes to `--results-directory` paths in the SCRATCH
+  tree, never inside the repository.
+
+  | mutation | failures | own | predicted | siblings |
+  |---|---|---|---|---|
+  | ME1 — an `off` statement anchors on its HANDLE instead of the keyword | **3 / 6290** | 2 | 2 | 1 (tranche-10's `off handle` golden) |
+  | ME2 — an `on` subscription anchors on its TARGET instead of the keyword | **5 / 6290** | 4 | 4 | 1 (tranche-10's `on` golden) |
+  | ME3 — `off` is recognised only before a `this`, so `off name` is no longer an OffStatement | **3 / 6290** | 2 | 2 | 1 (tranche-10's `off handle` golden) |
+  | ME4 — an event target's member access anchors on the MEMBER NAME instead of the dot | **6 / 6290** | 4 | 4 | 2 (tranche-10's `on`, tranche-11's non-lambda handler) |
+  | ME5 — an `on` subscription no longer admits a `this` receiver | **1 / 6290** | 1 | 1 | **0** |
+  | ME6 — the `on` handler's lambda is replaced by the RECOVERY handler on every path | **6 / 6290** | 4 | 4 | 2 (tranche-10's `on`, and a LINTER contract about a variable read inside an `on` handler) |
+
+  **AND ONE MORE MUTATION WAS RUN IN BOTH ESTATES AT ONCE, WHICH IS WHERE THE TWO PANELS MEET.**
+  `MX1` / `MN2` is the SAME edit — the `+=` event message replaced by the `-=` one, in
+  `AnalyzerAssignment.nl`. The NATIVE side catches it twice (the message pin and the
+  subscribe-versus-unsubscribe comparison). The ESTATE side reports **1 / 6290**, and the one contract
+  that moves is not a parser contract at all: it is
+  `TheThreeEventOperatorsGetThreeDifferentSentencesAndTheValueIsStillWalked`, the kernel-level
+  contract that pins the three sentences `ReportEventAssignment` composes. **So the estate holds the
+  SENTENCE and the native project holds the DIAGNOSTIC** — the row that actually reaches
+  `AnalysisResult.Errors` with a code, a span and a suggestion, over a real .NET event, which nothing
+  in the estate reaches. The prediction here was 0 and the measurement is 1; the sweep that produced
+  the prediction looked for the CODE (`EventRequiresOnOff`, which appears in no estate contract) and
+  missed a contract that pins the message TEXT without naming the code.
+
+  Every one reports `Total: 6290`, so the estate BUILT AND RAN in each; the owner was restored
+  byte-identically every time (sha256 `6ce102ec07e58f8a` before and after), and no production `.nl` in
+  the tree is modified. **ME5 HAS ZERO SIBLINGS**, which is the sharpest statement available here: the
+  only contract in the entire 6,290-contract estate that catches a parser which stops admitting a
+  `this` receiver after `on` is this slice's.
+
+  **AND THE PANEL'S FIRST RUN PRODUCED NO NUMBERS AT ALL, WHICH IS THE POINT OF THE RULE.** All seven
+  runs reported `NO VERDICT (no Total:)` because `dotnet test` was exiting 0 with ZERO output after
+  the native `nlc test` builds had shared the tree. Nothing was published from that run; the tree was
+  cleaned (`rm -rf bin obj`), restored with `-p:NSharpExcludeTests=false --force-evaluate`, and the
+  6,290-contract green baseline was reproduced before the panel was run again.
+
+  ### THE NATIVE MUTATION PANEL — FIVE MUTATIONS OVER TWO SUBJECTS, TWO OF THEM IN C# INSIDE
+  `Compiler.dll`, AND EVERY SIBLING COLUMN MEASURED RATHER THAN ASSUMED
+
+  Each mutation edits a production owner, REBUILDS the CLI — which is what publishes `Compiler.dll`
+  and `NSharpLang.Compiler.BootstrapServices.dll` into the directory the native projects take as
+  `dll:` dependencies — and re-runs BOTH new subjects together with the four other
+  `Compiler.dll`-driven native projects. Baseline, all green: subject **0 / 7** and **0 / 13**,
+  `analyzer-identifier-binding` 0 / 4, `completion-engine` 0 / 12, `query-completions` 0 / 1,
+  `doc-query` 0 / 11. The `own` column is over the two subjects' combined 20 contracts.
+
+  | mutation | owner | own | predicted | siblings |
+  |---|---|---|---|---|
+  | MN1 — the `off` dispatch hands the analyser `object` as the subscription root | **`Analyzer.cs` — C# in `Compiler.dll`** | **0 / 20** | 1 | none |
+  | MN1b — the `off` statement is not analysed AT ALL | **`Analyzer.cs` — C# in `Compiler.dll`** | **1 / 20** | 1 | none |
+  | MN2 — the `+=` event message is replaced by the `-=` one | `AnalyzerAssignment.nl` (estate) | **2 / 20** | 2 | none |
+  | MN3 — the event diagnostic underlines one column too many | `AnalyzerAssignment.nl` (estate) | **2 / 20** | 2 | none |
+  | MN4 — the NL318 guidance loses its capture form | `AnalyzerExpressionStatements.nl` (estate) | **1 / 20** | 1 | none |
+  | MN5 — member-access analysis records its bindings into a DISCARDED map | **`Analyzer.cs` — C# in `Compiler.dll`** | **2 / 20** | 2 | none |
+
+  Every owner was restored byte-identically (the harness re-checks all three sha256s after each
+  mutation and reports `True` for each), and the CLI was rebuilt clean at the end.
+
+  **MN1's PREDICTION WAS WRONG, AND THE REASON IS A COMPUTATION RATHER THAN A WAIVER — one the
+  production source states about itself.** Handing the `off` check `object` as its subscription root
+  was predicted to stop `NL318` firing over `off x`, and it breaks nothing. Reading the owner says
+  why: `IsEventSubscriptionHandle` returns false for any handle that is not a `ReflectionTypeInfo`
+  BEFORE the root is consulted, and its comment says so in as many words — "A non-reflected handle
+  never reaches the root at all, which is what keeps the whole question off `int` and `string`." An
+  `int` handle is refused one line earlier than the mutation, so no contract over these inputs can
+  see it. It is recorded as a FIXED POINT and replaced by **MN1b**, which deletes the dispatch arm
+  instead of re-parameterising it.
+
+  **MN2, MN3 AND MN5 ARE THE ROUTE'S OWN JUSTIFICATION IN THREE DIFFERENT PLACES.** MN5 and MN1b edit
+  C# INSIDE `Compiler.dll` — the assembly the estate cannot reach in any spelling — and the native
+  successors catch both. **AND IN ALL SIX THE SIBLING COLUMN IS EMPTY**: no other native project's
+  contracts move, so what these two projects hold is theirs alone.
+
+  ### THE LIVE-TREE CHECKS
+
+  **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files, 246
+  diagnostics — the inherited baseline to the digit**, with the same ten-code census
+  (`NL202:85 NL402:68 NL905:26 NL012:20 NL011:17 NL301:16 NL010:7 NL303:3 NL412:3 NL002:1`) and ZERO
+  rows in any `.tests.nl`. The check runs against a CLI built from this branch, not the installed
+  `~/.nsharp/bin/nlc`. Its exit is non-zero because `ok:false` — the 246 inherited errors — which is
+  the baseline, not a failure of this slice. The file count is unchanged BECAUSE `nlc check` never
+  sees a `.tests.nl`, which is why the real yardstick is run separately.
+
+  **THE REAL YARDSTICK: a scratch copy of the estate with all 228 contract files renamed to
+  `.checked.nl` reports 621 files checked, 1,271 rows, and 110 of the 228 clean.** Against slice 23's
+  620 / 1,271 / 227 / 109 that is **one more file, one more clean file and NOT ONE MORE ROW.**
+  `ColumnarParserEventSubscription.checked.nl` reports **ZERO rows**; `ColumnarParserAst.checked.nl`
+  stays at exactly **18** and `ColumnarParserRecovery.checked.nl` at **51**, which they must, since
+  this slice touches neither.
+
+  **The project-scoped format check reports "All files are properly formatted."** on the
+  BootstrapServices estate. `tests/native/ownership-audit` reports one unformatted file
+  (`OwnershipAudit.nl`) — **PRE-EXISTING, proven directly again**: writing `HEAD`'s version of that
+  file over this slice's one-line head change reproduces the same failure, and the file is then
+  restored byte-identically (`git diff --numstat` back to `1 1`). The two NEW native projects report
+  **"No .nl files found to format."**, because a project whose only source is a `.tests.nl` presents
+  nothing to the formatter — the same reason the gate's format step never sees a contract file.
+
+  ### THE FULL NON-VS-CODE GATE, FRESH AND ISOLATED FROM A `/tmp` BYTE-COPY
+
+  The repo root still carries nested `.claude/worktrees/*` checkouts belonging to other sessions, so
+  the copy excludes `.claude/worktrees` and nothing else. **The copy's contents were verified directly
+  rather than assumed, on nine checks**: `.claude/worktrees` does NOT exist inside it, `.git` does,
+  the benchmark-project count inside it MATCHES the source, all three successors are present, BOTH
+  deleted C# files are ABSENT, there are **0** `.trx` files, **0** `TestResults` directories and
+  **0** `ProbeS24` files anywhere in it, the repinned head `2aafbddaafc83094` appears in **BOTH**
+  ratchet keys with **ZERO** occurrences of either superseded value anywhere under
+  `tests/native/ownership-audit/`, the documentation edits are in it, and it enumerates **36** native
+  projects. A competing-gate check (`pgrep -f test-all-core.sh`) was run BEFORE launching and was
+  clear. `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` was launched from inside the copy with
+  **its log written OUTSIDE the copied tree** (`/private/tmp/s24-gate.log`) — slice 17's OWN003 trap,
+  avoided by construction — and its banner reads **`Fresh isolated test run required: pre-commit
+  verification / Existing cache entries will not satisfy this invocation`**.
+
+  **THE VERDICT: `ALL TESTS PASSED! ✓`, ZERO `✗ FAILED` lines in the whole 581-line log across 116
+  passing steps, and the driver STORED the validated cache result (`f43f43627225827f`, 1140 s) —
+  which it does only on success.** Inside the gate: unit `Failed: 0, Passed: 1945` (4 m 49 s, the full
+  suite, independently reproducing this slice's own predicted count); the compiler-service estate
+  `Failed: 0, Passed: 6290`; **all 36 native projects tested — `analyzer-event-subscription` PASSING
+  7 / 7 and `analyzer-binding-map` PASSING 13 / 13 on their first gate, and
+  `tests/native/ownership-audit` PASSING 18 / 18, so the repinned two-key head is validated by the
+  gate rather than only by a local run**; 67 N# assemblies pass IL verification with no new errors
+  versus baseline; the formatting gate passes; and SDK pack + template creation + example builds +
+  `nlc check` over the examples all pass.
+
+  The passing gate ran against a byte-copy of the code tree; **the only file edited afterwards is this
+  one**, which is prose and is not an input to any compile step.
+
+  ### EVIDENCE
+
+  **Native estate 6,284 → 6,290 by COUNT DIFF (+6, the exact declarations added)**, `Failed: 0`, under
+  the restore-flag discipline (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`):
+  `Failed: 0, Passed: 6290, Total: 6290`, reproduced a second time from a CLEANED `bin`/`obj`.
+  **Unit 1,967 → 1,945 = exactly the 22 migrated xUnit cases** — predicted before either migration
+  from re-measured `[Fact]` counts (10 and 12) and a re-confirmed zero `[Theory]` count, and observed
+  in two steps: a standalone `dotnet test tests/Tests.csproj` reported `Failed: 0, Passed: 1957,
+  Total: 1957` after the first deletion, and the isolated gate reported `Failed: 0, Passed: 1945,
+  Total: 1945` after the second.
+  **Two native projects are ADDED, so the gate-equivalent native project count goes 34 → 36**;
+  `tests/native/analyzer-event-subscription` reports `{"total": 7, "passed": 7, "failed": 0}` and
+  `tests/native/analyzer-binding-map` reports `{"total": 13, "passed": 13, "failed": 0}`.
+  `tests/` holds **31 `.cs` files and 45,872 lines** — down from 33 and 46,412, the **−540 being the
+  two deleted files exactly** (183 + 357). `src/NSharpLang.Cli/Program.Testing.cs` stays at **618, and
+  was not opened**. Zero C# added anywhere; the only C# diff in the slice is two deletions.
+
+  ### THE RATCHET — TWO ROWS FLIPPED, ONE HEAD, AND THE REPLICA VALIDATED BEFORE IT PREDICTED
+
+  **The replica of `OwnershipFacts` was VALIDATED AGAINST THE PRISTINE MANIFEST FIRST** — it
+  reproduced all three stored fingerprints (pathset `8a26e1529863444b`, epoch facts `1b3090747e517fc1`,
+  head `3f421bc51e1764db`) before a single row was edited, and only then predicted. The audit was run
+  in **five states**, and each behaved as the replica said: (1) pristine manifest against the first
+  deleted file → **17 / 18**, `OWN006` naming the path; (2) the first row flipped, head unchanged →
+  **17 / 18**, `OWN008` whose observed value is `head-v1:3bc529271731a33b`, **the replica's
+  prediction, printed by the audit itself**; (3) both keys repinned → **18 / 18**; (4) the second row
+  flipped → **17 / 18**, `OWN008` observing `head-v1:2aafbddaafc83094`, again the replica's value;
+  (5) both keys repinned again → **18 / 18**.
+
+  **Both rows flip `existing-debt` → `removed`, read off `OWN001`'s rule**: `removed` entries require
+  ZERO current metrics and the literal fingerprint `text-v1:removed`. `EventSubscriptionTests.cs` goes
+  **183 → 0, 153 → 0, 38 → 0** and `text-v1:e51bf038ae83822c` → `text-v1:removed`;
+  `AnalyzerBindingMapTests.cs` goes **357 → 0, 289 → 0, 98 → 0** and `text-v1:bb2f93ad321bcf79` →
+  `text-v1:removed`. Their **immutable epoch ceilings (188 / 158 / 40 and 359 / 291 / 99) stay
+  untouched**. **The marker deltas are exactly −38 and −98, reconciled against the AUDIT'S OWN marker
+  definition**: events `[Fact]` **10** + `Assert.` **28** = 38, with `[Theory]`, `Should(`, `test(`,
+  `it(` and `expect(` all **0** — no stray to explain; binding map `[Fact]` **12** + `Assert.` **79** +
+  `test(` **6** + `it(` **1** = 98, the six `test(` being the `func test()` fixtures and the one `it(`
+  the substring inside `source.Split('\n')` at line 23.
+
+  **The two-key head is repinned LAST and TOGETHER**, `3f421bc51e1764db` → `2aafbddaafc83094`, in the
+  JSON header AND the `OwnershipPolicy.ReviewedHeadFingerprint` constant (`OwnershipAudit.nl` :241),
+  with **zero occurrences of either superseded value left anywhere under
+  `tests/native/ownership-audit/`**; manifest **391 lines**, no BOM, trailing newline intact, and the
+  whole ratchet diff is **exactly three changed lines in the JSON plus the one constant**
+  (`git diff --numstat`: `3 3` and `1 1`). `epochPathFingerprint` and `epochFactFingerprint` are
+  unchanged, as two pure removals must leave them, and the replica ASSERTS both before it writes.
+  **The manifest is edited LINE BY LINE rather than round-tripped through a JSON dump.**
+
+  ### THE WHOLE MODIFIED-FILE SET, JUSTIFIED FILE BY FILE
+
+  | modified file | kind | why it changed |
+  |---|---|---|
+  | `tests/EventSubscriptionTests.cs` | **DELETED** | the first migrated cluster; `0 183`, deletions only |
+  | `tests/AnalyzerBindingMapTests.cs` | **DELETED** | the second migrated cluster; `0 357`, deletions only |
+  | `src/…/ColumnarParserEventSubscription.tests.nl` | **new estate contract** | the parse half — six whole-tree goldens, five over the deleted fixtures and one context control |
+  | `tests/native/analyzer-event-subscription/project.yml` | **new native project** | `dll:` dependencies identical to slice 23's, byte for byte |
+  | `tests/native/analyzer-event-subscription/AnalyzerEventSubscription.tests.nl` | **new native contract** | the analysis half — full diagnostic censuses, messages, suggestions, the subscribe/unsubscribe comparison and two refusals |
+  | `tests/native/analyzer-binding-map/project.yml` | **new native project** | same dependencies |
+  | `tests/native/analyzer-binding-map/AnalyzerBindingMap.tests.nl` | **new native contract** | the whole binding-map file — eighteen `GetBindingAt` lookups, five reference walks, twelve parse and analysis censuses, and a refusal |
+  | `memory/testing.md` | **documentation** | event subscription AND the binding map join the N#-only list; the route table gains the new row and the "a file can have TWO subjects" rule |
+  | `memory/components/analyzer.md` | **documentation** | the analyzer's coverage split gains both new native projects, and the estate sweep result behind the event one |
+  | `memory/components/parser.md` | **documentation** | the parser's native-contract list gains `ColumnarParserEventSubscription.tests.nl` |
+  | `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` | **ratchet** | two removed rows, plus the head key |
+  | `tests/native/ownership-audit/OwnershipAudit.nl` | **ratchet** | the second head key |
+  | `STATUS.md` | **ledger** | this record |
+
+  ### WHAT IS LEFT OF TASK 020
+
+  The remaining inventory, re-measured at this commit, with the subject test applied file by file:
+
+  | file | lines | `[Fact]`s | `Assert.` | why it is not an estate move |
+  |---|---|---|---|---|
+  | `AnalyzerTests.cs` | 13,451 | 781 | 565 | drives `Analyzer.cs` — the one type all three of this arc's native projects already reach |
+  | `SystemsNSharpTests.cs` | 2,402 | 60 | 412 | compiles and RUNS emitted assemblies; needs the SDK and a real build |
+  | `PlaygroundCompilerTests.cs` | 1,913 | 65 | 309 | drives `PlaygroundCompiler`, a `NSharpLang.Playground` type |
+  | `AnalyzerSemanticModelTests.cs` | 1,361 | 51 | 323 | same owner as `AnalyzerTests.cs` |
+  | `QueryIntegrationTests.cs` | 1,322 | 65 | 210 | drives the `nlc` CLI end to end against real example projects |
+  | `ErrorHandlingTests.cs` | 580 | 39 | 54 | **SPLITTABLE, and measured**: 24 of its 39 `[Fact]`s call only `ColumnarParserRecovery.ParseFileAst`, the other 15 need `Analyzer` |
+
+  **THE NEXT CLUSTER IS `tests/ErrorHandlingTests.cs`**, and it is named because the subject test puts
+  both halves on routes this slice just used twice: its 24 parse-only methods are an ESTATE move
+  beside `ColumnarParserErrorRecovery.tests.nl` — and, unlike this slice's, they are RECOVERY fixtures
+  whose parse censuses will be non-empty, which is the part of the pin that has found the most so far
+  — and its 15 analyzer methods are a third tenant of the reflection route, beside
+  `analyzer-event-subscription` and `analyzer-binding-map`. After it, `AnalyzerSemanticModelTests.cs`
+  (1,361 / 51 / 323) is the next whole-file native move, and `AnalyzerTests.cs` is the campaign.
+
+  **THE NEXT CAPABILITY IS STILL NOT A CAPABILITY.** The task file's order — skip, setup/teardown,
+  async `Task`, async `ValueTask`, structured failure JSON, whole-run timeout — was swept against the
+  C# estate at `parser-literal-facts`'s slice and is recorded in `memory/testing.md`: every entry is
+  either already served or has ZERO consumers. This slice needed none of them either — three probes,
+  three real successors, and not one runner change; `nlc test`'s JSON envelope is byte-for-byte the
+  same schema. **So the next unit of work is another MIGRATION, and it is named above.**
+
+  **AND `src/NSharpLang.Cli/Program.Testing.cs` IS STILL 618 AND STILL UNOPENED.** Task 020's closing
+  rule needs BOTH an empty bucket (a) and an N#-owned runner surface. The runner surface is not
+  N#-owned and six C# files remain canonical assertion layers, so **task 020 stays UNCHECKED and
+  `tasks/README.md` is NOT edited.**
+
+- Previous sub-slice (020 arc, COMMITTED at `9776e6ec3` — **SLICE 23 MEASURED THE CAPABILITY THE MANDATE NAMED AND FOUND
   THE GAP EMPTY, SO IT BUILT NOTHING AND MIGRATED THE CLUSTER THROUGH THE EXISTING ROUTE.
   `tests/AstNodeFinderTests.cs` IS DELETED — 115 LINES, 5 `[Fact]`s, 21 `Assert.` OCCURRENCES, 30
   RATCHET MARKERS — AND IT IS THE FIRST FILE THIS ARC HAS SPLIT ACROSS BOTH ESTATES BY SUBJECT. THE
