@@ -16,7 +16,6 @@
 ```
 tests/
 ├── AnalyzerTests.cs             - Type checking tests
-├── AnalyzerSemanticModelTests.cs - Semantic model tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
 ├── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
@@ -84,17 +83,47 @@ reports no diagnostic about it. On the analysis side, `Assert.Contains(result.Er
 other row; two fixtures report more rows than the assertion named, and in both the extra rows are
 `NL301` on the word `var`.
 
-**THE SEMANTIC MODEL'S QUERY SURFACE — what analysis PUTS INTO the model, as opposed to what the
-model DOES with what it is handed — has no C# assertion layer either, as of task 020 slice 26.**
-`tests/AnalyzerSemanticModelTests.cs` is 1,361 lines, and the ~700-line budget cannot hold it in one
-slice, so the file SPLITS ACROSS SLICES rather than across estates: **all 51 of its `[Fact]`s
-construct `new Analyzer()`, so there is no estate half at all.** Slice 26 takes the 33 that read the
-model through `LookupIdentifier`, `LookupIdentifierAtPosition`, `LookupTypeAtPosition`,
+**THE SEMANTIC MODEL — both what analysis PUTS INTO it and the nominal source facts it records — has
+no C# assertion layer at all as of task 020 slice 27, and `tests/AnalyzerSemanticModelTests.cs` IS
+DELETED.** The file was 1,361 lines and the ~700-line budget could not hold it in one slice, so it
+SPLIT ACROSS SLICES rather than across estates: **all 51 of its `[Fact]`s construct `new Analyzer()`,
+so there was no estate half at all.** Slice 26 took the 33 that read the model through
+`LookupIdentifier`, `LookupIdentifierAtPosition`, `LookupTypeAtPosition`,
 `LookupTypeReferenceAtPosition`, `GetVisibleVariablesAtPosition`, `GetTypeMembers`, `Fields`,
 `Properties`, `Scopes` and `ExpressionTypes` into `tests/native/analyzer-semantic-model`; slice 27
-takes the 18 that read `SemanticModel.Types[…]` or only `result.Errors`. **The name split would have
-misplaced exactly one method** — `Analyzer_RecordTypes_RecordStructFlagInSemanticModel` is not named
-`NominalTypes_*` but reads `Types[…]` and belongs with the other half.
+took the remaining 18 into the SAME project rather than a new sibling — same subject, same fixtures
+territory, same `Analyze(unit, "test.nl", null, source)` entry point — so the native project count
+did not grow. **The name split would have been wrong on seventeen of eighteen**: sixteen methods
+named `Analyzer_NominalTypes_*` make no nominal-type claim at all and read only `result.Errors`,
+while `Analyzer_RecordTypes_RecordStructFlagInSemanticModel`, which is not named `NominalTypes_*`,
+is one of the two that DO walk the type table.
+
+**Slice 27 also built the TypeInfo WALKER, and it is meant to be reused.** `SmTypeRuntimes`,
+`SmTypeInfo`, `SmTypeFacts`, `SmTypeMemberNames`, `SmTypeMemberCount` and `SmTypeMember` read
+`SemanticModel.Types[…]` — `ClassTypeInfo` / `StructTypeInfo` / `RecordTypeInfo` /
+`InterfaceTypeInfo` and every field of their `DeclaredMembers` — through the same reflective member
+walk the rest of the project uses, and render each census so it decodes field by field rather than
+by substring search: a `TypeReference` is `ClrTypeName(ToString())`, a list is `[a,b]` so its LENGTH
+is a count claim, a primary-constructor parameter is `name:ref@line:column`, and a generic
+constraint is `typeParameter:specialConstraints:[constraints]`. **`<null>` and `<absent>` are
+different answers and are never conflated** — `BaseClass` is `<null>` on a base-less class and
+`<absent>` on a struct, which does not declare the member. The `AnalyzerTests.cs` campaign's
+clean-only tranche should take this surface as it stands. Its full documentation is the header of
+`tests/native/analyzer-semantic-model/AnalyzerSemanticModel.tests.nl`.
+
+**What the deleted second half could not see:** the type table holds TWENTY types where the deleted
+monster named eighteen through `Assert.IsType` — `Base` and `Marker`, the two types every other
+declaration points at, were never mentioned; a `sealed class` anchors at the `class` KEYWORD (column
+8) while a `duck interface` anchors at `duck` (column 1), so modifiers are skipped in one case and
+not the other; `TypeMembers` and `DeclaredMembers` are DIFFERENT tables with different population
+rules — a fixture declaring twenty types with thirteen members between them leaves ONE row in
+`TypeMembers`; ten of the sixteen diagnostic fixtures report exactly one diagnostic and the other
+six report NONE, so every `Assert.DoesNotContain` in the file was satisfied by an empty or
+single-row list; and **two fixtures produce an `NL202` whose entire message is the bare words `Type
+mismatch` with a NULL suggestion**, the least helpful diagnostic in the cluster and one no assertion
+in the deleted file could see. Two `using`-pattern rejections that differ in shape report a message
+that is equal BYTE FOR BYTE, and the static and instance readonly assignments report the same
+`NL309` at the same 7:13 with different sentences — pairs no substring match could have compared.
 
 **Why the estate half is EMPTY here is itself a measurement.** `SemanticModel.nl` IS N# in the
 estate and `SemanticModel.tests.nl` already owns its ALGEBRA — it constructs a model directly,
@@ -577,17 +606,22 @@ subject above it, `tests/EventSubscriptionTests.cs` (slice 24) had a parser subj
 and an analyzer subject above it, and `tests/ErrorHandlingTests.cs` (slice 25) had the same pair.
 All three were split rather than forced whole through the weaker route. **A file with ONE subject
 that is too big for the budget splits ACROSS SLICES instead**: `tests/AnalyzerSemanticModelTests.cs`
-(slice 26) is 1,361 lines and 51 `[Fact]`s that ALL construct `new Analyzer()`, so its cut is by
-INSTRUMENT — the model's query surface first, the `TypeInfo` source-fact walker and the diagnostics
-it drives second — and its ratchet row SHRINKS exact-match rather than flipping to `removed`. **Decide membership by
+was 1,361 lines and 51 `[Fact]`s that ALL construct `new Analyzer()`, so its cut was by INSTRUMENT —
+the model's query surface in slice 26, the `TypeInfo` source-fact walker and the diagnostics it
+drives in slice 27. Its ratchet row SHRANK exact-match at the first cut and flipped to `removed` at
+the second, which is the shape a cross-slice split always takes. **Decide membership by
 decoding what each method CALLS, never by its name** — slice 25's file has three methods named
 `Parser_*` whose only claims are over `AnalysisResult`, and they belong in the native half.
 **And a subject the estate CAN reach may still belong in the native half**: slice 25's `Linter` rows
 are native, because the one deleted method that drove both owners drove them over ONE fixture and the
 pairing is what states the finding — that on one input the analyzer reports and the linter does not.
 Each native project carries its OWN reflection plumbing — `SetCompletionObject` / `SetDocQueryObject`
-/ `SetEventObject` are the same idiom written per project — so a new subject gets a NEW sibling
-project named for it rather than a second tenancy in one named for something else.
+/ `SetEventObject` are the same idiom written per project — so a NEW subject gets a NEW sibling
+project named for it rather than a second tenancy in one named for something else. **The converse
+holds too, and slice 27 is the case**: the SECOND half of a cross-slice split is the SAME subject, so
+it EXTENDS the project the first half created rather than adding a sibling — same fixtures territory,
+same entry point, and the existing plumbing already covers it. The native project count does not
+grow when a slice takes a second tranche of a subject it already owns.
 
 **A `project:` reference would not change that second row, and 020 slice 23 measured why.** The
 decline is in the emitter's TYPE RESOLUTION, not in how the assembly arrives: naming a referenced

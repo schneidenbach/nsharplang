@@ -981,6 +981,20 @@ Analyzer coverage is split deliberately across:
   of the same name leave ONE row); `GetVisibleVariablesAtPosition` answers FUNCTIONS too; every
   scope's end column is `int.MaxValue`; and one LINQ chain opens FIFTEEN scopes, twelve of them for
   two lambdas that are re-entered during overload resolution.
+  **Task 020 slice 27 extended the SAME project rather than adding a sibling**, taking the file's
+  remaining 18 `[Fact]`s and DELETING `tests/AnalyzerSemanticModelTests.cs`. Two of them walk
+  `SemanticModel.Types[…]`, and the walker built for them — `SmTypeRuntimes`, `SmTypeInfo`,
+  `SmTypeFacts`, `SmTypeMemberNames`, `SmTypeMemberCount`, `SmTypeMember` — is a REUSABLE surface
+  documented in the project's header, meant for the `AnalyzerTests.cs` campaign. The other 16 read
+  only `result.Errors` and are the diagnostics the nominal facts DRIVE: generic arity, generic
+  member and primary-constructor initializers, property patterns, member writes through a value
+  copy, the `using`/`Dispose` pattern in three shapes, `ref` arguments over static fields and
+  properties, user-declared binary and unary operators, and static and instance readonly
+  assignment. It states what nothing had: the type table holds TWENTY types where the deleted
+  monster named eighteen; a `sealed class` anchors at the `class` keyword while a `duck interface`
+  anchors at `duck`; `TypeMembers` and `DeclaredMembers` are different tables with different
+  population rules; and **two initializer mismatches report an `NL202` whose whole message is the
+  bare words `Type mismatch` with a NULL suggestion.**
 - `tests/AnalyzerTests.cs` for analyzer-shell diagnostics, flow analysis, call binding, and
   end-to-end semantic behavior.
 
