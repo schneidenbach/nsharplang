@@ -943,6 +943,12 @@ Analyzer coverage is split deliberately across:
   projections.
 - `src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.tests.nl` for nominal,
   structural, runtime, and metadata-only identity and conversion rules.
+- `tests/native/analyzer-identifier-binding` for what the analyzer BINDS an identifier to at an
+  incomplete member access — the bound `ClassTypeInfo`, its name and anchor, its whole declared-member
+  census in declaration order, and the analysis diagnostic census. This is a native N# project rather
+  than an estate contract because `Analyzer` is the C# class in `Compiler.dll`, and `Compiler.dll`
+  depends on BootstrapServices; every other type on that route (`SemanticModel`, `ClassTypeInfo`,
+  `DeclaredMemberInfo`, `AnalysisResult`) is already N# in the estate.
 - `tests/AnalyzerTests.cs` for analyzer-shell diagnostics, flow analysis, call binding, and
   end-to-end semantic behavior.
 

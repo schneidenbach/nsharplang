@@ -33,6 +33,16 @@ references, operators) in slice 22, which also took both private helpers and the
 whole error half had already moved in slice 16. The canonical contracts now live in
 `ColumnarParserAst.tests.nl` plus the six tranche files beside it. See `memory/components/parser.md`.
 
+**AST POSITION FINDING has no C# assertion layer either, as of task 020 slice 23.**
+`tests/AstNodeFinderTests.cs` is DELETED and its five `[Fact]`s were SPLIT by subject, because
+`src/NSharpLang.Compiler/AstNodeFinder.cs` is a fifteen-line shim whose whole body is
+`AstNodeFinderCore.FindExpressionAtPosition(...) as Expression`. The finder half — 21 of the file's
+30 decoded claim rows — is `AstNodeFinderCore.tests.nl` in the estate, where each of the five
+fixtures is swept COLUMN BY COLUMN across its cursor line and the answers pinned run-length encoded,
+so the boundary columns are stated rather than implied. The analyzer half — the 9 rows about
+`Analyzer`, `SemanticModel` and `ClassTypeInfo` — is `tests/native/analyzer-identifier-binding`,
+because `Analyzer` is C# in `Compiler.dll`.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
@@ -478,6 +488,19 @@ ARGUMENT TYPES the cluster's subject calls take — measured by probe, not assum
 |---|---|---|
 | `string` / `int` / `bool` / arrays / literals, answering primitives | **`tests/native/<name>/`**, subject reached as a `dll:` dependency, run by the LIVE CLI | tables (`with (…) […]`) are available here, so each row reports as its own test |
 | an ENUM member, a CONSTRUCTED object, or anything else the emitter must resolve in the dependency assembly | **`src/NSharpLang.Compiler.BootstrapServices/<Subject>.tests.nl`**, same assembly, compiled by the PINNED toolset | a dependency-assembly enum member declines at `emit.typed-local.initializer` (and `emit.call.static-member-unmodeled` in argument position), and `new <dependency type>(…)` declines at `emit.local.initializer`; in a table row the enum member is refused earlier still, by `NL310` |
+| a subject that lives ABOVE the estate (in `Compiler.dll`), whose values are not primitives | **`tests/native/<name>/`**, subject reached BY REFLECTION through `object` | this is the `tests/native/query-completions` / `completion-engine` / `analyzer-identifier-binding` route |
+
+**A `project:` reference would not change that second row, and 020 slice 23 measured why.** The
+decline is in the emitter's TYPE RESOLUTION, not in how the assembly arrives: naming a referenced
+assembly's type in a local, an argument or a `new` declines for a C# type in `Compiler.dll`
+(`new Analyzer()`), for an N# type in the estate's own compiled assembly
+(`ColumnarParserRecovery.ParseFileAst(...)` bound to a `FileParseAst` local, which reports
+`emit.local.unsupported-type` naming the type) AND for a `nuget:` type (`new SerializerBuilder()`) —
+three routes, one decline. Static entry points whose values are ALL primitives bind by name with no
+reflection at all, which is why `tests/native/parser-literal-facts` calls its owner directly.
+Separately, `project:` in `project.yml` resolves only through
+`ProjectReferenceResolver.ResolveNSharpProjectRoot`, which requires a `project.yml`: a C# `.csproj`
+cannot be a project reference at all, and the resolver says so in its own message.
 
 The pinned toolset predates table-driven lowering, so the BootstrapServices estate takes plain `test`
 declarations with `assert` lines — which is also why its contract count moves by exactly the number
