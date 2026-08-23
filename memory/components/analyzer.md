@@ -1076,12 +1076,13 @@ Analyzer coverage is split deliberately across:
   blames the `return` statement and production blames the signature with no return type. Codes,
   severities and row counts are identical on both routes everywhere. **Eight of its nine absence
   claims were vacuous** — eight fixtures report nothing at all — the campaign's worst ratio.
-- `tests/AnalyzerTests.cs` for the REMAINING analyzer-shell diagnostics, flow analysis, call
-  binding, and end-to-end semantic behavior — 5,643 lines and 325 `[Fact]` + 2 `[Theory]` after
-  slice 32, still shrinking through the campaign's remaining tranches, which are now cut by shape
-  rather than by region or by name. The residue is 281 `AssertNoErrors`, 26 `AnalyzeWithSource`
-  with no `ErrorCode`, 15 direct `Analyze` with no `ErrorCode`, and 5 that build their own
-  `new Analyzer()`.
+- `tests/AnalyzerTests.cs` NO LONGER EXISTS. Task 020's nine-slice campaign migrated all 519
+  `[Fact]`s and both `[Theory]` families into `tests/native/analyzer-clean-source`,
+  `tests/native/analyzer-error-handling` and the compiler-service estate, and slice 36 deleted the
+  file. Analyzer-shell diagnostics, flow analysis, call binding and end-to-end semantic behaviour
+  are pinned there in N#, on BOTH the one-argument `Analyze(unit)` and the four-argument
+  `Analyze(unit, path, projectRoot, source)` entry points, with the parse census, the unit shape,
+  every row's `Code|Message|Suggestion|Severity`, its `ContextualHint` and its `SourceSnippet`.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

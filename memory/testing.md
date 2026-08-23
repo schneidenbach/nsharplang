@@ -15,7 +15,6 @@
 ### Test Files
 ```
 tests/
-├── AnalyzerTests.cs             - Type checking tests (SHRINKING: task 020's campaign, now cut by SHAPE)
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
 ├── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
@@ -125,7 +124,7 @@ in the deleted file could see. Two `using`-pattern rejections that differ in sha
 that is equal BYTE FOR BYTE, and the static and instance readonly assignments report the same
 `NL309` at the same 7:13 with different sentences — pairs no substring match could have compared.
 
-**ASSIGNABILITY AND FLOW NARROWING — the first twelve regions of `tests/AnalyzerTests.cs` — have no
+**ASSIGNABILITY AND FLOW NARROWING — the first twelve regions of the former `tests/AnalyzerTests.cs` — have no
 C# assertion layer either, as of task 020 slice 28.** That file is the campaign's last big cluster:
 13,451 lines, 781 `[Fact]` + 35 `[Theory]`, ONE subject (every body funnels through a private
 `Analyze(source, config)` that calls `ParseFileAst(source, null)`, `new Analyzer()`,
@@ -166,7 +165,7 @@ underline, `NL501` on `match`, and `NL412` on the callee NAME with the parenthes
 including its parentheses" when 13 is the length of the name alone.
 
 **TRANCHE 1b — the SEVEN REMAINING `#region`s — followed in slice 29, and after it
-`tests/AnalyzerTests.cs` has NO `#region` left.** 82 `[Fact]`s, 1,193 C# lines and 22 `Assert.`
+the former `tests/AnalyzerTests.cs` had NO `#region` left.** 82 `[Fact]`s, 1,193 C# lines and 22 `Assert.`
 occurrences, extending `tests/native/analyzer-clean-source` rather than adding a sibling (same
 subject, same fixtures territory, same entry point), so the native project count stays 39. The
 regions are generic constraint validation, string-to-enum rejection, overload betterness, type-system
@@ -658,7 +657,7 @@ dotnet test tests/Tests.csproj
 
 ### Specific Test Class
 ```bash
-./scripts/dev.sh AnalyzerTests
+./scripts/dev.sh SystemsNSharp
 ```
 
 ### Specific Test Method

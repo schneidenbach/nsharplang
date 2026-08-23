@@ -2,20 +2,24 @@ namespace NSharpLang.AnalyzerCleanSource.Tests
 
 import System
 import System.Collections
+import System.IO
+import System.Reflection
 
 
 // THE ANALYZER'S ASSIGNABILITY AND FLOW-NARROWING RULES, READ FROM SOURCE TEXT, IN N#.
 //
-// THIS FILE HOLDS SEVEN TRANCHES OF THE `tests/AnalyzerTests.cs` CAMPAIGN. Slice 28's — tranche 1a
+// THIS FILE HOLDS EIGHT TRANCHES OF THE `tests/AnalyzerTests.cs` CAMPAIGN, WHICH IS NOW CLOSED:
+// THE C# FILE NO LONGER EXISTS. Slice 28's — tranche 1a
 // — is the first block of contracts below; slice 29's (tranche 1b, the seven remaining `#region`s),
 // slice 30's (tranche 2, the error-code assertion family), slice 31's (tranche 3, the direct-
 // `Analyze` + `ErrorCode` shape and the `AnalyzeWithSource` prefix), slice 32's (tranche 4, the rest
 // of that shape plus the whole `AssertHasError` family), slice 33's (tranche 5, the first line-cut
 // third of the `AssertNoErrors` family), slice 34's (tranche 6, the second such third, cut at the
 // file's own lambda banner and carrying every `AspNetCoreConfig` call site the file has) and slice
-// 35's (tranche 7, the whole remainder of that family, with which `AssertNoErrors` itself dies) each
-// sit behind their own banner further down, and every banner carries the findings that only that
-// tranche's instruments could reach.
+// 35's (tranche 7, the whole remainder of that family, with which `AssertNoErrors` itself dies) and
+// slice 36's (tranche 8, THE FINISHER — the last 46 methods, both surviving private helpers, and the
+// deletion of `tests/AnalyzerTests.cs` itself) each sit behind their own banner further down, and
+// every banner carries the findings that only that tranche's instruments could reach.
 //
 // These replace TRANCHE 1a of `tests/AnalyzerTests.cs` — the file's FIRST TWELVE `#region`s, taken
 // whole: `Nominal Subtyping`, `Numeric Widening`, `Nullable Assignability`, `Flow-Sensitive Null
@@ -658,8 +662,7 @@ func AcDeclName(owner: object): string {
     return "<no-name>"
 }
 
-func AcUnitShape(source: string): string {
-    unit := AcParseUnit(source)
+func AcShapeOfUnit(unit: object): string {
     imports := AcMember(unit, "Imports") as IList
     declarations := AcMember(unit, "Declarations") as IList
     if imports == null || declarations == null {
@@ -678,6 +681,10 @@ func AcUnitShape(source: string): string {
     }
 
     return shape
+}
+
+func AcUnitShape(source: string): string {
+    return AcShapeOfUnit(AcParseUnit(source))
 }
 
 
@@ -858,6 +865,609 @@ func AcAnalyzeWithSourceAndConfig(source: string, sdk: string, targetFramework: 
     SetAcObject(analyzeArguments, 1, "test.nl")
     SetAcObject(analyzeArguments, 2, null)
     SetAcObject(analyzeArguments, 3, source)
+    analysis := analyzeMethod.Invoke(analyzer, analyzeArguments)
+
+    disposeParameterTypes := new Type[](0)
+    disposeMethod := analyzerType.GetMethod("Dispose", disposeParameterTypes)
+    if disposeMethod != null {
+        disposeArguments := new object?[](0)
+        disposeMethod.Invoke(analyzer, disposeArguments)
+    }
+
+    if analysis == null {
+        throw new InvalidOperationException("The production analyzer returned no result.")
+    }
+
+    return analysis
+}
+
+// ---- slice 36's kernels, part 1: THE SEMANTIC MODEL ----
+//
+// Sixteen of the finisher's 46 methods read `result.SemanticModel` — fifteen call
+// `LookupIdentifier` (32 calls between them) and one reads the `ExpressionTypes` table. That is a
+// surface this project has never touched, and it is NOT new work: `tests/native/analyzer-semantic-
+// model` already carries kernels over exactly it, and this project's `AcErrorCount` / `AcCodeCount`
+// were renamed from that same pair in slice 28. `AcValueText` / `AcCount` / `AcOrdinalGreater` /
+// `AcSortRows` / `AcJoinRows` / `AcPad` / `AcEntries` / `AcPositionCensus` / `AcModel` / `AcInvoke`
+// / `AcLookupIdentifier` / `AcExpressionTypes` are that file's `Sm*` equivalents, copied and
+// renamed. The instrument is copied rather than shared BY DESIGN — each native project carries its
+// own reflection plumbing; there is no shared prelude to import.
+//
+// The two constraints those kernels document are carried with them because they are MEASURED, not
+// stylistic: the position table is walked as a plain `IEnumerable` rather than through an
+// `IDictionary` local (which declines at `emit.local.unsupported-type`), and the rows are sorted as
+// a `string[]` with a hand-written ordinal comparison rather than through `String.Compare` over a
+// `List<string>` (which declines in any file that also carries a reflective member walk — and every
+// kernel here does).
+
+func AcValueText(value: object?): string {
+    if value == null {
+        return "<null>"
+    }
+
+    return value.ToString() ?? "<null>"
+}
+
+func AcCount(value: object?): int {
+    if value == null {
+        return -1
+    }
+
+    return Convert.ToInt32(AcMember(value, "Count"))
+}
+
+func AcOrdinalGreater(left: string, right: string): bool {
+    index := 0
+    while index < left.Length && index < right.Length {
+        leftChar := left[index]
+        rightChar := right[index]
+        if leftChar != rightChar {
+            return leftChar > rightChar
+        }
+
+        index = index + 1
+    }
+
+    return left.Length > right.Length
+}
+
+func AcSortRows(rows: string[]) {
+    outer := 1
+    while outer < rows.Length {
+        current := rows[outer]
+        inner := outer
+        while inner > 0 && AcOrdinalGreater(rows[inner - 1], current) {
+            rows[inner] = rows[inner - 1]
+            inner = inner - 1
+        }
+
+        rows[inner] = current
+        outer = outer + 1
+    }
+}
+
+func AcJoinRows(rows: string[]): string {
+    census := ""
+    index := 0
+    while index < rows.Length {
+        census = census + rows[index] + ";"
+        index = index + 1
+    }
+
+    return census
+}
+
+func AcEntries(value: object): object?[] {
+    valueType := value.GetType()
+    enumeratorParameterTypes := new Type[](0)
+    enumeratorMethod := valueType.GetMethod("GetEnumerator", enumeratorParameterTypes)
+    if enumeratorMethod == null {
+        throw new InvalidOperationException("The production collection exposed no GetEnumerator.")
+    }
+
+    enumeratorArguments := new object?[](0)
+    enumerator := enumeratorMethod.Invoke(value, enumeratorArguments)
+    if enumerator == null {
+        throw new InvalidOperationException("The production collection returned no enumerator.")
+    }
+
+    enumeratorType := enumerator.GetType()
+    moveNextParameterTypes := new Type[](0)
+    moveNextMethod := enumeratorType.GetMethod("MoveNext", moveNextParameterTypes)
+    currentProperty := enumeratorType.GetProperty("Current")
+    if moveNextMethod == null || currentProperty == null {
+        throw new InvalidOperationException("The production enumerator was not walkable.")
+    }
+
+    rows := new object?[](AcCount(value))
+    filled := 0
+    moveNextArguments := new object?[](0)
+    while Convert.ToBoolean(moveNextMethod.Invoke(enumerator, moveNextArguments)) {
+        rows[filled] = currentProperty.GetValue(enumerator)
+        filled = filled + 1
+    }
+
+    return rows
+}
+
+func AcPad(value: string): string {
+    padded := value
+    while padded.Length < 6 {
+        padded = "0" + padded
+    }
+
+    return padded
+}
+
+// The `ExpressionTypes` table is keyed by a named value tuple, so the key is read through
+// reflection on its `Item1` / `Item2` fields and the rows are ordered NUMERICALLY by line and then
+// column — not by text, which would put line 10 before line 2.
+func AcPositionCensus(value: object?): string {
+    if value == null {
+        return "<not-a-dictionary>"
+    }
+
+    entries := AcEntries(value)
+    rows := new string[](entries.Length)
+    index := 0
+    while index < entries.Length {
+        entry := entries[index]
+        if entry == null {
+            return "<null-entry>"
+        }
+
+        key := AcMember(entry, "Key")
+        if key == null {
+            return "<null-position-key>"
+        }
+
+        keyType := key.GetType()
+        lineField := keyType.GetField("Item1")
+        columnField := keyType.GetField("Item2")
+        if lineField == null || columnField == null {
+            return "<not-a-position-key>"
+        }
+
+        line := AcValueText(lineField.GetValue(key))
+        column := AcValueText(columnField.GetValue(key))
+        rows[index] = AcPad(line) + AcPad(column) + line + ":" + column + "=" + AcValueText(AcMember(entry, "Value"))
+        index = index + 1
+    }
+
+    AcSortRows(rows)
+
+    census := ""
+    ordered := 0
+    while ordered < rows.Length {
+        census = census + rows[ordered].Substring(12) + ";"
+        ordered = ordered + 1
+    }
+
+    return census
+}
+
+func AcModel(analysis: object): object {
+    return AcRequiredMember(analysis, "SemanticModel")
+}
+
+func AcInvoke(model: object, methodName: string, parameterTypes: Type[], arguments: object?[]): object? {
+    method := model.GetType().GetMethod(methodName, parameterTypes)
+    if method == null {
+        throw new InvalidOperationException("The production '" + methodName + "' entry point was not found.")
+    }
+
+    return method.Invoke(model, arguments)
+}
+
+func AcLookupIdentifier(model: object, name: string): string {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    arguments := new object?[](1)
+    SetAcObject(arguments, 0, name)
+    return AcValueText(AcInvoke(model, "LookupIdentifier", parameterTypes, arguments))
+}
+
+func AcExpressionTypes(model: object): string {
+    return AcPositionCensus(AcMember(model, "ExpressionTypes"))
+}
+
+
+// ---- slice 36's kernels, part 2: THE THREE ENTRY POINTS THE FINISHER NEEDS ----
+//
+// `AcAnalyzeBare` is an `Analyzer` constructed WITHOUT `LoadSystemAssemblies` and driven through
+// the FOUR-argument `Analyze` with a REAL file path. One deleted method needs it by name
+// (`BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember`), and `AcAnalyzeLoadedAt` is
+// the same call WITH the assemblies loaded, so the distinction the method's own name draws is
+// MEASURED rather than assumed. It is not a distinction the answer honours — see the contract.
+//
+// `AcAnalyzeInDirectory` is the campaign's first fixture that is not a string. The three circular-
+// import methods write TWO `.nl` files to a temp directory and analyse one of them with the
+// directory as the project root, and nothing about that claim survives being handed a bare string:
+// the same text through `AcAnalyze` and `AcAnalyzeWithSource` is SILENT. The directory is created
+// and deleted PER RUN — `Path.GetTempPath()` + `Path.GetRandomFileName()`, then `Directory.Delete`
+// in a `finally` — and `AcDirectoryReport` pins the cleanup from inside, so no contract here
+// depends on anything reaping `/tmp`. (`Directory.CreateTempSubdirectory` would be the obvious
+// spelling and DECLINES AT EMIT; the three-call form above is what the columnar backend accepts,
+// and it is also the shape the deleted C# used.)
+//
+// `AcPlaceholderUnit` builds a `CompilationUnit` BY HAND, because the one remaining method never
+// parses: it plants an `<error>` identifier in an array-length position to reproduce what the
+// recovery parser emits, and asserts a follow-on diagnostic is suppressed. `CompilationUnit` and
+// its declaration types are N#-OWNED types in `NSharpLang.Compiler.BootstrapServices` reached
+// through `dll:`, so they are REFLECTION-ONLY under this project's standing wall, exactly as
+// `ProjectConfig` was in slice 34.
+//
+// TWO THINGS ABOUT THAT BUILDER ARE MEASURED CONSTRAINTS RATHER THAN STYLE. First, the constructors
+// are selected BY ARITY rather than by an exact `Type[]` — every AST type here has exactly one —
+// because spelling the parameter list requires naming the closed `List<T>` element types, and one
+// of them (`FunctionDeclaration`'s constraint list) has no name this file could have guessed
+// correctly. Second, the empty collections are built from the constructor's OWN declared parameter
+// types, and those are read through the SAME reflective member walk everything else here uses:
+// a `ParameterInfo` element's `.ParameterType` and `.Name` DECLINE AT EMIT in every direct
+// spelling — inline, through a `ParameterInfo` local, or through a `Type` local — while
+// `.ToString()` on the same element emits and the element cast to `object` emits. So the element is
+// boxed and `ParameterType` is read with `AcMember`, which is the instrument this file already is.
+
+func AcParseNamedAs(source: string, fileName: string): object {
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    if parserType == null {
+        throw new InvalidOperationException("The production recovery parser was not loadable.")
+    }
+
+    parseParameterTypes := new Type[](2)
+    parseParameterTypes[0] = typeof(string)
+    parseParameterTypes[1] = typeof(string)
+    parseMethod := parserType.GetMethod("ParseFileAst", parseParameterTypes)
+    if parseMethod == null {
+        throw new InvalidOperationException("The production ParseFileAst entry point was not found.")
+    }
+
+    parseArguments := new object?[](2)
+    SetAcObject(parseArguments, 0, source)
+    SetAcObject(parseArguments, 1, fileName)
+    parsed := parseMethod.Invoke(null, parseArguments)
+    if parsed == null {
+        throw new InvalidOperationException("The production recovery parser returned no result.")
+    }
+
+    return parsed
+}
+
+func AcParseNamedAsCensus(source: string, fileName: string): string {
+    return AcCensusOfParse(AcParseNamedAs(source, fileName))
+}
+
+func AcParseNamedAsSuccess(source: string, fileName: string): string {
+    return AcText(AcParseNamedAs(source, fileName), "Success")
+}
+
+func AcAnalyzeUnitAt(unit: object, path: string, projectRoot: string?, source: string, loadSystemAssemblies: bool): object {
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    if analyzerType == null || unitType == null {
+        throw new InvalidOperationException("The production analyzer types were not loadable.")
+    }
+
+    constructorParameterTypes := new Type[](0)
+    analyzerConstructor := analyzerType.GetConstructor(constructorParameterTypes)
+    if analyzerConstructor == null {
+        throw new InvalidOperationException("The production analyzer was not constructible.")
+    }
+
+    constructorArguments := new object?[](0)
+    analyzer := analyzerConstructor.Invoke(constructorArguments)
+
+    if loadSystemAssemblies {
+        loadParameterTypes := new Type[](0)
+        loadMethod := analyzerType.GetMethod("LoadSystemAssemblies", loadParameterTypes)
+        if loadMethod == null {
+            throw new InvalidOperationException("The production LoadSystemAssemblies entry point was not found.")
+        }
+
+        loadArguments := new object?[](0)
+        loadMethod.Invoke(analyzer, loadArguments)
+    }
+
+    analyzeParameterTypes := new Type[](4)
+    analyzeParameterTypes[0] = unitType
+    analyzeParameterTypes[1] = typeof(string)
+    analyzeParameterTypes[2] = typeof(string)
+    analyzeParameterTypes[3] = typeof(string)
+    analyzeMethod := analyzerType.GetMethod("Analyze", analyzeParameterTypes)
+    if analyzeMethod == null {
+        throw new InvalidOperationException("The production four-argument Analyze entry point was not found.")
+    }
+
+    analyzeArguments := new object?[](4)
+    SetAcObject(analyzeArguments, 0, unit)
+    SetAcObject(analyzeArguments, 1, path)
+    SetAcObject(analyzeArguments, 2, projectRoot)
+    SetAcObject(analyzeArguments, 3, source)
+    analysis := analyzeMethod.Invoke(analyzer, analyzeArguments)
+
+    disposeParameterTypes := new Type[](0)
+    disposeMethod := analyzerType.GetMethod("Dispose", disposeParameterTypes)
+    if disposeMethod != null {
+        disposeArguments := new object?[](0)
+        disposeMethod.Invoke(analyzer, disposeArguments)
+    }
+
+    if analysis == null {
+        throw new InvalidOperationException("The production analyzer returned no result.")
+    }
+
+    return analysis
+}
+
+func AcAnalyzeBare(source: string, fileName: string, path: string): object {
+    unit := AcRequiredMember(AcParseNamedAs(source, fileName), "CompilationUnit")
+    return AcAnalyzeUnitAt(unit, path, null, source, false)
+}
+
+func AcAnalyzeLoadedAt(source: string, fileName: string, path: string): object {
+    unit := AcRequiredMember(AcParseNamedAs(source, fileName), "CompilationUnit")
+    return AcAnalyzeUnitAt(unit, path, null, source, true)
+}
+
+func AcTempDirectory(): string {
+    root := Path.GetTempPath()
+    name := Path.GetRandomFileName()
+    directory := Path.Combine(root, "nsharp_ac_" + name)
+    Directory.CreateDirectory(directory)
+    return directory
+}
+
+func AcWriteFixture(directory: string, mainName: string, mainSource: string, sidecarName: string, sidecarSource: string): string {
+    mainPath := Path.Combine(directory, mainName)
+    File.WriteAllText(mainPath, mainSource)
+    if sidecarName != "<none>" {
+        File.WriteAllText(Path.Combine(directory, sidecarName), sidecarSource)
+    }
+
+    return mainPath
+}
+
+// Analyse a file that really is ON DISK, with its directory as the project root. The directory is
+// created and deleted inside this call, so nothing outside it survives the run.
+func AcAnalyzeInDirectory(mainName: string, mainSource: string, sidecarName: string, sidecarSource: string): object {
+    directory := AcTempDirectory()
+    analysis: object? = null
+    try {
+        mainPath := AcWriteFixture(directory, mainName, mainSource, sidecarName, sidecarSource)
+        onDisk := File.ReadAllText(mainPath)
+        unit := AcRequiredMember(AcParseNamedAs(onDisk, mainPath), "CompilationUnit")
+        analysis = AcAnalyzeUnitAt(unit, mainPath, directory, onDisk, true)
+    } finally {
+        Directory.Delete(directory, true)
+    }
+
+    if analysis == null {
+        throw new InvalidOperationException("The production analyzer returned no result.")
+    }
+
+    return analysis
+}
+
+// The PRECONDITIONS of the directory route, pinned from inside it: that the file read back is the
+// fixture byte for byte, that the parse is silent and succeeded, that the unit has declarations —
+// and that the directory is GONE by the time the report is returned.
+func AcDirectoryReport(mainName: string, mainSource: string, sidecarName: string, sidecarSource: string): string {
+    directory := AcTempDirectory()
+    report := ""
+    try {
+        mainPath := AcWriteFixture(directory, mainName, mainSource, sidecarName, sidecarSource)
+        onDisk := File.ReadAllText(mainPath)
+        roundTrip := "False"
+        if onDisk == mainSource {
+            roundTrip = "True"
+        }
+
+        parsed := AcParseNamedAs(onDisk, mainPath)
+        unit := AcRequiredMember(parsed, "CompilationUnit")
+        report = "roundTrip=" + roundTrip + ";cleaned=@;parse=" + AcCensusOfParse(parsed) + ";success=" + AcText(parsed, "Success") + ";shape=" + AcShapeOfUnit(unit)
+    } finally {
+        Directory.Delete(directory, true)
+    }
+
+    cleaned := "False"
+    if Directory.Exists(directory) == false {
+        cleaned = "True"
+    }
+
+    return report.Replace("cleaned=@", "cleaned=" + cleaned)
+}
+
+func AcAstType(simpleName: string): Type {
+    astType := Type.GetType("NSharpLang.Compiler.Ast." + simpleName + ", NSharpLang.Compiler.BootstrapServices")
+    if astType == null {
+        throw new InvalidOperationException("The production AST type '" + simpleName + "' was not loadable.")
+    }
+
+    return astType
+}
+
+func AcAstConstructor(simpleName: string, arity: int): ConstructorInfo {
+    astType := AcAstType(simpleName)
+    constructors := astType.GetConstructors()
+    index := 0
+    while index < constructors.Length {
+        candidate := constructors[index]
+        parameters := candidate.GetParameters()
+        if parameters.Length == arity {
+            return candidate
+        }
+
+        index = index + 1
+    }
+
+    throw new InvalidOperationException("The production '" + simpleName + "' had no constructor of the expected arity.")
+}
+
+// An empty instance of the collection a given constructor parameter declares. The parameter is
+// boxed and its `ParameterType` read through `AcMember`, because every direct spelling declines.
+func AcEmptyArgumentOf(constructor: ConstructorInfo, index: int): object {
+    parameters := constructor.GetParameters()
+    boxed := parameters[index] as object
+    if boxed == null {
+        throw new InvalidOperationException("The production constructor parameter was null.")
+    }
+
+    closedType := AcMember(boxed, "ParameterType") as Type
+    if closedType == null {
+        throw new InvalidOperationException("The production constructor parameter had no ParameterType.")
+    }
+
+    emptyParameterTypes := new Type[](0)
+    emptyConstructor := closedType.GetConstructor(emptyParameterTypes)
+    if emptyConstructor == null {
+        throw new InvalidOperationException("The production collection was not constructible.")
+    }
+
+    emptyArguments := new object?[](0)
+    return emptyConstructor.Invoke(emptyArguments)
+}
+
+// `func Main() { if new int[<lengthName>] { } }` — a unit the parser cannot produce from text,
+// built to plant the recovery parser's `<error>` placeholder in an array-length position.
+func AcPlaceholderUnit(lengthName: string): object {
+    simpleConstructor := AcAstConstructor("SimpleTypeReference", 3)
+    simpleArguments := new object?[](3)
+    SetAcObject(simpleArguments, 0, "int")
+    SetAcObject(simpleArguments, 1, 0)
+    SetAcObject(simpleArguments, 2, 0)
+    elementReference := simpleConstructor.Invoke(simpleArguments)
+
+    arrayConstructor := AcAstConstructor("ArrayTypeReference", 1)
+    arrayArguments := new object?[](1)
+    SetAcObject(arrayArguments, 0, elementReference)
+    arrayReference := arrayConstructor.Invoke(arrayArguments)
+
+    identifierConstructor := AcAstConstructor("IdentifierExpression", 3)
+    identifierArguments := new object?[](3)
+    SetAcObject(identifierArguments, 0, lengthName)
+    SetAcObject(identifierArguments, 1, 2)
+    SetAcObject(identifierArguments, 2, 16)
+    lengthExpression := identifierConstructor.Invoke(identifierArguments)
+
+    newConstructor := AcAstConstructor("NewExpression", 6)
+    emptyCallArguments := AcEmptyArgumentOf(newConstructor, 1)
+    newArguments := new object?[](6)
+    SetAcObject(newArguments, 0, arrayReference)
+    SetAcObject(newArguments, 1, emptyCallArguments)
+    SetAcObject(newArguments, 2, null)
+    SetAcObject(newArguments, 3, 2)
+    SetAcObject(newArguments, 4, 8)
+    SetAcObject(newArguments, 5, lengthExpression)
+    condition := newConstructor.Invoke(newArguments)
+
+    blockConstructor := AcAstConstructor("BlockStatement", 3)
+    emptyStatements := AcEmptyArgumentOf(blockConstructor, 0)
+    thenArguments := new object?[](3)
+    SetAcObject(thenArguments, 0, emptyStatements)
+    SetAcObject(thenArguments, 1, 2)
+    SetAcObject(thenArguments, 2, 24)
+    thenBlock := blockConstructor.Invoke(thenArguments)
+
+    ifConstructor := AcAstConstructor("IfStatement", 5)
+    ifArguments := new object?[](5)
+    SetAcObject(ifArguments, 0, condition)
+    SetAcObject(ifArguments, 1, thenBlock)
+    SetAcObject(ifArguments, 2, null)
+    SetAcObject(ifArguments, 3, 2)
+    SetAcObject(ifArguments, 4, 5)
+    ifStatement := ifConstructor.Invoke(ifArguments)
+
+    bodyStatements := AcEmptyArgumentOf(blockConstructor, 0)
+    bodyList := bodyStatements as IList
+    if bodyList == null {
+        throw new InvalidOperationException("The production statement list was not an IList.")
+    }
+
+    bodyList.Add(ifStatement)
+    bodyArguments := new object?[](3)
+    SetAcObject(bodyArguments, 0, bodyStatements)
+    SetAcObject(bodyArguments, 1, 1)
+    SetAcObject(bodyArguments, 2, 13)
+    functionBody := blockConstructor.Invoke(bodyArguments)
+
+    functionConstructor := AcAstConstructor("FunctionDeclaration", 15)
+    emptyParameters := AcEmptyArgumentOf(functionConstructor, 1)
+    emptyAttributes := AcEmptyArgumentOf(functionConstructor, 8)
+    modifiersType := AcAstType("Modifiers")
+    noneModifier := Enum.ToObject(modifiersType, 0)
+    functionArguments := new object?[](15)
+    SetAcObject(functionArguments, 0, "Main")
+    SetAcObject(functionArguments, 1, emptyParameters)
+    SetAcObject(functionArguments, 2, null)
+    SetAcObject(functionArguments, 3, functionBody)
+    SetAcObject(functionArguments, 4, null)
+    SetAcObject(functionArguments, 5, null)
+    SetAcObject(functionArguments, 6, null)
+    SetAcObject(functionArguments, 7, noneModifier)
+    SetAcObject(functionArguments, 8, emptyAttributes)
+    SetAcObject(functionArguments, 9, false)
+    SetAcObject(functionArguments, 10, null)
+    SetAcObject(functionArguments, 11, false)
+    SetAcObject(functionArguments, 12, false)
+    SetAcObject(functionArguments, 13, 1)
+    SetAcObject(functionArguments, 14, 1)
+    functionDeclaration := functionConstructor.Invoke(functionArguments)
+
+    unitConstructor := AcAstConstructor("CompilationUnit", 7)
+    declarations := AcEmptyArgumentOf(unitConstructor, 4)
+    declarationList := declarations as IList
+    if declarationList == null {
+        throw new InvalidOperationException("The production declaration list was not an IList.")
+    }
+
+    declarationList.Add(functionDeclaration)
+    emptyImports := AcEmptyArgumentOf(unitConstructor, 1)
+    emptyFileImports := AcEmptyArgumentOf(unitConstructor, 2)
+    unitArguments := new object?[](7)
+    SetAcObject(unitArguments, 0, null)
+    SetAcObject(unitArguments, 1, emptyImports)
+    SetAcObject(unitArguments, 2, emptyFileImports)
+    SetAcObject(unitArguments, 3, null)
+    SetAcObject(unitArguments, 4, declarations)
+    SetAcObject(unitArguments, 5, 1)
+    SetAcObject(unitArguments, 6, 1)
+    return unitConstructor.Invoke(unitArguments)
+}
+
+func AcAnalyzeUnit(unit: object): object {
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    if analyzerType == null || unitType == null {
+        throw new InvalidOperationException("The production analyzer types were not loadable.")
+    }
+
+    constructorParameterTypes := new Type[](0)
+    analyzerConstructor := analyzerType.GetConstructor(constructorParameterTypes)
+    if analyzerConstructor == null {
+        throw new InvalidOperationException("The production analyzer was not constructible.")
+    }
+
+    constructorArguments := new object?[](0)
+    analyzer := analyzerConstructor.Invoke(constructorArguments)
+
+    loadParameterTypes := new Type[](0)
+    loadMethod := analyzerType.GetMethod("LoadSystemAssemblies", loadParameterTypes)
+    if loadMethod == null {
+        throw new InvalidOperationException("The production LoadSystemAssemblies entry point was not found.")
+    }
+
+    loadArguments := new object?[](0)
+    loadMethod.Invoke(analyzer, loadArguments)
+
+    analyzeParameterTypes := new Type[](1)
+    analyzeParameterTypes[0] = unitType
+    analyzeMethod := analyzerType.GetMethod("Analyze", analyzeParameterTypes)
+    if analyzeMethod == null {
+        throw new InvalidOperationException("The production single-argument Analyze entry point was not found.")
+    }
+
+    analyzeArguments := new object?[](1)
+    SetAcObject(analyzeArguments, 0, unit)
     analysis := analyzeMethod.Invoke(analyzer, analyzeArguments)
 
     disposeParameterTypes := new Type[](0)
@@ -18951,4 +19561,1610 @@ test "020 s35 analyzer clean source: V-CONTROL for `IntTryParse_WithExistingOutV
     assert AcErrorCount(rich) == 4
     assert AcRow(rich, 0) == "UndefinedVariable|Variable 'result' not found|<null>|Error"
     assert AcHint(rich, 0) == "Make sure you've declared this variable before using it."
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// TRANCHE 8 — THE FINISHER. THE LAST 46 `[Fact]`s, BOTH SURVIVING PRIVATE HELPERS, AND THE FILE.
+// 46 methods / 974 declaration lines / 86 in-body `Assert.` / 45 fixtures / 86 decoded claim rows.
+// Task 020 slice 36 deletes them, and `tests/AnalyzerTests.cs` — 13,451 lines and 816 methods
+// (781 `[Fact]` + 35 `[Theory]` behind 100 `InlineData` rows) when this campaign opened — is
+// DELETED WHOLE. `Analyze` (16 code occurrences) and
+// `AnalyzeWithSource` (27) die with their last consumers, so the file's last private helper, its
+// last `[Fact]` and the file itself leave together.
+//
+// WHY THE WHOLE REMAINDER, AND WHY THE ENTRY POINT IS NOT THE SHAPE. By entry point the residue is
+// three families — 26 / 542 `AnalyzeWithSource`, 15 / 247 direct `Analyze`, 5 / 185 own
+// `new Analyzer()` — and that partition says nothing about what the migration costs. Re-decoding on
+// WHAT THE BODIES READ splits the same 46 into three groups that do: 29 / 608 read only
+// DIAGNOSTICS and need no new instrument at all; 16 / 310 read the SEMANTIC MODEL (fifteen call
+// `LookupIdentifier`, 32 calls between them, and one reads `ExpressionTypes`); and 1 / 56 never
+// parses anything, building a `CompilationUnit` BY HAND. The three kernel groups above are that
+// split, and the largest of them is a copy of an existing project's instrument rather than a design.
+//
+// THE FIXTURES ARE THE DELETED ONES BYTE-FOR-BYTE. All 45 were decoded by the C# compiler itself —
+// every literal copied UNMODIFIED into a generated console program that printed its sha256 and its
+// length — and an independent Python decode reproduces all 45 shas and all 45 lengths with ZERO
+// mismatches. They total 10,455 characters over 29 verbatim `@"…"`, 12 C# RAW literals, one
+// composed with `string.Join`, and three written to disk as files. The 46th method has no fixture:
+// it builds its unit in code.
+//
+// AND THE ONE DUPLICATE PAIR IS THE SLICE'S SHARPEST FINDING, NOT A DEDUPLICATION.
+// `CircularImport_TwoFiles_ReportsError` and `NonCircularImport_NoError` analyse a BYTE-IDENTICAL
+// file — same sha, 58 characters — and reach OPPOSITE verdicts, because the whole difference is the
+// OTHER file in the directory: `./B` imports back in one and does not in the other. V10 and V10b
+// below swap the two sidecars and swap the two answers, and V10c removes the sidecar from disk
+// entirely and gets a THIRD answer, `NL701 ImportNotFound`. One text, three diagnoses, decided
+// entirely by what else is on disk.
+//
+// THE CLAIM WAS 86 ASSERTIONS AND IT IS NOW EVERY ROW ON EVERY REACHABLE ROUTE. Each fixture pins
+// its parse census, its parse result and its unit shape, then on BOTH entry points the analysis
+// census, `HasErrors`, the row count, and for every row its `Code|Message|Suggestion|Severity`, its
+// `ContextualHint` and its `SourceSnippet`, plus the `<no-such-error>` sentinel one past the end.
+// ALL 86 CLAIMS HOLD ON THE ROUTE THE C# ACTUALLY DROVE — this tranche has NO FALSE CLEAN — and
+// FIVE ARE FALSE ON THE OTHER ROUTE. Four of the five are the circular-import pair: handed the same
+// text as a bare STRING, with no path and no project root, the analyzer is SILENT, so
+// `Assert.True(result.HasErrors)` and `Assert.Contains(…CircularImport)` both fail. The fifth is
+// `Analyzer_SourceSnippet_PreservesCrLfSplitBehavior`, whose whole subject — `SourceSnippet` — is
+// `<null>` on the one-argument route and only exists on the four-argument one.
+//
+// THE THIRD METHOD OF THAT PAIR IS THE VACUITY PROBLEM IN MINIATURE. `NonCircularImport_NoError`
+// asserts `DoesNotContain(CircularImport)`, and that holds on the string route TOO — for the wrong
+// reason, because nothing at all is reported there. A claim can be true on a route it was never
+// meant for and say nothing. Every contract below therefore pins the string routes BESIDE the
+// directory route rather than instead of it, so the silence and its cause are separate rows.
+//
+// THE SILENCES ARE NOT VACUOUS, AND THAT WAS MEASURED TWICE. First, `AcUnitShape` pins every
+// fixture's parsed unit: no fixture parses to an empty unit. Second, out of repo: one type-error
+// function was appended to each of the 40 string-route-clean fixtures and ALL 40 REPORT — exactly
+// one `NL202` each, over 13 distinct censuses, ZERO NON-MOVERS.
+//
+// AND TWENTY OF THE SILENCES ARE PINNED FROM THE OTHER SIDE. Fifteen V-CONTROLS are minimal
+// negatives of named fixtures, one substitution each, asserted to be a single occurrence before the
+// edit; five PLACEHOLDER-CONTROLS are the hand-built unit with a different identifier in the
+// array-length slot. Three findings come out of them that no boolean could have reached:
+//
+//   (a) V1 IS A NON-MOVER ON THE DIAGNOSTIC AXIS AND IT IS KEPT FOR THAT REASON. Replacing
+//       `count + text.Length` with `count + text` — `int + string` — reports NOTHING, and the only
+//       instrument that moves is the semantic model, where `total` becomes `string`. V1b is the
+//       diagnostic mover that replaces it. A perturbation that changes the answer without changing
+//       the diagnostics is exactly what a census-only contract cannot see.
+//
+//   (b) THE `<error>` SUPPRESSION IS EXACT-MATCH, CASE-SENSITIVE, AND SUPPRESSES TWO ROWS RATHER
+//       THAN THE ONE THE C# CLAIMED. With `<error>` in the array-length slot the analyzer reports
+//       ONE row; with `count`, with `<error>x`, with `x<error>`, with the empty name and with
+//       `<ERROR>` it reports THREE — an `NL301 UndefinedVariable` AND the `NL202` condition-type
+//       follow-on the deleted method named, at 2:8. The deleted assertion asked about one of them.
+//
+//   (c) THE TWO SENTENCE-BUILDERS DISAGREE ON EVERY NON-EMPTY ROW EXCEPT ONE. V2, V3, V4, V5, V6,
+//       V7 and V9 all ship different messages, different suggestions, different hints or different
+//       spans on the two routes; V6 and V7 reproduce the `1 argument(s)` / `1 argument` plural
+//       disagreement slice 35 filed, on two further callees. V8 — the stackalloc length — is the
+//       single row in this whole slice whose MESSAGE and SUGGESTION are identical on both, and even
+//       there the LENGTHS differ, 1 against 5.
+//
+// ONE MORE THING THE TRANCHE MEASURED AND DID NOT ASSUME: the method named
+// `BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember` draws a distinction the answer
+// does not honour. Analysed WITHOUT `LoadSystemAssemblies` and WITH it, through the same
+// four-argument entry point and the same path, the census, the count and the row are IDENTICAL.
+// What does move is the ROUTE: the one-argument entry point carries the suggestion
+// `Did you mean 'ToUpper'?` and no hint, and the four-argument one drops the suggestion and carries
+// the hint instead. Both are pinned, on the same fixture, so the difference is stated rather than
+// implied by a method name.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+test "020 s36 analyzer clean source: `Analyzer_SourceSnippet_PreservesCrLfSplitBehavior` the two routes report DIFFERENT spans for the same row (was AnalyzerTests.Analyzer_SourceSnippet_PreservesCrLfSplitBehavior)" {
+    source := "func main() {\r\n    let value: var = 42\r\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@2:16+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|'var' is not a type; use ':=' for type inference|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@2:16+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidSyntax|'var' is not a type; use ':=' for type inference|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    let value: var = 42\r"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember` the analyzer WITHOUT `LoadSystemAssemblies` gives the same answer as the one with it (was AnalyzerTests.BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember)" {
+    source := "func Main() {\n    print \"asdf\".ToUpper()\n    print \"asdf\".Length\n    print \"asdf\".ToUp()\n}"
+    assert AcParseNamedAsCensus(source, "Program.nl") == ""
+    assert AcParseNamedAsSuccess(source, "Program.nl") == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    bare := AcAnalyzeBare(source, "Program.nl", "/tmp/Program.nl")
+    assert AcCensus(bare) == "NL303:UndefinedMember@4:18+4;"
+    assert AcHasErrors(bare) == "True"
+    assert AcErrorCount(bare) == 1
+    assert AcRow(bare, 0) == "UndefinedMember|Member 'ToUp' not found on type 'string'|<null>|Error"
+    assert AcHint(bare, 0) == "The type `string` does not have a member named `ToUp`.\nCheck for typos, or make sure you're accessing the right type."
+    assert AcSnippet(bare, 0) == "    print \"asdf\".ToUp()"
+    assert AcRow(bare, 1) == "<no-such-error>"
+    loaded := AcAnalyzeLoadedAt(source, "Program.nl", "/tmp/Program.nl")
+    assert AcCensus(loaded) == "NL303:UndefinedMember@4:18+4;"
+    assert AcErrorCount(loaded) == 1
+    assert AcRow(loaded, 0) == "UndefinedMember|Member 'ToUp' not found on type 'string'|<null>|Error"
+    plain := AcAnalyze(source)
+    assert AcCensus(plain) == "NL303:UndefinedMember@4:18+4;"
+    assert AcHasErrors(plain) == "True"
+    assert AcErrorCount(plain) == 1
+    assert AcRow(plain, 0) == "UndefinedMember|Member 'ToUp' not found on type 'string'|Did you mean 'ToUpper'?|Error"
+    assert AcHint(plain, 0) == "<null>"
+    assert AcSnippet(plain, 0) == "<null>"
+    assert AcRow(plain, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@4:18+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "UndefinedMember|Member 'ToUp' not found on type 'string'|<null>|Error"
+    assert AcHint(rich, 0) == "The type `string` does not have a member named `ToUp`.\nCheck for typos, or make sure you're accessing the right type."
+    assert AcSnippet(rich, 0) == "    print \"asdf\".ToUp()"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `Write_SettableSourcePropertyTarget_Valid` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.Write_SettableSourcePropertyTarget_Valid)" {
+    source := "    class Box {\n        backing: int\n\n        Value: int {\n            get {\n                return backing\n            }\n            set {\n                backing = value\n            }\n        }\n\n        constructor() {\n            backing = 0\n        }\n\n        func Mutate(other: Box) {\n            Value = 1\n            other.Value += 2\n            other.Value++\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Box;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `BitwiseAndShift_BuiltInOperands_RecordPromotedTypes` parses clean and BOTH routes report an EMPTY census — and all 6 semantic-model reads agree on both (was AnalyzerTests.BitwiseAndShift_BuiltInOperands_RecordPromotedTypes)" {
+    source := "\nfunc getByte(): byte { return 1 as byte }\nfunc getUInt(): uint { return 1 as uint }\n\nfunc Main() {\n    intBits := 1 & 2\n    smallBits := getByte() | getByte()\n    mixedUnsigned := getUInt() ^ 1\n    shiftedInt := 1 << 3\n    shiftedSmall := getByte() << 1\n    boolBits := true & false\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:getByte;FunctionDeclaration:getUInt;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "intBits") == "int"
+    assert AcLookupIdentifier(plainModel, "smallBits") == "int"
+    assert AcLookupIdentifier(plainModel, "mixedUnsigned") == "long"
+    assert AcLookupIdentifier(plainModel, "shiftedInt") == "int"
+    assert AcLookupIdentifier(plainModel, "shiftedSmall") == "int"
+    assert AcLookupIdentifier(plainModel, "boolBits") == "bool"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "intBits") == "int"
+    assert AcLookupIdentifier(richModel, "smallBits") == "int"
+    assert AcLookupIdentifier(richModel, "mixedUnsigned") == "long"
+    assert AcLookupIdentifier(richModel, "shiftedInt") == "int"
+    assert AcLookupIdentifier(richModel, "shiftedSmall") == "int"
+    assert AcLookupIdentifier(richModel, "boolBits") == "bool"
+}
+
+test "020 s36 analyzer clean source: `UnaryNumericOperators_RecordPromotedTypes` parses clean and BOTH routes report an EMPTY census — and all 5 semantic-model reads agree on both (was AnalyzerTests.UnaryNumericOperators_RecordPromotedTypes)" {
+    source := "\nfunc getByte(): byte { return 1 as byte }\nfunc getUInt(): uint { return 1 as uint }\nfunc getLong(): long { return 1L }\n\nfunc Main() {\n    negSmall := -getByte()\n    negUInt := -getUInt()\n    invSmall := ~getByte()\n    invUInt := ~getUInt()\n    invLong := ~getLong()\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:getByte;FunctionDeclaration:getUInt;FunctionDeclaration:getLong;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "negSmall") == "int"
+    assert AcLookupIdentifier(plainModel, "negUInt") == "long"
+    assert AcLookupIdentifier(plainModel, "invSmall") == "int"
+    assert AcLookupIdentifier(plainModel, "invUInt") == "uint"
+    assert AcLookupIdentifier(plainModel, "invLong") == "long"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "negSmall") == "int"
+    assert AcLookupIdentifier(richModel, "negUInt") == "long"
+    assert AcLookupIdentifier(richModel, "invSmall") == "int"
+    assert AcLookupIdentifier(richModel, "invUInt") == "uint"
+    assert AcLookupIdentifier(richModel, "invLong") == "long"
+}
+
+test "020 s36 analyzer clean source: `Lambda_Simple` both routes report the same census (was AnalyzerTests.Lambda_Simple)" {
+    source := "\n            func Main() {\n                f := x => 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL203:CannotInferType@3:22+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CannotInferType|I can't figure out the type of lambda parameter 'x' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = x => ...') or pass it directly where a delegate type is expected.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL203:CannotInferType@3:22+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "CannotInferType|I can't figure out the type of lambda parameter 'x' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = x => ...') or pass it directly where a delegate type is expected.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                f := x => 42"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TupleDeconstruction_InferredElementTypes_Valid` parses clean and BOTH routes report an EMPTY census — and all 3 semantic-model reads agree on both (was AnalyzerTests.TupleDeconstruction_InferredElementTypes_Valid)" {
+    source := "    func Main() {\n        count, text := (3, \"abc\")\n        total := count + text.Length\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "count") == "int"
+    assert AcLookupIdentifier(plainModel, "text") == "string"
+    assert AcLookupIdentifier(plainModel, "total") == "int"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "count") == "int"
+    assert AcLookupIdentifier(richModel, "text") == "string"
+    assert AcLookupIdentifier(richModel, "total") == "int"
+}
+
+test "020 s36 analyzer clean source: `TupleDeconstruction_CallResultElementTypes_Valid` parses clean and BOTH routes report an EMPTY census — and all 3 semantic-model reads agree on both (was AnalyzerTests.TupleDeconstruction_CallResultElementTypes_Valid)" {
+    source := "    func pair(): (left: int, right: string) {\n        return (left: 2, right: \"ab\")\n    }\n\n    func Main() {\n        number, label := pair()\n        total := number + label.Length\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:pair;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "number") == "int"
+    assert AcLookupIdentifier(plainModel, "label") == "string"
+    assert AcLookupIdentifier(plainModel, "total") == "int"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "number") == "int"
+    assert AcLookupIdentifier(richModel, "label") == "string"
+    assert AcLookupIdentifier(richModel, "total") == "int"
+}
+
+test "020 s36 analyzer clean source: `ForeachLoop_SpanCollection_Valid` parses clean and BOTH routes report an EMPTY census — and all 1 semantic-model reads agree on both (was AnalyzerTests.ForeachLoop_SpanCollection_Valid)" {
+    source := "import System\n\nfunc Sum(numbers: ReadOnlySpan<int>): int {\n    total := 0\n    foreach value in numbers {\n        total += value\n    }\n\n    return total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Sum;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "value") == "int"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "value") == "int"
+}
+
+test "020 s36 analyzer clean source: `AwaitForeachLoop_AsyncEnumerableCollection_Valid` parses clean and BOTH routes report an EMPTY census — and all 1 semantic-model reads agree on both (was AnalyzerTests.AwaitForeachLoop_AsyncEnumerableCollection_Valid)" {
+    source := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func Sum(numbers: IAsyncEnumerable<int>): Task<int> {\n    total := 0\n    await foreach value in numbers {\n        total += value\n    }\n\n    return total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=2;FunctionDeclaration:Sum;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "value") == "int"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "value") == "int"
+}
+
+test "020 s36 analyzer clean source: `AwaitForeachLoop_AsyncGeneratorCall_Valid` parses clean and BOTH routes report an EMPTY census — and all 1 semantic-model reads agree on both (was AnalyzerTests.AwaitForeachLoop_AsyncGeneratorCall_Valid)" {
+    source := "import System.Collections.Generic\n\nasync func* Numbers(): IAsyncEnumerable<int> {\n    yield 1\n}\n\nasync func Sum() {\n    total := 0\n    await foreach value in Numbers() {\n        total += value\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Numbers;FunctionDeclaration:Sum;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "value") == "int"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "value") == "int"
+}
+
+test "020 s36 analyzer clean source: `ImplicitConversion_ClassToClass` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.ImplicitConversion_ClassToClass)" {
+    source := "    class Celsius {\n        Value: double\n\n        implicit operator Fahrenheit(c: Celsius) {\n            return new Fahrenheit { Value: c.Value * 9.0 / 5.0 + 32.0 }\n        }\n    }\n\n    class Fahrenheit {\n        Value: double\n    }\n\n    func Main() {\n        let c: Celsius = new Celsius { Value: 20.0 }\n        let f: Fahrenheit = c  // Implicit conversion should work\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Celsius;ClassDeclaration:Fahrenheit;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `ImplicitConversion_BidirectionalConversions` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.ImplicitConversion_BidirectionalConversions)" {
+    source := "    class Meters {\n        Value: double\n\n        implicit operator Centimeters(m: Meters) {\n            return new Centimeters { Value: m.Value * 100.0 }\n        }\n    }\n\n    class Centimeters {\n        Value: double\n\n        implicit operator Meters(cm: Centimeters) {\n            return new Meters { Value: cm.Value / 100.0 }\n        }\n    }\n\n    func Main() {\n        let m: Meters = new Meters { Value: 5.0 }\n        let cm: Centimeters = m  // Meters -> Centimeters\n        let m2: Meters = cm      // Centimeters -> Meters\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Meters;ClassDeclaration:Centimeters;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `Assignment_UserDefinedImplicitConversion_Allowed` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.Assignment_UserDefinedImplicitConversion_Allowed)" {
+    source := "    class Celsius {\n        Value: double\n\n        implicit operator Fahrenheit(c: Celsius) {\n            return new Fahrenheit { Value: c.Value }\n        }\n    }\n\n    class Fahrenheit {\n        Value: double\n    }\n\n    func Main() {\n        celsius := new Celsius { Value: 20.0 }\n        fahrenheit: Fahrenheit = celsius\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Celsius;ClassDeclaration:Fahrenheit;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersWithLiterals` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersWithLiterals)" {
+    source := "\n            func Greet(name: string, greeting: string = \"Hello\", times: int = 1) {\n                print greeting\n            }\n\n            func Main() {\n                Greet(\"Alice\")\n                Greet(\"Bob\", \"Hi\")\n                Greet(\"Charlie\", \"Hey\", 3)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Greet;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersWithNullLiteral` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersWithNullLiteral)" {
+    source := "\n            func Process(data: string?) {\n                if (data != null) {\n                    print data\n                }\n            }\n\n            func Main() {\n                Process(null)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Process;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersWithNumericExpressions` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersWithNumericExpressions)" {
+    source := "\n            func Calculate(x: int = 2 + 3, y: int = -5, z: float = 3.14) {\n                print x\n            }\n\n            func Main() {\n                Calculate()\n                Calculate(10)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Calculate;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersWithBooleanLiterals` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersWithBooleanLiterals)" {
+    source := "\n            func Configure(enabled: bool = true, verbose: bool = false) {\n                print enabled\n                print verbose\n            }\n\n            func Main() {\n                Configure()\n                Configure(false)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Configure;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersAllOptional` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersAllOptional)" {
+    source := "\n            func AllOptional(a: int = 1, b: int = 2, c: int = 3) {\n                print a + b + c\n            }\n\n            func Main() {\n                AllOptional()\n                AllOptional(10)\n                AllOptional(10, 20)\n                AllOptional(10, 20, 30)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:AllOptional;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersInMethods` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersInMethods)" {
+    source := "\n            class Calculator {\n                func Add(a: int, b: int = 0): int {\n                    return a + b\n                }\n            }\n\n            func Main() {\n                calc := new Calculator()\n                result1 := calc.Add(5)\n                result2 := calc.Add(5, 3)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Calculator;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersInConstructors` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersInConstructors)" {
+    source := "\n            class Person {\n                Name: string\n                Age: int\n\n                constructor(name: string, age: int = 0) {\n                    Name = name\n                    Age = age\n                }\n            }\n\n            func Main() {\n                p1 := new Person(\"Alice\")\n                p2 := new Person(\"Bob\", 30)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Person;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersParamsStaysLast` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersParamsStaysLast)" {
+    source := "\n            func Format(prefix: string = \"\", params values: int[]) {\n                print prefix\n            }\n\n            func Main() {\n                Format(\"Numbers:\", 1, 2, 3)\n                Format()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Format;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `TestDefaultParametersExtensionMethods` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersExtensionMethods)" {
+    source := "\n            func IsLongerThan(this s: string, minLength: int = 0): bool {\n                return s.Length > minLength\n            }\n\n            func Main() {\n                result1 := \"hello\".IsLongerThan()\n                result2 := \"hello\".IsLongerThan(3)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:IsLongerThan;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `AwaitExpression_TaskResult_InfersResultType` parses clean and BOTH routes report an EMPTY census — and all 2 semantic-model reads agree on both (was AnalyzerTests.AwaitExpression_TaskResult_InfersResultType)" {
+    source := "import System.Threading.Tasks\n\nasync func GetCount(): Task<int> {\n    return 3\n}\n\nasync func Main(): Task<int> {\n    count := await GetCount()\n    total := count + 1\n    return total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:GetCount;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "count") == "int"
+    assert AcLookupIdentifier(plainModel, "total") == "int"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "count") == "int"
+    assert AcLookupIdentifier(richModel, "total") == "int"
+}
+
+test "020 s36 analyzer clean source: `AwaitExpression_ValueTaskResult_InfersResultType` parses clean and BOTH routes report an EMPTY census — and all 2 semantic-model reads agree on both (was AnalyzerTests.AwaitExpression_ValueTaskResult_InfersResultType)" {
+    source := "import System.Threading.Tasks\n\nasync func GetLabel(): ValueTask<string> {\n    return \"abc\"\n}\n\nasync func Main(): Task<int> {\n    label := await GetLabel()\n    length := label.Length\n    return length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:GetLabel;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "label") == "string"
+    assert AcLookupIdentifier(plainModel, "length") == "int"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "label") == "string"
+    assert AcLookupIdentifier(richModel, "length") == "int"
+}
+
+test "020 s36 analyzer clean source: `MethodGroupToClrDelegate_RejectsRefParameterMismatch` both routes report the same census (was AnalyzerTests.MethodGroupToClrDelegate_RejectsRefParameterMismatch)" {
+    source := "\n            import System\n\n            func Use(action: Action<int>) {\n            }\n\n            func Bump(ref value: int) {\n                value = value + 1\n            }\n\n            func Main() {\n                Use(Bump)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Use;FunctionDeclaration:Bump;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@12:21+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'Use' is method group 'Bump', but parameter 'action' expects 'Action<int>'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@12:21+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `method group 'Bump'` as argument for parameter `action` of type `Action<int>`|<null>|Error"
+    assert AcHint(rich, 0) == "The parameter `action` expects a `Action<int>` value, but you passed a\n`method group 'Bump'`. These types are not compatible."
+    assert AcSnippet(rich, 0) == "                Use(Bump)"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `Lambda_UntypedParams_NoInferenceSource_SingleErrorPerLambda` both routes report the same census (was AnalyzerTests.Lambda_UntypedParams_NoInferenceSource_SingleErrorPerLambda)" {
+    source := "\n            func Main() {\n                f := (x, y) => x + y\n                result := f(1, 2)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL203:CannotInferType@3:23+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CannotInferType|I can't figure out the type of lambda parameter 'x' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = x => ...') or pass it directly where a delegate type is expected.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL203:CannotInferType@3:23+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "CannotInferType|I can't figure out the type of lambda parameter 'x' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = x => ...') or pass it directly where a delegate type is expected.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                f := (x, y) => x + y"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `CircularImport_TwoFiles_ReportsError` the claim lives in the DIRECTORY, not the string — the same file is silent on both string routes (was AnalyzerTests.CircularImport_TwoFiles_ReportsError)" {
+    source := "import \"./B\"\n\nfunc Hello(): string {\n    return \"hello\"\n}\n"
+    sidecar := "import \"./A\"\n\nfunc World(): string {\n    return \"world\"\n}\n"
+    assert AcDirectoryReport("A.nl", source, "B.nl", sidecar) == "roundTrip=True;cleaned=True;parse=;success=True;shape=imports=0;FunctionDeclaration:Hello;"
+    analysis := AcAnalyzeInDirectory("A.nl", source, "B.nl", sidecar)
+    assert AcCensus(analysis) == "NL703:CircularImport@1:8+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CircularImport|Circular import: './B' creates a cycle|<null>|Error"
+    assert AcHint(analysis, 0) == "The file './B' creates an import cycle back to this file.\n\nCircular imports are not allowed because they make it impossible to determine\nthe correct order of symbol resolution.\n\nTo fix this, reorganize your code so imports flow in one direction. Consider:\n  - Moving shared types to a separate file that both files import\n  - Combining the files if they are tightly coupled"
+    assert AcSnippet(analysis, 0) == "import \"./B\""
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "CircularImport") == 1
+    // the SAME text through the two STRING routes, which is what the migrated
+    // helpers would have driven: both are silent, so the claim is the directory's.
+    plain := AcAnalyze(source)
+    assert AcCensus(plain) == ""
+    assert AcHasErrors(plain) == "False"
+    assert AcErrorCount(plain) == 0
+    assert AcRow(plain, 0) == "<no-such-error>"
+    assert AcHint(plain, 0) == "<no-such-error>"
+    assert AcSnippet(plain, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `CircularImport_SelfImport_ReportsError` the claim lives in the DIRECTORY, not the string — the same file is silent on both string routes (was AnalyzerTests.CircularImport_SelfImport_ReportsError)" {
+    source := "import \"./Self\"\n\nfunc Hello(): string {\n    return \"hello\"\n}\n"
+    assert AcDirectoryReport("Self.nl", source, "<none>", "<none>") == "roundTrip=True;cleaned=True;parse=;success=True;shape=imports=0;FunctionDeclaration:Hello;"
+    analysis := AcAnalyzeInDirectory("Self.nl", source, "<none>", "<none>")
+    assert AcCensus(analysis) == "NL703:CircularImport@1:8+8;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CircularImport|Circular import: './Self' creates a cycle|<null>|Error"
+    assert AcHint(analysis, 0) == "The file './Self' creates an import cycle back to this file.\n\nCircular imports are not allowed because they make it impossible to determine\nthe correct order of symbol resolution.\n\nTo fix this, reorganize your code so imports flow in one direction. Consider:\n  - Moving shared types to a separate file that both files import\n  - Combining the files if they are tightly coupled"
+    assert AcSnippet(analysis, 0) == "import \"./Self\""
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "CircularImport") == 1
+    // the SAME text through the two STRING routes, which is what the migrated
+    // helpers would have driven: both are silent, so the claim is the directory's.
+    plain := AcAnalyze(source)
+    assert AcCensus(plain) == ""
+    assert AcHasErrors(plain) == "False"
+    assert AcErrorCount(plain) == 0
+    assert AcRow(plain, 0) == "<no-such-error>"
+    assert AcHint(plain, 0) == "<no-such-error>"
+    assert AcSnippet(plain, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `NonCircularImport_NoError` the claim lives in the DIRECTORY, not the string — the same file is silent on both string routes (was AnalyzerTests.NonCircularImport_NoError)" {
+    source := "import \"./B\"\n\nfunc Hello(): string {\n    return \"hello\"\n}\n"
+    sidecar := "func World(): string {\n    return \"world\"\n}\n"
+    assert AcDirectoryReport("A.nl", source, "B.nl", sidecar) == "roundTrip=True;cleaned=True;parse=;success=True;shape=imports=0;FunctionDeclaration:Hello;"
+    analysis := AcAnalyzeInDirectory("A.nl", source, "B.nl", sidecar)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "CircularImport") == 0
+    // the SAME text through the two STRING routes, which is what the migrated
+    // helpers would have driven: both are silent, so the claim is the directory's.
+    plain := AcAnalyze(source)
+    assert AcCensus(plain) == ""
+    assert AcHasErrors(plain) == "False"
+    assert AcErrorCount(plain) == 0
+    assert AcRow(plain, 0) == "<no-such-error>"
+    assert AcHint(plain, 0) == "<no-such-error>"
+    assert AcSnippet(plain, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `BCL_MethodCall_WithNamedOptionalAndParamsArguments_NoErrors` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.BCL_MethodCall_WithNamedOptionalAndParamsArguments_NoErrors)" {
+    source := "\n            import System\n            import System.Collections.Generic\n            import System.Text.Json\n\n            class Payload {\n                Name: string\n            }\n\n            func Main() {\n                payload := JsonSerializer.Deserialize<Payload>(json: \"{}\")\n                names := new List<string>()\n                names.Add(\"alpha\")\n                names.Add(\"beta\")\n                joined := String.Join(separator: \",\", values: names)\n                formatted := String.Format(format: \"{0}-{1}\", arg0: \"left\", arg1: \"right\")\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=3;ClassDeclaration:Payload;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdas_InferReturnType` parses clean and BOTH routes report an EMPTY census — and all 2 semantic-model reads agree on both (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdas_InferReturnType)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                filtered := query.Where(x => x > 1).Select(x => x.ToString())\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "query") == "IQueryable<int>"
+    assert AcLookupIdentifier(plainModel, "filtered") == "IQueryable<string>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "query") == "IQueryable<int>"
+    assert AcLookupIdentifier(richModel, "filtered") == "IQueryable<string>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaUnaryNegation_IsSupported` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaUnaryNegation_IsSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                filtered := query.Where(x => -x < -1)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaHardCast_IsSupported` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaHardCast_IsSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                filtered := query.Where(x => (double)x > 1.5)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaSafeCast_IsSupported` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaSafeCast_IsSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [\"a\", \"b\"]\n                query := source.AsQueryable()\n                filtered := query.Where(x => (x as object) != null)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaBitwiseOperators_AreSupported` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaBitwiseOperators_AreSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                filtered := query.Where(x => ((x & 1) == 1) || ((x | 1) == 3) || ((x ^ 3) == 0))\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaShiftOperators_AreSupported` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaShiftOperators_AreSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                filtered := query.Where(x => ((x << 1) == 2) || ((x >> 1) == 1))\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaStaticMethodCall_IsSupported` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaStaticMethodCall_IsSupported)" {
+    source := "\n            import System\n            import System.Linq\n\n            func Main() {\n                source := [\"a\", \"\", \"bb\"]\n                query := source.AsQueryable()\n                filtered := query.Where(x => !String.IsNullOrEmpty(x))\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=2;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaConditional_IsSupported` parses clean and BOTH routes report an EMPTY census — and all 1 semantic-model reads agree on both (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaConditional_IsSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                mapped := query.Select(x => x > 1 ? x : 0L)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "mapped") == "IQueryable<long>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "mapped") == "IQueryable<long>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaDefault_IsSupported` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaDefault_IsSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                mapped: IQueryable<long> = Queryable.Select<int, long>(query, x => default)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaMetadataConstants_AreSupported` parses clean and BOTH routes report an EMPTY census — and all 2 semantic-model reads agree on both (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaMetadataConstants_AreSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                names := query.Select(x => nameof(x))\n                typeNames := query.Select(x => typeof(int).Name)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "names") == "IQueryable<string>"
+    assert AcLookupIdentifier(plainModel, "typeNames") == "IQueryable<string>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "names") == "IQueryable<string>"
+    assert AcLookupIdentifier(richModel, "typeNames") == "IQueryable<string>"
+}
+
+test "020 s36 analyzer clean source: `QueryableLinq_ExpressionTreeLambdaIndexAccess_IsSupported` parses clean and BOTH routes report an EMPTY census — and all 1 semantic-model reads agree on both (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaIndexAccess_IsSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [\"ab\", \"cd\"]\n                query := source.AsQueryable()\n                chars := query.Select(x => x[0])\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "chars") == "IQueryable<char>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "chars") == "IQueryable<char>"
+}
+
+test "020 s36 analyzer clean source: `ReflectionGenericReceiver_ToArrayPreservesNonNullableElementType` parses clean and BOTH routes report an EMPTY census — and all 1 semantic-model reads agree on both (was AnalyzerTests.ReflectionGenericReceiver_ToArrayPreservesNonNullableElementType)" {
+    source := "\n            import System.Collections.Generic\n\n            func Accept(tags: string[]): void {\n            }\n\n            func Main() {\n                tags := new List<string>()\n                array := tags.ToArray()\n                Accept(array)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Accept;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "array") == "string[]"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "array") == "string[]"
+}
+
+test "020 s36 analyzer clean source: `ReflectionGenericReceiver_ToArrayPreservesNullableElementType` parses clean and BOTH routes report an EMPTY census — and all 1 semantic-model reads agree on both (was AnalyzerTests.ReflectionGenericReceiver_ToArrayPreservesNullableElementType)" {
+    source := "\n            import System.Collections.Generic\n\n            func Main() {\n                tags := new List<string?>()\n                array := tags.ToArray()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "array") == "string?[]"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "array") == "string?[]"
+}
+
+test "020 s36 analyzer clean source: `ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn` a hand-built `<error>` placeholder suppresses TWO diagnostics, not the one the C# claimed (was AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
+    unit := AcPlaceholderUnit("<error>")
+    assert AcShapeOfUnit(unit) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyzeUnit(unit)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@2:16+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+}
+
+test "020 s36 analyzer clean source: `StackAlloc_LengthExpression_RecordedInSemanticModel` parses clean and BOTH routes report an EMPTY census — and the whole `ExpressionTypes` table is pinned where the C# read ONE key (was AnalyzerTests.StackAlloc_LengthExpression_RecordedInSemanticModel)" {
+    source := "\nfunc Scratch(count: int): int {\n    scratch := stackalloc byte[count]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Scratch;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcExpressionTypes(plainModel) == "3:16=Span<byte>;3:32=int;4:12=Span<byte>;4:19=int;"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcExpressionTypes(richModel) == "3:16=Span<byte>;3:32=int;4:12=Span<byte>;4:19=int;"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V1: `count + text.Length` -> `count + text` is a NON-MOVER on the diagnostic axis and a MOVER on the semantic model: `int + string` is silent and `total` becomes `string` (the minimal negative of AnalyzerTests.TupleDeconstruction_InferredElementTypes_Valid)" {
+    source := "    func Main() {\n        count, text := (3, \"abc\")\n        total := count + text\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "count") == "int"
+    assert AcLookupIdentifier(plainModel, "text") == "string"
+    assert AcLookupIdentifier(plainModel, "total") == "string"
+    assert AcExpressionTypes(plainModel) == "2:24=NSharpLang.Compiler.TupleTypeInfo;2:25=int;2:28=string;3:18=int;3:24=string;3:26=string;"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "count") == "int"
+    assert AcLookupIdentifier(richModel, "text") == "string"
+    assert AcLookupIdentifier(richModel, "total") == "string"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V1b: the diagnostic mover that replaces V1 — `total: bool = ...` reports `NL202`, and the two routes anchor DIFFERENT columns (the minimal negative of AnalyzerTests.TupleDeconstruction_InferredElementTypes_Valid)" {
+    source := "    func Main() {\n        count, text := (3, \"abc\")\n        total: bool = count + text.Length\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:9+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'total' is typed as 'bool', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "count") == "int"
+    assert AcLookupIdentifier(plainModel, "text") == "string"
+    assert AcLookupIdentifier(plainModel, "total") == "bool"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:29+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "        total: bool = count + text.Length"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "count") == "int"
+    assert AcLookupIdentifier(richModel, "text") == "string"
+    assert AcLookupIdentifier(richModel, "total") == "bool"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V2: `ReadOnlySpan<int>` -> `ReadOnlySpan<string>` reports `NL202` on the compound assignment, and only the PLAIN route names the two types (the minimal negative of AnalyzerTests.ForeachLoop_SpanCollection_Valid)" {
+    source := "import System\n\nfunc Sum(numbers: ReadOnlySpan<string>): int {\n    total := 0\n    foreach value in numbers {\n        total += value\n    }\n\n    return total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Sum;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@6:18+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Type mismatch in assignment — expected 'int' but got 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "value") == "string"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@6:18+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+    assert AcSnippet(rich, 0) == "        total += value"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "value") == "string"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V3: `fahrenheit: Fahrenheit` -> `fahrenheit: int` withdraws the user-defined conversion — and the routes anchor the NAME against the VALUE (the minimal negative of AnalyzerTests.Assignment_UserDefinedImplicitConversion_Allowed)" {
+    source := "    class Celsius {\n        Value: double\n\n        implicit operator Fahrenheit(c: Celsius) {\n            return new Fahrenheit { Value: c.Value }\n        }\n    }\n\n    class Fahrenheit {\n        Value: double\n    }\n\n    func Main() {\n        celsius := new Celsius { Value: 20.0 }\n        fahrenheit: int = celsius\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Celsius;ClassDeclaration:Fahrenheit;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@15:9+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'fahrenheit' is typed as 'int', but the value is 'Celsius'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@15:27+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSnippet(rich, 0) == "        fahrenheit: int = celsius"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V4: `Greet(Alice)` -> `Greet()` reports `NL401`, and only the PLAIN route states the RANGE `1 to 3` (the minimal negative of AnalyzerTests.TestDefaultParametersWithLiterals)" {
+    source := "\n            func Greet(name: string, greeting: string = \"Hello\", times: int = 1) {\n                print greeting\n            }\n\n            func Main() {\n                Greet()\n                Greet(\"Bob\", \"Hi\")\n                Greet(\"Charlie\", \"Hey\", 3)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Greet;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL401:WrongArgumentCount@7:17+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "WrongArgumentCount|'Greet' takes 1 to 3 argument(s), but you passed 0|Check the argument count against the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL401:WrongArgumentCount@7:17+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "WrongArgumentCount|Function 'Greet' expects 1 argument but got 0|<null>|Error"
+    assert AcHint(rich, 0) == "The function `Greet` expects 1 argument, but you are\npassing 0. You may have forgotten to pass some arguments."
+    assert AcSnippet(rich, 0) == "                Greet()"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V5: `calc.Add(5)` -> `calc.Add(the string 5)` reports `NL202` with different LENGTHS on the two routes (the minimal negative of AnalyzerTests.TestDefaultParametersInMethods)" {
+    source := "\n            class Calculator {\n                func Add(a: int, b: int = 0): int {\n                    return a + b\n                }\n            }\n\n            func Main() {\n                calc := new Calculator()\n                result1 := calc.Add(\"5\")\n                result2 := calc.Add(5, 3)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Calculator;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@10:37+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'Add' is 'string', but parameter 'a' expects 'int'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@10:37+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `string` as argument for parameter `a` of type `int`|<null>|Error"
+    assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+    assert AcSnippet(rich, 0) == "                result1 := calc.Add(\"5\")"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V6: `x[0]` -> `x.Missing` reports `NL402`, and the two routes disagree on plural agreement (the minimal negative of AnalyzerTests.QueryableLinq_ExpressionTreeLambdaIndexAccess_IsSupported)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [\"ab\", \"cd\"]\n                query := source.AsQueryable()\n                chars := query.Select(x => x.Missing)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@7:32+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Select' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "chars") == "unknown"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@7:32+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Select' accepts 1 argument with these types|<null>|Error"
+    assert AcHint(rich, 0) == "This call passes 1 argument: `unknown`.\nAvailable overloads:\n  - Select(Func<TSource?, TResult?> selector): IEnumerable<TResult?>\n  - Select(Func<TSource?, int, TResult?> selector): IEnumerable<TResult?>\n  - Select(Expression<Func<TSource?, TResult?>> selector): IQueryable<TResult?>\n  - Select(Expression<Func<TSource?, int, TResult?>> selector): IQueryable<TResult?>\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcSnippet(rich, 0) == "                chars := query.Select(x => x.Missing)"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "chars") == "unknown"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V7: `names.Add(alpha)` -> `names.Add(1)` reports `NL402`, the same plural disagreement on a different callee (the minimal negative of AnalyzerTests.BCL_MethodCall_WithNamedOptionalAndParamsArguments_NoErrors)" {
+    source := "\n            import System\n            import System.Collections.Generic\n            import System.Text.Json\n\n            class Payload {\n                Name: string\n            }\n\n            func Main() {\n                payload := JsonSerializer.Deserialize<Payload>(json: \"{}\")\n                names := new List<string>()\n                names.Add(1)\n                names.Add(\"beta\")\n                joined := String.Join(separator: \",\", values: names)\n                formatted := String.Format(format: \"{0}-{1}\", arg0: \"left\", arg1: \"right\")\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=3;ClassDeclaration:Payload;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@13:23+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Add' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@13:23+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Add' accepts 1 argument with these types|<null>|Error"
+    assert AcHint(rich, 0) == "This call passes 1 argument: `int`.\nAvailable overloads:\n  - Add(string? item): void\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcSnippet(rich, 0) == "                names.Add(1)"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V8: `count: int` -> `count: string` reports `NL202` — the ONE row in this slice whose SENTENCE and SUGGESTION are identical on both routes — and `3:32` changes from `int` to `string` (the minimal negative of AnalyzerTests.StackAlloc_LengthExpression_RecordedInSemanticModel)" {
+    source := "\nfunc Scratch(count: string): int {\n    scratch := stackalloc byte[count]\n    return scratch.Length\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Scratch;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|stackalloc length must be an int, but this is a 'string'|Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "scratch") == "Span<byte>"
+    assert AcExpressionTypes(plainModel) == "3:16=Span<byte>;3:32=string;4:12=Span<byte>;4:19=int;"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:32+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|stackalloc length must be an int, but this is a 'string'|Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    scratch := stackalloc byte[count]"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "scratch") == "Span<byte>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V9: `return 3` -> `return` the STRING 3 reports `NL202` in the callee, and the routes anchor the `return` keyword against the whole value (the minimal negative of AnalyzerTests.AwaitExpression_TaskResult_InfersResultType)" {
+    source := "import System.Threading.Tasks\n\nasync func GetCount(): Task<int> {\n    return \"3\"\n}\n\nasync func Main(): Task<int> {\n    count := await GetCount()\n    total := count + 1\n    return total\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:GetCount;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:5+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'GetCount' should return 'int', but this return statement gives back 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    plainModel := AcModel(analysis)
+    assert AcLookupIdentifier(plainModel, "count") == "int"
+    assert AcLookupIdentifier(plainModel, "total") == "int"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:12+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Function 'GetCount' should return int but returns string|<null>|Error"
+    assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+    assert AcSnippet(rich, 0) == "    return \"3\""
+    assert AcRow(rich, 1) == "<no-such-error>"
+    richModel := AcModel(rich)
+    assert AcLookupIdentifier(richModel, "count") == "int"
+    assert AcLookupIdentifier(richModel, "total") == "int"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V10: `NonCircularImport_NoError`'s SIDECAR flipped to cyclic — the byte-identical file now reports `NL703` (the minimal negative of AnalyzerTests.NonCircularImport_NoError)" {
+    source := "import \"./B\"\n\nfunc Hello(): string {\n    return \"hello\"\n}\n"
+    sidecar := "import \"./A\"\n\nfunc World(): string {\n    return \"world\"\n}\n"
+    assert AcDirectoryReport("A.nl", source, "B.nl", sidecar) == "roundTrip=True;cleaned=True;parse=;success=True;shape=imports=0;FunctionDeclaration:Hello;"
+    analysis := AcAnalyzeInDirectory("A.nl", source, "B.nl", sidecar)
+    assert AcCensus(analysis) == "NL703:CircularImport@1:8+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CircularImport|Circular import: './B' creates a cycle|<null>|Error"
+    assert AcHint(analysis, 0) == "The file './B' creates an import cycle back to this file.\n\nCircular imports are not allowed because they make it impossible to determine\nthe correct order of symbol resolution.\n\nTo fix this, reorganize your code so imports flow in one direction. Consider:\n  - Moving shared types to a separate file that both files import\n  - Combining the files if they are tightly coupled"
+    assert AcSnippet(analysis, 0) == "import \"./B\""
+    assert AcRow(analysis, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V10b: `CircularImport_TwoFiles_ReportsError`'s SIDECAR flipped to acyclic — the byte-identical file falls SILENT (the minimal negative of AnalyzerTests.CircularImport_TwoFiles_ReportsError)" {
+    source := "import \"./B\"\n\nfunc Hello(): string {\n    return \"hello\"\n}\n"
+    sidecar := "func World(): string {\n    return \"world\"\n}\n"
+    assert AcDirectoryReport("A.nl", source, "B.nl", sidecar) == "roundTrip=True;cleaned=True;parse=;success=True;shape=imports=0;FunctionDeclaration:Hello;"
+    analysis := AcAnalyzeInDirectory("A.nl", source, "B.nl", sidecar)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V10c: the same file with NO sidecar on disk gives a THIRD answer, `NL701 ImportNotFound` (the minimal negative of AnalyzerTests.CircularImport_TwoFiles_ReportsError)" {
+    source := "import \"./B\"\n\nfunc Hello(): string {\n    return \"hello\"\n}\n"
+    assert AcDirectoryReport("A.nl", source, "<none>", "<none>") == "roundTrip=True;cleaned=True;parse=;success=True;shape=imports=0;FunctionDeclaration:Hello;"
+    analysis := AcAnalyzeInDirectory("A.nl", source, "<none>", "<none>")
+    assert AcCensus(analysis) == "NL701:ImportNotFound@1:8+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ImportNotFound|Cannot find import './B'|<null>|Error"
+    assert AcHint(analysis, 0) == "Make sure the file exists at the path './B'.\nThe path should be relative to your project root.\n\nCommon issues:\n  - Check for typos in the file path\n  - Make sure the file extension is correct\n  - Verify the file is in the expected directory"
+    assert AcSnippet(analysis, 0) == "import \"./B\""
+    assert AcRow(analysis, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V11: the CRLF fixture respelled with LF — the census is unchanged and the SNIPPET loses its trailing `\r` (the minimal negative of AnalyzerTests.Analyzer_SourceSnippet_PreservesCrLfSplitBehavior)" {
+    source := "func main() {\n    let value: var = 42\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@2:16+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|'var' is not a type; use ':=' for type inference|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@2:16+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidSyntax|'var' is not a type; use ':=' for type inference|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    let value: var = 42"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source V-CONTROL V12: `.ToUp()` -> `.ToUpper()` — the repaired typo is silent on both routes (the minimal negative of AnalyzerTests.BuiltInMemberTypo)" {
+    source := "func Main() {\n    print \"asdf\".ToUpper()\n    print \"asdf\".Length\n    print \"asdf\".ToUpper()\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcHint(analysis, 0) == "<no-such-error>"
+    assert AcSnippet(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcHint(rich, 0) == "<no-such-error>"
+    assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P1: an ORDINARY identifier in the array-length slot reports THREE rows where `<error>` reports one — the suppression is EXACT-MATCH and case-sensitive (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
+    unit := AcPlaceholderUnit("count")
+    assert AcShapeOfUnit(unit) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyzeUnit(unit)
+    assert AcCensus(analysis) == "NL301:UndefinedVariable@2:16+1;NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
+    assert AcErrorCount(analysis) == 3
+    assert AcCodeCount(analysis, "TypeMismatch") == 2
+    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find 'count' — it hasn't been declared in this scope|<null>|Error"
+    assert AcRow(analysis, 1) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 2) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P2: `<error>` with one trailing character in the array-length slot reports THREE rows where `<error>` reports one — the suppression is EXACT-MATCH and case-sensitive (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
+    unit := AcPlaceholderUnit("<error>x")
+    assert AcShapeOfUnit(unit) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyzeUnit(unit)
+    assert AcCensus(analysis) == "NL301:UndefinedVariable@2:16+1;NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
+    assert AcErrorCount(analysis) == 3
+    assert AcCodeCount(analysis, "TypeMismatch") == 2
+    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find '<error>x' — it hasn't been declared in this scope|<null>|Error"
+    assert AcRow(analysis, 1) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 2) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P3: `<error>` with one leading character in the array-length slot reports THREE rows where `<error>` reports one — the suppression is EXACT-MATCH and case-sensitive (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
+    unit := AcPlaceholderUnit("x<error>")
+    assert AcShapeOfUnit(unit) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyzeUnit(unit)
+    assert AcCensus(analysis) == "NL301:UndefinedVariable@2:16+1;NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
+    assert AcErrorCount(analysis) == 3
+    assert AcCodeCount(analysis, "TypeMismatch") == 2
+    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find 'x<error>' — it hasn't been declared in this scope|<null>|Error"
+    assert AcRow(analysis, 1) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 2) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P4: the EMPTY name in the array-length slot reports THREE rows where `<error>` reports one — the suppression is EXACT-MATCH and case-sensitive (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
+    unit := AcPlaceholderUnit("")
+    assert AcShapeOfUnit(unit) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyzeUnit(unit)
+    assert AcCensus(analysis) == "NL301:UndefinedVariable@2:16+1;NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
+    assert AcErrorCount(analysis) == 3
+    assert AcCodeCount(analysis, "TypeMismatch") == 2
+    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find '' — it hasn't been declared in this scope|<null>|Error"
+    assert AcRow(analysis, 1) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 2) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P5: the same name in UPPER CASE in the array-length slot reports THREE rows where `<error>` reports one — the suppression is EXACT-MATCH and case-sensitive (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
+    unit := AcPlaceholderUnit("<ERROR>")
+    assert AcShapeOfUnit(unit) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyzeUnit(unit)
+    assert AcCensus(analysis) == "NL301:UndefinedVariable@2:16+1;NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
+    assert AcErrorCount(analysis) == 3
+    assert AcCodeCount(analysis, "TypeMismatch") == 2
+    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find '<ERROR>' — it hasn't been declared in this scope|<null>|Error"
+    assert AcRow(analysis, 1) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 2) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 3) == "<no-such-error>"
 }
