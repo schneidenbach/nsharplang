@@ -1,6 +1,30 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-23 (**020 SLICE 38 — `tests/PlaygroundCompilerTests.cs` IS DELETED. THE WHOLE
+Last updated: 2026-08-23 (**020 SLICE 39 — `tests/QueryIntegrationTests.cs` MIGRATES WHOLE. 65
+`[Fact]`s / 1,000 DECLARATION LINES / 209 IN-BODY `Assert.` / 219 DECODED CLAIM ROWS, IN ONE NEW
+NATIVE PROJECT `tests/native/query-integration`, THE 42nd. **THE HEADLINE IS THAT SLICE 38's SKETCH
+WAS WRONG ABOUT THE CAPABILITY: IT PREDICTED PROCESS LAUNCH, AND THE MECHANICAL DECODE SAYS ZERO OF
+THE 65 BODIES LAUNCHES A PROCESS.** Not one names `Process`, `ProcessStartInfo`, `nlc`, stdout or an
+exit code; all 65 reach the subject IN-PROCESS through `CodeIntelligenceService` (11 entry points),
+`CompletionEngine`, `OutputFormatter` and `ProjectSnapshot.Bindings`. The cheaper route the sketch
+told the successor to price first is not merely cheaper — **it is the only route the cluster has**,
+so under the no-unused-infrastructure rule NO SPAWN KERNEL IS BUILT. THE SECOND HEADLINE IS A
+STRUCTURALLY VACUOUS CLAIM THE PERTURBATION MATRIX FOUND: **`Diagnostics_HaveCorrectCodeFormat`
+ASSERTED `All(d => StartsWith("NL", d.Code))` OVER AN ANSWER THAT IS EMPTY — ALL FOUR FIXTURE
+PROJECTS REPORT ZERO DIAGNOSTICS, MEASURED — SO IT NEVER INSPECTED A SINGLE CODE**, and its two
+clean-compile neighbours filtered that same empty list by severity. All three are replaced by runtime
+runs. **FIVE EMIT WALLS WERE FOUND AND MINIMISED OUT-OF-REPO** (a mutable static FIELD; a function
+returning `MethodInfo` and `GetMethod(name, Type[])` over a `Type[]` PARAMETER; `Regex` in every
+constructor and the static `IsMatch`; `Enum.Parse` COEXISTING WITH `System.Text.Json` — which two
+`.tests.nl` files do NOT isolate, because a native project compiles as ONE unit; and
+`Activator.CreateInstance`), and three of the five turned into BETTER tests: the enum argument is now
+taken from the production answer, and the diagnostic list is MINTED BY PRODUCTION. **THE MUTATION
+PANEL'S M1 — `GetSymbols` ignoring its `file` filter — IS CAUGHT BY NOTHING ELSE IN THE REPOSITORY:
+2 RED HERE, 6,316 GREEN IN THE ESTATE.** `SystemsNSharpTests.cs` IS NOW THE LAST CANONICAL C#
+ASSERTION LAYER, AND ITS ENDGAME IS PRICED IN THE CURSOR BLOCK. Full record in the Cursor block
+below
+
+Last updated (prior): 2026-08-23 (**020 SLICE 38 — `tests/PlaygroundCompilerTests.cs` IS DELETED. THE WHOLE
 REMAINDER: 35 `[Fact]`s / 745 DECLARATION LINES / 191 IN-BODY `Assert.` / 194 DECODED CLAIM ROWS,
 SPLIT 21 / 14 BY WHAT THE BODIES READ — 21 EXTEND `tests/native/playground-diagnostic-spans` AND 14
 LAND IN A NEW SIBLING `tests/native/playground-tooling-surfaces`, THE 41st NATIVE PROJECT, BECAUSE
@@ -4037,7 +4061,384 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 38 CLOSES `tests/PlaygroundCompilerTests.cs`. THE
+- Active sub-slice (020 arc, THIS TURN — **SLICE 39 MIGRATES `tests/QueryIntegrationTests.cs` WHOLE:
+  65 `[Fact]`s / 1,000 DECLARATION LINES / 209 IN-BODY `Assert.` / 219 DECODED CLAIM ROWS, INTO ONE
+  NEW NATIVE PROJECT `tests/native/query-integration`, THE 42nd. THE FILE IS DELETED WHOLE AND
+  `FindColumnInFile`, `FindLineInFile`, `FindExamplesDir`, `FindFixturesDir`, `LoadTemporaryProject`,
+  `LoadTemporaryProjectWithConfig` AND `BuildFilterRegex` DIE WITH THEIR LAST CONSUMERS.**)
+
+  ### THE DECODE, RE-VERIFIED MECHANICALLY AND RECORDED BEFORE ANY EDIT
+
+  The decode is the campaign's instrument REBUILT FROM SCRATCH an EIGHTH time — a scanner that
+  character-classifies the whole file into `code` / `lit` / `com` (raw `"""` fences, verbatim `@"`,
+  escaped and interpolated strings, char literals, line and block comments), walks every
+  `[Fact]`/`[Theory]` under the anchored `^[ \t]*\[` rule, extracts each body by brace balance over
+  CODE braces only, and classifies by what the body READS/NAMES under an undotted word-boundary rule.
+  Slice 32's two instrument fixes and slice 37's flattener fix are carried forward BY CONSTRUCTION.
+
+  Run against the working file at `5ff035f5f` it reports **1,322 lines, 65 methods, 65 `[Fact]` + 0
+  `[Theory]`, 0 `InlineData`, 1,000 declaration lines, 209 IN-BODY `Assert.` and 210 WHOLE-FILE
+  `Assert.`** — which reproduces the inherited census (`1,322 / 65 / 65 / 209`) IN EVERY COLUMN TO THE
+  DIGIT and adds the column the census could not see: the two `Assert.` numbers differ by exactly 1,
+  and the one lives in the private helper `FindColumnInFile` (line 49), whose needle-found guard fires
+  once per call site. `FindLineInFile` carries none (it throws `XunitException`), and neither do
+  `FindExamplesDir`, `FindFixturesDir`, `LoadTemporaryProject`, `LoadTemporaryProjectWithConfig` or
+  `BuildFilterRegex`.
+
+  **THE CLAIM-ROW ARITHMETIC: 209 in-body `Assert.` calls + 10 `FindColumnInFile` CALL SITES = 219.**
+  `FindColumnInFile` occurs 11 times — one declaration, ten calls — and `FindLineInFile` 10 times —
+  one declaration, nine calls. The kind census of the 219: `Equal` 59, `Contains` 58, `NotNull` 29,
+  `True` 25 (+10 helper), `DoesNotContain` 15, `Empty` 10, `Single` 7, `False` 4, `EndsWith` 4,
+  `Null` 3, `All` 2, `NotEmpty` 2, `StartsWith` 1.
+
+  ### THE ROUTE PRICING — THE SKETCH'S FIRST CAPABILITY DOES NOT EXIST
+
+  Slice 38 predicted **two** capabilities: PROCESS LAUNCH and JSON PARSING. The decode overturns the
+  first outright and the executed probe retires the second as already-owned.
+
+  **PROCESS LAUNCH IS NOT NEEDED, AND THE MEASURE IS ZERO.** Across 1,322 lines the strings
+  `Process`, `ProcessStartInfo`, `StandardOutput`, `WaitForExit`, `ExitCode`, `stdout` and `nlc `
+  occur in the CODE class **zero** times; the only occurrences of `nlc` in the file are one doc
+  comment (`Integration tests for the nlc query toolchain`) and one *expected-value string literal*
+  inside the golden-cluster body (`nlc query inspect --file …`). Every one of the 65 bodies reaches
+  the subject IN-PROCESS. The entry-point census, multi-counted: `GetSymbols` 14, `GetTypeAtPosition`
+  9, `FindReferences` 9, `GetDiagnostics` 6, `FindDefinition` 6, `GetHoverInfo` 5, `GetOutline` 4,
+  `GetCallGraph` 4, `GetImplementors` 3, `LoadProject` 1, `GetOutlineSingleFile` 1, plus
+  `OutputFormatter.SymbolsToJson` / `.DiagnosticsToJson` / `.OutlineToJson` /
+  `.DiagnosticClustersToJson` 1 each and `CompletionEngine.GetCompletions` 4. **Under the
+  no-unused-infrastructure rule the spawn kernel is therefore NOT BUILT** — a `DotnetRunner.nl`-shaped
+  kernel would have had no consumer in this cluster, and a capability with no consumer is exactly what
+  task 020 forbids.
+
+  **THE IN-PROCESS ROUTE IS PRICED GREEN BY AN EXECUTED PROBE, NOT BY ARGUMENT.** A nine-block probe
+  project was generated OUTSIDE the repository, run through `nlc test`, and deleted. It reports
+  **`Passed: 8, Failed: 1`, and the one failure is the SPEAKING CONTROL** (`assert 1 == 2`) that
+  proves the run was live. The eight that pass are the eight capabilities the migration needs:
+  `GetSymbols` through `Type.GetType(…, "Compiler")` + `GetMethod` + `Invoke`; a typed `SymbolKind?`
+  filter argument boxed by `Enum.Parse`; `System.Text.Json` inside a `.tests.nl`; the repository root
+  and BOTH fixture corpora (`examples/`, `tests/fixtures/issue-tracker`) reachable from the runner's
+  working directory; the static `OutputFormatter` entry point invoked with a produced argument and its
+  envelope re-parsed; `ProjectSnapshot.Bindings.BindingCount`; and the FOURTEEN-argument production
+  `DiagnosticResult` constructed by reflection for the golden-cluster body.
+
+  **JSON PARSING IS NOT A NEW CAPABILITY EITHER.** `tests/native/ownership-audit` already spells
+  `JsonDocument.Parse`, `JsonElement`, `JsonValueKind`, `EnumerateObject`/`EnumerateArray`,
+  `GetInt32`/`GetString` DIRECTLY in N# — no reflection, no hand-written scanner — and probe blocks P3
+  and P6 prove the same spellings compile and run inside a `.tests.nl`. The four JSON bodies therefore
+  pin the versioned envelopes directly, `schemaVersion` included, per the schema-discipline rule.
+
+  ### A NEW WALL, FOUND BY THE PROBE AND MINIMISED
+
+  The probe's first form cached the five fixture snapshots in a `static class` with a mutable static
+  field, and it DECLINED at columnar emit. Minimised out-of-repo, the wall is not the JSON and not the
+  `static class`: **ANY mutable static FIELD in a class declines** — with an initializer, without one,
+  `int`, `object?` or `Dictionary<,>` alike — while a static expression-bodied PROPERTY (the shape
+  `OwnershipPolicy.EpochFileCount` uses) compiles. The BCL escape hatch declines too:
+  `AppDomain.CurrentDomain` is unreachable from a `.tests.nl` in every spelling tried, including
+  binding it to a local first.
+
+  **THE WALL IS NOT LOAD-BEARING HERE, AND THE MEASURE IS WHY.** A timing probe loaded each of the
+  five fixture projects three times: `01-hello-world` 0.012s / 3, `12-multi-file-projects` 0.031s / 3,
+  `06-classes-and-records` 0.058s / 3, `05-unions` 0.097s / 3, `issue-tracker` 0.242s / 3 — i.e. 4 ms
+  to 81 ms per `LoadProject`. Loading per test block costs the migrated project a few seconds in
+  total, so the successor buys HERMETIC test blocks (no shared mutable snapshot at all) for a price
+  the gate cannot feel. The C# file's five `??=` lazy fields were an optimisation, not a contract.
+
+  ### THE SPLIT-OR-WHOLE DECISION — WHOLE, AND THE MEASURED SHAPE IS WHAT DECIDES IT
+
+  **1,000 declaration lines is under the ~1,500 cap, and unlike slice 37's 1,796 it does not need a
+  cut.** The shape says the same thing from the other side: where `PlaygroundCompilerTests` answered
+  FIVE response records through SIX entry points and had to be split, this cluster has ONE subject —
+  the `nlc query` surface — reached through one service object plus two satellites. The sixteen
+  name-prefix families all answer it:
+
+  | family | methods | decl lines | in-body `Assert.` |
+  |---|---|---|---|
+  | `Symbols_*` | 13 | 193 | 49 |
+  | `References_*` | 8 | 150 | 16 |
+  | `Type_*` | 6 | 68 | 16 |
+  | `Definition_*` | 5 | 58 | 21 |
+  | `Outline_*` | 4 | 28 | 5 |
+  | `Diagnostics_*` | 4 | 27 | 5 |
+  | `Completions_*` | 4 | 112 | 11 |
+  | `BindingMap_*` | 4 | 44 | 10 |
+  | `CallGraph_*` | 4 | 44 | 13 |
+  | `Json_*` | 3 | 33 | 7 |
+  | `HoverCommand_*` | 3 | 38 | 9 |
+  | `Implementors_*` | 3 | 28 | 8 |
+  | `DiagnosticClustersToJson_*` | 1 | 59 | 15 |
+  | `Nullability_*` | 1 | 25 | 3 |
+  | `TypeUseNavigation_*` | 1 | 69 | 15 |
+  | `HoverAndType_*` | 1 | 24 | 6 |
+  | **total** | **65** | **1,000** | **209** |
+
+  All three columns sum exactly: 13+8+6+5+4+4+4+4+4+3+3+3+1+1+1+1 = 65,
+  193+150+68+58+28+27+112+44+44+33+38+28+59+25+69+24 = 1,000,
+  49+16+16+21+5+5+11+10+13+7+9+8+15+3+15+6 = 209.
+
+  The fixture axis agrees: `HelloWorld` 25 bodies, `MultiFile` 11, `IssueTracker` 10, temporary
+  projects 9, `ClassesAndRecords` 6, `Unions` 1. No family needs a reflection surface another family
+  does not, so a cut would only duplicate the same twelve kernels across two projects. **The cluster
+  goes WHOLE into ONE new sibling `tests/native/query-integration`** — a sibling rather than an
+  extension of `query-completions` because that project's subject is a single 2026-08 hang regression
+  over a written fixture, not the query surface.
+
+  ### FIVE WALLS THE MIGRATION HIT, EACH MINIMISED OUT-OF-REPO AGAINST `nlc test`
+
+  None of these was guessed; each was bisected to a two-construct reproduction outside the repository
+  and each reproduction was deleted.
+
+  1. **A MUTABLE STATIC FIELD DECLINES AT COLUMNAR EMIT.** `static x: int = 0`, `static x: int`,
+     `static x: object? = null` and `static x: Dictionary<,> = new …` all decline, inside a
+     `static class` and inside an ordinary `class` alike, while a static expression-bodied PROPERTY
+     (`public static EpochFileCount: int => 381`) compiles. `AppDomain.CurrentDomain` is unreachable
+     as a data-slot escape hatch in every spelling tried. **The wall is not load-bearing here** — see
+     the timing numbers above — but it is the reason this project has no fixture cache.
+  2. **A USER FUNCTION WHOSE RETURN TYPE IS `MethodInfo` DECLINES**, and so does
+     `GetMethod(name, Type[])` when the type array arrives as a PARAMETER (as a LOCAL it compiles —
+     `query-completions` does exactly that). The kernel therefore resolves and invokes in ONE step
+     (`QueryCall`), and the two sites that need overload disambiguation build their `Type[]` locally.
+  3. **`Regex` IS UNAVAILABLE ON THIS EMIT PATH.** `new Regex(p)`, `new Regex(p, options)`,
+     `new Regex(p, options, timeout)` and the static `Regex.IsMatch(input, pattern, options)` all
+     decline; only `Regex.Escape` compiles.
+  4. **`Enum.Parse` AND `System.Text.Json` CANNOT COEXIST IN ONE COMPILATION UNIT** — reduced to
+     exactly those two spellings in a five-line file — and splitting into two `.tests.nl` files does
+     NOT isolate it, because a native test project compiles as ONE unit. `Enum.ToObject` and a
+     `GetField`-read enum constant collide the same way.
+  5. **`Activator.CreateInstance(type, args)` DECLINES while `type.GetConstructors()[0].Invoke(args)`
+     EMITS**, and `Activator.CreateInstance` over the CLOSED GENERIC `List<DiagnosticResult>` declines
+     outright. A `JsonElement` INDEXER declines (`EnumerateArray` walks instead), and
+     `assert <object? expression> == null` declines (the comparison moves inside a function).
+
+  Three of the five turned into BETTER tests rather than weaker ones. The enum collision is answered
+  by taking the `SymbolKind` filter argument from the PRODUCTION ANSWER — the boxed `Kind` read off a
+  `SymbolResult` is exactly the value the filter overload wants — so no enum API is spelled at all.
+  The generic-list wall is answered by MINTING THE LIST FROM PRODUCTION: a diagnostics query over a
+  file that does not exist answers a fresh empty `List<DiagnosticResult>`. And the `Regex` wall
+  exposed a fact worth stating on its own: the deleted `BuildFilterRegex` carried the comment
+  "Duplicate of the CLI's BuildSymbolFilterRegex", and **THAT CLI FUNCTION NO LONGER EXISTS ANYWHERE
+  IN `src/`** — the two filter bodies were pinning a matcher that lived only in the test file.
+
+  ### THE HEADLINE — A STRUCTURALLY VACUOUS CLAIM, FOUND BY THE PERTURBATION MATRIX
+
+  **`Diagnostics_HaveCorrectCodeFormat` NEVER INSPECTED A SINGLE DIAGNOSTIC CODE.** It asserted
+  `Assert.All(all, d => Assert.StartsWith("NL", d.Code))` over `GetDiagnostics(HelloWorld)`, and a
+  runtime census measured that answer: **`01-hello-world` 0 diagnostics, `12-multi-file-projects` 0,
+  `05-unions` 0, `tests/fixtures/issue-tracker` 0 — ALL FOUR FIXTURE PROJECTS ANSWER AN EMPTY
+  CENSUS.** `Assert.All` over an empty collection asserts nothing, so the claim was vacuous for its
+  whole life. The same measurement demotes its two neighbours: `Diagnostics_*_CompileCleanlyNoErrors`
+  filtered an empty list by severity, so the filter never ran either.
+
+  All three are replaced by RUNTIME RUNS. The two clean-compile blocks now pin the WHOLE census as
+  empty (a strictly stronger statement than "no errors"), and the code-format block states both
+  halves: the shipped project answers NOTHING, and a temporary project that really does produce
+  diagnostics has a NONEMPTY census in which every code is prefixed `NL`.
+
+  ### THE PROOF SETS
+
+  **PROBES.** A nine-block route-pricing probe and a five-block timing probe were generated OUTSIDE
+  the repository, run, and deleted. The route probe reports **`Passed: 8, Failed: 1` with the ONE
+  failure being the SPEAKING CONTROL** (`assert 1 == 2`).
+
+  **THE COMPARATOR, WITH COMPLETENESS ARITHMETIC.** Every decoded C# method is matched to exactly one
+  migrated block by an embedded `(was QueryIntegrationTests.<Method>)` tag: **65 decoded, 65 blocks,
+  0 UNDECODED, 0 MISSING.** Row reconstruction: **219 C# claim rows = 210 rows restated inside the
+  block + 9 `NotNull` rows the kernel's own `QueryRequire` guard answers** (exactly nine blocks —
+  two `BindingMap_*`, four `CallGraph_*` and three `Implementors_*` — whose `Assert.NotNull(result)`
+  is answered by the kernel that refuses to return null from `Bindings`, `GetCallGraph` and
+  `GetImplementors`), and the successor adds **11 rows the deleted bodies did not
+  have**, spread over nine blocks — three of them the vacuity repair. The migrated file therefore
+  carries **221 = 219 − 9 + 11** assert/guard/helper rows, and the identity is EXACT.
+
+  **THE ANCHOR AUDIT.** All NINE hard-coded fixture anchors name exactly what the deleted comments
+  claimed — `issue-tracker/Program.nl` 16:5 `service` and 15:5 `store`, `Service.nl` 22:10
+  `CreateIssue`, 11:5 `store`, 64:10 `GetAll`, 10:7 `IssueService`, `Models.nl` 35:8 `Issue` and
+  10:6 `Priority`, `MultiFileProject/Models/Person.nl` 5:8 `Person` — **0 mismatches**. The two
+  COMPUTED anchors check out too: `GetPeople` is at `Program.nl` 26:23 and `func GetPeople()` is at
+  `PersonService.nl` line 18, which is what the two cross-file blocks assert.
+
+  **THE VACUITY V-CONTROLS.** Every absence claim names something that DEMONSTRABLY EXISTS in the
+  fixture it denies: `class hiddenSurface`, `private class CopiedPrivateSurface`, `func helper(): int`,
+  the lowercase member `hidden: int`, the lowercase union case `err`, `Bar/Widget.nl`,
+  `Bar/UseWidget.nl`, `BarOnly: int`, the commented word `value`, and — for the two filter blocks —
+  the symbol the OTHER assertion in the same block proves is present. **No absence claim is
+  structurally vacuous.** The one that WAS vacuous was not an absence claim at all; it was the
+  `Assert.All` above, and the matrix is what found it.
+
+  **THE PERTURBATION MATRIX, RUN OUT OF REPO.** Against a verified green baseline of 65/65, every
+  block was perturbed and **ALL 65 MOVE**: **57** under the first-expectation instrument (a string
+  literal rewritten, or a numeric expectation shifted by 7,919); **6 more** under the negation
+  instrument (`Symbols_PublicSurface`, which moves under 14 of its 18 perturbations; the four
+  null-answer and absence blocks, which move when a negation is dropped or added; and the golden
+  cluster); and the **last 2** under the census instrument (`== 0` → `== 1`). 57 + 6 + 2 = 65. **Zero true non-movers remain**, and the three that were true non-movers before this
+  slice were the vacuity finding above — replaced by runtime runs, then re-perturbed and moved.
+  Perturbations that failed to build were recorded as NON-VERDICTS and re-run, never scored.
+
+  **THE MUTATION PANEL — THREE LANDED RUNS OVER THREE OWNERS, AGAINST A VERIFIED GREEN 65 AND A
+  VERIFIED GREEN 6,316.** Every mutation was applied in a byte-copy outside the repository, the
+  compiler rebuilt, and the copy destroyed.
+
+  | mutation | owner | `query-integration` | compiler-service estate | siblings |
+  |---|---|---|---|---|
+  | **M1** `GetSymbols` ignores its `file` filter | `CodeIntelligenceService.cs` | **2 RED** (`Symbols_FilterByFile`, `Symbols_NonexistentFile`) | **6,316 GREEN** | — |
+  | **M2** symbols envelope `schemaVersion` 1 → 2 | `OutputFormatterJsonKernels.nl` | **1 RED** (`Json_Symbols`) | **6,315 / 6,316 — 1 RED** | — |
+  | **M3** identifier completions always include keywords | `CompletionEngine.cs` | **1 RED** (`Completions_ExcludesKeywordsByDefault`) | 6,316 GREEN | `completion-engine` **1 RED**; `query-completions`, `doc-query` green |
+
+  **M1 IS CAUGHT BY NOTHING ELSE IN THE REPOSITORY** — the whole 6,316-contract estate stays green
+  while this project turns red twice — which is the attribution that justifies the migration rather
+  than the deletion. M2 is caught BOTH ways, and M3 is shared with exactly one sibling. All three
+  predictions matched; M1's own-count was under-predicted by one, root-caused (the nonexistent-file
+  block reads the same filter) and recorded rather than re-fitted.
+
+  **THE FIXTURE CROSSCHECK.** Three of the five fixture projects carry a `project.yml`
+  (`01-hello-world`, `MultiFileProject`, `issue-tracker`); `05-unions` and `06-classes-and-records`
+  are loose-source directories that `LoadProject` handles without one — which is also why neither is
+  discovered as a native test project and the project count moves by exactly one. Temporary fixtures
+  are created and deleted per run: **0 `nsharp-query-*` directories under `/tmp` before the run and
+  0 after**.
+
+  ### THE COUNTS, EXACT
+
+  * **Unit suite 884 → 819 (−65)**, `Failed: 0` — the exact migrated case count.
+  * **Native project `tests/native/query-integration`: 65 tests, `Failed: 0`, 2.0 s**, which
+    reproduces the 65 `[Fact]`s to the digit.
+  * **Compiler-service estate 6,316 → 6,316**, `Failed: 0`, under the restore-flag discipline.
+  * **Native projects 41 → 42.**
+  * **C# test estate 27 files / 28,567 lines → 26 files / 27,245 lines** (−1 file, −1,322 lines —
+    exactly the deleted file).
+  * `src/NSharpLang.Cli/Program.Testing.cs` stays **618** lines; no runner policy moved.
+  * The new `.tests.nl` is **1,946 lines** and declares **90 kernels**, none unused.
+  * **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files,
+    246 diagnostics — the inherited baseline to the digit**, with the same ten-code census
+    (`NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26`), ZERO
+    rows in any `.tests.nl` and ZERO naming a file this slice added. The check runs against a CLI
+    built from this branch, not the installed `~/.nsharp/bin/nlc`.
+  * **The project-scoped format check reports "All files are properly formatted."** on the
+    BootstrapServices estate; the new project reports **"No .nl files found to format."**, because a
+    project whose only source is a `.tests.nl` presents nothing to the formatter.
+
+  ### THE RATCHET
+
+  The `tests/QueryIntegrationTests.cs` row becomes **`state: removed`** with its epoch ceilings
+  (1,322 / 1,109 / 275) untouched and its current facts zeroed to `text-v1:removed`. The audit then
+  failed **17 / 18 with exactly ONE `OWN008` observing `head-v1:a068b7fee9dbc601`** — and a REPLICA
+  of `ReviewedHeadFingerprint`, walked over the manifest independently of the audit, had computed
+  that same value first.
+
+  **THE FIRST GATE CAUGHT A SECOND RATCHET ROW, AND IT IS WORTH RECORDING RATHER THAN HIDING.** The
+  dead sweep edits a COMMENT in `tests/GateStepInputSetGuardTests.cs` — the one that named the
+  deleted file as the reader of the golden document — and a comment is still text: the audit reported
+  **`OWN005` fingerprint drift, `text-v1:ee3fcd488b98abd9` → `text-v1:8d8cc7aa8f0682ae`**, with
+  ceilings UNCHANGED at 303 / 263 / 36 (nothing grew). That row's fingerprint was updated, the
+  replica recomputed the head a second time and agreed with the audit's observation, and the two-key
+  head was repinned LAST, `3f38766d9c05480c` → **`dc87bbf4564a209b`**, in BOTH keys (the JSON header
+  and the `OwnershipPolicy` constant). **Audit 18 / 18. Manifest 391 lines, no BOM.** The head chain for the record is
+  `3f38766d9c05480c` (inherited) → `a068b7fee9dbc601` (after the removal row, superseded) →
+  **`dc87bbf4564a209b`** (final, after the sweep's fingerprint row). The lesson the successor should
+  carry: **run the audit AFTER the dead sweep, not before it** — a comment is still text, and the
+  first gate is what proved it.
+
+  ### THE GATE
+
+  **The full non-VS-Code product gate, fresh and isolated from a `/tmp` byte-copy that excludes the
+  nested worktrees, with the log written OUTSIDE the copy, is `ALL TESTS PASSED! ✓` in 22 m 00 s with
+  122 GREEN STEPS and ZERO FAILURES**, its banner confirming no cached result was accepted and its
+  closing line storing a fresh validated result (`a249f8b39edbe473`, 1320 s). Step timings:
+  compiler 4 m 48 s, unit 6 m 58 s, native N# 5 m 22 s, SDK pack/install 4 m 26 s, IL verification
+  11 s.
+
+  **THE FIRST RUN OF THAT GATE FAILED, AND IT IS RECORDED RATHER THAN DISCARDED.** It reported
+  `FAILURES: 1` at 121 green steps in 21 m 44 s, and the one red step was
+  `Native N# tests: tests/native/ownership-audit`. **It was not a flake and not an environment
+  problem — it was a genuine MID-SLICE STATE.** The audit had been run and the two-key head repinned
+  to `a068b7fee9dbc601` BEFORE the dead sweep; the sweep then edited a COMMENT in
+  `tests/GateStepInputSetGuardTests.cs`, a ratchet-tracked C# file, so the copy that gate took carried
+  a manifest whose row fingerprint and whose reviewed head both described the PRE-SWEEP tree. The
+  ratchet did exactly what it exists for and refused it (`OWN005` drift,
+  `text-v1:ee3fcd488b98abd9` → `text-v1:8d8cc7aa8f0682ae`, ceilings untouched at 303 / 263 / 36).
+
+  **THE RE-RUN IS THE HONEST VERDICT, AND THE REASON IS THAT IT IS A DIFFERENT TREE.** Between the two
+  runs the row fingerprint was corrected, the head was repinned a SECOND time to `dc87bbf4564a209b`
+  (replica-verified before the audit was asked), and the migrated `.tests.nl` itself changed twice
+  more — the vacuity finding was written into its header, two reference claims were tightened to pin
+  `IsDefinition` exactly, and two unused kernels were deleted. The first copy therefore cannot speak
+  for the shipped tree at all. The second copy was taken fresh from the FINAL tree and verified
+  byte-identical to it by `shasum` over the three changed material files before the gate was
+  launched; the first `/tmp` copy was destroyed rather than re-used, and its log lived outside it.
+
+
+  ### THE DEAD SWEEP
+
+  Three live documentation owners named the deleted file and are corrected: `memory/testing.md` (the
+  test-file tree and the whole "Code Intelligence Tests (CLI Toolchain)" section, which now names the
+  native project, its five fixture projects and its contracts), `memory/components/cli-toolchain.md`
+  (the testing table row), and the comment in `tests/GateStepInputSetGuardTests.cs` that named the
+  deleted file as the reader of `docs/examples/diagnostic-clusters.sample.json` — the golden compare
+  now lives in the native project and is anchored at the repository root. The `UNIT` input set
+  already covers `src/`, `tests/`, `examples/` and `docs/`, so the native step's key still sees every
+  input this project reads; no gate script changed.
+
+  ### THE TREE
+
+  **NOT COMMITTED — the mandate reserves that.** The working tree carries exactly EIGHT changed
+  paths: the DELETED `tests/QueryIntegrationTests.cs`, the NEW `tests/native/query-integration/`
+  (`project.yml` and `QueryIntegration.tests.nl`), `tests/native/ownership-audit/OwnershipAudit.nl`,
+  `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json`,
+  `tests/GateStepInputSetGuardTests.cs`, `memory/testing.md`,
+  `memory/components/cli-toolchain.md` and this ledger. `tests/Tests.csproj` needed no edit — it
+  globs its sources. Every probe, bisection, comparator, perturbation and mutation copy was built
+  OUTSIDE the repository and deleted; both `/tmp` gate copies and the `/tmp` mutation copy are
+  removed, and the ~700 MB of probe/perturbation/mutation scratch this slice created is deleted.
+  `tasks/README.md` is NOT edited.
+
+  ### WHAT IS LEFT OF TASK 020, AND THE LAST CLUSTER
+
+  **`tests/QueryIntegrationTests.cs` IS GONE, AND IT IS THE FOURTH FILE THIS ARC HAS CLOSED WHOLE.**
+  **EXACTLY ONE canonical C# assertion layer remains**, and the instrument was run over it:
+
+  | file | lines | methods | `[Fact]` / `[Theory]` | `InlineData` | decl lines | in-body `Assert.` | whole-file `Assert.` |
+  |---|---|---|---|---|---|---|---|
+  | `SystemsNSharpTests.cs` | 2,402 | 61 | 60 / 1 | 2 | **1,770** | 375 | 412 |
+
+  The instrument adds two columns the inherited census could not see. **1,770 declaration lines is
+  OVER the ~1,500 cap, so this cluster MUST be cut** — the first arc file since slice 37 that cannot
+  go whole. And **the two `Assert.` numbers differ by 37**, so 37 claim rows live in private helpers
+  and the successor must find them before it cuts. The process surface is real and large: the four
+  spellings `ProcessStartInfo` / `StandardOutput` / `WaitForExit` / `ExitCode` occur **38 times**,
+  against ZERO in the file this slice deleted.
+
+  **THE ENDGAME PRICING, STATED HERE RATHER THAN LEFT TO BE REDISCOVERED.** This cluster is not a
+  reflection problem, and the route this arc has used since slice 28 does not reach it. Its bodies
+  build real projects with the SDK, invoke `nlc` as a PROCESS, read exit codes and stdout, parse the
+  systems-report JSON, and load and execute the EMITTED assembly. Three of those four are new
+  capabilities, and the third is the wall:
+
+  * **PROCESS LAUNCH IS REAL THIS TIME.** Where `QueryIntegrationTests` named `Process` zero times,
+    `SystemsNSharpTests` is built on it — `BuildProof` runs the CLI and its assertions read
+    `ExitCode`, `Stdout` and `Stderr`. The carried gotchas say `Task.Run`, `Stopwatch` and
+    `TickCount64` all decline, so the kernel must be SYNCHRONOUS (`Start`,
+    `StandardOutput.ReadToEnd`, `WaitForExit`), and slice 39 adds a warning the sketch should carry:
+    every one of those spellings needs the same bisection discipline, because this slice found FIVE
+    emit walls in constructs that looked ordinary.
+  * **THE SDK AND A REAL BUILD.** The proofs live under a proofs root and need the packaged SDK, so
+    the capability is not a `dll:` line but a build step — and `project_bootstrap_sdk_feed_and_wide_stack`
+    plus `project_verify_against_fresh_build` both bear on it directly.
+  * **EXECUTING THE EMITTED ASSEMBLY IS THE AOT WALL.** `project_aot_vs_reflection_kernel_loading`
+    says runtime `Assembly.Load` is incompatible with the AOT single-binary end state. A native test
+    that loads and invokes an emitted assembly buys the same debt the loader already carries, so the
+    honest options are (a) execute the assembly as a PROCESS rather than loading it — which the
+    process kernel above already pays for — or (b) accept a reflection-only test project explicitly
+    excluded from the AOT end state. **(a) is the one that does not grow the debt**, and it also
+    reuses the very kernel the first capability builds.
+  * **JSON IS FREE.** `System.Text.Json` is spellable in a `.tests.nl` — this slice proved it and
+    `ownership-audit` has shipped it for slices — so the systems-report envelopes cost nothing new.
+
+  The natural cut is by PROOF, the same "classify by what the bodies READ/NAME" rule this campaign
+  has now used ten times, and the file's own shape should be decoded before any edit.
+
+  Task 020 stays UNCHECKED, and `tasks/README.md` is NOT edited.
+
+- Previous sub-slice (020 arc, COMMITTED at `5ff035f5f` — **SLICE 38 CLOSES `tests/PlaygroundCompilerTests.cs`. THE
   WHOLE REMAINDER: 35 `[Fact]`s / 745 DECLARATION LINES / 191 IN-BODY `Assert.` / 194 DECODED CLAIM
   ROWS, SPLIT 21 / 14 ACROSS TWO NATIVE PROJECTS — 21 EXTEND
   `tests/native/playground-diagnostic-spans` AND 14 LAND IN A NEW SIBLING

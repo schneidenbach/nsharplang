@@ -17,8 +17,7 @@
 tests/
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
-├── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
-└── QueryIntegrationTests.cs     - CLI toolchain integration tests (uses real example projects)
+└── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
 ```
 
 **PARSING has no C# assertion layer either, as of task 020 slice 22.** `tests/ParserTests.cs` is
@@ -634,12 +633,18 @@ selected native regression assemblies themselves before verification.
 - `./scripts/test-vscode-headless.sh` builds the release server, launches VS Code in extension-host mode, exercises diagnostics/completions/hover/definition/references/code actions, and writes `.context/vscode-headless-report.json`; the implementation lives under `tests/scripts/`
 
 ### Code Intelligence Tests (CLI Toolchain)
-- **QueryIntegrationTests** — runs against REAL example projects:
+- **`tests/native/query-integration`** — the `nlc query` toolchain has no C# assertion layer as of
+  task 020 slice 39: `tests/QueryIntegrationTests.cs` is DELETED and all 65 of its cases are N#
+  contracts in that project, reaching `CodeIntelligenceService`, `CompletionEngine` and
+  `OutputFormatter` IN PROCESS by reflection. It runs against the same REAL projects:
   - `examples/01-hello-world` — single file, functions, variables
   - `examples/06-classes-and-records` — records, members, methods
   - `examples/12-multi-file-projects/MultiFileProject` — cross-file imports, namespaces
   - `examples/05-unions` — unions, error handling
-- Tests: symbols, outline, diagnostics, definition (by name + line assertions), references (cross-file), completions (member access + identifier), BindingMap, JSON schema, unhappy paths
+  - `tests/fixtures/issue-tracker` — multi-file API: unions, duck interfaces, records
+- Contracts: symbols (filters, members, casing-visibility), outline, diagnostics, definition,
+  references (cross-file, contexts), completions, BindingMap, the versioned JSON envelopes, the
+  shipped `docs/examples/diagnostic-clusters.sample.json` golden document, and unhappy paths
 - **CodeIntelligenceTests** — one case only: the unknown-severity invariant fallback, which is
   non-vacuous only under a Turkish ambient culture and therefore cannot move (N# reaches
   `CultureInfo` in neither direction). The other 44 cases are N# contracts in the BootstrapServices

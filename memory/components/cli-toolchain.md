@@ -841,7 +841,7 @@ nlc query <cmd>
 
 | File | What it tests |
 |------|--------------|
-| `tests/QueryIntegrationTests.cs` | Real example projects: symbols, outline, diagnostics, definition, references, completions, binding map, unhappy paths |
+| `tests/native/query-integration` | Real example projects, in N#: symbols, outline, diagnostics, definition, references, completions, binding map, the JSON envelopes, the shipped diagnostic-clusters golden document, unhappy paths |
 | `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterJsonKernels.tests.nl` | Every versioned JSON envelope and its exact ordered root keys |
 | `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterTextBuilders.tests.nl` | Every Elm-style `--text` answer, stated as whole texts |
 | `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterDiagnosticKernels.tests.nl` | Severity arithmetic, reference deduplication, end-to-end diagnostics |

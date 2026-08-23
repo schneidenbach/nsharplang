@@ -23,7 +23,7 @@ public class GateStepInputSetGuardTests
     {
         // tests/CliCommandTests.cs: CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs
         "website/docs/cli-reference.md",
-        // tests/QueryIntegrationTests.cs: golden compare anchored at _examplesDir/../docs
+        // tests/native/query-integration: golden compare anchored at the repository root
         "docs/examples/diagnostic-clusters.sample.json",
     };
 
