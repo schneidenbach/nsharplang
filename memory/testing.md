@@ -365,6 +365,38 @@ in any file that also carries a reflective member walk — sorting a `string[]` 
 by character emits. **`nlc check` on a `.nl` COPY is how to see any of this**: `nlc test` prints only
 the HumanExplanation, with no decline site, and `nlc check` never sees a `.tests.nl`.
 
+**THE PLAYGROUND'S DIAGNOSTIC SPANS have no C# assertion layer as of task 020 slice 37**, and the
+capability that slice added is a `dll:` line: `tests/native/playground-diagnostic-spans` is the first
+native project to reference `NSharpLang.Playground`, and the gate now builds that project in the same
+step it builds the CLI so the dependency is DECLARED rather than a side effect of the unit-test step.
+The cut is the 34 bodies of `tests/PlaygroundCompilerTests.cs` that NAME its `AssertPlaygroundSpan`
+helper — 30 `[Fact]` + 4 `[Theory]` carrying 25 `InlineData` rows, 1,051 declaration lines, 113
+in-body `Assert.`, 71 helper calls, 57 source fixtures, 233 decoded claim rows — and the helper dies
+with them because all 71 call sites are inside the cut. The file survives at 35 methods / 745 lines
+for the slice that closes it: catalog, completions, run, format, and the check bodies that read a
+message rather than a span.
+
+**THE HEADLINE IS THAT THE PARSER'S INTERNAL `<error>` PLACEHOLDER REACHES USERS TWICE OVER, AND THE
+DELETED FILE WAS GUARDING AGAINST EXACTLY THAT ON TWO OTHER FIXTURES.** Seventeen pinned rows across
+five migrating fixtures carry `<error>` in a MESSAGE or a SUGGESTION — `NL903 Identifier '<error>'
+starts with a non-letter character`, `NL012 Parameter '<error>' in 'main' is never read`, `NL201 Type
+'<error>' not found`, and two suggestions that tell the user to import `<error>`. **And the leak also
+sets the diagnostic's LENGTH**: those spans are `"<error>".Length` = 7 characters wide, so of 316
+pinned rows TEN run past the end of their own source line (`NL903` at 3:1+7 on the six-character line
+`enum {`, `NL201` at 4:5+7 on the nine-character line `    Name:`). Two deleted methods asserted
+`DoesNotContain(… Message.Contains("<error>"))`; nothing looked at the other five, and no deleted
+assertion read a length it had not itself supplied.
+
+**The `PlaygroundCompiler` route is REFLECTION-ONLY, and three emit walls were measured by bisection
+while writing the kernels.** `Array.CreateInstance` DECLINES the moment its result is bound to a
+LOCAL — it emits only as a RETURN VALUE — so the constructed `PlaygroundFile[]` is passed around as
+`object` and its elements are written through a REFLECTED `Array.SetValue` rather than an indexer;
+`record` and `file` are both reserved in local-binding position; and `typeof(IEnumerable<>)` is
+rejected by the parser, so the `CheckProject` overload is found by NAME rather than by parameter
+types. The models themselves are already N# — `PlaygroundFile`, `PlaygroundCheckResponse`,
+`PlaygroundDiagnostic` and `PlaygroundSummary` live in `PlaygroundModels.nl`; only
+`PlaygroundCompiler` and `PlaygroundRunner` are still C#.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.

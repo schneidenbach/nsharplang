@@ -298,8 +298,9 @@ else
 fi
 
 section "Step 2: Build N# Compiler"
-echo "Building compiler and CLI..."
-if dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Cli/Cli.csproj -v q; then
+echo "Building compiler, CLI, and the playground a native test project takes as a dll: dependency..."
+if dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Cli/Cli.csproj -v q \
+    && dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Playground/NSharpLang.Playground.csproj -v q; then
     handle_success "Compiler built"
 else
     handle_error "Compiler build"
