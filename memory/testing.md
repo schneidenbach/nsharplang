@@ -426,6 +426,49 @@ boxing store into an `object?[]` element declines when the source is an `int`-ty
 older "a boxed literal into `object?[]` declines" note, which does not reproduce: an int literal and
 an int local both pass through an `object?` parameter fine.
 
+**THE EXECUTABLE SYSTEMS PROOF CORPUS HAS NO C# ASSERTION LAYER AS OF TASK 020 SLICE 40**, and the
+capability that slice added is a SYNCHRONOUS PROCESS SPAWN KERNEL. `tests/native/systems-proof-corpus`
+is the 43rd native project and the first that reaches its subject entirely through spawned CLI
+processes — no `dll:` dependency, no reflection. Its 38 blocks replace the single 544-line `[Fact]`
+`ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence` in `tests/SystemsNSharpTests.cs`
+(212 in-body `Assert.` plus 42 rows inside `AssertSystemsProofBuildDiagnostics` and 12 inside
+`AssertNativeImportHasNoManagedBody` — 266 decoded claim rows), and they cover the 21 shipped proof
+projects under `docs/design/systems-samples/proofs`: 21 `nlc build --perf-report` blocks, 13
+emitted-assembly RUN blocks, 2 `nlc check --systems-report` blocks and 2 `nlc query trusted` blocks.
+`SystemsProofBuildResult`, `BuildSystemsProofProjects`, `BuildSystemsProofProject`,
+`BuildSystemsProofPerfReportJson`, `AssertSystemsProofBuildDiagnostics`, `StripAnsi` and
+`AssertNativeImportHasNoManagedBody` died with their last consumer.
+
+**The route is stronger than the one it replaces, and the decode is why.** The deleted body never
+spelled a process API — `Process`, `ProcessStartInfo`, `StandardOutput` and `WaitForExit` occur zero
+times in it, and its 11 launches went through the already-N#-owned `DotnetRunner`. Its "real build"
+was IN-PROCESS (`new MultiFileCompiler(...).CompileToIlAssembly(...)`), and the perf-report JSON its
+25 `JsonDocument.Parse` calls read was assembled by a private helper IN THE TEST FILE, so it pinned
+a test-local copy of the CLI's output rather than the CLI's output. Every block now spawns the real
+command and pins the shipped envelope. **Nothing is loaded**: emitted assemblies are EXECUTED AS
+PROCESSES, which is route (a) of the AOT question in
+`project_aot_vs_reflection_kernel_loading` — the `AssemblyLoadContext` the C# used to read
+`GetMethodBody()` bought exactly the reflection-loading debt the single-binary end state forbids.
+
+**Two findings from that slice are product facts, not test facts.** (1) **`docs/design/systems-samples/proofs/27-c-library-cli`
+cannot execute**: its `[LibraryImport]` over a `ReadOnlySpan<byte>` parameter is not marshalable on
+this emit path, so the CLR's interop marshaller raises `MarshalDirectiveException` at
+`SystemsProofs.CLibraryCli.NativeHash.Hash64` and the process aborts. The sample compiles clean under
+`systems:strict` and the deleted C# never ran it — it only read metadata — so this was invisible for
+the file's whole life. It is now PINNED as the successor to the deleted no-managed-body claim, because
+only a genuine interop stub can provoke a marshalling failure. (2) **`nlc check --systems-report`
+cannot write to stderr**: every `Console.Error` path in `CheckCommand.Execute` is gated on text mode,
+which a JSON output mode never enters, so the deleted `Assert.True(string.IsNullOrWhiteSpace(stderr))`
+was STRUCTURALLY VACUOUS. It is replaced by a runtime diagnostic census read out of the envelope.
+
+**Two emit walls were measured by bisection while writing it.** `nuget:`-sourced types are
+reflection-only on this emit path: with `System.Reflection.Metadata` declared as a dependency the
+namespace resolves, but `new PEReader(stream)` declines at `emit.local.initializer`, both
+`PEStreamOptions` arities decline identically, and even `(int)PEStreamOptions.PrefetchEntireImage`
+declines at `emit.return.expression`. And `foreach` over a `JsonElement.ArrayEnumerator` is refused
+by NL202 — the explicit `MoveNext()` / `.Current` walk the estate already uses is the working
+spelling.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.

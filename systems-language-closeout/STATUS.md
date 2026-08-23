@@ -1,6 +1,35 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-23 (**020 SLICE 39 — `tests/QueryIntegrationTests.cs` MIGRATES WHOLE. 65
+Last updated: 2026-08-23 (**020 SLICE 40 — `tests/SystemsNSharpTests.cs` OPENS, AND ITS FIRST TRANCHE
+IS THE ONE BODY THAT LAUNCHES PROCESSES. 1 `[Fact]` / 544 DECLARATION LINES / 212 IN-BODY `Assert.` /
+266 DECODED CLAIM ROWS, BECOMING 43 INDEPENDENTLY REPORTED BLOCKS IN A NEW NATIVE PROJECT
+`tests/native/systems-proof-corpus`, THE 43rd — AND THE FIRST THAT REACHES ITS SUBJECT ENTIRELY
+THROUGH SPAWNED CLI PROCESSES, WITH NO `dll:` DEPENDENCY AND NO REFLECTION. **THE CAPABILITY IS THE
+SYNCHRONOUS SPAWN KERNEL SLICE 39 PRICED, BUT ITS OTHER TWO PREDICTIONS ARE BOTH OVERTURNED BY THE
+DECODE**: the "38 process occurrences" are ALL the single word `ExitCode` — `Process`,
+`ProcessStartInfo`, `StandardOutput` and `WaitForExit` occur ZERO times, and the 11 launches went
+through the already-N#-owned `DotnetRunner` — while the "real build needing the packaged SDK" was an
+IN-PROCESS `MultiFileCompiler.CompileToIlAssembly` call whose perf-report JSON **the test file
+assembled itself**, so all 25 of its `JsonDocument.Parse` calls read a test-local copy of the CLI's
+output rather than the CLI's output. Every block now spawns the real `nlc build --perf-report`,
+`nlc check --systems-report` and `nlc query trusted`, and every emitted assembly is EXECUTED AS A
+PROCESS — route (a) of the AOT question, so the `AssemblyLoadContext` the C# used to read
+`GetMethodBody()` is not carried. **THE HEADLINE IS A SHIPPED SAMPLE THAT CANNOT EXECUTE:
+`docs/design/systems-samples/proofs/27-c-library-cli` ABORTS WITH EXIT 134 AND
+`MarshalDirectiveException` AT `NativeHash.Hash64`** — `[LibraryImport]` over a `ReadOnlySpan<byte>`
+is not marshalable on this emit path — **and that failure IS the successor to the deleted
+no-managed-body claim, because only a genuine interop stub can provoke the marshaller.** THE SECOND
+FINDING IS A STRUCTURALLY VACUOUS CLAIM: **`nlc check --systems-report` CANNOT WRITE TO STDERR** —
+every `Console.Error` path in `CheckCommand.Execute` is gated on text mode — so the deleted
+`IsNullOrWhiteSpace(stderr)` assertion could not fail for its whole life; it is replaced by a runtime
+diagnostic census. **EVERY EXECUTABLE PROOF NOW RUNS**: the C# ran 11 of the corpus's 18 exe
+projects, and all 18 run here. ALL 43 BLOCKS MOVE UNDER THE PERTURBATION MATRIX, EACH FAILING
+EXACTLY ITSELF, AND THE 21 BUILD BLOCKS MOVE A SECOND TIME UNDER A PERF-CENSUS INSTRUMENT. **TWO OF
+THE THREE MUTATIONS ARE CAUGHT BY NOTHING ELSE IN THE REPOSITORY.** THE FILE SURVIVES AT 1,700 LINES
+/ 1,226 DECLARATION LINES — UNDER THE CAP — SO THE FINISHER TAKES IT WHOLE AND CLOSES TASK 020) Full
+record in the Cursor block below
+
+Last updated (prior): 2026-08-23 (**020 SLICE 39 — `tests/QueryIntegrationTests.cs` MIGRATES WHOLE. 65
 `[Fact]`s / 1,000 DECLARATION LINES / 209 IN-BODY `Assert.` / 219 DECODED CLAIM ROWS, IN ONE NEW
 NATIVE PROJECT `tests/native/query-integration`, THE 42nd. **THE HEADLINE IS THAT SLICE 38's SKETCH
 WAS WRONG ABOUT THE CAPABILITY: IT PREDICTED PROCESS LAUNCH, AND THE MECHANICAL DECODE SAYS ZERO OF
@@ -4061,7 +4090,368 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 39 MIGRATES `tests/QueryIntegrationTests.cs` WHOLE:
+- Active sub-slice (020 arc, THIS TURN — **SLICE 40 OPENS `tests/SystemsNSharpTests.cs`, THE LAST
+  CANONICAL C# ASSERTION LAYER, AND ITS FIRST TRANCHE IS THE ONE BODY THAT LAUNCHES PROCESSES:
+  `ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence`. 1 `[Fact]` / 544 DECLARATION
+  LINES / 212 IN-BODY `Assert.` / 266 DECODED CLAIM ROWS, INTO 43 BLOCKS IN ONE NEW NATIVE PROJECT
+  `tests/native/systems-proof-corpus`, THE 43rd. `SystemsProofBuildResult`,
+  `BuildSystemsProofProjects`, `BuildSystemsProofProject`, `BuildSystemsProofPerfReportJson`,
+  `AssertSystemsProofBuildDiagnostics`, `StripAnsi` AND `AssertNativeImportHasNoManagedBody` DIE
+  WITH THEIR LAST CONSUMER. **THE CAPABILITY IS A SYNCHRONOUS SPAWN KERNEL, AND THE ENDGAME
+  SKETCH'S OTHER TWO PREDICTIONS ARE BOTH OVERTURNED BY THE DECODE**: the "38 process occurrences"
+  are ALL the word `ExitCode` — `Process`, `ProcessStartInfo`, `StandardOutput` and `WaitForExit`
+  occur ZERO times — and the "real build with the packaged SDK" was an IN-PROCESS
+  `MultiFileCompiler` call whose perf-report JSON the TEST FILE assembled itself. **TWO PRODUCT
+  FINDINGS: `27-c-library-cli` IS A SHIPPED SAMPLE THAT CANNOT EXECUTE** — `[LibraryImport]` over a
+  `ReadOnlySpan<byte>` is not marshalable on this emit path, and the deleted C# never ran it —
+  **AND `nlc check --systems-report` CANNOT WRITE TO STDERR**, so the deleted
+  `IsNullOrWhiteSpace(stderr)` claim was structurally vacuous. **TWO OF THE THREE MUTATIONS ARE
+  CAUGHT BY NOTHING ELSE IN THE REPOSITORY.**)
+
+  ### THE DECODE, RE-VERIFIED MECHANICALLY AND RECORDED BEFORE ANY EDIT
+
+  The decode is the campaign's instrument REBUILT FROM SCRATCH a NINTH time — a scanner that
+  character-classifies the whole file into `code` / `lit` / `com` (raw `"""` fences, verbatim `@"`,
+  escaped and interpolated strings, char literals, line and block comments), walks every
+  `[Fact]`/`[Theory]` under the anchored `^[ \t]*\[` rule, extracts each body by brace balance over
+  CODE braces only, and classifies by what the body READS/NAMES under an undotted word-boundary
+  rule. Slice 32's two instrument fixes, slice 37's flattener fix and slice 39's helper-attribution
+  pass are carried forward BY CONSTRUCTION.
+
+  Run against the working file at `3c80e89e3` it reports **2,402 lines, 61 methods, 60 `[Fact]` + 1
+  `[Theory]`, 2 `InlineData`, 1,770 declaration lines, 375 IN-BODY `Assert.` and 412 WHOLE-FILE
+  `Assert.`** — which reproduces slice 39's endgame census IN EVERY COLUMN TO THE DIGIT.
+
+  **THE 37 HELPER-RESIDENT CLAIM ROWS ARE LOCATED, AND THEY LIVE IN NINE HELPERS.**
+  `AssertSystemsGolden` 18, `AssertDiagnosticsGolden` 4, `AssertNativeImportHasNoManagedBody` 4,
+  `AssertPerfGolden` 3, `AssertSystemsProofBuildDiagnostics` 2, `Parse` 2, `ExecuteProgram` 2,
+  `AssertPerfSites` 1, `AssertStringSites` 1 — 18+4+4+3+2+2+2+1+1 = **37**, and the two `Assert.`
+  numbers close exactly (375 + 37 = 412).
+
+  ### THE SHAPE — SIX FAMILIES BY WHAT THE BODIES READ, AND THE CUT FALLS OUT OF IT
+
+  | family | methods | decl lines | in-body `Assert.` |
+  |---|---|---|---|
+  | SYSTEMS-ANALYSIS (`Analyze*` → an in-memory `SystemsReport`) | 52 | 996 | 106 |
+  | PROOF-CORPUS (`BuildSystemsProofProjects` + `DotnetRunner` + `AssemblyLoadContext`) | 1 | 544 | 212 |
+  | CLI-IN-PROCESS (`CaptureConsole` + `CreateTempProject`) | 4 | 147 | 28 |
+  | PARSER-AST (`Parse` → `unit.Declarations`) | 2 | 36 | 10 |
+  | RUNTIME-ABI (`typeof(Result<,>)` reflection, reads nothing else) | 1 | 23 | 14 |
+  | GAUNTLET (`tests/fixtures/systems-gauntlet` goldens) | 1 | 24 | 5 |
+  | **total** | **61** | **1,770** | **375** |
+
+  All three columns sum exactly: 52+1+4+2+1+1 = 61, 996+544+147+36+23+24 = 1,770,
+  106+212+28+10+14+5 = 375.
+
+  **SLICE 39's PREDICTED AXIS DOES NOT EXIST.** The endgame sketch guessed the cut would fall
+  "systems-proof corpus vs the emitted-assembly-execution families". The decode says those are not
+  two families but ONE 544-line `[Fact]`: every proof build, every process run and the only
+  `AssemblyLoadContext` in the file live inside
+  `ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence`.
+
+  **AND THE CUT IS DECIDED BY TASK 020's OWN CONTRACT, NOT BY SIZE.** The 996-line
+  SYSTEMS-ANALYSIS family is the biggest tranche under the cap, but it needs NO new runner
+  capability — it is the plain reflection route this arc has used since slice 28 — and task 020
+  says "Implement one missing native-test capability and immediately consume it". The PROOF-CORPUS
+  body is the ONLY tranche in the file that needs one. **It is therefore the first tranche**, and
+  at 544 declaration lines it is far under the ~1,500 cap.
+
+  **THE REMAINDER IS A ONE-SLICE FINISHER.** 1,770 − 544 = **1,226 declaration lines** over 60
+  methods — under the cap — so slice 41 can take `tests/SystemsNSharpTests.cs` WHOLE and close
+  task 020. That is stated here as a commitment, not a hope: no other C# file in `tests/` is a
+  canonical assertion layer.
+
+  ### THE ROUTE PRICING — THE ENDGAME'S THREE PREDICTIONS, TWO OF THEM OVERTURNED
+
+  **(1) PROCESS LAUNCH IS REAL, BUT THE FILE NEVER SPELLS IT — AND THE "38 OCCURRENCES" ARE ALL ONE
+  WORD.** Measured in the CODE class: `ProcessStartInfo` **0**, `StandardOutput` **0**,
+  `WaitForExit` **0**, `Process` **0**, `ExitCode` **38** (36 dotted reads off a result record or a
+  tuple, 2 undotted — the record's own field declaration and `CaptureConsole`'s tuple element name).
+  The launching is DELEGATED, 11 times, to `DotnetRunner.Run` — and **`DotnetRunner` IS ALREADY
+  N#-OWNED**, at `src/NSharpLang.Compiler.BootstrapServices/DotnetRunner.nl`. The C# assertion layer
+  was already sitting on an N# process kernel.
+
+  **(2) THE PACKAGED SDK IS NOT NEEDED, BECAUSE THE C#'s "REAL BUILD" IS AN IN-PROCESS ONE.**
+  `BuildSystemsProofProject` never shells out: it calls `ProjectFileParser.Parse`,
+  `CompilationReferenceResolver`, `new MultiFileCompiler(...).CompileToIlAssembly(...)` and
+  `references.CopyRuntimeAssets(...)` IN PROCESS, then hands the result to
+  `BuildSystemsProofPerfReportJson` — **a TEST-LOCAL RE-IMPLEMENTATION of the CLI's perf report**.
+  So 25 of the tranche's 25 `JsonDocument.Parse` calls parse JSON the test file itself assembled,
+  not JSON the shipping CLI wrote. The migration routes the same 21 builds through
+  `nlc build --project … --perf-report` AS A PROCESS, which is both simpler in N# and STRICTLY
+  STRONGER: it pins the shipped envelope instead of a test-local copy of it.
+
+  **(3) THE AOT WALL IS ANSWERED BY ROUTE (a), AND IT COSTS NOTHING EXTRA.** Every emitted assembly
+  is executed as a PROCESS (`dotnet <proof>.dll` in its own output directory). No `Assembly.Load`,
+  no `AssemblyLoadContext`, no `LoadFromStream` — the debt
+  `project_aot_vs_reflection_kernel_loading` names is not bought.
+
+  ### THE SPAWN KERNEL, MEASURED
+
+  A six-block probe project was generated OUTSIDE the repository, run through `nlc test`, and
+  deleted. It reports **`Passed: 4, Failed: 1`, the one failure being the SPEAKING CONTROL**
+  (`assert 1 == 2`). The four that pass are the whole capability: a synchronous
+  `new ProcessStartInfo` / `new Process { StartInfo: … }` / `Start()` /
+  `StandardOutput.ReadToEnd()` / `StandardError.ReadToEnd()` / `WaitForExit()` / `ExitCode` /
+  `Dispose()` kernel; a spawned `nlc build --perf-report` whose stdout parses as the versioned
+  envelope; a `-- WARNING` census counted by `IndexOf` (the carried gotcha says `Regex`
+  construction and static `Regex.IsMatch` decline, so the C#'s `StripAnsi` + `Regex.Matches` route
+  is replaced by ordinal substring counting, which the ANSI wrapper does not disturb); and a proof
+  assembly EXECUTED as a process.
+
+  The precedent is not new: `tests/native/doc-query`'s `RunQueryDoc` already spells exactly this
+  synchronous shape in a `.tests.nl`. What is new is that the kernel is GENERAL (any file, any
+  argument string, any working directory) and that this project consumes it **36 times**.
+
+  ### THE ONE WALL, BISECTED
+
+  **PE METADATA IS UNREACHABLE FROM N#, AND THE DECLINE IS IN THE `nuget:` DEPENDENCY ITSELF.**
+  `System.Reflection.Metadata` resolves as a `nuget:` dependency (no `NL704`), but every direct
+  spelling of its types declines at columnar emit: `new PEReader(stream)` declines at
+  `emit.local.initializer`, `new PEReader(stream, PEStreamOptions.Default)` and
+  `(…, PEStreamOptions.PrefetchEntireImage)` decline identically, and **even reading the enum
+  constant `(int)PEStreamOptions.PrefetchEntireImage` declines at `emit.return.expression`** — so
+  the wall is not the constructor, it is that `nuget:`-sourced types are reflection-only on this
+  emit path. Route (a) is what answers the three `AssertNativeImportHasNoManagedBody` call sites
+  instead, and the answer is stronger than the metadata read was — see the headline below.
+
+  ### THE SHAPE OF THE MIGRATION — 1 MONOLITH BECOMES 43 INDEPENDENTLY REPORTED BLOCKS
+
+  The deleted body was ONE `[Fact]` carrying 266 claim rows, so the first failure hid the other 265.
+  The successor is 43 blocks: **21 build blocks** (one per proof project, each spawning
+  `nlc build --project … --perf-report`), **18 run blocks** (one per executable proof), **2 check
+  blocks** (`nlc check --project … --systems-report` on 24 and 42) and **2 trusted-query blocks**
+  (`nlc query trusted` on 25 and 45). Each block is HERMETIC: it builds what it is about to read.
+
+  **EVERY EXECUTABLE PROOF NOW RUNS, WHICH THE DELETED BODY NEVER ACHIEVED.** 18 of the 21 projects
+  are `outputType: exe` (42, 43 and 45 are libraries with no entry point) and the C# executed 11 of
+  them, so SEVEN shipped executable samples were built and never run. Two of the seven are the
+  native-import proofs; the other five — 31, 32, 36, 44, 48 — get run blocks here, and their stdout
+  is pinned (`metrics ok`, `217`, `200`, `6`, and empty). The runs are not vacuous: each proof `Main`
+  is self-checking and returns a DISTINCT nonzero code per failed step, so `exit 0` is a statement
+  about the whole program.
+
+  ### THE HEADLINE — A SHIPPED SYSTEMS SAMPLE THAT CANNOT EXECUTE, AND THE DELETED TEST COULD NOT SEE IT
+
+  **`docs/design/systems-samples/proofs/27-c-library-cli` ABORTS AT RUNTIME WITH EXIT 134.** Its
+  `[LibraryImport("fast_hash")] static func Hash64(data: ReadOnlySpan<byte>, len: int, out value: ulong)`
+  is not marshalable on this emit path, so the CLR raises
+  `System.Runtime.InteropServices.MarshalDirectiveException: Cannot marshal 'parameter #1':
+  Non-blittable generic types cannot be marshaled.` at `SystemsProofs.CLibraryCli.NativeHash.Hash64`
+  — BEFORE it ever looks for the native library. The sample compiles clean under `systems:strict`
+  with one warning, and the deleted C# only read its METADATA, so the defect was invisible for the
+  file's whole life.
+
+  **That failure is also the ANSWER to the deleted claim.** `AssertNativeImportHasNoManagedBody`
+  asserted that `Open`, `Close` and `Hash64` have no managed body, by loading each assembly into an
+  `AssemblyLoadContext` and reading `GetMethodBody()`. Route (a) states it better and loads nothing:
+  only a GENUINE interop stub can provoke the interop marshaller, and for `26-native-device-handle`
+  the whole native path is proven END TO END — `Main` opens `/dev/null` through the emitted libc
+  import and prints its `DeviceHandle`, exit 0.
+
+  ### THE SECOND FINDING — A STRUCTURALLY VACUOUS CLAIM, FOUND BY THE V-CONTROLS
+
+  **`nlc check --systems-report` CANNOT WRITE TO STDERR.** Every `Console.Error` path in
+  `CheckCommand.Execute` — the no-errors line, the diagnostics text, the elapsed line and
+  `EmitError` — is gated on `useText`, and `--systems-report` is a JSON output mode that never
+  enters it. Two probes agree: a project with a type error and a project that does not exist both
+  answer with an EMPTY stderr and a JSON envelope on stdout. So the deleted
+  `Assert.True(string.IsNullOrWhiteSpace(aotCheck.Stderr))` could not fail for its whole life. It is
+  replaced by a runtime claim about what the warnings ARE:
+  `CheckDiagnosticCensus == "NSYS050:warning@19:28|NSYS050:warning@19:47"` for 42 and `<empty>` for
+  24. **The successor keeps stderr claims only where the channel is proven live** — `query trusted`
+  writes 53 bytes on a missing project, the assembly runs write the marshaller stack trace, and the
+  build stderr carries the `-- WARNING` banners the census counts.
+
+  ### THE V-CONTROLS, EXECUTED
+
+  Every absence claim in the migrated file names something the SAME kernel demonstrably reports when
+  it is there. `PerfCensus` zeros: the same census reports nonzero counts on 11 of the 21 projects.
+  `DiagnosticCensus`'s `errors=0`: a probe project with `[hot] func Make()` allocating a `Box` makes
+  the real CLI print exactly one `-- ERROR` banner on stderr, so the counter is live in both
+  directions — **and the same probe proved that a plain TYPE error prints NO banner at all**
+  (the rich `error NL001:` form goes to stderr instead), which is why the census counts what it
+  counts. `run.Stdout == ""`: proofs 26, 30, 31, 32, 36 and 44 pin NONEMPTY stdout. `run.Stderr == ""`:
+  proof 27 pins a nonempty stderr with two required substrings. `ProofArtifacts`: the perturbation
+  matrix moves all 19 of its call sites, and mutation M3 turns 14 of them red.
+
+  ### THE PROOF SETS
+
+  **PROBES.** A six-block route-pricing probe was generated OUTSIDE the repository, run through
+  `nlc test`, and deleted. It reports **`Passed: 4, Failed: 1`, the one failure being the SPEAKING
+  CONTROL** (`assert 1 == 2`). Three further probe projects bisected the `nuget:`/PEReader wall and
+  the two stderr V-controls; all were deleted.
+
+  **THE COMPARATOR, WITH COMPLETENESS ARITHMETIC.** Every block carries an embedded
+  `(was SystemsNSharpTests.ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence)` tag:
+  **1 decoded method, 43 blocks, 0 UNDECODED, 0 MISSING.** The 266 C# claim rows classify
+  mechanically as **A build exit code 21, B diagnostics banner census 42, C build envelope `ok` 21,
+  D perf-report arrays and sites 117, E artifact existence 14, F emitted-assembly run 11, G/H
+  `check --systems-report` 17, I/J `query trusted` 11, K native-import metadata 12 — and
+  21+42+21+117+14+11+17+11+12 = 266 EXACTLY.** Row reconstruction:
+  **266 = 253 RESTATED + 12 ANSWERED BY EXECUTION (all of K) + 1 RETIRED AS STRUCTURALLY VACUOUS
+  (the `IsNullOrWhiteSpace(stderr)` row in G/H).** The migrated file carries **578 facts across 210
+  asserts in 43 blocks — 325 facts the deleted body did not have**, the bulk of them the eleven-array
+  perf census stated on all 21 projects (231 cells) where the C# checked between two and seven arrays
+  per project and never said what the rest held.
+
+  **THE ANCHOR AUDIT.** 56 anchors checked against disk and against the SHIPPING CLI, **0
+  mismatches**: 21 proof directory names (all distinct, all on disk), 14 emitted assembly names (all
+  distinct, all present), 21 `expectedWarnings` values (all 21 reproduce the CLI's own `-- WARNING`
+  census to the digit — 0,0,1,1,2,1,1,2,0,4,3,1,1,1,0,2,0,2,0,2,1) and the 10 expected-value strings
+  (`2027-06-01`, `CopyExact`, `LogColdFailure`, `Main`, `NSYS001`, `NewMap`,
+  `UnsafeAuditSurface.WrapHandle`, `interop`, `pass`, `runtime-core`).
+
+  **THE PERTURBATION MATRIX, RUN OUT OF REPO IN A SELECTIVE 5.2 MB COPY** (`NSharpLang.sln`, the
+  built CLI, the proofs and the new project), against a verified green baseline. **ALL 43 BLOCKS
+  MOVE, and every one fails EXACTLY ITSELF** — 21 build blocks and the 2 checks under the
+  numeric-in-row instrument (a count shifted by 7,919), 18 run blocks and the 2 queries under the
+  string-literal instrument. **A SECOND PASS perturbed the perf census specifically** — the LAST
+  count in each eleven-array row — and **all 21 build blocks move again**, with the 22 blocks that
+  carry no `PerfCensus` correctly reported as NO-INSTRUMENT rather than scored. **Zero non-movers,
+  zero non-verdicts across both passes.**
+
+  **THE MUTATION PANEL — THREE LANDED RUNS, EACH APPLIED IN AN 885 MB BYTE-COPY OUTSIDE THE
+  REPOSITORY WITH THE COMPILER REBUILT, AGAINST A VERIFIED GREEN 43 / 818 / 6,316.**
+
+  | mutation | owner | `systems-proof-corpus` | unit suite | compiler-service estate | siblings |
+  |---|---|---|---|---|---|
+  | **M1** perf-report `schemaVersion` 1 → 2 | `OutputFormatterJsonKernels.nl` | **21 RED** (every build block) | **1 RED** | 6,316 GREEN | green |
+  | **M2** perf-report trusted-site key `review` → `reviewedOn` | `OutputFormatterJsonKernels.nl` | **2 RED** (25, 45) | 818 GREEN | 6,316 GREEN | green |
+  | **M3** `CopyRuntimeAssets` skips `NSharpLang.Runtime.dll` | `CompilationReferenceResolverModels.nl` | **14 RED** (18 runs' artifact rows + 42) | 818 GREEN | 6,316 GREEN | green |
+
+  Siblings run every time: `completion-engine` 12, `query-integration` 65, `doc-query` 11 — green
+  under all three. **M2 AND M3 ARE CAUGHT BY NOTHING ELSE IN THE REPOSITORY**, which is the
+  attribution that justifies the migration rather than the deletion: no other test in the repository
+  reads the perf report's trusted-site fields, and none checks that a built project can actually run.
+  M2's and M3's own-counts were predicted exactly. **M1 WAS MISPREDICTED AND IS RECORDED RATHER THAN
+  RE-FITTED**: the estate was predicted RED and stayed GREEN, root-caused to
+  `OutputFormatterJsonKernels.tests.nl` covering the check/query envelopes but NOT
+  `BuildPerfReportToJson` at all — so the perf report's schema discipline is guarded only above the
+  kernel.
+
+  **THE FIXTURE CROSSCHECK.** All 21 proof projects carry a `project.yml`, all 21 declare
+  `profile: systems`, 20 declare `mode: strict` and one (`46-dapper-boundary`) `mode: audit`; 18 are
+  `outputType: exe` and 3 (`42`, `43`, `45`) are libraries — and the three libraries are exactly the
+  three with no run block. This project creates NO temporary fixtures; its only writes are the proof
+  projects' own `bin/Debug/net10.0` outputs, which is what the deleted body also wrote.
+
+  **THE PROCESS CENSUS.** The kernel drains both pipes, waits, and disposes. Measured around a full
+  run: **8 `dotnet` processes before, 8 after, and 0 processes matching `SystemsProof`** — no orphans.
+
+  ### THE COUNTS, EXACT
+
+  * **Unit suite 819 → 818 (−1)**, `Failed: 0` — the exact migrated case count, because the tranche
+    was one `[Fact]`.
+  * **Native project `tests/native/systems-proof-corpus`: 43 tests, `Failed: 0`, 16.6 s.**
+  * **Compiler-service estate 6,316 → 6,316**, `Failed: 0`, under the restore-flag discipline.
+  * **Native projects 42 → 43.**
+  * **C# test estate 26 files / 27,245 lines → 26 files / 26,543 lines** (−702 lines; the file
+    survives at 1,700 lines because this is a tranche, not a whole-file close).
+  * `tests/SystemsNSharpTests.cs`: **2,402 → 1,700 lines, 61 → 60 methods, 1,770 → 1,226 declaration
+    lines, 375 → 163 in-body `Assert.`, 412 → 194 whole-file `Assert.`** — and the helper delta falls
+    37 → 31, which is the 6 helper `Assert.` declarations that left with their consumers. Every
+    column subtracts exactly.
+  * `src/NSharpLang.Cli/Program.Testing.cs` stays **618** lines; no runner policy moved.
+  * The new `.tests.nl` is **880 lines** and declares **30 kernels** (29 functions + 1 class), none
+    unused.
+  * **Live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = 393 files,
+    246 diagnostics — the inherited baseline to the digit**, with the same ten-code census
+    (`NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26`), ZERO
+    rows in any `.tests.nl` and ZERO naming a file this slice added. The check runs against a CLI
+    built from this branch, not the installed `~/.nsharp/bin/nlc`.
+  * **The project-scoped format check reports "All files are properly formatted."** on the
+    BootstrapServices estate; the new project reports **"No .nl files found to format."**, because a
+    project whose only source is a `.tests.nl` presents nothing to the formatter.
+  * The new project declares **no dependencies at all** — the first native project to reach its
+    subject entirely through spawned processes.
+
+  ### THE RATCHET
+
+  The `tests/SystemsNSharpTests.cs` row SHRANK exact-match: `currentLines` 2402 → **1700**,
+  `currentNonBlankLines` 2093 → **1453**, `currentAssertionMarkers` 474 → **255**, and
+  `currentFingerprint` `text-v1:4ba4f668ec227914` → **`text-v1:50c66addea8ad9a7`**, with the epoch
+  ceilings (2403 / 2094 / 475) untouched. Nothing grew. The audit was run AFTER the dead sweep, per
+  slice 39's lesson — and it made no difference this time, because the sweep touched only
+  `memory/testing.md` and `memory/components/cli-toolchain.md`, neither of which the manifest tracks.
+  The audit then failed **17 / 18 with exactly ONE `OWN008` observing `head-v1:f2924bf4fd80bad2`**,
+  and a REPLICA of `ReviewedHeadFingerprint` — walked over the manifest in a separate implementation,
+  before the audit was asked — had computed that same value first. The two-key head was repinned
+  LAST, `dc87bbf4564a209b` → **`f2924bf4fd80bad2`**, in BOTH keys (the JSON header and the
+  `OwnershipPolicy.ReviewedHeadFingerprint` constant). **Audit 18 / 18. Manifest 391 lines, no BOM.**
+
+  ### THE GATE
+
+  **The full non-VS-Code product gate, fresh and isolated from a 1.1 GB `/tmp` byte-copy that
+  excludes the nested worktrees, with the log written OUTSIDE the copy, is `ALL TESTS PASSED! ✓` in
+  22 m 01 s with 123 GREEN STEPS and ZERO FAILURES**, its banner confirming that no cached result
+  was accepted (`Fresh isolated test run required: pre-commit verification` /
+  `Existing cache entries will not satisfy this invocation.`) and its closing line storing a fresh
+  validated result (`5840d0cb1bec47f5`, 1321 s). Step timings: compiler 4 m 42 s, unit 6 m 48 s,
+  native N# 5 m 36 s, SDK pack/install 4 m 26 s, IL verification 11 s. The native step names the new
+  project explicitly — `Testing native project: tests/native/systems-proof-corpus` →
+  `Passed: 43, Failed: 0` — and the unit step reports `Passed: 818, Failed: 0`.
+
+  **THE GATE COPY WAS VERIFIED BYTE-IDENTICAL TO THE SHIPPED TREE BEFORE IT RAN**, by `shasum` over
+  the five material files (`tests/SystemsNSharpTests.cs`, the new `.tests.nl`, both ratchet files and
+  `memory/testing.md`), and it was checked to contain no nested worktrees. **ONE POST-COPY EDIT WAS
+  MADE AND THEN REVERTED, AND IT IS RECORDED RATHER THAN HIDDEN**: a section-comment rewording in
+  the new `.tests.nl` landed while the gate was in Step 2, so it was reverted and the file re-verified
+  `shasum`-identical to the copy (`8c708716a7203cd948fbb1ce0d1198ca6da21b1e`) before the gate reached
+  the native step. The tree the gate blessed is therefore the tree on disk, to the byte. **The
+  consequence is one carried nit for the finisher**: the run-section header still reads
+  "THE 13 RUNS THE DELETED BODY MADE, PLUS THE TWO NATIVE-IMPORT PROOFS" where the honest arithmetic
+  is 13 = 11 + 2; it is a comment, it changes nothing the gate measured, and re-running a 22-minute
+  gate to reword it would buy no signal.
+
+  ### THE DEAD SWEEP
+
+  Two live documentation owners are corrected: `memory/testing.md` gains the
+  `tests/native/systems-proof-corpus` section (the capability, the route, the two product findings
+  and the two emit walls), and `memory/components/cli-toolchain.md` gains its testing-table row.
+  Nothing else in the repository named the deleted body, its record type or any of its six helpers.
+  The `UNIT` input set already covers `src/`, `tests/` and `docs/` wholesale, so the native step's key
+  already sees `docs/design/systems-samples/proofs`; no gate script changed.
+
+  **ONE PRE-EXISTING DEAD HELPER IS RECORDED RATHER THAN SWEPT.** `FormatCompilerError` in
+  `tests/SystemsNSharpTests.cs` has ONE occurrence in the file at `HEAD` — its own declaration — so
+  it was already dead before this slice and is not this tranche's to delete. The finisher removes it
+  with the file.
+
+  ### WHAT IS LEFT OF TASK 020, AND THE FINISHER
+
+  `tests/SystemsNSharpTests.cs` survives at **1,700 lines / 60 methods / 1,226 declaration lines**,
+  which is UNDER the ~1,500 cap, so **the finisher takes it WHOLE.** Its five remaining families,
+  measured: SYSTEMS-ANALYSIS 52 methods / 996 declaration lines / 106 in-body `Assert.`;
+  CLI-IN-PROCESS 4 / 147 / 28; PARSER-AST 2 / 36 / 10; RUNTIME-ABI 1 / 23 / 14; GAUNTLET 1 / 24 / 5
+  (plus 31 helper-resident rows across `AssertSystemsGolden` 18, `AssertDiagnosticsGolden` 4,
+  `AssertPerfGolden` 3, `Parse` 2, `ExecuteProgram` 2, `AssertPerfSites` 1, `AssertStringSites` 1).
+  **NONE of the five needs a new capability**: the whole remainder is the in-process reflection route
+  this arc has used since slice 28, plus the gauntlet's `tests/fixtures/systems-gauntlet` goldens,
+  and the four CLI bodies can either keep `CaptureConsole`'s in-process shape through reflection or
+  route through the spawn kernel this slice just built. Two carried notes for it: the same
+  `IsNullOrWhiteSpace(stderr)` vacuity applies to `CheckCommand_SystemsReport_EmitsVersionedJson` and
+  `QueryPerf_ReturnsSystemsFindingAtPosition`, and `FormatCompilerError` is already dead.
+
+  **SO THE CLOSING RULE IS ONE SLICE AWAY.** This slice's tranche plus that finisher would leave no
+  C# compiler/tooling file as a canonical assertion layer, which is exactly the condition task 020
+  names — but the finisher has not run, so **task 020 stays UNCHECKED and `tasks/README.md` is NOT
+  edited**.
+
+  ### THE TREE
+
+  **NOT COMMITTED — the mandate reserves that.** The working tree carries exactly SIX changed paths:
+  `tests/SystemsNSharpTests.cs` (−702 lines), the NEW `tests/native/systems-proof-corpus/`
+  (`project.yml` and `SystemsProofCorpus.tests.nl`), `tests/native/ownership-audit/OwnershipAudit.nl`,
+  `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json`, `memory/testing.md`,
+  `memory/components/cli-toolchain.md` and this ledger. `tests/Tests.csproj` needed no edit — it
+  globs its sources. Every probe, bisection, perturbation and mutation copy was built OUTSIDE the
+  repository and destroyed: the 885 MB mutation byte-copy, the 5.2 MB perturbation copy and four
+  probe projects are all removed, and no orphan `dotnet` process remains.
+
+  Task 020 stays UNCHECKED, and `tasks/README.md` is NOT edited.
+
+- Previous sub-slice (020 arc, COMMITTED at `3c80e89e3` — **SLICE 39 MIGRATES `tests/QueryIntegrationTests.cs` WHOLE:
   65 `[Fact]`s / 1,000 DECLARATION LINES / 209 IN-BODY `Assert.` / 219 DECODED CLAIM ROWS, INTO ONE
   NEW NATIVE PROJECT `tests/native/query-integration`, THE 42nd. THE FILE IS DELETED WHOLE AND
   `FindColumnInFile`, `FindLineInFile`, `FindExamplesDir`, `FindFixturesDir`, `LoadTemporaryProject`,

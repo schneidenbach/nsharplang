@@ -846,6 +846,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterTextBuilders.tests.nl` | Every Elm-style `--text` answer, stated as whole texts |
 | `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterDiagnosticKernels.tests.nl` | Severity arithmetic, reference deduplication, end-to-end diagnostics |
 | `tests/native/completion-engine` | `CompletionEngine` over real projects, reached by reflection |
+| `tests/native/systems-proof-corpus` | `nlc build --perf-report`, `nlc check --systems-report` and `nlc query trusted` over the 21 shipped proof projects under `docs/design/systems-samples/proofs`, each SPAWNED AS A REAL PROCESS, plus the emitted assemblies executed as processes |
 | `tests/CodeIntelligenceTests.cs` | One residual case: the culture-invariant severity fallback |
 | `src/NSharpLang.Compiler.BootstrapServices/CodeFix.tests.nl` | `CodeFixService`, its six providers and `CodeFixActionHelpers`; every edit proved by applying it |
 | `src/NSharpLang.Compiler.BootstrapServices/FixApplicatorCore.tests.nl` | Applied source as whole text; every rejection as its whole message, naming the blamed edit |
