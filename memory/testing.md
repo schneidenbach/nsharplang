@@ -469,6 +469,48 @@ declines at `emit.return.expression`. And `foreach` over a `JsonElement.ArrayEnu
 by NL202 — the explicit `MoveNext()` / `.Current` walk the estate already uses is the working
 spelling.
 
+**`tests/SystemsNSharpTests.cs` IS DELETED AS OF TASK 020 SLICE 41, AND THE SYSTEMS PROFILE HAS NO C#
+ASSERTION LAYER AT ALL.** The whole remainder — 60 methods, 1,226 declaration lines, 163 in-body
+`Assert.` and 205 decoded claim rows — became two native projects, split by what the bodies READ.
+`tests/native/systems-analysis-census` (the 44th) takes the 52 SYSTEMS-ANALYSIS methods and the 4
+CLI-IN-PROCESS ones as 58 blocks, and it answers them through a SPAWNED
+`nlc check --project … --systems-report` rather than through `MultiFileCompiler.CompileForAnalysis()`:
+every mutation the deleted `Analyze` helper made to a `ProjectConfig` has a project.yml spelling
+(`language.profile`, `language.systems.mode`, `.stackBudgetBytes`, `.warmup`, `.hotSummaryFiles`,
+`.allowHotSidecars`), so the fixture now goes through the YAML parser a user's project goes through,
+and the pin is the versioned envelope rather than an in-memory object. It declares NO dependencies
+and loads no assembly. `tests/native/systems-gauntlet-facts` (the 45th) takes the ten
+`tests/fixtures/systems-gauntlet` cases, the two lifetime-syntax methods and the `Result<T, E>` ABI
+method as 13 blocks, because those three families read what no `nlc` surface exposes — return
+lifetimes, `scoped` parameters, ref-struct-ness, type-reference text — and two of the ten gauntlet
+cases carry exactly those keys. All 109 run-expanded analysis claim rows and all 135 gauntlet claim
+rows were evaluated against the new routes BEFORE the migration was written, and all of them hold.
+
+**One product finding came out of it: twenty of the 54 analysis fixtures do not compile clean.** They
+carry 22 non-systems ERROR rows the deleted assertions could not see, because those assertions read
+only `report.Findings`. Two of the twenty undermine the claim their own method was making —
+`SystemsStrict_DisposeCallSatisfiesObviousResourceOwnership` proved that a `Dispose()` call satisfies
+NSYS090 while the analyzer reports `NL303: Member 'Dispose' not found on type 'FileStream'`, and
+`PoolRent_MustBeReturnedOnObviousLexicalPath` proved the pool rule over a receiver reported as
+`NL301: Variable 'ArrayPool' not found`. Every one of those rows is now pinned as a diagnostic census
+beside the systems report.
+
+**And the carried stderr-vacuity prediction was HALF right, measured.** `nlc check --systems-report`
+truly cannot write to standard error — a project that does not exist at all still answers with an
+empty stderr — so that deleted claim was structurally vacuous and is replaced by the diagnostic
+census. `nlc query perf` is NOT vacuous: it writes 138 bytes on a missing project and 70 on a
+malformed `--pos`, so its silence is kept as a claim.
+
+**Four emit walls were measured by bisection while writing these two projects, all minimised out of
+repo.** (1) The two-argument `string.IndexOf(value, startIndex)` DECLINES; the three-argument
+`(value, startIndex, StringComparison)` form compiles, which is the spelling
+`tests/native/systems-proof-corpus` already uses. (2) EVERY `System.Type` BOOLEAN property —
+`IsValueType`, `IsClass`, `IsGenericType`, `IsAbstract` — declines in every spelling tried (returned
+directly, bound to a local, or `.ToString()`-chained); `valueType.IsAssignableFrom(ownerType)` is the
+working route. (3) A `??`-coalesced RECEIVER (`(owner ?? "").GetType()`) declines, while the same call
+on a non-null `object` parameter compiles. (4) An `out` argument on the `Result<T, E>` `TryGet*` pair
+declines; `GetMethod(name, [typeof(int).MakeByRefType()])` plus `Invoke` reads the same fact.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.

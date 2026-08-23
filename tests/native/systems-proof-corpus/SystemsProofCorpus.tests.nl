@@ -606,7 +606,7 @@ test "020 s40 systems proof corpus: 48-effect-drift builds — the perf report i
 }
 
 
-// ─── THE 13 RUNS THE DELETED BODY MADE, PLUS THE TWO NATIVE-IMPORT PROOFS ──────────────────────────────────────────────────────────────────────────────
+// ─── THE 18 RUN BLOCKS: THE 11 THE DELETED BODY MADE, THE TWO NATIVE-IMPORT PROOFS, AND FIVE MORE ─────────────────────────────────────────────────────
 // Every emitted assembly is EXECUTED AS A PROCESS from its own output directory. Each proof
 // `Main` is self-checking — it returns a distinct nonzero code per failed step — so `exit 0` is
 // a claim about the whole program, not a claim that it started.

@@ -847,6 +847,8 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.BootstrapServices/OutputFormatterDiagnosticKernels.tests.nl` | Severity arithmetic, reference deduplication, end-to-end diagnostics |
 | `tests/native/completion-engine` | `CompletionEngine` over real projects, reached by reflection |
 | `tests/native/systems-proof-corpus` | `nlc build --perf-report`, `nlc check --systems-report` and `nlc query trusted` over the 21 shipped proof projects under `docs/design/systems-samples/proofs`, each SPAWNED AS A REAL PROCESS, plus the emitted assemblies executed as processes |
+| `tests/native/systems-analysis-census` | The systems policy corpus answered by a SPAWNED `nlc check --project … --systems-report`: 54 fixture projects written, checked and deleted per block, plus `build --perf-report`, `query perf` and `query trusted` on temporary projects. Whole envelopes, whole finding rows, whole function summaries and the diagnostic census |
+| `tests/native/systems-gauntlet-facts` | The ten `tests/fixtures/systems-gauntlet` cases against their four goldens each, plus the facts no CLI surface exposes: return lifetimes, scoped parameters, ref-struct-ness and the `Result<T, E>` runtime ABI |
 | `tests/CodeIntelligenceTests.cs` | One residual case: the culture-invariant severity fallback |
 | `src/NSharpLang.Compiler.BootstrapServices/CodeFix.tests.nl` | `CodeFixService`, its six providers and `CodeFixActionHelpers`; every edit proved by applying it |
 | `src/NSharpLang.Compiler.BootstrapServices/FixApplicatorCore.tests.nl` | Applied source as whole text; every rejection as its whole message, naming the blamed edit |
