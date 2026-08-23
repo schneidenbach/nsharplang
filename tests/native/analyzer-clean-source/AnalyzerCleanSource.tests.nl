@@ -584,6 +584,52 @@ func AcSuggestions(analysis: object, index: int): string {
 
     return joined
 }
+// ---- slice 32's kernels: the TYPE PAIR and the HUMAN EXPLANATION ----
+//
+// Tranche 4 is the first of the campaign to read `CompilerError.ActualType`, `ExpectedType` and
+// `HumanExplanation`. `AcTypes` states the pair the analyzer decided a mismatch was BETWEEN, and
+// `AcExplanation` states the long-form sentence the rich builder writes; both are pinned on every
+// row of every fixture on BOTH routes, so the gap between them is measured rather than assumed.
+// Nothing else is new: `AcRow` / `AcHint` / `AcSuggestions` / `AcSnippet` / `AcCensus` /
+// `AcCodeRow` / `AcCodeAnchor` / `AcCodeCount` / `AcCodeErrorCount` already cover every other
+// field these 282 claims touch.
+
+func AcTypes(analysis: object, index: int): string {
+    errors := AcRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return "<not-a-list>"
+    }
+
+    if index < 0 || index >= errors.Count {
+        return "<no-such-error>"
+    }
+
+    entry := errors[index]
+    if entry == null {
+        return "<null-error>"
+    }
+
+    return AcText(entry, "ActualType") + "|" + AcText(entry, "ExpectedType")
+}
+
+func AcExplanation(analysis: object, index: int): string {
+    errors := AcRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return "<not-a-list>"
+    }
+
+    if index < 0 || index >= errors.Count {
+        return "<no-such-error>"
+    }
+
+    entry := errors[index]
+    if entry == null {
+        return "<null-error>"
+    }
+
+    return AcText(entry, "HumanExplanation")
+}
+
 
 // ---- contracts ----
 
@@ -8769,4 +8815,4339 @@ test "020 s31 analyzer error codes: an aliased small-int stackalloc length is ac
     assert AcCodeCount(rich, "UndefinedVariable") == 0
     assert AcCodeErrorCount(rich, "UndefinedVariable") == 0
     assert AcCodeRow(rich, "UndefinedVariable") == "<no-such-code>"
+}
+
+
+// ============================================================================================
+// 020 SLICE 32 — TRANCHE 4: THE `AnalyzeWithSource` + `ErrorCode` SHAPE CLOSES AT ZERO, AND THE
+// WHOLE 79-METHOD `AssertHasError` FAMILY LEAVES WITH IT. THE HELPER DIES WITH ITS LAST CONSUMER.
+// ============================================================================================
+//
+// 112 deleted methods (111 `[Fact]` + 1 `[Theory]`), 1,515 declaration lines, 254 assert-statement
+// instances, 114 fixtures, 282 decoded claim rows. Every fixture was decoded by the C# compiler
+// itself and its sha256 and length reproduced by an independent Python decode with ZERO mismatches;
+// all 114 shas are distinct.
+//
+// THE HEADLINE IS THAT `AssertHasError` PINNED SENTENCES THE SHIPPING COMPILER DOES NOT WRITE.
+// The helper reached the ONE-ARGUMENT `Analyze(unit)` overload. Running all 114 fixtures through
+// BOTH entry points and re-deciding all 282 deleted claims against each: every claim holds on the
+// route its own method used — 158 plain, 124 production, `0 fail` — and **40 of the 282 are FALSE
+// on the other route**. 32 of those 40 are `AssertHasError` message substrings that production
+// never emits, spread over 32 of the 79 family members; the other 8 are production-only fields
+// (`SourceSnippet`, `HumanExplanation`, `ContextualHint`, `ActualType`/`ExpectedType`) that the
+// plain route leaves null. Slice 31 found 2 such rows. This tranche finds 40.
+//
+// AND THE PLAIN ROUTE IS NOT MERELY NARROW — IT POINTS SOMEWHERE ELSE. Over the 126 row pairs:
+//   * 31 LENGTH differences, and **all 31 have plain = 1** — the third tranche running in which
+//     not one is the other way round. The one-argument overload is handed no source text, so it
+//     cannot measure the token it is pointing at.
+//   * 20 COLUMN differences, and **all 20 have plain < rich**: the plain route anchors on the
+//     start of the declaration while production anchors on the offending VALUE. `x: string = 42`
+//     is 3:21+1 plain against 3:33+2 production.
+//   * ONE LINE difference — `VoidFunctionReturnValue_Error` is 3:17+1 plain and 2:18+9 production,
+//     a whole different line: the plain route blames the `return` statement, production blames the
+//     signature that has no return type.
+//   * 48 MESSAGE, 42 SUGGESTION, 54 `HumanExplanation`, 54 `ContextualHint` and 126 `SourceSnippet`
+//     differences; `ContextualHint` and `SourceSnippet` are production-only (0 non-null plain).
+//   * ONE plural-`Suggestions` difference: production offers `ToUpper` as a did-you-mean where the
+//     plain route offers nothing.
+//   * ZERO differences in code, severity and row count — the two routes always agree on WHAT and
+//     HOW MANY, and disagree about WHERE and WHAT IT SAYS.
+//
+// EIGHT OF THE NINE ABSENCE CLAIMS WERE VACUOUS. 9 of the 282 rows deny a code. Eight of them sit
+// on fixtures that report NOTHING AT ALL on either route, so they held for every code that exists;
+// the ninth — a `DoesNotContain` on a `ContextualHint` — is discriminating, because that fixture's
+// hint is non-null and says something else. The eight silent fixtures pin an EMPTY census, a zero
+// error count and the `<no-such-error>` sentinel instead, which is not vacuous.
+//
+// 252 PINNED POSITIONS WERE READ BACK OUT OF THE FIXTURE TEXT AND ZERO ARE OUT OF RANGE. What sits
+// at each plain-route anchor against the production one is the truncation itself, character for
+// character: `"` against `"bad"`, `f` against `func GetValue`, `?` against `?[0`, `s` against
+// `sizeof(int`, `import System.` against `System.Console`, `var` against `var` (the one `NL103`
+// the routes agree on).
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL103` at 3:16+3; the plain route underlines 1 column where production underlines 3 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ExplicitVarTypeAnnotation_IsRejected)" {
+    source := "\nfunc main(): int {\n    let value: var = 42\n    return value\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@3:16+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|'var' is not a type; use ':=' for type inference|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|'var' is not a type; use ':=' for type inference|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@3:16+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@3:16+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidSyntax|'var' is not a type; use ':=' for type inference|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    let value: var = 42"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
+    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|'var' is not a type; use ':=' for type inference|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@3:16+3"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:33+2; the plain route underlines 1 column where production underlines 2, and it points at 3:21 rather than 3:33, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.VariableDeclaration_TypeMismatch)" {
+    source := "\n            func Main() {\n                let x: string = 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'x' is typed as 'string', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'x' is typed as 'string', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:33+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let x: string = 42"
+    assert AcTypes(rich, 0) == "int|string"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 3:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:33+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL103` at 3:23+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ConstWithoutInitializer_Error)" {
+    source := "\n            func Main() {\n                const x: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@3:23+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|A 'const' must have an initial value — the compiler needs to know its value at compile time|Add an initializer, for example `const x: int = 42`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|A 'const' must have an initial value — the compiler needs to know its value at compile time|Add an initializer, for example `const x: int = 42`.|Error"
+    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@3:23+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@3:23+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidSyntax|A 'const' must have an initial value — the compiler needs to know its value at compile time|Add an initializer, for example `const x: int = 42`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                const x: int"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
+    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|A 'const' must have an initial value — the compiler needs to know its value at compile time|Add an initializer, for example `const x: int = 42`.|Error"
+    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@3:23+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL301` at 3:22+1; the two routes give two different SENTENCES, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.UndefinedVariable_Error)" {
+    source := "\n            func Main() {\n                x := y\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL301:UndefinedVariable@3:22+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find 'y' — it hasn't been declared in this scope|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeRow(analysis, "UndefinedVariable") == "UndefinedVariable|I can't find 'y' — it hasn't been declared in this scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedVariable") == "NL301@3:22+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL301:UndefinedVariable@3:22+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "UndefinedVariable|Variable 'y' not found|<null>|Error"
+    assert AcHint(rich, 0) == "Make sure you've declared this variable before using it."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := y"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find a `y` variable on line 3:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(rich, "UndefinedVariable") == 1
+    assert AcCodeRow(rich, "UndefinedVariable") == "UndefinedVariable|Variable 'y' not found|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedVariable") == "NL301@3:22+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:24+2; the plain route underlines 1 column where production underlines 2, and it points at 3:17 rather than 3:24, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ReturnTypeMismatch_Error)" {
+    source := "\n            func GetName(): string {\n                return 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'GetName' should return 'string', but this return statement gives back 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Function 'GetName' should return 'string', but this return statement gives back 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:17+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:24+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Function 'GetName' should return string but returns int|<null>|Error"
+    assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                return 42"
+    assert AcTypes(rich, 0) == "int|string"
+    assert AcExplanation(rich, 0) == "This return value does not match `GetName`'s return type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Function 'GetName' should return string but returns int|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:24+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 2:18+9; the plain route underlines 1 column where production underlines 9, and it points at 3:17 rather than 2:18, **on a DIFFERENT LINE**, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.VoidFunctionReturnValue_Error)" {
+    source := "\n            func DoNothing() {\n                return 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'DoNothing' has no return type annotation, so it is treated as 'void', but this code gives back 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Function 'DoNothing' has no return type annotation, so it is treated as 'void', but this code gives back 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:17+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@2:18+9;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Function 'DoNothing' returns int but has no return type|Add `: int` to `DoNothing` or remove the returned value|Error"
+    assert AcHint(rich, 0) == "This code gives back a value of type `int` from a function that currently returns nothing.\nAdd `: int` after the parameter list if `DoNothing` should return this value, or remove the value if the function should stay void."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func DoNothing() {"
+    assert AcTypes(rich, 0) == "int|void"
+    assert AcExplanation(rich, 0) == "Function `DoNothing` has no return type annotation, so N# treats it as `void`:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Function 'DoNothing' returns int but has no return type|Add `: int` to `DoNothing` or remove the returned value|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@2:18+9"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:24+2; the plain route underlines 1 column where production underlines 2, and it points at 3:17 rather than 3:24, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ExplicitVoidFunctionReturnValue_Error)" {
+    source := "\n            func DoNothing(): void {\n                return 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'DoNothing' is declared to return 'void', but this code gives back 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Function 'DoNothing' is declared to return 'void', but this code gives back 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:17+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:24+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Function 'DoNothing' returns a value but is declared void|Change `DoNothing`'s return type or remove the returned value|Error"
+    assert AcHint(rich, 0) == "A `void` function cannot return a value of type `int`. Change the return type if the value matters, or remove the value if the function only performs side effects."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                return 42"
+    assert AcTypes(rich, 0) == "int|void"
+    assert AcExplanation(rich, 0) == "Function `DoNothing` is declared to return `void`, but this code gives back a value:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Function 'DoNothing' returns a value but is declared void|Change `DoNothing`'s return type or remove the returned value|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:24+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 2:18+6; the plain route underlines 1 column where production underlines 6, and it points at 2:13 rather than 2:18, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ExpressionBodiedFunctionWithoutReturnType_ReturnValue_Error)" {
+    source := "\n            func Answer() => 42\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@2:13+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'Answer' has no return type annotation, so it is treated as 'void', but this code gives back 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Function 'Answer' has no return type annotation, so it is treated as 'void', but this code gives back 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@2:13+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@2:18+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Function 'Answer' returns int but has no return type|Add `: int` to `Answer` or remove the returned value|Error"
+    assert AcHint(rich, 0) == "This code gives back a value of type `int` from a function that currently returns nothing.\nAdd `: int` after the parameter list if `Answer` should return this value, or remove the value if the function should stay void."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func Answer() => 42"
+    assert AcTypes(rich, 0) == "int|void"
+    assert AcExplanation(rich, 0) == "Function `Answer` has no return type annotation, so N# treats it as `void`:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Function 'Answer' returns int but has no return type|Add `: int` to `Answer` or remove the returned value|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@2:18+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:20+2; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.IfConditionMustBeBoolean)" {
+    source := "\n            func Main() {\n                if 42 {\n\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:20+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:20+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:20+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                if 42 {"
+    assert AcTypes(rich, 0) == "int|bool"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 3:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:20+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:23+2 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.WhileConditionMustBeBoolean)" {
+    source := "\n            func Main() {\n                while 42 {\n\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:23+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The condition in a 'while' loop must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The condition in a 'while' loop must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:23+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:23+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|The condition in a 'while' loop must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                while 42 {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The condition in a 'while' loop must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:23+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:29+6; the plain route underlines 1 column where production underlines 6 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ForConditionMustBeBoolean)" {
+    source := "\n            func Main() {\n                for i := 0; \"test\"; i++ {\n\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:29+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The condition in a 'for' loop must be a boolean, but I found 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The condition in a 'for' loop must be a boolean, but I found 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:29+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:29+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|The condition in a 'for' loop must be a boolean, but I found 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                for i := 0; \"test\"; i++ {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The condition in a 'for' loop must be a boolean, but I found 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:29+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL103` at 3:17+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.BreakOutsideLoop_Error)" {
+    source := "\n            func Main() {\n                break\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@3:17+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here|Move this `break` inside a loop, or remove it if there is no loop to exit.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here|Move this `break` inside a loop, or remove it if there is no loop to exit.|Error"
+    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@3:17+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@3:17+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidSyntax|'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here|Move this `break` inside a loop, or remove it if there is no loop to exit.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                break"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
+    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here|Move this `break` inside a loop, or remove it if there is no loop to exit.|Error"
+    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@3:17+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL103` at 3:17+8 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ContinueOutsideLoop_Error)" {
+    source := "\n            func Main() {\n                continue\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL103:InvalidSyntax@3:17+8;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidSyntax|'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here|Move this `continue` inside a loop, or remove it if there is no loop to continue.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here|Move this `continue` inside a loop, or remove it if there is no loop to continue.|Error"
+    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@3:17+8"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL103:InvalidSyntax@3:17+8;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidSyntax|'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here|Move this `continue` inside a loop, or remove it if there is no loop to continue.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                continue"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
+    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here|Move this `continue` inside a loop, or remove it if there is no loop to continue.|Error"
+    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@3:17+8"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL306` at 4:17+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.DuplicateSymbol_Error)" {
+    source := "\n            func Main() {\n                x := 1\n                x := 2\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@4:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|'x' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|'x' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@4:17+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@4:17+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "DuplicateDeclaration|'x' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := 2"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|'x' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@4:17+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+1; and it points at 5:17 rather than 5:34, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.BinaryArithmetic_BytePlusByte_ProducesInt)" {
+    source := "\n            func getA(): byte { return 0 as byte }\n            func getB(): byte { return 0 as byte }\n            func Main() {\n                c: byte = getA() + getB()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'c' is typed as 'byte', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'c' is typed as 'byte', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:17+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:34+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'byte'. Use an explicit cast: (byte)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                c: byte = getA() + getB()"
+    assert AcTypes(rich, 0) == "int|byte"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 5:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:34+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+1; and it points at 5:17 rather than 5:35, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.BinaryArithmetic_ShortPlusShort_ProducesInt)" {
+    source := "\n            func getA(): short { return 0 as short }\n            func getB(): short { return 0 as short }\n            func Main() {\n                c: short = getA() + getB()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'c' is typed as 'short', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'c' is typed as 'short', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:17+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:35+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'short'. Use an explicit cast: (short)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                c: short = getA() + getB()"
+    assert AcTypes(rich, 0) == "int|short"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 5:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:35+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:29+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.BinaryArithmetic_DecimalPlusDouble_Error)" {
+    source := "\n            func getD(): decimal { return 0 as decimal }\n            func getF(): double { return 0.0 }\n            func Main() {\n                x := getD() + getF()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:29+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The '+' operator doesn't work with 'decimal' and 'double'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'decimal' and 'double'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:29+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:29+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|The '+' operator doesn't work with 'decimal' and 'double'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := getD() + getF()"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'decimal' and 'double'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:29+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:29+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.BinaryArithmetic_DecimalPlusFloat_Error)" {
+    source := "\n            func getD(): decimal { return 0 as decimal }\n            func getF(): float { return 0 as float }\n            func Main() {\n                x := getD() + getF()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:29+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The '+' operator doesn't work with 'decimal' and 'float'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'decimal' and 'float'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:29+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:29+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|The '+' operator doesn't work with 'decimal' and 'float'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := getD() + getF()"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'decimal' and 'float'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:29+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:29+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.BinaryArithmetic_UlongPlusInt_Error)" {
+    source := "\n            func getU(): ulong { return 0 as ulong }\n            func getI(): int { return 0 }\n            func Main() {\n                x := getU() + getI()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:29+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:29+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:29+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := getU() + getI()"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:29+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:30+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.BinaryArithmetic_InvalidOperands)" {
+    source := "\n            func Main() {\n                x := \"hello\" - \"world\"\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:30+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The '-' operator doesn't work with 'string' and 'string' — both sides need numeric values, but I found 'string' and 'string'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '-' operator doesn't work with 'string' and 'string' — both sides need numeric values, but I found 'string' and 'string'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:30+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:30+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|The '-' operator doesn't work with 'string' and 'string' — both sides need numeric values, but I found 'string' and 'string'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := \"hello\" - \"world\""
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '-' operator doesn't work with 'string' and 'string' — both sides need numeric values, but I found 'string' and 'string'|Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:30+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:24+2 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.LogicalOperators_RequireBoolean)" {
+    source := "\n            func Main() {\n                x := 1 && 2\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:24+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Both sides of '&&' must be booleans, but I found 'int' and 'int'|Use boolean expressions on both sides of the operator.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Both sides of '&&' must be booleans, but I found 'int' and 'int'|Use boolean expressions on both sides of the operator.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:24+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:24+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Both sides of '&&' must be booleans, but I found 'int' and 'int'|Use boolean expressions on both sides of the operator.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := 1 && 2"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Both sides of '&&' must be booleans, but I found 'int' and 'int'|Use boolean expressions on both sides of the operator.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:24+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:22+2 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.TernaryConditionMustBeBoolean)" {
+    source := "\n            func Main() {\n                x := 42 ? 1 : 2\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:22+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|The condition in a ternary expression must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The condition in a ternary expression must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:22+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:22+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|The condition in a ternary expression must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := 42 ? 1 : 2"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The condition in a ternary expression must be a boolean, but I found 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:22+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL306` at 4:17+7; the two routes give two different SENTENCES, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.EnumDeclaration_DuplicateMembers)" {
+    source := "\n            enum Status {\n                Pending,\n                Pending\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@4:17+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|Enum member 'Pending' is already defined — each member in an enum must have a unique name|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|Enum member 'Pending' is already defined — each member in an enum must have a unique name|<null>|Error"
+    assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@4:17+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@4:17+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "DuplicateDeclaration|Duplicate enum member 'Pending'|<null>|Error"
+    assert AcHint(rich, 0) == "The name `Pending` is already defined. Each enum member must have a unique name\nwithin its scope. Rename one of the declarations to fix this."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                Pending"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I found a duplicate enum member named `Pending` on line 4:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|Duplicate enum member 'Pending'|<null>|Error"
+    assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@4:17+7"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL306` at 4:17+7; the two routes give two different SENTENCES, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.UnionDeclaration_DuplicateCases)" {
+    source := "\n            union Result {\n                Success { value: int }\n                Success { error: string }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@4:17+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|Union case 'Success' is already defined — each case in a union must have a unique name|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|Union case 'Success' is already defined — each case in a union must have a unique name|<null>|Error"
+    assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@4:17+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@4:17+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "DuplicateDeclaration|Duplicate union case 'Success'|<null>|Error"
+    assert AcHint(rich, 0) == "The name `Success` is already defined. Each union case must have a unique name\nwithin its scope. Rename one of the declarations to fix this."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                Success { error: string }"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I found a duplicate union case named `Success` on line 4:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|Duplicate union case 'Success'|<null>|Error"
+    assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@4:17+7"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` at 8:26+14 and 8:50+2; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.GenericUnionConstruction_MissingTypeArguments_Error)" {
+    source := "\n            union Result<T> {\n                Success { value: T }\n                Failure { error: string }\n            }\n\n            func main(): int {\n                r := new Result.Success { value: 42 }\n                return 0\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@8:26+14;NL202:TypeMismatch@8:50+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic union 'Result' requires 1 type argument(s)|Specify them after the case name: 'new Result.Success<...> { ... }'|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic union 'Result' requires 1 type argument(s)|Specify them after the case name: 'new Result.Success<...> { ... }'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@8:26+14"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@8:50+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@8:26+14;NL202:TypeMismatch@8:50+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "InvalidTypeArgument|Generic union 'Result' requires 1 type argument(s)|Specify them after the case name: 'new Result.Success<...> { ... }'|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                r := new Result.Success { value: 42 }"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 1) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                r := new Result.Success { value: 42 }"
+    assert AcTypes(rich, 1) == "int|T"
+    assert AcExplanation(rich, 1) == "I am having trouble with this code on line 8:"
+    assert AcRow(rich, 2) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidTypeArgument") == 1
+    assert AcCodeErrorCount(rich, "InvalidTypeArgument") == 1
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic union 'Result' requires 1 type argument(s)|Specify them after the case name: 'new Result.Success<...> { ... }'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@8:26+14"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:50+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` at 8:26+14 and 8:63+2; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.GenericUnionConstruction_WrongArity_Error)" {
+    source := "\n            union Result<T> {\n                Success { value: T }\n                Failure { error: string }\n            }\n\n            func main(): int {\n                r := new Result.Success<int, string> { value: 42 }\n                return 0\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@8:26+14;NL202:TypeMismatch@8:63+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@8:26+14"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@8:63+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@8:26+14;NL202:TypeMismatch@8:63+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                r := new Result.Success<int, string> { value: 42 }"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 1) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                r := new Result.Success<int, string> { value: 42 }"
+    assert AcTypes(rich, 1) == "int|T"
+    assert AcExplanation(rich, 1) == "I am having trouble with this code on line 8:"
+    assert AcRow(rich, 2) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidTypeArgument") == 1
+    assert AcCodeErrorCount(rich, "InvalidTypeArgument") == 1
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@8:26+14"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:63+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL207` at 7:28+6 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.GenericUnionAnnotation_WrongArity_Error)" {
+    source := "\n            union Result<T> {\n                Success { value: T }\n                Failure { error: string }\n            }\n\n            func handle(r: Result<int, string>): int {\n                return 0\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@7:28+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@7:28+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@7:28+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func handle(r: Result<int, string>): int {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidTypeArgument") == 1
+    assert AcCodeErrorCount(rich, "InvalidTypeArgument") == 1
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@7:28+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 8:24+5; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.GenericUnionMatch_NonExhaustive_Error)" {
+    source := "\n            union Result<T> {\n                Success { value: T }\n                Failure { error: string }\n            }\n\n            func handle(r: Result<int>): int {\n                return match r {\n                    Result.Success { value } => value\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@8:24+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure|Add missing cases: Failure, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure|Add missing cases: Failure, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@8:24+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@8:24+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcHint(rich, 0) == "You need to handle these cases:\n\n    Failure\n\nPattern matching in N# must be exhaustive, meaning every possible value\nmust be handled. You can either add the missing cases, or use a wildcard '_'\npattern to catch everything else:\n\n    _ => handleOtherCases()\n\nWhy? This helps prevent runtime errors. The compiler checks that you've thought\nabout all possibilities!"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                return match r {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "This `match` expression does not cover all possibilities on line 8:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@8:24+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL301` `NL503` at 9:21+12 and 9:47+5; the plain route underlines 1 column where production underlines 5, the two routes give two different SENTENCES, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.GenericUnionMatch_UnknownCase_Error)" {
+    source := "\n            union Result<T> {\n                Success { value: T }\n                Failure { error: string }\n            }\n\n            func handle(r: Result<int>): int {\n                return match r {\n                    Result.Bogus { value } => value,\n                    _ => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL503:InvalidPattern@9:21+12;NL301:UndefinedVariable@9:47+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "InvalidPattern|'Result.Bogus' is not a case of union 'Result' — check the union definition for available cases|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "UndefinedVariable|I can't find 'value' — it hasn't been declared in this scope|<null>|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidPattern") == 1
+    assert AcCodeErrorCount(analysis, "InvalidPattern") == 1
+    assert AcCodeRow(analysis, "InvalidPattern") == "InvalidPattern|'Result.Bogus' is not a case of union 'Result' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidPattern") == "NL503@9:21+12"
+    assert AcCodeCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeRow(analysis, "UndefinedVariable") == "UndefinedVariable|I can't find 'value' — it hasn't been declared in this scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedVariable") == "NL301@9:47+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL503:InvalidPattern@9:21+12;NL301:UndefinedVariable@9:47+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "InvalidPattern|'Result.Bogus' is not a case of union 'Result' — check the union definition for available cases|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    Result.Bogus { value } => value,"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "UndefinedVariable|Variable 'value' not found|<null>|Error"
+    assert AcHint(rich, 1) == "Make sure you've declared this variable before using it."
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                    Result.Bogus { value } => value,"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "I cannot find a `value` variable on line 9:"
+    assert AcRow(rich, 2) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidPattern") == 1
+    assert AcCodeErrorCount(rich, "InvalidPattern") == 1
+    assert AcCodeRow(rich, "InvalidPattern") == "InvalidPattern|'Result.Bogus' is not a case of union 'Result' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidPattern") == "NL503@9:21+12"
+    assert AcCodeCount(rich, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(rich, "UndefinedVariable") == 1
+    assert AcCodeRow(rich, "UndefinedVariable") == "UndefinedVariable|Variable 'value' not found|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedVariable") == "NL301@9:47+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL304` at 5:17+11 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ConstructorMissingFieldAssignment_Error)" {
+    source := "\n            class Person {\n                Name: string\n\n                constructor() {\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL304:DefiniteAssignmentError@5:17+11;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DefiniteAssignmentError|Field 'Name' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration|Initialize property in constructor or provide default value|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeErrorCount(analysis, "DefiniteAssignmentError") == 1
+    assert AcCodeRow(analysis, "DefiniteAssignmentError") == "DefiniteAssignmentError|Field 'Name' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration|Initialize property in constructor or provide default value|Error"
+    assert AcCodeAnchor(analysis, "DefiniteAssignmentError") == "NL304@5:17+11"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL304:DefiniteAssignmentError@5:17+11;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "DefiniteAssignmentError|Field 'Name' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration|Initialize property in constructor or provide default value|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                constructor() {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "DefiniteAssignmentError") == 1
+    assert AcCodeErrorCount(rich, "DefiniteAssignmentError") == 1
+    assert AcCodeRow(rich, "DefiniteAssignmentError") == "DefiniteAssignmentError|Field 'Name' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration|Initialize property in constructor or provide default value|Error"
+    assert AcCodeAnchor(rich, "DefiniteAssignmentError") == "NL304@5:17+11"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL309` at 10:21+2 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ReadonlyField_SetOutsideConstructor_Error)" {
+    source := "\n            class MyClass {\n                readonly id: string\n\n                constructor() {\n                    id = \"123\"\n                }\n\n                func ChangeId() {\n                    id = \"456\"\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@10:21+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'id' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'id' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@10:21+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@10:21+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'id' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    id = \"456\""
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(rich, "ReadonlyAssignment") == 1
+    assert AcCodeRow(rich, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'id' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@10:21+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 19:24+6; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.DuckInterface_ClassMissingMethod_Error)" {
+    source := "\n            duck interface IReader {\n                func Read(): string\n                func Close()\n            }\n\n            class FileReader {\n                func Read(): string {\n                    return \"data\"\n                }\n                // Missing Close() method\n            }\n\n            func DoWork(r: IReader) {\n            }\n\n            func Main() {\n                reader := new FileReader()\n                DoWork(reader)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@19:24+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'DoWork' is 'FileReader', but parameter 'r' expects 'IReader'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Argument 1 to 'DoWork' is 'FileReader', but parameter 'r' expects 'IReader'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@19:24+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@19:24+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `FileReader` as argument for parameter `r` of type `IReader`|<null>|Error"
+    assert AcHint(rich, 0) == "The parameter `r` expects a `IReader` value, but you passed a\n`FileReader`. These types are not compatible."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                DoWork(reader)"
+    assert AcTypes(rich, 0) == "FileReader|IReader"
+    assert AcExplanation(rich, 0) == "Argument 1 in the call to `DoWork` has the wrong type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Cannot pass `FileReader` as argument for parameter `r` of type `IReader`|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@19:24+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 17:24+6; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.DuckInterface_MethodWrongReturnType_Error)" {
+    source := "\n            duck interface IReader {\n                func Read(): string\n            }\n\n            class FileReader {\n                func Read(): int {  // Wrong return type\n                    return 42\n                }\n            }\n\n            func DoWork(r: IReader) {\n            }\n\n            func Main() {\n                reader := new FileReader()\n                DoWork(reader)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@17:24+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'DoWork' is 'FileReader', but parameter 'r' expects 'IReader'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Argument 1 to 'DoWork' is 'FileReader', but parameter 'r' expects 'IReader'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@17:24+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@17:24+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `FileReader` as argument for parameter `r` of type `IReader`|<null>|Error"
+    assert AcHint(rich, 0) == "The parameter `r` expects a `IReader` value, but you passed a\n`FileReader`. These types are not compatible."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                DoWork(reader)"
+    assert AcTypes(rich, 0) == "FileReader|IReader"
+    assert AcExplanation(rich, 0) == "Argument 1 in the call to `DoWork` has the wrong type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Cannot pass `FileReader` as argument for parameter `r` of type `IReader`|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@17:24+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 16:24+6; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.DuckInterface_MethodWrongParameterCount_Error)" {
+    source := "\n            duck interface IWriter {\n                func Write(data: string)\n            }\n\n            class FileWriter {\n                func Write(data: string, append: bool) {  // Wrong parameter count\n                }\n            }\n\n            func DoWork(w: IWriter) {\n            }\n\n            func Main() {\n                writer := new FileWriter()\n                DoWork(writer)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@16:24+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'DoWork' is 'FileWriter', but parameter 'w' expects 'IWriter'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Argument 1 to 'DoWork' is 'FileWriter', but parameter 'w' expects 'IWriter'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@16:24+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@16:24+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `FileWriter` as argument for parameter `w` of type `IWriter`|<null>|Error"
+    assert AcHint(rich, 0) == "The parameter `w` expects a `IWriter` value, but you passed a\n`FileWriter`. These types are not compatible."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                DoWork(writer)"
+    assert AcTypes(rich, 0) == "FileWriter|IWriter"
+    assert AcExplanation(rich, 0) == "Argument 1 in the call to `DoWork` has the wrong type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Cannot pass `FileWriter` as argument for parameter `w` of type `IWriter`|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@16:24+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 17:24+9; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.DuckInterface_MethodWrongParameterType_Error)" {
+    source := "\n            duck interface IProcessor {\n                func Process(value: int): string\n            }\n\n            class DataProcessor {\n                func Process(value: string): string {  // Wrong parameter type\n                    return value\n                }\n            }\n\n            func DoWork(p: IProcessor) {\n            }\n\n            func Main() {\n                processor := new DataProcessor()\n                DoWork(processor)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@17:24+9;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'DoWork' is 'DataProcessor', but parameter 'p' expects 'IProcessor'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Argument 1 to 'DoWork' is 'DataProcessor', but parameter 'p' expects 'IProcessor'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@17:24+9"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@17:24+9;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `DataProcessor` as argument for parameter `p` of type `IProcessor`|<null>|Error"
+    assert AcHint(rich, 0) == "The parameter `p` expects a `IProcessor` value, but you passed a\n`DataProcessor`. These types are not compatible."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                DoWork(processor)"
+    assert AcTypes(rich, 0) == "DataProcessor|IProcessor"
+    assert AcExplanation(rich, 0) == "Argument 1 in the call to `DoWork` has the wrong type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Cannot pass `DataProcessor` as argument for parameter `p` of type `IProcessor`|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@17:24+9"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 9:22+5; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_NonExhaustive_MissingCase)" {
+    source := "\n            union Result {\n                Success { value: int }\n                Failure { error: string }\n            }\n\n            func Main() {\n                r := new Result.Success { value: 42 }\n                x := match r {\n                    Result.Success { value } => value\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@9:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure|Add missing cases: Failure, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure|Add missing cases: Failure, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@9:22+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@9:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcHint(rich, 0) == "You need to handle these cases:\n\n    Failure\n\nPattern matching in N# must be exhaustive, meaning every possible value\nmust be handled. You can either add the missing cases, or use a wildcard '_'\npattern to catch everything else:\n\n    _ => handleOtherCases()\n\nWhy? This helps prevent runtime errors. The compiler checks that you've thought\nabout all possibilities!"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := match r {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "This `match` expression does not cover all possibilities on line 9:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@9:22+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 9:22+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_ConstrainedUnionCaseProperty_DoesNotCoverWholeCase)" {
+    source := "\n            union Result {\n                Success { value: int }\n                Failure { error: string }\n            }\n\n            func Main() {\n                r := new Result.Success { value: 42 }\n                x := match r {\n                    Result.Success { value: 0 } => 0,\n                    Result.Failure { error } => 1\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@9:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Success. add an unconstrained 'Result.Success' arm or a wildcard '_' arm.|Add missing cases: Success, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Success. add an unconstrained 'Result.Success' arm or a wildcard '_' arm.|Add missing cases: Success, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@9:22+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@9:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Success. add an unconstrained 'Result.Success' arm or a wildcard '_' arm.|Add missing cases: Success, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := match r {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Success. add an unconstrained 'Result.Success' arm or a wildcard '_' arm.|Add missing cases: Success, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@9:22+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 10:22+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_ConstrainedUnionCaseProperty_ReportsMissingAndPartialCases)" {
+    source := "\n            union Result {\n                Success { value: int }\n                Failure { error: string }\n                Pending\n            }\n\n            func Main() {\n                r := new Result.Success { value: 42 }\n                x := match r {\n                    Result.Success { value: 0 } => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@10:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure, Pending; partially covered: Success. add an unconstrained 'Result.Success' arm or a wildcard '_' arm.|Add missing cases: Success, Failure, Pending, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure, Pending; partially covered: Success. add an unconstrained 'Result.Success' arm or a wildcard '_' arm.|Add missing cases: Success, Failure, Pending, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@10:22+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@10:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure, Pending; partially covered: Success. add an unconstrained 'Result.Success' arm or a wildcard '_' arm.|Add missing cases: Success, Failure, Pending, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := match r {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure, Pending; partially covered: Success. add an unconstrained 'Result.Success' arm or a wildcard '_' arm.|Add missing cases: Success, Failure, Pending, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@10:22+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 14:22+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_NestedConstrainedUnionProperty_DoesNotCoverOuterCase)" {
+    source := "\n            union Option {\n                Some { value: int }\n                None\n            }\n\n            union Response {\n                Ok { data: Option }\n                Error { message: string }\n            }\n\n            func Main() {\n                r := new Response.Ok { data: new Option.Some { value: 1 } }\n                x := match r {\n                    Response.Ok { data: Option.Some { value: 0 } } => 0,\n                    Response.Error { message } => 1\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@14:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Ok (missing nested arm: Response.Ok { data: Option.None }). add 'Response.Ok { data: Option.None }', an unconstrained 'Response.Ok' arm, or a wildcard '_' arm.|Add missing cases: Ok, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Ok (missing nested arm: Response.Ok { data: Option.None }). add 'Response.Ok { data: Option.None }', an unconstrained 'Response.Ok' arm, or a wildcard '_' arm.|Add missing cases: Ok, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@14:22+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@14:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Ok (missing nested arm: Response.Ok { data: Option.None }). add 'Response.Ok { data: Option.None }', an unconstrained 'Response.Ok' arm, or a wildcard '_' arm.|Add missing cases: Ok, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := match r {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Ok (missing nested arm: Response.Ok { data: Option.None }). add 'Response.Ok { data: Option.None }', an unconstrained 'Response.Ok' arm, or a wildcard '_' arm.|Add missing cases: Ok, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@14:22+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 3 rows, `NL301` `NL501` `NL503` at 20:41+10 and 20:67+5 and 19:22+5; the plain route underlines 1 column where production underlines 5, the two routes give two different SENTENCES, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_NestedUnionPropertyPattern_WrongQualifierDoesNotCoverCase)" {
+    source := "\n            union Option {\n                Some { value: int }\n                None\n            }\n\n            union Other {\n                Some { value: int }\n                None\n            }\n\n            union Response {\n                Ok { data: Option }\n                Error { message: string }\n            }\n\n            func Main() {\n                r := new Response.Ok { data: new Option.Some { value: 1 } }\n                x := match r {\n                    Response.Ok { data: Other.Some { value } } => value,\n                    Response.Ok { data: Option.None } => 0,\n                    Response.Error { message } => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL503:InvalidPattern@20:41+10;NL301:UndefinedVariable@20:67+1;NL501:NonExhaustiveMatch@19:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 3
+    assert AcRow(analysis, 0) == "InvalidPattern|'Other.Some' is not a case of union 'Option' — check the union definition for available cases|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "UndefinedVariable|I can't find 'value' — it hasn't been declared in this scope|<null>|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Ok (missing nested arm: Response.Ok { data: Option.Some }). add 'Response.Ok { data: Option.Some }', an unconstrained 'Response.Ok' arm, or a wildcard '_' arm.|Add missing cases: Ok, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 2) == "<null>"
+    assert AcSuggestions(analysis, 2) == "<null>"
+    assert AcSnippet(analysis, 2) == "<null>"
+    assert AcTypes(analysis, 2) == "<null>|<null>"
+    assert AcExplanation(analysis, 2) == "<null>"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidPattern") == 1
+    assert AcCodeErrorCount(analysis, "InvalidPattern") == 1
+    assert AcCodeRow(analysis, "InvalidPattern") == "InvalidPattern|'Other.Some' is not a case of union 'Option' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidPattern") == "NL503@20:41+10"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Ok (missing nested arm: Response.Ok { data: Option.Some }). add 'Response.Ok { data: Option.Some }', an unconstrained 'Response.Ok' arm, or a wildcard '_' arm.|Add missing cases: Ok, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@19:22+5"
+    assert AcCodeCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeRow(analysis, "UndefinedVariable") == "UndefinedVariable|I can't find 'value' — it hasn't been declared in this scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedVariable") == "NL301@20:67+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL503:InvalidPattern@20:41+10;NL301:UndefinedVariable@20:67+5;NL501:NonExhaustiveMatch@19:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 3
+    assert AcRow(rich, 0) == "InvalidPattern|'Other.Some' is not a case of union 'Option' — check the union definition for available cases|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    Response.Ok { data: Other.Some { value } } => value,"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "UndefinedVariable|Variable 'value' not found|<null>|Error"
+    assert AcHint(rich, 1) == "Make sure you've declared this variable before using it."
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                    Response.Ok { data: Other.Some { value } } => value,"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "I cannot find a `value` variable on line 20:"
+    assert AcRow(rich, 2) == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Ok (missing nested arm: Response.Ok { data: Option.Some }). add 'Response.Ok { data: Option.Some }', an unconstrained 'Response.Ok' arm, or a wildcard '_' arm.|Add missing cases: Ok, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(rich, 2) == "<null>"
+    assert AcSuggestions(rich, 2) == "<null>"
+    assert AcSnippet(rich, 2) == "                x := match r {"
+    assert AcTypes(rich, 2) == "<null>|<null>"
+    assert AcExplanation(rich, 2) == "<null>"
+    assert AcRow(rich, 3) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidPattern") == 1
+    assert AcCodeErrorCount(rich, "InvalidPattern") == 1
+    assert AcCodeRow(rich, "InvalidPattern") == "InvalidPattern|'Other.Some' is not a case of union 'Option' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidPattern") == "NL503@20:41+10"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — partially covered: Ok (missing nested arm: Response.Ok { data: Option.Some }). add 'Response.Ok { data: Option.Some }', an unconstrained 'Response.Ok' arm, or a wildcard '_' arm.|Add missing cases: Ok, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@19:22+5"
+    assert AcCodeCount(rich, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(rich, "UndefinedVariable") == 1
+    assert AcCodeRow(rich, "UndefinedVariable") == "UndefinedVariable|Variable 'value' not found|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedVariable") == "NL301@20:67+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 3 rows, `NL301` `NL501` `NL503` at 15:21+10 and 15:45+5 and 14:22+5; the plain route underlines 1 column where production underlines 5, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_TopLevelUnionCasePattern_WrongQualifierDoesNotCoverCase)" {
+    source := "\n            union Expected {\n                Case { value: int }\n                Empty\n            }\n\n            union Other {\n                Case { value: int }\n                Empty\n            }\n\n            func Main() {\n                r := new Expected.Case { value: 1 }\n                x := match r {\n                    Other.Case { value } => value,\n                    Expected.Empty => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL503:InvalidPattern@15:21+10;NL301:UndefinedVariable@15:45+1;NL501:NonExhaustiveMatch@14:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 3
+    assert AcRow(analysis, 0) == "InvalidPattern|'Other.Case' is not a case of union 'Expected' — check the union definition for available cases|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "UndefinedVariable|I can't find 'value' — it hasn't been declared in this scope|<null>|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Case|Add missing cases: Case, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 2) == "<null>"
+    assert AcSuggestions(analysis, 2) == "<null>"
+    assert AcSnippet(analysis, 2) == "<null>"
+    assert AcTypes(analysis, 2) == "<null>|<null>"
+    assert AcExplanation(analysis, 2) == "<null>"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidPattern") == 1
+    assert AcCodeErrorCount(analysis, "InvalidPattern") == 1
+    assert AcCodeRow(analysis, "InvalidPattern") == "InvalidPattern|'Other.Case' is not a case of union 'Expected' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidPattern") == "NL503@15:21+10"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Case|Add missing cases: Case, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@14:22+5"
+    assert AcCodeCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeRow(analysis, "UndefinedVariable") == "UndefinedVariable|I can't find 'value' — it hasn't been declared in this scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedVariable") == "NL301@15:45+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL503:InvalidPattern@15:21+10;NL301:UndefinedVariable@15:45+5;NL501:NonExhaustiveMatch@14:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 3
+    assert AcRow(rich, 0) == "InvalidPattern|'Other.Case' is not a case of union 'Expected' — check the union definition for available cases|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    Other.Case { value } => value,"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "UndefinedVariable|Variable 'value' not found|<null>|Error"
+    assert AcHint(rich, 1) == "Make sure you've declared this variable before using it."
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                    Other.Case { value } => value,"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "I cannot find a `value` variable on line 15:"
+    assert AcRow(rich, 2) == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcHint(rich, 2) == "You need to handle these cases:\n\n    Case\n\nPattern matching in N# must be exhaustive, meaning every possible value\nmust be handled. You can either add the missing cases, or use a wildcard '_'\npattern to catch everything else:\n\n    _ => handleOtherCases()\n\nWhy? This helps prevent runtime errors. The compiler checks that you've thought\nabout all possibilities!"
+    assert AcSuggestions(rich, 2) == "<null>"
+    assert AcSnippet(rich, 2) == "                x := match r {"
+    assert AcTypes(rich, 2) == "<null>|<null>"
+    assert AcExplanation(rich, 2) == "This `match` expression does not cover all possibilities on line 14:"
+    assert AcRow(rich, 3) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidPattern") == 1
+    assert AcCodeErrorCount(rich, "InvalidPattern") == 1
+    assert AcCodeRow(rich, "InvalidPattern") == "InvalidPattern|'Other.Case' is not a case of union 'Expected' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidPattern") == "NL503@15:21+10"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@14:22+5"
+    assert AcCodeCount(rich, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(rich, "UndefinedVariable") == 1
+    assert AcCodeRow(rich, "UndefinedVariable") == "UndefinedVariable|Variable 'value' not found|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedVariable") == "NL301@15:45+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 3 rows, `NL301` `NL501` `NL503` at 10:21+19 and 10:54+5 and 9:22+5; the plain route underlines 1 column where production underlines 5, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_TopLevelUnionCasePattern_NamespaceLikeWrongQualifierDoesNotCoverCase)" {
+    source := "\n            union Expected {\n                Case { value: int }\n                Empty\n            }\n\n            func Main() {\n                r := new Expected.Case { value: 1 }\n                x := match r {\n                    Other.Expected.Case { value } => value,\n                    Expected.Empty => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL503:InvalidPattern@10:21+19;NL301:UndefinedVariable@10:54+1;NL501:NonExhaustiveMatch@9:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 3
+    assert AcRow(analysis, 0) == "InvalidPattern|'Other.Expected.Case' is not a case of union 'Expected' — check the union definition for available cases|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "UndefinedVariable|I can't find 'value' — it hasn't been declared in this scope|<null>|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Case|Add missing cases: Case, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 2) == "<null>"
+    assert AcSuggestions(analysis, 2) == "<null>"
+    assert AcSnippet(analysis, 2) == "<null>"
+    assert AcTypes(analysis, 2) == "<null>|<null>"
+    assert AcExplanation(analysis, 2) == "<null>"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidPattern") == 1
+    assert AcCodeErrorCount(analysis, "InvalidPattern") == 1
+    assert AcCodeRow(analysis, "InvalidPattern") == "InvalidPattern|'Other.Expected.Case' is not a case of union 'Expected' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidPattern") == "NL503@10:21+19"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Case|Add missing cases: Case, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@9:22+5"
+    assert AcCodeCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedVariable") == 1
+    assert AcCodeRow(analysis, "UndefinedVariable") == "UndefinedVariable|I can't find 'value' — it hasn't been declared in this scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedVariable") == "NL301@10:54+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL503:InvalidPattern@10:21+19;NL301:UndefinedVariable@10:54+5;NL501:NonExhaustiveMatch@9:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 3
+    assert AcRow(rich, 0) == "InvalidPattern|'Other.Expected.Case' is not a case of union 'Expected' — check the union definition for available cases|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    Other.Expected.Case { value } => value,"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "UndefinedVariable|Variable 'value' not found|<null>|Error"
+    assert AcHint(rich, 1) == "Make sure you've declared this variable before using it."
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                    Other.Expected.Case { value } => value,"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "I cannot find a `value` variable on line 10:"
+    assert AcRow(rich, 2) == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcHint(rich, 2) == "You need to handle these cases:\n\n    Case\n\nPattern matching in N# must be exhaustive, meaning every possible value\nmust be handled. You can either add the missing cases, or use a wildcard '_'\npattern to catch everything else:\n\n    _ => handleOtherCases()\n\nWhy? This helps prevent runtime errors. The compiler checks that you've thought\nabout all possibilities!"
+    assert AcSuggestions(rich, 2) == "<null>"
+    assert AcSnippet(rich, 2) == "                x := match r {"
+    assert AcTypes(rich, 2) == "<null>|<null>"
+    assert AcExplanation(rich, 2) == "This `match` expression does not cover all possibilities on line 9:"
+    assert AcRow(rich, 3) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidPattern") == 1
+    assert AcCodeErrorCount(rich, "InvalidPattern") == 1
+    assert AcCodeRow(rich, "InvalidPattern") == "InvalidPattern|'Other.Expected.Case' is not a case of union 'Expected' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidPattern") == "NL503@10:21+19"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@9:22+5"
+    assert AcCodeCount(rich, "UndefinedVariable") == 1
+    assert AcCodeErrorCount(rich, "UndefinedVariable") == 1
+    assert AcCodeRow(rich, "UndefinedVariable") == "UndefinedVariable|Variable 'value' not found|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedVariable") == "NL301@10:54+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 11:22+5; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_NonExhaustive_MultipleMissingCases)" {
+    source := "\n            union Status {\n                Pending { id: int }\n                Active { id: int }\n                Completed { id: int }\n                Failed { id: int }\n            }\n\n            func Main() {\n                s := new Status.Pending { id: 1 }\n                x := match s {\n                    Status.Pending { id } => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@11:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Active, Completed, Failed|Add missing cases: Active, Completed, Failed, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Active, Completed, Failed|Add missing cases: Active, Completed, Failed, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@11:22+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@11:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcHint(rich, 0) == "You need to handle these cases:\n\n    Active\n    Completed\n    Failed\n\nPattern matching in N# must be exhaustive, meaning every possible value\nmust be handled. You can either add the missing cases, or use a wildcard '_'\npattern to catch everything else:\n\n    _ => handleOtherCases()\n\nWhy? This helps prevent runtime errors. The compiler checks that you've thought\nabout all possibilities!"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x := match s {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "This `match` expression does not cover all possibilities on line 11:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@11:22+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL501` `NL503` at 11:21+14 and 9:22+5; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_InvalidUnionCase_Error)" {
+    source := "\n            union Result {\n                Success { value: int }\n                Failure { error: string }\n            }\n\n            func Main() {\n                r := new Result.Success { value: 42 }\n                x := match r {\n                    Result.Success { value } => value,\n                    Result.Unknown => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL503:InvalidPattern@11:21+14;NL501:NonExhaustiveMatch@9:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "InvalidPattern|'Result.Unknown' is not a case of union 'Result' — check the union definition for available cases|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure|Add missing cases: Failure, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidPattern") == 1
+    assert AcCodeErrorCount(analysis, "InvalidPattern") == 1
+    assert AcCodeRow(analysis, "InvalidPattern") == "InvalidPattern|'Result.Unknown' is not a case of union 'Result' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidPattern") == "NL503@11:21+14"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Failure|Add missing cases: Failure, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@9:22+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL503:InvalidPattern@11:21+14;NL501:NonExhaustiveMatch@9:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "InvalidPattern|'Result.Unknown' is not a case of union 'Result' — check the union definition for available cases|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    Result.Unknown => 0"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcHint(rich, 1) == "You need to handle these cases:\n\n    Failure\n\nPattern matching in N# must be exhaustive, meaning every possible value\nmust be handled. You can either add the missing cases, or use a wildcard '_'\npattern to catch everything else:\n\n    _ => handleOtherCases()\n\nWhy? This helps prevent runtime errors. The compiler checks that you've thought\nabout all possibilities!"
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                x := match r {"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "This `match` expression does not cover all possibilities on line 9:"
+    assert AcRow(rich, 2) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidPattern") == 1
+    assert AcCodeErrorCount(rich, "InvalidPattern") == 1
+    assert AcCodeRow(rich, "InvalidPattern") == "InvalidPattern|'Result.Unknown' is not a case of union 'Result' — check the union definition for available cases|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidPattern") == "NL503@11:21+14"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@9:22+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL503` at 11:38+11 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_InvalidProperty_Error)" {
+    source := "\n            union Result {\n                Success { value: int }\n                Failure { error: string }\n            }\n\n            func Main() {\n                r := new Result.Success { value: 42 }\n                x := match r {\n                    Result.Success { value } => value,\n                    Result.Failure { invalidProp } => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL503:InvalidPattern@11:38+11;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidPattern|Union case 'Failure' doesn't have a property named 'invalidProp' — check the case definition for available properties|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidPattern") == 1
+    assert AcCodeErrorCount(analysis, "InvalidPattern") == 1
+    assert AcCodeRow(analysis, "InvalidPattern") == "InvalidPattern|Union case 'Failure' doesn't have a property named 'invalidProp' — check the case definition for available properties|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidPattern") == "NL503@11:38+11"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL503:InvalidPattern@11:38+11;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidPattern|Union case 'Failure' doesn't have a property named 'invalidProp' — check the case definition for available properties|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    Result.Failure { invalidProp } => 0"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidPattern") == 1
+    assert AcCodeErrorCount(rich, "InvalidPattern") == 1
+    assert AcCodeRow(rich, "InvalidPattern") == "InvalidPattern|Union case 'Failure' doesn't have a property named 'invalidProp' — check the case definition for available properties|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidPattern") == "NL503@11:38+11"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 11:49+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_IncompatibleCaseTypes_Error)" {
+    source := "\n            union Result {\n                Success { value: int }\n                Failure { error: string }\n            }\n\n            func Main() {\n                r := new Result.Success { value: 42 }\n                x := match r {\n                    Result.Success { value } => value,\n                    Result.Failure { error } => error\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@11:49+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|All match arms must return the same type — the first arm returns 'int', but this arm returns 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|All match arms must return the same type — the first arm returns 'int', but this arm returns 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@11:49+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@11:49+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|All match arms must return the same type — the first arm returns 'int', but this arm returns 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    Result.Failure { error } => error"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|All match arms must return the same type — the first arm returns 'int', but this arm returns 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@11:49+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL505` at 5:28+12; the plain route underlines 1 column where production underlines 12 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_GuardNotBool_Error)" {
+    source := "\n            func Main() {\n                x := 5\n                result := match x {\n                    n when \"not a bool\" => \"value\"\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL505:GuardNotBoolean@5:28+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GuardNotBoolean|A match guard must be a boolean, but this expression is 'string'|Guard expression must be boolean type|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "GuardNotBoolean") == 1
+    assert AcCodeErrorCount(analysis, "GuardNotBoolean") == 1
+    assert AcCodeRow(analysis, "GuardNotBoolean") == "GuardNotBoolean|A match guard must be a boolean, but this expression is 'string'|Guard expression must be boolean type|Error"
+    assert AcCodeAnchor(analysis, "GuardNotBoolean") == "NL505@5:28+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL505:GuardNotBoolean@5:28+12;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GuardNotBoolean|A match guard must be a boolean, but this expression is 'string'|Guard expression must be boolean type|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    n when \"not a bool\" => \"value\""
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "GuardNotBoolean") == 1
+    assert AcCodeErrorCount(rich, "GuardNotBoolean") == 1
+    assert AcCodeRow(rich, "GuardNotBoolean") == "GuardNotBoolean|A match guard must be a boolean, but this expression is 'string'|Guard expression must be boolean type|Error"
+    assert AcCodeAnchor(rich, "GuardNotBoolean") == "NL505@5:28+12"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 10:24+5; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_WithGuards_MissingCases_ReportsError)" {
+    source := "\n            union Status {\n                Active\n                Inactive\n                Pending\n            }\n\n            func Main() {\n                s := new Status.Active { }\n                msg := match s {\n                    Status.Active when true => \"active\",\n                    Status.Inactive when true => \"inactive\"\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@10:24+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Active, Inactive, Pending|Add missing cases: Active, Inactive, Pending, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Active, Inactive, Pending|Add missing cases: Active, Inactive, Pending, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@10:24+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@10:24+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcHint(rich, 0) == "You need to handle these cases:\n\n    Active\n    Inactive\n    Pending\n\nPattern matching in N# must be exhaustive, meaning every possible value\nmust be handled. You can either add the missing cases, or use a wildcard '_'\npattern to catch everything else:\n\n    _ => handleOtherCases()\n\nWhy? This helps prevent runtime errors. The compiler checks that you've thought\nabout all possibilities!"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                msg := match s {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "This `match` expression does not cover all possibilities on line 10:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@10:24+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 10:24+5; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.MatchExpression_AllGuardedNoWildcard_ReportsError)" {
+    source := "\n            union Status {\n                Active\n                Inactive\n                Pending\n            }\n\n            func Main() {\n                s := new Status.Active { }\n                msg := match s {\n                    Status.Active when true => \"active\",\n                    Status.Inactive when true => \"inactive\",\n                    Status.Pending when true => \"pending\"\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@10:24+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Active, Inactive, Pending|Add missing cases: Active, Inactive, Pending, or use wildcard '_' to match all remaining|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all cases — missing: Active, Inactive, Pending|Add missing cases: Active, Inactive, Pending, or use wildcard '_' to match all remaining|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@10:24+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@10:24+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcHint(rich, 0) == "You need to handle these cases:\n\n    Active\n    Inactive\n    Pending\n\nPattern matching in N# must be exhaustive, meaning every possible value\nmust be handled. You can either add the missing cases, or use a wildcard '_'\npattern to catch everything else:\n\n    _ => handleOtherCases()\n\nWhy? This helps prevent runtime errors. The compiler checks that you've thought\nabout all possibilities!"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                msg := match s {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "This `match` expression does not cover all possibilities on line 10:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|Pattern matching is not exhaustive|<null>|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@10:24+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` at 5:43+5 and 5:50+6; the plain route underlines 1 column where production underlines 5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.CollectionExpression_TypeMismatch_Error)" {
+    source := "\n            import System.Collections.Generic\n\n            func Main() {\n                let numbers: List<int> = [\"not\", \"ints\"]\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:43+1;NL202:TypeMismatch@5:50+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "TypeMismatch|Collection element is 'string', but the target collection expects 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeMismatch|Collection element is 'string', but the target collection expects 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 2
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 2
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Collection element is 'string', but the target collection expects 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:43+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:43+5;NL202:TypeMismatch@5:50+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "TypeMismatch|Collection element is 'string', but the target collection expects 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let numbers: List<int> = [\"not\", \"ints\"]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "TypeMismatch|Collection element is 'string', but the target collection expects 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                let numbers: List<int> = [\"not\", \"ints\"]"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 2
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 2
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Collection element is 'string', but the target collection expects 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:43+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL407` at 2:33+7 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ParamsParameter_NotLast_Error)" {
+    source := "\n            func Invalid(params numbers: int[], other: string) {\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL407:ParamsNotLast@2:33+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ParamsNotLast|A 'params' parameter must come last in the parameter list — move it to the end|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ParamsNotLast") == 1
+    assert AcCodeErrorCount(analysis, "ParamsNotLast") == 1
+    assert AcCodeRow(analysis, "ParamsNotLast") == "ParamsNotLast|A 'params' parameter must come last in the parameter list — move it to the end|<null>|Error"
+    assert AcCodeAnchor(analysis, "ParamsNotLast") == "NL407@2:33+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL407:ParamsNotLast@2:33+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ParamsNotLast|A 'params' parameter must come last in the parameter list — move it to the end|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func Invalid(params numbers: int[], other: string) {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "ParamsNotLast") == 1
+    assert AcCodeErrorCount(rich, "ParamsNotLast") == 1
+    assert AcCodeRow(rich, "ParamsNotLast") == "ParamsNotLast|A 'params' parameter must come last in the parameter list — move it to the end|<null>|Error"
+    assert AcCodeAnchor(rich, "ParamsNotLast") == "NL407@2:33+7"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL405` at 2:33+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ParamsParameter_NotArray_Error)" {
+    source := "\n            func Invalid(params value: int) {\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL405:InvalidParameter@2:33+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidParameter|A 'params' parameter must be an array or collection type — 'int' is not a valid params type|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidParameter") == 1
+    assert AcCodeErrorCount(analysis, "InvalidParameter") == 1
+    assert AcCodeRow(analysis, "InvalidParameter") == "InvalidParameter|A 'params' parameter must be an array or collection type — 'int' is not a valid params type|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidParameter") == "NL405@2:33+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL405:InvalidParameter@2:33+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidParameter|A 'params' parameter must be an array or collection type — 'int' is not a valid params type|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func Invalid(params value: int) {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidParameter") == 1
+    assert AcCodeErrorCount(rich, "InvalidParameter") == 1
+    assert AcCodeRow(rich, "InvalidParameter") == "InvalidParameter|A 'params' parameter must be an array or collection type — 'int' is not a valid params type|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidParameter") == "NL405@2:33+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL405` at 2:33+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.ParamsParameter_InvalidGenericType_ReportsTypeReferenceDisplayName)" {
+    source := "\n            func Invalid(params value: Dictionary<string, int>) {\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL405:InvalidParameter@2:33+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "InvalidParameter|A 'params' parameter must be an array or collection type — 'Dictionary<string, int>' is not a valid params type|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidParameter") == 1
+    assert AcCodeErrorCount(analysis, "InvalidParameter") == 1
+    assert AcCodeRow(analysis, "InvalidParameter") == "InvalidParameter|A 'params' parameter must be an array or collection type — 'Dictionary<string, int>' is not a valid params type|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidParameter") == "NL405@2:33+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL405:InvalidParameter@2:33+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "InvalidParameter|A 'params' parameter must be an array or collection type — 'Dictionary<string, int>' is not a valid params type|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            func Invalid(params value: Dictionary<string, int>) {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidParameter") == 1
+    assert AcCodeErrorCount(rich, "InvalidParameter") == 1
+    assert AcCodeRow(rich, "InvalidParameter") == "InvalidParameter|A 'params' parameter must be an array or collection type — 'Dictionary<string, int>' is not a valid params type|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidParameter") == "NL405@2:33+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 12:29+4; the plain route underlines 1 column where production underlines 4, and it points at 12:13 rather than 12:29, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the production four-argument route (was AnalyzerTests.ExplicitConversion_DoesNotAllowImplicitAssignment)" {
+    source := "    class Fraction {\n        Numerator: int\n        Denominator: int\n\n        explicit operator double(f: Fraction) {\n            return f.Numerator / (double)f.Denominator\n        }\n    }\n\n    func Main() {\n        let frac: Fraction = new Fraction { Numerator: 3, Denominator: 4 }\n        let value: double = frac  // Should error - explicit conversion required\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@12:13+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'value' is typed as 'double', but the value is 'Fraction'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'value' is typed as 'double', but the value is 'Fraction'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@12:13+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@12:29+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "        let value: double = frac  // Should error - explicit conversion required"
+    assert AcTypes(rich, 0) == "Fraction|double"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 12:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@12:29+4"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL704` at 2:20+14; and it points at 2:13 rather than 2:20 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.AssemblyResolution_TypeImportRejected)" {
+    source := "\n            import System.Console\n\n            func Main() {\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL704:NamespaceNotFound@2:13+14;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NamespaceNotFound|'System.Console' is a type, not a namespace — you can only import namespaces|Import 'System' instead.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NamespaceNotFound") == 1
+    assert AcCodeErrorCount(analysis, "NamespaceNotFound") == 1
+    assert AcCodeRow(analysis, "NamespaceNotFound") == "NamespaceNotFound|'System.Console' is a type, not a namespace — you can only import namespaces|Import 'System' instead.|Error"
+    assert AcCodeAnchor(analysis, "NamespaceNotFound") == "NL704@2:13+14"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL704:NamespaceNotFound@2:20+14;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NamespaceNotFound|'System.Console' is a type, not a namespace — you can only import namespaces|Import 'System' instead.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            import System.Console"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NamespaceNotFound") == 1
+    assert AcCodeErrorCount(rich, "NamespaceNotFound") == 1
+    assert AcCodeRow(rich, "NamespaceNotFound") == "NamespaceNotFound|'System.Console' is a type, not a namespace — you can only import namespaces|Import 'System' instead.|Error"
+    assert AcCodeAnchor(rich, "NamespaceNotFound") == "NL704@2:20+14"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:20+1 — the deleted method drove the production four-argument route (was AnalyzerTests.AwaitExpression_NonAwaitableValue_Error)" {
+    source := "import System.Threading.Tasks\n\nasync func Main(): Task<int> {\n    value := await 1\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:20+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@4:20+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:20+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    value := await 1"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|await expression needs an awaitable value, but this expression is 'int'|Await a Task, ValueTask, or another value with a GetAwaiter() pattern.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:20+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL305` at 4:19+13; the plain route underlines 1 column where production underlines 13, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.AsyncTaskOfT_StillRequiresExplicitReturnValue)" {
+    source := "\n            import System.Threading.Tasks\n\n            async func GetValue(): Task<int> {\n                await Task.Delay(100)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL305:MissingReturn@4:19+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "MissingReturn|This function should return 'Task<int>', but not all code paths return a value — make sure every branch ends with a 'return'|Add a return statement or change return type to void|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "MissingReturn") == 1
+    assert AcCodeErrorCount(analysis, "MissingReturn") == 1
+    assert AcCodeRow(analysis, "MissingReturn") == "MissingReturn|This function should return 'Task<int>', but not all code paths return a value — make sure every branch ends with a 'return'|Add a return statement or change return type to void|Error"
+    assert AcCodeAnchor(analysis, "MissingReturn") == "NL305@4:19+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL305:MissingReturn@4:19+13;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "MissingReturn|Not all code paths return a value of type 'Task<int>'|Add a `return` statement, or change the return type to `void`|Error"
+    assert AcHint(rich, 0) == "Every code path through this function must end with a `return` statement that\nprovides a `Task<int>` value. If you don't need to return anything, change the\nreturn type to `void`."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            async func GetValue(): Task<int> {"
+    assert AcTypes(rich, 0) == "<null>|Task<int>"
+    assert AcExplanation(rich, 0) == "This function is declared to return `Task<int>`, but not all code paths return a value:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "MissingReturn") == 1
+    assert AcCodeErrorCount(rich, "MissingReturn") == 1
+    assert AcCodeRow(rich, "MissingReturn") == "MissingReturn|Not all code paths return a value of type 'Task<int>'|Add a `return` statement, or change the return type to `void`|Error"
+    assert AcCodeAnchor(rich, "MissingReturn") == "NL305@4:19+13"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL305` at 4:19+13; the plain route underlines 1 column where production underlines 13, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.AsyncValueTaskOfT_StillRequiresExplicitReturnValue)" {
+    source := "\n            import System.Threading.Tasks\n\n            async func GetValue(): ValueTask<int> {\n                await Task.Delay(100)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL305:MissingReturn@4:19+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "MissingReturn|This function should return 'ValueTask<int>', but not all code paths return a value — make sure every branch ends with a 'return'|Add a return statement or change return type to void|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "MissingReturn") == 1
+    assert AcCodeErrorCount(analysis, "MissingReturn") == 1
+    assert AcCodeRow(analysis, "MissingReturn") == "MissingReturn|This function should return 'ValueTask<int>', but not all code paths return a value — make sure every branch ends with a 'return'|Add a return statement or change return type to void|Error"
+    assert AcCodeAnchor(analysis, "MissingReturn") == "NL305@4:19+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL305:MissingReturn@4:19+13;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "MissingReturn|Not all code paths return a value of type 'ValueTask<int>'|Add a `return` statement, or change the return type to `void`|Error"
+    assert AcHint(rich, 0) == "Every code path through this function must end with a `return` statement that\nprovides a `ValueTask<int>` value. If you don't need to return anything, change the\nreturn type to `void`."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "            async func GetValue(): ValueTask<int> {"
+    assert AcTypes(rich, 0) == "<null>|ValueTask<int>"
+    assert AcExplanation(rich, 0) == "This function is declared to return `ValueTask<int>`, but not all code paths return a value:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "MissingReturn") == 1
+    assert AcCodeErrorCount(rich, "MissingReturn") == 1
+    assert AcCodeRow(rich, "MissingReturn") == "MissingReturn|Not all code paths return a value of type 'ValueTask<int>'|Add a `return` statement, or change the return type to `void`|Error"
+    assert AcCodeAnchor(rich, "MissingReturn") == "NL305@4:19+13"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL203` at 3:23+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Lambda_UntypedParam_NoInferenceSource_Errors)" {
+    source := "\n            func Main() {\n                f := (x) => x + 1\n                result := f(5)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL203:CannotInferType@3:23+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "CannotInferType|I can't figure out the type of lambda parameter 'x' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = x => ...') or pass it directly where a delegate type is expected.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "CannotInferType") == 1
+    assert AcCodeErrorCount(analysis, "CannotInferType") == 1
+    assert AcCodeRow(analysis, "CannotInferType") == "CannotInferType|I can't figure out the type of lambda parameter 'x' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = x => ...') or pass it directly where a delegate type is expected.|Error"
+    assert AcCodeAnchor(analysis, "CannotInferType") == "NL203@3:23+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL203:CannotInferType@3:23+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "CannotInferType|I can't figure out the type of lambda parameter 'x' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = x => ...') or pass it directly where a delegate type is expected.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                f := (x) => x + 1"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "CannotInferType") == 1
+    assert AcCodeErrorCount(rich, "CannotInferType") == 1
+    assert AcCodeRow(rich, "CannotInferType") == "CannotInferType|I can't figure out the type of lambda parameter 'x' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = x => ...') or pass it directly where a delegate type is expected.|Error"
+    assert AcCodeAnchor(rich, "CannotInferType") == "NL203@3:23+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 12:19+7; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.OverloadResolution_NoMatchingOverload_Error)" {
+    source := "\n            class Processor {\n                func Process(x: int): int {\n                    return x\n                }\n                func Process(x: string): string {\n                    return x\n                }\n            }\n            func Main() {\n                p := new Processor()\n                p.Process(true)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@12:19+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Process' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Process' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "NL402@12:19+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@12:19+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Process' accepts 1 argument with these types|<null>|Error"
+    assert AcHint(rich, 0) == "This call passes 1 argument: `bool`.\nAvailable overloads:\n  - Process(x: int): int\n  - Process(x: string): string\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                p.Process(true)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find an overload of `Process` that matches this call:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeRow(rich, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Process' accepts 1 argument with these types|<null>|Error"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "NL402@12:19+7"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 8:7+7; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the production four-argument route (was AnalyzerTests.OverloadResolution_NoMatchingOverload_UsesCallableNameSpanAndRichContext)" {
+    source := "class Processor {\n    func Process(x: int): int { return x }\n    func Process(x: string): string { return x }\n}\n\nfunc Main() {\n    p := new Processor()\n    p.Process(true)\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@8:7+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Process' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Process' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "NL402@8:7+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@8:7+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Process' accepts 1 argument with these types|<null>|Error"
+    assert AcHint(rich, 0) == "This call passes 1 argument: `bool`.\nAvailable overloads:\n  - Process(x: int): int\n  - Process(x: string): string\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    p.Process(true)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find an overload of `Process` that matches this call:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeRow(rich, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Process' accepts 1 argument with these types|<null>|Error"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "NL402@8:7+7"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL306` at 7:6+7; and it points at 7:1 rather than 7:6 — the deleted method drove the production four-argument route (was AnalyzerTests.OverloadDeclaration_DuplicateNestedSourceSignature_ReportsDuplicateDeclaration)" {
+    source := "import System.Collections.Generic\n\nfunc Process(items: List<int[]>): int {\n    return 1\n}\n\nfunc Process(values: List<int[]>): int {\n    return 2\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@7:1+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|'Process' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|'Process' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@7:1+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@7:6+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "DuplicateDeclaration|'Process' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "func Process(values: List<int[]>): int {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|'Process' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@7:6+7"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL208` at 11:27+3 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.GenericInference_WithConstraint_Violated)" {
+    source := "\n            interface IComparable {\n                func CompareTo(other: object): int\n            }\n            class Plain {\n            }\n            func Max<T>(a: T, b: T): T where T : IComparable {\n                return a\n            }\n            func Main() {\n                result := Max(new Plain(), new Plain())\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@11:27+3;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|`Plain` does not implement `IComparable`, which type parameter `T` of `Max` requires|Implement `IComparable` on `Plain`, or relax the constraint on `Max`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "GenericConstraintViolation") == 1
+    assert AcCodeErrorCount(analysis, "GenericConstraintViolation") == 1
+    assert AcCodeRow(analysis, "GenericConstraintViolation") == "GenericConstraintViolation|`Plain` does not implement `IComparable`, which type parameter `T` of `Max` requires|Implement `IComparable` on `Plain`, or relax the constraint on `Max`.|Error"
+    assert AcCodeAnchor(analysis, "GenericConstraintViolation") == "NL208@11:27+3"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@11:27+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|`Plain` does not implement `IComparable`, which type parameter `T` of `Max` requires|Implement `IComparable` on `Plain`, or relax the constraint on `Max`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                result := Max(new Plain(), new Plain())"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "GenericConstraintViolation") == 1
+    assert AcCodeErrorCount(rich, "GenericConstraintViolation") == 1
+    assert AcCodeRow(rich, "GenericConstraintViolation") == "GenericConstraintViolation|`Plain` does not implement `IComparable`, which type parameter `T` of `Max` requires|Implement `IComparable` on `Plain`, or relax the constraint on `Max`.|Error"
+    assert AcCodeAnchor(rich, "GenericConstraintViolation") == "NL208@11:27+3"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` at 6:22+2 and 12:21+1; and it points at 6:17 rather than 6:22 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.OverloadResolution_AmbiguousCall_Error)" {
+    source := "\n            class Processor {\n                func Do(x: int, y: int): int {\n                    return x\n                }\n                func Do(a: int, b: int): int {\n                    return a\n                }\n            }\n            func Main() {\n                p := new Processor()\n                p.Do(1, 2)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@6:17+2;NL103:InvalidSyntax@12:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@6:17+2"
+    assert AcCodeCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
+    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
+    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@12:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@6:22+2;NL103:InvalidSyntax@12:21+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                func Do(a: int, b: int): int {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "                p.Do(1, 2)"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "<no-such-error>"
+    assert AcCodeCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
+    assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@6:22+2"
+    assert AcCodeCount(rich, "InvalidSyntax") == 1
+    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
+    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
+    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@12:21+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 5:17+7; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.OverloadResolution_SameArity_BoolVsInt_Error)" {
+    source := "\n            func Process(x: int): int { return x }\n            func Process(x: string): string { return x }\n            func Main() {\n                Process(true)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@5:17+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Process' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Process' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "NL402@5:17+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@5:17+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Process' accepts 1 argument with these types|<null>|Error"
+    assert AcHint(rich, 0) == "This call passes 1 argument: `bool`.\nAvailable overloads:\n  - Process(x: int): int\n  - Process(x: string): string\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                Process(true)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find an overload of `Process` that matches this call:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeRow(rich, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Process' accepts 1 argument with these types|<null>|Error"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "NL402@5:17+7"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 5:19+6; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.OverloadResolution_ExtensionOverload_NoMatch_Error)" {
+    source := "\n            func Format(this x: int, prefix: string): string { return prefix }\n            func Format(this x: int, decimals: int): int { return decimals }\n            func Main() {\n                5.Format(true)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@5:19+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Format' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Format' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "NL402@5:19+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@5:19+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Format' accepts 1 argument with these types|<null>|Error"
+    assert AcHint(rich, 0) == "This call passes 1 argument: `bool`.\nAvailable overloads:\n  - Format(prefix: string): string\n  - Format(decimals: int): int\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                5.Format(true)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find an overload of `Format` that matches this call:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeRow(rich, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Format' accepts 1 argument with these types|<null>|Error"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "NL402@5:19+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 4:7+6; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the production four-argument route (was AnalyzerTests.OverloadResolution_ExtensionOverload_NoMatch_FormatsFactBackedCandidatesWithoutReceiver)" {
+    source := "func Format(this x: int, prefix: string): string { return prefix }\nfunc Format(this x: int, decimals: int): int { return decimals }\nfunc Main() {\n    5.Format(true)\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@4:7+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'Format' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Format' accepts 1 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "NL402@4:7+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@4:7+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Format' accepts 1 argument with these types|<null>|Error"
+    assert AcHint(rich, 0) == "This call passes 1 argument: `bool`.\nAvailable overloads:\n  - Format(prefix: string): string\n  - Format(decimals: int): int\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    5.Format(true)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find an overload of `Format` that matches this call:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeRow(rich, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'Format' accepts 1 argument with these types|<null>|Error"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "NL402@4:7+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the plain route underlines 1 column where production underlines 6, and it points at 4:21 rather than 4:35, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Extension_LiteralReceiver_ReturnTypeChecked)" {
+    source := "\n            func Double(this n: int): int { return n * 2 }\n            func Main() {\n                let s: string = 5.Double()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@4:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:35+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let s: string = 5.Double()"
+    assert AcTypes(rich, 0) == "int|string"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 4:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:35+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+6; the plain route underlines 1 column where production underlines 6, and it points at 5:21 rather than 5:35, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Extension_VariableReceiver_ReturnTypeChecked)" {
+    source := "\n            func Double(this n: int): int { return n * 2 }\n            func Main() {\n                let x: int = 5\n                let s: string = x.Double()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:35+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let s: string = x.Double()"
+    assert AcTypes(rich, 0) == "int|string"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 5:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:35+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the plain route underlines 1 column where production underlines 6, and it points at 4:21 rather than 4:35, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Extension_BoolLiteral_ReturnTypeChecked)" {
+    source := "\n            func Toggle(this b: bool): bool { return b }\n            func Main() {\n                let n: int = true.Toggle()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'bool'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'bool'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@4:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:35+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let n: int = true.Toggle()"
+    assert AcTypes(rich, 0) == "bool|int"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 4:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:35+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:38+5; the plain route underlines 1 column where production underlines 5, and it points at 4:21 rather than 4:38, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Extension_StringLiteral_ReturnTypeChecked)" {
+    source := "\n            func Upper(this s: string): string { return s }\n            func Main() {\n                let n: int = \"hello\".Upper()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@4:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:38+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let n: int = \"hello\".Upper()"
+    assert AcTypes(rich, 0) == "string|int"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 4:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:38+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:31+6; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Extension_LiteralReceiver_AsArgument)" {
+    source := "\n            func Double(this n: int): int { return n * 2 }\n            func TakesString(s: string) {}\n            func Main() {\n                TakesString(5.Double())\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:31+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'TakesString' is 'int', but parameter 's' expects 'string'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Argument 1 to 'TakesString' is 'int', but parameter 's' expects 'string'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:31+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:31+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `int` as argument for parameter `s` of type `string`|<null>|Error"
+    assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                TakesString(5.Double())"
+    assert AcTypes(rich, 0) == "int|string"
+    assert AcExplanation(rich, 0) == "Argument 1 in the call to `TakesString` has the wrong type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Cannot pass `int` as argument for parameter `s` of type `string`|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:31+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 4:26+9; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the production four-argument route (was AnalyzerTests.BCL_StringMethodCall_WrongArity_ReportsNoMatchingOverload)" {
+    source := "\n            func Main() {\n                greeting := \"hello\"\n                greeting.CompareTo()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@4:26+9;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No overload of 'CompareTo' accepts 0 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'CompareTo' accepts 0 argument(s) with these types|Check the argument count and types against the available overloads.|Error"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "NL402@4:26+9"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@4:26+9;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'CompareTo' accepts 0 arguments with these types|<null>|Error"
+    assert AcHint(rich, 0) == "This call passes 0 arguments: no arguments.\nAvailable overloads:\n  - CompareTo(object? value): int\n  - CompareTo(string? strB): int\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                greeting.CompareTo()"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find an overload of `CompareTo` that matches this call:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeRow(rich, "NoMatchingOverload") == "NoMatchingOverload|No overload of 'CompareTo' accepts 0 arguments with these types|<null>|Error"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "NL402@4:26+9"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL303` at 3:41+4; and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the production four-argument route (was AnalyzerTests.BCL_StringLiteralUnknownMember_ReportsUndefinedMember)" {
+    source := "\n            func Main() {\n                value := \"asdfasdfasdf\".ToUp()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@3:41+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'ToUp' not found on type 'string'|Did you mean 'ToUpper'?|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'ToUp' not found on type 'string'|Did you mean 'ToUpper'?|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@3:41+4"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@3:41+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "UndefinedMember|Member 'ToUp' not found on type 'string'|<null>|Error"
+    assert AcHint(rich, 0) == "The type `string` does not have a member named `ToUp`.\nCheck for typos, or make sure you're accessing the right type."
+    assert AcSuggestions(rich, 0) == "ToUpper"
+    assert AcSnippet(rich, 0) == "                value := \"asdfasdfasdf\".ToUp()"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find a member called `ToUp` on type `string`:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedMember") == 1
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 1
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'ToUp' not found on type 'string'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@3:41+4"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports NOTHING AT ALL on either route, so the deleted absence claim held for every code that exists — VACUOUS by measurement; the EMPTY census, the zero count and the `<no-such-error>` sentinel are not (was AnalyzerTests.RecordPrimaryConstructorMemberAccess_DoesNotReportUndefinedMember)" {
+    source := "\n            record EmailAddress(value: string) {\n                IsValid: bool => value.Length > 5\n            }\n\n            func Main() {\n                email := new EmailAddress(\"user@example.com\")\n                print email.value\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedMember") == 0
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 0
+    assert AcCodeRow(analysis, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedMember") == 0
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 0
+    assert AcCodeRow(rich, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "<no-such-code>"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports NOTHING AT ALL on either route, so the deleted absence claim held for every code that exists — VACUOUS by measurement; the EMPTY census, the zero count and the `<no-such-error>` sentinel are not (was AnalyzerTests.NestedTypeMemberAccess_DoesNotReportUndefinedMember)" {
+    source := "\n            class BankAccount {\n                enum Status {\n                    Active,\n                    Frozen\n                }\n\n                CurrentStatus: BankAccount.Status\n\n                constructor() {\n                    CurrentStatus = BankAccount.Status.Active\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedMember") == 0
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 0
+    assert AcCodeRow(analysis, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedMember") == 0
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 0
+    assert AcCodeRow(rich, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "<no-such-code>"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL208` at 10:43+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.GenericFunctionMemberConstraint_ResolvesThroughTypeInfoDeclaredMembers)" {
+    source := "\n            class Box {\n                func RequireClass<T>(value: T): T where T : class {\n                    return value\n                }\n            }\n\n            func Main() {\n                box := new Box()\n                value := box.RequireClass(1)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL208:GenericConstraintViolation@10:43+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "GenericConstraintViolation|`int` is a value type, but type parameter `T` of `RequireClass` requires a reference type (the `class` constraint)|Pass a class instance for `T`, or relax the `class` constraint on `RequireClass`.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "GenericConstraintViolation") == 1
+    assert AcCodeErrorCount(analysis, "GenericConstraintViolation") == 1
+    assert AcCodeRow(analysis, "GenericConstraintViolation") == "GenericConstraintViolation|`int` is a value type, but type parameter `T` of `RequireClass` requires a reference type (the `class` constraint)|Pass a class instance for `T`, or relax the `class` constraint on `RequireClass`.|Error"
+    assert AcCodeAnchor(analysis, "GenericConstraintViolation") == "NL208@10:43+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL208:GenericConstraintViolation@10:43+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "GenericConstraintViolation|`int` is a value type, but type parameter `T` of `RequireClass` requires a reference type (the `class` constraint)|Pass a class instance for `T`, or relax the `class` constraint on `RequireClass`.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                value := box.RequireClass(1)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "GenericConstraintViolation") == 1
+    assert AcCodeErrorCount(rich, "GenericConstraintViolation") == 1
+    assert AcCodeRow(rich, "GenericConstraintViolation") == "GenericConstraintViolation|`int` is a value type, but type parameter `T` of `RequireClass` requires a reference type (the `class` constraint)|Pass a class instance for `T`, or relax the `class` constraint on `RequireClass`.|Error"
+    assert AcCodeAnchor(rich, "GenericConstraintViolation") == "NL208@10:43+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports NOTHING AT ALL on either route, so the deleted absence claim held for every code that exists — VACUOUS by measurement; the EMPTY census, the zero count and the `<no-such-error>` sentinel are not (was AnalyzerTests.RecordObjectMemberAccess_DoesNotReportUndefinedMember)" {
+    source := "\n            record Point {\n                X: int\n                Y: int\n            }\n\n            func Main() {\n                p1 := new Point { X: 1, Y: 2 }\n                p2 := new Point { X: 1, Y: 2 }\n                print p1.Equals(p2)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedMember") == 0
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 0
+    assert AcCodeRow(analysis, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedMember") == 0
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 0
+    assert AcCodeRow(rich, "UndefinedMember") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "<no-such-code>"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports NOTHING AT ALL on either route, so the deleted absence claim held for every code that exists — VACUOUS by measurement; the EMPTY census, the zero count and the `<no-such-error>` sentinel are not (was AnalyzerTests.BCL_MethodCall_WithImplicitNumericWidening_NoNoMatchingOverload)" {
+    source := "\n            import System\n\n            func Main() {\n                tomorrow := DateTime.Now.AddDays(1)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeRow(rich, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "<no-such-code>"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports NOTHING AT ALL on either route, so the deleted absence claim held for every code that exists — VACUOUS by measurement; the EMPTY census, the zero count and the `<no-such-error>` sentinel are not (was AnalyzerTests.BCL_MethodCall_WithExpandedParams_NoNoMatchingOverload)" {
+    source := "\n            import System\n\n            func Main() {\n                Console.WriteLine(\"{0} {1}\", \"hello\", \"world\")\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeRow(rich, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "<no-such-code>"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL323` at 7:41+1 — the deleted method drove the production four-argument route (was AnalyzerTests.QueryableLinq_BlockExpressionTreeLambda_ReportsFeatureNotImplemented)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                filtered := query.Where(x => { return x > 1 })\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL323:FeatureNotImplemented@7:41+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "FeatureNotImplemented|Expression-tree lambdas must use an expression body; block bodies are not supported|Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeRow(analysis, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambdas must use an expression body; block bodies are not supported|Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.|Error"
+    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == "NL323@7:41+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL323:FeatureNotImplemented@7:41+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "FeatureNotImplemented|Expression-tree lambdas must use an expression body; block bodies are not supported|Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                filtered := query.Where(x => { return x > 1 })"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeRow(rich, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambdas must use an expression body; block bodies are not supported|Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.|Error"
+    assert AcCodeAnchor(rich, "FeatureNotImplemented") == "NL323@7:41+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL323` at 8:50+9 — the deleted method drove the production four-argument route (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaWithCapturedValue_ReportsFeatureNotImplemented)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                threshold := 1\n                filtered := query.Where(x => x > threshold)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL323:FeatureNotImplemented@8:50+9;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "FeatureNotImplemented|Expression-tree lambda body contains unsupported captured or static identifier 'threshold'|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeRow(analysis, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambda body contains unsupported captured or static identifier 'threshold'|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == "NL323@8:50+9"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL323:FeatureNotImplemented@8:50+9;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "FeatureNotImplemented|Expression-tree lambda body contains unsupported captured or static identifier 'threshold'|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                filtered := query.Where(x => x > threshold)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeRow(rich, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambda body contains unsupported captured or static identifier 'threshold'|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcCodeAnchor(rich, "FeatureNotImplemented") == "NL323@8:50+9"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL323` at 7:45+3; the plain route underlines 1 column where production underlines 3 — the deleted method drove the production four-argument route (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaNullConditionalIndexAccess_ReportsFeatureNotImplemented)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [\"ab\", \"cd\"]\n                query := source.AsQueryable()\n                chars := query.Select(x => x?[0])\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL323:FeatureNotImplemented@7:45+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "FeatureNotImplemented|Expression-tree lambda body contains unsupported null-conditional index access|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeRow(analysis, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambda body contains unsupported null-conditional index access|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == "NL323@7:45+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL323:FeatureNotImplemented@7:45+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "FeatureNotImplemented|Expression-tree lambda body contains unsupported null-conditional index access|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                chars := query.Select(x => x?[0])"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeRow(rich, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambda body contains unsupported null-conditional index access|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcCodeAnchor(rich, "FeatureNotImplemented") == "NL323@7:45+3"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL323` at 7:48+8 — the deleted method drove the production four-argument route (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaNamedCallArgument_ReportsFeatureNotImplemented)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                filtered := query.Where(x => x.ToString(format: \"D\") == \"2\")\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL323:FeatureNotImplemented@7:48+8;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "FeatureNotImplemented|Expression-tree lambda body contains unsupported named method argument|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeRow(analysis, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambda body contains unsupported named method argument|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == "NL323@7:48+8"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL323:FeatureNotImplemented@7:48+8;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "FeatureNotImplemented|Expression-tree lambda body contains unsupported named method argument|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                filtered := query.Where(x => x.ToString(format: \"D\") == \"2\")"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeRow(rich, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambda body contains unsupported named method argument|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcCodeAnchor(rich, "FeatureNotImplemented") == "NL323@7:48+8"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL323` at 7:45+10; the plain route underlines 1 column where production underlines 10 — the deleted method drove the production four-argument route (was AnalyzerTests.QueryableLinq_ExpressionTreeLambdaUnsupportedSizeof_ReportsFeatureNotImplemented)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                source := [1, 2, 3]\n                query := source.AsQueryable()\n                mapped := query.Select(x => sizeof(int))\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL323:FeatureNotImplemented@7:45+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "FeatureNotImplemented|Expression-tree lambda body contains unsupported sizeof expression|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeRow(analysis, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambda body contains unsupported sizeof expression|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == "NL323@7:45+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL323:FeatureNotImplemented@7:45+10;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "FeatureNotImplemented|Expression-tree lambda body contains unsupported sizeof expression|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                mapped := query.Select(x => sizeof(int))"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeRow(rich, "FeatureNotImplemented") == "FeatureNotImplemented|Expression-tree lambda body contains unsupported sizeof expression|Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.|Error"
+    assert AcCodeAnchor(rich, "FeatureNotImplemented") == "NL323@7:45+10"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports NOTHING AT ALL on either route, so the deleted absence claim held for every code that exists — VACUOUS by measurement; the EMPTY census, the zero count and the `<no-such-error>` sentinel are not (was AnalyzerTests.BCL_MethodCall_WithOutArgument_NoNoMatchingOverload)" {
+    source := "\n            import System\n\n            func Main() {\n                result := 0\n                if Int32.TryParse(\"42\", out result) {\n                    print result\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeRow(rich, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "<no-such-code>"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports NOTHING AT ALL on either route, so the deleted absence claim held for every code that exists — VACUOUS by measurement; the EMPTY census, the zero count and the `<no-such-error>` sentinel are not (was AnalyzerTests.BCL_DictionaryRemove_WithSourceTypeArgument_NoNoMatchingOverload)" {
+    source := "\n            import System.Collections.Generic\n            enum Flavor { Unknown, Known }\n            func Main() {\n                m := new Dictionary<string, Flavor>()\n                print m.Remove(\"k\")\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeRow(rich, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "<no-such-code>"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports NOTHING AT ALL on either route, so the deleted absence claim held for every code that exists — VACUOUS by measurement; the EMPTY census, the zero count and the `<no-such-error>` sentinel are not (was AnalyzerTests.NSharpExtensionMethod_OnInstance_PrefersExtensionOverStaticClrMember)" {
+    source := "\n            func IsPositive(this n: int): bool {\n                return n > 0\n            }\n\n            func Main() {\n                value := 42\n                print value.IsPositive()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 0
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "<no-such-code>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 0
+    assert AcCodeRow(rich, "NoMatchingOverload") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "<no-such-code>"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:26+4; the plain route underlines 1 column where production underlines 4, and it points at 3:17 rather than 3:26, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.NullNotAssignableToInt)" {
+    source := "\n            func Main() {\n                x: int = null\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'x' is typed as 'int', but the value is 'null'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'x' is typed as 'int', but the value is 'null'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:17+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:26+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                x: int = null"
+    assert AcTypes(rich, 0) == "null|int"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 3:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:26+4"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+2; the plain route underlines 1 column where production underlines 2, and it points at 5:21 rather than 5:34, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Newtype_NotAssignableFromUnderlying)" {
+    source := "\n            type UserId = newtype int\n\n            func Main() {\n                let id: UserId = 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'id' is typed as 'UserId', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'id' is typed as 'UserId', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:34+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let id: UserId = 42"
+    assert AcTypes(rich, 0) == "int|UserId"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 5:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:34+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 6:32+2; the plain route underlines 1 column where production underlines 2, and it points at 6:21 rather than 6:32, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Newtype_NotAssignableToUnderlying)" {
+    source := "\n            type UserId = newtype int\n\n            func Main() {\n                id := UserId(42)\n                let raw: int = id\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@6:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'raw' is typed as 'int', but the value is 'UserId'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'raw' is typed as 'int', but the value is 'UserId'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@6:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@6:32+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let raw: int = id"
+    assert AcTypes(rich, 0) == "UserId|int"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 6:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@6:32+2"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:29+1 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Newtype_ConstructionWithWrongType_Error)" {
+    source := "\n            type UserId = newtype int\n\n            func Main() {\n                id := UserId(\"hello\")\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@5:29+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Cannot construct 'UserId': argument of type 'string' is not assignable to underlying type 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Cannot construct 'UserId': argument of type 'string' is not assignable to underlying type 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:29+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@5:29+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot construct 'UserId': argument of type 'string' is not assignable to underlying type 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                id := UserId(\"hello\")"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Cannot construct 'UserId': argument of type 'string' is not assignable to underlying type 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:29+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 7:40+6; the plain route underlines 1 column where production underlines 6, and it points at 7:21 rather than 7:40, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.Newtype_DifferentNewtypeNotAssignable)" {
+    source := "\n            type UserId = newtype int\n            type OrderId = newtype int\n\n            func Main() {\n                userId := UserId(1)\n                let orderId: OrderId = userId\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@7:21+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'orderId' is typed as 'OrderId', but the value is 'UserId'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Variable 'orderId' is typed as 'OrderId', but the value is 'UserId'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@7:21+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@7:40+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                let orderId: OrderId = userId"
+    assert AcTypes(rich, 0) == "UserId|OrderId"
+    assert AcExplanation(rich, 0) == "I am having trouble with this code on line 7:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@7:40+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL306` at 6:1+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.DuplicateSetupBlock_ReportsError)" {
+    source := "\nsetup {\n    x := 1\n}\n\nsetup {\n    y := 2\n}\n\ntest \"should work\" {\n    assert true\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@6:1+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|Only one setup block is allowed per test file|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|Only one setup block is allowed per test file|<null>|Error"
+    assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@6:1+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@6:1+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "DuplicateDeclaration|Only one setup block is allowed per test file|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "setup {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|Only one setup block is allowed per test file|<null>|Error"
+    assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@6:1+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 3 rows, `NL306` `NL412` at 6:1+8 and 3:5+7 and 7:5+8; production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.DuplicateTeardownBlock_ReportsError)" {
+    source := "\nteardown {\n    Cleanup()\n}\n\nteardown {\n    Cleanup2()\n}\n\ntest \"should work\" {\n    assert true\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@6:1+8;NL412:UndefinedFunction@3:5+7;NL412:UndefinedFunction@7:5+8;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 3
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|Only one teardown block is allowed per test file|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "UndefinedFunction|Function 'Cleanup' not found|<null>|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "UndefinedFunction|Function 'Cleanup2' not found|<null>|Error"
+    assert AcHint(analysis, 2) == "<null>"
+    assert AcSuggestions(analysis, 2) == "<null>"
+    assert AcSnippet(analysis, 2) == "<null>"
+    assert AcTypes(analysis, 2) == "<null>|<null>"
+    assert AcExplanation(analysis, 2) == "<null>"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
+    assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|Only one teardown block is allowed per test file|<null>|Error"
+    assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@6:1+8"
+    assert AcCodeCount(analysis, "UndefinedFunction") == 2
+    assert AcCodeErrorCount(analysis, "UndefinedFunction") == 2
+    assert AcCodeRow(analysis, "UndefinedFunction") == "UndefinedFunction|Function 'Cleanup' not found|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedFunction") == "NL412@3:5+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@6:1+8;NL412:UndefinedFunction@3:5+7;NL412:UndefinedFunction@7:5+8;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 3
+    assert AcRow(rich, 0) == "DuplicateDeclaration|Only one teardown block is allowed per test file|<null>|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "teardown {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "UndefinedFunction|Function 'Cleanup' not found|<null>|Error"
+    assert AcHint(rich, 1) == "Define `func Cleanup(...)` before calling it, or import the function if it lives elsewhere."
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "    Cleanup()"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "I cannot find a function named `Cleanup` on line 3:"
+    assert AcRow(rich, 2) == "UndefinedFunction|Function 'Cleanup2' not found|<null>|Error"
+    assert AcHint(rich, 2) == "Define `func Cleanup2(...)` before calling it, or import the function if it lives elsewhere."
+    assert AcSuggestions(rich, 2) == "<null>"
+    assert AcSnippet(rich, 2) == "    Cleanup2()"
+    assert AcTypes(rich, 2) == "<null>|<null>"
+    assert AcExplanation(rich, 2) == "I cannot find a function named `Cleanup2` on line 7:"
+    assert AcRow(rich, 3) == "<no-such-error>"
+    assert AcCodeCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
+    assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|Only one teardown block is allowed per test file|<null>|Error"
+    assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@6:1+8"
+    assert AcCodeCount(rich, "UndefinedFunction") == 2
+    assert AcCodeErrorCount(rich, "UndefinedFunction") == 2
+    assert AcCodeRow(rich, "UndefinedFunction") == "UndefinedFunction|Function 'Cleanup' not found|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedFunction") == "NL412@3:5+7"
+}
+
+test "020 s32 analyzer diagnostics: an unsupported attribute-argument expression is `NL310:ConstantRequired` naming the offending FORM — a call, an operator `+`, an operator `!` — and the per-row anchor is what separates them: 3:18+12 over the whole call, 3:22+1 on the `+`, 3:18 on the `!`. THE THIRD ROW IS THE ONLY ONE THE TWO ROUTES DISAGREE ABOUT: production underlines all five columns of the operand while the plain route underlines one. This is the LAST `[Theory]` of the `AnalyzeWithSource` + `ErrorCode` shape (was AnalyzerTests.AttributeArguments_UnsupportedExpressions_ReportConstantRequired, all 3 [InlineData] rows)" with (attribute: string, expectedMessage: string, plainAcRow0: string, plainCensus: string, plainCodeAnchorConstantRequired: string, plainCodeRowConstantRequired: string, richAcRow0: string, richAcSnippet0: string, richCensus: string, richCodeAnchorConstantRequired: string, richCodeRowConstantRequired: string) [
+    ("[System.Obsolete(BuildMessage())]", "call", "ConstantRequired|Attribute arguments must be compile-time constants; call expression is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "NL310:ConstantRequired@3:18+12;", "NL310@3:18+12", "ConstantRequired|Attribute arguments must be compile-time constants; call expression is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "ConstantRequired|Attribute arguments must be compile-time constants; call expression is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "[System.Obsolete(BuildMessage())]", "NL310:ConstantRequired@3:18+12;", "NL310@3:18+12", "ConstantRequired|Attribute arguments must be compile-time constants; call expression is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error"),
+    ("[System.Obsolete(\"v\" + \"1\")]", "+", "ConstantRequired|Attribute arguments must be compile-time constants; operator '+' is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "NL310:ConstantRequired@3:22+1;", "NL310@3:22+1", "ConstantRequired|Attribute arguments must be compile-time constants; operator '+' is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "ConstantRequired|Attribute arguments must be compile-time constants; operator '+' is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "[System.Obsolete(\"v\" + \"1\")]", "NL310:ConstantRequired@3:22+1;", "NL310@3:22+1", "ConstantRequired|Attribute arguments must be compile-time constants; operator '+' is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error"),
+    ("[System.Obsolete(!\"no\")]", "!", "ConstantRequired|Attribute arguments must be compile-time constants; operator '!' is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "NL310:ConstantRequired@3:18+1;", "NL310@3:18+1", "ConstantRequired|Attribute arguments must be compile-time constants; operator '!' is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "ConstantRequired|Attribute arguments must be compile-time constants; operator '!' is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error", "[System.Obsolete(!\"no\")]", "NL310:ConstantRequired@3:18+5;", "NL310@3:18+5", "ConstantRequired|Attribute arguments must be compile-time constants; operator '!' is not supported here|Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.|Error")
+] {
+    source := "import System\n\n" + attribute + "\nfunc Bad(): int {\n    return 0\n}\n\nfunc BuildMessage(): string {\n    return \"bad\"\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == plainCensus
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == plainAcRow0
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ConstantRequired") == 1
+    assert AcCodeErrorCount(analysis, "ConstantRequired") == 1
+    assert AcCodeRow(analysis, "ConstantRequired") == plainCodeRowConstantRequired
+    assert AcCodeAnchor(analysis, "ConstantRequired") == plainCodeAnchorConstantRequired
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == richCensus
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == richAcRow0
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == richAcSnippet0
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "ConstantRequired") == 1
+    assert AcCodeErrorCount(rich, "ConstantRequired") == 1
+    assert AcCodeRow(rich, "ConstantRequired") == richCodeRowConstantRequired
+    assert AcCodeAnchor(rich, "ConstantRequired") == richCodeAnchorConstantRequired
+    assert AcRow(rich, 0).Contains(expectedMessage)
+    assert AcRow(analysis, 0).Contains(expectedMessage)
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 1:18+1 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_NoMatchingClrConstructor_ReportBeforeEmission)" {
+    source := "[System.Obsolete(1)]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL402:NoMatchingOverload@1:18+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NoMatchingOverload|No constructor of attribute 'System.ObsoleteAttribute' accepts 1 positional argument(s) with these types: int|Check the attribute constructor argument count and types.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(analysis, "NoMatchingOverload") == 1
+    assert AcCodeRow(analysis, "NoMatchingOverload") == "NoMatchingOverload|No constructor of attribute 'System.ObsoleteAttribute' accepts 1 positional argument(s) with these types: int|Check the attribute constructor argument count and types.|Error"
+    assert AcCodeAnchor(analysis, "NoMatchingOverload") == "NL402@1:18+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL402:NoMatchingOverload@1:18+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NoMatchingOverload|No constructor of attribute 'System.ObsoleteAttribute' accepts 1 positional argument(s) with these types: int|Check the attribute constructor argument count and types.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[System.Obsolete(1)]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeErrorCount(rich, "NoMatchingOverload") == 1
+    assert AcCodeRow(rich, "NoMatchingOverload") == "NoMatchingOverload|No constructor of attribute 'System.ObsoleteAttribute' accepts 1 positional argument(s) with these types: int|Check the attribute constructor argument count and types.|Error"
+    assert AcCodeAnchor(rich, "NoMatchingOverload") == "NL402@1:18+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL303` at 1:27+5; the plain route underlines 1 column where production underlines 5 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_UnknownClrNamedMember_ReportBeforeEmission)" {
+    source := "[System.Obsolete(message: \"bad\")]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@1:27+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Attribute 'System.ObsoleteAttribute' has no public settable property or field named 'message'|Use a named argument exposed by the attribute type.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Attribute 'System.ObsoleteAttribute' has no public settable property or field named 'message'|Use a named argument exposed by the attribute type.|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@1:27+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@1:27+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "UndefinedMember|Attribute 'System.ObsoleteAttribute' has no public settable property or field named 'message'|Use a named argument exposed by the attribute type.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[System.Obsolete(message: \"bad\")]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedMember") == 1
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 1
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Attribute 'System.ObsoleteAttribute' has no public settable property or field named 'message'|Use a named argument exposed by the attribute type.|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@1:27+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 1:32+1 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_ClrNamedMemberTypeMismatch_ReportBeforeEmission)" {
+    source := "[System.Obsolete(DiagnosticId: 1)]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@1:32+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Attribute named argument 'DiagnosticId' on 'System.ObsoleteAttribute' expects 'string!' but got 'int'|Use a value whose type matches the attribute property or field.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Attribute named argument 'DiagnosticId' on 'System.ObsoleteAttribute' expects 'string!' but got 'int'|Use a value whose type matches the attribute property or field.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@1:32+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@1:32+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Attribute named argument 'DiagnosticId' on 'System.ObsoleteAttribute' expects 'string!' but got 'int'|Use a value whose type matches the attribute property or field.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[System.Obsolete(DiagnosticId: 1)]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Attribute named argument 'DiagnosticId' on 'System.ObsoleteAttribute' expects 'string!' but got 'int'|Use a value whose type matches the attribute property or field.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@1:32+1"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL303` at 3:34+4; production carries a `ContextualHint` the plain route leaves null — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_UnknownClrEnumMember_ReportBeforeEmission)" {
+    source := "import System\n\n[AttributeUsage(AttributeTargets.Nope)]\nclass MarkerAttribute: Attribute {\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@3:34+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'Nope' not found on type 'AttributeTargets'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'Nope' not found on type 'AttributeTargets'|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@3:34+4"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@3:34+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "UndefinedMember|Member 'Nope' not found on type 'AttributeTargets'|<null>|Error"
+    assert AcHint(rich, 0) == "The type `AttributeTargets` does not have a member named `Nope`.\nCheck the type's documentation for available members."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[AttributeUsage(AttributeTargets.Nope)]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find a member called `Nope` on type `AttributeTargets`:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedMember") == 1
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 1
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'Nope' not found on type 'AttributeTargets'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@3:34+4"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL303` at 1:25+4; production carries a `ContextualHint` the plain route leaves null — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_UnknownClrStaticMember_ReportBeforeEmission)" {
+    source := "[System.Obsolete(string.Nope)]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@1:25+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'Nope' not found on type 'string'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'Nope' not found on type 'string'|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@1:25+4"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@1:25+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "UndefinedMember|Member 'Nope' not found on type 'string'|<null>|Error"
+    assert AcHint(rich, 0) == "The type `string` does not have a member named `Nope`.\nCheck the type's documentation for available members."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[System.Obsolete(string.Nope)]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find a member called `Nope` on type `string`:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedMember") == 1
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 1
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'Nope' not found on type 'string'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@1:25+4"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL303` at 5:23+4 and 5:2+7; production carries a `ContextualHint` the plain route leaves null — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_UnknownSourceEnumMember_ReportBeforeEmission)" {
+    source := "enum LocalTargets {\n    Good\n}\n\n[Missing(LocalTargets.Nope)]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@5:23+4;NL202:TypeMismatch@5:2+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'Nope' not found on type 'LocalTargets'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeMismatch|Attribute type 'Missing!' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Attribute type 'Missing!' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:2+7"
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'Nope' not found on type 'LocalTargets'|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@5:23+4"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@5:23+4;NL202:TypeMismatch@5:2+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "UndefinedMember|Member 'Nope' not found on type 'LocalTargets'|<null>|Error"
+    assert AcHint(rich, 0) == "The type `LocalTargets` does not have a member named `Nope`.\nCheck the type's documentation for available members."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[Missing(LocalTargets.Nope)]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find a member called `Nope` on type `LocalTargets`:"
+    assert AcRow(rich, 1) == "TypeMismatch|Attribute type 'Missing!' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "[Missing(LocalTargets.Nope)]"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Attribute type 'Missing!' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:2+7"
+    assert AcCodeCount(rich, "UndefinedMember") == 1
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 1
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'Nope' not found on type 'LocalTargets'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@5:23+4"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL201` at 1:2+40 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_MissingAttributeType_ReportBeforeEmission)" {
+    source := "[DefinitelyMissingNSharpCompilerAttribute]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@1:2+40;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Attribute type 'DefinitelyMissingNSharpCompilerAttribute' not found|Check the spelling, add the missing 'import', or define an attribute class named 'DefinitelyMissingNSharpCompilerAttribute'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeNotFound") == 1
+    assert AcCodeErrorCount(analysis, "TypeNotFound") == 1
+    assert AcCodeRow(analysis, "TypeNotFound") == "TypeNotFound|Attribute type 'DefinitelyMissingNSharpCompilerAttribute' not found|Check the spelling, add the missing 'import', or define an attribute class named 'DefinitelyMissingNSharpCompilerAttribute'.|Error"
+    assert AcCodeAnchor(analysis, "TypeNotFound") == "NL201@1:2+40"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@1:2+40;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Attribute type 'DefinitelyMissingNSharpCompilerAttribute' not found|Check the spelling, add the missing 'import', or define an attribute class named 'DefinitelyMissingNSharpCompilerAttribute'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[DefinitelyMissingNSharpCompilerAttribute]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeNotFound") == 1
+    assert AcCodeErrorCount(rich, "TypeNotFound") == 1
+    assert AcCodeRow(rich, "TypeNotFound") == "TypeNotFound|Attribute type 'DefinitelyMissingNSharpCompilerAttribute' not found|Check the spelling, add the missing 'import', or define an attribute class named 'DefinitelyMissingNSharpCompilerAttribute'.|Error"
+    assert AcCodeAnchor(rich, "TypeNotFound") == "NL201@1:2+40"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 1:2+13 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_ClrNonAttributeType_ReportBeforeEmission)" {
+    source := "[System.String]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@1:2+13;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Attribute type 'string!' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Attribute type 'string!' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@1:2+13"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@1:2+13;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Attribute type 'string!' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[System.String]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Attribute type 'string!' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@1:2+13"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:2+5 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_SourceNonAttributeType_ReportBeforeEmission)" {
+    source := "class Plain {\n}\n\n[Plain]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@4:2+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Attribute type 'Plain' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Attribute type 'Plain' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@4:2+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@4:2+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Attribute type 'Plain' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[Plain]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Attribute type 'Plain' must derive from System.Attribute|Use a CLR attribute type or define a class that inherits System.Attribute.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:2+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL323` at 4:2+6 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_SourceDefinedAttribute_ReportBeforeEmission)" {
+    source := "class MarkerAttribute: System.Attribute {\n}\n\n[Marker]\nfunc Bad(): int {\n    return 0\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL323:FeatureNotImplemented@4:2+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "FeatureNotImplemented|Source-defined attribute 'Marker' is not supported by IL emission yet|Use an attribute type from a referenced CLR assembly for now.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
+    assert AcCodeRow(analysis, "FeatureNotImplemented") == "FeatureNotImplemented|Source-defined attribute 'Marker' is not supported by IL emission yet|Use an attribute type from a referenced CLR assembly for now.|Error"
+    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == "NL323@4:2+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL323:FeatureNotImplemented@4:2+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "FeatureNotImplemented|Source-defined attribute 'Marker' is not supported by IL emission yet|Use an attribute type from a referenced CLR assembly for now.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "[Marker]"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeErrorCount(rich, "FeatureNotImplemented") == 1
+    assert AcCodeRow(rich, "FeatureNotImplemented") == "FeatureNotImplemented|Source-defined attribute 'Marker' is not supported by IL emission yet|Use an attribute type from a referenced CLR assembly for now.|Error"
+    assert AcCodeAnchor(rich, "FeatureNotImplemented") == "NL323@4:2+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL310` at 6:6+5 — the deleted method drove the production four-argument route (was AnalyzerTests.TableDrivenTestCases_UnsupportedExpressions_ReportConstantRequired)" {
+    source := "func build(): int {\n    return 1\n}\n\ntest \"bad table case\" with (value: int) [\n    (build())\n] {\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL310:ConstantRequired@6:6+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ConstantRequired|Table-driven test case values must be compile-time constants; call is not supported here|Use literal int, float, char, string, bool, or null values in table rows.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ConstantRequired") == 1
+    assert AcCodeErrorCount(analysis, "ConstantRequired") == 1
+    assert AcCodeRow(analysis, "ConstantRequired") == "ConstantRequired|Table-driven test case values must be compile-time constants; call is not supported here|Use literal int, float, char, string, bool, or null values in table rows.|Error"
+    assert AcCodeAnchor(analysis, "ConstantRequired") == "NL310@6:6+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL310:ConstantRequired@6:6+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ConstantRequired|Table-driven test case values must be compile-time constants; call is not supported here|Use literal int, float, char, string, bool, or null values in table rows.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    (build())"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "ConstantRequired") == 1
+    assert AcCodeErrorCount(rich, "ConstantRequired") == 1
+    assert AcCodeRow(rich, "ConstantRequired") == "ConstantRequired|Table-driven test case values must be compile-time constants; call is not supported here|Use literal int, float, char, string, bool, or null values in table rows.|Error"
+    assert AcCodeAnchor(rich, "ConstantRequired") == "NL310@6:6+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` at 2:6+6 and 2:14+2; the plain route underlines 1 column where production underlines 6 — the deleted method drove the production four-argument route (was AnalyzerTests.TableDrivenTestCases_TypeMismatches_ReportTypeMismatch)" {
+    source := "test \"bad table case type\" with (value: int, label: string) [\n    (\"nope\", 42)\n] {\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@2:6+1;NL202:TypeMismatch@2:14+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "TypeMismatch|Table-driven test case value for 'value' is 'string', but the table header declares 'int'|Change the literal or the 'value' parameter type so the row value matches.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeMismatch|Table-driven test case value for 'label' is 'int', but the table header declares 'string'|Change the literal or the 'label' parameter type so the row value matches.|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 2
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 2
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Table-driven test case value for 'value' is 'string', but the table header declares 'int'|Change the literal or the 'value' parameter type so the row value matches.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@2:6+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@2:6+6;NL202:TypeMismatch@2:14+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "TypeMismatch|Table-driven test case value for 'value' is 'string', but the table header declares 'int'|Change the literal or the 'value' parameter type so the row value matches.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    (\"nope\", 42)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "TypeMismatch|Table-driven test case value for 'label' is 'int', but the table header declares 'string'|Change the literal or the 'label' parameter type so the row value matches.|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "    (\"nope\", 42)"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 2
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 2
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Table-driven test case value for 'value' is 'string', but the table header declares 'int'|Change the literal or the 'value' parameter type so the row value matches.|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@2:6+6"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:12+5; the plain route underlines 1 column where production underlines 5, and it points at 3:5 rather than 3:12, the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null, **and what the deleted assertion pinned is NOT true of the other route** — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.AnonymousUnion_RejectsAssignmentWhenNotEveryArmFitsTarget)" {
+    source := "\nfunc Bad(value: int | string): string {\n    return value\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:5+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'Bad' should return 'string', but this return statement gives back 'int | string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Function 'Bad' should return 'string', but this return statement gives back 'int | string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:5+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:12+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Function 'Bad' should return string but returns int | string|<null>|Error"
+    assert AcHint(rich, 0) == "`Bad` is declared to return `string`, so every returned value must be assignable to `string`."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    return value"
+    assert AcTypes(rich, 0) == "int | string|string"
+    assert AcExplanation(rich, 0) == "This return value does not match `Bad`'s return type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Function 'Bad' should return string but returns int | string|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:12+5"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 3 rows, `NL306` at 2:17+9 and 2:17+9 and 2:17+9 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.AnonymousUnion_RejectsDuplicateArms)" {
+    source := "\nfunc Bad(value: int | int): void {\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@2:17+9;NL306:DuplicateDeclaration@2:17+9;NL306:DuplicateDeclaration@2:17+9;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 3
+    assert AcRow(analysis, 0) == "DuplicateDeclaration|Anonymous union type repeats arm 'int'. Each arm must be unique.|Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "DuplicateDeclaration|Anonymous union type repeats arm 'int'. Each arm must be unique.|Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "DuplicateDeclaration|Anonymous union type repeats arm 'int'. Each arm must be unique.|Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.|Error"
+    assert AcHint(analysis, 2) == "<null>"
+    assert AcSuggestions(analysis, 2) == "<null>"
+    assert AcSnippet(analysis, 2) == "<null>"
+    assert AcTypes(analysis, 2) == "<null>|<null>"
+    assert AcExplanation(analysis, 2) == "<null>"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+    assert AcCodeCount(analysis, "DuplicateDeclaration") == 3
+    assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 3
+    assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|Anonymous union type repeats arm 'int'. Each arm must be unique.|Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.|Error"
+    assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@2:17+9"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@2:17+9;NL306:DuplicateDeclaration@2:17+9;NL306:DuplicateDeclaration@2:17+9;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 3
+    assert AcRow(rich, 0) == "DuplicateDeclaration|Anonymous union type repeats arm 'int'. Each arm must be unique.|Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "func Bad(value: int | int): void {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "DuplicateDeclaration|Anonymous union type repeats arm 'int'. Each arm must be unique.|Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "func Bad(value: int | int): void {"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "DuplicateDeclaration|Anonymous union type repeats arm 'int'. Each arm must be unique.|Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.|Error"
+    assert AcHint(rich, 2) == "<null>"
+    assert AcSuggestions(rich, 2) == "<null>"
+    assert AcSnippet(rich, 2) == "func Bad(value: int | int): void {"
+    assert AcTypes(rich, 2) == "<null>|<null>"
+    assert AcExplanation(rich, 2) == "<null>"
+    assert AcRow(rich, 3) == "<no-such-error>"
+    assert AcCodeCount(rich, "DuplicateDeclaration") == 3
+    assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 3
+    assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|Anonymous union type repeats arm 'int'. Each arm must be unique.|Remove the duplicate arm, or declare a named union if the repeated shape represents different cases.|Error"
+    assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@2:17+9"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports 3 rows, `NL207` at 2:17+19 and 2:17+19 and 2:17+19 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.AnonymousUnion_RejectsMoreThanTwoArms)" {
+    source := "\nfunc Bad(value: int | string | bool): void {\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL207:InvalidTypeArgument@2:17+19;NL207:InvalidTypeArgument@2:17+19;NL207:InvalidTypeArgument@2:17+19;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 3
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Anonymous union types support exactly two arms in v1; this union has 3 arms.|Declare a named `union` for larger variants.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "InvalidTypeArgument|Anonymous union types support exactly two arms in v1; this union has 3 arms.|Declare a named `union` for larger variants.|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcSnippet(analysis, 1) == "<null>"
+    assert AcTypes(analysis, 1) == "<null>|<null>"
+    assert AcExplanation(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "InvalidTypeArgument|Anonymous union types support exactly two arms in v1; this union has 3 arms.|Declare a named `union` for larger variants.|Error"
+    assert AcHint(analysis, 2) == "<null>"
+    assert AcSuggestions(analysis, 2) == "<null>"
+    assert AcSnippet(analysis, 2) == "<null>"
+    assert AcTypes(analysis, 2) == "<null>|<null>"
+    assert AcExplanation(analysis, 2) == "<null>"
+    assert AcRow(analysis, 3) == "<no-such-error>"
+    assert AcCodeCount(analysis, "InvalidTypeArgument") == 3
+    assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 3
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Anonymous union types support exactly two arms in v1; this union has 3 arms.|Declare a named `union` for larger variants.|Error"
+    assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@2:17+19"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL207:InvalidTypeArgument@2:17+19;NL207:InvalidTypeArgument@2:17+19;NL207:InvalidTypeArgument@2:17+19;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 3
+    assert AcRow(rich, 0) == "InvalidTypeArgument|Anonymous union types support exactly two arms in v1; this union has 3 arms.|Declare a named `union` for larger variants.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "func Bad(value: int | string | bool): void {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "InvalidTypeArgument|Anonymous union types support exactly two arms in v1; this union has 3 arms.|Declare a named `union` for larger variants.|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcSuggestions(rich, 1) == "<null>"
+    assert AcSnippet(rich, 1) == "func Bad(value: int | string | bool): void {"
+    assert AcTypes(rich, 1) == "<null>|<null>"
+    assert AcExplanation(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "InvalidTypeArgument|Anonymous union types support exactly two arms in v1; this union has 3 arms.|Declare a named `union` for larger variants.|Error"
+    assert AcHint(rich, 2) == "<null>"
+    assert AcSuggestions(rich, 2) == "<null>"
+    assert AcSnippet(rich, 2) == "func Bad(value: int | string | bool): void {"
+    assert AcTypes(rich, 2) == "<null>|<null>"
+    assert AcExplanation(rich, 2) == "<null>"
+    assert AcRow(rich, 3) == "<no-such-error>"
+    assert AcCodeCount(rich, "InvalidTypeArgument") == 3
+    assert AcCodeErrorCount(rich, "InvalidTypeArgument") == 3
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Anonymous union types support exactly two arms in v1; this union has 3 arms.|Declare a named `union` for larger variants.|Error"
+    assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@2:17+19"
+}
+
+test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 3:12+5 — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.AnonymousUnion_MatchRequiresEveryArm)" {
+    source := "\nfunc Describe(value: int | string): int {\n    return match value {\n        int number => number,\n    }\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL501:NonExhaustiveMatch@3:12+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "NonExhaustiveMatch|This match doesn't cover all anonymous union arms — missing: string|Add an arm for each missing type, or add a wildcard `_` arm.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(analysis, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(analysis, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all anonymous union arms — missing: string|Add an arm for each missing type, or add a wildcard `_` arm.|Error"
+    assert AcCodeAnchor(analysis, "NonExhaustiveMatch") == "NL501@3:12+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL501:NonExhaustiveMatch@3:12+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "NonExhaustiveMatch|This match doesn't cover all anonymous union arms — missing: string|Add an arm for each missing type, or add a wildcard `_` arm.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    return match value {"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
+    assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all anonymous union arms — missing: string|Add an arm for each missing type, or add a wildcard `_` arm.|Error"
+    assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@3:12+5"
 }

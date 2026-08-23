@@ -177,7 +177,9 @@ and production calls the one 73 of the 82 deleted assertions never drove.** A re
 finds exactly TWO production call sites and both pass all four arguments —
 `MultiFileCompiler.cs:282` (the compiler) and `DocumentManager.cs:277` (the IDE); the one-argument
 overload has ZERO production callers. `AssertNoErrors`, `AssertHasError`, `AssertHasStrictError` and
-`AssertNoWarning` all pass one. Over these 82 fixtures the two entry points
+`AssertNoWarning` all pass one. (`AssertHasError` is gone as of slice 32, which measured the cost of
+that: 32 of its 79 message claims are false on the route production actually takes.) Over these 82
+fixtures the two entry points
 agree on every CODE and disagree otherwise: **22 of the 33 reporting fixtures get a different COLUMN
 or LENGTH** (the plain route anchors `NL202` on the declared NAME one column wide, the production route
 on the VALUE and underlines all of it; `NL506` is `is` two columns plain and `is string` nine rich);
@@ -295,6 +297,46 @@ every analysis row is provably the analyzer's own.
 delegate` lives in `ErrorMessageBuilder.nl` (production route) AND in
 `AnalyzerReflectionCallReporter.nl` (plain route); mutating either moves exactly 5 native contracts,
 which is what pinning both routes on every fixture buys.
+
+**TRANCHE 4 — the REST of the `AnalyzeWithSource` + `ErrorCode` shape, which goes to ZERO, plus the
+WHOLE 79-method `AssertHasError` family — followed in slice 32, and `AssertHasError` died with its
+last consumer.** 112 methods (111 `[Fact]` + 1 `[Theory]`), 1,515 declaration lines, 1,689 deleted
+C# lines across 53 runs, 254 assert-statement instances, 114 fixtures and 282 decoded claim rows,
+extending `tests/native/analyzer-clean-source` again (project count still 39). Both `ErrorCode`
+shapes are now at zero and the residue is 327 methods over 4,809 declaration lines.
+
+**THE HEADLINE IS THAT `AssertHasError` PINNED SENTENCES THE SHIPPING COMPILER DOES NOT WRITE.** The
+helper reached the ONE-ARGUMENT `Analyze(unit)` overload. Running all 114 fixtures through both
+entry points and re-deciding all 282 claims against each: every claim holds on its own method's
+route (`0 fail`), and **40 of the 282 are FALSE on the other route** — 32 of them `AssertHasError`
+message substrings that production never emits, spread over 32 of the 79 family members. Slice 31
+found 2 such rows; this tranche finds 40. **And the plain route does not merely under-measure — it
+points somewhere else**: over 126 row pairs, 31 LENGTH differences (all 31 with `plain = 1`, the
+third tranche running), **20 COLUMN differences, all 20 with `plain < rich`** — the plain route
+anchors on the start of the declaration where production anchors on the offending VALUE — and **one
+LINE difference**, `VoidFunctionReturnValue_Error` at 3:17+1 plain against 2:18+9 production, the
+plain route blaming the `return` and production blaming the signature with no return type. Codes,
+severities and row counts agree everywhere: the routes always agree on WHAT and HOW MANY and
+disagree about WHERE and WHAT IT SAYS.
+
+**EIGHT OF THE NINE ABSENCE CLAIMS WERE VACUOUS — the worst ratio the campaign has measured.** Eight
+fixtures report NOTHING AT ALL on either route, and control V2 renames five of their absence claims
+to a DIFFERENT absent code without moving the comparator; V3 makes the same edit on the one
+discriminating claim and loses a row; V1 strips the empty-census and zero-count pins from the eight
+N# contracts and loses eight.
+
+**TWO INSTRUMENT DEFECTS WERE FOUND IN THE DECODER BEFORE ANY NUMBER WAS TRUSTED.** Anchoring the
+attribute finder with `^(\s*)\[` lets `\s` eat the preceding NEWLINE, so every method preceded by a
+blank line is measured one line early — it made the residue read 7,207 declaration lines instead of
+6,324. And blanking comments by looking for `//` in non-code text destroys a `//` that is TEXT
+inside a raw string literal, swallowing a whole method body. Use `[ \t]*`, and identify comments
+from the scanner rather than by re-scanning for the delimiter.
+
+**AND THE `Code|Message|Suggestion|Severity` PIN ENCODING IS AMBIGUOUS.** `AcRow` joins the four
+fields with a bare `|`, and the anonymous-union sentence CONTAINS one (`int | string`), so a
+left-to-right split mis-reads it. Code is the first field and Severity the last; no suggestion in
+the corpus carries a `|` (measured: 0 of 252 rows), so the message is everything between the first
+field and the last two.
 
 **Why the estate half is EMPTY here is itself a measurement.** `SemanticModel.nl` IS N# in the
 estate and `SemanticModel.tests.nl` already owns its ALGEBRA — it constructs a model directly,

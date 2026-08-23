@@ -1061,10 +1061,27 @@ Analyzer coverage is split deliberately across:
   report nothing at all — and that `Method 'X' must be called or passed to a delegate` has TWO
   owners, `ErrorMessageBuilder.nl` for the rich route and `AnalyzerReflectionCallReporter.nl` for
   the plain one, each moving exactly 5 native contracts when mutated.
+  **Slice 32 extended it again with TRANCHE 4** — the REST of the `AnalyzeWithSource` + `ErrorCode`
+  shape, which goes to ZERO, plus the WHOLE 79-method `AssertHasError` family, after which
+  **`AssertHasError` dies with its last consumer**: 112 methods, 1,515 declaration lines and 1,689
+  C# lines across 53 runs, 114 fixtures, 282 claim rows, and two new kernels (`AcTypes` for the
+  `ActualType`/`ExpectedType` pair and `AcExplanation` for `HumanExplanation`, both fields no
+  contract in the arc had read). Its headline is that **`AssertHasError` pinned sentences the
+  shipping compiler does not write**: the helper reached the one-argument `Analyze(unit)`, and of
+  the 282 deleted claims — all of which hold on their own route — **40 are false on the other one**,
+  32 of those being `AssertHasError` message substrings production never emits, over 32 of the 79
+  family members. The positional gap widened too: 31 length differences (all with `plain = 1`),
+  **20 COLUMN differences all with `plain < rich`** (the plain route anchors the declaration, the
+  production route the offending value), and **one whole-LINE difference** where the plain route
+  blames the `return` statement and production blames the signature with no return type. Codes,
+  severities and row counts are identical on both routes everywhere. **Eight of its nine absence
+  claims were vacuous** — eight fixtures report nothing at all — the campaign's worst ratio.
 - `tests/AnalyzerTests.cs` for the REMAINING analyzer-shell diagnostics, flow analysis, call
-  binding, and end-to-end semantic behavior — 7,332 lines and 436 `[Fact]` + 3 `[Theory]` after
-  slice 31, still shrinking through the campaign's remaining tranches, which are now cut by shape
-  rather than by region or by name.
+  binding, and end-to-end semantic behavior — 5,643 lines and 325 `[Fact]` + 2 `[Theory]` after
+  slice 32, still shrinking through the campaign's remaining tranches, which are now cut by shape
+  rather than by region or by name. The residue is 281 `AssertNoErrors`, 26 `AnalyzeWithSource`
+  with no `ErrorCode`, 15 direct `Analyze` with no `ErrorCode`, and 5 that build their own
+  `new Analyzer()`.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

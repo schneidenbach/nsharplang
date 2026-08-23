@@ -46,13 +46,6 @@ public class AnalyzerTests
                 : "");
     }
 
-    private void AssertHasError(string source, string expectedMessage)
-    {
-        var result = Analyze(source);
-        Assert.True(result.HasErrors, "Expected errors but got none");
-        Assert.Contains(result.Errors, e => e.Message.Contains(expectedMessage));
-    }
-
     [Fact]
     public void UserDefinedOk_IsNotHijackedByResultFactory()
     {
@@ -125,16 +118,6 @@ func removeKeyAndValue(): string {
 
     return ""missing""
 }");
-    }
-
-    [Fact]
-    public void ExplicitVarTypeAnnotation_IsRejected()
-    {
-        AssertHasError(@"
-func main(): int {
-    let value: var = 42
-    return value
-}", "'var' is not a type");
     }
 
     [Fact]
@@ -234,16 +217,6 @@ func main(): int {
                 let x: int = 42
             }
         ");
-    }
-
-    [Fact]
-    public void VariableDeclaration_TypeMismatch()
-    {
-        AssertHasError(@"
-            func Main() {
-                let x: string = 42
-            }
-        ", "is typed as");
     }
 
     [Fact]
@@ -389,25 +362,6 @@ func main(): int {
         ");
     }
 
-    [Fact]
-    public void ConstWithoutInitializer_Error()
-    {
-        AssertHasError(@"
-            func Main() {
-                const x: int
-            }
-        ", "must have an initial value");
-    }
-
-    [Fact]
-    public void UndefinedVariable_Error()
-    {
-        AssertHasError(@"
-            func Main() {
-                x := y
-            }
-        ", "I can't find 'y'");
-    }
 
     [Fact]
     public void BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember()
@@ -443,35 +397,7 @@ func Main() {
         ");
     }
 
-    [Fact]
-    public void ReturnTypeMismatch_Error()
-    {
-        AssertHasError(@"
-            func GetName(): string {
-                return 42
-            }
-        ", "should return 'string'");
-    }
 
-    [Fact]
-    public void VoidFunctionReturnValue_Error()
-    {
-        AssertHasError(@"
-            func DoNothing() {
-                return 42
-            }
-        ", "no return type annotation");
-    }
-
-    [Fact]
-    public void ExplicitVoidFunctionReturnValue_Error()
-    {
-        AssertHasError(@"
-            func DoNothing(): void {
-                return 42
-            }
-        ", "declared to return 'void'");
-    }
 
     [Fact]
     public void GeneratorSequenceReturnTypes_AreValid()
@@ -497,69 +423,10 @@ func Main() {
             """);
     }
 
-    [Fact]
-    public void ExpressionBodiedFunctionWithoutReturnType_ReturnValue_Error()
-    {
-        AssertHasError(@"
-            func Answer() => 42
-        ", "no return type annotation");
-    }
 
-    [Fact]
-    public void IfConditionMustBeBoolean()
-    {
-        AssertHasError(@"
-            func Main() {
-                if 42 {
 
-                }
-            }
-        ", "must be a boolean");
-    }
 
-    [Fact]
-    public void WhileConditionMustBeBoolean()
-    {
-        AssertHasError(@"
-            func Main() {
-                while 42 {
 
-                }
-            }
-        ", "must be a boolean");
-    }
-
-    [Fact]
-    public void ForConditionMustBeBoolean()
-    {
-        AssertHasError(@"
-            func Main() {
-                for i := 0; ""test""; i++ {
-
-                }
-            }
-        ", "must be a boolean");
-    }
-
-    [Fact]
-    public void BreakOutsideLoop_Error()
-    {
-        AssertHasError(@"
-            func Main() {
-                break
-            }
-        ", "can only be used inside a loop");
-    }
-
-    [Fact]
-    public void ContinueOutsideLoop_Error()
-    {
-        AssertHasError(@"
-            func Main() {
-                continue
-            }
-        ", "can only be used inside a loop");
-    }
 
     [Fact]
     public void BreakInsideLoop_Valid()
@@ -668,17 +535,6 @@ func Main() {
     }
 
     [Fact]
-    public void DuplicateSymbol_Error()
-    {
-        AssertHasError(@"
-            func Main() {
-                x := 1
-                x := 2
-            }
-        ", "already declared");
-    }
-
-    [Fact]
     public void ScopeNesting_NestedBlockWithDistinctName_IsValid()
     {
         AssertNoErrors(@"
@@ -705,32 +561,6 @@ func Main() {
         ");
     }
 
-    [Fact]
-    public void BinaryArithmetic_BytePlusByte_ProducesInt()
-    {
-        // N# binary numeric promotion: byte + byte = int
-        // getA/getB return byte, so a+b should be int, not assignable back to byte
-        AssertHasError(@"
-            func getA(): byte { return 0 as byte }
-            func getB(): byte { return 0 as byte }
-            func Main() {
-                c: byte = getA() + getB()
-            }
-        ", "is typed as");
-    }
-
-    [Fact]
-    public void BinaryArithmetic_ShortPlusShort_ProducesInt()
-    {
-        // N# binary numeric promotion: short + short = int
-        AssertHasError(@"
-            func getA(): short { return 0 as short }
-            func getB(): short { return 0 as short }
-            func Main() {
-                c: short = getA() + getB()
-            }
-        ", "is typed as");
-    }
 
     [Fact]
     public void BinaryArithmetic_SmallTypes_AssignableToInt()
@@ -745,43 +575,7 @@ func Main() {
         ");
     }
 
-    [Fact]
-    public void BinaryArithmetic_DecimalPlusDouble_Error()
-    {
-        // ECMA-334 §12.4.7: decimal cannot mix with float/double
-        AssertHasError(@"
-            func getD(): decimal { return 0 as decimal }
-            func getF(): double { return 0.0 }
-            func Main() {
-                x := getD() + getF()
-            }
-        ", "doesn't work with");
-    }
 
-    [Fact]
-    public void BinaryArithmetic_DecimalPlusFloat_Error()
-    {
-        AssertHasError(@"
-            func getD(): decimal { return 0 as decimal }
-            func getF(): float { return 0 as float }
-            func Main() {
-                x := getD() + getF()
-            }
-        ", "doesn't work with");
-    }
-
-    [Fact]
-    public void BinaryArithmetic_UlongPlusInt_Error()
-    {
-        // ECMA-334 §12.4.7: ulong cannot mix with signed types
-        AssertHasError(@"
-            func getU(): ulong { return 0 as ulong }
-            func getI(): int { return 0 }
-            func Main() {
-                x := getU() + getI()
-            }
-        ", "doesn't work with");
-    }
 
     [Fact]
     public void BinaryArithmetic_DecimalPlusDecimal_Ok()
@@ -874,16 +668,6 @@ func Main() {
                 other: decimal = 1.25m
             }
         ");
-    }
-
-    [Fact]
-    public void BinaryArithmetic_InvalidOperands()
-    {
-        AssertHasError(@"
-            func Main() {
-                x := ""hello"" - ""world""
-            }
-        ", "doesn't work with");
     }
 
     [Fact]
@@ -1066,25 +850,6 @@ func CountLetters(text: string): int {
         ");
     }
 
-    [Fact]
-    public void LogicalOperators_RequireBoolean()
-    {
-        AssertHasError(@"
-            func Main() {
-                x := 1 && 2
-            }
-        ", "must be booleans");
-    }
-
-    [Fact]
-    public void TernaryConditionMustBeBoolean()
-    {
-        AssertHasError(@"
-            func Main() {
-                x := 42 ? 1 : 2
-            }
-        ", "must be a boolean");
-    }
 
     [Fact]
     public void ArrayLiteral_UniformTypes()
@@ -1180,17 +945,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void EnumDeclaration_DuplicateMembers()
-    {
-        AssertHasError(@"
-            enum Status {
-                Pending,
-                Pending
-            }
-        ", "is already defined");
-    }
-
-    [Fact]
     public void UnionDeclaration_Valid()
     {
         AssertNoErrors(@"
@@ -1199,17 +953,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 Failure { error: string }
             }
         ");
-    }
-
-    [Fact]
-    public void UnionDeclaration_DuplicateCases()
-    {
-        AssertHasError(@"
-            union Result {
-                Success { value: int }
-                Success { error: string }
-            }
-        ", "is already defined");
     }
 
     [Fact]
@@ -1239,37 +982,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-    [Fact]
-    public void GenericUnionConstruction_MissingTypeArguments_Error()
-    {
-        AssertHasError(@"
-            union Result<T> {
-                Success { value: T }
-                Failure { error: string }
-            }
-
-            func main(): int {
-                r := new Result.Success { value: 42 }
-                return 0
-            }
-        ", "requires 1 type argument");
-    }
-
-    [Fact]
-    public void GenericUnionConstruction_WrongArity_Error()
-    {
-        AssertHasError(@"
-            union Result<T> {
-                Success { value: T }
-                Failure { error: string }
-            }
-
-            func main(): int {
-                r := new Result.Success<int, string> { value: 42 }
-                return 0
-            }
-        ", "takes 1 type argument(s), but 2 were provided");
-    }
 
     [Fact]
     public void GenericUnionConstruction_TargetTyped_InfersFromReturnType()
@@ -1286,37 +998,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-    [Fact]
-    public void GenericUnionAnnotation_WrongArity_Error()
-    {
-        AssertHasError(@"
-            union Result<T> {
-                Success { value: T }
-                Failure { error: string }
-            }
-
-            func handle(r: Result<int, string>): int {
-                return 0
-            }
-        ", "takes 1 type argument(s), but 2 were provided");
-    }
-
-    [Fact]
-    public void GenericUnionMatch_NonExhaustive_Error()
-    {
-        AssertHasError(@"
-            union Result<T> {
-                Success { value: T }
-                Failure { error: string }
-            }
-
-            func handle(r: Result<int>): int {
-                return match r {
-                    Result.Success { value } => value
-                }
-            }
-        ", "doesn't cover");
-    }
 
     [Fact]
     public void GenericUnionMatch_BindingSubstitutesTypeArgument()
@@ -1338,24 +1019,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void GenericUnionMatch_UnknownCase_Error()
-    {
-        AssertHasError(@"
-            union Result<T> {
-                Success { value: T }
-                Failure { error: string }
-            }
-
-            func handle(r: Result<int>): int {
-                return match r {
-                    Result.Bogus { value } => value,
-                    _ => 0
-                }
-            }
-        ", "is not a case of union");
-    }
-
-    [Fact]
     public void ConstructorWithFieldAssignment_Valid()
     {
         AssertNoErrors(@"
@@ -1367,19 +1030,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
             }
         ");
-    }
-
-    [Fact]
-    public void ConstructorMissingFieldAssignment_Error()
-    {
-        AssertHasError(@"
-            class Person {
-                Name: string
-
-                constructor() {
-                }
-            }
-        ", "isn't assigned in this constructor");
     }
 
     [Fact]
@@ -1834,24 +1484,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void ReadonlyField_SetOutsideConstructor_Error()
-    {
-        AssertHasError(@"
-            class MyClass {
-                readonly id: string
-
-                constructor() {
-                    id = ""123""
-                }
-
-                func ChangeId() {
-                    id = ""456""
-                }
-            }
-        ", "readonly");
-    }
-
-    [Fact]
     public void ReadonlyField_IncrementCurrentInstanceInConstructor_Valid()
     {
         AssertNoErrors("""
@@ -2013,102 +1645,8 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-    [Fact]
-    public void DuckInterface_ClassMissingMethod_Error()
-    {
-        AssertHasError(@"
-            duck interface IReader {
-                func Read(): string
-                func Close()
-            }
 
-            class FileReader {
-                func Read(): string {
-                    return ""data""
-                }
-                // Missing Close() method
-            }
 
-            func DoWork(r: IReader) {
-            }
-
-            func Main() {
-                reader := new FileReader()
-                DoWork(reader)
-            }
-        ", "but parameter");
-    }
-
-    [Fact]
-    public void DuckInterface_MethodWrongReturnType_Error()
-    {
-        AssertHasError(@"
-            duck interface IReader {
-                func Read(): string
-            }
-
-            class FileReader {
-                func Read(): int {  // Wrong return type
-                    return 42
-                }
-            }
-
-            func DoWork(r: IReader) {
-            }
-
-            func Main() {
-                reader := new FileReader()
-                DoWork(reader)
-            }
-        ", "but parameter");
-    }
-
-    [Fact]
-    public void DuckInterface_MethodWrongParameterCount_Error()
-    {
-        AssertHasError(@"
-            duck interface IWriter {
-                func Write(data: string)
-            }
-
-            class FileWriter {
-                func Write(data: string, append: bool) {  // Wrong parameter count
-                }
-            }
-
-            func DoWork(w: IWriter) {
-            }
-
-            func Main() {
-                writer := new FileWriter()
-                DoWork(writer)
-            }
-        ", "but parameter");
-    }
-
-    [Fact]
-    public void DuckInterface_MethodWrongParameterType_Error()
-    {
-        AssertHasError(@"
-            duck interface IProcessor {
-                func Process(value: int): string
-            }
-
-            class DataProcessor {
-                func Process(value: string): string {  // Wrong parameter type
-                    return value
-                }
-            }
-
-            func DoWork(p: IProcessor) {
-            }
-
-            func Main() {
-                processor := new DataProcessor()
-                DoWork(processor)
-            }
-        ", "but parameter");
-    }
 
     [Fact]
     public void DuckInterface_MultipleMethodsAllImplemented_Valid()
@@ -2207,85 +1745,8 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-    [Fact]
-    public void MatchExpression_NonExhaustive_MissingCase()
-    {
-        AssertHasError(@"
-            union Result {
-                Success { value: int }
-                Failure { error: string }
-            }
 
-            func Main() {
-                r := new Result.Success { value: 42 }
-                x := match r {
-                    Result.Success { value } => value
-                }
-            }
-        ", "doesn't cover all");
-    }
 
-    [Fact]
-    public void MatchExpression_ConstrainedUnionCaseProperty_DoesNotCoverWholeCase()
-    {
-        AssertHasError(@"
-            union Result {
-                Success { value: int }
-                Failure { error: string }
-            }
-
-            func Main() {
-                r := new Result.Success { value: 42 }
-                x := match r {
-                    Result.Success { value: 0 } => 0,
-                    Result.Failure { error } => 1
-                }
-            }
-        ", "partially covered: Success");
-    }
-
-    [Fact]
-    public void MatchExpression_ConstrainedUnionCaseProperty_ReportsMissingAndPartialCases()
-    {
-        AssertHasError(@"
-            union Result {
-                Success { value: int }
-                Failure { error: string }
-                Pending
-            }
-
-            func Main() {
-                r := new Result.Success { value: 42 }
-                x := match r {
-                    Result.Success { value: 0 } => 0
-                }
-            }
-        ", "missing: Failure, Pending; partially covered: Success");
-    }
-
-    [Fact]
-    public void MatchExpression_NestedConstrainedUnionProperty_DoesNotCoverOuterCase()
-    {
-        AssertHasError(@"
-            union Option {
-                Some { value: int }
-                None
-            }
-
-            union Response {
-                Ok { data: Option }
-                Error { message: string }
-            }
-
-            func Main() {
-                r := new Response.Ok { data: new Option.Some { value: 1 } }
-                x := match r {
-                    Response.Ok { data: Option.Some { value: 0 } } => 0,
-                    Response.Error { message } => 1
-                }
-            }
-        ", "Response.Ok { data: Option.None }");
-    }
 
     [Fact]
     public void MatchExpression_NestedUnionPropertyPattern_BindsInnerValue()
@@ -2348,78 +1809,7 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-    [Fact]
-    public void MatchExpression_NestedUnionPropertyPattern_WrongQualifierDoesNotCoverCase()
-    {
-        AssertHasError(@"
-            union Option {
-                Some { value: int }
-                None
-            }
 
-            union Other {
-                Some { value: int }
-                None
-            }
-
-            union Response {
-                Ok { data: Option }
-                Error { message: string }
-            }
-
-            func Main() {
-                r := new Response.Ok { data: new Option.Some { value: 1 } }
-                x := match r {
-                    Response.Ok { data: Other.Some { value } } => value,
-                    Response.Ok { data: Option.None } => 0,
-                    Response.Error { message } => 0
-                }
-            }
-        ", "'Other.Some' is not a case of union 'Option'");
-    }
-
-    [Fact]
-    public void MatchExpression_TopLevelUnionCasePattern_WrongQualifierDoesNotCoverCase()
-    {
-        AssertHasError(@"
-            union Expected {
-                Case { value: int }
-                Empty
-            }
-
-            union Other {
-                Case { value: int }
-                Empty
-            }
-
-            func Main() {
-                r := new Expected.Case { value: 1 }
-                x := match r {
-                    Other.Case { value } => value,
-                    Expected.Empty => 0
-                }
-            }
-        ", "'Other.Case' is not a case of union 'Expected'");
-    }
-
-    [Fact]
-    public void MatchExpression_TopLevelUnionCasePattern_NamespaceLikeWrongQualifierDoesNotCoverCase()
-    {
-        AssertHasError(@"
-            union Expected {
-                Case { value: int }
-                Empty
-            }
-
-            func Main() {
-                r := new Expected.Case { value: 1 }
-                x := match r {
-                    Other.Expected.Case { value } => value,
-                    Expected.Empty => 0
-                }
-            }
-        ", "'Other.Expected.Case' is not a case of union 'Expected'");
-    }
 
     [Fact]
     public void MatchExpression_NamespacedUnion_AllowsShortQualifier()
@@ -2463,26 +1853,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void MatchExpression_NonExhaustive_MultipleMissingCases()
-    {
-        AssertHasError(@"
-            union Status {
-                Pending { id: int }
-                Active { id: int }
-                Completed { id: int }
-                Failed { id: int }
-            }
-
-            func Main() {
-                s := new Status.Pending { id: 1 }
-                x := match s {
-                    Status.Pending { id } => 0
-                }
-            }
-        ", "doesn't cover all");
-    }
-
-    [Fact]
     public void MatchExpression_PatternBinding_CorrectTypes()
     {
         AssertNoErrors(@"
@@ -2501,43 +1871,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-    [Fact]
-    public void MatchExpression_InvalidUnionCase_Error()
-    {
-        AssertHasError(@"
-            union Result {
-                Success { value: int }
-                Failure { error: string }
-            }
-
-            func Main() {
-                r := new Result.Success { value: 42 }
-                x := match r {
-                    Result.Success { value } => value,
-                    Result.Unknown => 0
-                }
-            }
-        ", "is not a case of union");
-    }
-
-    [Fact]
-    public void MatchExpression_InvalidProperty_Error()
-    {
-        AssertHasError(@"
-            union Result {
-                Success { value: int }
-                Failure { error: string }
-            }
-
-            func Main() {
-                r := new Result.Success { value: 42 }
-                x := match r {
-                    Result.Success { value } => value,
-                    Result.Failure { invalidProp } => 0
-                }
-            }
-        ", "doesn't have a property named");
-    }
 
     [Fact]
     public void MatchExpression_LiteralPatterns_NoExhaustivenessCheck()
@@ -2601,25 +1934,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void MatchExpression_IncompatibleCaseTypes_Error()
-    {
-        AssertHasError(@"
-            union Result {
-                Success { value: int }
-                Failure { error: string }
-            }
-
-            func Main() {
-                r := new Result.Success { value: 42 }
-                x := match r {
-                    Result.Success { value } => value,
-                    Result.Failure { error } => error
-                }
-            }
-        ", "All match arms must return the same type");
-    }
-
-    [Fact]
     public void MatchExpression_WithGuard_Valid()
     {
         AssertNoErrors(@"
@@ -2632,19 +1946,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
             }
         ");
-    }
-
-    [Fact]
-    public void MatchExpression_GuardNotBool_Error()
-    {
-        AssertHasError(@"
-            func Main() {
-                x := 5
-                result := match x {
-                    n when ""not a bool"" => ""value""
-                }
-            }
-        ", "A match guard must be a boolean");
     }
 
     [Fact]
@@ -2689,27 +1990,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void MatchExpression_WithGuards_MissingCases_ReportsError()
-    {
-        // Guards on 2 of 3 cases, no wildcard — should report missing unguarded coverage
-        AssertHasError(@"
-            union Status {
-                Active
-                Inactive
-                Pending
-            }
-
-            func Main() {
-                s := new Status.Active { }
-                msg := match s {
-                    Status.Active when true => ""active"",
-                    Status.Inactive when true => ""inactive""
-                }
-            }
-        ", "doesn't cover all");
-    }
-
-    [Fact]
     public void MatchExpression_WithGuards_AllCasesUnguarded_IsExhaustive()
     {
         // All union cases covered by unguarded arms (some arms also have guards — doesn't matter)
@@ -2730,28 +2010,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
             }
         ");
-    }
-
-    [Fact]
-    public void MatchExpression_AllGuardedNoWildcard_ReportsError()
-    {
-        // Every arm has a guard and no wildcard — non-exhaustive
-        AssertHasError(@"
-            union Status {
-                Active
-                Inactive
-                Pending
-            }
-
-            func Main() {
-                s := new Status.Active { }
-                msg := match s {
-                    Status.Active when true => ""active"",
-                    Status.Inactive when true => ""inactive"",
-                    Status.Pending when true => ""pending""
-                }
-            }
-        ", "doesn't cover all");
     }
 
     [Fact]
@@ -2898,18 +2156,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void CollectionExpression_TypeMismatch_Error()
-    {
-        AssertHasError(@"
-            import System.Collections.Generic
-
-            func Main() {
-                let numbers: List<int> = [""not"", ""ints""]
-            }
-        ", "target collection expects 'int'");
-    }
-
-    [Fact]
     public void CollectionExpression_ArrayStillWorks()
     {
         AssertNoErrors(@"
@@ -2939,32 +2185,7 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-    [Fact]
-    public void ParamsParameter_NotLast_Error()
-    {
-        AssertHasError(@"
-            func Invalid(params numbers: int[], other: string) {
-            }
-        ", "must come last in the parameter list");
-    }
 
-    [Fact]
-    public void ParamsParameter_NotArray_Error()
-    {
-        AssertHasError(@"
-            func Invalid(params value: int) {
-            }
-        ", "must be an array or collection type");
-    }
-
-    [Fact]
-    public void ParamsParameter_InvalidGenericType_ReportsTypeReferenceDisplayName()
-    {
-        AssertHasError(@"
-            func Invalid(params value: Dictionary<string, int>) {
-            }
-        ", "'Dictionary<string, int>' is not a valid params type");
-    }
 
     // Extension Method Resolution Tests
 
@@ -3121,30 +2342,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
             result.Errors.Count > 0
                 ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
                 : "");
-    }
-
-    [Fact]
-    public void ExplicitConversion_DoesNotAllowImplicitAssignment()
-    {
-        var result = AnalyzeWithSource("""
-            class Fraction {
-                Numerator: int
-                Denominator: int
-
-                explicit operator double(f: Fraction) {
-                    return f.Numerator / (double)f.Denominator
-                }
-            }
-
-            func Main() {
-                let frac: Fraction = new Fraction { Numerator: 3, Denominator: 4 }
-                let value: double = frac  // Should error - explicit conversion required
-            }
-        """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Equal("Fraction", error.ActualType);
-        Assert.Equal("double", error.ExpectedType);
     }
 
     [Fact]
@@ -3396,17 +2593,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 Console.WriteLine(""Hello"")
             }
         ");
-    }
-
-    [Fact]
-    public void AssemblyResolution_TypeImportRejected()
-    {
-        AssertHasError(@"
-            import System.Console
-
-            func Main() {
-            }
-        ", "is a type, not a namespace");
     }
 
     [Fact]
@@ -3766,22 +2952,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         Assert.Empty(result.Errors);
         Assert.Equal("string", result.SemanticModel.LookupIdentifier("label")?.ToString());
         Assert.Equal("int", result.SemanticModel.LookupIdentifier("length")?.ToString());
-    }
-
-    [Fact]
-    public void AwaitExpression_NonAwaitableValue_Error()
-    {
-        var result = AnalyzeWithSource("""
-            import System.Threading.Tasks
-
-            async func Main(): Task<int> {
-                value := await 1
-                return 0
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("await expression needs an awaitable value", error.Message);
     }
 
     [Fact]
@@ -4490,18 +3660,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     }
 
     [Fact]
-    public void AsyncTaskOfT_StillRequiresExplicitReturnValue()
-    {
-        AssertHasError(@"
-            import System.Threading.Tasks
-
-            async func GetValue(): Task<int> {
-                await Task.Delay(100)
-            }
-        ", "not all code paths return");
-    }
-
-    [Fact]
     public void AsyncValueTaskOfT_ReturnsBareResultValue()
     {
         AssertNoErrors(@"
@@ -4512,18 +3670,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 return 42
             }
         ");
-    }
-
-    [Fact]
-    public void AsyncValueTaskOfT_StillRequiresExplicitReturnValue()
-    {
-        AssertHasError(@"
-            import System.Threading.Tasks
-
-            async func GetValue(): ValueTask<int> {
-                await Task.Delay(100)
-            }
-        ", "not all code paths return");
     }
 
     [Fact]
@@ -4659,16 +3805,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
     // An untyped lambda parameter with NO inference source must be a compile-time error: the Unknown
     // type used to flow into emit and produce a delegate whose invocation CORRUPTED MEMORY at runtime
     // (AccessViolationException — probe-proven on `f := (x) => x + 1` + `f(5)`).
-    [Fact]
-    public void Lambda_UntypedParam_NoInferenceSource_Errors()
-    {
-        AssertHasError(@"
-            func Main() {
-                f := (x) => x + 1
-                result := f(5)
-            }
-        ", "can't figure out the type of lambda parameter");
-    }
 
     [Fact]
     public void Lambda_UntypedParams_NoInferenceSource_SingleErrorPerLambda()
@@ -5031,52 +4167,6 @@ func Hello(): string {
         ");
     }
 
-    [Fact]
-    public void OverloadResolution_NoMatchingOverload_Error()
-    {
-        AssertHasError(@"
-            class Processor {
-                func Process(x: int): int {
-                    return x
-                }
-                func Process(x: string): string {
-                    return x
-                }
-            }
-            func Main() {
-                p := new Processor()
-                p.Process(true)
-            }
-        ", "No overload of 'Process' accepts");
-    }
-
-    [Fact]
-    public void OverloadResolution_NoMatchingOverload_UsesCallableNameSpanAndRichContext()
-    {
-        const string source = """
-class Processor {
-    func Process(x: int): int { return x }
-    func Process(x: string): string { return x }
-}
-
-func Main() {
-    p := new Processor()
-    p.Process(true)
-}
-""";
-
-        var result = AnalyzeWithSource(source);
-
-        var diagnostic = Assert.Single(result.Errors,
-            error => error.Code == ErrorCode.NoMatchingOverload);
-        Assert.Equal(8, diagnostic.Line);
-        Assert.Equal(7, diagnostic.Column);
-        Assert.Equal("Process".Length, diagnostic.Length);
-        Assert.Equal("    p.Process(true)", diagnostic.SourceSnippet);
-        Assert.Contains("I cannot find an overload of `Process`", diagnostic.HumanExplanation);
-        Assert.Contains("Process(x: int): int", diagnostic.ContextualHint);
-        Assert.Contains("Process(x: string): string", diagnostic.ContextualHint);
-    }
 
     [Fact]
     public void OverloadResolution_TopLevelFunctions()
@@ -5093,27 +4183,6 @@ func Main() {
                 r2 := Greet(""Alice"", ""Hi"")
             }
         ");
-    }
-
-    [Fact]
-    public void OverloadDeclaration_DuplicateNestedSourceSignature_ReportsDuplicateDeclaration()
-    {
-        const string source = """
-import System.Collections.Generic
-
-func Process(items: List<int[]>): int {
-    return 1
-}
-
-func Process(values: List<int[]>): int {
-    return 2
-}
-""";
-
-        var result = AnalyzeWithSource(source);
-
-        Assert.Contains(result.Errors,
-            error => error.Code == ErrorCode.DuplicateDeclaration && error.Message.Contains("'Process'"));
     }
 
     // ================================================================
@@ -5320,25 +4389,6 @@ func Process(values: List<int[]>): int {
     }
 
     [Fact]
-    public void GenericInference_WithConstraint_Violated()
-    {
-        // Inference works but constraint should fail
-        AssertHasError(@"
-            interface IComparable {
-                func CompareTo(other: object): int
-            }
-            class Plain {
-            }
-            func Max<T>(a: T, b: T): T where T : IComparable {
-                return a
-            }
-            func Main() {
-                result := Max(new Plain(), new Plain())
-            }
-        ", "does not implement");
-    }
-
-    [Fact]
     public void GenericInference_ExtensionMethod()
     {
         // Inference on extension method (first param is this)
@@ -5431,25 +4481,6 @@ func Process(values: List<int[]>): int {
     }
 
     [Fact]
-    public void OverloadResolution_AmbiguousCall_Error()
-    {
-        AssertHasError(@"
-            class Processor {
-                func Do(x: int, y: int): int {
-                    return x
-                }
-                func Do(a: int, b: int): int {
-                    return a
-                }
-            }
-            func Main() {
-                p := new Processor()
-                p.Do(1, 2)
-            }
-        ", "Ambiguous call");
-    }
-
-    [Fact]
     public void OverloadResolution_ParamsOverload()
     {
         AssertNoErrors(@"
@@ -5535,18 +4566,6 @@ func Process(values: List<int[]>): int {
     }
 
     [Fact]
-    public void OverloadResolution_SameArity_BoolVsInt_Error()
-    {
-        AssertHasError(@"
-            func Process(x: int): int { return x }
-            func Process(x: string): string { return x }
-            func Main() {
-                Process(true)
-            }
-        ", "No overload of 'Process' accepts");
-    }
-
-    [Fact]
     public void OverloadResolution_ExtensionOverload_SameThis_DifferentParams()
     {
         AssertNoErrors(@"
@@ -5559,87 +4578,13 @@ func Process(values: List<int[]>): int {
         ");
     }
 
-    [Fact]
-    public void OverloadResolution_ExtensionOverload_NoMatch_Error()
-    {
-        AssertHasError(@"
-            func Format(this x: int, prefix: string): string { return prefix }
-            func Format(this x: int, decimals: int): int { return decimals }
-            func Main() {
-                5.Format(true)
-            }
-        ", "No overload of 'Format' accepts");
-    }
-
-    [Fact]
-    public void OverloadResolution_ExtensionOverload_NoMatch_FormatsFactBackedCandidatesWithoutReceiver()
-    {
-        const string source = """
-func Format(this x: int, prefix: string): string { return prefix }
-func Format(this x: int, decimals: int): int { return decimals }
-func Main() {
-    5.Format(true)
-}
-""";
-
-        var result = AnalyzeWithSource(source);
-
-        var diagnostic = Assert.Single(result.Errors,
-            error => error.Code == ErrorCode.NoMatchingOverload);
-        Assert.Contains("Format(prefix: string): string", diagnostic.ContextualHint);
-        Assert.Contains("Format(decimals: int): int", diagnostic.ContextualHint);
-        Assert.DoesNotContain("this x", diagnostic.ContextualHint);
-    }
 
     // ================================================================
     // Extension methods on literal receivers — type safety
     // ================================================================
 
-    [Fact]
-    public void Extension_LiteralReceiver_ReturnTypeChecked()
-    {
-        // Extension returns int; assigning to string must error
-        AssertHasError(@"
-            func Double(this n: int): int { return n * 2 }
-            func Main() {
-                let s: string = 5.Double()
-            }
-        ", "is typed as");
-    }
 
-    [Fact]
-    public void Extension_VariableReceiver_ReturnTypeChecked()
-    {
-        AssertHasError(@"
-            func Double(this n: int): int { return n * 2 }
-            func Main() {
-                let x: int = 5
-                let s: string = x.Double()
-            }
-        ", "is typed as");
-    }
 
-    [Fact]
-    public void Extension_BoolLiteral_ReturnTypeChecked()
-    {
-        AssertHasError(@"
-            func Toggle(this b: bool): bool { return b }
-            func Main() {
-                let n: int = true.Toggle()
-            }
-        ", "is typed as");
-    }
-
-    [Fact]
-    public void Extension_StringLiteral_ReturnTypeChecked()
-    {
-        AssertHasError(@"
-            func Upper(this s: string): string { return s }
-            func Main() {
-                let n: int = ""hello"".Upper()
-            }
-        ", "is typed as");
-    }
 
     [Fact]
     public void Extension_LiteralReceiver_InExpression()
@@ -5651,19 +4596,6 @@ func Main() {
                 r := 5.Double() + 3
             }
         ");
-    }
-
-    [Fact]
-    public void Extension_LiteralReceiver_AsArgument()
-    {
-        // Extension return passed to function expecting different type should error
-        AssertHasError(@"
-            func Double(this n: int): int { return n * 2 }
-            func TakesString(s: string) {}
-            func Main() {
-                TakesString(5.Double())
-            }
-        ", "but parameter");
     }
 
     [Fact]
@@ -5765,73 +4697,8 @@ func Main() {
         ");
     }
 
-    [Fact]
-    public void BCL_StringMethodCall_WrongArity_ReportsNoMatchingOverload()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                greeting := ""hello""
-                greeting.CompareTo()
-            }
-        ");
 
-        Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.NoMatchingOverload
-            && e.Message.Contains("No overload of 'CompareTo' accepts 0 argument"));
-    }
 
-    [Fact]
-    public void BCL_StringLiteralUnknownMember_ReportsUndefinedMember()
-    {
-        var result = AnalyzeWithSource(@"
-            func Main() {
-                value := ""asdfasdfasdf"".ToUp()
-            }
-        ");
-
-        Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.UndefinedMember
-            && e.Message.Contains("ToUp")
-            && e.Message.Contains("string"));
-    }
-
-    [Fact]
-    public void RecordPrimaryConstructorMemberAccess_DoesNotReportUndefinedMember()
-    {
-        var result = AnalyzeWithSource(@"
-            record EmailAddress(value: string) {
-                IsValid: bool => value.Length > 5
-            }
-
-            func Main() {
-                email := new EmailAddress(""user@example.com"")
-                print email.value
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
-    }
-
-    [Fact]
-    public void NestedTypeMemberAccess_DoesNotReportUndefinedMember()
-    {
-        var result = AnalyzeWithSource(@"
-            class BankAccount {
-                enum Status {
-                    Active,
-                    Frozen
-                }
-
-                CurrentStatus: BankAccount.Status
-
-                constructor() {
-                    CurrentStatus = BankAccount.Status.Active
-                }
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
-    }
 
     [Fact]
     public void NestedClass_ResolvesThroughOwnerTypeInfo()
@@ -5956,69 +4823,8 @@ func Main() {
         ");
     }
 
-    [Fact]
-    public void GenericFunctionMemberConstraint_ResolvesThroughTypeInfoDeclaredMembers()
-    {
-        AssertHasError(@"
-            class Box {
-                func RequireClass<T>(value: T): T where T : class {
-                    return value
-                }
-            }
 
-            func Main() {
-                box := new Box()
-                value := box.RequireClass(1)
-            }
-        ", "is a value type, but type parameter");
-    }
 
-    [Fact]
-    public void RecordObjectMemberAccess_DoesNotReportUndefinedMember()
-    {
-        var result = AnalyzeWithSource(@"
-            record Point {
-                X: int
-                Y: int
-            }
-
-            func Main() {
-                p1 := new Point { X: 1, Y: 2 }
-                p2 := new Point { X: 1, Y: 2 }
-                print p1.Equals(p2)
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
-    }
-
-    [Fact]
-    public void BCL_MethodCall_WithImplicitNumericWidening_NoNoMatchingOverload()
-    {
-        var result = AnalyzeWithSource(@"
-            import System
-
-            func Main() {
-                tomorrow := DateTime.Now.AddDays(1)
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
-    }
-
-    [Fact]
-    public void BCL_MethodCall_WithExpandedParams_NoNoMatchingOverload()
-    {
-        var result = AnalyzeWithSource(@"
-            import System
-
-            func Main() {
-                Console.WriteLine(""{0} {1}"", ""hello"", ""world"")
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
-    }
 
     [Fact]
     public void BCL_MethodCall_WithNamedOptionalAndParamsArguments_NoErrors()
@@ -6273,143 +5079,12 @@ func Main() {
         Assert.Equal("IQueryable<char>", result.SemanticModel.LookupIdentifier("chars")?.ToString());
     }
 
-    [Fact]
-    public void QueryableLinq_BlockExpressionTreeLambda_ReportsFeatureNotImplemented()
-    {
-        var result = AnalyzeWithSource(@"
-            import System.Linq
 
-            func Main() {
-                source := [1, 2, 3]
-                query := source.AsQueryable()
-                filtered := query.Where(x => { return x > 1 })
-            }
-        ");
 
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("Expression-tree lambdas must use an expression body", error.Message);
-    }
 
-    [Fact]
-    public void QueryableLinq_ExpressionTreeLambdaWithCapturedValue_ReportsFeatureNotImplemented()
-    {
-        var result = AnalyzeWithSource(@"
-            import System.Linq
 
-            func Main() {
-                source := [1, 2, 3]
-                query := source.AsQueryable()
-                threshold := 1
-                filtered := query.Where(x => x > threshold)
-            }
-        ");
 
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("captured or static identifier 'threshold'", error.Message);
-    }
 
-    [Fact]
-    public void QueryableLinq_ExpressionTreeLambdaNullConditionalIndexAccess_ReportsFeatureNotImplemented()
-    {
-        var result = AnalyzeWithSource(@"
-            import System.Linq
-
-            func Main() {
-                source := [""ab"", ""cd""]
-                query := source.AsQueryable()
-                chars := query.Select(x => x?[0])
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("null-conditional index access", error.Message);
-    }
-
-    [Fact]
-    public void QueryableLinq_ExpressionTreeLambdaNamedCallArgument_ReportsFeatureNotImplemented()
-    {
-        var result = AnalyzeWithSource(@"
-            import System.Linq
-
-            func Main() {
-                source := [1, 2, 3]
-                query := source.AsQueryable()
-                filtered := query.Where(x => x.ToString(format: ""D"") == ""2"")
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("named method argument", error.Message);
-    }
-
-    [Fact]
-    public void QueryableLinq_ExpressionTreeLambdaUnsupportedSizeof_ReportsFeatureNotImplemented()
-    {
-        var result = AnalyzeWithSource(@"
-            import System.Linq
-
-            func Main() {
-                source := [1, 2, 3]
-                query := source.AsQueryable()
-                mapped := query.Select(x => sizeof(int))
-            }
-        ");
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("sizeof expression", error.Message);
-    }
-
-    [Fact]
-    public void BCL_MethodCall_WithOutArgument_NoNoMatchingOverload()
-    {
-        var result = AnalyzeWithSource(@"
-            import System
-
-            func Main() {
-                result := 0
-                if Int32.TryParse(""42"", out result) {
-                    print result
-                }
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
-    }
-
-    [Fact]
-    public void BCL_DictionaryRemove_WithSourceTypeArgument_NoNoMatchingOverload()
-    {
-        // A source-declared type argument leaves the receiver without a closed CLR type, so its
-        // instance methods are unmodelled. CollectionExtensions.Remove(key, out value) must not
-        // answer in their place: reported as the only overload it made Remove(key) a false NL402.
-        var result = AnalyzeWithSource(@"
-            import System.Collections.Generic
-            enum Flavor { Unknown, Known }
-            func Main() {
-                m := new Dictionary<string, Flavor>()
-                print m.Remove(""k"")
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
-    }
-
-    [Fact]
-    public void NSharpExtensionMethod_OnInstance_PrefersExtensionOverStaticClrMember()
-    {
-        var result = AnalyzeWithSource(@"
-            func IsPositive(this n: int): bool {
-                return n > 0
-            }
-
-            func Main() {
-                value := 42
-                print value.IsPositive()
-            }
-        ");
-
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
-    }
 
     // ===================================================================
     // Type System Hardening Tests
@@ -6478,17 +5153,6 @@ func Main() {
                 name: string = null
             }
         ");
-    }
-
-    [Fact]
-    public void NullNotAssignableToInt()
-    {
-        // null should NOT be assignable to int (value type)
-        AssertHasError(@"
-            func Main() {
-                x: int = null
-            }
-        ", "is typed as");
     }
 
     [Fact]
@@ -6629,42 +5293,7 @@ func Main() {
         ");
     }
 
-    [Fact]
-    public void Newtype_NotAssignableFromUnderlying()
-    {
-        AssertHasError(@"
-            type UserId = newtype int
 
-            func Main() {
-                let id: UserId = 42
-            }
-        ", "is typed as 'UserId', but the value is 'int'");
-    }
-
-    [Fact]
-    public void Newtype_NotAssignableToUnderlying()
-    {
-        AssertHasError(@"
-            type UserId = newtype int
-
-            func Main() {
-                id := UserId(42)
-                let raw: int = id
-            }
-        ", "is typed as 'int', but the value is 'UserId'");
-    }
-
-    [Fact]
-    public void Newtype_ConstructionWithWrongType_Error()
-    {
-        AssertHasError(@"
-            type UserId = newtype int
-
-            func Main() {
-                id := UserId(""hello"")
-            }
-        ", "not assignable");
-    }
 
     [Fact]
     public void Newtype_SameNewtypeAssignable()
@@ -6679,55 +5308,7 @@ func Main() {
         ");
     }
 
-    [Fact]
-    public void Newtype_DifferentNewtypeNotAssignable()
-    {
-        AssertHasError(@"
-            type UserId = newtype int
-            type OrderId = newtype int
 
-            func Main() {
-                userId := UserId(1)
-                let orderId: OrderId = userId
-            }
-        ", "is typed as 'OrderId', but the value is 'UserId'");
-    }
-
-    [Fact]
-    public void DuplicateSetupBlock_ReportsError()
-    {
-        AssertHasError(@"
-setup {
-    x := 1
-}
-
-setup {
-    y := 2
-}
-
-test ""should work"" {
-    assert true
-}
-        ", "Only one setup block is allowed per test file");
-    }
-
-    [Fact]
-    public void DuplicateTeardownBlock_ReportsError()
-    {
-        AssertHasError(@"
-teardown {
-    Cleanup()
-}
-
-teardown {
-    Cleanup2()
-}
-
-test ""should work"" {
-    assert true
-}
-        ", "Only one teardown block is allowed per test file");
-    }
 
     // ── Bug regression tests ────────────────────────────────────────────
 
@@ -6860,203 +5441,15 @@ func Main() {
             """);
     }
 
-    [Theory]
-    [InlineData("[System.Obsolete(BuildMessage())]", "call")]
-    [InlineData("[System.Obsolete(\"v\" + \"1\")]", "+")]
-    [InlineData("[System.Obsolete(!\"no\")]", "!")]
-    public void AttributeArguments_UnsupportedExpressions_ReportConstantRequired(
-        string attribute,
-        string expectedMessage)
-    {
-        var result = AnalyzeWithSource($$"""
-            import System
 
-            {{attribute}}
-            func Bad(): int {
-                return 0
-            }
 
-            func BuildMessage(): string {
-                return "bad"
-            }
-            """);
 
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ConstantRequired);
-        Assert.Contains(expectedMessage, error.Message);
-        Assert.Contains("compile-time constants", error.Message);
-        Assert.Contains("literal", error.Suggestion);
-    }
 
-    [Fact]
-    public void AttributeArguments_NoMatchingClrConstructor_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            [System.Obsolete(1)]
-            func Bad(): int {
-                return 0
-            }
-            """);
 
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
-        Assert.Contains("No constructor of attribute 'System.ObsoleteAttribute'", error.Message);
-        Assert.Contains("1 positional argument", error.Message);
-        Assert.Contains("int", error.Message);
-    }
 
-    [Fact]
-    public void AttributeArguments_UnknownClrNamedMember_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            [System.Obsolete(message: "bad")]
-            func Bad(): int {
-                return 0
-            }
-            """);
 
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
-        Assert.Contains("System.ObsoleteAttribute", error.Message);
-        Assert.Contains("message", error.Message);
-        Assert.Contains("settable property or field", error.Message);
-    }
 
-    [Fact]
-    public void AttributeArguments_ClrNamedMemberTypeMismatch_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            [System.Obsolete(DiagnosticId: 1)]
-            func Bad(): int {
-                return 0
-            }
-            """);
 
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("DiagnosticId", error.Message);
-        Assert.Contains("string", error.Message);
-        Assert.Contains("int", error.Message);
-    }
-
-    [Fact]
-    public void AttributeArguments_UnknownClrEnumMember_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            import System
-
-            [AttributeUsage(AttributeTargets.Nope)]
-            class MarkerAttribute: Attribute {
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
-        Assert.Contains("Nope", error.Message);
-        Assert.Contains("AttributeTargets", error.Message);
-    }
-
-    [Fact]
-    public void AttributeArguments_UnknownClrStaticMember_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            [System.Obsolete(string.Nope)]
-            func Bad(): int {
-                return 0
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
-        Assert.Contains("Nope", error.Message);
-        Assert.Contains("string", error.Message);
-    }
-
-    [Fact]
-    public void AttributeArguments_UnknownSourceEnumMember_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            enum LocalTargets {
-                Good
-            }
-
-            [Missing(LocalTargets.Nope)]
-            func Bad(): int {
-                return 0
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
-        Assert.Contains("Nope", error.Message);
-        Assert.Contains("LocalTargets", error.Message);
-    }
-
-    [Fact]
-    public void AttributeArguments_MissingAttributeType_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            [DefinitelyMissingNSharpCompilerAttribute]
-            func Bad(): int {
-                return 0
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
-        Assert.Contains("Attribute type 'DefinitelyMissingNSharpCompilerAttribute' not found", error.Message);
-        Assert.Equal(1, error.Line);
-        Assert.Equal(2, error.Column);
-    }
-
-    [Fact]
-    public void AttributeArguments_ClrNonAttributeType_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            [System.String]
-            func Bad(): int {
-                return 0
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("string", error.Message);
-        Assert.Contains("System.Attribute", error.Message);
-        Assert.Equal(1, error.Line);
-        Assert.Equal(2, error.Column);
-    }
-
-    [Fact]
-    public void AttributeArguments_SourceNonAttributeType_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            class Plain {
-            }
-
-            [Plain]
-            func Bad(): int {
-                return 0
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
-        Assert.Contains("Plain", error.Message);
-        Assert.Contains("System.Attribute", error.Message);
-        Assert.Equal(4, error.Line);
-        Assert.Equal(2, error.Column);
-    }
-
-    [Fact]
-    public void AttributeArguments_SourceDefinedAttribute_ReportBeforeEmission()
-    {
-        var result = AnalyzeWithSource("""
-            class MarkerAttribute: System.Attribute {
-            }
-
-            [Marker]
-            func Bad(): int {
-                return 0
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("Source-defined attribute 'Marker'", error.Message);
-        Assert.Contains("IL emission", error.Message);
-        Assert.Equal(4, error.Line);
-        Assert.Equal(2, error.Column);
-    }
 
     [Fact]
     public void TableDrivenTestCases_SupportedInlineDataConstants_AreValid()
@@ -7070,49 +5463,6 @@ func Main() {
             """);
     }
 
-    [Fact]
-    public void TableDrivenTestCases_UnsupportedExpressions_ReportConstantRequired()
-    {
-        var result = AnalyzeWithSource("""
-            func build(): int {
-                return 1
-            }
-
-            test "bad table case" with (value: int) [
-                (build())
-            ] {
-            }
-            """);
-
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ConstantRequired);
-        Assert.Contains("Table-driven test case values must be compile-time constants", error.Message);
-        Assert.Contains("call", error.Message);
-        Assert.Contains("literal int, float, char, string, bool, or null", error.Suggestion);
-    }
-
-    [Fact]
-    public void TableDrivenTestCases_TypeMismatches_ReportTypeMismatch()
-    {
-        var result = AnalyzeWithSource("""
-            test "bad table case type" with (value: int, label: string) [
-                ("nope", 42)
-            ] {
-            }
-            """);
-
-        Assert.Contains(
-            result.Errors,
-            e => e.Code == ErrorCode.TypeMismatch
-                && e.Message.Contains("value")
-                && e.Message.Contains("int")
-                && e.Message.Contains("string"));
-        Assert.Contains(
-            result.Errors,
-            e => e.Code == ErrorCode.TypeMismatch
-                && e.Message.Contains("label")
-                && e.Message.Contains("string")
-                && e.Message.Contains("int"));
-    }
 
     [Fact]
     public void AnonymousUnion_AllowsEitherArmAndCommonTargetAssignment()
@@ -7130,16 +5480,6 @@ func Main() {
     }
 
     [Fact]
-    public void AnonymousUnion_RejectsAssignmentWhenNotEveryArmFitsTarget()
-    {
-        AssertHasError(@"
-func Bad(value: int | string): string {
-    return value
-}
-        ", "should return 'string'");
-    }
-
-    [Fact]
     public void AnonymousUnion_AllowsUnionToUnionWhenEverySourceArmFitsTargetArm()
     {
         AssertNoErrors(@"
@@ -7149,23 +5489,6 @@ func Identity(value: int | string): int | string {
         ");
     }
 
-    [Fact]
-    public void AnonymousUnion_RejectsDuplicateArms()
-    {
-        AssertHasError(@"
-func Bad(value: int | int): void {
-}
-        ", "repeats arm 'int'");
-    }
-
-    [Fact]
-    public void AnonymousUnion_RejectsMoreThanTwoArms()
-    {
-        AssertHasError(@"
-func Bad(value: int | string | bool): void {
-}
-        ", "support exactly two arms in v1");
-    }
 
     [Fact]
     public void AnonymousUnion_NarrowsElseBranchAfterIsCheck()
@@ -7179,18 +5502,6 @@ func Describe(value: int | string): int {
     return value + 1
 }
         ");
-    }
-
-    [Fact]
-    public void AnonymousUnion_MatchRequiresEveryArm()
-    {
-        AssertHasError(@"
-func Describe(value: int | string): int {
-    return match value {
-        int number => number,
-    }
-}
-        ", "missing: string");
     }
 
     [Fact]
