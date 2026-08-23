@@ -1,6 +1,22 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-23 (**020 SLICE 37 — `tests/PlaygroundCompilerTests.cs` OPENS, AND ITS FIRST
+Last updated: 2026-08-23 (**020 SLICE 38 — `tests/PlaygroundCompilerTests.cs` IS DELETED. THE WHOLE
+REMAINDER: 35 `[Fact]`s / 745 DECLARATION LINES / 191 IN-BODY `Assert.` / 194 DECODED CLAIM ROWS,
+SPLIT 21 / 14 BY WHAT THE BODIES READ — 21 EXTEND `tests/native/playground-diagnostic-spans` AND 14
+LAND IN A NEW SIBLING `tests/native/playground-tooling-surfaces`, THE 41st NATIVE PROJECT, BECAUSE
+ZERO OF THE 14 IS SPAN-SHAPED AND ONE OF THEM EXECUTES THE PROGRAM. **ALL 194 CLAIMS HOLD — NO FALSE
+CLEAN — AND ALL 21 CHECK FIXTURES AGREE ON BOTH ROUTES**, which is the other half of slice 37's
+finding. THE HEADLINE IS A USER-FACING DEFECT IN THE BROWSER TOOLING LOOP: **51 OF 339 PINNED
+COMPLETION ITEMS ARE COMPILER-GENERATED CLR ACCESSORS — 45 OF 92 ON `Console.` — AND `get_Chars` /
+`get_Length` ARE OFFERED BESIDE THE PROPERTIES `Chars` / `Length`.** ONE DELETED ABSENCE CLAIM WAS
+STRUCTURALLY VACUOUS (`PG900` OCCURS ONCE IN THE REPOSITORY: IN THE ASSERTION THAT BANNED IT), THE
+`<error>` PLACEHOLDER SIZES A SPAN 65,537 COLUMNS IN, THE COMPARATOR FOUND THREE DEFECTS IN ITSELF,
+THE MATRIX TWO TRUE NON-MOVERS BOTH REPLACED BY RUNTIME RUNS, AND THE MUTATION PANEL ONE
+MISPREDICTION THAT WAS ROOT-CAUSED AND RE-RUN. `AssertCompletion`, `LineNumberContaining` AND
+`ColumnAfter` DIE WITH IT, AND SO DOES `Tests.csproj`'s PLAYGROUND `ProjectReference`.**) Full
+record in the Cursor block below
+
+Last updated (prior): 2026-08-23 (**020 SLICE 37 — `tests/PlaygroundCompilerTests.cs` OPENS, AND ITS FIRST
 CUT IS THE 34 BODIES THAT NAME `AssertPlaygroundSpan`. 34 METHODS (30 `[Fact]` + 4 `[Theory]`
 CARRYING 25 `InlineData`) / 1,051 DECLARATION LINES / 113 IN-BODY `Assert.` / 71 HELPER CALLS / 57
 SOURCE FIXTURES / 233 DECODED CLAIM ROWS, IN A NEW NATIVE PROJECT
@@ -4021,7 +4037,476 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 37 OPENS `tests/PlaygroundCompilerTests.cs` AND
+- Active sub-slice (020 arc, THIS TURN — **SLICE 38 CLOSES `tests/PlaygroundCompilerTests.cs`. THE
+  WHOLE REMAINDER: 35 `[Fact]`s / 745 DECLARATION LINES / 191 IN-BODY `Assert.` / 194 DECODED CLAIM
+  ROWS, SPLIT 21 / 14 ACROSS TWO NATIVE PROJECTS — 21 EXTEND
+  `tests/native/playground-diagnostic-spans` AND 14 LAND IN A NEW SIBLING
+  `tests/native/playground-tooling-surfaces`, THE 41st. THE FILE IS DELETED WHOLE AND
+  `AssertCompletion`, `LineNumberContaining` AND `ColumnAfter` DIE WITH THEIR LAST CONSUMERS.
+  **ALL 194 CLAIMS HOLD — NO FALSE CLEAN — AND ALL 21 CHECK FIXTURES AGREE ON BOTH ROUTES.** THE
+  HEADLINE IS A USER-FACING DEFECT IN THE BROWSER TOOLING LOOP: **51 OF THE 339 PINNED COMPLETION
+  ITEMS ARE COMPILER-GENERATED CLR ACCESSORS** — 45 OF 92 ON `Console.` — AND ON `System.String`
+  `get_Chars` AND `get_Length` ARE OFFERED BESIDE THE PROPERTIES `Chars` AND `Length`. **ONE DELETED
+  ABSENCE CLAIM WAS STRUCTURALLY VACUOUS: `PG900` OCCURS EXACTLY ONCE IN THE WHOLE REPOSITORY — IN
+  THE ASSERTION THAT SAID IT MUST NOT OCCUR.** THE COMPARATOR FOUND THREE DEFECTS IN ITSELF, THE
+  ANCHOR AUDIT FOUND THE `<error>` PLACEHOLDER SIZING A SPAN 65,537 COLUMNS IN, THE PERTURBATION
+  MATRIX TWO TRUE NON-MOVERS BOTH REPLACED BY RUNTIME RUNS, AND THE MUTATION PANEL ONE MISPREDICTION
+  THAT WAS ROOT-CAUSED AND RE-RUN.**)
+
+  ### THE DECODE, RE-VERIFIED MECHANICALLY AND RECORDED BEFORE ANY EDIT
+
+  The decode is the campaign's instrument REBUILT FROM SCRATCH a SEVENTH time — a scanner that
+  character-classifies the whole file into `code` / `lit` / `com`, walks every `[Fact]`/`[Theory]`,
+  extracts the body by brace balance over CODE braces only, and classifies by what the body
+  NAMES under an undotted word-boundary rule. Slice 32's two instrument fixes are carried forward BY
+  CONSTRUCTION (attribute finder anchored `^[ \t]*\[`, comments identified BY THE SCANNER) and so is
+  slice 37's flattener fix (whitespace is collapsed only where the scanner says the character is
+  CODE).
+
+  Run against the working file at `61b9f2519` it reports **821 lines, 35 methods, 35 `[Fact]` + 0
+  `[Theory]`, 0 `InlineData`, 745 declaration lines, 191 IN-BODY `Assert.` and 193 WHOLE-FILE
+  `Assert.`** — which reproduces slice 37's published residue in EVERY COLUMN TO THE DIGIT. The two
+  `Assert.` numbers differ by exactly 2 and both live in the one surviving private helper that
+  carries any, `AssertCompletion`; `LineNumberContaining` and `ColumnAfter` carry none.
+
+  ### THE FAMILY BOUNDARY — SIX ENTRY POINTS, FIVE RESPONSE RECORDS, AND THE SHAPE THAT DECIDES THE SPLIT
+
+  The 35 bodies reach the subject through **SIX entry points** — `Check` 21, `Complete` 5,
+  `RunProject` 4, `GetCatalog` 2, `CheckProject` 2, `Format` 1 — which **reproduces slice 37's
+  prediction of the residue's entry-point census TO THE DIGIT**. Those six answer **FIVE response
+  records**, and the classification by RESPONSE RECORD is what the split follows, because a response
+  record is exactly one reflection surface:
+
+  | response record | methods | decl lines | in-body `Assert.` | claim rows | span-shaped bodies |
+  |---|---|---|---|---|---|
+  | `PlaygroundCheckResponse` (`Check` 21 + `CheckProject` 2) | **23** | **471** | 133 | **133** | **18 / 23** |
+  | `PlaygroundCompletionResponse` (`Complete` 5) | 5 | 153 | 17 | 20 | 0 / 5 |
+  | `PlaygroundRunResponse` (`RunProject` 4) | 4 | 71 | 17 | 17 | 0 / 4 |
+  | `PlaygroundCatalogResponse` (`GetCatalog` 2) | 2 | 36 | 21 | 21 | 0 / 2 |
+  | `PlaygroundFormatResponse` (`Format` 1) | 1 | 14 | 3 | 3 | 0 / 1 |
+  | **total** | **35** | **745** | **191** | **194** | 18 / 35 |
+
+  All three columns sum exactly: 23+5+4+2+1 = 35, 471+153+71+36+14 = 745, 133+17+17+21+3 = 191. The
+  claim-row arithmetic is **191 in-body `Assert.` calls plus the 3 `AssertCompletion` call sites =
+  194**, which reproduces slice 37's published remainder count exactly.
+
+  ### THE PROJECT DECISION — EXTEND *AND* SIBLING, DECIDED BY THE MEASURED SHAPE
+
+  **THE RESPONSE-RECORD AXIS SAYS 23 / 12; THE WHAT-THE-BODY-NAMES AXIS SAYS 21 / 14, AND THE LATTER
+  DECIDES.** Three bodies NAME `PlaygroundExamples` — `Catalog_ExamplesAreCompilerClean` (49),
+  `RunProject_ValidProgram_ProducesStdout` (721) and `CheckProject_AcceptsTutorialProgramAndTestsFiles`
+  (776) — and two of those three answer `PlaygroundCheckResponse`. Their SUBJECT is the shipped
+  example corpus, not a diagnostic span, and they need a production type the check route never
+  touches, so they move with the corpus. The split is therefore:
+
+  | | methods | decl lines | in-body `Assert.` | claim rows |
+  |---|---|---|---|---|
+  | **extends `tests/native/playground-diagnostic-spans`** — every body whose ONLY entry point is `Check(source)` | **21** | **438** | 130 | **130** |
+  | **the NEW sibling `tests/native/playground-tooling-surfaces`** | **14** | **307** | 61 | **64** |
+
+  21 + 14 = 35, 438 + 307 = 745, 130 + 64 = 194. All three columns sum exactly.
+
+  **The 21 EXTEND the spans project** because they answer the record it already owns, through the one
+  entry point slice 37 built and paid for, and **18 of the 21 read `Line`, `Column` and `Length` off
+  a selected diagnostic directly** — under the successor's `PgCensus`/`PgRow` pins all 21 become
+  span-shaped, because those kernels write `code@line:column+length` for every row of every response.
+  Exactly ONE new kernel is required (`PgRepeat`, for the 65,537-character oversize fixture that no
+  source literal can carry).
+
+  **The 14 land in the sibling, and the measure is that ZERO of the 14 is span-shaped.** They answer
+  FOUR OTHER response records, need four new reflection surfaces (`Items`/`Label`/`Kind`/`Detail`;
+  `ExitCode`/`Stdout`/`Stderr`/`UnsupportedReason`; `Capabilities`/`Examples`/`Tutorial`/`Validation`;
+  `FormattedCode`/`Warnings`), reach a production type no native project has touched
+  (`PlaygroundExamples`), and one of the four — `RunProject` — **EXECUTES the program and reads its
+  stdout**, which is a different capability class from reading a diagnostic's span. A project
+  directory named `playground-diagnostic-spans` holding the tutorial-validation and stdout contracts
+  would be a name that lies about 14 of its contracts. The cost of the sibling is stated rather than
+  hidden: the nine base reflection kernels are DUPLICATED, because a native project cannot reference
+  another native project.
+
+  ### THE PROBE, ITS SPEAKING CONTROL, AND TWO EMIT WALLS FOUND BY BISECTION
+
+  One probe project, built OUT OF REPO in the scratchpad with absolute `dll:` paths so the gate's
+  `find examples tests -name project.yml` sweep can never see it, and deleted after. Seven contracts:
+  six predicting values from the out-of-repo oracle and one **SPEAKING CONTROL asserting a census the
+  playground does not answer**. It reported **`Passed: 6, Failed: 1`** — the speaking control failed
+  exactly as designed, which is what makes the other six non-vacuous.
+
+  **TWO NEW EMIT WALLS, EACH FOUND BY BISECTION ACROSS 24 PROBE VARIANTS, NOT GUESSED:**
+
+  * **`new object?[](0)` WRITTEN INLINE AS `MethodBase.Invoke`'s SECOND ARGUMENT DECLINES AT EMIT.**
+    Bound to a local first it emits; and the same inline `new object?[](0)` handed to an ordinary N#
+    function emits. The wall is the reflected-`Invoke` call site specifically, which is why every
+    kernel here binds its argument array before invoking.
+  * **A BOXING STORE INTO AN `object?[]` ELEMENT DECLINES WHEN THE SOURCE IS AN `int`-TYPED
+    PARAMETER.** `func SetPgInt(values: object?[], index: int, value: int) { values[index] = value }`
+    declines; adding `boxed: object = value` first emits. **THIS REFINES THE CARRIED GOTCHA RATHER
+    THAN REPEATING IT**: the carried list said "a boxed literal into `object?[]` declines", and that
+    is NOT what reproduces — passing an int LITERAL *and* passing an int LOCAL through an `object?`
+    PARAMETER both emit. The decline is the direct element store from an int-typed parameter.
+
+  Four N# string-literal escape forms the spans project had never used were verified before any
+  fixture was written — `\\`, `\"`, a literal `$`, and literal `{`/`}` — because five of this cut's
+  fixtures carry them (`name := "Ada\"`, `text := $"""hello {name}`, `$"this is a string".`, and the
+  `$"{prefix} #{todo.Id}: {todo.Title}"` interpolation).
+
+  ### THE FIXTURE CROSSCHECK
+
+  The 29 SOURCE fixtures were decoded by the C# compiler itself: every literal token was copied
+  UNMODIFIED into a generated console program that printed each one's sha256 and length. The
+  independent Python decode reproduces **29 of 29 shas and 29 of 29 lengths with ZERO mismatches**
+  over **2,427 characters**, and **all 29 are DISTINCT** — unlike slice 37's corpus, this cut has no
+  duplicate fixture. Six of the 35 methods have NO literal fixture at all: two drive `GetCatalog`,
+  three read the shipped example corpus, and one COMPUTES a 65,537-character string from
+  `PlaygroundCompiler.MaxSourceLength`.
+
+  ### THE COMPARATOR, ITS COMPLETENESS ARITHMETIC, AND THE THREE DEFECTS IT FOUND IN ITSELF
+
+  **194 migrating C# claim rows in — 194 decoded, 194 reconstructed, 0 missing, 0 undecoded.** The
+  arithmetic is **186 top-level `Assert.*` calls + 5 nested inside the two `Assert.All` lambdas + 3
+  `AssertCompletion` call sites = 194**, which reproduces slice 37's published remainder count
+  exactly. By class: **87 `Assert.Equal` · 45 `Assert.Contains` · 20 `Assert.Single` · 12
+  `Assert.True` · 9 `Assert.False` · 7 `Assert.DoesNotContain` · 3 `AssertCompletion` · 2
+  `Assert.All` · 2 nested `Assert.False` · 1 each of nested `Contains`, nested `NotNull`, nested
+  `Equal`, `NotEmpty`, `Empty`, `Null` and `NotNull`.**
+
+  A row counts RECONSTRUCTED only when the contract's `source` decodes to the same sha as the C#
+  fixture, the PRECONDITIONS hold, and the values PINNED on the route the C# ACTUALLY DROVE
+  re-decide the C# assertion to TRUE **after the response rows have been REBUILT out of the pinned
+  `PgRow`/`PgDetail`/`PgItem` strings** — the comparator never reads the oracle, only the committed
+  `.nl`. The precondition is `SchemaVersion == 2` plus a pinned `File` for the 172 rows whose
+  response carries both; the catalog answers no `File`, so its 22 rows take the catalog's own
+  `SchemaVersion` pin and a non-empty example corpus instead.
+
+  **AND THE COMPARATOR FOUND THREE DEFECTS IN ITSELF, ALL FIXED RATHER THAN WORKED AROUND.**
+  The first is slice 37's documented defect REPRODUCED FROM SCRATCH: a whole-statement whitespace
+  flatten also collapses the indentation INSIDE a `SourceSnippet` literal, and mis-decided **TEN**
+  rows (`Assert.Equal("    name := \"Ada", …)` and nine siblings); it is fixed the same way, by
+  collapsing only where the scanner says the character is CODE. The second was a row-count defect:
+  the decoder emitted **8 rows for the 9-row tutorial method**, having folded each `Assert.All` CALL
+  into its nested claim instead of counting both. The third was in the N# pin PARSER — a later
+  `assert X == <expression>` line was OVERWRITING the literal pin an earlier line had recorded for
+  `X`, which silently broke the one contract that pins `PgStdout` twice. **The decoder distinguishes
+  two failure kinds and refuses to guess about only one of them**: a missing N# pin is
+  NOT-RECONSTRUCTED and scores zero, while an undecodable C# claim is a HARD ERROR.
+
+  ### THE MEASURED ANSWER — ZERO FALSE CLEANS, AND BOTH ROUTES AGREE ON ALL 21
+
+  Every `Check` fixture was run through BOTH reachable entry points out of repo. **All 194 claims
+  HOLD on the route the C# actually drove. This cut has NO FALSE CLEAN.** And unlike slice 37 —
+  where the import-collision method's eight claims were false on the other route — **all 21 check
+  fixtures AGREE on both routes** on `Ok`, the diagnostic count and the whole census; the only field
+  that moves is `File`. That is the other half of slice 37's finding: the disagreement it found was
+  never about the text, and this cut has no fixture whose subject is a second file.
+
+  ### SEVEN THINGS THE DELETED ASSERTIONS COULD NOT SEE
+
+  1. **THE COMPLETION LIST OFFERS COMPILER-GENERATED CLR ACCESSORS TO THE USER.** Across the nine
+     pinned completion sites, **51 of 339 items are `get_`/`set_`/`add_`/`remove_` accessor
+     methods** — on `Console.` it is **45 of 92**, nearly half the list — and on `System.String`
+     `get_Chars|method|Char` and `get_Length|method|int` sit beside `Chars|property|Char` and
+     `Length|property|int`, so the same member is offered twice under two names, one of which no N#
+     program can write. The deleted assertions named 9 labels out of 339.
+  2. **THE `PG900` ABSENCE CLAIM WAS STRUCTURALLY VACUOUS.** `PG900` occurs in **exactly one place in
+     the entire repository — the assertion that said it must not occur**. The shipping playground
+     emits `PG001`, `PG200`–`PG237` and `PG299`; there is no `PG9xx` code at all, so no code path
+     could ever have produced it. The successor pins that response's WHOLE census instead, which is
+     EMPTY.
+  3. **THE OVERSIZE BOUND IS EXACT, AND THE `<error>` PLACEHOLDER IS ON THE OTHER SIDE OF IT.** V34
+     is the same fixture ONE CHARACTER UNDER `MaxSourceLength`: it does not report `PG001` at all, it
+     reports `NL101@1:1+65536` — a span covering the whole line — **and `NL903@1:65537+7`, whose
+     length is `"<error>".Length` and which starts one column PAST THE END of its own
+     65,536-character line.**
+  4. **THE `NL312` ABSENCE CLAIM IS PROVEN NON-VACUOUS BY ITS OWN MINIMAL NEGATIVE.** V33 supplies
+     the missing exception expression and the SAME following statement reports `NL312@5:9+8` — the
+     exact code at the exact span the deleted `DoesNotContain` said must be absent.
+  5. **ONE FIXTURE'S COMPLETION SITE IS NOT WHERE ITS NAME SAYS.** `LineNumberContaining(source,
+     "todo.Id")` is a FIRST-MATCH line scan, and `todo.Id` first appears on line 11 inside the
+     `$"{prefix} #{todo.Id}: {todo.Title}"` interpolation in the class body — not the `print todo.Id`
+     on line 19 the method reads as if it drove. T1b pins line 19 as well and the two sites answer
+     the same three members, so the test passed for a reason it never stated.
+  6. **TWO OF THE FIVE COMPLETION FIXTURES DO NOT COMPILE AND THE ENGINE ANSWERS ANYWAY.** The
+     interpolated-string-literal fixture reports FIVE diagnostics
+     (`NL101@1:1+19;NL101@1:20+1;NL903@1:20+7;NL306@1:21+7;NL903@1:21+7;` — two more `<error>`-sized
+     sevens) and the just-typed-dot fixture reports one; the deleted assertions read `Context`,
+     `ReceiverType` and a label.
+  7. **THE UNSUPPORTED-CONSTRUCT CODE IS `PG204`, NOT THE `PG2` PREFIX THE C# MATCHED**, and its
+     sentence and `UnsupportedReason` are the same string, `The browser runner does not yet support
+     WhileStatement.`
+
+  ### TWENTY-SIX CONTROLS, AND THE VACUITY WORK
+
+  **Twenty-one minimal negatives (V16–V35 plus X1) over the spans cut, and ALL TWENTY-ONE MOVE — ZERO
+  NON-MOVERS.** Each is ONE substitution of a named fixture, asserted to be a single occurrence before
+  the edit, and each pins BOTH routes. **ELEVEN fall to SILENCE** (the quote is closed, the paren is
+  closed, the variable is read, the initializer is supplied); **the other NINE move to a DIFFERENT
+  census**, and three of those are findings in their own right — V32 turns `NL102` into `NL001`, V33
+  turns `NL102`+`NL006` into `NL312`+`NL006`, and V34 turns `PG001` into the `NL101`/`NL903` pair
+  above.
+
+  **This cut has exactly ONE silent fixture** — `Check_ValidProgram_HasNoErrors`, the only empty
+  census in the 21 — and it is answered from the other side: **X1** appends one type error to it and
+  the census fills with `NL202@9:12+12`.
+
+  **Five more controls in the tooling project**: **T0** pins the three production statics
+  (`SchemaVersion` 2, `MaxSourceLength` 65,536, `MaxProjectSourceLength` 131,072) and all ten
+  examples' `Id`/`HasTests`/`ExpectedOutput` plus the ONE example whose `TestsCode` is null; **T1**
+  renames `Format` to `Describe` and the completion label MOVES; **T1b** is the line-19 site above;
+  **T2** removes the `while` loop and the SAME program RUNS and prints `reached\n` at exit 0; **T3**
+  formats a source WITH a compiler error and the text comes back UNCHANGED behind the warning
+  `Formatting is skipped while the source has compiler errors.`
+
+  ### THE ANCHOR AUDIT
+
+  All **45** driven-route rows pinned by the spans extension were read back out of their own source
+  text at `(line, column, length)`. **EXACTLY ONE IS OUT OF RANGE, and it is V34's `NL903` at
+  1:65537+7** — the `<error>` placeholder again, sizing a span that starts one column past the end of
+  a 65,536-character line. The other 44 anchor exactly where the sentence says: `NL001` on `asdf`,
+  `letter`, `message`, `name`, `text` and `total`; `NL105` on `"Ada`, `"Ada\"`, `'a`, `"""` and
+  `$"""`; `NL107` on `print` and `main`; `NL106` and `NL108` on `main` and `nums`; `NL102` on `name`
+  and `throw`; `NL202` on `"oops"` and `"not an int"`; `NL301` on `totla`, `missing`, `greeting` and
+  `name`; `NL312`/`NL006` on `greeting`; `NL401` on `TakesInt`; `NL411` on `ToString`; `NL905` on
+  `maybeCustomerName`; and `NL012` on `value`.
+
+  ### THE SIBLING SWEEP
+
+  **ZERO of the 29 source fixtures appears as a whole source in any of the 52 `.nl` files across the
+  other 39 native projects.** ONE appears whole in the 229 estate `.tests.nl`, and the difference is
+  the point rather than a duplication: `func main(){print 5}` is also in
+  `FormatterSourceText.tests.nl`, which drives the FORMATTER directly and pins its text with `|`
+  separators, while this slice drives the PLAYGROUND's `Format`, which runs `Check` FIRST and skips
+  formatting when the source has errors — the behaviour T3 pins and the estate has no contract for.
+  Eighteen distinct substantial lines are shared and they are boilerplate the estate uses for its own
+  purposes (`import System` 1,074 times, `func main() {` 274).
+
+  ### THE DEAD SWEEP
+
+  All 1,374 tracked files were scanned for each of the 35 deleted method names and for the three
+  surviving private helpers. **Every one of the 38 is referenced in exactly two kinds of place — this
+  ledger, which names them by design, and the successors' `was PlaygroundCompilerTests.…`
+  attribution lines.** No script, no memory file and no production comment points at the migrated
+  cut. `memory/testing.md` gains this slice's record beside slice 37's.
+
+  ### THE OUT-OF-REPO PERTURBATION MATRIX — 13 CONTROLS, 11 MOVERS, TWO TRUE NON-MOVERS BOTH REPLACED
+
+  Every perturbation edits a COPY; nothing in the repo is touched. `occ` is the occurrence count the
+  perturber actually changed, scoped to the **35 contracts THIS slice migrates** (never slice 37's,
+  which share the spans file) or to the deleted C#.
+
+  | control | occ | in | reconstructed | delta |
+  |---|---|---|---|---|
+  | N1 every driven-route `Ok` pin flips | 33 | 194 | 181 | −13 |
+  | N2 every driven-route census pin gains a row | 33 | 194 | 194 | **0 — NON-MOVER** |
+  | N3 every row-count pin increments | 28 | 194 | 45 | −149 |
+  | N4 every index-0 row pin changes its code | 23 | 194 | 108 | −86 |
+  | N5 every schema-version PRECONDITION changes | 35 | 194 | 0 | **−194** |
+  | N6 every file-name / corpus PRECONDITION is emptied | 35 | 194 | 0 | **−194** |
+  | N7 every driven-route row AND item pin is DELETED (VACUITY) | 32 | 194 | 35 | −159 |
+  | N8 the NON-driven-route census pin gains a row | 21 | 194 | 194 | **0 — NON-MOVER** |
+  | N9 ONE driven-route `Ok` pin flips | 1 | 194 | 193 | −1 |
+  | N10 ONE contract `source` gains a byte | 1 | 194 | 187 | −7 |
+  | C1 every C# fixture text changes by one byte | 29 | 194 | 31 | −163 |
+  | C2 ONE C# method is deleted from the cut | 1 | **187** | 187 | 0 |
+  | C3 ONE C# assertion is deleted from a multi-assert method | 1 | **193** | 193 | 0 |
+
+  **EVERY PARTIAL DELTA WAS ATTRIBUTED TO NAMED ROWS RATHER THAN ASSERTED.** N1 moves **exactly one
+  row in each of the 13 methods that read `result.Ok`**. N3 moves every row of the 26 methods whose
+  contract carries a `PgCount` pin, because the count feeds the row reconstruction; the one method
+  with `PgCount` pins that survives is `Catalog_ExamplesAreCompilerClean`, whose single claim reads
+  only `Ok`. N4 moves the claims hanging off a selection that resolved to ROW 0 — 86 across 16
+  methods; the other 19 methods' selections never bind row 0. N10 moves SEVEN rows for ONE byte
+  because the contract it lands on carries seven claims. **C1's 31 survivors are an arithmetic result,
+  not a hole**: they are exactly the 31 rows in the six methods that have no C# literal fixture at all.
+  **C2 and C3 are DELETIONS rather than failures** — the comparator's IN count drops to 187 and 193 to
+  match, and reconstruction follows it exactly.
+
+  **THE TWO TRUE NON-MOVERS ARE PROVEN AND BOTH ARE REPLACED BY RUNTIME RUNS.** No deleted claim reads
+  a census STRING or the non-driven route at all, so N2 and N8 are pure widening the comparator
+  structurally cannot see. **That they are observable at RUNTIME was measured, not argued**: N2b and
+  N8b copy both native projects OUT OF REPO, perturb the same pins and run the real `nlc test` against
+  verified-green baselines of 116 and 19. **N2b perturbs 27 contracts and exactly 27 fail** (21 spans
+  + 6 tooling); **N8b perturbs 21 and exactly 21 fail** (the `other` binding exists only in the spans
+  project). Every control survives untouched in both runs.
+
+  ### THE MUTATION PANEL — FOUR LANDED RUNS OVER THREE OWNERS, AND THE ONE MISPREDICTION IS RECORDED RATHER THAN QUIETLY FIXED
+
+  Each mutation edits ONE production owner, REBUILDS the CLI **and the playground**, runs BOTH native
+  subjects AND the whole compiler-service estate, and is then restored. Every anchor was asserted to
+  be a SINGLE occurrence before the edit; the harness registers `atexit`, `SIGTERM` and `SIGINT`
+  restore handlers, sha-verifies each owner after each run, and **REFUSES A VERDICT UNLESS EVERY RUN
+  REPORTS A NON-ZERO `total`** — a zero-test run is a NON-VERDICT, never a pass.
+
+  | mutation | owner | spans | tooling | estate | own | predicted |
+  |---|---|---|---|---|---|---|
+  | M1 the `NL107`/`NL108` missing-closing-delimiter sentence | `ColumnarParserRecovery.nl` | 4 / 116 | 0 / 19 | **31 / 6316** | **4** | 4 ✓ |
+  | M2 the `PG204` browser-runner unsupported sentence | **`PlaygroundRunner.cs`** | 0 / 116 | 1 / 19 | 0 / 6316 | **1** | 1 ✓ |
+  | M3 the `01-hello-world` example's TITLE | `PlaygroundExamples.nl` | 0 / 116 | 1 / 19 | 0 / 6316 | **1** | 3 ✗ |
+  | M3b the `01-hello-world` example's `ExpectedOutput` | `PlaygroundExamples.nl` | 0 / 116 | 3 / 19 | 0 / 6316 | **3** | 3 ✓ |
+
+  **M3 IS A MISPREDICTION AND IT IS ROOT-CAUSED RATHER THAN EXPLAINED AWAY.** The prediction of 3 was
+  computed from the contracts pinning `Hello, N#!\n` — the example's `ExpectedOutput` — while the
+  substitution that actually ran changed the example's TITLE, which only `Catalog_States…` pins. The
+  error is in the PREDICTION, not the measurement; recomputed against the anchor actually edited it is
+  1, which is what was observed. **M3b then ran the mutation the prediction was written for**, and its
+  three movers are exactly the three named in advance: `Catalog_States…` (whose `PgExampleRow` carries
+  `ExpectedOutput`), `RunProject_ValidProgram…` (which pins the value AND asserts stdout equals it),
+  and the `T0` statics control.
+
+  **ATTRIBUTION RUNS BOTH WAYS AND TWO OF THE THREE OWNERS ARE NATIVE-ONLY.** M1 moves **31 estate
+  tests** alongside its 4 native ones — the missing-closing-delimiter sentence is heavily pinned by
+  the parser's own estate contracts — while M2 and M3b leave the whole 6,316-test estate GREEN.
+  **M2's owner is `PlaygroundRunner.cs`, the only C# left anywhere in this slice's route**, and it is
+  reached ONLY through the new native project.
+
+  **THE PANEL IS BOUNDED RATHER THAN EXHAUSTIVE, AND THE BOUND IS STATED.** Each run costs two full
+  builds plus a full estate restore-and-test. The four that landed carry this slice's distinct
+  findings; the ledger records what the remaining anchors would have tested rather than implying they
+  were run: the `NL105` unterminated-literal sentences (five migrating fixtures), the `NL411`
+  method-group sentence, the playground's own `Run skipped because the program has compiler errors.`
+  string in `PlaygroundCompiler.cs`, and `FlattenCompletions`' `Detail` join as a BEHAVIOUR mutation —
+  which is where the accessor leak of finding (1) would be fixed.
+
+  ### WHAT THE SUCCESSORS STATE
+
+  `tests/native/playground-diagnostic-spans/PlaygroundDiagnosticSpans.tests.nl` goes **2,049 → 2,991
+  lines (+942)**, 74 → 116 test declarations (**+42**: 21 migrating fixture units and 21 controls),
+  1,286 → 1,925 `assert` lines (**+639**), and 23 → 24 kernels.
+  `tests/native/playground-tooling-surfaces/PlaygroundToolingSurfaces.tests.nl` is **NEW at 1,440
+  lines**, 19 test declarations (14 migrating and 5 controls), **695 `assert` lines** and **53
+  kernels**. Every kernel in both files has a live consumer, verified by call-site census.
+
+  **1,334 pinned assert executions against the C#'s 194 claim rows — a 6.9× widening**, over **343
+  pinned completion items** (each `Label|Kind|Detail|Documentation|InsertText` whole — 339 across the
+  nine migrating sites and 4 more in the T1/T1b controls), 45 driven-route
+  diagnostic rows with their `SourceSnippet|Explanation|Suggestion|Hint`, the full example and
+  tutorial corpora row by row, the EIGHTH capability flag the C# never read (`SupportsTests` is FALSE
+  while the seven the C# asserted are TRUE), all four `Limitations` strings, and the
+  `<no-such-diagnostic>`,
+  `<no-such-item>`, `<no-such-example>`, `<no-such-step>`, `<no-such-limitation>` and
+  `<no-such-warning>` sentinels one past the end of every list.
+
+  ### THE SHRINK — THE FILE IS DELETED AND THREE HELPERS DIE WITH IT
+
+  `tests/PlaygroundCompilerTests.cs` **821 → 0**. All 35 methods, all 745 declaration lines, all 193
+  whole-file `Assert.` occurrences and all three surviving private helpers (`AssertCompletion`,
+  `LineNumberContaining`, `ColumnAfter`) go with it, as do both `using` directives. **`tests/*.cs`
+  goes 28 → 27 files.** And the file's deletion makes one more thing dead: `tests/Tests.csproj`'s
+  `ProjectReference` to `NSharpLang.Playground` existed SOLELY because this file did, so it is removed
+  and the csproj shrinks 65 → 64 lines. Nothing else in `tests/` names the playground. **SLICE 37's
+  EXTRA GATE LINE IS NOW THE ONLY THING THAT BUILDS `NSharpLang.Playground` AT ALL** — it was added
+  because leaning on the unit-test step's incidental build made a native project's dependency a
+  by-product of a cacheable step, and this slice removes that by-product entirely, so the line has
+  gone from belt-and-braces to load-bearing in one commit.
+
+  ### THE VERIFICATION, EXACT
+
+  **Native subjects: `tests/native/playground-diagnostic-spans` at `Passed: 116, Failed: 0`** (74 → 116)
+  **and a NEW `tests/native/playground-tooling-surfaces` at `Passed: 19, Failed: 0`**. **Unit suite
+  919 → 884 (−35)**, `Failed: 0` — the two numbers agree from opposite sides, the unit suite losing
+  exactly the 35 `[Fact]`s where the native projects gain their 35 contracts plus 26 controls.
+  **Compiler-service estate 6,316 → 6,316**, `Failed: 0`, under the restore-flag discipline
+  (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`), verified GREEN before the
+  mutation panel used it as a baseline and again after. **Native project count 40 → 41.**
+
+  **Live tree 393 files / 246 diagnostics — the inherited baseline to the digit**, with the same
+  ten-code census (`NL202` 85, `NL402` 68, `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010`
+  7, `NL303` 3, `NL412` 3, `NL002` 1), **ZERO rows in any `.tests.nl` and ZERO naming any Playground
+  file.**
+
+  **NOTHING THIS SLICE RUNS TOUCHES THE FILESYSTEM.** After the full 116 + 19 run, the four mutation
+  runs, the two runtime non-mover runs and all 24 probe variants, **zero `nsharp-playground*`
+  directories exist** in `$TMPDIR` or `/tmp`, and every probe, oracle, bisection and perturbation copy
+  was built OUTSIDE the repository and deleted.
+
+  **THE RATCHET, IN THE PROTOCOL'S ORDER.** A replica of the audit's own fingerprint arithmetic was
+  written first and **VALIDATED AGAINST THE PRISTINE MANIFEST BEFORE ANY MANIFEST EDIT** — it
+  reproduces all three published fingerprints exactly (`pathset-v1:8a26e1529863444b`,
+  `epochfacts-v1:1b3090747e517fc1`, `head-v1:7807506937d2b15d`) over all 381 entries. The audit was
+  then run BEFORE any manifest edit and correctly failed **17 / 18**. TWO rows then moved:
+  `tests/PlaygroundCompilerTests.cs` goes `existing-debt` → **`removed`** — **821 → 0 lines, 686 → 0
+  non-blank, 230 → 0 assertion markers, `text-v1:1b936b0af93dc034` → `text-v1:removed`** — and
+  `tests/Tests.csproj` SHRANK exact-match, **65 → 64 lines, 57 → 56 non-blank,
+  `text-v1:fc17769df74e9edb` → `text-v1:0d43afb7c562116c`**. No row was added and none removed, so
+  `pathset` and `epochfacts` are unchanged by construction and by measurement. **The audit was re-run
+  BEFORE the repin and correctly failed 17 / 18 again**, with exactly ONE `OWN008` observing
+  `head-v1:3f38766d9c05480c` — **the exact value the replica had computed in advance**. Only then were
+  the two keys repinned LAST and TOGETHER — the JSON header's `reviewedHeadFingerprint` and the
+  `OwnershipPolicy.ReviewedHeadFingerprint` constant — **`7807506937d2b15d` → `3f38766d9c05480c`**,
+  after which the **audit is 18 / 18**. Manifest 391 lines, 381 entries, no BOM. The new
+  `tests/native/playground-tooling-surfaces/project.yml` is not a new manifest row:
+  `OwnershipPolicy.Classify` excludes every `project.yml` by name.
+
+  **Format contract gate GREEN.** No file this slice edited is in the format contract's four
+  directories: the three `.nl` files touched are the two native successors and
+  `tests/native/ownership-audit/OwnershipAudit.nl`, whose single changed token is the repinned head.
+  The three `BootstrapServices` and `Playground` owners the mutation panel edited were all restored
+  byte-identically, verified by sha after each run and by `git diff HEAD -- src/` at the end, which
+  is EMPTY.
+
+  **THE GATE: `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`, FRESH AND ISOLATED, RUN FROM A
+  /tmp BYTE-COPY THAT EXCLUDES THE SIX NESTED WORKTREES UNDER `.claude/worktrees`, WITH THE LOG
+  WRITTEN OUTSIDE THE COPY. ALL TESTS PASSED, 21m 48s, `GATE EXIT: 0`, ZERO `✗ FAILED` LINES IN 617
+  LOG LINES**, every step green: Step 2 building the CLI and the playground on slice 37's line, the
+  format contract gate, unit tests `Failed: 0, Passed: 884`, the compiler-service estate
+  `Failed: 0, Passed: 6316`, **all 41 native projects** — one more than the arc has ever run —
+  including `playground-diagnostic-spans` at `Passed: 116, Failed: 0` and the NEW
+  `playground-tooling-surfaces` at `Passed: 19, Failed: 0`, SDK/runtime/template pack and install,
+  console and Web API template creation and build, all example projects, `nlc check` on 23 example
+  and fixture projects, and the IL verification gate — **67 N# assemblies pass ECMA-335 verification
+  with no new errors against the baseline**. VS Code integration tests were skipped by the
+  backend-only rule; no Language Server, LSP handler or extension file is touched by this slice, and
+  computer-use was not available.
+
+  **NOT COMMITTED — the mandate reserves that.** The working tree carries exactly NINE changed
+  paths: the DELETED `tests/PlaygroundCompilerTests.cs`, `tests/Tests.csproj`,
+  `tests/native/playground-diagnostic-spans/PlaygroundDiagnosticSpans.tests.nl`, the NEW
+  `tests/native/playground-tooling-surfaces/` (`project.yml` and `PlaygroundToolingSurfaces.tests.nl`),
+  `tests/native/ownership-audit/OwnershipAudit.nl`,
+  `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json`, `memory/testing.md` and this
+  ledger. Every probe, oracle, bisection, perturbation and mutation copy was built OUTSIDE the
+  repository and deleted. `tasks/README.md` is NOT edited.
+
+  ### WHAT IS LEFT OF TASK 020, AND THE NEXT CLUSTER
+
+  **`tests/PlaygroundCompilerTests.cs` IS GONE, AND WITH IT THE THIRD FILE THIS ARC HAS CLOSED
+  WHOLE.** Two canonical C# assertion layers remain, and the same instrument was run over both:
+
+  | file | lines | methods | `[Fact]` / `[Theory]` | in-body `Assert.` | route |
+  |---|---|---|---|---|---|
+  | `SystemsNSharpTests.cs` | 2,402 | 61 | 60 / 1 | 375 | compiles and RUNS emitted assemblies; needs the SDK and a real build |
+  | `QueryIntegrationTests.cs` | 1,322 | 65 | 65 / 0 | 209 | drives the `nlc` CLI end to end against real example projects |
+
+  **THE NEXT CLUSTER IS `QueryIntegrationTests.cs`, AND THE ROUTE IS SKETCHED HERE RATHER THAN LEFT
+  TO THE NEXT SLICE TO REDISCOVER.** It needs exactly two capabilities no native project has, and
+  both have a proven neighbour:
+
+  * **PROCESS LAUNCH.** The bodies shell out to the `nlc` CLI and read stdout. No `.tests.nl` has ever
+    started a process — but the reflection route this arc just paid for reaches
+    `System.Diagnostics.Process` the same way it reached `PlaygroundCompiler`, and the carried gotcha
+    list already records that `Task.Run` / `Stopwatch` / `TickCount64` decline, so the kernel must be
+    SYNCHRONOUS (`Start`, `StandardOutput.ReadToEnd`, `WaitForExit`) and every one of those spellings
+    needs the same bisection discipline this slice used on `Invoke`. The cheaper alternative should be
+    priced first: `Cli.dll`'s command entry points may be callable IN-PROCESS through the same
+    `Type.GetType(…, "Cli")` + `GetMethod` walk, which would remove the process boundary entirely and
+    is the shape the whole arc has used since slice 28.
+  * **JSON PARSING.** `tests/native/ownership-audit` ALREADY parses strict JSON in N# — its
+    `OwnershipManifest` reader is a complete object/array/string/number parser with duplicate-field
+    and unknown-field errors. That reader is the model, and the `nlc query` schemas are versioned and
+    stable by product policy, so the successor can pin whole documents rather than probe them.
+
+  The natural cut is by SUBCOMMAND — the same "classify by what the bodies READ/NAME" rule this
+  campaign has used nine times — and the file's own shape should be decoded before any edit, because
+  every published prediction of a residue's shape in this arc has reproduced to the digit and every
+  one that was guessed instead has not.
+
+  `SystemsNSharpTests.cs` remains the furthest: it EXECUTES emitted assemblies, which needs the SDK, a
+  real build, and a way to load and invoke the result — the AOT-vs-reflection wall in
+  `project_aot_vs_reflection_kernel_loading` touches it directly.
+
+  Task 020 stays UNCHECKED, and `tasks/README.md` is NOT edited.
+
+
+- Previous sub-slice (020 arc, COMMITTED at `61b9f2519` — **SLICE 37 OPENS `tests/PlaygroundCompilerTests.cs` AND
   TAKES ITS FIRST CUT: THE 34 BODIES THAT NAME `AssertPlaygroundSpan`. 34 METHODS (30 `[Fact]` + 4
   `[Theory]` CARRYING 25 `InlineData`) / 1,051 DECLARATION LINES / 113 IN-BODY `Assert.` / 71
   `AssertPlaygroundSpan` CALLS / 57 SOURCE FIXTURES / 233 DECODED CLAIM ROWS, IN A NEW NATIVE PROJECT

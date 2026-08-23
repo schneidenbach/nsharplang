@@ -41,7 +41,6 @@
     <ProjectReference Include="..\src\NSharpLang.Compiler.BootstrapServices\NSharpLang.Compiler.BootstrapServices.csproj" />
     <ProjectReference Include="..\src\NSharpLang.Compiler\Compiler.csproj" />
     <ProjectReference Include="..\src\NSharpLang.LanguageServer\LanguageServer.csproj" />
-    <ProjectReference Include="..\src\NSharpLang.Playground\NSharpLang.Playground.csproj" />
     <ProjectReference Include="..\src\NSharpLang.Runtime\NSharpLang.Runtime.csproj" />
   </ItemGroup>
 

@@ -397,6 +397,36 @@ types. The models themselves are already N# — `PlaygroundFile`, `PlaygroundChe
 `PlaygroundDiagnostic` and `PlaygroundSummary` live in `PlaygroundModels.nl`; only
 `PlaygroundCompiler` and `PlaygroundRunner` are still C#.
 
+**THE WHOLE PLAYGROUND HAS NO C# ASSERTION LAYER AS OF TASK 020 SLICE 38**, which deleted
+`tests/PlaygroundCompilerTests.cs` outright — 821 lines, 35 `[Fact]`s, 745 declaration lines, 191
+in-body `Assert.` and 194 decoded claim rows — and split them 21 / 14 by what the bodies READ. The 21
+that answer `PlaygroundCheckResponse` through `Check(source)` extended
+`tests/native/playground-diagnostic-spans`; the 14 that answer the FOUR OTHER response records
+(`Catalog`, `Completion`, `Run`, `Format`) went to a NEW sibling
+`tests/native/playground-tooling-surfaces`, the 41st native project, because none of the 14 is
+span-shaped and one of them EXECUTES the program. `AssertCompletion`, `LineNumberContaining` and
+`ColumnAfter` died with their last consumers, and `tests/Tests.csproj` lost its now-dead
+`ProjectReference` to `NSharpLang.Playground`.
+
+**Two findings from that slice are product defects, not test facts.** (1) **The browser completion
+list offers compiler-generated CLR accessors**: 51 of 339 pinned items are `get_`/`set_`/`add_`/
+`remove_` methods — 45 of 92 on `Console.` — and on `System.String` `get_Chars` and `get_Length` are
+offered beside the properties `Chars` and `Length`, so one member appears twice under two names.
+(2) **The `<error>` placeholder sizes spans past the end of their own line**, again: one character
+under `MaxSourceLength` the playground reports `NL101@1:1+65536` plus `NL903@1:65537+7`, where 7 is
+`"<error>".Length`. A third finding is about the deleted assertions themselves: the
+`DoesNotContain(Code == "PG900")` claim was STRUCTURALLY VACUOUS — `PG900` occurs in exactly one
+place in the whole repository, that assertion, while the shipping playground emits `PG001`,
+`PG200`–`PG237` and `PG299`.
+
+**Two more emit walls were measured by bisection while writing those kernels, and both are general.**
+`new object?[](0)` written INLINE as `MethodBase.Invoke`'s second argument DECLINES at emit — bound
+to a local it emits, and the same inline expression handed to an ordinary N# function emits. And a
+boxing store into an `object?[]` element declines when the source is an `int`-typed PARAMETER
+(`values[index] = value`); routing it through a typed `object` local first emits. That REFINES the
+older "a boxed literal into `object?[]` declines" note, which does not reproduce: an int literal and
+an int local both pass through an `object?` parameter fine.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
