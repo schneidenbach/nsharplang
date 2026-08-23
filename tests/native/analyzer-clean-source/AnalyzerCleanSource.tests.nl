@@ -6,9 +6,13 @@ import System.Collections
 
 // THE ANALYZER'S ASSIGNABILITY AND FLOW-NARROWING RULES, READ FROM SOURCE TEXT, IN N#.
 //
-// THIS FILE HOLDS TWO TRANCHES. Slice 28's is below, under `// ---- contracts ----`; slice 29's —
-// tranche 1b, the seven remaining `#region`s — is behind its own banner further down, and its header
-// carries the findings that only the SECOND tranche's instruments could reach.
+// THIS FILE HOLDS FIVE TRANCHES OF THE `tests/AnalyzerTests.cs` CAMPAIGN. Slice 28's — tranche 1a
+// — is the first block of contracts below; slice 29's (tranche 1b, the seven remaining `#region`s),
+// slice 30's (tranche 2, the error-code assertion family), slice 31's (tranche 3, the direct-
+// `Analyze` + `ErrorCode` shape and the `AnalyzeWithSource` prefix), slice 32's (tranche 4, the rest
+// of that shape plus the whole `AssertHasError` family) and slice 33's (tranche 5, the first
+// line-cut third of the `AssertNoErrors` family) each sit behind their own banner further down, and
+// every banner carries the findings that only that tranche's instruments could reach.
 //
 // These replace TRANCHE 1a of `tests/AnalyzerTests.cs` — the file's FIRST TWELVE `#region`s, taken
 // whole: `Nominal Subtyping`, `Numeric Widening`, `Nullable Assignability`, `Flow-Sensitive Null
@@ -628,6 +632,49 @@ func AcExplanation(analysis: object, index: int): string {
     }
 
     return AcText(entry, "HumanExplanation")
+}
+
+
+// ---- slice 33's kernel: the PARSED UNIT'S OWN SHAPE, WHICH IS WHAT MAKES A SILENCE MEAN SOMETHING ----
+//
+// Tranche 5 is the campaign's first ALL-CLEAN tranche: every one of its 89 claims is an ABSENCE
+// claim, and an absence claim over an EMPTY compilation unit says nothing. Slice 25 measured that
+// hazard for real — an unterminated block comment swallowed a whole file and the parser reported
+// NOTHING back, so `HasErrors == false` would have held over no code at all. `AcUnitShape` states
+// the import count and every top-level declaration's KIND and NAME, so each of the 89 silences is
+// pinned against the declarations the analyzer was actually handed. `AcDeclName` exists because not
+// every `Declaration` subclass need carry a `Name`; it answers `<no-name>` rather than throwing,
+// and over this corpus it never has to — 167 declarations, every one named.
+
+func AcDeclName(owner: object): string {
+    ownerType := owner.GetType()
+    if ownerType.GetProperty("Name") != null || ownerType.GetField("Name") != null {
+        return AcText(owner, "Name")
+    }
+
+    return "<no-name>"
+}
+
+func AcUnitShape(source: string): string {
+    unit := AcParseUnit(source)
+    imports := AcMember(unit, "Imports") as IList
+    declarations := AcMember(unit, "Declarations") as IList
+    if imports == null || declarations == null {
+        return "<not-a-list>"
+    }
+
+    shape := "imports=" + imports.Count.ToString() + ";"
+    index := 0
+    while index < declarations.Count {
+        entry := declarations[index]
+        if entry != null {
+            shape = shape + entry.GetType().Name + ":" + AcDeclName(entry) + ";"
+        }
+
+        index = index + 1
+    }
+
+    return shape
 }
 
 
@@ -13150,4 +13197,1748 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 3:12+5 — th
     assert AcCodeErrorCount(rich, "NonExhaustiveMatch") == 1
     assert AcCodeRow(rich, "NonExhaustiveMatch") == "NonExhaustiveMatch|This match doesn't cover all anonymous union arms — missing: string|Add an arm for each missing type, or add a wildcard `_` arm.|Error"
     assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@3:12+5"
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// TRANCHE 5 — THE FIRST LINE-CUT THIRD OF THE 281-METHOD `AssertNoErrors` FAMILY, AND THE
+// CAMPAIGN'S FIRST TRANCHE IN WHICH NOT ONE FIXTURE PRODUCES A DIAGNOSTIC. 87 methods
+// (85 `[Fact]` + 2 `[Theory]`) / 1,223 declaration lines / ZERO in-body `Assert.` / 4 `InlineData`
+// rows / 89 fixtures / 89 decoded claim rows. Task 020 slice 33 deletes them.
+//
+// WHY THE CUT IS 1727 AND NOT 1777. The family is 3,835 declaration lines and cannot be cut by
+// name — slice 29's finding — so slice 32 priced an even-thirds LINE cut at 1777 and 3610.
+// Measured on the shrunk file, 1777 falls exactly on a signature line and the un-nudged first
+// third is 89 methods / 1,263 lines, reproducing that price to the digit. But it splits a subject
+// after two of its fifteen members, and the subject is not guessed from names: `AnalyzerTests.cs`
+// carries exactly two class-level banner comments in this span, and the second — `// Match
+// expression exhaustiveness tests` at 1727 — sits between `DuckInterface_ReturnValue_Valid` and
+// `MatchExpression_Exhaustive_AllCasesCovered`. Nudging BACK to it costs 2 methods and 40 lines;
+// nudging FORWARD to the end of the match subject would cost 13 methods and 231. The nearer wins,
+// so the tranche ends on the file's own banner and the whole match/pattern subject is left intact
+// for tranche 6.
+//
+// THE TRANCHE IS NOT CONTIGUOUS. Eleven non-family methods sit inside the span 49-1725 — one
+// `new Analyzer()`, one direct `Analyze`, nine `AnalyzeWithSource` — plus the `AnalyzeWithSource`
+// helper itself. They stay, so the deletion is twelve spans rather than one.
+//
+// THE FIXTURES ARE THE DELETED ONES BYTE-FOR-BYTE. All 89 were decoded by the C# compiler itself —
+// every `AssertNoErrors` literal copied unmodified into a generated console program that printed
+// its sha256 and its length, including the two `$$"""` raw-interpolated theory literals with their
+// `{{statement}}` holes filled per `[InlineData]` row — and an independent Python decode reproduces
+// all 89 shas and all 89 lengths with ZERO mismatches. All 89 are distinct; they total 18,339
+// characters.
+//
+// THE HEADLINE IS THAT THE CLAIM WAS ONE BOOLEAN PER FIXTURE AND IT IS NOW ELEVEN PINS.
+// `AssertNoErrors` asserted `result.HasErrors == false` and nothing else — 89 claim rows, no
+// in-body `Assert.` anywhere in the 87 bodies, no other call of any kind. Each fixture now pins an
+// EMPTY parse census, a `True` parse result, its own UNIT SHAPE, and then on BOTH entry points an
+// EMPTY analysis census, `HasErrors == False`, a row count of ZERO and the `<no-such-error>`
+// sentinel at index 0.
+//
+// AND THE MEASURED ANSWER IS THAT ALL 89 HOLD — THERE IS NO FALSE CLEAN IN THIS THIRD. Slice 30
+// found one false clean in this file's error-code family and slice 28 found none; this third's
+// count is ZERO, on both routes.
+//
+// THE TWO ROUTES AGREE EVERYWHERE HERE, AND THAT IS NOT A CONTRADICTION OF SLICE 32. Slice 32
+// measured 40 claims false on the other route and 126 row pairs disagreeing about WHERE and WHAT
+// IT SAYS, while agreeing on WHAT and HOW MANY in every case. This tranche is the other half of
+// that same fact: where there is no diagnostic there is nothing to disagree about, so all 89
+// fixtures report an empty census on BOTH `Analyze(unit)` and `Analyze(unit, "test.nl", null,
+// source)`. The route split is about the SENTENCE, never about the VERDICT — and 89 clean fixtures
+// is the widest evidence the campaign has for the second half of that claim.
+//
+// THE SILENCES ARE NOT VACUOUS, AND THAT WAS MEASURED TWICE. First: every fixture's parsed unit is
+// pinned by `AcUnitShape`, and across the 89 it carries 167 top-level declarations over seven
+// kinds — 117 `FunctionDeclaration`, 29 `ClassDeclaration`, 7 `InterfaceDeclaration`, 5
+// `UnionDeclaration`, 4 `StructDeclaration`, 4 `RecordDeclaration`, 1 `EnumDeclaration` — every one
+// of them named, with no empty unit anywhere. Second, out of repo: appending one type-error
+// function to each of the 89 fixtures makes ALL 89 report, exactly one `NL202` each, over 21
+// distinct censuses. ZERO NON-MOVERS. Every one of the 89 empty censuses is a decision the analyzer
+// made about code it could see and would otherwise have complained about.
+//
+// AND FIVE OF THE SILENCES ARE PINNED FROM THE OTHER SIDE AS WELL. The five V-CONTROLS at the end
+// of this tranche are minimal negatives of five specific fixtures — delete the user-declared `Ok`,
+// rename the duck-typed method, move the readonly write out of the constructor, point `ref` at a
+// field the base does not declare, return a string where a char is declared — and each one reports
+// exactly the diagnostic its silent twin denies. All ten of their pinned anchors were read back out
+// of the fixture text and ZERO are out of range. What sits at each is worth reading: `NL401`
+// underlines `(1`, the open paren and the first argument character rather than the callee; `NL202`
+// underlines the ARGUMENT `reader`; `NL309` the field name `id`; `NL303` the missing member
+// `Missing`. And `V5_char_returns_string` is this tranche's own witness to the route split — plain
+// anchors 3:17+1 on `r`, the first character of `return`, while production anchors 3:24+3 on `"|"`,
+// the offending value itself, with two different sentences and the explanation moved into
+// `ContextualHint`.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+test "020 s33 analyzer clean source: `UserDefinedOk_IsNotHijackedByResultFactory` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.UserDefinedOk_IsNotHijackedByResultFactory)" {
+    source := "\nfunc Ok(a: int, b: int): Result<int, string> {\n    return Err(\"boom\")\n}\n\nfunc make(): Result<int, string> {\n    return Ok(1, 2)\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Ok;FunctionDeclaration:make;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `GenuineOkErr_StillRecognizedAsResultFactory` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenuineOkErr_StillRecognizedAsResultFactory)" {
+    source := "\nfunc make(ok: bool): Result<int, string> {\n    if ok {\n        return Ok(42)\n    }\n    return Err(\"nope\")\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:make;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `InstanceMemberResolution_PrefersMemberNamedPathOverImportedType` parses to 1 class behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.InstanceMemberResolution_PrefersMemberNamedPathOverImportedType)" {
+    source := "\nimport System.IO\n\nclass HttpUrl {\n    Path: string = \"/api/items\"\n\n    func ToDisplayString(): string {\n        pathLength := Path.Length\n        return $\"{Path}:{pathLength}\"\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;ClassDeclaration:HttpUrl;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ReflectionOverloadResolution_BindsDictionaryRemoveOverloads` parses to 2 functions behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ReflectionOverloadResolution_BindsDictionaryRemoveOverloads)" {
+    source := "\nimport System.Collections.Generic\n\nfunc removeKey(): bool {\n    headers := new Dictionary<string, string>()\n    headers[\"Accept\"] = \"application/json\"\n    return headers.Remove(\"Accept\")\n}\n\nfunc removeKeyAndValue(): string {\n    headers := new Dictionary<string, string>()\n    headers[\"Accept\"] = \"application/json\"\n\n    removedValue := \"\"\n    if headers.Remove(\"Accept\", out removedValue) {\n        return removedValue\n    }\n\n    return \"missing\"\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:removeKey;FunctionDeclaration:removeKeyAndValue;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `CharLiteral_HasCharType` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.CharLiteral_HasCharType)" {
+    source := "\n            func Delimiter(): char {\n                return '|'\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Delimiter;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `TryCatch_AllBranchesReturn_SatisfiesReturnAnalysis` parses to 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.TryCatch_AllBranchesReturn_SatisfiesReturnAnalysis)" {
+    source := "\n            import System\n\n            func ParseId(s: string): int {\n                try {\n                    return Int32.Parse(s)\n                } catch ex: FormatException {\n                    return -1\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:ParseId;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ThrowStatement_ExceptionOperands_AreValid` parses to 1 class + 3 functions behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ThrowStatement_ExceptionOperands_AreValid)" {
+    source := "import System\n\nclass DomainFailure : Exception {\n}\n\nfunc ThrowRuntime() {\n    throw new InvalidOperationException(\"boom\")\n}\n\nfunc ThrowCustom() {\n    throw new DomainFailure()\n}\n\nfunc ThrowNull() {\n    throw null\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;ClassDeclaration:DomainFailure;FunctionDeclaration:ThrowRuntime;FunctionDeclaration:ThrowCustom;FunctionDeclaration:ThrowNull;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `SimpleVariableDeclaration_TypeInference` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.SimpleVariableDeclaration_TypeInference)" {
+    source := "\n            func Main() {\n                x := 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `VariableDeclaration_WithExplicitType` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.VariableDeclaration_WithExplicitType)" {
+    source := "\n            func Main() {\n                let x: int = 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ErrorTupleResultUseAfterReturningErrorBranch_IsAllowed` parses to 2 functions behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ErrorTupleResultUseAfterReturningErrorBranch_IsAllowed)" {
+    source := "\n            import System\n\n            func Hi(): int {\n                throw new Exception(\"boom\")\n            }\n\n            func Main() {\n                i, err := Hi()\n                if err != null {\n                    return\n                }\n\n                print i\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Hi;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ErrorTupleResultUseInsideNullErrorBranch_IsAllowed` parses to 2 functions behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ErrorTupleResultUseInsideNullErrorBranch_IsAllowed)" {
+    source := "\n            import System\n\n            func Hi(): int {\n                return 42\n            }\n\n            func Main() {\n                i, err := Hi()\n                if err == null {\n                    print i\n                } else {\n                    print err\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Hi;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ErrorTupleResultUseAfterReturningElseBranch_IsAllowed` parses to 2 functions behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ErrorTupleResultUseAfterReturningElseBranch_IsAllowed)" {
+    source := "\n            import System\n\n            func Hi(): int {\n                return 42\n            }\n\n            func Main() {\n                i, err := Hi()\n                if err == null {\n                    print \"ok\"\n                } else {\n                    return\n                }\n\n                print i\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Hi;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DiscardedNonMustUseSelectedOverload_IsAllowed` parses to 3 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DiscardedNonMustUseSelectedOverload_IsAllowed)" {
+    source := "\n            [MustUse]\n            func Compute(value: int): int {\n                return value\n            }\n\n            func Compute(): int {\n                return 42\n            }\n\n            func Main() {\n                Compute()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Compute;FunctionDeclaration:Compute;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ExplicitDiscardOfMustUseResult_IsAllowed` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ExplicitDiscardOfMustUseResult_IsAllowed)" {
+    source := "\n            [MustUse]\n            func Compute(): int {\n                return 42\n            }\n\n            func Main() {\n                _ = Compute()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Compute;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `UsedMustUseResult_IsAllowed` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.UsedMustUseResult_IsAllowed)" {
+    source := "\n            [MustUse]\n            func Compute(): int {\n                return 42\n            }\n\n            func Main() {\n                let x := Compute()\n                print $\"{x}\"\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Compute;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DiscardedNonMustUseResult_IsAllowed` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DiscardedNonMustUseResult_IsAllowed)" {
+    source := "\n            func Compute(): int {\n                return 42\n            }\n\n            func Main() {\n                Compute()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Compute;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `VoidCallStatement_IsAllowed` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.VoidCallStatement_IsAllowed)" {
+    source := "\n            func SideEffect() {\n                print \"hi\"\n            }\n\n            func Main() {\n                SideEffect()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:SideEffect;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `FunctionDeclaration_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.FunctionDeclaration_Valid)" {
+    source := "\n            func Add(x: int, y: int): int {\n                return x + y\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Add;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `GeneratorSequenceReturnTypes_AreValid` parses to 4 functions behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GeneratorSequenceReturnTypes_AreValid)" {
+    source := "import System.Collections.Generic\n\nfunc* Numbers(): IEnumerable<int> {\n    yield 1\n}\n\nfunc* NumberList(): List<int> {\n    yield 1\n}\n\nfunc* NumberReadOnlyList(): IReadOnlyList<int> {\n    yield 1\n}\n\nasync func* AsyncNumbers(): IAsyncEnumerable<int> {\n    yield 1\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Numbers;FunctionDeclaration:NumberList;FunctionDeclaration:NumberReadOnlyList;FunctionDeclaration:AsyncNumbers;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `BreakInsideLoop_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.BreakInsideLoop_Valid)" {
+    source := "\n            func Main() {\n                while true {\n                    break\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ExpressionStatement_SideEffectingForms_NoErrors` parses to 1 class + 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ExpressionStatement_SideEffectingForms_NoErrors)" {
+    source := "\n            class Worker {\n            }\n\n            func Touch(value: int) {\n            }\n\n            func Main() {\n                value := 1\n                value = 2\n                value++\n                Touch(value)\n                new Worker()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Worker;FunctionDeclaration:Touch;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `Write_SettableRuntimePropertyTarget_Valid` parses to 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.Write_SettableRuntimePropertyTarget_Valid)" {
+    source := "    import System.Collections.Generic\n\n    func Main(items: List<int>) {\n        items.Capacity = 4\n        items.Capacity += 1\n        items.Capacity++\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `RefOutArgument_ArrayFromEndElement_IsAddressable` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.RefOutArgument_ArrayFromEndElement_IsAddressable)" {
+    source := "    func update(ref value: int) {\n        value += 1\n    }\n\n    func Main() {\n        values := [1, 2, 3]\n        update(ref values[^1])\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:update;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ClassDeclaration_Valid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ClassDeclaration_Valid)" {
+    source := "\n            class Person {\n                Name: string\n                Age: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Person;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ScopeNesting_NestedBlockWithDistinctName_IsValid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ScopeNesting_NestedBlockWithDistinctName_IsValid)" {
+    source := "\n            func Main() {\n                x := 1\n                {\n                    y := 2\n                    print y\n                }\n                print x\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `BinaryArithmetic_IntOperands` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.BinaryArithmetic_IntOperands)" {
+    source := "\n            func Main() {\n                x := 1 + 2\n                y := 3 * 4\n                z := 5 - 6\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `BinaryArithmetic_SmallTypes_AssignableToInt` parses to 3 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.BinaryArithmetic_SmallTypes_AssignableToInt)" {
+    source := "\n            func getA(): byte { return 0 as byte }\n            func getB(): byte { return 0 as byte }\n            func Main() {\n                c: int = getA() + getB()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:getA;FunctionDeclaration:getB;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `BinaryArithmetic_DecimalPlusDecimal_Ok` parses to 3 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.BinaryArithmetic_DecimalPlusDecimal_Ok)" {
+    source := "\n            func getA(): decimal { return 0 as decimal }\n            func getB(): decimal { return 0 as decimal }\n            func Main() {\n                x := getA() + getB()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:getA;FunctionDeclaration:getB;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `NegativeIntegerLiteral_TargetTypedSignedNarrowing_IsPreserved` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NegativeIntegerLiteral_TargetTypedSignedNarrowing_IsPreserved)" {
+    source := "\nfunc Main() {\n    a: sbyte = -128\n    b: short = -32768\n    c: int = -2147483648\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DecimalSuffixLiteral_AssignableToDecimal` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DecimalSuffixLiteral_AssignableToDecimal)" {
+    source := "\n            func Main() {\n                value: decimal = 0m\n                other: decimal = 1.25m\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `RelationalOperator_NumericAndOverloadedOperands_AreValid` parses to 1 struct + 3 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.RelationalOperator_NumericAndOverloadedOperands_AreValid)" {
+    source := "\nstruct Version {\n    Major: int\n\n    static func operator <(left: Version, right: Version): bool {\n        return left.Major < right.Major\n    }\n}\n\nfunc ComparePrimitives(a: int, b: double, c: char, d: uint, e: long): bool {\n    return a < b && c >= 0 && d <= e\n}\n\nfunc CompareDecimals(left: decimal, right: decimal): bool {\n    return left > right\n}\n\nfunc CompareVersions(left: Version, right: Version): bool {\n    return left < right\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;StructDeclaration:Version;FunctionDeclaration:ComparePrimitives;FunctionDeclaration:CompareDecimals;FunctionDeclaration:CompareVersions;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `RelationalOperator_ReflectedPrimitiveReturn_IsValid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.RelationalOperator_ReflectedPrimitiveReturn_IsValid)" {
+    source := "\nfunc CompareLower(left: string, right: string): bool {\n    leftChar := Char.ToLowerInvariant(left[0])\n    rightChar := Char.ToLowerInvariant(right[0])\n    return leftChar < rightChar\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:CompareLower;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `EqualityOperator_SupportedOperands_AreValid` parses to 1 record + 1 struct + 7 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.EqualityOperator_SupportedOperands_AreValid)" {
+    source := "\nrecord struct Measurement(value: int) {\n}\n\nstruct Key {\n    Value: int\n\n    static func operator ==(left: Key, right: Key): bool {\n        return left.Value == right.Value\n    }\n\n    static func operator !=(left: Key, right: Key): bool {\n        return left.Value != right.Value\n    }\n}\n\nfunc ComparePrimitives(a: int, b: double, flag: bool, ch: char): bool {\n    return a == b && flag != false && ch == 'x'\n}\n\nfunc CompareDecimals(left: decimal, right: decimal): bool {\n    return left == right\n}\n\nfunc CompareReferences(text: string, other: object, values: int[]): bool {\n    return text == \"x\" && text != other && values == null && null != other\n}\n\nfunc CompareValueToNull(value: int): bool {\n    return value != null\n}\n\nfunc CompareRecordStructs(left: Measurement, right: Measurement): bool {\n    return left == right\n}\n\nfunc CompareKeys(left: Key, right: Key): bool {\n    return left == right && left != right\n}\n\nfunc CompareReflectedChars(left: string, right: string): bool {\n    leftChar := Char.ToLowerInvariant(left[0])\n    rightChar := Char.ToLowerInvariant(right[0])\n    return leftChar == rightChar\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;RecordDeclaration:Measurement;StructDeclaration:Key;FunctionDeclaration:ComparePrimitives;FunctionDeclaration:CompareDecimals;FunctionDeclaration:CompareReferences;FunctionDeclaration:CompareValueToNull;FunctionDeclaration:CompareRecordStructs;FunctionDeclaration:CompareKeys;FunctionDeclaration:CompareReflectedChars;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `EqualityOperator_NestedEnumOperands_AreValid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.EqualityOperator_NestedEnumOperands_AreValid)" {
+    source := "\nclass BankAccount {\n    enum Status {\n        Active,\n        Frozen\n    }\n\n    CurrentStatus: BankAccount.Status\n\n    constructor() {\n        CurrentStatus = BankAccount.Status.Active\n    }\n\n    func IsActive(): bool {\n        return CurrentStatus == BankAccount.Status.Active\n    }\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:BankAccount;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `AwaitOmittedAsyncReturn_IsValid` parses to 3 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.AwaitOmittedAsyncReturn_IsValid)" {
+    source := "\nasync func Work() {\n}\n\nasync func GetCount(): int {\n    return 1\n}\n\nasync func Main() {\n    await Work()\n    value := await GetCount()\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Work;FunctionDeclaration:GetCount;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ForeachDictionary_BindsKeyValuePairMembers` parses to 1 record + 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ForeachDictionary_BindsKeyValuePairMembers)" {
+    source := "\nimport System.Collections.Generic\n\nrecord Stat {\n    Count: int\n}\n\nfunc Main(items: Dictionary<string, Stat>): int {\n    total := 0\n    for kvp in items {\n        total = total + kvp.Key.Length + kvp.Value.Count\n    }\n\n    return total\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;RecordDeclaration:Stat;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ForeachString_BindsCharElements` parses to 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ForeachString_BindsCharElements)" {
+    source := "\nimport System\n\nfunc CountLetters(text: string): int {\n    count := 0\n    for ch in text {\n        if Char.IsLetter(ch) {\n            count = count + 1\n        }\n    }\n\n    return count\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:CountLetters;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `StringConcatenation_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StringConcatenation_Valid)" {
+    source := "\n            func Main() {\n                x := \"hello\" + \" \" + \"world\"\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ArrayLiteral_UniformTypes` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ArrayLiteral_UniformTypes)" {
+    source := "\n            func Main() {\n                nums := [1, 2, 3, 4]\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ArrayRangeIndexAccess_ReturnsArrayType` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ArrayRangeIndexAccess_ReturnsArrayType)" {
+    source := "\n            func PrintArray(arr: int[]) {\n            }\n\n            func Main() {\n                numbers := [1, 2, 3, 4, 5]\n                firstTwo := numbers[..2]\n                PrintArray(firstTwo)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:PrintArray;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `RangeExpression_IntCompatibleEndpoints_AreValid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.RangeExpression_IntCompatibleEndpoints_AreValid)" {
+    source := "\nfunc Main(values: int[], start: byte, end: short, fromEnd: int) {\n    first := values[start..end]\n    middle := values[..^fromEnd]\n    all := values[..]\n}\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `StringRangeIndexAccess_ReturnsStringType` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StringRangeIndexAccess_ReturnsStringType)" {
+    source := "\n            func PrintString(value: string) {\n            }\n\n            func Main() {\n                text := \"hello\"\n                firstTwo := text[..2]\n                PrintString(firstTwo)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:PrintString;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `FunctionCall_Valid` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.FunctionCall_Valid)" {
+    source := "\n            func Add(x: int, y: int): int {\n                return x + y\n            }\n\n            func Main() {\n                result := Add(1, 2)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Add;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `EnumDeclaration_Valid` parses to 1 enum and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.EnumDeclaration_Valid)" {
+    source := "\n            enum Status {\n                Pending,\n                Active,\n                Done\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;EnumDeclaration:Status;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `UnionDeclaration_Valid` parses to 1 union and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.UnionDeclaration_Valid)" {
+    source := "\n            union Result {\n                Success { value: int }\n                Failure { error: string }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;UnionDeclaration:Result;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `GenericUnionDeclaration_TypeParameterResolvesInCaseProperties` parses to 1 union and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericUnionDeclaration_TypeParameterResolvesInCaseProperties)" {
+    source := "\n            union Result<T> {\n                Success { value: T }\n                Failure { error: string }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;UnionDeclaration:Result;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `GenericUnionConstruction_WithExplicitTypeArguments_Valid` parses to 1 union + 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericUnionConstruction_WithExplicitTypeArguments_Valid)" {
+    source := "\n            union Result<T> {\n                Success { value: T }\n                Failure { error: string }\n            }\n\n            func main(): int {\n                r := new Result.Success<int> { value: 42 }\n                return 0\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;UnionDeclaration:Result;FunctionDeclaration:main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `GenericUnionConstruction_TargetTyped_InfersFromReturnType` parses to 1 union + 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericUnionConstruction_TargetTyped_InfersFromReturnType)" {
+    source := "\n            union Option<T> {\n                Some { value: T }\n                None { }\n            }\n\n            func find(): Option<string> {\n                return new Option.None\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;UnionDeclaration:Option;FunctionDeclaration:find;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `GenericUnionMatch_BindingSubstitutesTypeArgument` parses to 1 union + 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericUnionMatch_BindingSubstitutesTypeArgument)" {
+    source := "\n            union Result<T> {\n                Success { value: T }\n                Failure { error: string }\n            }\n\n            func handle(r: Result<int>): int {\n                return match r {\n                    Result.Success { value } => value + 1,\n                    Result.Failure { error } => 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;UnionDeclaration:Result;FunctionDeclaration:handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ConstructorWithFieldAssignment_Valid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ConstructorWithFieldAssignment_Valid)" {
+    source := "\n            class Person {\n                Name: string\n\n                constructor(name: string) {\n                    Name = name\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Person;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `FieldWithInitializer_NoConstructorError` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.FieldWithInitializer_NoConstructorError)" {
+    source := "\n            class Person {\n                Name: string = \"Unknown\"\n\n                constructor() {\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Person;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `StaticFieldWithoutInitializer_NoConstructorError` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StaticFieldWithoutInitializer_NoConstructorError)" {
+    source := "\n            class Counter {\n                static total: int\n                n: int\n\n                constructor(n0: int) {\n                    n = n0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Counter;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `TryCatchFinally_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.TryCatchFinally_Valid)" {
+    source := "\n            func Main() {\n                try {\n\n                } catch {\n\n                } finally {\n\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `CatchClause_ExceptionTypes_AreValid` parses to 1 class + 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.CatchClause_ExceptionTypes_AreValid)" {
+    source := "import System\n\nclass DomainFailure : Exception {\n}\n\nfunc Main() {\n    try {\n    } catch ex: InvalidOperationException {\n    } catch custom: DomainFailure {\n    } catch {\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;ClassDeclaration:DomainFailure;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `AssertThrows_ExceptionTypes_AreValid` parses to 1 class + 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.AssertThrows_ExceptionTypes_AreValid)" {
+    source := "import System\n\nclass DomainFailure : Exception {\n}\n\nfunc Main() {\n    assert throws InvalidOperationException {\n        throw new InvalidOperationException(\"boom\")\n    }\n\n    assert throws DomainFailure {\n        throw new DomainFailure()\n    }\n}"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;ClassDeclaration:DomainFailure;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `UsingStatement_Valid` parses to 1 class + 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.UsingStatement_Valid)" {
+    source := "    class Resource {\n        func Dispose(): void {\n        }\n    }\n\n    func Main() {\n        using resource := new Resource() {\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Resource;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `UsingStatement_RuntimeDisposable_Valid` parses to 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.UsingStatement_RuntimeDisposable_Valid)" {
+    source := "    import System.IO\n\n    func Main() {\n        using stream := new MemoryStream() {\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ForeachLoop_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ForeachLoop_Valid)" {
+    source := "\n            func Main() {\n                nums := [1, 2, 3]\n                foreach num in nums {\n\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `NestedScopes_AccessOuterVariable` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NestedScopes_AccessOuterVariable)" {
+    source := "\n            func Main() {\n                x := 1\n                {\n                    y := x + 1\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ClassMethodAccess_Valid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ClassMethodAccess_Valid)" {
+    source := "\n            class Calculator {\n                func Add(x: int, y: int): int {\n                    return x + y\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Calculator;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `StaticMethod_Valid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StaticMethod_Valid)" {
+    source := "\n            class Utils {\n                static func DoThing() {\n\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Utils;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `MultipleParameters_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.MultipleParameters_Valid)" {
+    source := "\n            func Process(a: int, b: string, c: bool): int {\n                return a\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Process;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ReturnStatement_VoidFunction` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ReturnStatement_VoidFunction)" {
+    source := "\n            func DoNothing() {\n                return\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:DoNothing;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `Assignment_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.Assignment_Valid)" {
+    source := "\n            func Main() {\n                let x: int\n                x = 42\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `CompoundAssignment_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.CompoundAssignment_Valid)" {
+    source := "\n            func Main() {\n                x := 10\n                x += 5\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `CompoundAssignment_DecimalOperand_NoErrors` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.CompoundAssignment_DecimalOperand_NoErrors)" {
+    source := "\n            func Main() {\n                value := 10m\n                value += 2.5m\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `NullCoalesce_NullableValueLeft_Valid` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullCoalesce_NullableValueLeft_Valid)" {
+    source := "\n            func FromParameter(n: int?): int {\n                return n ?? 5\n            }\n\n            func FromDefinitelyAssignedLocal(): int {\n                n: int? = 10\n                return n ?? 0\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:FromParameter;FunctionDeclaration:FromDefinitelyAssignedLocal;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `NullableType_Valid` parses to 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.NullableType_Valid)" {
+    source := "\n            func Main() {\n                let x: int? = null\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `GenericClass_Valid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericClass_Valid)" {
+    source := "\n            class List<T> {\n                items: T[]\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:List;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `InterfaceDeclaration_Valid` parses to 1 interface and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.InterfaceDeclaration_Valid)" {
+    source := "\n            interface IReader {\n                func Read(): string\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IReader;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `RecordDeclaration_Valid` parses to 1 record and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.RecordDeclaration_Valid)" {
+    source := "\n            record Person {\n                Name: string\n                Age: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;RecordDeclaration:Person;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `StructDeclaration_Valid` parses to 1 struct and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.StructDeclaration_Valid)" {
+    source := "\n            struct Point {\n                X: int\n                Y: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;StructDeclaration:Point;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ExternalType_Console_Valid` parses to 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ExternalType_Console_Valid)" {
+    source := "\n            import System\n\n            func Main() {\n                Console.WriteLine(\"Hello\")\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ExternalType_MemberAccess_Valid` parses to 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ExternalType_MemberAccess_Valid)" {
+    source := "\n            import System\n\n            func Main() {\n                let msg = \"test\"\n                Console.WriteLine(msg)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `Lambda_InferredType_Valid` parses to 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.Lambda_InferredType_Valid)" {
+    source := "\n            import System.Linq\n\n            func Main() {\n                numbers := [1, 2, 3]\n                doubled := numbers.Select(x => x * 2)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ExternalType_MethodOverloading_Valid` parses to 1 function behind 1 import and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ExternalType_MethodOverloading_Valid)" {
+    source := "\n            import System\n\n            func Main() {\n                Console.WriteLine(42)\n                Console.WriteLine(\"text\")\n                Console.WriteLine(true)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ReadonlyField_SetInConstructor_Valid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ReadonlyField_SetInConstructor_Valid)" {
+    source := "\n            class MyClass {\n                readonly id: string\n\n                constructor() {\n                    id = \"123\"\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:MyClass;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ReadonlyField_IncrementCurrentInstanceInConstructor_Valid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ReadonlyField_IncrementCurrentInstanceInConstructor_Valid)" {
+    source := "    class Counter {\n        readonly value: int\n\n        constructor() {\n            value = 1\n            value++\n            this.value--\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Counter;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `InstanceField_InheritedRefOutArgument_Valid` — both `ref` and `out` through an INHERITED field are accepted in silence; the fixture parses to 3 functions + 2 classes and BOTH routes report an EMPTY census (was AnalyzerTests.InstanceField_InheritedRefOutArgument_Valid, both [InlineData] rows)" with (statement: string) [
+    ("bump(ref derived.Value)"),
+    ("reset(out derived.Value)")
+] {
+    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        Value: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        " + statement + "\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:bump;FunctionDeclaration:reset;ClassDeclaration:Base;ClassDeclaration:Derived;FunctionDeclaration:Mutate;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `StaticField_InheritedRefOutArgument_Valid` — both `ref` and `out` through an inherited STATIC field are accepted in silence; the fixture parses to 2 functions + 2 classes and BOTH routes report an EMPTY census (was AnalyzerTests.StaticField_InheritedRefOutArgument_Valid, both [InlineData] rows)" with (statement: string) [
+    ("bump(ref Derived.Value)"),
+    ("reset(out Derived.Value)")
+] {
+    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        static Value: int\n    }\n\n    class Derived : Base {\n        static func Mutate() {\n            " + statement + "\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:bump;FunctionDeclaration:reset;ClassDeclaration:Base;ClassDeclaration:Derived;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `ReadonlyField_WithInitializer_Valid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.ReadonlyField_WithInitializer_Valid)" {
+    source := "\n            class MyClass {\n                readonly id: string = \"default\"\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:MyClass;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DuckInterface_ClassImplementsInterface_Valid` parses to 1 interface + 1 class + 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DuckInterface_ClassImplementsInterface_Valid)" {
+    source := "\n            duck interface IReader {\n                func Read(): string\n            }\n\n            class FileReader {\n                func Read(): string {\n                    return \"data\"\n                }\n            }\n\n            func DoWork(r: IReader) {\n            }\n\n            func Main() {\n                reader := new FileReader()\n                DoWork(reader)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IReader;ClassDeclaration:FileReader;FunctionDeclaration:DoWork;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DuckInterface_StructImplementsInterface_Valid` parses to 1 interface + 1 struct + 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DuckInterface_StructImplementsInterface_Valid)" {
+    source := "\n            duck interface ICounter {\n                func GetCount(): int\n                func Increment()\n            }\n\n            struct Counter {\n                count: int\n\n                func GetCount(): int {\n                    return count\n                }\n\n                func Increment() {\n                    count = count + 1\n                }\n            }\n\n            func Process(c: ICounter) {\n            }\n\n            func Main() {\n                counter := new Counter { count: 0 }\n                Process(counter)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:ICounter;StructDeclaration:Counter;FunctionDeclaration:Process;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DuckInterface_RecordImplementsInterface_Valid` parses to 1 interface + 1 record + 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DuckInterface_RecordImplementsInterface_Valid)" {
+    source := "\n            duck interface IPrintable {\n                func ToString(): string\n            }\n\n            record Person {\n                Name: string\n                Age: int\n\n                func ToString(): string {\n                    return Name\n                }\n            }\n\n            func Print(p: IPrintable) {\n            }\n\n            func Main() {\n                person := new Person { Name: \"John\", Age: 30 }\n                Print(person)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IPrintable;RecordDeclaration:Person;FunctionDeclaration:Print;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DuckInterface_MultipleMethodsAllImplemented_Valid` parses to 1 interface + 1 class + 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DuckInterface_MultipleMethodsAllImplemented_Valid)" {
+    source := "\n            duck interface IDataStore {\n                func Save(data: string)\n                func Load(): string\n                func Delete()\n            }\n\n            class MemoryStore {\n                data: string\n\n                func Save(d: string) {\n                    data = d\n                }\n\n                func Load(): string {\n                    return data\n                }\n\n                func Delete() {\n                    data = \"\"\n                }\n            }\n\n            func UseStore(store: IDataStore) {\n            }\n\n            func Main() {\n                store := new MemoryStore { data: \"\" }\n                UseStore(store)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IDataStore;ClassDeclaration:MemoryStore;FunctionDeclaration:UseStore;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DuckInterface_VariableAssignment_Valid` parses to 1 interface + 1 class + 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DuckInterface_VariableAssignment_Valid)" {
+    source := "\n            duck interface IReader {\n                func Read(): string\n            }\n\n            class FileReader {\n                func Read(): string {\n                    return \"data\"\n                }\n            }\n\n            func Main() {\n                let reader: IReader = new FileReader()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IReader;ClassDeclaration:FileReader;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "020 s33 analyzer clean source: `DuckInterface_ReturnValue_Valid` parses to 1 interface + 1 class + 1 function and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.DuckInterface_ReturnValue_Valid)" {
+    source := "\n            duck interface IReader {\n                func Read(): string\n            }\n\n            class FileReader {\n                func Read(): string {\n                    return \"data\"\n                }\n            }\n\n            func CreateReader(): IReader {\n                return new FileReader()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IReader;ClassDeclaration:FileReader;FunctionDeclaration:CreateReader;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+// ---- the five V-CONTROLS: each one the minimal NEGATIVE of a silence pinned above ----
+
+test "020 s33 analyzer clean source: V-CONTROL for `UserDefinedOk_IsNotHijackedByResultFactory`: delete the user-declared two-argument `Ok` and the SAME call site becomes `NL401` — the compiler-known Result factory takes over and demands exactly 1 argument, which is the bogus error the silent fixture exists to deny" {
+    source := "\nfunc make(): Result<int, string> {\n    return Ok(1, 2)\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:make;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL401:WrongArgumentCount@3:14+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "WrongArgumentCount|Ok needs exactly 1 argument, but you passed 2|Check the function signature for required parameters|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "WrongArgumentCount") == 1
+    assert AcCodeErrorCount(analysis, "WrongArgumentCount") == 1
+    assert AcCodeRow(analysis, "WrongArgumentCount") == "WrongArgumentCount|Ok needs exactly 1 argument, but you passed 2|Check the function signature for required parameters|Error"
+    assert AcCodeAnchor(analysis, "WrongArgumentCount") == "NL401@3:14+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL401:WrongArgumentCount@3:14+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "WrongArgumentCount|Ok needs exactly 1 argument, but you passed 2|Check the function signature for required parameters|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "    return Ok(1, 2)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "WrongArgumentCount") == 1
+    assert AcCodeErrorCount(rich, "WrongArgumentCount") == 1
+    assert AcCodeRow(rich, "WrongArgumentCount") == "WrongArgumentCount|Ok needs exactly 1 argument, but you passed 2|Check the function signature for required parameters|Error"
+    assert AcCodeAnchor(rich, "WrongArgumentCount") == "NL401@3:14+2"
+}
+
+test "020 s33 analyzer clean source: V-CONTROL for `DuckInterface_ClassImplementsInterface_Valid`: rename the class method `Read` to `Fetch` and the duck-typed argument stops satisfying `IReader` — `NL202` at the ARGUMENT, not at the class, and the two routes give two different sentences with production moving its explanation into `ContextualHint`" {
+    source := "\n            duck interface IReader {\n                func Read(): string\n            }\n\n            class FileReader {\n                func Fetch(): string {\n                    return \"data\"\n                }\n            }\n\n            func DoWork(r: IReader) {\n            }\n\n            func Main() {\n                reader := new FileReader()\n                DoWork(reader)\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IReader;ClassDeclaration:FileReader;FunctionDeclaration:DoWork;FunctionDeclaration:Main;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@17:24+6;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 1 to 'DoWork' is 'FileReader', but parameter 'r' expects 'IReader'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Argument 1 to 'DoWork' is 'FileReader', but parameter 'r' expects 'IReader'|Pass a value with the expected type, or update the function signature.|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@17:24+6"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@17:24+6;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Cannot pass `FileReader` as argument for parameter `r` of type `IReader`|<null>|Error"
+    assert AcHint(rich, 0) == "The parameter `r` expects a `IReader` value, but you passed a\n`FileReader`. These types are not compatible."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                DoWork(reader)"
+    assert AcTypes(rich, 0) == "FileReader|IReader"
+    assert AcExplanation(rich, 0) == "Argument 1 in the call to `DoWork` has the wrong type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Cannot pass `FileReader` as argument for parameter `r` of type `IReader`|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@17:24+6"
+}
+
+test "020 s33 analyzer clean source: V-CONTROL for `ReadonlyField_SetInConstructor_Valid`: move the identical assignment out of the constructor into a method and it becomes `NL309` — the silence is about WHERE the write is, not about the write" {
+    source := "\n            class MyClass {\n                readonly id: string\n\n                func Rename() {\n                    id = \"123\"\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:MyClass;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@6:21+2;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'id' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'id' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@6:21+2"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@6:21+2;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'id' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                    id = \"123\""
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(rich, "ReadonlyAssignment") == 1
+    assert AcCodeRow(rich, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'id' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@6:21+2"
+}
+
+test "020 s33 analyzer clean source: V-CONTROL for `InstanceField_InheritedRefOutArgument_Valid`: point the `ref` argument at a field the base class does not declare and the inherited-member lookup reports `NL303` — so the silent row really did resolve `Value` THROUGH the base" {
+    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        Value: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        bump(ref derived.Missing)\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:bump;FunctionDeclaration:reset;ClassDeclaration:Base;ClassDeclaration:Derived;FunctionDeclaration:Mutate;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL303:UndefinedMember@17:26+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "UndefinedMember|Member 'Missing' not found on type 'Derived'|<null>|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedMember") == 1
+    assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
+    assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Member 'Missing' not found on type 'Derived'|<null>|Error"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@17:26+7"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL303:UndefinedMember@17:26+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "UndefinedMember|Member 'Missing' not found on type 'Derived'|<null>|Error"
+    assert AcHint(rich, 0) == "The type `Derived` does not have a member named `Missing`.\nCheck the type's documentation for available members."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "        bump(ref derived.Missing)"
+    assert AcTypes(rich, 0) == "<null>|<null>"
+    assert AcExplanation(rich, 0) == "I cannot find a member called `Missing` on type `Derived`:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "UndefinedMember") == 1
+    assert AcCodeErrorCount(rich, "UndefinedMember") == 1
+    assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Member 'Missing' not found on type 'Derived'|<null>|Error"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@17:26+7"
+}
+
+test "020 s33 analyzer clean source: V-CONTROL for `CharLiteral_HasCharType`: return a one-character STRING instead of the char literal and it is `NL202` — and this control is the tranche's own witness to the two-route split: the plain route anchors 3:17+1 on the `return` keyword and production anchors 3:24+3 on the offending VALUE, with two different sentences" {
+    source := "\n            func Delimiter(): char {\n                return \"|\"\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Delimiter;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Function 'Delimiter' should return 'char', but this return statement gives back 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
+    assert AcSnippet(analysis, 0) == "<null>"
+    assert AcTypes(analysis, 0) == "<null>|<null>"
+    assert AcExplanation(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+    assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Function 'Delimiter' should return 'char', but this return statement gives back 'string'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@3:17+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:24+3;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Function 'Delimiter' should return char but returns string|<null>|Error"
+    assert AcHint(rich, 0) == "`Delimiter` is declared to return `char`, so every returned value must be assignable to `char`."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcSnippet(rich, 0) == "                return \"|\""
+    assert AcTypes(rich, 0) == "string|char"
+    assert AcExplanation(rich, 0) == "This return value does not match `Delimiter`'s return type:"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeCount(rich, "TypeMismatch") == 1
+    assert AcCodeErrorCount(rich, "TypeMismatch") == 1
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Function 'Delimiter' should return char but returns string|<null>|Error"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:24+3"
 }

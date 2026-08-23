@@ -47,80 +47,6 @@ public class AnalyzerTests
     }
 
     [Fact]
-    public void UserDefinedOk_IsNotHijackedByResultFactory()
-    {
-        // C1: a user-declared `Ok`/`Err` must bind to the user's function even in a Result-typed
-        // position, instead of being string-matched as the compiler-known Result factory. The
-        // two-argument user `Ok` here would trigger a bogus "needs exactly 1 argument" error if
-        // the factory hijacked the call.
-        AssertNoErrors(@"
-func Ok(a: int, b: int): Result<int, string> {
-    return Err(""boom"")
-}
-
-func make(): Result<int, string> {
-    return Ok(1, 2)
-}
-");
-    }
-
-    [Fact]
-    public void GenuineOkErr_StillRecognizedAsResultFactory()
-    {
-        // C1 must not break the real factory: with no user-defined Ok/Err in scope, Ok/Err in a
-        // Result-typed position are the compiler-known factory.
-        AssertNoErrors(@"
-func make(ok: bool): Result<int, string> {
-    if ok {
-        return Ok(42)
-    }
-    return Err(""nope"")
-}
-");
-    }
-
-    [Fact]
-    public void InstanceMemberResolution_PrefersMemberNamedPathOverImportedType()
-    {
-        AssertNoErrors(@"
-import System.IO
-
-class HttpUrl {
-    Path: string = ""/api/items""
-
-    func ToDisplayString(): string {
-        pathLength := Path.Length
-        return $""{Path}:{pathLength}""
-    }
-}");
-    }
-
-    [Fact]
-    public void ReflectionOverloadResolution_BindsDictionaryRemoveOverloads()
-    {
-        AssertNoErrors(@"
-import System.Collections.Generic
-
-func removeKey(): bool {
-    headers := new Dictionary<string, string>()
-    headers[""Accept""] = ""application/json""
-    return headers.Remove(""Accept"")
-}
-
-func removeKeyAndValue(): string {
-    headers := new Dictionary<string, string>()
-    headers[""Accept""] = ""application/json""
-
-    removedValue := """"
-    if headers.Remove(""Accept"", out removedValue) {
-        return removedValue
-    }
-
-    return ""missing""
-}");
-    }
-
-    [Fact]
     public void Analyzer_SourceSnippet_PreservesCrLfSplitBehavior()
     {
         var source = string.Join("\r\n", new[]
@@ -138,55 +64,6 @@ func removeKeyAndValue(): string {
         Assert.Equal("    let value: var = 42\r", diagnostic.SourceSnippet);
     }
 
-    [Fact]
-    public void CharLiteral_HasCharType()
-    {
-        AssertNoErrors(@"
-            func Delimiter(): char {
-                return '|'
-            }
-        ");
-    }
-
-    [Fact]
-    public void TryCatch_AllBranchesReturn_SatisfiesReturnAnalysis()
-    {
-        AssertNoErrors(@"
-            import System
-
-            func ParseId(s: string): int {
-                try {
-                    return Int32.Parse(s)
-                } catch ex: FormatException {
-                    return -1
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void ThrowStatement_ExceptionOperands_AreValid()
-    {
-        AssertNoErrors("""
-            import System
-
-            class DomainFailure : Exception {
-            }
-
-            func ThrowRuntime() {
-                throw new InvalidOperationException("boom")
-            }
-
-            func ThrowCustom() {
-                throw new DomainFailure()
-            }
-
-            func ThrowNull() {
-                throw null
-            }
-            """);
-    }
-
     /// <summary>
     /// Analyze source code with full source context so the rich error path (ErrorMessageBuilder) is taken,
     /// populating ContextualHint with conversion suggestions.
@@ -198,170 +75,6 @@ func removeKeyAndValue(): string {
         analyzer.LoadSystemAssemblies();
         return analyzer.Analyze(result.CompilationUnit!, "test.nl", null, source);
     }
-
-    [Fact]
-    public void SimpleVariableDeclaration_TypeInference()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                x := 42
-            }
-        ");
-    }
-
-    [Fact]
-    public void VariableDeclaration_WithExplicitType()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                let x: int = 42
-            }
-        ");
-    }
-
-    [Fact]
-    public void ErrorTupleResultUseAfterReturningErrorBranch_IsAllowed()
-    {
-        AssertNoErrors(@"
-            import System
-
-            func Hi(): int {
-                throw new Exception(""boom"")
-            }
-
-            func Main() {
-                i, err := Hi()
-                if err != null {
-                    return
-                }
-
-                print i
-            }
-        ");
-    }
-
-    [Fact]
-    public void ErrorTupleResultUseInsideNullErrorBranch_IsAllowed()
-    {
-        AssertNoErrors(@"
-            import System
-
-            func Hi(): int {
-                return 42
-            }
-
-            func Main() {
-                i, err := Hi()
-                if err == null {
-                    print i
-                } else {
-                    print err
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void ErrorTupleResultUseAfterReturningElseBranch_IsAllowed()
-    {
-        AssertNoErrors(@"
-            import System
-
-            func Hi(): int {
-                return 42
-            }
-
-            func Main() {
-                i, err := Hi()
-                if err == null {
-                    print ""ok""
-                } else {
-                    return
-                }
-
-                print i
-            }
-        ");
-    }
-
-    [Fact]
-    public void DiscardedNonMustUseSelectedOverload_IsAllowed()
-    {
-        AssertNoErrors(@"
-            [MustUse]
-            func Compute(value: int): int {
-                return value
-            }
-
-            func Compute(): int {
-                return 42
-            }
-
-            func Main() {
-                Compute()
-            }
-        ");
-    }
-
-    [Fact]
-    public void ExplicitDiscardOfMustUseResult_IsAllowed()
-    {
-        AssertNoErrors(@"
-            [MustUse]
-            func Compute(): int {
-                return 42
-            }
-
-            func Main() {
-                _ = Compute()
-            }
-        ");
-    }
-
-    [Fact]
-    public void UsedMustUseResult_IsAllowed()
-    {
-        AssertNoErrors(@"
-            [MustUse]
-            func Compute(): int {
-                return 42
-            }
-
-            func Main() {
-                let x := Compute()
-                print $""{x}""
-            }
-        ");
-    }
-
-    [Fact]
-    public void DiscardedNonMustUseResult_IsAllowed()
-    {
-        AssertNoErrors(@"
-            func Compute(): int {
-                return 42
-            }
-
-            func Main() {
-                Compute()
-            }
-        ");
-    }
-
-    [Fact]
-    public void VoidCallStatement_IsAllowed()
-    {
-        AssertNoErrors(@"
-            func SideEffect() {
-                print ""hi""
-            }
-
-            func Main() {
-                SideEffect()
-            }
-        ");
-    }
-
 
     [Fact]
     public void BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember()
@@ -385,79 +98,6 @@ func Main() {
         Assert.Equal(4, diagnostic.Line);
         Assert.Equal(18, diagnostic.Column);
         Assert.Equal("ToUp".Length, diagnostic.Length);
-    }
-
-    [Fact]
-    public void FunctionDeclaration_Valid()
-    {
-        AssertNoErrors(@"
-            func Add(x: int, y: int): int {
-                return x + y
-            }
-        ");
-    }
-
-
-
-    [Fact]
-    public void GeneratorSequenceReturnTypes_AreValid()
-    {
-        AssertNoErrors("""
-            import System.Collections.Generic
-
-            func* Numbers(): IEnumerable<int> {
-                yield 1
-            }
-
-            func* NumberList(): List<int> {
-                yield 1
-            }
-
-            func* NumberReadOnlyList(): IReadOnlyList<int> {
-                yield 1
-            }
-
-            async func* AsyncNumbers(): IAsyncEnumerable<int> {
-                yield 1
-            }
-            """);
-    }
-
-
-
-
-
-
-    [Fact]
-    public void BreakInsideLoop_Valid()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                while true {
-                    break
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void ExpressionStatement_SideEffectingForms_NoErrors()
-    {
-        AssertNoErrors(@"
-            class Worker {
-            }
-
-            func Touch(value: int) {
-            }
-
-            func Main() {
-                value := 1
-                value = 2
-                value++
-                Touch(value)
-                new Worker()
-            }
-        ");
     }
 
     [Fact]
@@ -492,102 +132,6 @@ func Main() {
             result.Errors.Count > 0
                 ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
                 : "");
-    }
-
-    [Fact]
-    public void Write_SettableRuntimePropertyTarget_Valid()
-    {
-        AssertNoErrors("""
-            import System.Collections.Generic
-
-            func Main(items: List<int>) {
-                items.Capacity = 4
-                items.Capacity += 1
-                items.Capacity++
-            }
-        """);
-    }
-
-    [Fact]
-    public void RefOutArgument_ArrayFromEndElement_IsAddressable()
-    {
-        AssertNoErrors("""
-            func update(ref value: int) {
-                value += 1
-            }
-
-            func Main() {
-                values := [1, 2, 3]
-                update(ref values[^1])
-            }
-        """);
-    }
-
-    [Fact]
-    public void ClassDeclaration_Valid()
-    {
-        AssertNoErrors(@"
-            class Person {
-                Name: string
-                Age: int
-            }
-        ");
-    }
-
-    [Fact]
-    public void ScopeNesting_NestedBlockWithDistinctName_IsValid()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                x := 1
-                {
-                    y := 2
-                    print y
-                }
-                print x
-            }
-        ");
-    }
-
-    [Fact]
-    public void BinaryArithmetic_IntOperands()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                x := 1 + 2
-                y := 3 * 4
-                z := 5 - 6
-            }
-        ");
-    }
-
-
-    [Fact]
-    public void BinaryArithmetic_SmallTypes_AssignableToInt()
-    {
-        // byte + byte = int, which should be assignable to int
-        AssertNoErrors(@"
-            func getA(): byte { return 0 as byte }
-            func getB(): byte { return 0 as byte }
-            func Main() {
-                c: int = getA() + getB()
-            }
-        ");
-    }
-
-
-
-    [Fact]
-    public void BinaryArithmetic_DecimalPlusDecimal_Ok()
-    {
-        // decimal + decimal is valid
-        AssertNoErrors(@"
-            func getA(): decimal { return 0 as decimal }
-            func getB(): decimal { return 0 as decimal }
-            func Main() {
-                x := getA() + getB()
-            }
-        ");
     }
 
     [Fact]
@@ -648,276 +192,6 @@ func Main() {
     }
 
     [Fact]
-    public void NegativeIntegerLiteral_TargetTypedSignedNarrowing_IsPreserved()
-    {
-        AssertNoErrors(@"
-func Main() {
-    a: sbyte = -128
-    b: short = -32768
-    c: int = -2147483648
-}
-");
-    }
-
-    [Fact]
-    public void DecimalSuffixLiteral_AssignableToDecimal()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                value: decimal = 0m
-                other: decimal = 1.25m
-            }
-        ");
-    }
-
-    [Fact]
-    public void RelationalOperator_NumericAndOverloadedOperands_AreValid()
-    {
-        AssertNoErrors(@"
-struct Version {
-    Major: int
-
-    static func operator <(left: Version, right: Version): bool {
-        return left.Major < right.Major
-    }
-}
-
-func ComparePrimitives(a: int, b: double, c: char, d: uint, e: long): bool {
-    return a < b && c >= 0 && d <= e
-}
-
-func CompareDecimals(left: decimal, right: decimal): bool {
-    return left > right
-}
-
-func CompareVersions(left: Version, right: Version): bool {
-    return left < right
-}
-        ");
-    }
-
-    [Fact]
-    public void RelationalOperator_ReflectedPrimitiveReturn_IsValid()
-    {
-        AssertNoErrors(@"
-func CompareLower(left: string, right: string): bool {
-    leftChar := Char.ToLowerInvariant(left[0])
-    rightChar := Char.ToLowerInvariant(right[0])
-    return leftChar < rightChar
-}
-        ");
-    }
-
-    [Fact]
-    public void EqualityOperator_SupportedOperands_AreValid()
-    {
-        AssertNoErrors(@"
-record struct Measurement(value: int) {
-}
-
-struct Key {
-    Value: int
-
-    static func operator ==(left: Key, right: Key): bool {
-        return left.Value == right.Value
-    }
-
-    static func operator !=(left: Key, right: Key): bool {
-        return left.Value != right.Value
-    }
-}
-
-func ComparePrimitives(a: int, b: double, flag: bool, ch: char): bool {
-    return a == b && flag != false && ch == 'x'
-}
-
-func CompareDecimals(left: decimal, right: decimal): bool {
-    return left == right
-}
-
-func CompareReferences(text: string, other: object, values: int[]): bool {
-    return text == ""x"" && text != other && values == null && null != other
-}
-
-func CompareValueToNull(value: int): bool {
-    return value != null
-}
-
-func CompareRecordStructs(left: Measurement, right: Measurement): bool {
-    return left == right
-}
-
-func CompareKeys(left: Key, right: Key): bool {
-    return left == right && left != right
-}
-
-func CompareReflectedChars(left: string, right: string): bool {
-    leftChar := Char.ToLowerInvariant(left[0])
-    rightChar := Char.ToLowerInvariant(right[0])
-    return leftChar == rightChar
-}
-        ");
-    }
-
-    [Fact]
-    public void EqualityOperator_NestedEnumOperands_AreValid()
-    {
-        AssertNoErrors(@"
-class BankAccount {
-    enum Status {
-        Active,
-        Frozen
-    }
-
-    CurrentStatus: BankAccount.Status
-
-    constructor() {
-        CurrentStatus = BankAccount.Status.Active
-    }
-
-    func IsActive(): bool {
-        return CurrentStatus == BankAccount.Status.Active
-    }
-}
-        ");
-    }
-
-    [Fact]
-    public void AwaitOmittedAsyncReturn_IsValid()
-    {
-        AssertNoErrors(@"
-async func Work() {
-}
-
-async func GetCount(): int {
-    return 1
-}
-
-async func Main() {
-    await Work()
-    value := await GetCount()
-}
-        ");
-    }
-
-    [Fact]
-    public void ForeachDictionary_BindsKeyValuePairMembers()
-    {
-        AssertNoErrors(@"
-import System.Collections.Generic
-
-record Stat {
-    Count: int
-}
-
-func Main(items: Dictionary<string, Stat>): int {
-    total := 0
-    for kvp in items {
-        total = total + kvp.Key.Length + kvp.Value.Count
-    }
-
-    return total
-}
-        ");
-    }
-
-    [Fact]
-    public void ForeachString_BindsCharElements()
-    {
-        AssertNoErrors(@"
-import System
-
-func CountLetters(text: string): int {
-    count := 0
-    for ch in text {
-        if Char.IsLetter(ch) {
-            count = count + 1
-        }
-    }
-
-    return count
-}
-        ");
-    }
-
-    [Fact]
-    public void StringConcatenation_Valid()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                x := ""hello"" + "" "" + ""world""
-            }
-        ");
-    }
-
-
-    [Fact]
-    public void ArrayLiteral_UniformTypes()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                nums := [1, 2, 3, 4]
-            }
-        ");
-    }
-
-    [Fact]
-    public void ArrayRangeIndexAccess_ReturnsArrayType()
-    {
-        AssertNoErrors(@"
-            func PrintArray(arr: int[]) {
-            }
-
-            func Main() {
-                numbers := [1, 2, 3, 4, 5]
-                firstTwo := numbers[..2]
-                PrintArray(firstTwo)
-            }
-        ");
-    }
-
-    [Fact]
-    public void RangeExpression_IntCompatibleEndpoints_AreValid()
-    {
-        AssertNoErrors(@"
-func Main(values: int[], start: byte, end: short, fromEnd: int) {
-    first := values[start..end]
-    middle := values[..^fromEnd]
-    all := values[..]
-}
-        ");
-    }
-
-    [Fact]
-    public void StringRangeIndexAccess_ReturnsStringType()
-    {
-        AssertNoErrors(@"
-            func PrintString(value: string) {
-            }
-
-            func Main() {
-                text := ""hello""
-                firstTwo := text[..2]
-                PrintString(firstTwo)
-            }
-        ");
-    }
-
-    [Fact]
-    public void FunctionCall_Valid()
-    {
-        AssertNoErrors(@"
-            func Add(x: int, y: int): int {
-                return x + y
-            }
-
-            func Main() {
-                result := Add(1, 2)
-            }
-        ");
-    }
-
-    [Fact]
     public void Lambda_Simple()
     {
         // Lambda test - just check that lambdas don't crash the analyzer
@@ -930,222 +204,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         var result = Analyze(source);
         // Just ensure it doesn't crash - type errors are expected for now
         Assert.NotNull(result);
-    }
-
-    [Fact]
-    public void EnumDeclaration_Valid()
-    {
-        AssertNoErrors(@"
-            enum Status {
-                Pending,
-                Active,
-                Done
-            }
-        ");
-    }
-
-    [Fact]
-    public void UnionDeclaration_Valid()
-    {
-        AssertNoErrors(@"
-            union Result {
-                Success { value: int }
-                Failure { error: string }
-            }
-        ");
-    }
-
-    [Fact]
-    public void GenericUnionDeclaration_TypeParameterResolvesInCaseProperties()
-    {
-        AssertNoErrors(@"
-            union Result<T> {
-                Success { value: T }
-                Failure { error: string }
-            }
-        ");
-    }
-
-    [Fact]
-    public void GenericUnionConstruction_WithExplicitTypeArguments_Valid()
-    {
-        AssertNoErrors(@"
-            union Result<T> {
-                Success { value: T }
-                Failure { error: string }
-            }
-
-            func main(): int {
-                r := new Result.Success<int> { value: 42 }
-                return 0
-            }
-        ");
-    }
-
-
-    [Fact]
-    public void GenericUnionConstruction_TargetTyped_InfersFromReturnType()
-    {
-        AssertNoErrors(@"
-            union Option<T> {
-                Some { value: T }
-                None { }
-            }
-
-            func find(): Option<string> {
-                return new Option.None
-            }
-        ");
-    }
-
-
-    [Fact]
-    public void GenericUnionMatch_BindingSubstitutesTypeArgument()
-    {
-        // value: T binds as int on a Result<int> scrutinee, so it flows into int math.
-        AssertNoErrors(@"
-            union Result<T> {
-                Success { value: T }
-                Failure { error: string }
-            }
-
-            func handle(r: Result<int>): int {
-                return match r {
-                    Result.Success { value } => value + 1,
-                    Result.Failure { error } => 0
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void ConstructorWithFieldAssignment_Valid()
-    {
-        AssertNoErrors(@"
-            class Person {
-                Name: string
-
-                constructor(name: string) {
-                    Name = name
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void FieldWithInitializer_NoConstructorError()
-    {
-        AssertNoErrors(@"
-            class Person {
-                Name: string = ""Unknown""
-
-                constructor() {
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void StaticFieldWithoutInitializer_NoConstructorError()
-    {
-        // Regression: NL304 demanded a constructor assignment for an uninitialized STATIC field — but a static
-        // field is .cctor-initialized (or CLR zero), never an instance constructor's contract. Statics are
-        // skipped; the unassigned INSTANCE field in the sibling test above must still fire.
-        AssertNoErrors(@"
-            class Counter {
-                static total: int
-                n: int
-
-                constructor(n0: int) {
-                    n = n0
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void TryCatchFinally_Valid()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                try {
-
-                } catch {
-
-                } finally {
-
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void CatchClause_ExceptionTypes_AreValid()
-    {
-        AssertNoErrors("""
-            import System
-
-            class DomainFailure : Exception {
-            }
-
-            func Main() {
-                try {
-                } catch ex: InvalidOperationException {
-                } catch custom: DomainFailure {
-                } catch {
-                }
-            }
-            """);
-    }
-
-    [Fact]
-    public void AssertThrows_ExceptionTypes_AreValid()
-    {
-        AssertNoErrors("""
-            import System
-
-            class DomainFailure : Exception {
-            }
-
-            func Main() {
-                assert throws InvalidOperationException {
-                    throw new InvalidOperationException("boom")
-                }
-
-                assert throws DomainFailure {
-                    throw new DomainFailure()
-                }
-            }
-            """);
-    }
-
-    [Fact]
-    public void UsingStatement_Valid()
-    {
-        AssertNoErrors("""
-            class Resource {
-                func Dispose(): void {
-                }
-            }
-
-            func Main() {
-                using resource := new Resource() {
-                }
-            }
-        """);
-    }
-
-    [Fact]
-    public void UsingStatement_RuntimeDisposable_Valid()
-    {
-        AssertNoErrors("""
-            import System.IO
-
-            func Main() {
-                using stream := new MemoryStream() {
-                }
-            }
-        """);
     }
 
     [Fact]
@@ -1182,19 +240,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         Assert.Equal("int", result.SemanticModel.LookupIdentifier("number")?.ToString());
         Assert.Equal("string", result.SemanticModel.LookupIdentifier("label")?.ToString());
         Assert.Equal("int", result.SemanticModel.LookupIdentifier("total")?.ToString());
-    }
-
-    [Fact]
-    public void ForeachLoop_Valid()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                nums := [1, 2, 3]
-                foreach num in nums {
-
-                }
-            }
-        ");
     }
 
     [Fact]
@@ -1260,470 +305,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         Assert.Equal("int", result.SemanticModel.LookupIdentifier("value")?.ToString());
     }
 
-    [Fact]
-    public void NestedScopes_AccessOuterVariable()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                x := 1
-                {
-                    y := x + 1
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void ClassMethodAccess_Valid()
-    {
-        AssertNoErrors(@"
-            class Calculator {
-                func Add(x: int, y: int): int {
-                    return x + y
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void StaticMethod_Valid()
-    {
-        AssertNoErrors(@"
-            class Utils {
-                static func DoThing() {
-
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void MultipleParameters_Valid()
-    {
-        AssertNoErrors(@"
-            func Process(a: int, b: string, c: bool): int {
-                return a
-            }
-        ");
-    }
-
-    [Fact]
-    public void ReturnStatement_VoidFunction()
-    {
-        AssertNoErrors(@"
-            func DoNothing() {
-                return
-            }
-        ");
-    }
-
-    [Fact]
-    public void Assignment_Valid()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                let x: int
-                x = 42
-            }
-        ");
-    }
-
-    [Fact]
-    public void CompoundAssignment_Valid()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                x := 10
-                x += 5
-            }
-        ");
-    }
-
-    [Fact]
-    public void CompoundAssignment_DecimalOperand_NoErrors()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                value := 10m
-                value += 2.5m
-            }
-        ");
-    }
-
-    [Fact]
-    public void NullCoalesce_NullableValueLeft_Valid()
-    {
-        AssertNoErrors(@"
-            func FromParameter(n: int?): int {
-                return n ?? 5
-            }
-
-            func FromDefinitelyAssignedLocal(): int {
-                n: int? = 10
-                return n ?? 0
-            }
-        ");
-    }
-
-    [Fact]
-    public void NullableType_Valid()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                let x: int? = null
-            }
-        ");
-    }
-
-    [Fact]
-    public void GenericClass_Valid()
-    {
-        AssertNoErrors(@"
-            class List<T> {
-                items: T[]
-            }
-        ");
-    }
-
-    [Fact]
-    public void InterfaceDeclaration_Valid()
-    {
-        AssertNoErrors(@"
-            interface IReader {
-                func Read(): string
-            }
-        ");
-    }
-
-    [Fact]
-    public void RecordDeclaration_Valid()
-    {
-        AssertNoErrors(@"
-            record Person {
-                Name: string
-                Age: int
-            }
-        ");
-    }
-
-    [Fact]
-    public void StructDeclaration_Valid()
-    {
-        AssertNoErrors(@"
-            struct Point {
-                X: int
-                Y: int
-            }
-        ");
-    }
-
-    [Fact]
-    public void ExternalType_Console_Valid()
-    {
-        AssertNoErrors(@"
-            import System
-
-            func Main() {
-                Console.WriteLine(""Hello"")
-            }
-        ");
-    }
-
-    [Fact]
-    public void ExternalType_MemberAccess_Valid()
-    {
-        AssertNoErrors(@"
-            import System
-
-            func Main() {
-                let msg = ""test""
-                Console.WriteLine(msg)
-            }
-        ");
-    }
-
-    [Fact]
-    public void Lambda_InferredType_Valid()
-    {
-        AssertNoErrors(@"
-            import System.Linq
-
-            func Main() {
-                numbers := [1, 2, 3]
-                doubled := numbers.Select(x => x * 2)
-            }
-        ");
-    }
-
-    [Fact]
-    public void ExternalType_MethodOverloading_Valid()
-    {
-        AssertNoErrors(@"
-            import System
-
-            func Main() {
-                Console.WriteLine(42)
-                Console.WriteLine(""text"")
-                Console.WriteLine(true)
-            }
-        ");
-    }
-
-    [Fact]
-    public void ReadonlyField_SetInConstructor_Valid()
-    {
-        AssertNoErrors(@"
-            class MyClass {
-                readonly id: string
-
-                constructor() {
-                    id = ""123""
-                }
-            }
-        ");
-    }
-
-    [Fact]
-    public void ReadonlyField_IncrementCurrentInstanceInConstructor_Valid()
-    {
-        AssertNoErrors("""
-            class Counter {
-                readonly value: int
-
-                constructor() {
-                    value = 1
-                    value++
-                    this.value--
-                }
-            }
-        """);
-    }
-
-    [Theory]
-    [InlineData("bump(ref derived.Value)")]
-    [InlineData("reset(out derived.Value)")]
-    public void InstanceField_InheritedRefOutArgument_Valid(string statement)
-    {
-        AssertNoErrors($$"""
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            class Base {
-                Value: int
-            }
-
-            class Derived : Base {
-            }
-
-            func Mutate(derived: Derived) {
-                {{statement}}
-            }
-        """);
-    }
-
-    [Theory]
-    [InlineData("bump(ref Derived.Value)")]
-    [InlineData("reset(out Derived.Value)")]
-    public void StaticField_InheritedRefOutArgument_Valid(string statement)
-    {
-        AssertNoErrors($$"""
-            func bump(ref value: int) {
-                value += 1
-            }
-
-            func reset(out value: int) {
-                value = 0
-            }
-
-            class Base {
-                static Value: int
-            }
-
-            class Derived : Base {
-                static func Mutate() {
-                    {{statement}}
-                }
-            }
-        """);
-    }
-
-    [Fact]
-    public void ReadonlyField_WithInitializer_Valid()
-    {
-        AssertNoErrors(@"
-            class MyClass {
-                readonly id: string = ""default""
-            }
-        ");
-    }
-
-    // Duck Interface Tests
-    [Fact]
-    public void DuckInterface_ClassImplementsInterface_Valid()
-    {
-        AssertNoErrors(@"
-            duck interface IReader {
-                func Read(): string
-            }
-
-            class FileReader {
-                func Read(): string {
-                    return ""data""
-                }
-            }
-
-            func DoWork(r: IReader) {
-            }
-
-            func Main() {
-                reader := new FileReader()
-                DoWork(reader)
-            }
-        ");
-    }
-
-    [Fact]
-    public void DuckInterface_StructImplementsInterface_Valid()
-    {
-        AssertNoErrors(@"
-            duck interface ICounter {
-                func GetCount(): int
-                func Increment()
-            }
-
-            struct Counter {
-                count: int
-
-                func GetCount(): int {
-                    return count
-                }
-
-                func Increment() {
-                    count = count + 1
-                }
-            }
-
-            func Process(c: ICounter) {
-            }
-
-            func Main() {
-                counter := new Counter { count: 0 }
-                Process(counter)
-            }
-        ");
-    }
-
-    [Fact]
-    public void DuckInterface_RecordImplementsInterface_Valid()
-    {
-        AssertNoErrors(@"
-            duck interface IPrintable {
-                func ToString(): string
-            }
-
-            record Person {
-                Name: string
-                Age: int
-
-                func ToString(): string {
-                    return Name
-                }
-            }
-
-            func Print(p: IPrintable) {
-            }
-
-            func Main() {
-                person := new Person { Name: ""John"", Age: 30 }
-                Print(person)
-            }
-        ");
-    }
-
-
-
-
-    [Fact]
-    public void DuckInterface_MultipleMethodsAllImplemented_Valid()
-    {
-        AssertNoErrors(@"
-            duck interface IDataStore {
-                func Save(data: string)
-                func Load(): string
-                func Delete()
-            }
-
-            class MemoryStore {
-                data: string
-
-                func Save(d: string) {
-                    data = d
-                }
-
-                func Load(): string {
-                    return data
-                }
-
-                func Delete() {
-                    data = """"
-                }
-            }
-
-            func UseStore(store: IDataStore) {
-            }
-
-            func Main() {
-                store := new MemoryStore { data: """" }
-                UseStore(store)
-            }
-        ");
-    }
-
-    [Fact]
-    public void DuckInterface_VariableAssignment_Valid()
-    {
-        AssertNoErrors(@"
-            duck interface IReader {
-                func Read(): string
-            }
-
-            class FileReader {
-                func Read(): string {
-                    return ""data""
-                }
-            }
-
-            func Main() {
-                let reader: IReader = new FileReader()
-            }
-        ");
-    }
-
-    [Fact]
-    public void DuckInterface_ReturnValue_Valid()
-    {
-        AssertNoErrors(@"
-            duck interface IReader {
-                func Read(): string
-            }
-
-            class FileReader {
-                func Read(): string {
-                    return ""data""
-                }
-            }
-
-            func CreateReader(): IReader {
-                return new FileReader()
-            }
-        ");
-    }
-
     // Match expression exhaustiveness tests
 
     [Fact]
@@ -1744,9 +325,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
             }
         ");
     }
-
-
-
 
     [Fact]
     public void MatchExpression_NestedUnionPropertyPattern_BindsInnerValue()
@@ -1809,8 +387,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
         ");
     }
 
-
-
     [Fact]
     public void MatchExpression_NamespacedUnion_AllowsShortQualifier()
     {
@@ -1870,7 +446,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
             }
         ");
     }
-
 
     [Fact]
     public void MatchExpression_LiteralPatterns_NoExhaustivenessCheck()
@@ -2184,8 +759,6 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
             }
         ");
     }
-
-
 
     // Extension Method Resolution Tests
 
@@ -4167,7 +2740,6 @@ func Hello(): string {
         ");
     }
 
-
     [Fact]
     public void OverloadResolution_TopLevelFunctions()
     {
@@ -4578,13 +3150,9 @@ func Hello(): string {
         ");
     }
 
-
     // ================================================================
     // Extension methods on literal receivers — type safety
     // ================================================================
-
-
-
 
     [Fact]
     public void Extension_LiteralReceiver_InExpression()
@@ -4696,9 +3264,6 @@ func Hello(): string {
             }
         ");
     }
-
-
-
 
     [Fact]
     public void NestedClass_ResolvesThroughOwnerTypeInfo()
@@ -4822,9 +3387,6 @@ func Hello(): string {
             }
         ");
     }
-
-
-
 
     [Fact]
     public void BCL_MethodCall_WithNamedOptionalAndParamsArguments_NoErrors()
@@ -5079,13 +3641,6 @@ func Hello(): string {
         Assert.Equal("IQueryable<char>", result.SemanticModel.LookupIdentifier("chars")?.ToString());
     }
 
-
-
-
-
-
-
-
     // ===================================================================
     // Type System Hardening Tests
     // ===================================================================
@@ -5293,8 +3848,6 @@ func Hello(): string {
         ");
     }
 
-
-
     [Fact]
     public void Newtype_SameNewtypeAssignable()
     {
@@ -5307,8 +3860,6 @@ func Hello(): string {
             }
         ");
     }
-
-
 
     // ── Bug regression tests ────────────────────────────────────────────
 
@@ -5441,16 +3992,6 @@ func Main() {
             """);
     }
 
-
-
-
-
-
-
-
-
-
-
     [Fact]
     public void TableDrivenTestCases_SupportedInlineDataConstants_AreValid()
     {
@@ -5462,7 +4003,6 @@ func Main() {
             }
             """);
     }
-
 
     [Fact]
     public void AnonymousUnion_AllowsEitherArmAndCommonTargetAssignment()
@@ -5488,7 +4028,6 @@ func Identity(value: int | string): int | string {
 }
         ");
     }
-
 
     [Fact]
     public void AnonymousUnion_NarrowsElseBranchAfterIsCheck()
