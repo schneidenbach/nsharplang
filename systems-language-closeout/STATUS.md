@@ -1,6 +1,21 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-22 (**020 SLICE 33 — `tests/AnalyzerTests.cs` TRANCHE 5: THE FIRST LINE-CUT
+Last updated: 2026-08-23 (**020 SLICE 34 — `tests/AnalyzerTests.cs` TRANCHE 6: THE SECOND LINE-CUT
+THIRD OF THE `AssertNoErrors` FAMILY, CUT AT THE FILE'S OWN LAMBDA BANNER ON LINE 2281, AND THE
+TRANCHE THAT CARRIES EVERY `AspNetCoreConfig` CALL SITE THE FILE HAS. 99 `[Fact]`s / 1,434
+DECLARATION LINES / 1,651 DELETED C# LINES / **ZERO** IN-BODY `Assert.` / 99 FIXTURES / 99 DECODED
+CLAIM ROWS, EXTENDING `tests/native/analyzer-clean-source`. THE ONE NEW KERNEL IS THE `ProjectConfig`
+ROUTE, AND ITS SURFACE WAS MEASURED ACROSS SIX CONFIG SPELLINGS RATHER THAN READ OFF THE SOURCE:
+**`config.Sdk.Contains("Web")` IS THE WHOLE TRIGGER, `TargetFramework` IS DEAD BECAUSE THE
+LAZILY-MATERIALISING `Dependencies` GETTER HANDS BACK AN EMPTY LIST, AND ONLY FIVE OF THE SEVENTEEN
+CONFIG FIXTURES ARE CONFIG-SENSITIVE AT ALL.** ALL 99 CLAIMS HOLD ON BOTH ROUTES — **NO FALSE
+CLEAN** — AND THE SILENCES ARE PROVEN NON-VACUOUS TWICE: 149 NAMED TOP-LEVEL DECLARATIONS BEHIND 79
+IMPORTS, AND APPENDING ONE TYPE ERROR TO EACH FIXTURE MAKES ALL 99 REPORT WITH ZERO NON-MOVERS.
+**THE PERTURBATION MATRIX FOUND THAT ONE TRANCHE-6 FIXTURE IS A BYTE-FOR-BYTE DUPLICATE OF AN
+ALREADY-MIGRATED TRANCHE-5 ONE**, AND **`AspNetCoreConfig` AND ITS WHOLE `LoadFromProjectConfig`
+BRANCH DIE WITH THEIR LAST CONSUMERS.**) Full record in the Cursor block below
+
+Last updated (prior): 2026-08-22 (**020 SLICE 33 — `tests/AnalyzerTests.cs` TRANCHE 5: THE FIRST LINE-CUT
 THIRD OF THE 281-METHOD `AssertNoErrors` FAMILY, AND THE CAMPAIGN'S FIRST TRANCHE IN WHICH NOT ONE
 FIXTURE PRODUCES A DIAGNOSTIC. 87 METHODS (85 `[Fact]` + 2 `[Theory]`) / 1,223 DECLARATION LINES /
 1,461 DELETED C# LINES / **ZERO** IN-BODY `Assert.` / 89 FIXTURES / 89 DECODED CLAIM ROWS, EXTENDING
@@ -3976,11 +3991,493 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 33 TAKES `tests/AnalyzerTests.cs` TRANCHE 5: THE
-  FIRST LINE-CUT THIRD OF THE 281-METHOD `AssertNoErrors` FAMILY, THE CAMPAIGN'S FIRST
-  ALL-CLEAN-SOURCE TRANCHE. 87 METHODS (85 `[Fact]` + 2 `[Theory]`) / 1,223 DECLARATION LINES /
-  **ZERO** IN-BODY `Assert.` / 4 `InlineData` ROWS / 89 FIXTURES / 89 DECODED CLAIM ROWS, EXTENDING
-  `tests/native/analyzer-clean-source`.**)
+- Active sub-slice (020 arc, THIS TURN — **SLICE 34 TAKES `tests/AnalyzerTests.cs` TRANCHE 6: THE
+  SECOND LINE-CUT THIRD OF THE `AssertNoErrors` FAMILY, CUT AT THE FILE'S OWN LAMBDA BANNER ON LINE
+  2281. 99 `[Fact]`s / 1,434 DECLARATION LINES / **ZERO** IN-BODY `Assert.` / ZERO `[Theory]` / 99
+  FIXTURES / 99 DECODED CLAIM ROWS, EXTENDING `tests/native/analyzer-clean-source`. THE TRANCHE
+  CARRIES ALL 17 `AspNetCoreConfig` CALL SITES AND THEREFORE NEEDS THE CAMPAIGN'S FIRST
+  `ProjectConfig` KERNEL.**)
+
+  ### THE BOUNDARY, RE-VERIFIED BY MECHANICAL DECODE AND RECORDED BEFORE ANY EDIT
+
+  The decode is slices 31-33's instrument REBUILT FROM SCRATCH a third time — a scanner that walks
+  every `[Fact]`/`[Theory]`, extracts the body by brace balance with a prefix-aware C# literal
+  scanner that knows raw literals and `$$"""` forms, and classifies by what the body NAMES under an
+  undotted word-boundary rule. Slice 32's two instrument fixes are carried forward BY CONSTRUCTION:
+  the attribute finder is anchored `^[ \t]*\[` and never `^(\s*)\[`, and comments are identified BY
+  THE SCANNER so a `//` inside a raw literal is never blanked.
+
+  Run against `b836dd0df~1` it **reproduces slice 31's published census in every column to the
+  digit**: 519 methods, 485 `[Fact]` / 34 `[Theory]` / 97 `InlineData`, 7,673 declaration lines, and
+  the seven-shape partition 281 / 3,835 · 89 / 1,502 · 79 / 980 · 26 / 542 · 24 / 382 · 15 / 247 ·
+  5 / 185. Run against `9f2404b46` it reproduces slice 32's residue exactly — 327 methods (325
+  `[Fact]` + 2 `[Theory]`), 4 `InlineData`, 4,809 declaration lines. Run against the working file at
+  `17f093780` it reproduces slice 33's published residue exactly: **240 methods, ALL `[Fact]`, ZERO
+  `[Theory]`, ZERO `InlineData`, 3,586 declaration lines**, partitioned **194 / 2,612
+  `AssertNoErrors` · 26 / 542 `AnalyzeWithSource`-no-`ErrorCode` · 15 / 247
+  direct-`Analyze`-no-`ErrorCode` · 5 / 185 own-`new Analyzer()`**. In-body `Assert.` is **86**,
+  the ledger's whole-file 87 minus the one `Assert.False` inside the `AssertNoErrors` helper itself.
+
+  ### THE CUT, CONFIRMED AT 2281 — 99 METHODS / 1,434 DECLARATION LINES
+
+  Slice 33 priced the second third at the file's own banner on line 2281 and predicted 99 / 1,434.
+  Measured on the working file that is **exact**: the family is 194 methods / 2,612 declaration
+  lines, an even halving targets 1,306, and the two banner candidates give **72 / 1,002** at
+  `// ==================== ASP.NET Core Integration Tests (Task 034) ====================` (line
+  1771) and **99 / 1,434** at `// ── Lambda Contextual Type Inference for N# Functions ──` (line
+  2281). 1,434 is 128 over the target where 1,002 is 304 under it, so 2281 is the nearer boundary
+  and the tranche is **99 methods / 1,434 lines**, ending on the file's own banner with the whole
+  lambda-contextual-inference subject left intact for tranche 7.
+
+  The tranche is **NOT contiguous**: fifteen non-family methods sit inside the span 311–2279 — ten
+  direct-`Analyze` and five `AnalyzeWithSource` — so the deletion is sixteen spans rather than one.
+
+  ### THE 99 METHODS, NAMED — RECORDED BEFORE ANY MIGRATION EDIT
+
+  Signature line, then name; `C` marks the seventeen that pass `AspNetCoreConfig`. All 99 bodies
+  name `AssertNoErrors` and NOTHING ELSE — 99 calls, **zero** in-body `Assert.`, no other call of
+  any kind — and each body carries **exactly one** string literal, so the fixture is unambiguous.
+
+  `311  MatchExpression_Exhaustive_AllCasesCovered` · `330  MatchExpression_NestedUnionPropertyPattern_BindsInnerValue` · `355  MatchExpression_ResultErrorExamplePatterns_AreExhaustive` ·
+  `391  MatchExpression_NamespacedUnion_AllowsShortQualifier` · `412  MatchExpression_WithWildcard_IsExhaustive` · `432  MatchExpression_PatternBinding_CorrectTypes` ·
+  `451  MatchExpression_LiteralPatterns_NoExhaustivenessCheck` · `466  MatchExpression_IdentifierPattern_BindsVariable` · `479  ListPattern_IReadOnlyListPattern_Valid` ·
+  `494  RelationalPattern_NumericWidening_IsValid` · `512  MatchExpression_WithGuard_Valid` · `527  MatchExpression_GuardWithPatternVariable_Valid` ·
+  `547  MatchExpression_WithGuard_AndUnguardedWildcard_IsExhaustive` · `568  MatchExpression_WithGuards_AllCasesUnguarded_IsExhaustive` · `591  MatchExpression_WithGuard_CatchAllBinding_IsExhaustive` ·
+  `612  PrimaryConstructor_ClassParameterAccessibleInMethod` · `624  PrimaryConstructor_StructParameterAccessibleInMethod` · `636  PrimaryConstructor_RecordParameterAccessibleInProperty` ·
+  `646  PrimaryConstructor_ParameterTypeChecking` · `658  PrimaryConstructor_MultipleParameters` · `672  CollectionExpression_ListAssignment_Valid` ·
+  `684  CollectionExpression_HashSetAssignment_Valid` · `696  CollectionExpression_QueueAssignment_Valid` · `708  CollectionExpression_IEnumerableAssignment_Valid` ·
+  `720  GenericInterfaceAssignment_ListToICollection_Valid` · `734  CollectionExpression_ArrayStillWorks` · `744  ParamsParameter_Valid_NoError` ·
+  `754  ParamsParameter_WithOtherParams_NoError` · `766  ExtensionMethod_BasicResolution_NoError` · `780  ExtensionMethod_DirectCallPassesThisParameter_NoError` ·
+  `794  ExtensionMethod_OnVariableType_NoError` · `809  ExtensionMethod_WithParameters_NoError` · `823  ExtensionMethod_GenericType_NoError` ·
+  `838  ExtensionMethod_OnCustomType_NoError` · `857  ExtensionMethod_InStaticClass_NoError` · `873  ExtensionMethod_MultipleExtensions_NoError` ·
+  `1160 AssemblyResolution_SystemConsole_Resolved` · `1172 AssemblyResolution_SystemLinq_Resolved` · `1185 AssemblyResolution_SystemCollections_Resolved` ·
+  `1199 AssemblyResolution_SystemIO_Resolved` · `1211 AssemblyResolution_SystemThreadingTasks_Resolved` · `1224 AssemblyResolution_MultiplImports_AllResolved` ·
+  `1240 AssemblyResolution_StaticMethodCall_Resolved` · `1253 AssemblyResolution_GenericTypeInstantiation_Resolved` · `1266 AssemblyResolution_ExtensionMethodFromLinq_Resolved` ·
+  `1281 AssemblyResolution_NestedTypeAccess_Resolved` · `1293 AssemblyResolution_PropertyAccess_Resolved` · `1307 AssemblyResolution_GenericPropertyWithNSharpTypeArgument_Resolved` ·
+  `1327 AssemblyResolution_ChainedMethodCalls_Resolved` · `1340 GenericMethodReturnType_NSharpTypeArg_ReturnsCorrectType` · `1357 LinqLambda_NSharpElementType_InfersParameterTypes` ·
+  `1378 LinqLambda_SimpleContains_NSharpType` · `1397 LinqLambda_BooleanOrInLambda_NSharpType` · `1416 LinqSelect_NSharpType_InfersLambdaReturnType` ·
+  `1435 AssemblyResolution_SystemText_Resolved` · `1450 AssemblyResolution_DateTime_Resolved` · `1463 AssemblyResolution_Guid_Resolved` ·
+  `1475 AssemblyResolution_Task_Resolved` · `1531 AssemblyResolution_FileInfo_Resolved` · `1544 AssemblyResolution_Regex_Resolved` ·
+  `1557 AssemblyResolution_HttpClient_Resolved` · `1570 AssemblyResolution_JsonSerializer_Resolved` · `1584 Override_SimpleOverride_Valid` ·
+  `1604 Override_WithReturnType_Valid` · `1622 Override_WithParameters_Valid` · `1640 Override_AsyncMethod_Valid` ·
+  `1661 Override_MultipleOverrides_Valid` · `1679 Override_InheritanceChain_Valid` · `1697 Override_WithBaseCall_Valid` ·
+  `1718 Override_PropertyWithMethods_Valid` · `1736 Override_GenericMethod_Valid` · `1754 Override_AbstractMethod_Valid` ·
+  `1774C AspNetCore_WebApplicationBuilder_Resolves` · `1788C AspNetCore_IsDevelopment_BooleanInference` · `1806 AspNetCore_NullCoalescing_WithNullableProperties` ·
+  `1824C AspNetCore_ServicesConfiguration` · `1838C AspNetCore_MiddlewareConfiguration` · `1855C AspNetCore_ConditionalMiddleware` ·
+  `1876C AspNetCore_MinimalApi_MapGet` · `1892C AspNetCore_MinimalApi_MapGet_InfersRequestDelegateLambda` · `1908C AspNetCore_MinimalApi_MapPost_InfersRequestDelegateBlockLambda` ·
+  `1936C AspNetCore_MinimalApi_MapPost_InfersRequestDelegateBlockLambdaInsideInstanceMethod` · `1961C AspNetCore_WriteAsJsonAsync_SelectsGenericJsonOptionsOverloadForNSharpPayload` · `1992C AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup` ·
+  `2034 MethodGroupToClrDelegate_BindsGenericReturnTypeDuringReflectionInference` · `2052C AspNetCore_ChainedConfiguration` · `2072 AspNetCore_EntityFramework_DbContext` ·
+  `2092C AspNetCore_ControllerBase_Inheritance` · `2106C AspNetCore_ActionResult_Generic` · `2126C AspNetCore_BadRequest_WithAnonymousObject` ·
+  `2141 AspNetCore_DateTime_StaticProperties` · `2163 AspNetCore_Guid_Generation` · `2183C AspNetCore_AsyncTask_WithAwait` ·
+  `2199 AsyncTask_ReturningUnitTask_DoesNotRequireExplicitReturn` · `2211 AsyncValueTask_ReturningUnitValueTask_DoesNotRequireExplicitReturn` · `2223 AsyncTaskOfT_ReturnsBareResultValue` ·
+  `2236 AsyncValueTaskOfT_ReturnsBareResultValue` · `2249 LocalAsyncFunction_UsesAsyncBeforeFuncSyntax` · `2266C AspNetCore_ExternalTypeChaining`
+
+  ### THE PROJECT-CONFIG KERNEL, AND ITS SURFACE MEASURED RATHER THAN ASSUMED
+
+  The one new kernel group is the `ProjectConfig` route: `AcProjectConfig` (construct the config),
+  `AcConfigShape` (state what the analyzer reads back off it), `AcLoadProjectConfig` (the
+  `LoadFromProjectConfig(config, null)` call itself) and `AcAnalyzeWithConfig` /
+  `AcAnalyzeWithSourceAndConfig` (`AcAnalyze` and `AcAnalyzeWithSource` with that one call spliced
+  in between `LoadSystemAssemblies()` and `Analyze`). It is REFLECTION-SHAPED per the carried wall,
+  and here that is not a stylistic choice but a hard one: `ProjectConfig` is an N#-OWNED type in
+  `NSharpLang.Compiler.BootstrapServices`, and BootstrapServices references `System.Private.CoreLib`
+  DIRECTLY — an out-of-repo C# oracle that so much as names the type fails to compile with `CS0012`,
+  and adding the reference then fails with `CS0518`/`CS8356` because every predefined type is
+  duplicated. The oracle was therefore rewritten to reach production the same way the contract file
+  does, through `Assembly.LoadFrom` and `Type.GetType`, which is itself evidence that the native
+  route is the only one available.
+
+  **WHAT `LoadFromProjectConfig` ACTUALLY CONSUMES WAS MEASURED ACROSS SIX CONFIG SPELLINGS, NOT
+  READ OFF THE SOURCE.** All seventeen config fixtures were run under `none` / the full
+  `AspNetCoreConfig` / `Sdk` only / `TargetFramework` only / an untouched config / `Sdk = "Web"` /
+  `Sdk = "Microsoft.NET.Sdk"`, on both entry points. The answer is ONE FIELD:
+
+  | spelling | the five config-sensitive fixtures |
+  |---|---|
+  | `Sdk = "Microsoft.NET.Sdk.Web"`, `TargetFramework = "net10.0"` (what the C# built) | CLEAN |
+  | `Sdk = "Microsoft.NET.Sdk.Web"` alone | CLEAN |
+  | `Sdk = "Web"` alone | CLEAN |
+  | `TargetFramework = "net10.0"` alone | REPORT — identical to no config at all |
+  | an untouched `ProjectConfig` | REPORT |
+  | `Sdk = "Microsoft.NET.Sdk"` | REPORT |
+
+  `config.Sdk.Contains("Web")` is the whole trigger. `TargetFramework` is consumed ONLY by
+  `LoadProjectReference`, which is reached only from `config.Dependencies` — and `Dependencies` is a
+  LAZILY-MATERIALISING getter that hands back an EMPTY list, so `Count > 0` is false and the field
+  is dead over this entire tranche. The config the contracts ship reproduces the deleted C# field
+  EXACTLY (both properties set), and the five S-CONTROLS state the measured surface beside it. The
+  defaulting getters were measured too and are pinned: an untouched config answers
+  `Microsoft.NET.Sdk` for `Sdk` and `net10.0` for `TargetFramework`, so an EMPTY config cannot
+  contain `Web` and cannot load one ASP.NET assembly.
+
+  **AND ONLY FIVE OF THE SEVENTEEN FIXTURES ARE CONFIG-SENSITIVE AT ALL.** Twelve are silent with
+  or without it. The five that are not are four `NL203` on the `context` parameter of a
+  request-delegate lambda (`MapGet`/`MapPost` lambda and block-lambda forms and
+  `WriteAsJsonAsync`) and one `NL411` on the `HandleList` method group. Each of the seventeen now
+  pins the config-FREE census as a twelfth assertion, so which fixtures the config buys anything for
+  is stated mechanically rather than asserted.
+
+  ### THE PROBE, AND ITS SPEAKING CONTROL
+
+  One probe project, built OUT OF REPO in the scratchpad with absolute `dll:` paths so the gate's
+  `find examples tests -name project.yml` sweep can never see it, and deleted after. It carried the
+  file's 33 existing kernels verbatim plus the new `ProjectConfig` group, and THREE contracts: two
+  predicting values from the out-of-repo oracle and one **SPEAKING CONTROL that asserted a config
+  shape the production type does not answer**. `nlc test` reported `total: 3, passed: 2, failed: 1`
+  and named the control — so the two passes are evidence rather than a silent runner. The probe
+  proved the new kernel compiles and answers before a single contract was generated, and it proved
+  three spellings the carried gotcha list left open: a parameter typed `Type` binds, a
+  `PropertyInfo?` local from `GetProperty` takes `.SetValue(config, sdk)`, and the `<unset>`
+  sentinel reaches the defaulting getters.
+
+  ### THE FIXTURE CROSSCHECK
+
+  All 99 fixtures were decoded by the C# compiler itself: every `AssertNoErrors` literal was copied
+  UNMODIFIED into a generated console program that printed each one's sha256 and length. The
+  independent Python decode reproduces **99 of 99 shas and 99 of 99 lengths with ZERO mismatches**;
+  all **99 shas are distinct**; the corpus totals **28,407 characters**; and **every one of the 99
+  bodies carries EXACTLY ONE string literal**, so no fixture is ambiguous. The parse status is
+  pinned rather than assumed: **all 99 parse with an EMPTY parse census and `Success == "True"`, and
+  not one returns a null compilation unit.**
+
+  **ONE FIXTURE IS A BYTE-FOR-BYTE DUPLICATE OF AN ALREADY-MIGRATED ONE, AND IT WAS FOUND BY THE
+  PERTURBATION MATRIX RATHER THAN BY READING.** `AssemblyResolution_SystemConsole_Resolved` and
+  slice 33's `ExternalType_Console_Valid` have the same sha — `import System` / `func Main()` /
+  `Console.WriteLine("Hello")` — so the C# carried the same fixture under two names in two different
+  banners. Both contracts ship, because the C# made two claims and both must be attributed; the
+  consequence is recorded in the matrix below.
+
+  ### THE COMPARATOR, AND ITS COMPLETENESS ARITHMETIC
+
+  **99 migrating C# claim rows in — 99 decoded, 99 reconstructed, 0 missing, 0 undecoded.** The
+  arithmetic is simple because the C# is: 99 methods, 99 `AssertNoErrors` calls, ZERO in-body
+  `Assert.` and no other call of any kind, so 99 → 99.
+
+  A row counts as RECONSTRUCTED only when four things hold on the N# side: a contract's `source`
+  decodes to the same sha; the pins **on the route the C# ACTUALLY DROVE** are MUTUALLY CONSISTENT
+  with `HasErrors == false` (empty census AND zero count AND the `<no-such-error>` sentinel AND
+  `"False"`); the PRECONDITIONS hold (empty parse census, `Success == "True"`) without which an
+  analysis row could be a recovery artefact; and the pinned unit shape carries at least one
+  declaration, without which the silence is vacuous. **THE ROUTE IS PART OF THE RULE THIS TIME**,
+  which is new: for the seventeen config fixtures the comparator demands the `AcAnalyzeWithConfig`
+  binding and rejects the plain one, and control N12 below measures that it really does.
+
+  `AcRow`'s bare-`|` collision was audited rather than assumed: **211 `AcRow` values are pinned in
+  this tranche, 199 of them the sentinel and 12 real rows, and every one of the 12 has exactly four
+  `|`-separated fields.**
+
+  ### THE MEASURED ANSWER — ZERO FALSE CLEANS, AND THE TWO ROUTES AGREE ON ALL 99
+
+  Every one of the 99 fixtures was run through BOTH entry points out of repo — the seventeen through
+  the config route the C# drove — and every deleted claim was re-decided against each. **All 99 hold
+  on both routes. This third has NO false clean**, matching tranche 5's zero. And the routes do not
+  merely agree on the verdict: over all 99 the plain and production censuses are BOTH empty, both
+  report `HasErrors == "False"`, both report a row count of ZERO. This is slice 32's finding from
+  the other side, now reproduced on a second wide corpus: the route split is about the SENTENCE,
+  never about the VERDICT — and the V-controls below show both of its forms firing on the same
+  fixtures' negatives.
+
+  ### THE VACUITY WORK
+
+  Every one of the 99 claims is an ABSENCE claim, and two independent instruments answer it.
+
+  **The unit shape, pinned on every fixture.** `AcUnitShape` states the import count and every
+  top-level declaration's KIND and NAME. Across the 99 that is **149 top-level declarations over
+  five kinds: 86 `FunctionDeclaration`, 43 `ClassDeclaration`, 13 `UnionDeclaration`, 6
+  `RecordDeclaration` and 1 `StructDeclaration`, every one of them NAMED, behind 79 imports.** **No
+  fixture parses to an empty unit** — the hazard slice 25 measured for real.
+
+  **The append sweep, out of repo.** One type-error function was appended to each of the 99 fixtures
+  and all 99 were re-run through the real analyzer. **ALL 99 REPORT — exactly one `NL202` each, over
+  16 distinct censuses. ZERO NON-MOVERS.**
+
+  ### THE FIVE V-CONTROLS, THE ANCHOR AUDIT, AND ONE THING THE TRANCHE LOOKED FOR AND DID NOT FIND
+
+  Five silences are pinned from the other side as committed contracts. Each is the MINIMAL negative
+  of one specific fixture, each anchor was asserted to be a single occurrence before the edit, and
+  each pins BOTH routes' row AND `ContextualHint`.
+
+  | V-control | the minimal negative | reports |
+  |---|---|---|
+  | V1 `MatchExpression_WithWildcard_IsExhaustive` | delete the `_ => 0` arm | `NL501` naming both uncovered cases; production moves the WHOLE explanation into `ContextualHint` and drops the suggestion |
+  | V2 `ExtensionMethod_BasicResolution_NoError` | rename the extension DECLARATION to `IsBlank` | `NL303` on `string` at the untouched call site |
+  | V3 `Override_WithBaseCall_Valid` | `base.Initialize()` → `self.Initialize()` | `NL301`, and the two routes underline DIFFERENT WIDTHS of the same identifier (1 vs 4) |
+  | V4 `PrimaryConstructor_ParameterTypeChecking` | `return value * 2` → `return value + "x"` | `NL202`, and the two routes anchor DIFFERENT COLUMNS — plain the `return` keyword, production the `+` operator |
+  | V5 `CollectionExpression_ListAssignment_Valid` | `[1, 2, 3]` → `[1, "two", 3]` | `NL202` on the ELEMENT; same column, LENGTH 1 against 5 |
+
+  **NINETEEN PINNED ANCHORS WERE READ BACK OUT OF THE SOURCE TEXT AND ZERO ARE OUT OF RANGE.** What
+  sits at each was measured, not assumed: `NL501` underlines the `match` KEYWORD (twice), `NL303`
+  the missing member `IsEmpty` (twice), `NL301` `self` and its one-character plain form, `NL411` the
+  method group `HandleList` (five times, across S4, S5 and the config-free pin), `NL203` the lambda
+  parameter `context` (four times, one per config-sensitive lambda fixture), and `NL202` the `+`
+  operator, the `return` keyword's `r`, one bare `"` and the whole `"two"`.
+
+  **AND ONE FINDING IS A GAP RATHER THAN A CONTRACT: THE ANALYZER DOES NOT CHECK THAT AN `override`
+  HAS A VIRTUAL BASE MEMBER.** Two candidate V-controls for the `Override_*` subject were tried and
+  BOTH are non-movers — deleting `virtual` from `Override_SimpleOverride_Valid`'s base method
+  reports NOTHING, and renaming the base method outright so the `override` overrides nothing also
+  reports NOTHING. The control that ships is the `base.` receiver instead. The gap is real,
+  reachable production behaviour that neither suite pins, and it is filed as follow-up work rather
+  than papered over.
+
+  ### THE OUT-OF-REPO PERTURBATION MATRIX — 16 CONTROLS, 14 MOVERS, TWO NON-MOVERS PROVEN BY EXACT 0-COUNTS AND BOTH REPLACED
+
+  Every perturbation edits a COPY; nothing in the repo is touched. `occ` is the occurrence count the
+  perturber actually changed, scoped to the tranche-6 region of the contract file.
+
+  | control | occ | reconstructed | delta |
+  |---|---|---|---|
+  | N0 the N1 flip, scoped to the region PLUS the one duplicated slice-33 contract | 101 | 0 | **−99** |
+  | N1 every driven-route `HasErrors` pin flips to `True` | 100 | 1 | −98 |
+  | N2 every driven-route census pin becomes non-empty | 100 | 1 | −98 |
+  | N3 every driven-route row-count pin becomes 1 | 100 | 1 | −98 |
+  | N4 every driven-route sentinel pin names a row | 100 | 1 | −98 |
+  | N5 every parse-census PRECONDITION becomes non-empty | 107 | 1 | −98 |
+  | N6 every parse-success PRECONDITION becomes `False` | 104 | 1 | −98 |
+  | N7 every unit shape loses its declarations (VACUITY) | 99 | 1 | −98 |
+  | N8 every RICH-route census pin becomes non-empty | 99 | 99 | **0 — NON-MOVER** |
+  | N9 ONE driven-route `HasErrors` pin flips | 1 | 98 | −1 |
+  | N10 ONE contract source gains a byte | 1 | 98 | −1 |
+  | N11 every CONFIG-SENSITIVITY pin changes | 17 | 99 | **0 — NON-MOVER** |
+  | N12 every CONFIG route becomes the config-FREE route | 20 | 82 | **−17** |
+  | C1 every C# fixture text changes by one byte | 99 | 0 | −99 |
+  | C2 ONE C# method is deleted from the tranche | 1 | 98 | −1 |
+  | C3 ONE config-SENSITIVE C# call site drops its `AspNetCoreConfig` argument | 1 | 98 | −1 |
+
+  **THE −98s ARE NOT A HOLE, AND N0 PROVES IT WITH AN EXACT COUNT.** The residual 1 is the duplicate
+  fixture: `AssemblyResolution_SystemConsole_Resolved`'s claim is ALSO reconstructible from slice
+  33's `ExternalType_Console_Valid` contract, which sits outside the perturbed region. Widening the
+  same substitution by exactly ONE block — 100 occurrences becomes 101 — takes every one of the
+  seven to **−99**. The finding was produced by the matrix rather than assumed, and it is why the
+  duplicate is recorded above instead of quietly deduplicated.
+
+  **TWO CONTROLS ARE TRUE NON-MOVERS AND BOTH ARE PROVEN AND REPLACED.** No deleted claim row reads
+  the RICH route (N8) or the config-FREE census (N11) — `AssertNoErrors` calls
+  `Analyze(source, config)` which calls the ONE-ARGUMENT `analyzer.Analyze(unit)`, so those pins are
+  pure widening. **They are not unobservable at RUNTIME, and that was measured rather than
+  asserted**: replacements **N8b** and **N11b** copy the whole native project out of repo, perturb
+  the same pins and run the real `nlc test` — N8b reports `total: 755, passed: 656, failed: 99` and
+  N11b `total: 755, passed: 738, failed: 17`, with **every failure an s34 contract in both cases**.
+
+  **AND THE PERTURBER FOUND A DEFECT IN ITSELF, AS IT DOES EVERY SLICE.** C3's first form asserted
+  the substitution `AssertNoErrors(source, AspNetCoreConfig)` and reported `occ=1` UNCONDITIONALLY
+  even though the real call sites spell the argument on the literal's closing line
+  (`", AspNetCoreConfig);`), so nothing was edited and the control read as a non-mover. Anchoring on
+  the real spelling inside one named config-SENSITIVE method moves it by exactly 1.
+
+  ### WHAT THE SUCCESSOR STATES
+
+  `tests/native/analyzer-clean-source/AnalyzerCleanSource.tests.nl` **14,944 → 17,045 (+2,101)**,
+  581 → 690 test declarations (+109: the 99 tranche contracts, 5 V-controls and 5 S-controls),
+  10,358 → 11,541 `assert` lines (+1,183), 33 → 38 kernels. The file header now names all six
+  tranches.
+
+  Each clean fixture carries **eleven pins** where the C# carried one boolean, and each config
+  fixture **twelve**: the parse census, the parse result, the unit shape, then on BOTH entry points
+  the census, `HasErrors`, the row count and the index-0 sentinel — plus, on the config half, the
+  config-FREE census. **1,183 pinned assert executions, which are 1,167 distinct (fixture, path)
+  pairs over 105 distinct fixtures and 23 distinct paths, against the C#'s 99 claim rows — an 11.8×
+  widening.**
+
+  ### THE SHRINK, WHICH IS EXACT-MATCH RATHER THAN ASSERTED
+
+  `tests/AnalyzerTests.cs` **4,182 → 2,531 (−1,651 C# lines)**, 240 → 141 `[Fact]`, still ZERO
+  `[Theory]`, ZERO `InlineData`, ZERO `#region`; whole-file `Assert.` occurrences 87 → 87 (the
+  tranche had NONE). `AssertNoErrors` SURVIVES with 95 consumers — tranche 7 kills it — and the
+  count is verified rather than assumed: 100 code occurrences are the helper's declaration plus 99
+  calls, 93 members calling once and two calling three times.
+
+  **`AspNetCoreConfig` DIES WITH THIS TRANCHE, BECAUSE ALL SEVENTEEN OF ITS CONSUMERS LEFT.** The
+  field, its banner comment, the `ProjectConfig? config = null` parameter on BOTH `Analyze` and
+  `AssertNoErrors`, and the `if (config != null) { analyzer.LoadFromProjectConfig(config); }` branch
+  are all deleted — the matching C# runner policy, now unreachable. That is the only edit outside
+  the deleted method bodies.
+
+  The deletion was verified by re-decoding both revisions with the same instrument AND by
+  reconstruction: the set of methods removed is **EXACTLY the 99-name tranche, nothing was added,
+  and ZERO surviving methods changed in body or in signature** (240 → 141 methods, residue 2,152
+  declaration lines); and **re-applying the line filter plus the three helper edits to
+  `HEAD:tests/AnalyzerTests.cs` reproduces the working file BYTE-FOR-BYTE**. All 101 collapsed blank
+  runs are adjacent to a dropped line — the deleted methods' separators, renormalised — and **zero
+  are anywhere else**. Two banner comments were removed under a mechanical rule (a banner goes iff
+  every method it owns is taken): `// Match expression exhaustiveness tests` and
+  `// ==================== Override Keyword Tests (Phase 2) ====================`.
+  `// Extension Method Resolution Tests` STAYS even though every `ExtensionMethod_*` member left,
+  because three `AnalyzeWithSource` and nine direct-`Analyze` methods sit under it and survive.
+
+  ### THE SIBLING SWEEP
+
+  The compiler-service estate was swept before the migration was called new coverage: **ZERO of the
+  99 fixtures appear in any of the 229 estate `.tests.nl` as a whole source.** 76 share at least one
+  substantial line, and every such line is boilerplate the estate uses for its own purposes
+  (`func Main() {` 43 times, `import System.Collections.Generic` 15, `import System` 11,
+  `await Task.Delay(100)` 8, `union Result {` 6). Nothing here is duplicated coverage.
+
+  ### THE DEAD SWEEP
+
+  All 1,372 tracked files were scanned for each of the 99 deleted names. **Every one of the 99 is
+  referenced in exactly two places — this ledger, which names them by design, and the successor's
+  `was AnalyzerTests.…` attribution lines.** No doc, no script, no memory file and no production
+  comment points at the migrated cluster.
+
+  ### THE MUTATION PANEL — EIGHT OWNERS, AGAINST A VERIFIED GREEN 755 AND A VERIFIED GREEN 6,316
+
+  Each mutation edits ONE production owner, REBUILDS the CLI — which republishes `Compiler.dll` and
+  `NSharpLang.Compiler.BootstrapServices.dll` into the directory the native projects take as `dll:` —
+  runs the native subject AND the whole compiler-service estate, and is then restored. Every anchor
+  was asserted to be a SINGLE occurrence in its owner before the edit; the harness registers
+  `atexit`, `SIGTERM` and `SIGINT` restore handlers, sha-verifies each owner after each run, and
+  **REFUSES A VERDICT UNLESS BOTH RUNS REPORT A NON-ZERO `total`** — a zero-test run is a
+  NON-VERDICT, never a pass. All owners were restored byte-identically, verified by sha after each
+  run and by `git status` at the end, and **the CLI was REBUILT CLEAN after the panel before any
+  verification number below was taken.**
+
+  | mutation | owner | native | estate | predicted | corrected |
+  |---|---|---|---|---|---|
+  | M1 the `NL501` non-exhaustive sentence, PLAIN reporter | `AnalyzerMatchExhaustiveness.nl` | **9 / 755** | 4 / 6316 | 13 ✗ | **9 ✓** |
+  | M2 the `NL303` undefined-member sentence | `AnalyzerMemberAccess.nl` | **11 / 755** | **0 / 6316** | 11 ✓ | — |
+  | M3 the `NL301` undefined-variable sentence | `AnalyzerIdentifierResolution.nl` | **9 / 755** | 2 / 6316 | 9 ✓ | — |
+  | M4 source extension methods never resolve (BEHAVIOUR) | `AnalyzerExtensionMethodResolution.nl` | **15 / 755** | 6 / 6316 | 17 ✗ | **15 ✓** |
+  | M5 the `NL411` method-group sentence | `AnalyzerReflectionCallReporter.nl` | **7 / 755** | 2 / 6316 | 7 ✓ | — |
+  | M6 the ASP.NET web-SDK list never loads (a **C#** edit inside `Compiler.dll`) | `Analyzer.cs` | **6 / 755** | **0 / 6316** | 6 ✓ | — |
+  | M7 the `_` wildcard arm stops covering | `AnalyzerMatchExhaustiveness.nl` | **0 / 755** | **0 / 6316** | — | **TRUE NON-MOVER** |
+  | M7b that arm AND the catch-all arm below it | `AnalyzerMatchExhaustiveness.nl` | **4 / 755** | 1 / 6316 | — | the replacement |
+
+  **FOUR PREDICTIONS MATCHED ON THE FIRST PASS AND TWO MORE MATCH AFTER A CORRECTION THAT IS A
+  COMPUTED FACT RATHER THAN A FUDGE.** In both cases the defect was in the PREDICTOR:
+
+  * **M1 predicted 13 and measured 9 because `NL501` HAS TWO OWNERS THAT SPELL THE SAME OPENING
+    WORDS.** `ReportMissingUnionCases` writes `This match doesn't cover all cases — missing: …` and
+    `ReportPartiallyCoveredUnion` writes `This match doesn't cover all cases — …; partially covered:
+    …`. Splitting the 13 blocks on which arm they pin gives **9 and 4**, and 9 is what failed.
+  * **M4 predicted 17 and measured 15 because "declares a `this` parameter" is not the
+    discriminating set — "INVOKES one with receiver syntax AND currently resolves it" is.** The two
+    that stayed were NAMED rather than argued by capturing failing test names out of `nlc test
+    --json`: `ExtensionMethod_DirectCallPassesThisParameter_NoError`, whose body calls `Sum(arr)` as
+    a plain direct free-function call so no extension lookup happens at all; and **V2, this
+    tranche's own V-control**, which already reports `NL303` because its declaration is renamed —
+    breaking extension resolution changes nothing for a call that was already failing it, with the
+    same code, the same sentence and the same anchor. That is slice 33's M6 finding recurring.
+
+  **M7 IS A TRUE 0/0 NON-MOVER, AND M7b PROVES WHY — IT IS DEAD CODE, NOT A COVERAGE HOLE.** The
+  explicit wildcard arm at `AnalyzerMatchExhaustiveness.nl:301` is SEMANTICALLY SHADOWED by the
+  catch-all-binding arm eleven lines below it: `_` is an unqualified identifier containing no `.`,
+  so the `else` branch that treats `other =>` as a catch-all already returns `IsExhaustive = true`
+  for it. Neutralising the explicit arm alone therefore cannot change one answer in either suite —
+  and neutralising BOTH (M7b) breaks **4 native tests and 1 estate test**, including this tranche's
+  own `MatchExpression_WithWildcard_IsExhaustive` and
+  `MatchExpression_WithGuard_AndUnguardedWildcard_IsExhaustive`. **The redundant branch is filed as
+  follow-up work; it is reported rather than forced into a contract**, because a contract that
+  pinned it would be pinning nothing.
+
+  **ATTRIBUTION RUNS BOTH WAYS, AND TWO OF THE EIGHT ARE NATIVE-ONLY.** M2 and M6 move the native
+  subject and leave the whole 6,316-test estate green — the undefined-member sentence and the
+  ASP.NET web-SDK load are things the estate does not pin. **M6 IS THE PANEL'S ARGUMENT FOR THE NEW
+  KERNEL**: a C# edit INSIDE `Compiler.dll`, four characters long, is caught by **six** contracts —
+  the five config-sensitive fixtures and the `Sdk = "Web"` S-control — and by NOTHING anywhere else
+  in either suite. **And M4 is its argument for an all-clean tranche**: a mutation that changes NO
+  sentence at all is caught seven times by tranche-6 contracts whose entire claim is that nothing
+  was reported.
+
+  ### THE VERIFICATION, EXACT
+
+  **Native subject 646 → 755 (+109)**, `Failed: 0`, 755 distinct generated test names with ZERO
+  collisions — 99 of the +109 are the migrated claim rows, 5 are V-controls and 5 are S-controls the
+  C# never had. **Unit suite 1,214 → 1,115 (−99)**, `Failed: 0` — the two numbers agree from
+  opposite sides, the unit suite losing exactly what the native project gains as claim rows.
+  **Compiler-service estate 6,316 → 6,316**, `Failed: 0`, under the restore-flag discipline
+  (`-p:NSharpExcludeTests=false --force-evaluate`, then `--no-restore`), verified GREEN before the
+  mutation panel used it as a baseline. **Native project count still 39** — no project was added;
+  the tranche extends the one slice 28 created.
+
+  **Live tree 393 files / 246 diagnostics — the inherited baseline to the digit**, with the same
+  ten-code census (`NL202` 85, `NL402` 68, `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010`
+  7, `NL303` 3, `NL412` 3, `NL002` 1), **ZERO rows in any `.tests.nl` and ZERO naming the file this
+  slice extended.**
+
+  **THE RATCHET, IN THE PROTOCOL'S ORDER.** A replica of the audit's own fingerprint arithmetic was
+  written first and **VALIDATED AGAINST THE PRISTINE MANIFEST BEFORE ANYTHING WAS EDITED** — it
+  reproduces all three published fingerprints exactly (`pathset-v1:8a26e1529863444b`,
+  `epochfacts-v1:1b3090747e517fc1`, `head-v1:a4fcf3f28c3d3bc9`) and the pristine
+  `tests/AnalyzerTests.cs` row to the digit (4,182 / 3,617 / 332 / `text-v1:3c140f3e5c9a666a`).
+  **Its first two attempts were WRONG and were corrected against the manifest rather than
+  rationalised**: the fact-builder's field separator is `len:value;` and `value;`, not a unit
+  separator, and reading the header key as `entries` rather than `files` found nothing — the pathset
+  matched from the start and the other two only after both were fixed. The single row then SHRANK on
+  every metric and on nothing else — **4,182 → 2,531 lines, 3,617 → 2,198 non-blank, 332 → 232
+  assertion markers, `text-v1:3c140f3e5c9a666a` → `text-v1:a8135e8ecf66e890`** — with the immutable
+  epoch ceilings untouched, no row added and no row removed, verified field by field across all 381
+  rows. **The audit was then run BEFORE the repin and correctly failed 17 / 18 with exactly ONE
+  `OWN008` observing `head-v1:d069de651150c8ae`, the exact value the replica had computed in
+  advance.** Only then were the two keys repinned LAST and TOGETHER — the JSON header's
+  `reviewedHeadFingerprint` and the `OwnershipPolicy.ReviewedHeadFingerprint` constant —
+  `a4fcf3f28c3d3bc9` → `d069de651150c8ae`, after which the **audit is 18 / 18**. Manifest 391 lines,
+  no BOM.
+
+  **Format contract gate GREEN.** No file this slice edited is in the format contract's four
+  directories (`examples`, `templates`, `tests/fixtures/issue-tracker`,
+  `src/NSharpLang.Compiler.BootstrapServices`): the two `.nl` files touched are
+  `tests/native/analyzer-clean-source/AnalyzerCleanSource.tests.nl` and
+  `tests/native/ownership-audit/OwnershipAudit.nl`, whose single changed token is the repinned head.
+
+  **THE GATE: `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`, FRESH AND ISOLATED, RUN FROM A
+  /tmp BYTE-COPY THAT EXCLUDES THE SIX NESTED WORKTREES UNDER `.claude/worktrees`, WITH THE LOG
+  WRITTEN OUTSIDE THE COPY. ALL TESTS PASSED, 19m 01s, `GATE EXIT: 0`**, every step green: format
+  contract gate, unit tests `Failed: 0, Passed: 1115`, the compiler-service estate `Failed: 0,
+  Passed: 6316`, all 39 native projects including `analyzer-clean-source` at `Passed: 755, Failed:
+  0`, SDK pack and install, template creation and build, all example projects, `nlc check` on
+  examples, and the IL verification gate — **67 N# assemblies pass ECMA-335 verification with no new
+  errors against the baseline**, which is the check that the 2,101 added contract lines emit
+  verifiable IL. VS Code integration tests were skipped by the backend-only rule; no Language
+  Server, LSP handler or extension file is touched by this slice, and computer-use was not
+  available.
+
+  **NOT COMMITTED — the mandate reserves that.** The working tree carries exactly five changed
+  files: `tests/AnalyzerTests.cs`, `tests/native/analyzer-clean-source/AnalyzerCleanSource.tests.nl`,
+  `tests/native/ownership-audit/OwnershipAudit.nl`,
+  `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` and this ledger. Every probe,
+  every oracle and every perturbation copy was built OUTSIDE the repository and deleted; eight
+  production owners were mutated and all eight restored byte-identically, verified by sha after each
+  run and by `git status` at the end; the CLI was rebuilt clean after the panel. `tasks/README.md`
+  is NOT edited.
+
+  ### WHAT IS LEFT OF TASK 020, AND THE NEXT TRANCHE
+
+  | file | lines | `[Fact]`s | `Assert.` | route |
+  |---|---|---|---|---|
+  | **`AnalyzerTests.cs`** | **2,531** | **141 (0 `[Theory]`, 0 `InlineData`)** | **87** | the campaign continues — by SHAPE |
+  | `SystemsNSharpTests.cs` | 2,402 | 60 (+1 `[Theory]`) | 412 | compiles and RUNS emitted assemblies; needs the SDK and a real build |
+  | `PlaygroundCompilerTests.cs` | 1,913 | 65 (+4 `[Theory]`) | 309 | drives `PlaygroundCompiler`, a `NSharpLang.Playground` type |
+  | `QueryIntegrationTests.cs` | 1,322 | 65 | 210 | drives the `nlc` CLI end to end against real example projects |
+
+  **THE RESIDUE'S SHAPE CENSUS**: 141 methods over 2,152 declaration lines — **95 `AssertNoErrors`
+  (1,178 lines), 26 `AnalyzeWithSource` with no `ErrorCode` (542), 15 direct `Analyze` with no
+  `ErrorCode` (247), and the 5 that build their own `new Analyzer()` (185)**.
+
+  **TRANCHE 7 IS THE REST OF THE `AssertNoErrors` FAMILY — 95 METHODS / 1,178 DECLARATION LINES —
+  AND `AssertNoErrors` DIES WITH IT.** It needs NO new kernel: every `AspNetCoreConfig` call site
+  left with tranche 6 and the field is already deleted, so the remaining 95 all drive
+  `AcAnalyze`/`AcAnalyzeWithSource`, which exist. Three things the residue's own text says to expect:
+  the family now spans lines **633–2530** and crosses **30 class-level banner comments**, so there
+  is no near-even banner cut left and tranche 7 is the whole remainder taken at once; **two of the
+  95 call `AssertNoErrors` THREE times**, so the claim-row count will be **99** rather than 95; and
+  the residue owns subjects no earlier tranche has touched — `Type System Hardening Tests` (1993),
+  `Compiler audit regression tests` (2047), `Newtype Tests` (2173) and
+  `stackalloc length: full semantic analysis` (2466). After it, only the 46
+  kernel-less leftovers / 974 lines remain — 26 `AnalyzeWithSource`, 15 direct `Analyze`, 5
+  own-`new Analyzer()` — and `AnalyzeWithSource` becomes the last helper standing.
+
+  **TWO FOLLOW-UPS THIS SLICE MEASURED AND DID NOT FIX**, both filed rather than papered over:
+  the analyzer does not check that an `override` has a virtual base member (two independent
+  probes report NOTHING), and `AnalyzerMatchExhaustiveness.nl:301`'s explicit `_` wildcard arm is
+  DEAD CODE, semantically shadowed by the catch-all-binding arm below it (M7 breaks 0 of 755 and 0
+  of 6,316; M7b, which neutralises both, breaks 4 and 1).
+
+- Previous sub-slice (020 arc, COMMITTED at `17f093780` — **SLICE 33 TOOK `tests/AnalyzerTests.cs`
+  TRANCHE 5: THE FIRST LINE-CUT THIRD OF THE 281-METHOD `AssertNoErrors` FAMILY, THE CAMPAIGN'S
+  FIRST ALL-CLEAN-SOURCE TRANCHE. 87 METHODS (85 `[Fact]` + 2 `[Theory]`) / 1,223 DECLARATION LINES
+  / **ZERO** IN-BODY `Assert.` / 4 `InlineData` ROWS / 89 FIXTURES / 89 DECODED CLAIM ROWS,
+  EXTENDING `tests/native/analyzer-clean-source`.**)
 
   ### THE BOUNDARY, RE-VERIFIED BY MECHANICAL DECODE AND RECORDED BEFORE ANY EDIT
 
