@@ -511,6 +511,36 @@ working route. (3) A `??`-coalesced RECEIVER (`(owner ?? "").GetType()`) decline
 on a non-null `object` parameter compiles. (4) An `out` argument on the `Result<T, E>` `TryGet*` pair
 declines; `GetMethod(name, [typeof(int).MakeByRefType()])` plus `Invoke` reads the same fact.
 
+**The `nlc` command surface is being taken next, and task 020 slice 42 took the first 35 bodies of
+it.** `tests/CliCommandTests.cs` is 5,482 → 4,274 lines and 135 → 100 test methods. The mechanical
+decode that opened it OVERTURNED the census slice 41 recorded: the file holds 135 test methods, not
+114, and **96** of them are canonical over an N#-owned subject, not 82 — because an instrument that
+looks for the string `Kernels` cannot see `TreeCommand`, `EnvCommand`, `AuditCommand`,
+`RestoreCommand`, `CleanArtifactDirectoryOrderer`, `UpdateDependencyFilter`,
+`CompilerErrorSeverityFilter`, `QuerySymbolNameFilter`, `CommandRegistry` or `CompletionCommand`,
+all of which are `.nl` files in `src/NSharpLang.Compiler.BootstrapServices`. The classifier now
+builds the set of every type name declared in a production `.nl` (1,094 of them) and asks which
+bodies name one.
+
+**The route split between the estate and `tests/native` is forced by a measured emit wall, not
+chosen.** A `.tests.nl` in the estate can call `TreeCommand.Execute(...)` — same assembly — but it
+can never see what that call printed: **`Console.SetOut` declines at
+`emit.call.static-member-unmodeled`**, and so does `Console.SetOut(Console.Out)`. So every exit-code
+row, every `IsNullOrWhiteSpace(stderr)` row and every stdout row has to leave the estate, and they
+land in `tests/native/cli-command-contracts` (the 46th native project), which SPAWNS the real `nlc`.
+That is strictly stronger than the C# was: the deleted bodies called `TreeCommand.Execute` directly
+and never proved that `nlc tree` reaches `TreeCommand` at all. A second wall was re-measured on the
+same route — a `JsonElement` INDEXER declines at `emit.local.initializer`, so arrays are walked with
+`EnumerateArray`, as `tests/native/query-integration` already records.
+
+**One product finding came out of it: `nlc clean` deletes in PATH-LENGTH order, not depth order.**
+`CleanArtifactDirectoryOrderer.Order` runs a selection sort on `selected[i].Length` and consults
+`GetArtifactDirectoryKindRank` only as a `rank > 0` filter — the three nonzero ranks are never
+compared with one another, so the `.nlc`-before-`bin` ordering the deleted expectation appears to
+pin is a coincidence of name lengths. The order is nevertheless SOUND for the job, because a nested
+path is always strictly longer than the ancestor it nests under, which is the only pair where
+deletion order matters.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
