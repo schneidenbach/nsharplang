@@ -492,3 +492,209 @@ test "nlc query help exits 0, and an unknown query subcommand exits 1 through st
     assert unknownRun.Stderr.Trim()
         == "Error: Unknown query subcommand: wat. Run 'nlc query help' for usage."
 }
+
+
+// ═══ SLICE 43: SEVEN MORE COMMANDS' HELP CONTRACTS ════════════════════════════════════════════
+//
+// The same three claims per command — exit 0, a silent stderr, the command's own `Usage:` line on
+// stdout — for the seven whose kernel bodies migrate to the estate this slice. SIX of the seven
+// were previously proven by an IN-PROCESS `XCommand.Execute(["--help"])` call, and FIVE of those
+// six reach a command that is STILL a `.cs` file in `src/NSharpLang.Cli/Commands/` —
+// `CheckCommand`, `FixCommand`, `LintCommand`, `WatchCommand` and `DocCommand`; only `TidyCommand`
+// is N#-owned. So these rows are the only thing in the repository that proves `nlc check`
+// dispatches to `CheckCommand` at all. The seventh, `format`, had no command wrapper in the
+// deleted body at all — it went through the top-level dispatcher.
+
+test "nlc check --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("check --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Usage: nlc check [options] [project-dir]")
+    assert run.Stdout.Contains("N# Type Check")
+}
+
+test "nlc fix --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("fix --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Usage: nlc fix [options] [project-dir]")
+    assert run.Stdout.Contains("N# Auto-Fix")
+}
+
+test "nlc lint --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("lint --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Usage: nlc lint [options] [files...]")
+    assert run.Stdout.Contains("N# Lint")
+}
+
+test "nlc watch --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("watch --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Usage: nlc watch <check|build|test|lint|format>")
+    assert run.Stdout.Contains("N# Watch")
+}
+
+test "nlc format --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("format --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Usage: nlc format [options] [files...]")
+    assert run.Stdout.Contains("N# Format")
+}
+
+test "nlc tidy --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("tidy --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Usage: nlc tidy [options]")
+    assert run.Stdout.Contains("N# Tidy")
+}
+
+test "nlc doc --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("doc --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Usage: nlc doc [options]")
+    assert run.Stdout.Contains("N# API Documentation")
+}
+
+
+// ═══ SLICE 43: THE MISSING-DIRECTORY ROUTES ═══════════════════════════════════════════════════
+//
+// These are the anti-vacuity controls for the seven silences above: each of these five commands
+// DOES write to stderr, so a `Stderr.Trim().Length == 0` claim on the same binary is a
+// measurement rather than a structural fact. They also pin which stream the sentence reaches —
+// the deleted C# asserted an EMPTY STDOUT beside each one, and that half is kept.
+//
+// THE TWO SENTENCE FAMILIES DIFFER AND THE DIFFERENCE IS PINNED: `check`, `fix` and `lint` say
+// `Directory not found:`; `doc` and `watch` say `Project directory not found:`.
+
+test "nlc check over a missing project writes Directory not found to STDERR and exits 1" {
+    missingDirectory := MissingDirectoryPath("nsharp-check-missing")
+
+    run := Nlc("check --project \"" + missingDirectory + "\" --text")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Directory not found: " + missingDirectory)
+}
+
+test "nlc fix over a missing project writes Directory not found to STDERR and exits 1" {
+    missingDirectory := MissingDirectoryPath("nsharp-fix-missing")
+
+    run := Nlc("fix --project \"" + missingDirectory + "\" --text")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Directory not found: " + missingDirectory)
+}
+
+test "nlc lint over a missing project writes Directory not found to STDERR and exits 1" {
+    missingDirectory := MissingDirectoryPath("nsharp-lint-missing")
+
+    run := Nlc("lint --project \"" + missingDirectory + "\" --text")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Directory not found: " + missingDirectory)
+}
+
+test "nlc doc over a missing project writes Project directory not found to STDERR and exits 1" {
+    missingDirectory := MissingDirectoryPath("nsharp-doc-missing")
+
+    run := Nlc("doc --project \"" + missingDirectory + "\"")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Project directory not found: " + missingDirectory)
+}
+
+test "nlc watch over a missing project writes Project directory not found to STDERR and exits 1" {
+    missingDirectory := MissingDirectoryPath("nsharp-watch-missing")
+
+    run := Nlc("watch check --project \"" + missingDirectory + "\"")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Project directory not found: " + missingDirectory)
+}
+
+
+// ═══ SLICE 43: THE ARGUMENT-REFUSAL ROUTES ════════════════════════════════════════════════════
+//
+// Three refusals that never reach a project at all. Each proves that the kernel sentence the
+// estate pins is the sentence the SHIPPED binary writes, and that it goes to stderr with an exit
+// of 1 — and, for `watch`, that the target word is lowercased on the way.
+
+test "nlc watch refuses an unsupported target, lowercasing it in the sentence, and exits 1" {
+    // The command line says `SERVE`; the sentence says `'serve'`. The deleted C# passed
+    // `["SERVE", ...]` and asserted a substring of the lowercased message, so the lowercasing was
+    // implied rather than stated.
+    run := Nlc("watch SERVE --max-runs 1")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Unsupported watch target 'serve'. Expected check, build, test, lint, or format.")
+}
+
+test "nlc watch refuses a zero debounce through stderr and exits 1" {
+    run := Nlc("watch check --debounce-ms 0")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("--debounce-ms expects a positive integer.")
+}
+
+test "nlc format refuses --stdin beside a file argument through stderr and exits 1" {
+    run := Nlc("format --stdin Program.nl")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Cannot combine --stdin with file arguments.")
+}
+
+
+// ═══ SLICE 43: THE `nlc test` TIMEOUT REFUSAL, ON BOTH OUTPUT ROUTES ═══════════════════════════
+//
+// The one place in this slice where the SAME refusal is proven on two routes, which is what the
+// deleted `TestCommandKernels_ParsesTimeoutDurations` did in its second half. The text route puts
+// the sentence on stderr behind an `Error: ` prefix; the JSON route puts it INSIDE the envelope
+// on stdout and leaves stderr empty. The pair is its own anti-vacuity control: the same binary,
+// the same arguments plus `--json`, and the stream that was loud goes silent.
+
+test "nlc test refuses an overflowing timeout on stderr, with the Error prefix, and exits 1" {
+    run := Nlc("test --timeout 2147484s")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Invalid timeout format '2147484s'")
+    assert run.Stderr.Trim().StartsWith("Error: ")
+}
+
+test "nlc test --json puts the same refusal in the envelope and says nothing on stderr" {
+    run := Nlc("test --timeout 2147484s --json")
+
+    assert run.ExitCode == 1
+    assert run.Stderr.Trim().Length == 0
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+
+    assert TextOf(root.GetProperty("command")) == "test"
+    assert !root.GetProperty("ok").GetBoolean()
+    assert TextOf(root.GetProperty("error")).Contains("Invalid timeout format '2147484s'")
+    // The envelope is the versioned one every other JSON route uses — a control the deleted body
+    // did not have, which is what keeps a bare `{"error": ...}` from passing.
+    assert root.GetProperty("schemaVersion").GetInt32() == 1
+    document.Dispose()
+}

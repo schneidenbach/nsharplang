@@ -541,6 +541,33 @@ pin is a coincidence of name lengths. The order is nevertheless SOUND for the jo
 path is always strictly longer than the ancestor it nests under, which is the only pair where
 deletion order matters.
 
+**Slice 43 took the next 44 bodies, and `tests/CliCommandTests.cs` is now 2,805 lines / 56 test
+methods.** The tranche is every remaining `*CommandKernels` family that is pure-kernel-plus-help-
+contract: the nine `CompilationReferenceResolverKernels` bodies, the five `TestCommandKernels` ones,
+and the `Watch`/`Tidy`/`Doc`/`Fix`/`FixCommandArgument`/`Lint`/`Format`/`Restore`/`Check` families.
+It lands as **117 blocks in nine NEW estate `.tests.nl` files, 13 more in `TestCommandKernels
+.tests.nl`, and 17 more in `tests/native/cli-command-contracts`** — 147 blocks replacing 44 bodies.
+Nine of the 44 also read a console capture. Seven drove an `XCommand.Execute` IN PROCESS and two
+drove the top-level dispatcher; command ownership was MEASURED, and six of those seven reach a
+command that is still a `.cs` file in `src/NSharpLang.Cli/Commands/` — `CheckCommand`, `FixCommand`,
+`LintCommand`, `WatchCommand` (twice) and `DocCommand`, with only `TidyCommand` N#-owned. So the
+spawned successors are the only thing in the repository that proves `nlc check` dispatches to
+`CheckCommand` at all.
+
+**The product finding of slice 43 is a data-loss defect in `nlc tidy --fix`: the removal filter
+matches a package name by BARE PREFIX.** `TidyCommandKernels.RemovalLineStartsWithPackage` compares
+`packageName.Length` characters and checks nothing after them, and `TidyCommand.RemoveDependencies`
+feeds it exactly the possibly-unused names — so a user whose `project.yml` carries both `Serilog`
+(unused) and `SerilogExtra` (used) loses BOTH lines when the command rewrites the file. The deleted
+C# had `  - SerilogExtra` in its fixture and in its expected removal, but the fact was invisible
+inside a nine-element array comparison; it is now its own block with a control on the other side of
+the rule. `FilterRemovalLines` has exactly ONE production caller and the estate is its only
+coverage: under a mutation that adds the missing delimiter check, the whole C# unit suite is 653
+green while the estate is red on 2.
+
+**One more reserved-word position was measured: `file` is reserved in the PARAMETER-NAME position.**
+A free function `func Entry(file: string, ...)` declines at `parse.function`; `filePath` compiles.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
