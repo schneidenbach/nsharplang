@@ -14,8 +14,11 @@ import NSharpLang.Compiler
 // ordered list with producers that have not moved yet, so a report's position among its neighbours
 // must not depend on which side of the boundary made it. This one has NO other producer: every
 // systems finding in the compiler is constructed by `Add` or `AddForType` below, so the list, the
-// counts, the AOT verdict and the report ORDER are all one owner's answer and nothing outside may
-// scan them.
+// counts and the AOT verdict are all one owner's answer and nothing outside may scan them. The
+// report ORDER is the one thing that is NOT decided here: `SystemsReportOrder` owns the position of
+// every systems-report row — findings, trusted sites, function rows and call lists alike — so that
+// four arrays a user reads side by side cannot be ordered by four different rules. `Ordered()`
+// below is this sink's door onto that owner.
 //
 // THE SUBJECT TRAVELS WITH EACH REPORT rather than being held as analysis state. Holding the current
 // function's file, name and hotness the way this sink holds the profile facts would shorten every
@@ -223,83 +226,11 @@ class SystemsFindingSink {
         return "pass"
     }
 
-    // THE REPORT ORDER: file, then line, then column — and STABLE, so two findings at the same
-    // position are read in the order they were found. That stability is behaviour, not an accident of
-    // the sort: a `[hot]` function that allocates twice on one line must list its two findings in the
-    // order the walk met them.
-    //
-    // An insertion sort, written out rather than delegated, for the reason
-    // `AnalyzerReferenceLoadReport.SortedOrdinal` records: the comparer routes to an ordinal string
-    // order are not on the columnar emit surface. Writing it out satisfies both gates and turns a
-    // user-visible report order into a rule the reader can see.
+    // THE ORDERED LIST, AND THE ONE DOOR THAT HANDS IT OUT. The LIST is owned here — nothing
+    // outside may scan `findingsValue` — but the ORDER is not: `SystemsReportOrder` owns the order
+    // of every row a systems report shows, so that a finding's position among its neighbours is
+    // decided by the same rule that decides a trusted site's, in one place, once.
     func Ordered(): SystemsFinding[] {
-        sorted := new List<SystemsFinding>()
-        outer := 0
-        while outer < findingsValue.Count {
-            candidate := findingsValue[outer]
-            position := sorted.Count
-            while position > 0 && ComparePosition(sorted[position - 1], candidate) > 0 {
-                position = position - 1
-            }
-
-            sorted.Insert(position, candidate)
-            outer = outer + 1
-        }
-
-        return sorted.ToArray()
-    }
-
-    static func ComparePosition(left: SystemsFinding, right: SystemsFinding): int {
-        fileOrder := CompareOrdinalIgnoreCase(left.File, right.File)
-        if fileOrder != 0 {
-            return fileOrder
-        }
-
-        if left.Line != right.Line {
-            return CompareInt(left.Line, right.Line)
-        }
-
-        return CompareInt(left.Column, right.Column)
-    }
-
-    static func CompareInt(left: int, right: int): int {
-        if left < right {
-            return -1
-        }
-
-        if left > right {
-            return 1
-        }
-
-        return 0
-    }
-
-    // CASE-INSENSITIVE ORDINAL COMPARISON, BY UTF-16 CODE UNIT AFTER INVARIANT UPPERCASING — which is
-    // precisely what `StringComparer.OrdinalIgnoreCase` does. Uppercasing per code unit is the exact
-    // semantics and not an approximation: a surrogate has no single-unit case mapping and comes back
-    // unchanged, so a path outside the basic plane orders by its raw units either way. Shorter sorts
-    // before longer when one is a prefix of the other.
-    static func CompareOrdinalIgnoreCase(left: string, right: string): int {
-        limit := left.Length
-        if right.Length < limit {
-            limit = right.Length
-        }
-
-        index := 0
-        while index < limit {
-            leftUnit := Char.ToUpperInvariant(left[index])
-            rightUnit := Char.ToUpperInvariant(right[index])
-            if leftUnit != rightUnit {
-                if leftUnit < rightUnit {
-                    return -1
-                }
-
-                return 1
-            }
-
-            index = index + 1
-        }
-
-        return CompareInt(left.Length, right.Length)
+        return SystemsReportOrder.OrderedFindings(findingsValue)
     }
 }

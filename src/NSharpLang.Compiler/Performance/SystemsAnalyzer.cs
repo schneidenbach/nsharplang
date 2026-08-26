@@ -83,9 +83,9 @@ public sealed class SystemsAnalyzer
         _hotSummaries = HotSummaryCatalog.Load(_projectRoot, _config);
         BuildVisibleDeclarationFiles(compilationUnits);
 
-        foreach (var (file, unit) in compilationUnits.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+        foreach (var file in SystemsReportOrder.OrderedFiles(compilationUnits.Keys.ToArray()))
         {
-            RegisterDeclarations(file, unit.Declarations, containingType: null);
+            RegisterDeclarations(file, compilationUnits[file].Declarations, containingType: null);
         }
 
         foreach (var entry in _orderedFunctionEntries)
@@ -100,7 +100,7 @@ public sealed class SystemsAnalyzer
             _config.Language.Systems.Warmup,
             _functions,
             _findingSink.Ordered(),
-            _trustedSites.OrderBy(t => t.File, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Line).ThenBy(t => t.Column).ToArray(),
+            SystemsReportOrder.OrderedTrustedSites(_trustedSites),
             new SystemsAotReport(
                 _config.Language.Systems.AotTarget,
                 aotAnalysis,
@@ -241,7 +241,7 @@ public sealed class SystemsAnalyzer
             summary.AllocNone,
             summary.IsHot ? "explicitHot" : "sourceInferred",
             summary.ToFacts(),
-            summary.Calls.Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal).ToArray());
+            SystemsReportOrder.OrderedCalls(summary.Calls));
         if (_emittedFunctions.Add(function))
             _functions.Add(functionSummary);
 

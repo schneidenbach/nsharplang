@@ -1,6 +1,50 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-26 (**TASK 021 SLICE 2 — THE DECLINE VOCABULARY AND THE TOKEN ORDINALS LEAVE
+Last updated: 2026-08-26 (**TASK 021 SLICE 3 — `SystemsAnalyzer`'s THREE ORDERING SITES MOVE TO AN
+N# REPORT-ORDER OWNER, AND THE MEASUREMENT CORRECTS THE SLICE'S OWN PREMISE.** The decode was
+recorded BEFORE any production edit and it confirms slice 1's `:86` / `:103` / `:244` exactly — no
+fourth ordering decision exists in the file — then traces each to the user's JSON: the normalization
+kernels and the payload builders are ALL order-preserving, so `systemsReport.functions[]`,
+`trustedSites[]` and `functions[].calls[]` are literally the analyzer's list order, read by
+`nlc check --systems-report`, `nlc query trusted` and `nlc query perf`. **BUT ONLY ONE OF THE THREE
+ORDERS WAS PINNED BY ANYTHING.** `:86` is pinned deliberately and well — four census blocks write
+file pairs named to disagree with disk order — while `:103` and `:244` were UNREACHABLE by every
+existing contract: the repository's maximum pinned `trustedSites` is **ONE** (51×0 / 4×1 in the
+census, 5 envelopes at 1, two proof rows), and of its **80** pinned `calls=[…]` values **54 are
+EMPTY, 26 hold exactly ONE element and NONE holds two** — so the trusted-site sort and the
+call-list `Distinct`+`OrderBy` could have been deleted outright and the whole suite would still have
+passed. **THE MANDATE'S REMEDY IS TAKEN: the now-canonical orders are pinned and SAID SO.** The
+owner is a new `SystemsReportOrder.nl` (251 lines) which takes a FOURTH order with it —
+`OrderedFindings`, already N# inside `SystemsFindingSink` — because two owners of "where a report
+row sits" and two copies of `CompareOrdinalIgnoreCase` is exactly what this campaign deletes;
+**`SystemsFindingSink.nl` 305 → 233** and its `Ordered()` is now a one-line door. **ZERO NEW C#**:
+`SystemsAnalyzer.cs` stays **1,160 / 1,065 non-blank** (the replacements are line-for-line, so its
+ratchet row moves by FINGERPRINT ONLY, stated rather than dressed up as a shrink) and its ordering
+census goes **3 → 0**, leaving all four of slice 1's product-decision instruments at zero. The two
+string orders are deliberately DIFFERENT — the file walk folds case, the call list does not — and
+both directions are pinned against the SAME three strings. **24 NEW ESTATE BLOCKS (6,797 → 6,821)
+AND 5 NEW NATIVE BLOCKS (census 58 → 63)**, the native ones driving the shipped CLI as spawned
+processes. **SEVEN MUTATIONS AGAINST VERIFIED-GREEN BASELINES ALL FAIL BY NAME**, and two of them
+matter beyond their own pin: deleting the file sort fails the FOUR INHERITED census blocks (the
+inherited pins still bind on the moved owner), and breaking the finding order's stability fails
+**SEVEN** blocks — the sink's own plus six policy contracts that turn out to depend on it. An exact
+12-project comparator over both CLI surfaces reports **12 = 12, MISSING `[]`, EXTRA `[]`, 77,534
+bytes byte-identical**, and it is PROVED to move: under one mutation the same instrument reports 3
+of 12 differing. **TWO FINDINGS**: `file` is a RESERVED KEYWORD whose precise `NL109` is replaced by
+a useless `NL103 parse.function` on the emit-only estate path, and a CLI build silently disarms the
+estate test run so `dotnet test --no-restore` exits **0 with ZERO output**. Ratchet repinned two-key
+`head-v1:f5a5d41c6d81202f` → **`head-v1:b1e6e68c307a8227`** from a replica validated against the
+PRISTINE manifest first (it predicted the exact drift the audit then reported), epoch triple
+UNCHANGED, audit **18/18** and non-vacuous on both a one-key head and a one-line ceiling raise;
+manifest 391 lines, no BOM. **THE GATE WAS TAKEN TWICE ON PURPOSE** — run 1 was green, then a
+sentence this slice had made FALSE was found in a header comment, so it was corrected and the gate
+re-run under a different cache key rather than reported against a tree that no longer existed. Run 2
+is **ALL TESTS PASSED, exit 0, 126 steps, 0 failures** — units **606/606**, estate **6821/6821**, all
+**46** native projects (census 63/63, audit 18/18), 22 examples, 38 single-file examples, templates,
+`nlc check`, ILVerify. The stage boundary did NOT bind. NOT COMMITTED — the mandate reserves that;
+`tasks/README.md` is NOT edited. **NEXT: SLICE 4 — `AstNodeFinder.cs` deleted whole, IDE bar**)
+
+Last updated (prior): 2026-08-26 (**TASK 021 SLICE 2 — THE DECLINE VOCABULARY AND THE TOKEN ORDINALS LEAVE
 C#.** Both censuses were re-verified BEFORE any production edit and both CORRECT slice 1 upward.
 **SLICE 1 REPORTED TWO RAW `TokenType` ORDINAL SITES; THERE ARE SIX** — `:406` `Ref`, `:867`
 `Class`/`Struct`/`Record`, and the four body-shape sites slice 1's narrower question missed (`:693`,
@@ -4301,7 +4345,250 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 2 — THE DECLINE VOCABULARY AND THE TOKEN
+- Active sub-slice (021 arc, THIS TURN — **SLICE 3 — `SystemsAnalyzer`'s THREE ORDERING SITES.
+  THE DECODE, RECORDED BEFORE ANY PRODUCTION EDIT.**
+
+  ### THE THREE SITES, RE-VERIFIED BY DECODE
+
+  `grep -n 'OrderBy\|ThenBy\|Sort(' src/NSharpLang.Compiler/Performance/SystemsAnalyzer.cs` returns
+  **exactly three lines**, and they are slice 1's `:86`, `:103`, `:244` unchanged. There is no
+  fourth ordering decision in the file — no `List.Sort`, no `OrderByDescending`, no comparer type.
+
+  | site | the text | what it orders | by what key | consumed where |
+  |---|---|---|---|---|
+  | `:86` | `compilationUnits.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)` | the FILE WALK — the order `RegisterDeclarations` is called, hence the order `_orderedFunctionEntries` is built, hence the order `AnalyzeFunction` is entered | file path, `OrdinalIgnoreCase` | `SystemsReport.Functions` → `systemsReport.functions[]`; and the TIE-BREAK inside `_findingSink.Ordered()`, which is a STABLE insertion sort |
+  | `:103` | `_trustedSites.OrderBy(t => t.File, OrdinalIgnoreCase).ThenBy(t => t.Line).ThenBy(t => t.Column)` | the trusted-site rows | file `OrdinalIgnoreCase`, then line, then column | `SystemsReport.TrustedSites` → `systemsReport.trustedSites[]` AND `nlc query trusted`'s `results[]` AND `nlc build --perf-report`'s `trustedSites[]` |
+  | `:244` | `summary.Calls.Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal)` | one function's recorded call list — BOTH the de-duplication and the order | the callee name, `Ordinal` | `SystemsFunctionSummary.Calls` → `systemsReport.functions[].calls[]` AND `nlc query perf`'s `systemsFunction` fact |
+
+  **THE ROW ORDER IS SCHEMA-VISIBLE, AND THAT IS MEASURED, NOT ASSUMED.** The whole path from the
+  three sites to the user's JSON is order-preserving with no second sort anywhere:
+  `OutputFormatterNormalizationKernels.NormalizeSystemsFunctionSummaries` /
+  `…Findings` / `…TrustedSites` each `for` over the input and `Add` in sequence, and
+  `OutputFormatterJsonKernels.BuildSystemsFunctionSummaries` / `BuildSystemsFindings` /
+  `BuildTrustedResults` do the same, so `payload["functions"]`, `payload["trustedSites"]` and
+  `payload["calls"]` are literally the analyzer's list order. Three shipped commands read it:
+  `nlc check --systems-report` (`CheckCommand.cs:98` → `CheckSystemsReportToJson`), `nlc query
+  trusted` (`QueryCommand.cs:306` → `TrustedToJson`) and `nlc query perf`
+  (`QueryCommand.cs:256/274`, which iterates `Findings` and `Functions` in order and echoes
+  `function.Calls` whole).
+
+  **THE WALK IS RE-ENTRANT, SO `:86` DOES NOT MEAN "FILE ORDER" — IT MEANS "ROOT ORDER OF A DFS".**
+  `MergeDeclaredCalleeSummaries` (`:456`) calls `AnalyzeFunction` on a callee mid-walk, and
+  `_functions.Add` happens at the END of `AnalyzeFunction`, so a callee is emitted BEFORE its
+  caller. The estate already pins exactly this: `functions[0] = Cold`, `functions[1] = Caller`.
+
+  ### WHICH OF THE THREE THE ESTATE ALREADY PINS — MEASURED, AND THE ANSWER IS ONE OF THREE
+
+  `tests/native/systems-analysis-census` spawns the real `nlc check --project … --systems-report`
+  and pins WHOLE rows by INDEX (`SacRow(stdout, "functions", 0|1|2)`), so it is a genuine order
+  instrument, not a set instrument.
+
+  | site | pinned today? | evidence |
+  |---|---|---|
+  | `:86` | **YES, and deliberately** | four blocks write two files with names chosen to disagree with disk order — `a_alloc.nl`+`z_clean.nl`, `z_alloc.nl`+`a_clean.nl`, `a_clean.nl`+`z_alloc.nl`, `a_other.nl`+`z_hot.nl` — and pin all three `functions` rows in each. The `z_alloc`/`a_clean` block pins `functions[0] = Clean.Helper;file=a_clean.nl` FIRST, which is only true because of the `OrdinalIgnoreCase` sort |
+  | `:103` | **NO** | the census pins `trustedCount` **51 × 0 and 4 × 1**, and its envelopes `trustedSites=` **52 × 0 and 5 × 1**; the proof corpus adds `trustedSites=1` twice (`25-trusted-memory-copy`, `45-trusted-audit`). **The maximum anywhere in the repository is ONE, and a one-row list has no order** |
+  | `:244` | **NO** | the repository pins **80** `calls=[…]` values — **54 EMPTY, 26 with exactly ONE element, and ZERO with two or more**. Neither the `Distinct` nor the `OrderBy` is observable in any existing contract |
+
+  **SO TWO OF THE THREE ORDERS ARE UNPINNED, AND THIS SLICE PINS THE NOW-CANONICAL ONE AND SAYS
+  SO** — the mandate's stated remedy — rather than reporting "no user-visible change" over
+  instruments that could not have seen one.
+
+  ### THE OWNER — `SystemsReportOrder.nl`, AND IT TAKES A FOURTH ORDER WITH IT
+
+  The three C# chains move into ONE new N# owner, `SystemsReportOrder` (251 lines, beside the
+  eleven `Systems*Policy` files — slice 1's TWELVE N# owners for this walk become **THIRTEEN**),
+  which declares the order of every row a systems report shows: `OrderedFiles` (`:86`), `OrderedTrustedSites` (`:103`), `OrderedCalls` (`:244`) — and
+  `OrderedFindings`, **which was NOT one of the three.** It was already N#, inside
+  `SystemsFindingSink`, and it is moved anyway because leaving it there would have left the family
+  with TWO owners of "how a systems report row is positioned" and TWO copies of
+  `CompareOrdinalIgnoreCase`/`CompareInt`. `SystemsFindingSink` keeps the LIST — nothing outside may
+  scan `findingsValue` — and its `Ordered()` becomes a one-line door onto the order owner.
+  **`SystemsFindingSink.nl` 305 → 233**, its four sort statics gone.
+
+  **THE CALL LIST'S TWO HALVES ARE ONE DOOR ON PURPOSE.** `:244` was `Distinct(Ordinal)` AND
+  `OrderBy(Ordinal)`; `OrderedCalls` does both and exposes neither separately, so no caller can take
+  the ordering without the de-duplication. That is a decision the C# left open and the N# closes.
+
+  **THE TWO STRING ORDERS ARE DELIBERATELY DIFFERENT, AND THE OWNER SAYS WHY.** The file walk folds
+  case (a path off a case-insensitive filesystem); the call list does not (a NAME whose case carries
+  visibility in N#). Both are pinned against the SAME three strings, in both directions, because
+  folding one or unfolding the other is the single most plausible mistake in the file.
+
+  **ZERO NEW C#.** The three sites become three calls; `SystemsAnalyzer.cs` **1,160 → 1,160 lines /
+  1,065 → 1,065 non-blank** — the replacements are line-for-line, so the file's ratchet row moves by
+  its FINGERPRINT ONLY and that is stated rather than dressed up as a shrink.
+  `grep -n 'OrderBy\|ThenBy\|Sort(\|Distinct('` over it returns **NOTHING**: the ordering census
+  slice 1 measured at 3 is now **0**, and the file's product-decision residue is empty on every one
+  of slice 1's four instruments (NLCODE 0, SENTENCE 0, SORT **3 → 0**, EXIT 0).
+
+  ### THE PINS, BOTH WAYS
+
+  **24 NEW ESTATE BLOCKS** in `SystemsReportOrder.tests.nl` (295 lines) — 6 on the file walk, 6 on
+  the trusted sites, 6 on the call list, 1 cross pin proving the two string orders DISAGREE on one
+  input, 4 on the comparison primitives, 1 proving the finding order is the same owner reached
+  directly. Estate **6,797 → 6,821**.
+
+  **5 NEW NATIVE BLOCKS** in `tests/native/systems-analysis-census` (58 → **63**, 1,960 → 2,090
+  lines), every one driving the SHIPPED CLI as a spawned process and pinning whole rows by index:
+  three trusted sites across three files, four trusted sites falling through file → line, the same
+  three answered by `nlc query trusted` (so the two commands cannot drift), a six-call function
+  whose list collapses to `calls=[Alpha2,Beta,alpha,zeta]`, and a case-mixed file set reported
+  `a_two.nl, B_one.nl, C_three.nl`. **These are the pins the two unpinned orders never had.**
+
+  ### THE MUTATION MATRIX — SEVEN, ALL FAILING BY NAME AGAINST VERIFIED-GREEN BASELINES
+
+  Baselines verified green first: estate **6,821 / 6,821**, census **63 / 63**.
+
+  | # | mutation | evidence | fails |
+  |---|---|---|---|
+  | **M1** | `OrderedFiles` compares case-SENSITIVELY | estate + native | estate **2** — `THEFILEWALKORDERISCASEINSENSITIVENOTORDINAL`, `THEFILEORDERANDTHECALLORDERDISAGREE…`; native **1** — `THE FILE WALK IS CASE-INSENSITIVE, SO a_two.nl IS REPORTED BEFORE B_one.nl` |
+  | **M2** | `OrderedCalls` folds case | estate | **2** — `THECALLLISTISORDEREDCASESENSITIVELYNOTCASEINSENSITIVELY`, the cross pin |
+  | **M3** | `OrderedCalls` stops de-duplicating | estate + native | estate **1** — `THECALLLISTDEDUPLICATES…`; native **1** — `A FUNCTION'S CALL LIST IS DE-DUPLICATED AND ORDERED CASE-SENSITIVELY` |
+  | **M4** | the trusted-site order stops falling through to line/column | estate | **2** — `THETRUSTEDSITEORDERISFILETHENLINETHENCOLUMN`, `ACASEINSENSITIVETIEONTHEFILEFALLSTHROUGHTOLINE` |
+  | **M5** | `OrderedFindings` loses stability (`>` → `>=`) | estate | **7** — the sink's own `THEORDERISSTABLE…` **plus six policy contracts** that turn out to depend on it (`THESIXHOTARMSFIRETOGETHERANDINAWRITTENORDER`, `THEFOURARMSALLFIRE…`, `EACHOFTHETENARMS…`, `THETWOTRUSTEDARMS…`, `AWAIVERWITHNEITHERFIELD…`, `AhotASYNCITERATOR…`) — the routed door is not vacuous |
+  | **M6** | the trusted-site sort runs backwards | native | **3** — all three new trusted pins, `nlc query trusted` among them |
+  | **M7** | `OrderedFiles` does not sort at all | native | **5** — the FOUR INHERITED file-order blocks (`…RegardlessOfFileOrder[a_alloc,z_clean]`, `[z_alloc,a_clean]`, `HotCallee_CleanHotPath_NotBlamedForUnrelatedAllocator`, `HotCallee_ImportedDuplicateSourceSite…`) plus the new one. **The inherited pins still bind on the moved owner.** |
+
+  ### THE COMPARATOR — 12 = 12, AND PROVEN NON-VACUOUS
+
+  A 12-project corpus written to make all three orders observable (four file-walk shapes including a
+  case-mixed one, three trusted-site shapes including three-in-one-file, four call-list shapes
+  including duplicates and mixed case, and one combining all three), each answered by BOTH
+  `nlc check --systems-report` and `nlc query trusted`, captured before the first production edit
+  and again after the last. **12 = 12, MISSING `[]`, EXTRA `[]` — 77,534 bytes byte-identical**
+  (the only normalization is the capture directory's own name, which appears in `projectRoot` and
+  every `file`). **The instrument is proved to move**: under M2 the same comparator reports **3 of
+  12 fixtures differing**, and the diff is exactly `Alpha2,Beta,alpha` → `Alpha2,alpha,Beta`. So the
+  identity is a measurement, not an absence of measurement.
+
+  ### TWO FINDINGS
+
+  **(1) `file` IS A RESERVED KEYWORD, AND THE EMIT-ONLY PATH HIDES THAT.** A helper written
+  `func SroSite(name: string, file: string, …)` was rejected by the estate build as
+  `NL103: … Declined at parse.function … (SystemsReportOrder.tests.nl:69:1)` — pointing at the
+  FUNCTION, saying nothing about which token. The same file through `nlc build`'s analyzer path
+  answers **`NL109: 'file' is a reserved keyword in N#, so it can't be used as a name here`**, with
+  the offending token underlined and two suggested renames. The parameter was renamed; the
+  divergence is recorded because a developer working in the compiler-service estate meets the
+  useless diagnostic and not the good one.
+
+  **(2) A CLI BUILD SILENTLY DISARMS THE ESTATE TEST RUN, AND `dotnet test` CALLS IT SUCCESS.**
+  Building `src/NSharpLang.Cli/Cli.csproj` re-emits `BootstrapServices` WITHOUT its `.tests.nl`
+  (the default `NSharpExcludeTests=true`), after which `dotnet test … --no-restore` exits **0 with
+  ZERO output** — no `Passed:` line, no `Total:` line, nothing. This bit the mutation matrix once
+  and was caught only by the standing rule that a zero-test run is a non-verdict; the fix is the
+  gate's own `dotnet restore … -p:NSharpExcludeTests=false --force-evaluate` before every estate
+  run, and the mutation harness now does it unconditionally.
+
+  ### THE COUNTS
+
+  | | before | after |
+  |---|---|---|
+  | `SystemsAnalyzer.cs` | 1,160 / 1,065 non-blank, **3** ordering sites | 1,160 / 1,065, **0** |
+  | `SystemsFindingSink.nl` | 305 | **233** |
+  | `SystemsReportOrder.nl` | — | **251** (new) |
+  | `SystemsReportOrder.tests.nl` | — | **295** (new, 24 blocks) |
+  | `SystemsAnalysisCensus.tests.nl` | 1,960 / 58 blocks | **2,090 / 63** |
+  | compiler-service estate | 6,797 | **6,821** |
+  | `src/NSharpLang.Compiler` tracked `.cs` | 11 files / 27,981 lines | **11 / 27,981** (unchanged) |
+  | BootstrapServices `.nl` files | 663 | **665** |
+  | native test projects | 41 directories / **46** gate-discovered | unchanged |
+  | live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 394 / 246 | **395 / 246** — census `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26` IDENTICAL, **ZERO rows in any `.tests.nl` and ZERO in either new file** |
+
+  ### THE REPIN
+
+  Walked from a replica **validated against the PRISTINE manifest first** — it reproduced all three
+  stored fingerprints and `SystemsAnalyzer.cs`'s row (1,160 / 1,065 / `text-v1:e93285326fba311f`)
+  before a single edit. The audit then FAILED **17/18** on exactly one `OWN005` observing
+  `text-v1:4de34782b2532a07` — **the exact value the replica had predicted**. One row's fingerprint
+  moves; no ceiling is raised (the repin asserts `lines <= currentLines`, `nonBlank <=
+  currentNonBlankLines` and both `<= epoch` before it writes); the epoch triple is asserted
+  unchanged before AND after.
+
+  | | before | after |
+  |---|---|---|
+  | `SystemsAnalyzer.cs` row | 1160 / 1065 / `text-v1:e93285326fba311f` | 1160 / 1065 / **`text-v1:4de34782b2532a07`** |
+  | `reviewedHeadFingerprint` | `head-v1:f5a5d41c6d81202f` | **`head-v1:b1e6e68c307a8227`** — two-key, repinned LAST |
+  | `epochPathFingerprint` / `epochFactFingerprint` / `epochFileCount` | | **UNCHANGED** `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` / **381** |
+
+  Both keys moved together: the manifest header AND `OwnershipAudit.nl:241`'s
+  `ReviewedHeadFingerprint` constant. **`nlc test --project tests/native/ownership-audit` → 18/18**,
+  and PROVED non-vacuous twice: a one-key head (manifest only) fails **17/18**, and a one-line
+  ceiling raise fails **17/18**; restored, **18/18**. Manifest **391 lines, no BOM**.
+
+  ### FORMAT
+
+  **The format contract gate caught the new owner on the first check** — `SystemsReportOrder.nl`
+  needed a blank line after its class header — which is recorded rather than quietly fixed: the
+  formatter was run, the check re-run to `All files are properly formatted`, and the estate, census
+  and comparator all re-run on the FORMATTED tree (6,821 / 63 / 12 = 12).
+
+  ### DOCUMENTATION IS DELIBERATELY UNTOUCHED, AND THE DEBT IS NAMED
+
+  `memory/components/cli-toolchain.md` describes `nlc check --systems-report` in ONE table row and
+  documents no field of the envelope — not `functions`, not `trustedSites`, not `calls`, and no row
+  order. This slice canonicalises two orders that were previously unstated, so the report's row
+  order is now a schema guarantee that a consumer should be able to read, **and that sentence is
+  owed.** It is NOT written here because the twelve-slice plan puts present-tense architecture
+  documentation on the CLOSING slice. **021/12 must add the systems report's row-order guarantee to
+  `memory/components/cli-toolchain.md`**: rows are ordered by file (case-insensitive ordinal), then
+  line, then column, stably; a function's `calls` are de-duplicated and ordered by exact name.
+
+  ### GATE — GREEN END TO END, AND TAKEN TWICE ON PURPOSE
+
+  **TWO fresh isolated `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` runs were taken, and the
+  SECOND is the record.** Run 1 (key `987bf99e2e444159`, `/tmp/nsharp-test-all.987bf99e2e44.UlIdsZ`)
+  was green — `ALL TESTS PASSED`, exit 0, 24 m 02 s — but a stale sentence was then found in
+  `SystemsFindingSink.nl`'s header, which still claimed the sink owned "the report ORDER" after this
+  slice moved it, and a count in `SystemsReportOrder.tests.nl`'s header was sharpened from "54
+  values" to the exact 80 / 54 / 26 / 0 census. **Correcting a comment the slice itself made false is
+  not optional in a codebase that lives by its comments, so the correction was taken and the gate was
+  RE-RUN rather than reported against a tree that no longer existed.** Run 2 took a DIFFERENT cache
+  key (`2bb63ac3b8619f95`, `/tmp/nsharp-test-all.2bb63ac3b861.r5lLiW`), which is itself the proof
+  that no cached result was reused; both logs live OUTSIDE the byte-copy.
+
+  **RUN 2: `ALL TESTS PASSED! ✓`, exit 0, 24 m 06 s, 126 PASSED steps, ZERO failures.**
+
+  | step | verdict |
+  |---|---|
+  | Build N# Compiler | PASSED (4 m 42 s, 0 errors) |
+  | Format Contract Gate | PASSED — all four checks `All files are properly formatted` |
+  | Unit Tests | **`Passed: 606, Failed: 0, Skipped: 0, Total: 606`** — the inherited baseline exactly, so the move costs ZERO C# tests |
+  | Native N# — compiler-service estate | **`Passed: 6821, Failed: 0, Skipped: 0, Total: 6821`** |
+  | Native N# — all **46** projects | PASSED, zero failures. Two matter here: **`tests/native/systems-analysis-census` 63/63**, the five new order pins verified inside the fresh tree, and **`tests/native/ownership-audit` 18/18**, the repinned two-key head verified there rather than only locally |
+  | VS Code Integration Tests | correctly SKIPPED (`VSCODE_TESTS=skip`; the plan's bar for 021/3 is the backend gate) |
+  | Pack + install SDK, Runtime, Templates | PASSED |
+  | `dotnet new` template creation + build | PASSED |
+  | Example projects (**22**) + single-file examples (**38**) | PASSED |
+  | `nlc check` on examples | PASSED |
+  | IL Verification Gate | PASSED |
+
+  **No failure group was inherited and none was created.**
+
+  ### THE STAGE BOUNDARY DID NOT BIND
+
+  Every new N# shape compiled under the PINNED toolset on the FIRST build — the four insertion
+  sorts, the `IReadOnlyList<T>` parameters, the `SystemsTrustedSite[]` / `SystemsFinding[]` returns
+  and the ten-argument record construction all emitted with no repack. The only build failure in the
+  whole slice was a SOURCE error (`file` is a reserved keyword), not a toolset gap. **No stop for a
+  mid-slice commit and republish was needed.**
+
+  **NOT COMMITTED — the mandate reserves that. `tasks/README.md` is NOT edited: 021/3 of 12 is done
+  and the 021 box stays unchecked.** Scratch instruments — the ratchet replica, the comparator, the
+  pin generator, the mutation harness and both gate logs — live outside the tree in the session
+  scratchpad; no `TestResults/` and no `.bak` was left behind. The working tree carries exactly
+  eight paths: `SystemsAnalyzer.cs`, `SystemsFindingSink.nl`, the two new `SystemsReportOrder*.nl`,
+  `SystemsAnalysisCensus.tests.nl`, the two ratchet keys, and this STATUS.
+
+  **NEXT IS SLICE 4 — `AstNodeFinder.cs` DELETED WHOLE, AND IT CARRIES THE IDE BAR.** The file is
+  **15 lines**: one `public static Expression? FindExpressionAtPosition` forwarding to
+  `AstNodeFinderCore.FindExpressionAtPosition(…) as Expression`. Two consumers, both LSP —
+  `CompletionHandler.cs:198` and `HoverHandler.cs:67` — and the reroute must carry the
+  `as Expression` NARROWING the forwarder adds, because the N# core returns the broader node type.
+  **VS Code tests must NOT be skipped for it**; slices 4, 5 and 12 are the three that touch the
+  developer experience.
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 2 — THE DECLINE VOCABULARY AND THE TOKEN
   ORDINALS LEAVE C#. THE TWO CENSUSES, RECORDED BEFORE ANY PRODUCTION EDIT.**
 
   ### CENSUS 1 — EVERY RAW ORDINAL COMPARISON IN `ColumnarProgramInputBuilder.cs`

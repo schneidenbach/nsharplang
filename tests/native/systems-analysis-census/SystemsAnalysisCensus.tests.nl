@@ -1958,3 +1958,133 @@ test "020 s41 systems analysis census: `nlc query trusted` answers the audit-mod
     assert result0 == "function=Copy;file=Program.nl;line=2;column=1;reason=reviewed wrapper;owner=runtime;review=SYS-1;hasUnsafe=False;bodyStatementCount=1"
     assert resultPast == "<no-such-row>"
 }
+
+// ─── 021 SLICE 3: THE REPORT ROW ORDER, THROUGH THE SHIPPED CLI ───────────────────────────────
+//
+// `SystemsAnalyzer.cs` carried three ordering decisions and nothing else a user could observe:
+// `:86` the file walk, `:103` the trusted sites, `:244` the per-function call list. They now live
+// in `SystemsReportOrder`, whose own contracts pin the rules directly. These five blocks pin the
+// same rules where a USER meets them — in the versioned envelope — because two of the three were
+// reachable by no contract at all before this slice: every pinned envelope in the repository
+// carried `trustedSites` 0 or 1, and every pinned `calls=[…]` had at most ONE element, so a
+// trusted-site sort or a call-list `Distinct` could have been deleted outright and every test
+// above would still have passed.
+
+test "021 s3 systems report order: THREE TRUSTED SITES IN THREE FILES ARE REPORTED IN PATH ORDER, NOT IN THE ORDER THE FILES WERE WRITTEN" {
+    directory := SacFixture("order-trusted-three-files", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
+    SacWrite(directory, "z_last.nl", "[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc ZLast(): int {\n    return 1\n}\n")
+    SacWrite(directory, "a_first.nl", "[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc AFirst(): int {\n    return 1\n}\n")
+    SacWrite(directory, "m_mid.nl", "[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc MMid(): int {\n    return 1\n}\n")
+    check := SacCheck(directory)
+    exitCode := check.ExitCode
+    envelope := SacEnvelope(check.Stdout)
+    trustedCount := SacCount(check.Stdout, "trustedSites")
+    trusted0 := SacRow(check.Stdout, "trustedSites", 0)
+    trusted1 := SacRow(check.Stdout, "trustedSites", 1)
+    trusted2 := SacRow(check.Stdout, "trustedSites", 2)
+    trustedPast := SacRow(check.Stdout, "trustedSites", 3)
+    SacCleanup(directory)
+    assert exitCode == 1
+    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=3;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=3,hotFunctions=0,boundaryFunctions=0,findings=3,errors=3,warnings=0,trustedSites=3}"
+    assert trustedCount == 3
+    assert trusted0 == "function=AFirst;file=a_first.nl;line=2;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert trusted1 == "function=MMid;file=m_mid.nl;line=2;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert trusted2 == "function=ZLast;file=z_last.nl;line=2;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert trustedPast == "<no-such-row>"
+}
+
+test "021 s3 systems report order: THREE TRUSTED SITES IN ONE FILE FALL THROUGH TO LINE, AND A FILE THAT SORTS EARLIER STILL COMES FIRST" {
+    directory := SacFixture("order-trusted-lines", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
+    SacWrite(directory, "z_three.nl", "[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc ZOne(): int {\n    return 1\n}\n\n[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc ZTwo(): int {\n    return 2\n}\n\n[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc ZThree(): int {\n    return 3\n}\n")
+    SacWrite(directory, "a_one.nl", "[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc AOne(): int {\n    return 1\n}\n")
+    check := SacCheck(directory)
+    exitCode := check.ExitCode
+    envelope := SacEnvelope(check.Stdout)
+    trustedCount := SacCount(check.Stdout, "trustedSites")
+    trusted0 := SacRow(check.Stdout, "trustedSites", 0)
+    trusted1 := SacRow(check.Stdout, "trustedSites", 1)
+    trusted2 := SacRow(check.Stdout, "trustedSites", 2)
+    trusted3 := SacRow(check.Stdout, "trustedSites", 3)
+    trustedPast := SacRow(check.Stdout, "trustedSites", 4)
+    SacCleanup(directory)
+    assert exitCode == 1
+    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=2;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=4,hotFunctions=0,boundaryFunctions=0,findings=4,errors=4,warnings=0,trustedSites=4}"
+    assert trustedCount == 4
+    assert trusted0 == "function=AOne;file=a_one.nl;line=2;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert trusted1 == "function=ZOne;file=z_three.nl;line=2;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert trusted2 == "function=ZTwo;file=z_three.nl;line=7;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert trusted3 == "function=ZThree;file=z_three.nl;line=12;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert trustedPast == "<no-such-row>"
+}
+
+test "021 s3 systems report order: `nlc query trusted` READS THE SAME ORDER AS THE REPORT, SO THE TWO COMMANDS CANNOT DRIFT" {
+    directory := SacFixture("order-query-trusted-multi", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: audit\n")
+    SacWrite(directory, "z_last.nl", "[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc ZLast(): int {\n    return 1\n}\n")
+    SacWrite(directory, "a_first.nl", "[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc AFirst(): int {\n    return 1\n}\n")
+    SacWrite(directory, "m_mid.nl", "[trusted(reason: \"r\", owner: \"o\", review: \"SYS-1\", expires: \"2030-01-01\")]\nfunc MMid(): int {\n    return 1\n}\n")
+    query := SacInvoke(directory, "query trusted --project " + directory)
+    exitCode := query.ExitCode
+    stderr := query.Stderr
+    scalars := SacScalars(query.Stdout)
+    resultCount := SacRootCount(query.Stdout, "results")
+    result0 := SacRootRow(query.Stdout, "results", 0)
+    result1 := SacRootRow(query.Stdout, "results", 1)
+    result2 := SacRootRow(query.Stdout, "results", 2)
+    resultPast := SacRootRow(query.Stdout, "results", 3)
+    SacCleanup(directory)
+    assert exitCode == 0
+    assert stderr == ""
+    assert scalars == "schemaVersion=1;command=trusted;ok=True;projectRoot=<fixture>;summary={trustedSites=3}"
+    assert resultCount == 3
+    assert result0 == "function=AFirst;file=a_first.nl;line=2;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert result1 == "function=MMid;file=m_mid.nl;line=2;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert result2 == "function=ZLast;file=z_last.nl;line=2;column=1;reason=r;owner=o;review=SYS-1;expires=2030-01-01;hasUnsafe=False;bodyStatementCount=1"
+    assert resultPast == "<no-such-row>"
+}
+
+test "021 s3 systems report order: A FUNCTION'S CALL LIST IS DE-DUPLICATED AND ORDERED CASE-SENSITIVELY — SIX CALL EXPRESSIONS BECOME FOUR NAMES" {
+    directory := SacFixture("order-calls-combined", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: default\n  systems:\n    mode: strict\n")
+    SacWrite(directory, "Program.nl", "func zeta(): int {\n    return 1\n}\n\nfunc alpha(): int {\n    return 2\n}\n\nfunc Beta(): int {\n    return 3\n}\n\nfunc Alpha2(): int {\n    return 4\n}\n\n[hot]\nfunc Caller(): int {\n    return zeta() + alpha() + zeta() + Beta() + Alpha2() + alpha()\n}\n")
+    check := SacCheck(directory)
+    exitCode := check.ExitCode
+    envelope := SacEnvelope(check.Stdout)
+    diagnostics := SacDiagnosticCensus(check.Stdout)
+    functionCount := SacCount(check.Stdout, "functions")
+    function4 := SacRow(check.Stdout, "functions", 4)
+    functionPast := SacRow(check.Stdout, "functions", 5)
+    SacCleanup(directory)
+    assert exitCode == 0
+    assert envelope == "command=check.systemsReport;ok=True;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=default;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=5,hotFunctions=1,boundaryFunctions=0,findings=0,errors=0,warnings=0,trustedSites=0}"
+    assert diagnostics == ""
+    assert functionCount == 5
+    // `zeta` twice and `alpha` twice collapse to one each, and the four survivors read
+    // `Alpha2,Beta,alpha,zeta` — uppercase before lowercase, which is ORDINAL. A case-insensitive
+    // order would read `alpha,Alpha2,Beta,zeta`, and the walk order would read `zeta,alpha,Beta,Alpha2`.
+    assert function4 == "name=Caller;file=Program.nl;line=18;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[Alpha2,Beta,alpha,zeta]"
+    assert functionPast == "<no-such-row>"
+}
+
+test "021 s3 systems report order: THE FILE WALK IS CASE-INSENSITIVE, SO `a_two.nl` IS REPORTED BEFORE `B_one.nl`" {
+    directory := SacFixture("order-walk-case-mixed", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: default\n  systems:\n    mode: strict\n")
+    SacWrite(directory, "B_one.nl", "func bOne(): int {\n    return 1\n}\n")
+    SacWrite(directory, "a_two.nl", "func aTwo(): int {\n    return 2\n}\n")
+    SacWrite(directory, "C_three.nl", "func cThree(): int {\n    return 3\n}\n")
+    check := SacCheck(directory)
+    exitCode := check.ExitCode
+    envelope := SacEnvelope(check.Stdout)
+    functionCount := SacCount(check.Stdout, "functions")
+    function0 := SacRow(check.Stdout, "functions", 0)
+    function1 := SacRow(check.Stdout, "functions", 1)
+    function2 := SacRow(check.Stdout, "functions", 2)
+    functionPast := SacRow(check.Stdout, "functions", 3)
+    SacCleanup(directory)
+    assert exitCode == 0
+    assert envelope == "command=check.systemsReport;ok=True;checkedFiles=3;envelopeSchema=1;reportSchema=1;profile=default;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=3,hotFunctions=0,boundaryFunctions=0,findings=0,errors=0,warnings=0,trustedSites=0}"
+    assert functionCount == 3
+    // An ORDINAL walk would read `B_one.nl,C_three.nl,a_two.nl`, because every uppercase UTF-16
+    // unit sorts before every lowercase one.
+    assert function0 == "name=aTwo;file=a_two.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function1 == "name=bOne;file=B_one.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function2 == "name=cThree;file=C_three.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert functionPast == "<no-such-row>"
+}
